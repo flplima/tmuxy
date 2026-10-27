@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#
+# Who to thank in a release's notes: everyone but the owner, Claude and bots
+# whose work FIRST ships in this release.
+#
+# Usage: contributors [<prev-tag> [<new-ref>]]
+#   prev-tag  the last release tag (default: the newest v* tag before new-ref)
+#   new-ref   the release being written up (default: HEAD, so it runs before
+#             the tag exists)
+#
+# A contribution belongs to the release whose range first contains it, so the
+# range is git's prev-tag..new-ref, never a date window: v0.1.2 shipped
+# @tarsioonofrio's #133 and its notes thanked nobody, because a PR merged in
+# the week before a tag is easy to mistake for the previous release's.
+#
+# Lists, each with what to credit:
+#   - merged PRs whose merge commit is in the range, by author;
+#   - commit authors and Co-authored-by trailers in the range;
+#   - issues the range's commits and PRs reference (#N), by reporter;
+#   - other issues closed while the range was open, by reporter, marked
+#     "check" — a report fixed without a #N in any message.
+# Prints nothing to thank when there is no one; the notes then carry no
+# Thanks section.
+
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help) awk 'NR==1{next} /^#/{sub(/^#[ ]?/,""); print; next} {exit}' "$0"; exit 0 ;;
+esac
+
+NEW="${2:-HEAD}"
+PREV="${1:-$(git describe --tags --abbrev=0 --match 'v*' "$NEW^")}"
+git rev-parse --verify -q "$PREV^{commit}" >/dev/null || { echo "no such ref: $PREV" >&2; exit 2; }
+git rev-parse --verify -q "$NEW^{commit}" >/dev/null || { echo "no such ref: $NEW" >&2; exit 2; }
+
+OWNER=$(gh repo view --json owner --jq .owner.login)
+# UTC, to the second: GitHub search takes ISO 8601, and a day would pull in
+# the previous release's last hours.
+SINCE=$(TZ=UTC git log -1 --date=iso-strict-local --format=%cd "$PREV")
+UNTIL=$(TZ=UTC git log -1 --date=iso-strict-local --format=%cd "$NEW")
+
+# The owner, Claude and bots are not thanked.
+outsider() {
+  case "$1" in
+    "$OWNER"|app/*|*\[bot\]|Copilot|dependabot|github-actions) return 1 ;;
+  esac
+  return 0
+}
+
+echo "contributions first shipping in $NEW, since $PREV"
+echo
+
+IN_RANGE=$(git rev-list "$PREV..$NEW")
+in_range() { printf '%s\n' "$IN_RANGE" | grep -qx "$1"; }
+
+echo "## Merged PRs"
+PRS=$(gh pr list --state merged --limit 300 --search "merged:>=${SINCE%%T*}" \
+  --json number,title,author,mergeCommit \
+  --jq '.[] | [.number, .author.login, (.mergeCommit.oid // ""), .title] | @tsv')
+REFS=""
+while IFS=$'\t' read -r num login oid title; do
+  [ -n "$num" ] && [ -n "$oid" ] && in_range "$oid" || continue
+  REFS+=" $num"
+  outsider "$login" && echo "  @$login  #$num  $title"
+done <<< "$PRS"
+echo
+
+echo "## Commit authors and co-authors"
+git log --format='%an <%ae>%n%(trailers:key=Co-authored-by,valueonly)' "$PREV..$NEW" \
+  | grep -v '^$' | sort -u \
+  | grep -v -i -e 'noreply@anthropic.com' -e '\[bot\]' -e "<$(git config user.email)>" \
+  | sed 's/^/  /' || true
+echo
+
+echo "## Issues the range references"
+REFS+=" $(git log --format='%s %b' "$PREV..$NEW" | grep -o '#[0-9]\+' | tr -d '#' | sort -u | tr '\n' ' ')"
+for num in $(printf '%s\n' $REFS | sort -un); do
+  row=$(gh issue view "$num" --json author,title,url --jq '[.author.login, .title, .url] | @tsv' 2>/dev/null) || continue
+  case "$row" in */pull/*) continue ;; esac
+  IFS=$'\t' read -r login title _ <<< "$row"
+  outsider "$login" && echo "  @$login  #$num  $title"
+done
+echo
+
+echo "## Other issues closed meanwhile (check whether this release fixed them)"
+gh issue list --state closed --limit 300 --search "closed:${SINCE%+00:00}Z..${UNTIL%+00:00}Z" \
+  --json number,author,title,stateReason \
+  --jq '.[] | select(.stateReason == "COMPLETED") | [.number, .author.login, .title] | @tsv' \
+  | while IFS=$'\t' read -r num login title; do
+      case " $REFS " in *" $num "*) continue ;; esac
+      outsider "$login" && echo "  check  @$login  #$num  $title"
+    done
+exit 0

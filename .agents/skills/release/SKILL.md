@@ -16,7 +16,7 @@ The mechanical steps are scripted under `scripts/` in this skill directory; run 
 | 4. Pre-tag checklist | manual — see §4, every box ticked before step 5 |
 | 5. Tag and push | `.agents/skills/release/scripts/tag-and-push <version>` |
 | 6. Wait for the tag run (publishes a PRE-release) | `.agents/skills/release/scripts/wait-ci tag <version>` |
-| 7. Use the build, then promote it | install the published asset, then `gh release edit v<version> --prerelease=false --latest` — see §Release-candidate soak |
+| 7. Write the notes, use the build, then promote it | `.agents/skills/release/scripts/contributors` for the Thanks section, `gh release edit v<version> --notes-file <file>`, install the published asset, then `gh release edit v<version> --prerelease=false --latest` — see §7 and §Release-candidate soak |
 | 8. Verify brew is ready | `.agents/skills/release/scripts/verify-release <version>` |
 
 **Step 7 is not optional and not a formality.** The tap is bumped by the
@@ -26,22 +26,7 @@ failure. Nothing reaches a `brew upgrade` until a human has run the build.
 
 ## 0. macOS signing (one-time setup)
 
-The macOS build signs and notarizes itself when — and only when — these repository secrets exist. The Tauri CLI reads them during `tauri build`: it imports the certificate into a throwaway keychain, signs with the hardened runtime, then notarizes and staples. With `APPLE_CERTIFICATE` absent it skips signing silently, so forks and PRs still produce a working (unsigned) DMG.
-
-| Secret | What it is |
-|---|---|
-| `APPLE_CERTIFICATE` | base64 of the **Developer ID Application** `.p12`. An *Apple Development* cert is NOT enough — it fails Gatekeeper on every machine but the ones registered to it |
-| `APPLE_CERTIFICATE_PASSWORD` | the password set when exporting that `.p12` |
-| `APPLE_SIGNING_IDENTITY` | the identity's full name, e.g. `Developer ID Application: Felipe Lima (NF27TT2TR8)` |
-| `APPLE_API_KEY` | App Store Connect key ID (the `XXXXXXXXXX` in `AuthKey_XXXXXXXXXX.p8`) |
-| `APPLE_API_ISSUER` | the issuer UUID shown above the key list |
-| `APPLE_API_KEY_P8` | base64 of the `.p8` itself — staged to a file at build time, since notarization wants a path |
-
-The API key is used rather than `APPLE_ID` + an app-specific password because it carries no 2FA and can be revoked without touching the Apple ID. Apple issues a `.p8` **once**; losing it means minting a new key.
-
-Signing changes nothing about the cask — Homebrew already strips the quarantine xattr — but it removes the *"couldn't verify tmuxy's signer"* warning and lets the app open on a Mac that downloaded the DMG directly.
-
-**The DMG is notarized separately from the app it contains.** The Tauri CLI notarizes and staples the `.app`, then wraps it in a disk image, so the image carries a Developer ID signature and no ticket of its own. Mounted, the app is accepted; but a browser-downloaded DMG is quarantined, and Gatekeeper assesses the *image* before anything inside it — `spctl -a -t open` rejects it as `source=Unnotarized Developer ID` and the user gets "cannot be opened" on the file they just downloaded. v0.0.10-alpha.67 and .68 both shipped that way. `build-app.yml` now submits the image too and staples the ticket into it, and the tag-build assertion checks the DMG as well as the app, so a future one fails the job instead of reaching a user.
+The signing and notarization secrets, and why the DMG is notarized apart from the app: [MACOS-SIGNING.md](MACOS-SIGNING.md).
 
 ## 1. Land the change on main
 
@@ -128,7 +113,39 @@ Pushing the tag triggers a **second** `Build App` run (this one with `github.ref
 
 **This run publishes the assets as a PRE-release and stops.** `bump-cask` and `bump-formula` are gated on `release: released` and do not run here — brew still points at the previous tag, deliberately, until you promote (§Release-candidate soak step 4). Promotion runs those two jobs plus `verify-brew-cask`, and that is what makes `brew install --cask flplima/tap/tmuxy` (macOS) and `brew install flplima/tap/tmuxy` (Linux) pick up the new version.
 
-## 7. Use the build, then promote it
+## 7. Write the notes, use the build, then promote it
+
+### The notes
+
+The tag build publishes the release with a placeholder body ("Release
+candidate — not yet promoted to brew…"). Replace it before promoting: the
+promotion is what users are sent to, and nothing else rewrites it. Follow
+the shape of the last good notes (v0.1.1, v0.1.3): a one-line summary,
+**Install**, **What's new since <previous>** grouped by area, **Breaking
+changes** when there are any, **Thanks**, and **Pre-tag checks** saying what
+§4 found, including any box that could not be ticked.
+
+**Thanks is not optional.** Run
+
+```
+.agents/skills/release/scripts/contributors            # last tag..HEAD
+.agents/skills/release/scripts/contributors v0.1.2 v0.1.3
+```
+
+and credit by handle everyone it lists: PR authors, commit co-authors, and
+reporters of the issues the release fixes. Its "check" lines are issues closed
+while the range was open with no `#N` pointing at them; credit the ones this
+release fixed. A contribution belongs to the release that first ships it,
+which the script decides from git's tag range, never from merge dates: v0.1.2
+shipped @tarsioonofrio's #133 under notes that thanked nobody. With no one to
+credit, leave the section out. When a slip like that turns up, add the missing
+line to the old release's notes too.
+
+```
+gh release edit v<new-version> --notes-file <notes.md>
+```
+
+### Use it, then promote
 
 The tag build published a pre-release; the tap still points at the last
 promoted version. Install the actual artifact and do real work in it — see
