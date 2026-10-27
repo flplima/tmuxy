@@ -122,7 +122,9 @@ export const connectionActions = {
   ),
 
   connection_setPhoneLayout: assignCtx(({ event }) =>
-    event.type === 'SET_PHONE_LAYOUT' ? { phoneLayout: event.phone } : {},
+    event.type === 'SET_PHONE_LAYOUT'
+      ? { phoneLayout: event.phone, phoneLandscape: event.phone && event.landscape }
+      : {},
   ),
 
   connection_setTargetSize: act(({ event, context, enqueue }) => {

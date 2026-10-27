@@ -63,6 +63,8 @@ export interface AppMachineContext {
   gridFontSize: number | null;
   /** The phone layout: the whole 80 × 25 terminal, a key row and the tree below it. */
   phoneLayout: boolean;
+  /** The phone layout held sideways: the terminal right, the strip, keys and tree left of it. */
+  phoneLandscape: boolean;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
 

@@ -35,3 +35,14 @@ body {
   min-height: 0;
   box-sizing: border-box;
 }
+
+/* On a phone the app is laid out in what is visible: a keyboard covers the
+   page without resizing it, so the root follows the visual viewport instead
+   (hooks/usePhoneViewport.ts sets the class and the two variables). */
+html.tmuxy-phone #root {
+  position: fixed;
+  top: var(--app-top, 0px);
+  right: 0;
+  left: 0;
+  height: var(--app-height, 100dvh);
+}

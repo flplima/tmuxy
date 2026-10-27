@@ -60,7 +60,10 @@ export function AppProvider({
         // build keeps the machine's no-op actor and the browser its own
         // wheel, pinch-zoom and history swipe.
         ...((config?.desktopGestures ?? isTauri()) ? { gestureActor: createGestureActor() } : {}),
-        sizeActor: createSizeActor(measureCellMetrics, { phoneLayout: config?.phoneLayout }),
+        sizeActor: createSizeActor(measureCellMetrics, {
+          phoneLayout: config?.phoneLayout,
+          phoneLandscape: config?.phoneLandscape,
+        }),
         serversActor: createServersActor(runtime),
       },
     };

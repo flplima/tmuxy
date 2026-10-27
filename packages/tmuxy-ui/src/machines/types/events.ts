@@ -99,7 +99,7 @@ export type AppMachineEvent =
       /** The grid's font size when it is not the chrome's (the phone layout). */
       gridFontSize?: number;
     }
-  | { type: 'SET_PHONE_LAYOUT'; phone: boolean }
+  | { type: 'SET_PHONE_LAYOUT'; phone: boolean; landscape: boolean }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;

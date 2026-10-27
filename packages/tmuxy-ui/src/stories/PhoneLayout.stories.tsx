@@ -36,7 +36,14 @@ export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
 interface Snap {
-  context: { targetCols: number; targetRows: number; charWidth: number; phoneLayout: boolean };
+  context: {
+    targetCols: number;
+    targetRows: number;
+    charWidth: number;
+    charHeight: number;
+    phoneLayout: boolean;
+    phoneLandscape: boolean;
+  };
 }
 const ctx = () => (window as unknown as { app: { getSnapshot(): Snap } }).app.getSnapshot().context;
 
@@ -176,5 +183,70 @@ export const AppMenuFromTheKeyRow: Story = {
     expect(shown.top).toBeGreaterThanOrEqual(0);
     expect(shown.bottom).toBeLessThanOrEqual(window.innerHeight);
     expect(shown.right).toBeLessThanOrEqual(window.innerWidth);
+  },
+};
+
+export const LandscapeAndTheKeyboard: Story = {
+  // The phone turned sideways: 844 × 390.
+  render: ({ fixture, start, config }) => (
+    <FixtureProvider fixture={fixture} start={start} config={config} width={844} height={390}>
+      <TmuxyApp />
+    </FixtureProvider>
+  ),
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 390 },
+      description: {
+        story:
+          'Held sideways, the terminal takes the right of the screen at the height that fits its 24 rows and tmux’s line, and the tab strip, the keys and the tree stack in the column left of it. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(
+      () => {
+        expect(ctx().phoneLandscape).toBe(true);
+        expect(canvasElement.querySelector('.phone-side .key-row')).not.toBeNull();
+        expect(canvasElement.querySelector('.phone-pty .pane-layout-item')).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    const screen = box(canvasElement.querySelector('.app-container'));
+    const side = box(canvasElement.querySelector('.phone-side'));
+    const pty = box(canvasElement.querySelector('.phone-pty'));
+
+    // The chrome on the left, the terminal on the right, both the screen's height.
+    expect(side.left).toBeCloseTo(screen.left, 0);
+    expect(pty.right).toBeCloseTo(screen.right, 0);
+    expect(side.right).toBeLessThanOrEqual(pty.left + 1);
+    expect(pty.width).toBeCloseTo(80 * ctx().charWidth, 0);
+    expect(side.width).toBeGreaterThanOrEqual(299);
+    for (const part of ['.phone-tab-strip', '.key-row', '.phone-tree']) {
+      expect(box(canvasElement.querySelector(`.phone-side ${part}`)).width).toBeGreaterThan(0);
+    }
+    // All 25 rows on screen: tmux's line ends inside it.
+    const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
+    expect(line.bottom).toBeLessThanOrEqual(screen.bottom + 0.5);
+    expect(line.bottom).toBeGreaterThan(screen.bottom - 25);
+
+    // The keyboard comes up: the screen is 190px tall.
+    const rowHeight = ctx().charHeight;
+    const frame = canvasElement.querySelector('.app-container')!.parentElement as HTMLElement;
+    frame.style.height = '190px';
+    await waitFor(
+      () => {
+        const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
+        expect(box(term).height).toBeLessThanOrEqual(190.5);
+        expect(term.scrollHeight).toBeGreaterThan(term.clientHeight);
+        const cursor = box(canvasElement.querySelector('.phone-pty .terminal-cursor'));
+        expect(cursor.top).toBeGreaterThanOrEqual(box(term).top - 0.5);
+        expect(cursor.bottom).toBeLessThanOrEqual(box(term).bottom + 0.5);
+      },
+      { timeout: 5000 },
+    );
+    expect(ctx().charHeight).toBe(rowHeight);
+    expect(box(canvasElement.querySelector('.key-row')).bottom).toBeLessThanOrEqual(
+      box(frame).bottom + 0.5,
+    );
   },
 };

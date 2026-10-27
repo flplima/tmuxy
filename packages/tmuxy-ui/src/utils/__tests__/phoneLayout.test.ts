@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PHONE_COLS, phoneCell } from '../phoneLayout';
+import { PHONE_COLS, PHONE_SIDE_MIN, phoneCell, phoneLandscapeCell } from '../phoneLayout';
 
 describe('phoneCell', () => {
   it('fits 80 columns across a 390px phone, edge to edge', () => {
@@ -30,5 +30,23 @@ describe('phoneCell', () => {
     // 15px type on 24px rows on the desktop: 1.6.
     const cell = phoneCell(390, 0.6);
     expect(Math.abs(cell.rowHeight / cell.fontSize - 1.6)).toBeLessThan(0.1);
+  });
+});
+
+describe('phoneLandscapeCell', () => {
+  it('fits 25 rows into the height of a phone held sideways', () => {
+    const cell = phoneLandscapeCell(844, 390, 0.6);
+    expect(cell.rowHeight * 25 + 4).toBeLessThanOrEqual(390);
+    expect(cell.rowHeight * 25 + 4).toBeGreaterThan(390 - 25);
+    expect(cell.cellWidth).toBeCloseTo(cell.fontSize * 0.6, 10);
+    expect(cell.cellGap).toBe(0);
+    // The column beside the terminal keeps room for the keys and the tree.
+    expect(844 - cell.cellWidth * PHONE_COLS).toBeGreaterThanOrEqual(PHONE_SIDE_MIN);
+  });
+
+  it('cuts to the width instead when the height would leave the side too narrow', () => {
+    const cell = phoneLandscapeCell(640, 390, 0.6);
+    expect(cell.cellWidth * PHONE_COLS).toBeCloseTo(640 - PHONE_SIDE_MIN, 6);
+    expect(cell.rowHeight * 25 + 4).toBeLessThanOrEqual(390);
   });
 });

@@ -246,6 +246,11 @@ export function selectPhoneLayout(context: AppMachineContext): boolean {
   return context.phoneLayout;
 }
 
+/** The phone layout held sideways. */
+export function selectPhoneLandscape(context: AppMachineContext): boolean {
+  return context.phoneLandscape;
+}
+
 /**
  * The pane grid's own type when it is not the chrome's: on a phone, the font
  * size and row height that fit 80 columns across. Null otherwise.

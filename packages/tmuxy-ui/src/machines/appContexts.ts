@@ -25,6 +25,8 @@ export interface AppConfig {
    * for a story, whose frame is not the viewport the query reads.
    */
   phoneLayout?: boolean;
+  /** Hold that phone sideways (or not), the same way. */
+  phoneLandscape?: boolean;
 }
 
 export const AppConfigContext = createContext<AppConfig>({});

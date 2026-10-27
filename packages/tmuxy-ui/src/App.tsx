@@ -28,6 +28,7 @@ import {
   selectContainerSize,
   selectCellMetrics,
   selectPhoneLayout,
+  selectPhoneLandscape,
   selectGridType,
 } from './machines/selectors/layout';
 import {
@@ -46,6 +47,8 @@ import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/KeyRow';
 import { PhoneTabStrip } from './components/PhoneTabStrip';
+import { useCursorInView, useVisualViewport } from './hooks/usePhoneViewport';
+import { PHONE_COLS } from './utils/phoneLayout';
 import { SidebarTree } from './components/SidebarTree';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
@@ -76,7 +79,17 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const cursorBlink = useAppSelector(selectCursorBlink);
   const sidebarFocused = useAppSelector(selectSidebarFocused);
   const phone = useAppSelector(selectPhoneLayout);
+  const landscape = useAppSelector(selectPhoneLandscape);
   const gridType = useAppSelector(selectGridType);
+  const charWidth = useAppSelector((ctx) => ctx.charWidth);
+  // Where the cursor is, for the phone terminal to keep it in view.
+  const cursorKey = useAppSelector((ctx) => {
+    const pane = ctx.panes.find((p) => p.tmuxId === ctx.activePaneId);
+    return pane ? `${pane.tmuxId} ${pane.y} ${pane.cursorY} ${pane.inMode}` : '';
+  });
+  const ptyRef = useRef<HTMLDivElement>(null);
+  useVisualViewport(phone);
+  useCursorInView(ptyRef, phone, cursorKey);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
   useSelectionRows();
@@ -185,6 +198,51 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
+  // The phone layout: the tab strip, the terminal, the key row and the tree,
+  // top to bottom — or, held sideways, the terminal on the right and the
+  // rest stacked in the column left of it.
+  const phoneTabs = showLayout && <PhoneTabStrip />;
+  const phoneKeys = showLayout && <KeyRow />;
+  // Every tab and pane, where the tab strip would be on a desktop.
+  const phoneTree = showLayout && (
+    <div className="phone-tree">
+      <SidebarTree focused={false} />
+    </div>
+  );
+  // The terminal at the phone's cell: the grid, then tmux's status
+  // line as its 25th row. Sideways, it is as wide as its 80 columns
+  // and the chrome takes the column beside it.
+  const phonePty = (
+    <div
+      ref={ptyRef}
+      className="phone-pty"
+      style={{
+        ...phoneTypeStyle(gridType),
+        ...(landscape ? { width: PHONE_COLS * charWidth } : {}),
+      }}
+    >
+      {paneContainer}
+      {showLayout && <TmuxStatusBar />}
+    </div>
+  );
+  const phoneBody = landscape ? (
+    <>
+      <div className="phone-side">
+        {phoneTabs}
+        {phoneKeys}
+        {phoneTree}
+      </div>
+      {phonePty}
+    </>
+  ) : (
+    <>
+      {phoneTabs}
+      {phonePty}
+      {phoneKeys}
+      {phoneTree}
+    </>
+  );
+
   // Always render .app-container so containerRef is attached and ResizeObserver
   // starts measuring immediately, preventing a layout flash on first pane render.
   return (
@@ -199,34 +257,16 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     >
       {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
-      <div className={`app-body${phone ? ' app-body-phone' : ''}`}>
+      <div
+        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}`}
+      >
         {/* Sidebars: fixed-width, full-height columns when open, each holding
             one real tmux pane. As flex siblings they shrink the pane container,
             whose ResizeObserver then reports the reduced width so tmux re-tiles
             the panes into the space that's left — never under a sidebar. Left is
             the tree widget, right the pinned terminal. */}
         {showLayout && !phone && <Sidebar side="left" />}
-        {phone ? (
-          <>
-            {/* The tabs over the terminal, at the chrome's size. */}
-            {showLayout && <PhoneTabStrip />}
-            {/* The terminal at the phone's cell: the grid, then tmux's status
-                line as its 25th row. The chrome below keeps its own size. */}
-            <div className="phone-pty" style={phoneTypeStyle(gridType)}>
-              {paneContainer}
-              {showLayout && <TmuxStatusBar />}
-            </div>
-            {showLayout && <KeyRow />}
-            {/* Every tab and pane, where the tab strip would be on a desktop. */}
-            {showLayout && (
-              <div className="phone-tree">
-                <SidebarTree focused={false} />
-              </div>
-            )}
-          </>
-        ) : (
-          paneContainer
-        )}
+        {phone ? phoneBody : paneContainer}
         {showLayout && !phone && <Sidebar side="right" />}
       </div>
       {!phone && <TmuxStatusBar />}

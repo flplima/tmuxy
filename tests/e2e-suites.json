@@ -41,7 +41,7 @@
       "tmux": "3.4"
     },
     { "name": "11-webkit", "path": "tests/11-webkit.test.js", "webkit": true },
-    { "name": "12-touch", "path": "tests/12-touch.test.js" },
+    { "name": "12-touch", "path": "tests/12-touch" },
     { "name": "13-send-permission", "path": "tests/13-send-permission.test.js" },
     { "name": "14-widget-authorisation", "path": "tests/14-widget-authorisation.test.js" },
     { "name": "14-widget-preview", "path": "tests/14-widget-preview.test.js" },

@@ -65,21 +65,74 @@ describe('sizeActor', () => {
     // FiraCode at the default 15px: a 9px advance, 0.6px per px of type.
     const sizeActor = createSizeActor(() => ({ advance: 9, cellWidth: 9, cellGap: 0 }), {
       phoneLayout: true,
+      phoneLandscape: false,
     });
     const actor = createActor(sizeActor, { input: { parent } }).start();
     actor.send({ type: 'OBSERVE_CONTAINER', element: container });
     const [containerObserver] = RecordingObserver.live;
     containerObserver.report(366, 300);
 
-    expect(sent).toContainEqual({ type: 'SET_PHONE_LAYOUT', phone: true });
+    expect(sent).toContainEqual({ type: 'SET_PHONE_LAYOUT', phone: true, landscape: false });
     const cell = sent.filter((e) => e.type === 'SET_CHAR_SIZE').slice(-1)[0];
     expect(cell.gridFontSize).toBeLessThan(8);
-    expect((cell.charWidth as number) * 80).toBeLessThanOrEqual(366);
+    expect((cell.charWidth as number) * 80).toBeCloseTo(366, 6);
     expect(sent.filter((e) => e.type === 'SET_TARGET_SIZE').slice(-1)[0]).toEqual({
       type: 'SET_TARGET_SIZE',
       cols: 80,
       rows: 24,
     });
+    actor.stop();
+  });
+
+  /**
+   * Held sideways, the cell is cut from the height: 25 rows (the grid and
+   * tmux's line) fill the screen. A keyboard coming up makes the body shorter
+   * — the type stays, the terminal scrolls — and leaves a portrait phone
+   * portrait however short it gets. Turning the phone is the other layout.
+   */
+  it('on a phone held sideways cuts the cell from the height, and a keyboard changes neither', () => {
+    vi.stubGlobal('ResizeObserver', RecordingObserver);
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: { ready: new Promise(() => {}) },
+    });
+    const body = document.createElement('div');
+    body.className = 'app-body';
+    const container = document.createElement('div');
+    body.appendChild(container);
+
+    const sent: Array<Record<string, unknown>> = [];
+    const parent = { send: (e: Record<string, unknown>) => sent.push(e) } as unknown as AnyActorRef;
+    const sizeActor = createSizeActor(() => ({ advance: 9, cellWidth: 9, cellGap: 0 }), {
+      phoneLayout: true,
+    });
+    const actor = createActor(sizeActor, { input: { parent } }).start();
+    actor.send({ type: 'OBSERVE_CONTAINER', element: container });
+    const [containerObserver, bodyObserver] = [...RecordingObserver.live];
+    const layout = () => sent.filter((e) => e.type === 'SET_PHONE_LAYOUT').slice(-1)[0];
+    const cell = () => sent.filter((e) => e.type === 'SET_CHAR_SIZE').slice(-1)[0];
+
+    bodyObserver.report(844, 390);
+    containerObserver.report(470, 383);
+    expect(layout()).toEqual({ type: 'SET_PHONE_LAYOUT', phone: true, landscape: true });
+    const sideways = cell();
+    expect((sideways.charHeight as number) * 25 + 4).toBeLessThanOrEqual(390);
+    expect((sideways.charHeight as number) * 25 + 4).toBeGreaterThan(390 - 25);
+
+    // The keyboard: shorter, the same width.
+    bodyObserver.report(844, 190);
+    expect(layout()).toMatchObject({ landscape: true });
+    expect(cell()).toEqual(sideways);
+
+    // Turned upright, then the keyboard up: portrait, whatever the sides say.
+    bodyObserver.report(390, 844);
+    containerObserver.report(390, 333);
+    expect(layout()).toMatchObject({ landscape: false });
+    const upright = cell();
+    expect((upright.charWidth as number) * 80).toBeCloseTo(390, 6);
+    bodyObserver.report(390, 330);
+    expect(layout()).toMatchObject({ landscape: false });
+    expect(cell()).toEqual(upright);
     actor.stop();
   });
 });

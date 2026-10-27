@@ -281,10 +281,27 @@
    ============================================ */
 
 /* Top to bottom: the tab strip, the terminal, the key row, the tree. The
-   strip, the terminal and the key row keep their place; the tree takes what
-   is left and is the part that gives when the phone's keyboard comes up. */
+   strip and the key row keep their place; the tree takes what is left and is
+   the first to give when the phone's keyboard comes up. After it, the
+   terminal does: it is cut short and scrolled to keep the cursor's row in
+   view (hooks/usePhoneViewport.ts). */
 .app-body-phone {
   flex-direction: column;
+}
+
+/* Held sideways: the terminal on the right at its 80 columns' width (App.tsx
+   sets it), the strip, the keys and the tree stacked in the column left of it. */
+.app-body-phone.is-landscape {
+  flex-direction: row;
+}
+
+.phone-side {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
 }
 
 /* The tabs, then the "+" at the strip's right end (PhoneTabStrip). The tab
@@ -299,14 +316,33 @@
   box-sizing: border-box;
 }
 
+/* A thumb's target: the desktop "+" is a 24px glyph for a pointer. Same
+   height as the strip, a key's width, drawn like the key row's keys. */
+.phone-tab-strip .tab-add {
+  width: 40px;
+  min-width: 40px;
+  height: 32px;
+  border: 1px solid var(--border-light);
+  background-color: var(--bg-medium);
+  color: var(--text-primary);
+  font-size: 18px;
+  touch-action: manipulation;
+}
+
 /* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
    of grid, then tmux's status line as the 25th. Both run edge to edge: the
    80 columns are cut from the whole width of the screen, so there is no side
    padding to leave (containerPaddingX in constants/layout.ts). */
 .phone-pty {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-body-phone.is-landscape .phone-pty {
+  flex: none;
 }
 
 .app-body-phone .phone-pty .pane-container {
@@ -330,7 +366,7 @@
 }
 
 .phone-tree {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
