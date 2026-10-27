@@ -37,7 +37,8 @@ OPTIONAL=("Deploy Demo")
 
 case "$MODE" in
   commit)
-    SHA="${ARG:-$(git rev-parse HEAD)}"
+    # `gh run list --commit` matches the full sha only; a short one finds no run.
+    SHA="$(git rev-parse --verify "${ARG:-HEAD}^{commit}")" || exit 2
     LABEL="commit ${SHA:0:8}"
     query() { gh run list --commit "$SHA" --json name,status,conclusion; }
     ;;
