@@ -2,9 +2,10 @@
  * The phone layout, at a 390 × 844 phone's width, over a recording of real
  * tmux at the 80 × 24 grid the layout asks for.
  *
- * The whole 80 × 25 terminal on top — 80 columns spanning the screen, tmux's
- * status line as the 25th row — then the key row, then the tab/pane tree. No
- * tab strip and no bottom bar of the app's own. The frame is not the viewport
+ * A tab strip on top — the tabs and a "+" at its right end, nothing else —
+ * then the whole 80 × 25 terminal, 80 columns spanning the screen edge to
+ * edge with tmux's status line as the 25th row, then the key row, then the
+ * tab/pane tree. No bottom bar of the app's own. The frame is not the viewport
  * the media query reads, so the story asks for the layout through the config.
  */
 
@@ -50,7 +51,7 @@ export const PhoneKeyboardDown: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across; tmux’s line sits under it as row 25. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
+          'A strip of the tabs, with the "+" at its right end, sits over the terminal. The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across the screen, edge to edge; tmux’s line sits under it as row 25, as wide. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
       },
     },
   },
@@ -63,25 +64,44 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
-    // No tab strip, no bottom bar of the app's own.
-    expect(canvasElement.querySelector('.tab-list')).toBeNull();
+    // No bottom bar of the app's own.
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    // 80 columns asked for, and 80 columns span the screen.
+    // The tab strip: both tabs, then the "+" at its right end, and nothing else.
+    const strip = canvasElement.querySelector('.phone-tab-strip')!;
+    expect([...strip.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual([
+      expect.stringContaining('main'),
+      expect.stringContaining('logs'),
+    ]);
+    const add = box(strip.querySelector('.tab-add'));
+    const tabs = [...strip.querySelectorAll('[role="tab"]')].map(box);
+    expect(tabs.every((tab) => tab.right <= add.left)).toBe(true);
+    expect(box(strip).right - add.right).toBeLessThan(16);
+    expect(strip.querySelectorAll('button').length).toBe(1);
+
+    // 80 columns asked for, and 80 columns span the screen edge to edge, the
+    // status line under them as wide.
     await waitFor(
       () => {
         expect(ctx().targetCols).toBe(80);
         expect(ctx().targetRows).toBe(24);
-        const container = box(canvasElement.querySelector('.pane-container'));
-        const span = 80 * ctx().charWidth;
-        expect(span).toBeLessThanOrEqual(container.width - 24);
-        expect(span).toBeGreaterThan(container.width - 24 - 80 / window.devicePixelRatio);
+        // The phone's screen: the app's own box, not the story frame around it.
+        const screen = box(canvasElement.querySelector('.app-container'));
+        const layout = box(canvasElement.querySelector('.phone-pty .pane-layout'));
+        expect(80 * ctx().charWidth).toBeCloseTo(screen.width, 1);
+        expect(layout.left).toBeCloseTo(screen.left, 1);
+        expect(layout.width).toBeCloseTo(screen.width, 1);
+        const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
+        expect(line.left).toBeCloseTo(screen.left, 1);
+        expect(line.width).toBeCloseTo(screen.width, 1);
       },
       { timeout: 8000 },
     );
 
-    // Top to bottom: the grid, the status line as its last row, the keys, the tree.
+    // Top to bottom: the tabs, the grid, the status line as its last row,
+    // the keys, the tree.
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
+    expect(grid.top).toBeGreaterThanOrEqual(box(strip).bottom - 1);
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     const keys = box(canvasElement.querySelector('.key-row'));
     const tree = box(canvasElement.querySelector('.phone-tree'));

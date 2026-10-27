@@ -2,7 +2,8 @@
  * App - Main application component
  *
  * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, the whole 80 × 25 terminal, the key row and the tree under it.
+ * phone, a tab strip, the whole 80 × 25 terminal, the key row and the tree
+ * under it.
  * All state is accessed via hooks - no prop drilling.
  */
 
@@ -44,6 +45,7 @@ import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/KeyRow';
+import { PhoneTabStrip } from './components/PhoneTabStrip';
 import { SidebarTree } from './components/SidebarTree';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
@@ -206,6 +208,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         {showLayout && !phone && <Sidebar side="left" />}
         {phone ? (
           <>
+            {/* The tabs over the terminal, at the chrome's size. */}
+            {showLayout && <PhoneTabStrip />}
             {/* The terminal at the phone's cell: the grid, then tmux's status
                 line as its 25th row. The chrome below keeps its own size. */}
             <div className="phone-pty" style={phoneTypeStyle(gridType)}>

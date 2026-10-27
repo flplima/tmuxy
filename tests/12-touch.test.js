@@ -169,15 +169,20 @@ describe('Phone width (390px) with a touchscreen', () => {
     );
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
-    // The phone layout: no tab strip; 80 columns span the screen, less the
-    // container's margins and what the cell's device-pixel floor leaves over.
+    // The phone layout: the tab strip over the terminal; 80 columns span the
+    // screen edge to edge, and tmux's line under them is as wide.
     expect(layout.grid.phoneLayout).toBe(true);
-    expect(layout.tabs).toBeNull();
-    const span = 80 * layout.grid.charWidth;
-    expect(span).toBeLessThanOrEqual(layout.grid.containerWidth);
-    expect(span).toBeGreaterThan(layout.grid.containerWidth - 80 / 2);
-    // Top to bottom: the grid, tmux's line as its 25th row, the keys, the tree.
+    expectOnScreen(layout.tabs, 'the tab strip');
+    expect(layout.tabs.top + layout.tabs.height).toBeLessThanOrEqual(layout.container.top + 1);
+    expect(layout.container.left).toBeCloseTo(0, 0);
+    expect(layout.container.width).toBeCloseTo(PHONE.width, 0);
+    expect(80 * layout.grid.charWidth).toBeCloseTo(layout.grid.containerWidth, 1);
+    expect(layout.grid.containerWidth).toBeCloseTo(PHONE.width, 0);
+    // Top to bottom: the tabs, the grid, tmux's line as its 25th row, the
+    // keys, the tree.
     expectOnScreen(layout.status, 'the status line');
+    expect(layout.status.left).toBeCloseTo(0, 0);
+    expect(layout.status.width).toBeCloseTo(PHONE.width, 0);
     expectOnScreen(layout.keys, 'the key row');
     expectOnScreen(layout.tree, 'the tree');
     expect(layout.status.top).toBeGreaterThanOrEqual(

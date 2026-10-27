@@ -77,9 +77,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     let sentCell = '';
     const sendCharSize = () => {
       const cell =
-        phone && containerWidth
-          ? phoneCell(containerWidth, metrics.advance / rootFontPx(), window.devicePixelRatio || 1)
-          : null;
+        phone && containerWidth ? phoneCell(containerWidth, metrics.advance / rootFontPx()) : null;
       const event = cell
         ? {
             type: 'SET_CHAR_SIZE' as const,

@@ -5,8 +5,9 @@
  *
  * The pty is never sized to the phone. The client asks for the classic 80 × 24
  * window (tmux's status line is the 25th row, drawn under it) and shrinks the
- * cell until 80 columns span the screen, keeping the terminal's row ratio so
- * the browser's pinch zoom reads true. The chrome keeps its own size.
+ * cell until 80 columns span the screen edge to edge, keeping the terminal's
+ * row ratio so the browser's pinch zoom reads true. The chrome keeps its own
+ * size.
  *
  * Pure: no React, no machine.
  */
@@ -25,7 +26,7 @@ export const PHONE_ROWS = 24;
 const ROW_RATIO = CHAR_HEIGHT / DEFAULT_FONT_SIZE;
 
 export interface PhoneCell {
-  /** Cell width in CSS px, a whole number of device pixels. */
+  /** Cell width in CSS px: the 80th part of the width, exactly. */
   cellWidth: number;
   /** letter-spacing that brings the font's advance up to `cellWidth`. */
   cellGap: number;
@@ -36,20 +37,17 @@ export interface PhoneCell {
 }
 
 /**
- * The cell that fits 80 columns into `containerWidth`.
+ * The cell that fits 80 columns into `containerWidth`, exactly: the grid
+ * spans the screen edge to edge.
  *
  * `advancePerPx` is the terminal font's advance per pixel of font size (about
- * 0.6 for FiraCode): the width is floored to a device pixel so the grid never
- * overflows, the font is the largest whose advance fits it, and the gap pads
- * the rest.
+ * 0.6 for FiraCode): the font is the largest whose advance fits the cell, and
+ * the gap pads the rest. The cell is not floored to a device pixel: that
+ * left up to a pixel per column unused, which on a 3x phone was a 26px band
+ * of nothing beside the grid.
  */
-export function phoneCell(
-  containerWidth: number,
-  advancePerPx: number,
-  devicePixelRatio: number,
-): PhoneCell {
-  const dpr = devicePixelRatio > 0 ? devicePixelRatio : 1;
-  const cellWidth = Math.floor((containerWidth / PHONE_COLS) * dpr) / dpr;
+export function phoneCell(containerWidth: number, advancePerPx: number): PhoneCell {
+  const cellWidth = containerWidth / PHONE_COLS;
   const fontSize = Math.floor((cellWidth / advancePerPx) * 10) / 10;
   return {
     cellWidth,

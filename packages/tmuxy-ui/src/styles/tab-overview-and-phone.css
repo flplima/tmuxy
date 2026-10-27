@@ -280,15 +280,29 @@
    Phone layout (utils/phoneLayout.ts)
    ============================================ */
 
-/* Top to bottom: the terminal, the key row, the tree. The terminal and the
-   key row keep their place; the tree takes what is left and is the part that
-   gives when the phone's keyboard comes up. */
+/* Top to bottom: the tab strip, the terminal, the key row, the tree. The
+   strip, the terminal and the key row keep their place; the tree takes what
+   is left and is the part that gives when the phone's keyboard comes up. */
 .app-body-phone {
   flex-direction: column;
 }
 
+/* The tabs, then the "+" at the strip's right end (PhoneTabStrip). The tab
+   list takes the width between them and scrolls sideways when it overflows. */
+.phone-tab-strip {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--spacing-md);
+  height: var(--statusbar-height);
+  padding: 0 var(--spacing-md);
+  box-sizing: border-box;
+}
+
 /* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
-   of grid, then tmux's status line as the 25th. */
+   of grid, then tmux's status line as the 25th. Both run edge to edge: the
+   80 columns are cut from the whole width of the screen, so there is no side
+   padding to leave (containerPaddingX in constants/layout.ts). */
 .phone-pty {
   display: flex;
   flex: none;
@@ -298,13 +312,16 @@
 .app-body-phone .phone-pty .pane-container {
   flex: none;
   height: calc(24 * var(--line-height-terminal) + 4px);
+  padding: 0 0 4px;
+}
+
+.app-body-phone .phone-pty .pane-layout {
+  inset: 0 0 4px;
 }
 
 .phone-pty .tmux-status-bar {
   flex: none;
-  width: auto;
   height: var(--line-height-terminal);
-  margin: 0 12px;
 }
 
 .phone-pty .tmux-status-bar-content,

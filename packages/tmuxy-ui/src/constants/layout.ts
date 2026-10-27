@@ -17,6 +17,15 @@ export const CHAR_HEIGHT = 24;
 export const CONTAINER_PADDING_X = 12;
 export const CONTAINER_PADDING_BOTTOM = 4;
 
+/**
+ * The side padding the pane container has: none in the phone layout, where
+ * the grid and tmux's status line run edge to edge
+ * (styles/tab-overview-and-phone.css).
+ */
+export function containerPaddingX(phone: boolean): number {
+  return phone ? 0 : CONTAINER_PADDING_X;
+}
+
 // Horizontal inset: half charWidth to cover tmux divider column gap
 export function paneInsetX(charWidth: number): number {
   return Math.round(charWidth / 2);

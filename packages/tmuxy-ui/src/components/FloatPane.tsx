@@ -19,11 +19,15 @@ import { getWidget } from './widgets/registry';
 import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { getTabText } from './paneTabDisplay';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
-import { selectCharSize, selectContainerSize } from '../machines/selectors/layout';
+import {
+  selectCharSize,
+  selectContainerSize,
+  selectPhoneLayout,
+} from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
 import { focusKeyboardInput } from '../utils/mobileKeyboard';
-import { CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../constants/layout';
+import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 
@@ -52,6 +56,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
+  const paddingX = containerPaddingX(useAppSelector(selectPhoneLayout));
 
   // A float is a tmux window: a viewer cannot close one, only look at it.
   const handleClose = useCallback(() => {
@@ -78,7 +83,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   // too, so it spans that box — the measured container is its content box.
   if (drawer) {
     const isHorizontal = drawer === 'left' || drawer === 'right';
-    const spanWidth = containerWidth + CONTAINER_PADDING_X * 2;
+    const spanWidth = containerWidth + paddingX * 2;
     const spanHeight = containerHeight + CONTAINER_PADDING_BOTTOM;
 
     const floatWidth = isHorizontal ? floatState.width : spanWidth;
@@ -135,7 +140,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const terminalRows = Math.floor(floatState.height / charHeight);
   const floatWidth = floatState.width;
   const floatHeight = floatState.height + headerHeight;
-  const left = CONTAINER_PADDING_X + Math.max(0, (containerWidth - floatWidth) / 2);
+  const left = paddingX + Math.max(0, (containerWidth - floatWidth) / 2);
   const top = Math.max(0, (containerHeight - floatHeight) / 2);
 
   return (
