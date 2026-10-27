@@ -71,9 +71,9 @@ describe('decodePaneAsk', () => {
     for (const token of ["t'\nkill-server", 't x', 't;id']) {
       expect(decodePaneAsk(encode({ token, keys: ['ls'] }))).toBeNull();
     }
-    expect(decodePaneAsk(encode({ token: 'restore-0-1', keys: ['ls'] }))?.token).toBe(
-      'restore-0-1',
-    );
+    for (const token of ['restore-0-1', 'restore-%0', '3-4821-17']) {
+      expect(decodePaneAsk(encode({ token, keys: ['ls'] }))?.token).toBe(token);
+    }
   });
 
   it('names an unknown caller rather than leaving a blank in the question', () => {

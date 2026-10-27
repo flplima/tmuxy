@@ -53,8 +53,11 @@ export type PaneAsk = SendAsk | OfferAsk;
 /** What the user chose. Written back as `<token>:<answer>`. */
 export type AskAnswer = 'yes' | 'no';
 
-/** A question's token: `<pane>-<pid>`, or `restore-<window>-<pane>`. */
-const ASK_TOKEN = /^[\w.-]+$/;
+/**
+ * A question's token: `<pane>-<pid>-<n>`, `restore-<window>-<pane>`, or
+ * a pane id after `restore-`. One word, which `quote` keeps one argument.
+ */
+const ASK_TOKEN = /^[\w.%-]+$/;
 
 /**
  * Decode a raw `@tmuxy-ask` value.
