@@ -182,6 +182,13 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
       'a swipe to the right to bring the first tab back',
     );
     await waitForTerminalText(ctx.page, 'HOLD_WORD_TARGET', 15000);
+    // The slide runs home after the switch; the next one starts from rest.
+    await waitForCondition(
+      ctx.page,
+      async () => ctx.page.evaluate(() => window.app.getSnapshot().context.gesture === null),
+      10000,
+      'the slide to come to rest',
+    );
     await swipeSideways(ctx.page, centre.y, 330, 60);
     await waitForCondition(
       ctx.page,
