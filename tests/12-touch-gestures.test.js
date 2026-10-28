@@ -92,7 +92,20 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
       5000,
       'the finger to pan the zoomed grid',
     );
-    // The ⤢ key puts it back.
+    // The ⤢ key puts it back — once the pan has come to rest: a tap while
+    // the view still flings only stops it, as on any phone.
+    let settled = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        const now = (await measureZoom()).scrollLeft;
+        const still = settled === now;
+        settled = now;
+        return still;
+      },
+      10000,
+      'the panned view to come to rest',
+    );
     const zoomKey = await keyRowCentre(ctx.page, '⤢');
     await ctx.page.touchscreen.tap(zoomKey.x, zoomKey.y);
     await waitForCondition(

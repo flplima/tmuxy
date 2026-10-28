@@ -320,10 +320,16 @@ describe('Scenario: tmuxy open previews a local file', () => {
       async () => {
         const frame = previewFrame(ctx.page);
         if (!frame) return false;
-        page2 = await frame.evaluate(() => ({
-          heading: document.querySelector('h1')?.textContent,
-          scrollY: window.scrollY,
-        }));
+        // The file changing is what reloads the frame: a sample taken as it
+        // navigates has no context to answer from, and is simply not yet it.
+        try {
+          page2 = await frame.evaluate(() => ({
+            heading: document.querySelector('h1')?.textContent,
+            scrollY: window.scrollY,
+          }));
+        } catch {
+          return false;
+        }
         return page2.heading === 'Second Heading' && page2.scrollY > 0;
       },
       15000,
