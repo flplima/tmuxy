@@ -1,0 +1,32 @@
+/* TouchSelectionBar — Copy / Cancel over a pane with a finger's selection.
+   Pinned to the pane's top edge, in the chrome's type: the selection is in
+   the rows below, and a thumb reaches the bar without covering them. */
+
+.touch-selection-bar {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: var(--z-zoomed);
+  display: flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.touch-selection-button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--theme-accent);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-medium);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.touch-selection-button[data-touch-selection='copy'] {
+  background-color: var(--theme-accent);
+  color: var(--term-black);
+}

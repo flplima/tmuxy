@@ -6,7 +6,8 @@ import type { PaneId } from '../domain/ids';
  *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
  *    typed characters (input events). It also calls getMobileInput() to identify
  *    the element in keydown so it can skip printable chars already handled here.
- *  - usePaneTouch calls focusMobileInput(paneId) on tap to show/toggle the keyboard.
+ *  - usePaneTouch calls focusMobileInput(paneId) on tap so an open keyboard follows
+ *    the pane; the key row's ⌨ key calls toggleMobileKeyboard() to show or hide it.
  *
  * Key event routing:
  *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
@@ -163,21 +164,32 @@ export function focusKeyboardInput(paneId: PaneId): void {
   focusInput(paneId);
 }
 
+/** Whether the phone's keyboard is up: the hidden input has the focus. */
+export function isMobileKeyboardOpen(): boolean {
+  return input !== null && document.activeElement === input;
+}
+
 /**
- * Called by usePaneTouch on tap.
- * - Same pane tapped again → dismiss keyboard (blur)
- * - Different pane tapped → keep keyboard open and update active pane
+ * The key row's ⌨ key: put the keyboard away if it is up, bring it up for
+ * `paneId` otherwise. A tap on a pane never does this (it only focuses the
+ * pane); the key is the one way to toggle the keyboard on a phone.
+ */
+export function toggleMobileKeyboard(paneId: PaneId | null): void {
+  if (!isTouchDevice()) return;
+  const inp = ensureInput();
+  if (document.activeElement === inp) {
+    inp.blur();
+    activePaneId = null;
+  } else if (paneId) {
+    focusInput(paneId);
+  }
+}
+
+/**
+ * Called by usePaneTouch on a tap: the keyboard, if it is up, follows the
+ * pane; if it is down it stays down.
  */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
-
-  const inp = ensureInput();
-  const isOpen = document.activeElement === inp;
-
-  if (isOpen && activePaneId === paneId) {
-    inp.blur();
-    activePaneId = null;
-  } else {
-    focusInput(paneId);
-  }
+  if (isMobileKeyboardOpen()) focusInput(paneId);
 }

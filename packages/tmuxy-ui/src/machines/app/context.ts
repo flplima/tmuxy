@@ -26,6 +26,7 @@ import { DEFAULT_SIZE_POLICY } from '../../utils/gridFit';
 export type StateName =
   | 'layout'
   | 'tabOverview'
+  | 'phone'
   | 'copyMode'
   | 'browser'
   | 'groupsAndFloats'
@@ -126,6 +127,11 @@ export const FIELD_OWNERS = {
   tabOverviewSelected: 'tabOverview',
   renamingTabId: 'tabOverview',
 
+  // ---- phone ----
+  phoneZoom: 'phone',
+  phoneBottomView: 'phone',
+  phoneDockSizeSent: 'phone',
+
   // ---- commandUi ----
   commandMode: 'commandUi',
   statusMessage: 'commandUi',
@@ -220,6 +226,9 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     renamingTabId: null,
+    phoneZoom: null,
+    phoneBottomView: 'tree',
+    phoneDockSizeSent: null,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,

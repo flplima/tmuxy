@@ -80,3 +80,34 @@ export function useCursorInView(
     };
   }, [ref, enabled, cursorKey]);
 }
+
+/** How much the phone's zoom enlarges the terminal (styles mirror it as `--phone-zoom`). */
+export const PHONE_ZOOM = 2;
+
+/**
+ * The phone's zoom: `ref` is the viewport the zoomed grid scrolls in. When
+ * the zoom comes on, scroll it so the point that was tapped (client px, or
+ * the middle when none) sits in the middle of the view; when it goes off,
+ * back to the corner. The scaling itself is the stylesheet's
+ * (`.phone-pty.is-zoomed`).
+ */
+export function usePhoneZoomScroll(
+  ref: RefObject<HTMLElement | null>,
+  zoom: { x: number | null; y: number | null } | null,
+): void {
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    if (!zoom) {
+      box.scrollTo(0, 0);
+      return;
+    }
+    const frame = box.getBoundingClientRect();
+    const x = zoom.x ?? frame.left + frame.width / 2;
+    const y = zoom.y ?? frame.top + frame.height / 2;
+    box.scrollTo({
+      left: (x - frame.left) * PHONE_ZOOM - frame.width / 2,
+      top: (y - frame.top) * PHONE_ZOOM - frame.height / 2,
+    });
+  }, [ref, zoom]);
+}

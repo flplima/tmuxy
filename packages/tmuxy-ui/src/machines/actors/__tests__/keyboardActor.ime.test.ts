@@ -254,7 +254,7 @@ describe('keyboardActor — desktop IME', () => {
     textarea.remove();
   });
 
-  it('waits for a user gesture before focusing on a touch device', () => {
+  it('waits for the keyboard key before focusing on a touch device', () => {
     handle.actor.stop();
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
@@ -264,8 +264,12 @@ describe('keyboardActor — desktop IME', () => {
 
     handle = spawnKeyboardActor(pid('%3'));
 
+    // A tap on a pane only focuses the pane: a closed keyboard stays closed.
     expect(document.activeElement).not.toBe(input);
     mobileKeyboard.focusMobileInput(pid('%3'));
+    expect(document.activeElement).not.toBe(input);
+    // The key row's ⌨ key is what brings it up.
+    mobileKeyboard.toggleMobileKeyboard(pid('%3'));
     expect(document.activeElement).toBe(input);
   });
 
@@ -278,12 +282,15 @@ describe('keyboardActor — desktop IME', () => {
     mobileKeyboard.focusKeyboardInput(pid('%3'));
     expect(document.activeElement).toBe(input);
 
-    input.blur();
-    mobileKeyboard.focusMobileInput(pid('%3'));
+    // Up, the keyboard follows a tap on another pane and stays up.
+    mobileKeyboard.focusMobileInput(pid('%4'));
     expect(document.activeElement).toBe(input);
 
-    mobileKeyboard.focusMobileInput(pid('%3'));
+    // The ⌨ key puts it away, and again brings it back.
+    mobileKeyboard.toggleMobileKeyboard(pid('%3'));
     expect(document.activeElement).not.toBe(input);
+    mobileKeyboard.toggleMobileKeyboard(pid('%3'));
+    expect(document.activeElement).toBe(input);
   });
 
   it('forwards ordinary desktop text exactly once through the hidden input', () => {

@@ -13,6 +13,7 @@ export const sidebarsGlobalEvents = {
     actions: 'sidebars_toggleLeftSidebar',
   },
   TOGGLE_TAB_COLLAPSE: { actions: 'sidebars_toggleTabCollapse' },
+  START_RIGHT_SIDEBAR: { actions: 'sidebars_startRightSidebar' },
   SIDEBAR_START_TIMEOUT: { actions: 'sidebars_sidebarStartTimeout' },
   SIDEBAR_RESIZE_PREVIEW: {
     actions: 'sidebars_sidebarResizePreview',

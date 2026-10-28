@@ -1,4 +1,4 @@
-import { smallFontSize } from '../../utils/fontSizeManager';
+import { DEFAULT_FONT_SIZE, smallFontSize } from '../../utils/fontSizeManager';
 import { sidebarCellMetrics } from '../../utils/cellMetrics';
 import { CHAR_HEIGHT } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
@@ -216,6 +216,48 @@ export const selectSidebarCellMetrics = createMemoizedSelector(
     return { fontSize, cellWidth: metrics.cellWidth, cellGap: metrics.cellGap, lineHeight };
   },
 );
+
+/** The phone's dock runs in the chrome's small type, whatever the terminal's cell shrank to. */
+export const PHONE_DOCK_FONT_PX = 12;
+
+/**
+ * The cell the phone's bottom view draws the dock in (App.tsx): the chrome's
+ * small font, derived from the measured cell the way the sidebar's is — the
+ * measured cell on a phone is the one cut to fit 80 columns, at its own
+ * font size, so the advance is scaled from that size rather than the chrome's.
+ */
+export const selectPhoneDockCellMetrics = createMemoizedSelector(
+  (context: AppMachineContext) => [context.measuredCell, context.baseFontSize] as const,
+  (context: AppMachineContext) => {
+    const { charWidth, cellGap, gridFontSize } = context.measuredCell;
+    const metrics = sidebarCellMetrics(
+      { charWidth: charWidth || DEFAULT_CHAR_WIDTH, cellGap },
+      gridFontSize ?? context.baseFontSize,
+      PHONE_DOCK_FONT_PX,
+      typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+    );
+    const lineHeight = Math.max(
+      1,
+      Math.round((CHAR_HEIGHT * PHONE_DOCK_FONT_PX) / DEFAULT_FONT_SIZE),
+    );
+    return {
+      fontSize: PHONE_DOCK_FONT_PX,
+      cellWidth: metrics.cellWidth,
+      cellGap: metrics.cellGap,
+      lineHeight,
+    };
+  },
+);
+
+/** The phone's browser-side zoom, if on (the `phone` slice). */
+export function selectPhoneZoom(context: AppMachineContext): AppMachineContext['phoneZoom'] {
+  return context.phoneZoom;
+}
+
+/** What the phone shows under the keys: the tree or the dock. */
+export function selectPhoneBottomView(context: AppMachineContext): 'tree' | 'dock' {
+  return context.phoneBottomView;
+}
 
 /**
  * Rows the dock's pane should have: the column runs the app body's height in

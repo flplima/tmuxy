@@ -30,6 +30,7 @@ import {
   selectPhoneLayout,
   selectPhoneLandscape,
   selectGridType,
+  selectPhoneZoom,
 } from './machines/selectors/layout';
 import {
   selectError,
@@ -47,9 +48,10 @@ import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/KeyRow';
 import { PhoneTabStrip } from './components/PhoneTabStrip';
-import { useCursorInView, useVisualViewport } from './hooks/usePhoneViewport';
+import { useCursorInView, usePhoneZoomScroll, useVisualViewport } from './hooks/usePhoneViewport';
 import { PHONE_COLS } from './utils/phoneLayout';
-import { SidebarTree } from './components/SidebarTree';
+import { PHONE_CONTAINER_PADDING } from './constants/layout';
+import { PhoneBottomView } from './components/PhoneBottomView';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -88,8 +90,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     return pane ? `${pane.tmuxId} ${pane.y} ${pane.cursorY} ${pane.inMode}` : '';
   });
   const ptyRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef<HTMLDivElement>(null);
+  const phoneZoom = useAppSelector(selectPhoneZoom);
   useVisualViewport(phone);
   useCursorInView(ptyRef, phone, cursorKey);
+  usePhoneZoomScroll(zoomRef, phoneZoom);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
   useSelectionRows();
@@ -205,25 +210,26 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   // rest stacked in the column left of it.
   const phoneTabs = showLayout && <PhoneTabStrip />;
   const phoneKeys = showLayout && <KeyRow />;
-  // Every tab and pane, where the tab strip would be on a desktop.
-  const phoneTree = showLayout && (
-    <div className="phone-tree">
-      <SidebarTree focused={false} />
-    </div>
-  );
-  // The terminal at the phone's cell: the grid, then tmux's status
-  // line as its 25th row. Sideways, it is as wide as its 80 columns
-  // and the chrome takes the column beside it.
+  // Every tab and pane, where the tab strip would be on a desktop — or the
+  // dock, after a sideways swipe (PhoneBottomView).
+  const phoneTree = showLayout && <PhoneBottomView />;
+  // The terminal at the phone's cell: the grid, then tmux's status line
+  // under it. Sideways, it is as wide as its 80 columns and the chrome takes
+  // the column beside it. A double tap zooms the grid in the browser
+  // (`phoneZoom`): the viewport around it scrolls, and is scrolled to the
+  // point tapped.
   const phonePty = (
     <div
       ref={ptyRef}
-      className="phone-pty"
+      className={`phone-pty${phoneZoom ? ' is-zoomed' : ''}`}
       style={{
         ...gridTypeStyle(gridType),
-        ...(landscape ? { width: PHONE_COLS * charWidth } : {}),
+        ...(landscape ? { width: PHONE_COLS * charWidth + 2 * PHONE_CONTAINER_PADDING } : {}),
       }}
     >
-      {paneContainer}
+      <div ref={zoomRef} className="phone-zoom-viewport" data-testid="phone-zoom-viewport">
+        {paneContainer}
+      </div>
       {showLayout && <TmuxStatusBar />}
     </div>
   );

@@ -135,6 +135,17 @@ export interface AppMachineContext {
   sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
   /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
   dockRowsSent: { windowId: WindowId; rows: number } | null;
+
+  /**
+   * The phone's browser-side zoom (the `phone` slice): the terminal drawn at
+   * twice its size and panned with a finger, around the point tapped (client
+   * px; null for the middle). Null when not zoomed.
+   */
+  phoneZoom: { x: number | null; y: number | null } | null;
+  /** What the phone shows under the keys: the tree, or the pinned terminal (the dock). */
+  phoneBottomView: 'tree' | 'dock';
+  /** The dock size last written to its window from the phone's bottom view. */
+  phoneDockSizeSent: { windowId: WindowId; cols: number; rows: number } | null;
   /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,

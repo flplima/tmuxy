@@ -44,6 +44,12 @@ export interface CopyModeState {
   /** Pending selection to apply on first chunk load (visible-relative row) */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
   /**
+   * A word to select once its row has loaded (visible-relative row): a
+   * finger's hold selects the word under it in the same breath as it opens
+   * copy mode, before any line is there to read.
+   */
+  pendingWordSelection?: { row: number; col: number; broad?: boolean };
+  /**
    * Select every row once the history lands. A select-all issued as the view
    * opens cannot know where history ends — `totalLines` is the pane's own
    * guess until the first chunk answers with the real `history_size` — so the

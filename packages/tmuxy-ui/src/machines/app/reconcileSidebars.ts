@@ -117,7 +117,8 @@ export function reconcileFloatAndSidebarLifecycle(
   const nextDockPane = selectRightSidebarPane(nextSidebarCtx);
   const nextDockHidden = sidebarHidden(nextSidebarCtx, 'right');
   if (!prevDockPane && nextDockPane) {
-    const requestedByThisClient = context.rightSidebarOpen;
+    // The desktop's column, or the phone's bottom view, asked for it here.
+    const requestedByThisClient = context.rightSidebarOpen || context.phoneBottomView === 'dock';
     enqueue(assign({ rightSidebarStarting: false, rightSidebarStartFailed: false }));
     if (context.rightSidebarStarting && !requestedByThisClient && !nextDockHidden) {
       enqueue(

@@ -6,15 +6,19 @@
  * and the strip, the keys and the tree stack in the column left of it.
  *
  * The pty is never sized to the phone. The client asks for the classic 80 × 24
- * window (tmux's status line is the 25th row, drawn under it) and shrinks the
- * cell until 80 columns span the screen edge to edge, keeping the terminal's
- * row ratio so the browser's pinch zoom reads true. The chrome keeps its own
- * size.
+ * window and shrinks the cell until 80 columns span the screen, a few pixels
+ * of padding each side, keeping the terminal's row ratio so a pinch zoom
+ * reads true. The status line under it and the rest of the chrome keep their
+ * own size.
+ *
+ * What a finger does on the terminal is hooks/usePaneTouch.ts; the key row,
+ * the zoom and the bottom view (the tree, or the pinned terminal a sideways
+ * swipe flips it to) are App.tsx and the `phone` state slice.
  *
  * Pure: no React, no machine.
  */
 
-import { CHAR_HEIGHT } from '../constants/layout';
+import { CHAR_HEIGHT, PHONE_CONTAINER_PADDING } from '../constants/layout';
 import { DEFAULT_FONT_SIZE } from './fontSizeManager';
 
 /** When the app takes the phone layout. */
@@ -27,8 +31,12 @@ export const PHONE_QUERY = '(pointer: coarse), (max-width: 600px)';
  */
 export const PHONE_SIDE_MIN = 300;
 
-/** Below the grid: the pane container's bottom padding (styles/terminal.css). */
-const GRID_BOTTOM_PAD = 4;
+/**
+ * tmux's status line under the grid, in the chrome's type rather than a
+ * terminal row: at the phone's cell a row is too short for the host and
+ * session labels to be read, let alone tapped (styles mirror it).
+ */
+export const PHONE_STATUS_HEIGHT = 24;
 
 /** The window a phone asks for; tmux's status line is drawn as a 25th row. */
 export const PHONE_COLS = 80;
@@ -70,23 +78,26 @@ export function phoneCell(containerWidth: number, advancePerPx: number): PhoneCe
 }
 
 /**
- * The cell for a phone held sideways: 24 rows of grid and tmux's line, 25 rows
- * in all, fill `height`, and the 80 columns that gives are as wide as they
- * come — unless that would leave the column beside them narrower than
- * [`PHONE_SIDE_MIN`], when the cell is the one that fits the width left.
+ * The cell for a phone held sideways: 24 rows of grid, the status line and
+ * the container's padding fill `height`, and the 80 columns that gives are
+ * as wide as they come — unless that would leave the column beside them
+ * narrower than [`PHONE_SIDE_MIN`], when the cell is the one that fits the
+ * width left.
  *
  * `height` is the screen's height with no keyboard up: the keyboard scrolls
  * the terminal (App's cursor follow), it does not shrink the type.
  */
 export function phoneLandscapeCell(width: number, height: number, advancePerPx: number): PhoneCell {
-  const rows = PHONE_ROWS + 1;
-  let fontSize = Math.floor(((height - GRID_BOTTOM_PAD) / rows / ROW_RATIO) * 10) / 10;
-  while (fontSize > 1 && Math.round(fontSize * ROW_RATIO) * rows + GRID_BOTTOM_PAD > height) {
+  const rows = PHONE_ROWS;
+  const chrome = PHONE_CONTAINER_PADDING + PHONE_STATUS_HEIGHT;
+  let fontSize = Math.floor(((height - chrome) / rows / ROW_RATIO) * 10) / 10;
+  while (fontSize > 1 && Math.round(fontSize * ROW_RATIO) * rows + chrome > height) {
     fontSize = Math.round((fontSize - 0.1) * 10) / 10;
   }
   const byHeight = fontSize * advancePerPx;
-  const byWidth = Math.max(0, width - PHONE_SIDE_MIN) / PHONE_COLS;
-  if (byWidth < byHeight) return phoneCell(width - PHONE_SIDE_MIN, advancePerPx);
+  const gridWidth = width - PHONE_SIDE_MIN - 2 * PHONE_CONTAINER_PADDING;
+  const byWidth = Math.max(0, gridWidth) / PHONE_COLS;
+  if (byWidth < byHeight) return phoneCell(gridWidth, advancePerPx);
   return {
     cellWidth: byHeight,
     cellGap: 0,

@@ -57,6 +57,40 @@ export function fetchNeededChunk(
  * Every row of a pane's scrollback selected: a line selection from the first row
  * of history to the last row on screen.
  */
+/**
+ * The word under `(absoluteRow, col)` as a selection — the cells matching
+ * `\w` around it, or every non-space cell with `broad` — or null while the
+ * row is not loaded. On a cell with no word the selection is that one cell.
+ */
+export function selectWordAt(
+  state: CopyModeState,
+  absoluteRow: number,
+  col: number,
+  broad: boolean,
+): Pick<CopyModeState, 'selectionMode' | 'selectionAnchor' | 'cursorRow' | 'cursorCol'> | null {
+  const line = state.lines.get(absoluteRow);
+  if (!line) return null;
+
+  const text = line.map((c) => c.c).join('');
+  let wordStart = col;
+  let wordEnd = col;
+
+  const isWord = broad
+    ? (i: number) => i >= 0 && i < text.length && text[i] !== ' '
+    : (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
+  if (isWord(col)) {
+    while (wordStart > 0 && isWord(wordStart - 1)) wordStart--;
+    while (wordEnd < text.length - 1 && isWord(wordEnd + 1)) wordEnd++;
+  }
+
+  return {
+    selectionMode: 'char',
+    selectionAnchor: { row: absoluteRow, col: wordStart },
+    cursorRow: absoluteRow,
+    cursorCol: wordEnd,
+  };
+}
+
 export function selectEveryRow(state: CopyModeState): CopyModeState {
   return {
     ...state,
@@ -257,6 +291,15 @@ export function applyScrollbackChunk(
     updated.cursorRow = absoluteRow;
     updated.cursorCol = ps.col;
     updated.pendingSelection = undefined;
+  }
+
+  if (existing.pendingWordSelection) {
+    const pw = existing.pendingWordSelection;
+    const word = selectWordAt(updated, event.historySize + pw.row, pw.col, pw.broad === true);
+    if (word) {
+      Object.assign(updated, word);
+      updated.pendingWordSelection = undefined;
+    }
   }
 
   const topRow = loadedRanges.length > 0 ? loadedRanges[0][0] : totalLines;

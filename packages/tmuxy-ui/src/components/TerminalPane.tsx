@@ -17,6 +17,7 @@ import { cloneNativeSelectionRange, readNativeSelection } from '../utils/nativeS
 import { PaneHeader } from './PaneHeader';
 import { PaneContextMenu } from './PaneContextMenu';
 import { SelectionContextMenu } from './SelectionContextMenu';
+import { TouchSelectionBar } from './TouchSelectionBar';
 import {
   useAppSend,
   usePane,
@@ -26,7 +27,7 @@ import {
   useAppSelector,
   useAppConfig,
 } from '../machines/appHooks';
-import { selectCharSize } from '../machines/selectors/layout';
+import { selectCharSize, selectPhoneLayout, selectPhoneZoom } from '../machines/selectors/layout';
 import { selectKeyboardElsewhere } from '../machines/selectors/ui';
 import { usePaneMouse } from '../hooks/usePaneMouse';
 import { usePaneTouch } from '../hooks/usePaneTouch';
@@ -150,16 +151,27 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     forwardScrollToParent,
   });
 
-  // Touch handling for mobile scroll
-  const { handleTouchStart, handleTouchMove, handleTouchEnd } = usePaneTouch({
+  // Touch handling for mobile scroll — and, in the phone layout, the taps,
+  // holds and slides a finger means on a tiled pane. The dock (chrome none)
+  // is drawn by the phone too, but a slide on it is not a slide between tabs.
+  const phoneLayout = useAppSelector(selectPhoneLayout);
+  const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
+  const phoneGestures = phoneLayout && chrome === 'header';
+  const { handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = usePaneTouch({
     paneId,
+    charWidth,
     charHeight,
     alternateOn: pane?.alternateOn ?? false,
     mouseAnyFlag: pane?.mouseAnyFlag ?? false,
     scrollRef,
+    contentRef,
     send,
     historySize,
+    paneHeight,
     scrollbackOpen: !!copyState,
+    copyModeActive: copyState?.mode === 'copy',
+    phoneLayout: phoneGestures,
+    phoneZoomed: phoneGestures && phoneZoomed,
     forwardScrollToParent,
   });
 
@@ -169,6 +181,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
+    handleTouchCancel,
   });
 
   // Handle right-click context menu for text selection
@@ -249,6 +262,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
           selectionRange={selectionMenu.range}
           onClose={() => setSelectionMenu(null)}
         />
+      )}
+      {/* A finger's hold has a selection: Copy and Cancel over the pane. */}
+      {!collapsed && phoneGestures && copyState?.mode === 'copy' && copyState.selectionMode && (
+        <TouchSelectionBar paneId={paneId} copyState={copyState} />
       )}
       {!collapsed && paneMenu && (
         <PaneContextMenu

@@ -25,6 +25,7 @@ import {
   fetchNeededChunk,
   leaveAfterCopy,
   selectEveryRow,
+  selectWordAt,
 } from '../scrollback';
 
 export const copyModeActions = {
@@ -242,34 +243,16 @@ export const copyModeActions = {
     if (!existing) return {};
 
     const absoluteRow = toAbsoluteRow(existing, event.row);
-
-    const line = existing.lines.get(absoluteRow);
-    if (!line) return {};
-
-    const text = line.map((c) => c.c).join('');
-    let wordStart = event.col;
-    let wordEnd = event.col;
-
-    const isWord = event.broad
-      ? (i: number) => i >= 0 && i < text.length && text[i] !== ' '
-      : (i: number) => i >= 0 && i < text.length && /\w/.test(text[i]);
-    if (isWord(event.col)) {
-      while (wordStart > 0 && isWord(wordStart - 1)) wordStart--;
-      while (wordEnd < text.length - 1 && isWord(wordEnd + 1)) wordEnd++;
-    }
-
-    return {
-      copyModeStates: {
-        ...context.copyModeStates,
-        [event.paneId]: {
+    const word = selectWordAt(existing, absoluteRow, event.col, event.broad === true);
+    // The row is not here yet (a hold that opened copy mode in the same
+    // breath): the word is selected when its chunk lands.
+    const updated: CopyModeState = word
+      ? { ...existing, ...word }
+      : {
           ...existing,
-          selectionMode: 'char' as const,
-          selectionAnchor: { row: absoluteRow, col: wordStart },
-          cursorRow: absoluteRow,
-          cursorCol: wordEnd,
-        },
-      },
-    };
+          pendingWordSelection: { row: event.row, col: event.col, broad: event.broad },
+        };
+    return { copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } };
   }),
 
   copyMode_lineSelect: assignCtx(({ event, context }) => {

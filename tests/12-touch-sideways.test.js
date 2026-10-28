@@ -68,13 +68,19 @@ describe('Phone held sideways (844x390) with a touchscreen', () => {
     expect(layout.status.bottom).toBeLessThanOrEqual(SIDEWAYS.height + 1);
     const rowHeight = layout.rowHeight;
 
-    // 2. A tap opens the keyboard; on this phone it takes 200px of the height.
+    // 2. The key row's ⌨ key opens the keyboard (a tap on the terminal only
+    //    focuses the pane); on this phone it takes 200px of the height.
     await ctx.page.touchscreen.tap(layout.pty.left + 60, layout.pty.top + 60);
+    const keyboardKey = await ctx.page.evaluate(() => {
+      const r = document.querySelector('[data-key-row="⌨"]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await ctx.page.touchscreen.tap(keyboardKey.x, keyboardKey.y);
     await waitForCondition(
       ctx.page,
       async () => ctx.page.evaluate(() => document.activeElement?.tagName === 'INPUT'),
       5000,
-      'the tap to open the keyboard',
+      'the ⌨ key to open the keyboard',
     );
     await ctx.page.setViewportSize({ width: SIDEWAYS.width, height: 190 });
 

@@ -86,8 +86,9 @@ export const PhoneKeyboardDown: Story = {
     expect(box(strip).right - add.right).toBeLessThan(16);
     expect(strip.querySelectorAll('button').length).toBe(1);
 
-    // 80 columns asked for, and 80 columns span the screen edge to edge, the
-    // status line under them as wide.
+    // 80 columns asked for, and 80 columns span the screen less 4px of
+    // padding each side (the grid's outer borders), the status line under
+    // them the screen's width.
     await waitFor(
       () => {
         expect(ctx().targetCols).toBe(80);
@@ -95,12 +96,16 @@ export const PhoneKeyboardDown: Story = {
         // The phone's screen: the app's own box, not the story frame around it.
         const screen = box(canvasElement.querySelector('.app-container'));
         const layout = box(canvasElement.querySelector('.phone-pty .pane-layout'));
-        expect(80 * ctx().charWidth).toBeCloseTo(screen.width, 1);
-        expect(layout.left).toBeCloseTo(screen.left, 1);
-        expect(layout.width).toBeCloseTo(screen.width, 1);
+        expect(80 * ctx().charWidth).toBeCloseTo(screen.width - 8, 1);
+        expect(layout.left).toBeCloseTo(screen.left + 4, 1);
+        expect(layout.width).toBeCloseTo(screen.width - 8, 1);
+        const item = box(canvasElement.querySelector('.phone-pty .pane-layout-item'));
+        expect(item.left).toBeGreaterThanOrEqual(screen.left);
+        expect(item.right).toBeLessThanOrEqual(screen.right);
         const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
         expect(line.left).toBeCloseTo(screen.left, 1);
         expect(line.width).toBeCloseTo(screen.width, 1);
+        expect(line.height).toBe(24);
       },
       { timeout: 8000 },
     );
@@ -120,6 +125,29 @@ export const PhoneKeyboardDown: Story = {
     const row = canvasElement.querySelector('.phone-tree [role="treeitem"]');
     expect(row).not.toBeNull();
     expect(parseFloat(getComputedStyle(row!).fontSize)).toBeGreaterThanOrEqual(11);
+
+    // The host at the status line's left edge, the session at its right, both
+    // tall enough to read and to tap.
+    const host = box(canvasElement.querySelector('.phone-pty .statusline-host'));
+    const session = box(canvasElement.querySelector('.phone-pty .statusline-session'));
+    expect(host.height).toBe(24);
+    expect(host.left).toBeLessThan(40);
+    expect(session.right).toBeGreaterThan(
+      box(canvasElement.querySelector('.app-container')).right - 8,
+    );
+
+    // Two rows of six: esc, tab, ctrl, alt, the keyboard and the zoom; the
+    // arrows, enter and the menu. Each a thumb's size.
+    const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
+    expect(keyboxes).toHaveLength(11);
+    expect(keyboxes.every((k) => k.height >= 40)).toBe(true);
+    expect(box(canvasElement.querySelector('[data-key-row="←"]')).top).toBeGreaterThanOrEqual(
+      box(canvasElement.querySelector('[data-key-row="esc"]')).bottom,
+    );
+    expect(box(canvasElement.querySelector('[data-key-row="⤢"]')).top).toBeCloseTo(
+      box(canvasElement.querySelector('[data-key-row="esc"]')).top,
+      0,
+    );
 
     // ctrl: latched, locked, off.
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
@@ -198,7 +226,7 @@ export const LandscapeAndTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 390 },
       description: {
         story:
-          'Held sideways, the terminal takes the right of the screen at the height that fits its 24 rows and tmux’s line, and the tab strip, the keys and the tree stack in the column left of it. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
+          'Held sideways, the terminal takes the right of the screen at the height that fits its 24 rows and tmux’s line, and the tab strip, the keys and the bottom view stack in the column left of it. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
       },
     },
   },
@@ -219,12 +247,12 @@ export const LandscapeAndTheKeyboard: Story = {
     expect(side.left).toBeCloseTo(screen.left, 0);
     expect(pty.right).toBeCloseTo(screen.right, 0);
     expect(side.right).toBeLessThanOrEqual(pty.left + 1);
-    expect(pty.width).toBeCloseTo(80 * ctx().charWidth, 0);
+    expect(pty.width).toBeCloseTo(80 * ctx().charWidth + 8, 0);
     expect(side.width).toBeGreaterThanOrEqual(299);
     for (const part of ['.phone-tab-strip', '.key-row', '.phone-tree']) {
       expect(box(canvasElement.querySelector(`.phone-side ${part}`)).width).toBeGreaterThan(0);
     }
-    // All 25 rows on screen: tmux's line ends inside it.
+    // All 24 rows and tmux's line on screen: the line ends inside it.
     const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     expect(line.bottom).toBeLessThanOrEqual(screen.bottom + 0.5);
     expect(line.bottom).toBeGreaterThan(screen.bottom - 25);
@@ -248,5 +276,123 @@ export const LandscapeAndTheKeyboard: Story = {
     expect(box(canvasElement.querySelector('.key-row')).bottom).toBeLessThanOrEqual(
       box(frame).bottom + 0.5,
     );
+  },
+};
+
+/** One finger on `el`: a touch sequence, as the browser would dispatch it. */
+function touch(el: Element, type: 'touchstart' | 'touchmove' | 'touchend', x: number, y: number) {
+  const point = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+  const touches = type === 'touchend' ? [] : [point];
+  el.dispatchEvent(
+    new TouchEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      touches,
+      changedTouches: [point],
+      targetTouches: touches,
+    }),
+  );
+}
+
+function tapAt(el: Element, x: number, y: number) {
+  touch(el, 'touchstart', x, y);
+  touch(el, 'touchend', x, y);
+}
+
+function swipeAcross(el: Element, y: number, fromX: number, toX: number) {
+  touch(el, 'touchstart', fromX, y);
+  for (let i = 1; i <= 6; i++) touch(el, 'touchmove', fromX + ((toX - fromX) * i) / 6, y);
+  touch(el, 'touchend', toX, y);
+}
+
+export const DoubleTapZoomsTheTerminal: Story = {
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 844 },
+      description: {
+        story:
+          'A double tap on the terminal draws it at twice its size in a viewport that scrolls, around the point tapped — the browser’s zoom, not tmux’s: the window stays 80 × 24 and the cell measurement is untouched. The key row’s zoom key lights while it is on, and puts it back.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(
+      () => {
+        expect(ctx().phoneLayout).toBe(true);
+        expect(canvasElement.querySelector('.pane-active [role="log"]')).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    const log = canvasElement.querySelector('.pane-active [role="log"]')!;
+    const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
+    const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
+    const zoomKey = canvasElement.querySelector('[data-key-row="⤢"]') as HTMLElement;
+    const at = { x: grid.left + grid.width / 2, y: grid.top + grid.height / 2 };
+
+    tapAt(log, at.x, at.y);
+    tapAt(log, at.x + 2, at.y + 2);
+    await waitFor(() => {
+      expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull();
+      expect(box(canvasElement.querySelector('.phone-pty .pane-container')).width).toBeCloseTo(
+        grid.width * 2,
+        0,
+      );
+      expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth + 10);
+      expect(viewport.scrollLeft).toBeGreaterThan(50);
+      expect(zoomKey.getAttribute('aria-pressed')).toBe('true');
+    });
+    expect(ctx().targetCols).toBe(80);
+    // The viewport itself keeps the grid's unzoomed size.
+    expect(box(viewport).width).toBeCloseTo(grid.width, 0);
+
+    await userEvent.click(zoomKey);
+    await waitFor(() => {
+      expect(canvasElement.querySelector('.phone-pty.is-zoomed')).toBeNull();
+      expect(box(canvasElement.querySelector('.phone-pty .pane-container')).width).toBeCloseTo(
+        grid.width,
+        0,
+      );
+      expect(viewport.scrollLeft).toBe(0);
+    });
+  },
+};
+
+export const BottomViewSwipesToTheDock: Story = {
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 844 },
+      description: {
+        story:
+          'Under the keys, the tree; a sideways swipe on it flips the view to the dock — the pinned terminal the desktop keeps in its right column, asked of tmux the same way on first use (here the recording answers nothing, so the dock waits on “starting…”) — and a swipe back shows the tree again.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(
+      () => {
+        expect(ctx().phoneLayout).toBe(true);
+        expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
+      },
+      { timeout: 8000 },
+    );
+    const bottom = canvasElement.querySelector('[data-testid="phone-bottom"]')!;
+    const frame = box(bottom);
+    expect(bottom.getAttribute('data-view')).toBe('tree');
+
+    swipeAcross(bottom, frame.top + 40, frame.right - 20, frame.left + 20);
+    await waitFor(() => {
+      expect(bottom.getAttribute('data-view')).toBe('dock');
+      const dock = box(canvasElement.querySelector('.phone-dock'));
+      expect(dock.top).toBeGreaterThanOrEqual(frame.top - 1);
+      expect(dock.height).toBeGreaterThan(100);
+      expect(canvasElement.querySelector('.phone-dock')!.textContent).toContain('starting');
+    });
+    expect(canvasElement.querySelector('.phone-tree')).toBeNull();
+
+    swipeAcross(bottom, frame.top + 40, frame.left + 20, frame.right - 20);
+    await waitFor(() => {
+      expect(bottom.getAttribute('data-view')).toBe('tree');
+      expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
+    });
   },
 };

@@ -40,9 +40,11 @@ import { sidebarsActions } from './actions/sidebars';
 import { layoutState } from './states/layout';
 import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
+import { phoneGlobalEvents } from './states/phone';
 import { gesturesGlobalEvents } from './states/gestures';
 import { gesturesActions } from './actions/gestures';
 import { tabOverviewActions } from './actions/tabOverview';
+import { phoneActions } from './actions/phone';
 import { layoutActions } from './actions/layout';
 import { dispatchActions } from './dispatch';
 import { askActions } from './actions/ask';
@@ -85,6 +87,7 @@ export const appMachine = setup({
     ...groupsAndFloatsActions,
     ...sidebarsActions,
     ...tabOverviewActions,
+    ...phoneActions,
     ...gesturesActions,
     ...layoutActions,
     ...dispatchActions,
@@ -149,6 +152,7 @@ export const appMachine = setup({
     ...groupsAndFloatsGlobalEvents,
     ...sidebarsGlobalEvents,
     ...tabOverviewGlobalEvents,
+    ...phoneGlobalEvents,
     ...gesturesGlobalEvents,
     ...connectionGlobalEvents,
 

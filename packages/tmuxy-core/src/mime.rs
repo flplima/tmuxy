@@ -20,6 +20,7 @@ pub fn content_type_for_path(path: &str) -> &'static str {
         "css" => "text/css; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "json" | "map" => "application/json",
+        "webmanifest" => "application/manifest+json",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
@@ -54,6 +55,10 @@ mod tests {
             "text/javascript; charset=utf-8"
         );
         assert_eq!(content_type_for_path("/tmp/a/logo.svg"), "image/svg+xml");
+        assert_eq!(
+            content_type_for_path("manifest.webmanifest"),
+            "application/manifest+json"
+        );
         assert_eq!(content_type_for_path("/tmp/a/font.woff2"), "font/woff2");
     }
 

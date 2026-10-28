@@ -10,6 +10,13 @@
 
 export const CHAR_HEIGHT = 24;
 
+/**
+ * The pane container's padding on a phone: a few pixels each side so the
+ * grid's outer borders — drawn half a cell outside the panes — stay on
+ * screen, and the same below (styles/tab-overview-and-phone.css mirrors it).
+ */
+export const PHONE_CONTAINER_PADDING = 4;
+
 // Padding of .pane-container (mirrored in styles.css). Only the fallback
 // sizing path needs these — the size actor measures the content box, which
 // already excludes them. The grid is centred in that box, so the visible
@@ -18,12 +25,11 @@ export const CONTAINER_PADDING_X = 12;
 export const CONTAINER_PADDING_BOTTOM = 4;
 
 /**
- * The side padding the pane container has: none in the phone layout, where
- * the grid and tmux's status line run edge to edge
- * (styles/tab-overview-and-phone.css).
+ * The side padding the pane container has: a few pixels in the phone layout,
+ * enough for the grid's outer borders (styles/tab-overview-and-phone.css).
  */
 export function containerPaddingX(phone: boolean): number {
-  return phone ? 0 : CONTAINER_PADDING_X;
+  return phone ? PHONE_CONTAINER_PADDING : CONTAINER_PADDING_X;
 }
 
 // Horizontal inset: half charWidth to cover tmux divider column gap

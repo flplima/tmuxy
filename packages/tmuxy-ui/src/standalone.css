@@ -46,3 +46,11 @@ html.tmuxy-phone #root {
   left: 0;
   height: var(--app-height, 100dvh);
 }
+
+/* Installed on a phone's home screen (the manifest's standalone display),
+   the page runs under the status bar and the home indicator: the phone's
+   layout keeps clear of both. */
+html.tmuxy-phone #root {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

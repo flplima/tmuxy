@@ -169,18 +169,8 @@ export const sidebarsActions = {
           }),
         );
         enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' as const });
-      } else if (!context.rightSidebarStarting) {
-        enqueue(
-          sendTo('tmux', {
-            type: 'SEND_OP' as const,
-            op: TmuxOp.OpenSidebar({ side: 'right', splitFrom: context.activePaneId }),
-          }),
-        );
-        enqueue(assign({ rightSidebarStarting: true }));
-        enqueue.raise(
-          { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'right' as const },
-          { delay: SIDEBAR_START_TIMEOUT_MS },
-        );
+      } else {
+        enqueue.raise({ type: 'START_RIGHT_SIDEBAR' as const });
       }
       return;
     }
@@ -195,6 +185,25 @@ export const sidebarsActions = {
       );
     }
     releaseKeyboard(context, enqueue, 'right');
+  }),
+
+  /**
+   * Break the dock's pane out (`OpenSidebar`) if nothing has yet: the
+   * desktop's right column and the phone's bottom view both start it here.
+   */
+  sidebars_startRightSidebar: act(({ context, enqueue }) => {
+    if (context.rightSidebarStarting || selectRightSidebarPane(context)) return;
+    enqueue(
+      sendTo('tmux', {
+        type: 'SEND_OP' as const,
+        op: TmuxOp.OpenSidebar({ side: 'right', splitFrom: context.activePaneId }),
+      }),
+    );
+    enqueue(assign({ rightSidebarStarting: true, rightSidebarStartFailed: false }));
+    enqueue.raise(
+      { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'right' as const },
+      { delay: SIDEBAR_START_TIMEOUT_MS },
+    );
   }),
 
   sidebars_sidebarStartTimeout: act(({ context, event, enqueue }) => {
@@ -249,7 +258,10 @@ export const sidebarsActions = {
   sidebars_focusRightSidebar: act(({ context, enqueue }) => {
     const pane = selectRightSidebarPane(context);
     if (!pane) return;
-    if (!context.rightSidebarOpen) enqueue(assign({ rightSidebarOpen: true }));
+    // On a phone the dock is the bottom view, not a column to open.
+    if (!context.rightSidebarOpen && !context.phoneLayout) {
+      enqueue(assign({ rightSidebarOpen: true }));
+    }
     enqueue(assign({ rightSidebarFocused: true }));
     enqueue(
       sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: pane.tmuxId }),

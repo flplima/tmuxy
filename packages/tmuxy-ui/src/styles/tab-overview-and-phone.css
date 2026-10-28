@@ -330,10 +330,13 @@
 }
 
 /* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
-   of grid, then tmux's status line as the 25th. Both run edge to edge: the
-   80 columns are cut from the whole width of the screen, so there is no side
-   padding to leave (containerPaddingX in constants/layout.ts). */
+   of grid, then tmux's status line under them. The 80 columns are cut from
+   the screen's width less 4px of padding each side — the grid's outer
+   borders are drawn half a cell outside the panes, and with no padding they
+   were off the screen (PHONE_CONTAINER_PADDING in utils/phoneLayout.ts, the
+   same 4px below). */
 .phone-pty {
+  --phone-zoom: 2;
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
@@ -345,19 +348,48 @@
   flex: none;
 }
 
+/* The box the grid scrolls in when zoomed: the grid's own height, and the
+   grid's size when not. */
+.phone-zoom-viewport {
+  flex: none;
+  height: calc(24 * var(--line-height-terminal) + 4px);
+  overflow: hidden;
+}
+
 .app-body-phone .phone-pty .pane-container {
   flex: none;
   height: calc(24 * var(--line-height-terminal) + 4px);
-  padding: 0 0 4px;
+  padding: 0 4px 4px;
+  box-sizing: border-box;
+  transform-origin: 0 0;
 }
 
 .app-body-phone .phone-pty .pane-layout {
-  inset: 0 0 4px;
+  inset: 0 4px 4px;
 }
 
+/* Zoomed (a double tap, or the key row's zoom key): the grid drawn at twice
+   its size — a transform, so the container still measures the same and tmux
+   is told nothing — and the viewport scrolls around it with the finger
+   (hooks/usePaneTouch.ts leaves the finger to the browser while zoomed). */
+.phone-pty.is-zoomed .phone-zoom-viewport {
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+}
+
+.phone-pty.is-zoomed .pane-container {
+  transform: scale(var(--phone-zoom));
+}
+
+/* tmux's status line, in the chrome's type (PHONE_STATUS_HEIGHT): a terminal
+   row at the phone's cell is too short for the host and the session to be
+   read, let alone tapped. The host at the left edge, the session at the
+   right; in a mode, its chip alone (the hints are written for 80 columns). */
 .phone-pty .tmux-status-bar {
   flex: none;
-  height: var(--line-height-terminal);
+  height: 24px;
 }
 
 .phone-pty .tmux-status-bar-content,
@@ -365,9 +397,74 @@
   padding: 0;
 }
 
+.phone-pty .tmux-statusline-left {
+  flex: none;
+}
+
+.phone-pty .tmux-statusline-center {
+  flex: 0 1 auto;
+}
+
+.phone-pty .tmux-statusline-right {
+  flex: 1 1 auto;
+  justify-content: space-between;
+  gap: 0;
+}
+
+.phone-pty .statusline-host,
+.phone-pty .statusline-session {
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 24px;
+  border-radius: 0;
+}
+
+.phone-pty .statusline-hints {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.phone-pty .statusline-hints > span:not(.statusline-mode) {
+  display: none;
+}
+
+.phone-pty .tmux-command-prompt,
+.phone-pty .tmux-command-input {
+  font-size: 12px;
+  line-height: 24px;
+}
+
+/* Under the keys: the tree, or the dock (PhoneBottomView). */
+.phone-bottom {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}
+
 .phone-tree {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}
+
+/* The dock's pane in the chrome's small type (PhoneBottomView sets the
+   cell): the box it is sized to, and the pane kept to the rows it has. */
+.phone-dock {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 4px;
+  background-color: var(--term-background);
+}
+
+.phone-dock .pane-wrapper {
+  height: 100% !important;
 }

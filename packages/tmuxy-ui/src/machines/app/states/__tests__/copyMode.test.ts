@@ -300,6 +300,44 @@ describe('copyMode state', () => {
     expect(updated.cursorCol).toBe(4); // end of "hello"
   });
 
+  it('a word selected before its row has loaded is selected when the chunk lands', () => {
+    // A finger's hold opens copy mode and selects the word under it in one
+    // breath (hooks/usePaneTouch.ts): no line has arrived yet.
+    const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
+      copyModeStates: {
+        [pid('%1')]: makeCopyState({ lines: new Map(), loadedRanges: [], loading: true }),
+      },
+    });
+    let ctx = sendAndGetContext(actor, {
+      type: 'COPY_MODE_WORD_SELECT',
+      paneId: pid('%1'),
+      row: 0,
+      col: 7,
+    });
+    expect(ctx.copyModeStates[pid('%1')].selectionMode).toBeNull();
+    expect(ctx.copyModeStates[pid('%1')].pendingWordSelection).toEqual({
+      row: 0,
+      col: 7,
+      broad: undefined,
+    });
+
+    ctx = sendAndGetContext(actor, {
+      type: 'COPY_MODE_CHUNK_LOADED',
+      paneId: pid('%1'),
+      // tmux's offsets: 0 is the first visible line, which is absolute row 10.
+      cells: [makeLine('hello world'), makeLine('second line')],
+      start: 0,
+      end: 1,
+      historySize: 10,
+      width: 80,
+    });
+    const updated = ctx.copyModeStates[pid('%1')];
+    expect(updated.pendingWordSelection).toBeUndefined();
+    expect(updated.selectionMode).toBe('char');
+    expect(updated.selectionAnchor).toEqual({ row: 10, col: 6 }); // "world"
+    expect(updated.cursorCol).toBe(10);
+  });
+
   it('COPY_MODE_LINE_SELECT selects entire line', () => {
     const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
       copyModeStates: { [pid('%1')]: makeCopyState() },

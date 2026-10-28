@@ -148,6 +148,7 @@ export function usePaneNativeListeners({
   handleTouchStart,
   handleTouchMove,
   handleTouchEnd,
+  handleTouchCancel,
 }: UsePaneNativeListenersOptions) {
   // Ref to latest handleWheel for the native listener
   const handleWheelRef = useRef(handleWheel);
@@ -160,6 +161,8 @@ export function usePaneNativeListeners({
   handleTouchMoveRef.current = handleTouchMove;
   const handleTouchEndRef = useRef(handleTouchEnd);
   handleTouchEndRef.current = handleTouchEnd;
+  const handleTouchCancelRef = useRef(handleTouchCancel);
+  handleTouchCancelRef.current = handleTouchCancel;
 
   // Native wheel and touch listeners with { passive: false } so preventDefault() works.
   useEffect(() => {
@@ -170,9 +173,12 @@ export function usePaneNativeListeners({
     const touchStartHandler = (e: TouchEvent) => handleTouchStartRef.current(e);
     const touchMoveHandler = (e: TouchEvent) => handleTouchMoveRef.current(e);
     const touchEndHandler = (e: TouchEvent) => handleTouchEndRef.current(e);
+    const touchCancelHandler = () => handleTouchCancelRef.current();
 
     el.addEventListener('wheel', wheelHandler, { passive: false });
-    el.addEventListener('touchstart', touchStartHandler, { passive: true });
+    // passive: false on the start too: a finger resting on text is a hold
+    // (usePaneTouch), not the browser's long press.
+    el.addEventListener('touchstart', touchStartHandler, { passive: false });
     // The rest of the gesture is watched on the WINDOW, not on the pane: the
     // finger lands on a terminal row, and opening the scroll view swaps every
     // row out of the document. A touch whose target has been removed keeps
@@ -186,11 +192,13 @@ export function usePaneNativeListeners({
     // keyboard's hidden input.
     window.addEventListener('touchmove', touchMoveHandler, { passive: false });
     window.addEventListener('touchend', touchEndHandler, { passive: false });
+    window.addEventListener('touchcancel', touchCancelHandler);
     return () => {
       el.removeEventListener('wheel', wheelHandler);
       el.removeEventListener('touchstart', touchStartHandler);
       window.removeEventListener('touchmove', touchMoveHandler);
       window.removeEventListener('touchend', touchEndHandler);
+      window.removeEventListener('touchcancel', touchCancelHandler);
     };
   }, [wrapperRef]);
 }
@@ -209,4 +217,5 @@ interface UsePaneNativeListenersOptions {
   handleTouchStart: (e: TouchEvent) => void;
   handleTouchMove: (e: TouchEvent) => void;
   handleTouchEnd: (e: TouchEvent) => void;
+  handleTouchCancel: () => void;
 }

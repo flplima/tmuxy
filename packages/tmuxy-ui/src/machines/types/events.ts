@@ -101,6 +101,12 @@ export type AppMachineEvent =
     }
   | { type: 'SET_PHONE_LAYOUT'; phone: boolean; landscape: boolean }
   | { type: 'REFIT_GRID' }
+  /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
+  | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
+  | { type: 'SET_PHONE_BOTTOM_VIEW'; view: 'tree' | 'dock' }
+  | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }
+  /** Break the dock's pane out if it does not exist yet (the sidebars slice). */
+  | { type: 'START_RIGHT_SIDEBAR' }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;
