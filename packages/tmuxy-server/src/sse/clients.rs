@@ -18,6 +18,14 @@ pub(super) async fn session_exists(session: &str) -> bool {
     .unwrap_or(false)
 }
 
+/// `tmuxy_core::session::session_count`, off the worker threads for the same
+/// reason.
+pub(super) async fn session_count() -> usize {
+    tokio::task::spawn_blocking(tmuxy_core::session::session_count)
+        .await
+        .unwrap_or(0)
+}
+
 /// The monitor settings this server watches `session` with.
 pub(super) fn monitor_config(session: &str) -> MonitorConfig {
     MonitorConfig {
@@ -61,6 +69,7 @@ pub(super) async fn set_client_size(
         );
         return;
     };
+    let (cols, rows) = tmuxy_core::client_size::clamp_client_size(cols, rows);
     debug!(%session, conn_id, cols, rows, "client set size");
     {
         let mut sessions = state.sessions.write().await;

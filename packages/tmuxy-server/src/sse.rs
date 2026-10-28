@@ -54,28 +54,48 @@ pub struct SessionQuery {
 enum SessionRejection {
     /// A name the server will not write into a command line; a 400.
     Invalid,
+    /// A session that does not exist, when the server already has as many as
+    /// it will create on its own; a 503.
+    TooMany,
 }
 
 impl SessionRejection {
     fn status(&self) -> StatusCode {
         match self {
             Self::Invalid => StatusCode::BAD_REQUEST,
+            Self::TooMany => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
     fn message(&self) -> &'static str {
         match self {
             Self::Invalid => "invalid session name",
+            Self::TooMany => "too many sessions to create another",
         }
     }
 
     /// The same refusal for `POST /commands`, in its error shape.
     fn into_command_failure(self) -> Response {
         let error = match self {
-            Self::Invalid => CommandError::invalid(self.message()),
+            Self::Invalid | Self::TooMany => CommandError::invalid(self.message()),
         };
         command_failure(self.status(), error)
     }
+}
+
+/// How many tmux sessions may exist before `GET /events` stops creating the
+/// one it names. A stream for a session that does not exist has its monitor
+/// create it, and that session and its shell outlive the stream — so a client
+/// cycling through names, one open stream at a time, could fill the machine
+/// with sessions nothing watches. A person switching sessions makes them one
+/// at a time and never nears this; a script that needs more creates them
+/// itself with `new-session` through `POST /commands`.
+pub const MAX_AUTO_CREATED_SESSIONS: usize = 32;
+
+/// Whether a stream may have a session created for it, given how many the
+/// server already has.
+fn may_create_session(existing: usize) -> bool {
+    existing < MAX_AUTO_CREATED_SESSIONS
 }
 
 impl IntoResponse for SessionRejection {
@@ -153,6 +173,23 @@ pub async fn sse_handler(
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
+
+    // A session the server is not already serving may be one the monitor
+    // would have to create; see `MAX_AUTO_CREATED_SESSIONS`. Read-only tmux
+    // calls, and only on that path: a stream for a known session pays nothing.
+    let unknown_here = !state.sessions.read().await.contains_key(&session);
+    if unknown_here
+        && !clients::session_exists(&session).await
+        && !may_create_session(clients::session_count().await)
+    {
+        tracing::warn!(
+            target: "tmuxy_server::sse",
+            %session,
+            limit = MAX_AUTO_CREATED_SESSIONS,
+            "refused an /events stream: the server already has as many sessions as it creates"
+        );
+        return SessionRejection::TooMany.into_response();
+    }
 
     // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);

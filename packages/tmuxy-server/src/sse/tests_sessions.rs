@@ -68,6 +68,25 @@ fn a_server_serves_every_session_name() {
     );
 }
 
+/// A session the monitor would create costs a tmux session and a shell that
+/// outlive the stream, so past a budget of existing sessions the stream is
+/// refused as unavailable — never with the 400 of a malformed name, which
+/// a client is not meant to retry.
+#[test]
+fn a_session_past_the_budget_is_a_503() {
+    assert!(may_create_session(0));
+    assert!(may_create_session(MAX_AUTO_CREATED_SESSIONS - 1));
+    assert!(!may_create_session(MAX_AUTO_CREATED_SESSIONS));
+    assert_eq!(
+        SessionRejection::TooMany.into_response().status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
+        SessionRejection::TooMany.into_command_failure().status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
 /// A name that would end the control-mode command line is refused before
 /// the pin is consulted — it is malformed, not merely someone else's.
 #[test]

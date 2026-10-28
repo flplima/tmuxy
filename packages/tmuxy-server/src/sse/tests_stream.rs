@@ -93,6 +93,36 @@ async fn a_size_for_a_connection_with_no_stream_is_ignored() {
     assert!(resizes.lock().await.is_empty());
 }
 
+/// A viewport below the floor is taken as the floor: a real client whose
+/// grid measured as a sliver mid-load, or a forged 1x1, would otherwise size
+/// the session down to nothing for every client under `smallest`.
+#[tokio::test]
+async fn a_viewport_below_the_floor_is_raised_to_it() {
+    use tmuxy_core::client_size::{MIN_CLIENT_COLS, MIN_CLIENT_ROWS};
+    let state = Arc::new(AppState::new());
+    let resizes = session_with_fake_monitor(&state, "s").await;
+    set_client_size(&state, "s", Some(1), 1, 1).await;
+    assert_eq!(
+        state.sessions.read().await["s"].client_sizes[&1],
+        (MIN_CLIENT_COLS, MIN_CLIENT_ROWS)
+    );
+    // The fake monitor records the resize on its own task.
+    let sent = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if !resizes.lock().await.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(sent.is_ok(), "the floored size never reached the monitor");
+    assert_eq!(
+        *resizes.lock().await,
+        vec![(MIN_CLIENT_COLS, MIN_CLIENT_ROWS)]
+    );
+}
+
 /// The 12-touch bug. `last_resize` is the record of a size that REACHED
 /// tmux, and it was written before anything was sent — so a monitor that
 /// had not registered its command channel yet meant the resize was dropped

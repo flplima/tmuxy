@@ -14,6 +14,18 @@ use serde::{Deserialize, Serialize};
 
 /// The narrowest and shortest grid a fixed size may ask for.
 const MIN_FIXED: (u32, u32) = (10, 5);
+
+/// The smallest viewport a client is taken at its word for. A client whose
+/// grid measured smaller (an element collapsed mid-load, or a forged size)
+/// would otherwise size the session down to nothing for everyone under
+/// `smallest`, and tmux would draw every pane as a sliver.
+pub const MIN_CLIENT_COLS: u32 = 16;
+pub const MIN_CLIENT_ROWS: u32 = 4;
+
+/// A reported viewport, no smaller than the floor.
+pub fn clamp_client_size(cols: u32, rows: u32) -> (u32, u32) {
+    (cols.max(MIN_CLIENT_COLS), rows.max(MIN_CLIENT_ROWS))
+}
 /// The widest and tallest: past this the cells are too small to read anywhere.
 const MAX_FIXED: (u32, u32) = (1000, 500);
 

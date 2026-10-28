@@ -82,6 +82,8 @@ Each client reports the viewport its pane container holds, in cells of the font 
 
 The scaling is the client's: `fittedGridCell` (`tmuxy-ui/src/machines/app/helpers.ts`, over `utils/gridFit.ts`) fits the measured cell to the grid, the same way the phone layout fits 80 columns, and the pane container carries the fitted font. The chrome and the sidebar columns keep the measured cell. Under a fixed size a client also asks for that size, so opening a sidebar re-tiles nothing: in a browser the grid shrinks into the room left, and the desktop app instead widens the OS window by the column (`grow_window`, as far as the screen allows) and narrows it back when the column closes.
 
+A report is taken no smaller than a floor (`MIN_CLIENT_COLS` × `MIN_CLIENT_ROWS` in `client_size.rs`): a grid that measured as a sliver mid-load, or a forged size, must not shrink the session to nothing for every other client under `smallest`.
+
 The desktop app has one client per window, so only a fixed size changes anything there.
 
 ## Key Design Decisions
