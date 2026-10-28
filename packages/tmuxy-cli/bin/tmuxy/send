@@ -25,7 +25,7 @@
 #                      to the question that was on screen.
 #
 # Exit status: 0 when the keys were sent, 1 when the user declined, 2 when the
-# question timed out, the pane went away, or the arguments were wrong.
+# question timed out or the arguments were wrong, 3 when there is no such pane.
 
 set -euo pipefail
 
@@ -58,7 +58,7 @@ Skipping the question:
   set -g @tmuxy-send-ask off            never ask
   set -g @tmuxy-send-allow claude,%3    don't ask these callers or panes
 
-Exit status: 0 sent, 1 declined, 2 timed out, no such pane, or bad usage.
+Exit status: 0 sent, 1 declined, 2 timed out or bad usage, 3 no such pane.
 
 Examples:
   tmuxy pane send ls Enter
@@ -141,11 +141,13 @@ if [ -z "$TARGET" ]; then
   fi
 fi
 
-# The target has to exist before a question is hung on it — a typo'd pane id
-# would otherwise block forever on an option nothing can ever answer.
-if ! resolved="$(_tmux display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)"; then
-  echo "Error: no such pane: $TARGET" >&2
-  exit 2
+# A label (`tmuxy pane run --label`) or a title names the pane; a pane id is
+# taken as it is. The target has to exist before a question is hung on it —
+# a typo'd pane id would otherwise block forever on an option nothing can
+# ever answer.
+TARGET="$(_resolve_target "$TARGET")" || exit $?
+if ! resolved="$(_tmux_read display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)"; then
+  _fail "$EXIT_TARGET" "no such pane: $TARGET"
 fi
 [ -n "$resolved" ] && TARGET="$resolved"
 
@@ -160,7 +162,11 @@ send_keys() {
   else
     _run_safe "send-keys -t $(shquote "$TARGET") -- $(shquote "${KEYS[@]}")"
   fi
-  echo "sent to $TARGET: ${KEYS[*]}"
+  if [ "$JSON_OUT" = true ]; then
+    json_ok "paneId=$(json_string "$TARGET")" "sent=true"
+  else
+    echo "sent to $TARGET: ${KEYS[*]}"
+  fi
 }
 
 if [ "$TARGET" = "$OWN_PANE" ]; then
@@ -278,8 +284,7 @@ while :; do
   # A dead target ends the wait: nothing can answer a question on a pane that
   # no longer exists.
   if ! _tmux display-message -p -t "$TARGET" '#{pane_id}' >/dev/null 2>&1; then
-    echo "tmuxy: $TARGET is gone" >&2
-    exit 2
+    _fail "$EXIT_TARGET" "$TARGET is gone"
   fi
 
   case "$(pane_option "$TARGET" @tmuxy-ask-answer)" in
@@ -294,8 +299,7 @@ while :; do
   esac
 
   if [ -n "$deadline" ] && [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "tmuxy: no answer from $TARGET after ${TIMEOUT}s; nothing sent" >&2
-    exit 2
+    _fail 2 "no answer from $TARGET after ${TIMEOUT}s; nothing sent"
   fi
 
   sleep "$POLL_INTERVAL" 2>/dev/null || sleep 1
@@ -307,8 +311,7 @@ cleanup
 trap - EXIT INT TERM
 
 if [ "$answer" = "no" ]; then
-  echo "tmuxy: declined in $TARGET; nothing sent" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "declined in $TARGET; nothing sent"
 fi
 
 send_keys

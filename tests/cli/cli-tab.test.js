@@ -112,8 +112,8 @@ describe('CLI tab subcommands', () => {
 
     test('errors with no argument', () => {
       const { stderr, exitCode } = runCLI(['tab', 'select']);
-      expect(exitCode).toBe(1);
-      expect(stderr).toContain('tab index or @id required');
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain('tab index, @id or name required');
     });
   });
 
@@ -142,7 +142,7 @@ describe('CLI tab subcommands', () => {
 
     test('errors with no name', () => {
       const { stderr, exitCode } = runCLI(['tab', 'rename']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('name required');
     });
 
@@ -190,7 +190,7 @@ describe('CLI tab subcommands', () => {
   describe('tab unknown', () => {
     test('errors on unknown tab subcommand', () => {
       const { stderr, exitCode } = runCLI(['tab', 'unknown']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('Unknown tab command: unknown');
       expect(stderr).toContain('Usage: tmuxy tab <command>');
     });

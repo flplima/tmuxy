@@ -14,7 +14,18 @@ a Rust test fails until it is.
   and `_run_shell` in `bin/tmuxy/_lib` are the way in; read-only calls
   (`display-message -p`, `list-panes`) may run directly. See
   [docs/TMUX.md](../../docs/TMUX.md).
+- **The contract with scripts and agents** (`tmuxy --help`): exit codes
+  0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
+  4 no tmux server · 130 interrupted, and a wait (`pane run --wait`,
+  `pane wait`) exits with the program's own status. `--json` works on every
+  command: a mutation answers `{"ok":true,…}`, a failure
+  `{"ok":false,"error","code"}` on stdout. A target is a pane id or a label
+  (`@tmuxy-label`, else the pane title; `_resolve_target` in `bin/tmuxy/_lib`);
+  an ambiguous label changes nothing. Every pane- and window-scoped command
+  names the caller's pane (`CALLER_T`): tmux would otherwise resolve a
+  target-less command from the CLI's unattached client to the session's
+  current window, not the caller's.
 - **Tests:** `npm run test:cli` (`tests/cli/`, against mock `tmux` and
-  `tmuxy-server` binaries).
+  `tmuxy-server` binaries; `cli-contract.test.js` holds the contract above).
 - **Dev install:** the repo root's `bin/bootstrap` links this `bin/tmuxy-cli` as
   `~/.local/bin/tmuxy`.

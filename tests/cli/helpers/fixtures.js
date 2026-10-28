@@ -13,8 +13,19 @@ const LIST_PANES_OUTPUT = ['%0\t@0\t120\t40\tzsh\t1\t', '%1\t@0\t80\t30\tvim\t0\
   '\n',
 );
 
+// The ninth column, `#{@tmuxy-label}`, is empty on both: no `pane run --label`
+// named them.
 const LIST_PANES_JSON = [
-  { id: '%0', tab: '@0', width: 120, height: 40, command: 'zsh', active: true, title: '' },
+  {
+    id: '%0',
+    tab: '@0',
+    width: 120,
+    height: 40,
+    command: 'zsh',
+    active: true,
+    title: '',
+    label: '',
+  },
   {
     id: '%1',
     tab: '@0',
@@ -23,6 +34,7 @@ const LIST_PANES_JSON = [
     command: 'vim',
     active: false,
     title: 'README.md',
+    label: '',
   },
 ];
 

@@ -64,7 +64,7 @@ describe('CLI run escape hatch', () => {
 
     test('errors with no command', () => {
       const { stderr, exitCode } = runCLI(['run']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('tmux command required');
       expect(stderr).toContain('Usage: tmuxy run <tmux-command>');
     });

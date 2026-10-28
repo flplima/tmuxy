@@ -82,9 +82,16 @@ _tmux() {
 _run_shell() {
   local dir status=0
   dir=$(mktemp -d)
-  _tmux run-shell "{ $1 ; } >$(shquote "$dir/out") 2>$(shquote "$dir/err"); echo \$? >$(shquote "$dir/status")" || status=$?
-  # No status file means run-shell never ran the command; its own status stands.
-  if [ -f "$dir/status" ]; then status=$(cat "$dir/status"); fi
+  _tmux run-shell "{ $1 ; } >$(shquote "$dir/out") 2>$(shquote "$dir/err"); echo \$? >$(shquote "$dir/status")" 2>"$dir/client-err" || status=$?
+  # No status file means run-shell never ran the command; its own status
+  # stands — unless there was no server to run it, which is exit 4.
+  if [ -f "$dir/status" ]; then
+    status=$(cat "$dir/status")
+  elif [ "$status" -ne 0 ] && _no_server_in "$(cat "$dir/client-err")"; then
+    rm -rf "$dir"
+    _fail "$EXIT_NO_SERVER" "no tmux server on socket '$TMUX_SOCKET'"
+  fi
+  if [ -s "$dir/client-err" ]; then cat "$dir/client-err" >&2; fi
   if [ -f "$dir/out" ]; then cat "$dir/out"; fi
   if [ -f "$dir/err" ]; then cat "$dir/err" >&2; fi
   rm -rf "$dir"
@@ -151,6 +158,12 @@ shquote() {
   done
   printf '%s' "${out# }"
 }
+
+# The exit codes, `_fail`/`_die_usage`, JSON answers and `_resolve_target`
+# live in `_contract`, sourced here so every script that has `_lib` has them.
+# Beside THIS file: SCRIPTS_DIR is `$0`'s directory, which is tmuxy-cli's own
+# when it is the one sourcing.
+source "${BASH_SOURCE[0]%/*}/_contract"
 
 # --- The server binary -----------------------------------------------------
 #

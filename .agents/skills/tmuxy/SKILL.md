@@ -33,23 +33,44 @@ tmuxy is a web/desktop UI over a real tmux server. When running inside tmuxy, pa
 tmuxy                           # status and multiplexer info
 tmuxy --json                    # machine-readable status
 tmuxy skill                     # print this guide
-tmuxy pane list --json          # id, tab, width, height, command, active (--all = every tab)
+tmuxy pane list --json          # id, tab, width, height, command, active, label (--all = every tab)
 tmuxy pane split [-h|-v] [--json] # split pane (returns %id or JSON)
+tmuxy pane run --wait -- npm test # run a command in a new pane and exit with ITS status
+tmuxy pane run --label logs -- tail -f x.log  # keep it running; `-t logs` names it from now on
+tmuxy pane wait <target> [--for 10m] # wait for the program in a pane; exit with its status
 tmuxy pane float [opts] [cmd]   # open a float
 tmuxy open <file.md|file.html>  # preview a markdown doc (mermaid too) or a page in this pane; follows the file, ctrl+c closes it
-tmuxy pane capture [%id] --json # read what's on a pane's screen
+tmuxy pane capture [target] [--trim] [--unwrap] [--format text|vt|html] [--json] # a pane's screen
 tmuxy pane send ls Enter        # type into a pane
-tmuxy pane select -U|-D|-L|-R|%id # select pane
-tmuxy pane kill [%id]           # close pane
+tmuxy pane select -U|-D|-L|-R|target # select pane
+tmuxy pane kill [target]        # close pane
 tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy pane group add            # group the current pane (members become header tabs)
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
-tmuxy pane send -t %id <keys...># type into another pane; the user allows it there first (blocks until answered)
+tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a tmux command, routed safely through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
+
+## The contract for scripts
+
+- **Wait, don't poll.** `tmuxy pane run --wait -- <cmd>` returns when the
+  command exits, with its exit status, so a script can branch on it:
+  `if tmuxy pane run --wait -- npm test; then ok; else failed; fi`.
+  `tmuxy pane wait <target>` does the same for a pane that already runs
+  something. Capture the screen afterwards, not in a loop.
+- **Targets:** a pane id (`%3`) or a label — the `@tmuxy-label` set by
+  `pane run --label`, else the pane's title. A label naming no pane or more
+  than one changes nothing and exits 3. A tab is its `@id`, index or name.
+- **`--json` on every command:** queries keep their shape; a mutation answers
+  `{"ok":true,...}` with the ids it made; a failure is
+  `{"ok":false,"error":"…","code":N}` on stdout, N being the exit code.
+- **Exit codes:** 0 ok · 1 failed (tmux refused, user declined, a wait timed
+  out) · 2 bad command line · 3 target not found or ambiguous · 4 no tmux
+  server on the socket · 130 interrupted. A wait passes the program's status
+  through.
 
 ## Personalizing tmuxy
 

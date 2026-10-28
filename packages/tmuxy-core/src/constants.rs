@@ -99,6 +99,11 @@ pub mod tmux_options {
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";
 
+    /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
+    /// accepts as a target in place of the pane id (`_resolve_target` in the
+    /// shell scripts' `_contract`).
+    pub const PANE_LABEL: &str = "@tmuxy-label";
+
     /// Pane-scoped pending confirmation, set by `tmuxy pane send -t` on the pane the
     /// keys are meant for. The value is base64 of a JSON object
     /// (`{token, question, description}`), so the payload survives the

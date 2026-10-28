@@ -34,6 +34,26 @@ TMUXY_VERSION="${TMUXY_VERSION:-0.1.3}"
 source "$SCRIPTS_DIR/_lib"
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
+# The real stdout, for a JSON failure raised inside a `$(…)` (`_json_fd`).
+exec 3>&1
+# Interrupted is exit 130, whatever was in progress (a `pane wait`, a send
+# question); the scripts' own EXIT traps still run.
+trap 'exit 130' INT
+
+# `--json` anywhere on the line is the output mode, not an argument of the
+# command: it is taken off here so every subcommand reads one switch. The
+# verbs that exec the server binary pass it on (`tmuxy trace --json`).
+_args=()
+for _arg in "$@"; do
+  if [ "$_arg" = --json ] || [ "$_arg" = -j ]; then
+    JSON_OUT=true
+  else
+    _args+=("$_arg")
+  fi
+done
+set -- ${_args[@]+"${_args[@]}"}
+unset _args _arg
+
 # Where a target-less command lands. Inside a pane, tmux reads the caller's
 # $TMUX_PANE and every `splitw`, `breakp` and `#{pane_id}` resolves from it.
 # From OUTSIDE (a script, a test, an SSH agent) an unattached client has no
@@ -62,6 +82,16 @@ if [ -z "${TMUX_PANE:-}" ] && [ "${1:-}" != agent ]; then
   fi
 fi
 
+# The caller's pane as an explicit target for every pane-scoped command, and
+# its window for every window-scoped one (tmux takes a pane id for both).
+# TMUX_PANE on the inner client is not enough: for an unattached client tmux
+# limits itself to the SESSION holding that pane and then takes the session's
+# current window and active pane — so `pane split` from a pane whose tab was
+# not the active one split the active tab. Empty when no pane is known, and
+# the command goes target-less as before.
+CALLER_T=""
+[ -z "${TMUX_PANE:-}" ] || CALLER_T=" -t $TMUX_PANE"
+
 # --- JSON output helpers ---
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
@@ -70,7 +100,7 @@ fi
 # pane's title with it — same expression as tmux_formats::APP_PANE_TITLE in
 # packages/tmuxy-core/src/constants.rs; keep the two in step.
 APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
-LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"
+LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t#{@tmuxy-label}'
 LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
 JSON_ESCAPE_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\n/, "\\n", s); gsub(/\r/, "\\r", s); gsub(/\t/, "\\t", s); return s } '
 
@@ -103,12 +133,30 @@ Commands:
 Options:
   -h, --help    Show this help
   -V, --version Show version
-  --json        Output as JSON (with info or root command)
+  --json        Answer in JSON, on every command: queries keep their shape,
+                a mutation is {"ok":true,...} with the ids it made, a failure
+                {"ok":false,"error":"...","code":N} (and the exit code below)
+
+Targets:
+  A pane is named by its tmux id (%3), or by a label: the @tmuxy-label option
+  (tmuxy pane run --label logs) or the pane's title. A label naming no pane,
+  or more than one, changes nothing (exit 3). A tab is its @id, index or name.
+
+Exit codes:
+  0    ok
+  1    failed (tmux refused, the user declined, a wait timed out)
+  2    bad command line (unknown command, bad flag, missing argument)
+  3    target not found, or a label naming more than one pane
+  4    no tmux server on the socket
+  130  interrupted
+  'pane run --wait' and 'pane wait' exit with the program's own status.
 
 Note for AI/LLM agents:
   • Do NOT run raw mutating tmux commands (external new-window/split-window crash control mode).
   • Always route mutations through 'tmuxy pane/tab/run'.
   • Use --json on query commands for unambiguous, parseable output.
+  • Run a command and wait for it with 'tmuxy pane run --wait -- cmd' instead of
+    polling 'pane capture'.
   • Run 'tmuxy skill' to print the full agent instruction guide.
 EOF
 }
@@ -121,21 +169,24 @@ Usage: tmuxy pane <command> [args...]
 Commands:
   list          List all panes [--json] [--all]
   split         Split current pane [-h|-v]
-  kill          Kill a pane [%id]
-  select        Select/focus a pane [-U|-D|-L|-R|%id]
+  run           Run a command in a new pane [--wait] [--label L] -- <cmd...>
+  wait          Wait for the program in a pane to exit <target> [--for 10m]
+  kill          Kill a pane [target]
+  select        Select/focus a pane [-U|-D|-L|-R|target]
   resize        Resize a pane [-U|-D|-L|-R] [n]
   swap          Swap two panes <src> <dst>
   zoom          Toggle pane zoom
   break         Break pane into own tab
-  capture       Capture pane content [%id] [--json]
+  capture       Capture pane content [target] [--trim] [--unwrap] [--format text|vt|html]
   send          Send keys to pane <keys...>
-  state         Declare what the pane is doing <state> [%id]
+  state         Declare what the pane is doing <state> [target]
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
   group         Pane group operations (add, close, switch, next, prev, move, join, leave)
 
-Run 'tmuxy pane <command> --help' for details.
+A target is a pane id (%3) or a label (see 'tmuxy --help'); the default is
+the pane this runs in. Run 'tmuxy pane <command> --help' for details.
 EOF
 }
 
@@ -268,7 +319,12 @@ EOF
 
 source "$SCRIPTS_DIR/cli-info.sh"
 source "$SCRIPTS_DIR/cli-pane.sh"
+source "$SCRIPTS_DIR/cli-pane-run.sh"
 source "$SCRIPTS_DIR/cli-commands.sh"
+
+# The verbs below that exec the server binary hand `--json` back to it.
+server_json=()
+[ "$JSON_OUT" != true ] || server_json=(--json)
 
 # --- Main dispatcher ---
 
@@ -328,18 +384,18 @@ CEOF
   server)
     shift
     find_server_cmd
-    exec "${SERVER_CMD[@]}" "$@"
+    exec "${SERVER_CMD[@]}" "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
   trace)
     shift
     # Inspect/export a local action-trace file (docs/TRACING.md).
-    if [ "$1" = "check" ] || [ "$1" = "health" ]; then
+    if [ "${1:-}" = "check" ] || [ "${1:-}" = "health" ]; then
       shift
       find_server_cmd
-      exec "${SERVER_CMD[@]}" trace --health "$@"
+      exec "${SERVER_CMD[@]}" trace --health "$@" ${server_json[@]+"${server_json[@]}"}
     fi
     find_server_cmd
-    exec "${SERVER_CMD[@]}" trace "$@"
+    exec "${SERVER_CMD[@]}" trace "$@" ${server_json[@]+"${server_json[@]}"}
     ;;
   config)
     shift
@@ -357,12 +413,12 @@ CEOF
     shift
     cmd_agent "$@"
     ;;
-  --json|-j)
-    shift
-    cmd_info --json "$@"
-    ;;
   --version|-V|version)
-    echo "tmuxy $TMUXY_VERSION"
+    if [ "$JSON_OUT" = true ]; then
+      json_ok "version=$(json_string "$TMUXY_VERSION")"
+    else
+      echo "tmuxy $TMUXY_VERSION"
+    fi
     ;;
   gui)
     shift
@@ -373,15 +429,20 @@ CEOF
     usage
     ;;
   "")
-    cmd_info
-    echo ""
-    usage
+    # `tmuxy --json` is the status, as a bare `tmuxy` is.
+    if [ "$JSON_OUT" = true ]; then
+      cmd_info
+    else
+      cmd_info
+      echo ""
+      usage
+    fi
     ;;
   *)
-    echo "Unknown command: $1" >&2
-    echo "Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill' for the AI agent guide." >&2
-    usage >&2
-    exit 1
+    if [ "$JSON_OUT" != true ]; then
+      echo "Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill' for the AI agent guide." >&2
+    fi
+    _die_usage "Unknown command: $1" usage
     ;;
 esac
 

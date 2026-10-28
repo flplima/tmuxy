@@ -169,7 +169,7 @@ describe('CLI pane group subcommands', () => {
   describe('pane group unknown', () => {
     test('errors on unknown group subcommand', () => {
       const { stderr, exitCode } = runCLI(['pane', 'group', 'badcmd']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('Unknown group command: badcmd');
       expect(stderr).toContain('Usage: tmuxy pane group <command>');
     });

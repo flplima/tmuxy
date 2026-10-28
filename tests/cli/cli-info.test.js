@@ -122,7 +122,7 @@ describe('CLI info and skill commands', () => {
 
     test('unknown command prints actionable hint for agents', () => {
       const { stderr, exitCode } = runCLI(['badcommand']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('Unknown command: badcommand');
       expect(stderr).toContain("Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill'");
     });

@@ -32,6 +32,13 @@ if [ "${1:-}" = "-L" ] || [ "${1:-}" = "-S" ]; then
   shift 2
 fi
 
+# No server on the socket: what tmux says, on every command, when nothing
+# listens there. The CLI turns it into exit 4.
+if [ -n "${MOCK_TMUX_NO_SERVER:-}" ]; then
+  echo "no server running on /tmp/tmux-1000/tmuxy" >&2
+  exit 1
+fi
+
 # Handle stdin for load-buffer (`load-buffer [-b name] -`): kept in
 # MOCK_TMUX_BUFFER_FILE when a test wants to read what was loaded.
 if [ "${1:-}" = "load-buffer" ] && [ "${!#}" = "-" ]; then
@@ -49,6 +56,14 @@ case "${1:-}" in
       [ -n "${MOCK_TMUX_CALLER_PANES:-}" ] && printf '%b\n' "$MOCK_TMUX_CALLER_PANES"
       exit "$exit_code"
     fi
+    # `_resolve_target` asks every pane for its label and title:
+    # `id<TAB>label<TAB>title<TAB>session:index` per line (MOCK_TMUX_LABELS).
+    case "$*" in
+      *'#{@tmuxy-label}'*'#{pane_title}'*)
+        [ -n "${MOCK_TMUX_LABELS:-}" ] && printf '%b\n' "$MOCK_TMUX_LABELS"
+        exit "$exit_code"
+        ;;
+    esac
     if [ -n "${MOCK_TMUX_LIST_PANES:-}" ]; then
       echo "$MOCK_TMUX_LIST_PANES"
     else
@@ -62,6 +77,13 @@ case "${1:-}" in
     fi
     ;;
   list-windows)
+    # `_resolve_tab`: `id<TAB>name<TAB>session` per line (MOCK_TMUX_TAB_NAMES).
+    case "$*" in
+      *'#{window_name}'*'#{session_name}'*)
+        [ -n "${MOCK_TMUX_TAB_NAMES:-}" ] && printf '%b\n' "$MOCK_TMUX_TAB_NAMES"
+        exit "$exit_code"
+        ;;
+    esac
     if [ -n "${MOCK_TMUX_LIST_WINDOWS:-}" ]; then
       echo "$MOCK_TMUX_LIST_WINDOWS"
     else
@@ -94,6 +116,8 @@ case "${1:-}" in
       # `verified_own_pane`: the process in the caller's pane. A test whose
       # caller runs there names an ancestor of the CLI (jest's own pid).
       *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
+      # `pane wait` polls whether the program has exited, and how.
+      *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
       *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
       *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
@@ -124,8 +148,10 @@ case "${1:-}" in
     ;;
   run-shell)
     case "$*" in
-      *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
+      # A list that ends in a `breakp -P` prints the window it made, even
+      # when a `splitw` precedes it (`tab create`).
       *breakp*'-P'*) response="${MOCK_TMUX_BREAK_WINDOW_ID:-@99}" ;;
+      *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
       # A float's command list ends by naming the float's pane and window.
       *"'##{pane_id} ##{window_id}'"*)
         response="${MOCK_TMUX_PANE_ID:-%99} ${MOCK_TMUX_FLOAT_WINDOW_ID:-@98}"
@@ -137,6 +163,12 @@ case "${1:-}" in
     # write what it would have printed, and the status, where the CLI reads
     # them; run-shell itself succeeds.
     dir=$(printf '%s' "$2" | sed -n "s/.*>'\([^']*\)\/out'.*/\1/p")
+    # `pane run` splits off a wrapper script that records the program's exit
+    # status beside itself; MOCK_TMUX_RUN_STATUS plays the program.
+    run_dir=$(printf '%s' "$2" | sed -n "s/.*bash \(\/[^ ']*tmuxy-run\.[^ ']*\)\/run\.sh.*/\1/p")
+    if [ -n "$run_dir" ] && [ -n "${MOCK_TMUX_RUN_STATUS:-}" ]; then
+      echo "$MOCK_TMUX_RUN_STATUS" > "$run_dir/status"
+    fi
     if [ -n "$dir" ]; then
       [ -n "$response" ] && echo "$response" > "$dir/out"
       echo "$exit_code" > "$dir/status"

@@ -48,9 +48,8 @@ changing it.
 EOF
       ;;
     *)
-      echo "Unknown config setting: $setting" >&2
-      echo "Hint: tmuxy config --help" >&2
-      return 1
+      [ "$JSON_OUT" = true ] || echo "Hint: tmuxy config --help" >&2
+      _die_usage "Unknown config setting: $setting"
       ;;
   esac
 }
@@ -62,11 +61,12 @@ EOF
 cmd_config_reload() {
   local conf
   conf="$(tmuxy_config_dir)/tmuxy.conf"
-  if [ ! -f "$conf" ]; then
-    echo "Error: $conf does not exist (start tmuxy once to create it)" >&2
-    return 1
-  fi
+  [ -f "$conf" ] || _fail "$EXIT_FAILED" "$conf does not exist (start tmuxy once to create it)"
   touch "$conf"
+  if [ "$JSON_OUT" = true ]; then
+    json_ok "file=$(json_string "$conf")"
+    return 0
+  fi
   echo "Reloading $conf — the app re-applies it within a second."
 }
 
@@ -76,7 +76,11 @@ cmd_config_use_tmux_conf() {
   state_file="$dir/tmuxy.state.json"
 
   if [ -z "$value" ]; then
-    if state_bool use_tmux_conf; then
+    local on=false
+    state_bool use_tmux_conf && on=true
+    if [ "$JSON_OUT" = true ]; then
+      json_ok "useTmuxConf=$on"
+    elif $on; then
       echo "use-tmux-conf: on  (~/.tmux.conf is sourced, then tmuxy.essentials.conf on top)"
     else
       echo "use-tmux-conf: off (tmuxy uses its own config only)"
@@ -87,10 +91,7 @@ cmd_config_use_tmux_conf() {
   case "$value" in
     on|true|1) value=true ;;
     off|false|0) value=false ;;
-    *)
-      echo "Usage: tmuxy config use-tmux-conf [on|off]" >&2
-      return 1
-      ;;
+    *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
   esac
 
   mkdir -p "$dir"
@@ -111,7 +112,10 @@ cmd_config_use_tmux_conf() {
     printf '{\n  "use_tmux_conf": %s\n}\n' "$value" > "$state_file"
   fi
 
-  if [ "$value" = true ]; then
+  if [ "$JSON_OUT" = true ]; then
+    json_ok "useTmuxConf=$value"
+    return 0
+  elif [ "$value" = true ]; then
     echo "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."
   else
     echo "use-tmux-conf: off — tmuxy will use its own config only."
@@ -122,11 +126,11 @@ cmd_config_use_tmux_conf() {
 # --- Info & Skill ---
 
 cmd_info() {
-  local json=false
+  local json="$JSON_OUT"
   for arg in "$@"; do
     case "$arg" in
       --help|-h) echo "Usage: tmuxy info [--json]"; return ;;
-      --json) json=true ;;
+      *) _die_usage "invalid argument '$arg'" ;;
     esac
   done
 
@@ -198,7 +202,11 @@ cmd_agent() {
   case "$verb" in
     install|uninstall|status)
       find_server_cmd
-      exec "${SERVER_CMD[@]}" agent "$verb" "$@"
+      [ "$JSON_OUT" = true ] || exec "${SERVER_CMD[@]}" agent "$verb" "$@"
+      local out status=0
+      out=$("${SERVER_CMD[@]}" agent "$verb" "$@") || status=$?
+      [ "$status" -eq 0 ] || _fail "$status" "$out"
+      json_ok "output=$(json_string "$out")"
       ;;
     ""|--help|-h)
       cat <<EOF
@@ -221,8 +229,7 @@ Options:
 EOF
       ;;
     *)
-      echo "Unknown agent command: $verb (try 'tmuxy agent --help')" >&2
-      return 1
+      _die_usage "Unknown agent command: $verb (try 'tmuxy agent --help')"
       ;;
   esac
 }
@@ -268,23 +275,44 @@ tmuxy is a web/desktop UI over a real tmux server. When running inside tmuxy, pa
 tmuxy                           # status and multiplexer info
 tmuxy --json                    # machine-readable status
 tmuxy skill                     # print this guide
-tmuxy pane list --json          # id, tab, width, height, command, active (--all = every tab)
+tmuxy pane list --json          # id, tab, width, height, command, active, label (--all = every tab)
 tmuxy pane split [-h|-v] [--json] # split pane (returns %id or JSON)
+tmuxy pane run --wait -- npm test # run a command in a new pane and exit with ITS status
+tmuxy pane run --label logs -- tail -f x.log  # keep it running; `-t logs` names it from now on
+tmuxy pane wait <target> [--for 10m] # wait for the program in a pane; exit with its status
 tmuxy pane float [opts] [cmd]   # open a float
 tmuxy open <file.md|file.html>  # preview a markdown doc (mermaid too) or a page in this pane; follows the file, ctrl+c closes it
-tmuxy pane capture [%id] --json # read what's on a pane's screen
+tmuxy pane capture [target] [--trim] [--unwrap] [--format text|vt|html] [--json] # a pane's screen
 tmuxy pane send ls Enter        # type into a pane
-tmuxy pane select -U|-D|-L|-R|%id # select pane
-tmuxy pane kill [%id]           # close pane
+tmuxy pane select -U|-D|-L|-R|target # select pane
+tmuxy pane kill [target]        # close pane
 tmuxy tab list --json           # tabs; also kill/select/next/prev/rename/layout
 tmuxy tab create [name] [--json]# create tab (returns @id or JSON)
 tmuxy pane group add            # group the current pane (members become header tabs)
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
-tmuxy pane send -t %id <keys...># type into another pane; the user allows it there first (blocks until answered)
+tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a tmux command, routed safely through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
+
+## The contract for scripts
+
+- **Wait, don't poll.** `tmuxy pane run --wait -- <cmd>` returns when the
+  command exits, with its exit status, so a script can branch on it:
+  `if tmuxy pane run --wait -- npm test; then ok; else failed; fi`.
+  `tmuxy pane wait <target>` does the same for a pane that already runs
+  something. Capture the screen afterwards, not in a loop.
+- **Targets:** a pane id (`%3`) or a label — the `@tmuxy-label` set by
+  `pane run --label`, else the pane's title. A label naming no pane or more
+  than one changes nothing and exits 3. A tab is its `@id`, index or name.
+- **`--json` on every command:** queries keep their shape; a mutation answers
+  `{"ok":true,...}` with the ids it made; a failure is
+  `{"ok":false,"error":"…","code":N}` on stdout, N being the exit code.
+- **Exit codes:** 0 ok · 1 failed (tmux refused, user declined, a wait timed
+  out) · 2 bad command line · 3 target not found or ambiguous · 4 no tmux
+  server on the socket · 130 interrupted. A wait passes the program's status
+  through.
 
 ## Personalizing tmuxy
 

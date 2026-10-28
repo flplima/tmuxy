@@ -25,7 +25,7 @@ describe('CLI nav subcommand', () => {
 
   test('an unknown direction is refused, with the usage, and reaches tmux not at all', () => {
     const { stderr, exitCode, tmuxCalls } = runCLI(['nav', 'diagonal']);
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(2);
     expect(stderr).toContain('Unknown direction: diagonal');
     expect(stderr).toContain('Usage: tmuxy nav <direction>');
     expect(tmuxCalls).toHaveLength(0);

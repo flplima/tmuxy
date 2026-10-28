@@ -1,0 +1,70 @@
+#!/usr/bin/awk -f
+# `tmuxy pane capture --format html`: the screen as `capture-pane -e` prints
+# it, with every SGR sequence turned into a span. Colours by class (`fg-N`,
+# `bg-N` for the 256-colour palette) so a page can theme them; a true-colour
+# one is inline. Bold and underline are classes too. Anything else in an
+# escape sequence is dropped.
+BEGIN { print "<pre class=\"tmuxy-capture\">" }
+function esc(s) {
+  gsub(/&/, "\\&amp;", s); gsub(/</, "\\&lt;", s); gsub(/>/, "\\&gt;", s)
+  return s
+}
+function open_span(   cls, style) {
+  cls = ""; style = ""
+  if (bold) cls = cls " bold"
+  if (under) cls = cls " underline"
+  if (fg != "") { if (fg ~ /^rgb/) style = style "color:" fg ";"; else cls = cls " fg-" fg }
+  if (bg != "") { if (bg ~ /^rgb/) style = style "background:" bg ";"; else cls = cls " bg-" bg }
+  if (cls == "" && style == "") return 0
+  printf "<span"
+  if (cls != "") printf " class=\"%s\"", substr(cls, 2)
+  if (style != "") printf " style=\"%s\"", style
+  printf ">"
+  return 1
+}
+function apply(params,   n, p, i) {
+  n = split(params, p, ";")
+  if (n == 0 || params == "") { bold = 0; under = 0; fg = ""; bg = ""; return }
+  for (i = 1; i <= n; i++) {
+    if (p[i] == 0) { bold = 0; under = 0; fg = ""; bg = "" }
+    else if (p[i] == 1) bold = 1
+    else if (p[i] == 4) under = 1
+    else if (p[i] == 22) bold = 0
+    else if (p[i] == 24) under = 0
+    else if (p[i] == 39) fg = ""
+    else if (p[i] == 49) bg = ""
+    else if (p[i] >= 30 && p[i] <= 37) fg = p[i] - 30
+    else if (p[i] >= 90 && p[i] <= 97) fg = p[i] - 82
+    else if (p[i] >= 40 && p[i] <= 47) bg = p[i] - 40
+    else if (p[i] >= 100 && p[i] <= 107) bg = p[i] - 92
+    else if ((p[i] == 38 || p[i] == 48) && p[i + 1] == 5) {
+      if (p[i] == 38) fg = p[i + 2]; else bg = p[i + 2]
+      i += 2
+    } else if ((p[i] == 38 || p[i] == 48) && p[i + 1] == 2) {
+      if (p[i] == 38) fg = "rgb(" p[i + 2] "," p[i + 3] "," p[i + 4] ")"
+      else bg = "rgb(" p[i + 2] "," p[i + 3] "," p[i + 4] ")"
+      i += 4
+    }
+  }
+}
+{
+  line = $0; open = 0
+  while ((at = index(line, "\033[")) > 0) {
+    printf "%s", esc(substr(line, 1, at - 1))
+    rest = substr(line, at + 2)
+    if (match(rest, /^[0-9;]*m/)) {
+      if (open) { printf "</span>"; open = 0 }
+      apply(substr(rest, 1, RLENGTH - 1))
+      open = open_span()
+      line = substr(rest, RLENGTH + 1)
+    } else if (match(rest, /^[0-9;?]*[A-Za-z]/)) {
+      line = substr(rest, RLENGTH + 1)
+    } else {
+      line = rest
+    }
+  }
+  printf "%s", esc(line)
+  if (open) printf "</span>"
+  print ""
+}
+END { print "</pre>" }

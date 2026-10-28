@@ -59,6 +59,10 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-cli/bin/tmuxy/_lib"),
     ),
     (
+        "tmuxy/_contract",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/_contract"),
+    ),
+    (
         "tmuxy/cli-commands.sh",
         include_str!("../../../tmuxy-cli/bin/tmuxy/cli-commands.sh"),
     ),
@@ -69,6 +73,14 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     (
         "tmuxy/cli-pane.sh",
         include_str!("../../../tmuxy-cli/bin/tmuxy/cli-pane.sh"),
+    ),
+    (
+        "tmuxy/cli-pane-run.sh",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-pane-run.sh"),
+    ),
+    (
+        "tmuxy/capture-html",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/capture-html"),
     ),
     (
         "tmuxy/send",

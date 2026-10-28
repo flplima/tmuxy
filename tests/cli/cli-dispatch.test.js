@@ -16,7 +16,7 @@ describe('CLI dispatch', () => {
   // `--help`, `-h` and every subcommand's own usage are cli-help.test.js.
   test('unknown command fails with error', () => {
     const { stderr, exitCode } = runCLI(['foobar', '--flag']);
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(2);
     expect(stderr).toContain('Unknown command: foobar');
     expect(stderr).toContain('Usage: tmuxy <command>');
   });

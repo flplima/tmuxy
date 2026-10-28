@@ -10,7 +10,7 @@ describe('CLI widget subcommands', () => {
   describe('widget unknown', () => {
     test('errors on unknown widget subcommand', () => {
       const { stderr, exitCode } = runCLI(['widget', 'badcmd']);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain('Unknown widget command: badcmd');
       expect(stderr).toContain('Usage: tmuxy widget <command>');
     });

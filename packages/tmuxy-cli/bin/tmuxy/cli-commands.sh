@@ -1,6 +1,48 @@
 #!/usr/bin/env bash
 # Sourced by packages/tmuxy-cli/bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
 
+# A tab to act on: an `@id`, an index or a `session:window` target is handed
+# back as written; anything else is a tab NAME, which must name exactly one
+# window (exit 3 otherwise, with nothing changed).
+# Args: $1=target
+_resolve_tab() {
+  local target="$1" rows matches count
+  case "$target" in
+    @[0-9]* | [0-9]* | \$[0-9]* | %[0-9]* | *:* | '{'*) printf '%s' "$target"; return 0 ;;
+  esac
+  rows="$(_tmux_read list-windows -a -F $'#{window_id}\t#{window_name}\t#{session_name}' 2>/dev/null || true)"
+  matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $3 }')"
+  [ -n "$matches" ] || _fail "$EXIT_TARGET" "no tab named '$target'"
+  count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
+  if [ "$count" -ne 1 ]; then
+    if [ "$JSON_OUT" != true ]; then
+      echo "Error: '$target' names $count tabs; nothing changed. Pass the tab id:" >&2
+      printf '%s\n' "$matches" | awk -F'\t' '{ printf "  %s  (session %s)\n", $1, $2 }' >&2
+      exit "$EXIT_TARGET"
+    fi
+    _fail "$EXIT_TARGET" "'$target' names $count tabs; nothing changed"
+  fi
+  printf '%s' "${matches%%$'\t'*}"
+}
+
+# The tab a command acts on: TAB_ID the one named (`_resolve_tab`), else
+# empty; TAB_T the matching `-t` clause, which is the caller's own window
+# (through its pane id, `CALLER_T`) when none is named.
+# Args: $1=target as written (may be empty)
+_tab_t() {
+  TAB_ID=""
+  TAB_T="$CALLER_T"
+  [ -n "${1:-}" ] || return 0
+  TAB_ID="$(_resolve_tab "$1")" || exit $?
+  TAB_T=" -t $(shquote "$TAB_ID")"
+}
+
+# A mutation's answer: the JSON object under `--json`, else nothing.
+_done() {
+  [ "$JSON_OUT" = true ] || return 0
+  json_ok "$@"
+}
+
 # --- Tab subcommands ---
 
 cmd_tab() {
@@ -9,32 +51,33 @@ cmd_tab() {
 
   case "$sub" in
     list)
-      local json=false
       for arg in "$@"; do
         case "$arg" in
-          --json) json=true ;;
           --help|-h) echo "Usage: tmuxy tab list [--json]"; return ;;
+          *) _die_usage "invalid argument '$arg'" ;;
         esac
       done
-      if $json; then
+      if [ "$JSON_OUT" = true ]; then
         # Include @tmuxy-window-type ($6) so we can drop tmuxy's hidden windows
         # (floats and the sidebars). Keep "tab" and untagged/foreign ("")
         # windows so this still works in a plain (non-tmuxy) session.
         # Tab-separated: window_name is user-controlled free text (tmuxy tab
         # rename), so a comma in it would shift every following field.
-        _tmux list-windows -F "$LIST_WINDOWS_JSON_FMT" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+        local rows
+        rows=$(_tmux_read list-windows -F "$LIST_WINDOWS_JSON_FMT") || exit $?
+        printf '%s\n' "$rows" | \
+          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
-        _tmux list-windows
+        _tmux_read list-windows
       fi
       ;;
 
     create)
-      local name="" json=false
+      local name=""
       for arg in "$@"; do
         case "$arg" in
           --help|-h) echo "Usage: tmuxy tab create [name] [--json]"; return ;;
-          --json) json=true ;;
+          -*) _die_usage "invalid argument '$arg'" ;;
           *) [ -z "$name" ] && name="$arg" ;;
         esac
       done
@@ -48,14 +91,14 @@ cmd_tab() {
       # whichever session tmux last touched (see TMUX_PANE above).
       local out
       if [ -n "$name" ]; then
-        out=$(_run_safe "splitw \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
+        out=$(_run_safe "splitw$CALLER_T \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
       else
-        out=$(_run_safe "splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
+        out=$(_run_safe "splitw$CALLER_T \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
       fi
       local tab_id
       tab_id=$(echo "$out" | grep -o '@[0-9]*' | tail -1 || true)
-      if $json; then
-        printf '{"tabId":"%s"}\n' "${tab_id:-}"
+      if [ "$JSON_OUT" = true ]; then
+        printf '{"ok":true,"tabId":"%s"}\n' "${tab_id:-}"
       elif [ -n "$tab_id" ]; then
         echo "$tab_id"
       fi
@@ -63,44 +106,42 @@ cmd_tab() {
 
     kill)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab kill [@id]"; return ;;
+        --help|-h) echo "Usage: tmuxy tab kill [target]"; return ;;
       esac
-      local target="${1:-}"
-      if [ -n "$target" ]; then
-        _run_safe "killw -t $(shquote "$target")"
-      else
-        _run_safe "killw"
-      fi
+      _tab_t "${1:-}"
+      _run_safe "killw$TAB_T"
+      _done "tabId=$(json_string "$TAB_ID")"
       ;;
 
     select)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab select <index|@id>"; return ;;
-        "") echo "Error: tab index or @id required" >&2; return 1 ;;
+        --help|-h) echo "Usage: tmuxy tab select <index|@id|name>"; return ;;
+        "") _die_usage "tab index, @id or name required" ;;
       esac
-      _run_safe "select-window -t $(shquote "$1")"
+      _tab_t "$1"
+      _run_safe "select-window$TAB_T"
+      _done "tabId=$(json_string "$TAB_ID")"
       ;;
 
-    next)
+    next|prev)
       case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab next"; return ;;
+        --help|-h) echo "Usage: tmuxy tab $sub"; return ;;
       esac
-      _run_safe "next-window"
-      ;;
-
-    prev)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy tab prev"; return ;;
-      esac
-      _run_safe "previous-window"
+      if [ "$sub" = next ]; then
+        _run_safe "next-window$CALLER_T"
+      else
+        _run_safe "previous-window$CALLER_T"
+      fi
+      _done
       ;;
 
     rename)
       case "${1:-}" in
         --help|-h) echo "Usage: tmuxy tab rename <name>"; return ;;
-        "") echo "Error: name required" >&2; return 1 ;;
+        "") _die_usage "name required" ;;
       esac
-      _run_safe "rename-window $(shquote "$1")"
+      _run_safe "rename-window$CALLER_T $(shquote "$1")"
+      _done "name=$(json_string "$1")"
       ;;
 
     layout)
@@ -108,25 +149,21 @@ cmd_tab() {
         --help|-h) echo "Usage: tmuxy tab layout [next|even-h|even-v|main-h|main-v|tiled]"; return ;;
       esac
       local layout="${1:-next}"
-      if [ "$layout" = "next" ]; then
-        _run_safe "next-layout"
-      else
-        _run_safe "select-layout $(shquote "$layout")"
-      fi
+      case "$layout" in
+        next) _run_safe "next-layout$CALLER_T" ;;
+        even-horizontal|even-vertical|main-horizontal|main-vertical|tiled|even-h|even-v|main-h|main-v)
+          _run_safe "select-layout$CALLER_T $(shquote "$layout")" ;;
+        *) _die_usage "invalid layout '$layout'. Use next, even-h, even-v, main-h, main-v or tiled" ;;
+      esac
+      _done "layout=$(json_string "$layout")"
       ;;
 
-    --help|-h)
-      usage_tab
-      ;;
-
-    "")
+    --help|-h|"")
       usage_tab
       ;;
 
     *)
-      echo "Unknown tab command: $sub" >&2
-      usage_tab >&2
-      return 1
+      _die_usage "Unknown tab command: $sub" usage_tab
       ;;
   esac
 }
@@ -158,9 +195,7 @@ cmd_widget() {
       ;;
 
     *)
-      echo "Unknown widget command: $sub" >&2
-      usage_widget >&2
-      return 1
+      _die_usage "Unknown widget command: $sub" usage_widget
       ;;
   esac
 }
@@ -189,7 +224,16 @@ cmd_session() {
     save|snapshots)
       # Reads only (tmux queries and `ps`), safe as a plain subprocess.
       find_server_cmd
-      exec "${SERVER_CMD[@]}" session "$sub" "$@"
+      [ "$JSON_OUT" = true ] || exec "${SERVER_CMD[@]}" session "$sub" "$@"
+      local out status=0
+      out=$("${SERVER_CMD[@]}" session "$sub" "$@") || status=$?
+      [ "$status" -eq 0 ] || _fail "$status" "$out"
+      if [ "$sub" = snapshots ]; then
+        # The binary prints one `name<TAB>saved<TAB>state` per line.
+        printf '%s\n' "$out" | awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NF>0{ if(n++) printf ","; printf "{\"name\":\"%s\",\"saved\":\"%s\",\"state\":\"%s\"}", jstr($1), jstr($2), jstr($3)} END{printf "]\n"}'
+      else
+        json_ok "output=$(json_string "$out")"
+      fi
       ;;
 
     restore)
@@ -206,13 +250,13 @@ cmd_session() {
       local quoted="" arg
       for arg in "$@"; do
         if [ "$arg" = "--run" ] && ! [ -t 0 ]; then
-          echo "Error: --run needs a terminal; without it each command is offered in its pane" >&2
-          return 1
+          _fail "$EXIT_USAGE" "--run needs a terminal; without it each command is offered in its pane"
         fi
         quoted="$quoted $(shquote "$arg")"
       done
       find_server_cmd
       _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted"
+      _done
       ;;
 
     forget)
@@ -225,6 +269,7 @@ cmd_session() {
       for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
       find_server_cmd
       _run_shell "$(shquote "${SERVER_CMD[@]}") session forget$quoted"
+      _done
       ;;
 
     --help|-h)
@@ -236,9 +281,7 @@ cmd_session() {
       ;;
 
     *)
-      echo "Unknown session command: $sub" >&2
-      usage_session >&2
-      return 1
+      _die_usage "Unknown session command: $sub" usage_session
       ;;
   esac
 }
@@ -258,17 +301,13 @@ cmd_nav() {
       local pane_arg="${TMUX_PANE:-}"
       [ -n "$pane_arg" ] || pane_arg='#{pane_id}'
       _run_shell "bash '$SCRIPTS_DIR/nav' $dir $pane_arg"
+      _done "direction=$(json_string "$dir")"
       ;;
-    --help|-h)
-      usage_nav
-      ;;
-    "")
+    --help|-h|"")
       usage_nav
       ;;
     *)
-      echo "Unknown direction: $dir" >&2
-      usage_nav >&2
-      return 1
+      _die_usage "Unknown direction: $dir" usage_nav
       ;;
   esac
 }
@@ -348,7 +387,7 @@ _run_refusal() {
 cmd_run() {
   case "${1:-}" in
     --help|-h) usage_run; return ;;
-    "") echo "Error: tmux command required" >&2; usage_run >&2; return 1 ;;
+    "") _die_usage "tmux command required" usage_run ;;
   esac
 
   local tmux_cmd="$1"
@@ -362,8 +401,7 @@ cmd_run() {
   if [[ "$tmux_cmd" == *[[:space:]]* ]]; then
     local syntax='[;|&$`<>()\\]'
     if [[ "$tmux_cmd" =~ $syntax ]] || [[ "$tmux_cmd" == *$'\n'* ]]; then
-      echo "Error: refused: '$tmux_cmd' holds shell syntax; pass the command's words as arguments" >&2
-      return 1
+      _fail "$EXIT_FAILED" "refused: '$tmux_cmd' holds shell syntax; pass the command's words as arguments"
     fi
     # Its words as that shell will split them, for the checks below.
     while IFS= read -r -d '' word; do words+=("$word"); done < <(printf '%s' "$tmux_cmd" | xargs printf '%s\0')
@@ -372,14 +410,12 @@ cmd_run() {
   fi
   # The command name is one word of a command name and nothing else.
   if ! [[ "${words[0]:-}" =~ ^[a-z][a-z-]*$ ]]; then
-    echo "Error: '$tmux_cmd' is not a tmux command name" >&2
-    return 1
+    _die_usage "'$tmux_cmd' is not a tmux command name"
   fi
   local refusal
   refusal="$(_run_refusal "${words[@]}" "$@")"
   if [ -n "$refusal" ]; then
-    echo "Error: refused: $refusal" >&2
-    return 1
+    _fail "$EXIT_FAILED" "refused: $refusal"
   fi
 
   case "${words[0]}" in
@@ -399,11 +435,20 @@ cmd_run() {
       ;;
 
     resize-window|resizew)
-      echo "Error: resize-window is blocked — it is unreliable with control mode attached (ignored when sent externally). Use resize-pane." >&2
-      return 1
+      _fail "$EXIT_FAILED" "resize-window is blocked — it is unreliable with control mode attached (ignored when sent externally). Use resize-pane."
       ;;
 
     *)
+      if [ "$JSON_OUT" = true ]; then
+        # The command's output and status as one object: what tmux printed
+        # is a string, and a failure is `ok:false` with the exit code it had.
+        local out status=0
+        out=$(_run_safe "$tmux_cmd $(shquote "$@")") || status=$?
+        local ok=true
+        [ "$status" -eq 0 ] || ok=false
+        printf '{"ok":%s,"status":%s,"stdout":%s}\n' "$ok" "$status" "$(json_string "$out")"
+        return "$status"
+      fi
       _run_safe "$tmux_cmd $(shquote "$@")"
       ;;
   esac
@@ -449,6 +494,10 @@ cmd_connect() {
   _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session")"
   _run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$socket")"
 
+  if [ "$JSON_OUT" = true ]; then
+    json_ok "socket=$(json_string "$socket")" "session=$(json_string "$session")"
+    return 0
+  fi
   echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
   echo "No effect in the web UI — the web server's socket is fixed at launch."
 }
