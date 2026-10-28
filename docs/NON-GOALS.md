@@ -4,7 +4,7 @@ This document describes what tmuxy intentionally does NOT do. These are consciou
 
 ## Target Audience
 
-Tmuxy targets **tmux-heavy users** who already know and use tmux. It is not trying to attract users unfamiliar with tmux or replace standalone terminal emulators.
+Tmuxy is for people whose work **runs in tmux** — long-lived sessions, agents left working, a laptop picked up from a phone — whether they know tmux's keys yet or not. The README's "beginner-friendly" means a newcomer can drive it with the mouse, the menus and the key hints and learn the keys as they go; it does not mean tmuxy courts people who do not want tmux at all, and it is not a replacement for a standalone terminal emulator.
 
 ## Core Philosophy
 
