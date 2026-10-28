@@ -434,6 +434,7 @@ pub(super) fn every_other_sse_event() -> Vec<SseEvent> {
             connection_id: 3,
             default_shell: "/bin/zsh".to_string(),
             trace_enabled: true,
+            hostname: "gaphs04".to_string(),
         },
         SseEvent::Error {
             message: "unknown command: frobnicate".to_string(),

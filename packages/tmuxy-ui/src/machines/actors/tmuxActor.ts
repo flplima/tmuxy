@@ -155,7 +155,8 @@ export function createTmuxActor(runtime: AppRuntime) {
       KeyBindings: ({ keybindings }) => parent.send({ type: 'KEYBINDINGS_RECEIVED', keybindings }),
       ThemeSettings: ({ settings }) => themeSettingsReceived(settings),
       CssChanged: () => parent.send({ type: 'CSS_CHANGED' }),
-      ConnectionInfo: ({ defaultShell }) => parent.send({ type: 'CONNECTION_INFO', defaultShell }),
+      ConnectionInfo: ({ defaultShell, hostname }) =>
+        parent.send({ type: 'CONNECTION_INFO', defaultShell, hostname }),
       // OSC 52 clipboard requests from terminal applications.
       Clipboard: ({ paneId, text }) => parent.send({ type: 'TMUX_CLIPBOARD', paneId, text }),
       // `display-message` output: a notice in the snackbar, not an error.

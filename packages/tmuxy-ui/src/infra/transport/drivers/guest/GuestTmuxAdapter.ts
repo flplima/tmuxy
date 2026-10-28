@@ -147,7 +147,7 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     // by the reconnect branch — which skips the initial theme + keybindings fetch
     // that only the `connecting` branch performs. The app already shows connecting
     // feedback via its own `connecting` state until connect() resolves.
-    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash' }));
+    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: null }));
     this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
 
     // reset() serializes on the engine's lifecycle queue: it gives a booted

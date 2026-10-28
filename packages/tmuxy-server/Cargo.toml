@@ -38,6 +38,6 @@ async-stream = "0.3"
 tmuxy-group = { path = "../tmuxy-group" }
 
 [target.'cfg(unix)'.dependencies]
-nix = { workspace = true, features = ["signal"] }
+nix = { workspace = true, features = ["signal", "hostname"] }
 libc = "0.2"
 

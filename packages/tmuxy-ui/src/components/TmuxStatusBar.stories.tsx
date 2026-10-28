@@ -17,17 +17,19 @@ type Story = StoryObj<typeof TmuxStatusBar>;
 
 export const Default: Story = {
   render: () => (
-    <FixtureProvider height={60} fixture={PANES} start="one">
+    <FixtureProvider height={60} fixture={{ ...PANES, hostname: 'gaphs04' }} start="one">
       <TmuxStatusBar />
     </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const bar = await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
-    // Session hostname segment renders even when no live commands have run.
+    // The host segment names the machine the server greeted us from, not
+    // the address the page was opened at.
     const host = bar.querySelector('.statusline-host');
     expect(host).not.toBeNull();
     expect(host).toHaveClass('statusline-clickable');
+    await waitFor(() => expect(host).toHaveTextContent('gaphs04'));
   },
 };
 

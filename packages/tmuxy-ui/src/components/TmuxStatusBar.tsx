@@ -153,6 +153,7 @@ export function TmuxStatusBar() {
   const sessionName = useAppSelector(selectSessionName);
   const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
+  const serverHostname = useAppSelector((ctx) => ctx.serverHostname);
   const keybindings = useAppSelector(selectKeyBindings);
   const prefixActive = useAppSelector(selectPrefixActive);
   const keyTable = useAppSelector(selectKeyTable);
@@ -176,7 +177,7 @@ export function TmuxStatusBar() {
     );
   }
 
-  const hostname = serverHostLabel(servers, currentServerId, isDemo);
+  const hostname = serverHostLabel(servers, currentServerId, isDemo, serverHostname);
 
   // Both ends of the status line open the same switcher (components/
   // SessionMenu): the host and the session name are two halves of "where am

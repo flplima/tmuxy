@@ -79,6 +79,8 @@ export interface AppMachineContext {
   phoneLandscape: boolean;
   /** Default shell name (e.g., "bash", "zsh") from server */
   defaultShell: string;
+  /** The server machine's name, from its greeting; null until it says. */
+  serverHostname: string | null;
 
   /** Container dimensions for centering calculations */
   containerWidth: number;

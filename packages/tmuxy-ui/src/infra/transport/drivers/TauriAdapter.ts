@@ -171,7 +171,12 @@ export class TauriAdapter implements SequencedAdapter {
 
       this.connected = true;
 
-      this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash' }));
+      // The desktop runs the server in-process, so the host name is asked
+      // for rather than read off a greeting.
+      const hostname = await invoke<string>('host_name').catch(() => '');
+      this.events.emit(
+        TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: hostname || null }),
+      );
 
       // Action tracing (docs/TRACING.md): ask the local backend whether it is
       // recording; only then ship our events to it over IPC.

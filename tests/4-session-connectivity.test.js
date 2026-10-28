@@ -4,6 +4,7 @@
  * Session reconnect and multi-client scenarios.
  */
 
+const os = require('os');
 const {
   createTestContext,
   focusPage,
@@ -58,6 +59,20 @@ describe('Scenario 12: Session Reconnect', () => {
       { timeout: 15000, polling: 100 },
     );
     ctx.session.setPage(ctx.page);
+    // The status line says where we are: the machine's own name, which the
+    // server put in its greeting — not `localhost`, the address the page was
+    // opened at, which would read the same from every machine.
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate((host) => {
+          const el = document.querySelector('.tmux-status-bar .statusline-host');
+          const r = el?.getBoundingClientRect();
+          return !!el && el.textContent === host && r.width > 0 && r.height > 0;
+        }, os.hostname()),
+      5000,
+      `the status line to name this machine (${os.hostname()})`,
+    );
     await waitForSessionReady(ctx.page, ctx.session.name, 15000);
 
     // Step 3: Verify preserved

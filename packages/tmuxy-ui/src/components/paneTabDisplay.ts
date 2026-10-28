@@ -12,14 +12,17 @@ import { circledNumber } from '../utils/paneState';
 
 /**
  * The host portion of `host [session]` shown in both the left sidebar title
- * and the bottom status line: `localhost` on this machine (including custom
- * local sockets, which are local servers with no host), or `[user@]host` when
- * attached to an SSH server.
+ * and the bottom status line: the machine's own name on this machine
+ * (including custom local sockets, which are local servers with no host) —
+ * `hostname` is what the server said of itself in its greeting, and
+ * `localhost` stands in until it has — or `[user@]host` when attached to an
+ * SSH server.
  */
 export function serverHostLabel(
   servers: readonly TmuxServer[],
   currentServerId: string | null,
   isDemo?: boolean,
+  hostname: string | null = null,
 ): string {
   if (isDemo) return 'demo@localhost';
   const current = currentServerId ? servers.find((s) => s.id === currentServerId) : undefined;
@@ -27,9 +30,9 @@ export function serverHostLabel(
     if (current.ssh?.host) {
       return current.ssh.user ? `${current.ssh.user}@${current.ssh.host}` : current.ssh.host;
     }
-    return current.label || 'localhost';
+    return current.label || hostname || 'localhost';
   }
-  return 'localhost';
+  return hostname || 'localhost';
 }
 
 const PROCESS_ICONS: Record<string, string> = {

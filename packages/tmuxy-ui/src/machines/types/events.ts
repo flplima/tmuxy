@@ -47,7 +47,7 @@ export type AppMachineEvent =
   | { type: 'TMUX_RECONNECTED' }
   /** A clipboard write; `paneId` is null for the paste-buffer mirror. */
   | { type: 'TMUX_CLIPBOARD'; paneId: PaneId | null; text: string }
-  | { type: 'CONNECTION_INFO'; defaultShell: string }
+  | { type: 'CONNECTION_INFO'; defaultShell: string; hostname: string | null }
   | { type: 'KEYBINDINGS_RECEIVED'; keybindings: KeyBindings }
 
   // Drag events

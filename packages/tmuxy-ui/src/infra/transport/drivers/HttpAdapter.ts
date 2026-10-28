@@ -230,7 +230,10 @@ export class HttpAdapter implements SequencedAdapter {
         }
 
         this.events.emit(
-          TransportEvent.ConnectionInfo({ defaultShell: data.default_shell ?? 'bash' }),
+          TransportEvent.ConnectionInfo({
+            defaultShell: data.default_shell ?? 'bash',
+            hostname: data.hostname || null,
+          }),
         );
 
         this.resolveConnectWaiters();

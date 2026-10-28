@@ -305,6 +305,7 @@ pub fn run() {
             // Local action tracing (docs/TRACING.md): the frontend tracer
             // queries `trace_enabled` and ships batches to `record_trace`.
             commands::trace_enabled,
+            commands::host_name,
             commands::restart_app,
             commands::record_trace,
             // Debug menu: read/flip the trace switch, level, and file.

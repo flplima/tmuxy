@@ -30,6 +30,8 @@ export interface Fixture {
   readonly states: Readonly<Record<string, ServerStateEncoded>>;
   /** The preview document each preview pane read (`read_preview`), by pane id. */
   readonly previews?: Readonly<Record<string, unknown>>;
+  /** What the server says its machine is called, for the status line. */
+  readonly hostname?: string;
 }
 
 /**
@@ -126,7 +128,12 @@ export class FixtureAdapter implements TmuxAdapter {
   }
 
   async connect(): Promise<void> {
-    this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash' }));
+    this.events.emit(
+      TransportEvent.ConnectionInfo({
+        defaultShell: 'bash',
+        hostname: this.fixture.hostname ?? null,
+      }),
+    );
     this.events.emit(TransportEvent.KeyBindings({ keybindings: this.fixture.keybindings }));
   }
 

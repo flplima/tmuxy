@@ -55,6 +55,7 @@ pub async fn set_client_size(
     rows: u32,
 ) -> Result<(), CommandError> {
     let state = windows::monitor_for(&window)?;
+    let (cols, rows) = tmuxy_core::client_size::clamp_client_size(cols, rows);
     // Cache the size so the next run_tmux_command("new-window") can size
     // the broken-out window to match the viewport. Without this the new
     // window inherits the half-width post-`splitw` size and looks tiny.
@@ -415,6 +416,14 @@ pub fn restart_app(app: tauri::AppHandle) {
 #[tauri::command]
 pub fn trace_enabled() -> bool {
     tmuxy_core::trace::is_enabled()
+}
+
+/// The machine's host name, for the status line's host label
+/// (`tmuxy_server::host_name`): the desktop app runs the server in-process,
+/// so there is no greeting to carry it.
+#[tauri::command]
+pub fn host_name() -> String {
+    tmuxy_server::host_name()
 }
 
 /// Everything the Debug menu needs to render itself

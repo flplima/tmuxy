@@ -14,6 +14,8 @@ export type TransportEvent = Data.TaggedEnum<{
   State: { readonly state: ServerState; readonly seq: number | null };
   ConnectionInfo: {
     readonly defaultShell: string;
+    /** The server machine's name; null when the transport cannot say. */
+    readonly hostname: string | null;
   };
   /** The channel dropped (true) or came back (false). */
   Reconnection: { readonly reconnecting: boolean };

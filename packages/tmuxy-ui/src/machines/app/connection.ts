@@ -212,7 +212,9 @@ export const connectionActions = {
   }),
 
   connection_connectionInfo: assignCtx(({ event }) =>
-    event.type === 'CONNECTION_INFO' ? { defaultShell: event.defaultShell } : {},
+    event.type === 'CONNECTION_INFO'
+      ? { defaultShell: event.defaultShell, serverHostname: event.hostname }
+      : {},
   ),
 
   connection_createTab: act(({ enqueue }) => {

@@ -322,6 +322,8 @@ export const ConnectionInfo = Schema.Struct({
   connection_id: Schema.Number,
   default_shell: Schema.optional(Schema.String),
   trace_enabled: Schema.optional(Schema.Boolean),
+  /** The server machine's name, for the status line's host label. */
+  hostname: Schema.optional(Schema.String),
 });
 export type ConnectionInfo = Schema.Schema.Type<typeof ConnectionInfo>;
 

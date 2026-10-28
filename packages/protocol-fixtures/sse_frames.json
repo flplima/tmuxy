@@ -3,6 +3,7 @@
     "data": {
       "connection_id": 3,
       "default_shell": "/bin/zsh",
+      "hostname": "gaphs04",
       "trace_enabled": true
     },
     "event": "connection-info"
