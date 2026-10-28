@@ -51,7 +51,7 @@ const WORK = join(ASSETS, '.bundle-root');
 const ALPINE = 'https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86';
 const ALPINE_TMUX = 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86';
 const APKS = [
-  `${ALPINE}/musl-1.2.5-r12.apk`,
+  `${ALPINE}/musl-1.2.5-r13.apk`,
   `${ALPINE}/bash-5.2.37-r0.apk`,
   `${ALPINE}/readline-8.2.13-r1.apk`,
   `${ALPINE}/ncurses-terminfo-base-6.5_p20250503-r0.apk`,
