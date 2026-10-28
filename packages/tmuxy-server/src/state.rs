@@ -5,6 +5,7 @@ use axum::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use tmuxy_core::client_size::SizePolicy;
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::transport::ImageStore;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -150,8 +151,14 @@ impl Default for SessionBroadcast {
 pub struct SessionConnections {
     /// All connection IDs in order of connection time
     pub connections: Vec<u64>,
-    /// Each client's reported viewport size (cols, rows) for min-size computation
+    /// Each client's reported viewport size (cols, rows), what `size_policy`
+    /// picks the session's size from
     pub client_sizes: HashMap<u64, (u32, u32)>,
+    /// `@tmuxy-size`, as the config last said it
+    pub size_policy: SizePolicy,
+    /// The client that was used last (a command or a size report): whose
+    /// viewport a `latest` session takes
+    pub latest_client: Option<u64>,
     /// Last resize dimensions sent to tmux (to avoid redundant resize commands)
     pub last_resize: Option<(u32, u32)>,
     /// Sender for commands to the session's monitor (resize, etc.)
@@ -175,6 +182,8 @@ impl Default for SessionConnections {
         Self {
             connections: Vec::new(),
             client_sizes: HashMap::new(),
+            size_policy: SizePolicy::default(),
+            latest_client: None,
             last_resize: None,
             monitor_command_tx: None,
             snapshot_keeper: None,
@@ -188,6 +197,17 @@ impl Default for SessionConnections {
 impl SessionConnections {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The size the session should be, by its `@tmuxy-size` policy over the
+    /// clients' viewports. `None` while no client has reported one and the
+    /// size is not fixed.
+    pub fn size(&self) -> Option<(u32, u32)> {
+        let latest = self
+            .latest_client
+            .and_then(|id| self.client_sizes.get(&id).copied());
+        self.size_policy
+            .resolve(self.client_sizes.values().copied(), latest)
     }
 }
 

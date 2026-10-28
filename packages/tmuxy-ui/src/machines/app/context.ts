@@ -16,6 +16,7 @@ import {
 } from '../constants';
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
 import { loadThemeFromStorage } from '../../utils/themeManager';
+import { DEFAULT_SIZE_POLICY } from '../../utils/gridFit';
 
 /**
  * The name of each state slice (a root-level `on` block under ./states/)
@@ -66,6 +67,7 @@ export const FIELD_OWNERS = {
   charHeight: 'parent',
   cellGap: 'parent',
   gridFontSize: 'parent',
+  measuredCell: 'parent',
   phoneLayout: 'parent',
   phoneLandscape: 'parent',
   containerWidth: 'parent',
@@ -150,6 +152,7 @@ export const FIELD_OWNERS = {
   tabOverviewCols: 'uiPrefs',
   gestureFlags: 'uiPrefs',
   nativeMenus: 'uiPrefs',
+  sizePolicy: 'uiPrefs',
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
@@ -184,6 +187,12 @@ export function createInitialContext(): AppMachineContext {
     charHeight: DEFAULT_CHAR_HEIGHT,
     cellGap: 0,
     gridFontSize: null,
+    measuredCell: {
+      charWidth: DEFAULT_CHAR_WIDTH,
+      charHeight: DEFAULT_CHAR_HEIGHT,
+      cellGap: 0,
+      gridFontSize: null,
+    },
     phoneLayout: false,
     phoneLandscape: false,
     defaultShell: 'bash',
@@ -219,6 +228,7 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewCols: 3,
     gestureFlags: { swipeTabs: true, pinchZoom: true, pinchOverview: true },
     nativeMenus: true,
+    sizePolicy: DEFAULT_SIZE_POLICY,
     gesture: null,
     keybindings: null,
     copyModeStates: {},

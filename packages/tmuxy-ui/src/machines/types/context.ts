@@ -1,6 +1,7 @@
 import type { CopyModeState } from '../../domain/copyMode';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
-import type { KeyBindings } from '../../domain/wire';
+import type { KeyBindings, SizePolicy } from '../../domain/wire';
+import type { GridCell } from '../../utils/gridFit';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import type { AskAnswer } from '../../utils/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
@@ -58,9 +59,20 @@ export interface AppMachineContext {
   cellGap: number;
   /**
    * The pane grid's own font size in px when it differs from the chrome's —
-   * the phone layout's shrunken cell (utils/phoneLayout.ts). Null otherwise.
+   * the phone layout's shrunken cell (utils/phoneLayout.ts), or a cell fitted
+   * to a grid `@tmuxy-size` sized for someone else (utils/gridFit.ts). Null
+   * otherwise.
    */
   gridFontSize: number | null;
+  /**
+   * The cell the size actor measured (or cut for the phone), before any fit
+   * to the window's size. `charWidth`/`charHeight`/`cellGap`/`gridFontSize`
+   * are the grid's cell, fitted from this one; the sidebar columns and the
+   * viewport size this client asks tmux for are measured in this one.
+   */
+  measuredCell: GridCell;
+  /** `@tmuxy-size`, from the config: how tmux sizes the session across clients. */
+  sizePolicy: SizePolicy;
   /** The phone layout: the whole 80 × 25 terminal, a key row and the tree below it. */
   phoneLayout: boolean;
   /** The phone layout held sideways: the terminal right, the strip, keys and tree left of it. */

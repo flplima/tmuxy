@@ -334,6 +334,16 @@ export const reconcileModelActions = {
       cols: transformed.totalWidth,
       rows: transformed.totalHeight,
     });
+    // A window sized for another client is drawn in a cell fitted to it.
+    if (context.sizePolicy.mode !== 'smallest') {
+      const before = gridExtent(context.panes, context.activeWindowId, {
+        cols: context.totalWidth,
+        rows: context.totalHeight,
+      });
+      if (before.cols !== grid.cols || before.rows !== grid.rows) {
+        enqueue.raise({ type: 'REFIT_GRID' as const });
+      }
+    }
     const shouldResize =
       context.targetCols > 0 &&
       context.targetRows > 0 &&

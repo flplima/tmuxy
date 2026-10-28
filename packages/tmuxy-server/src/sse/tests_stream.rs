@@ -1,6 +1,6 @@
 use super::tests_sessions::{initial_state_with_viewport, session_with_fake_monitor};
 use super::*;
-use std::collections::HashMap;
+use tmuxy_core::client_size::SizePolicy;
 use tmuxy_core::control_mode::StateEmitter;
 use tokio::sync::broadcast;
 
@@ -324,12 +324,86 @@ async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
     );
 }
 
-/// The viewport the session is sized to is the smallest any client
-/// reports, so nobody gets a pane wider than their window. With no client
-/// reporting one, the 80x24 default stands in.
-#[test]
-fn the_session_is_sized_to_the_smallest_viewport_watching_it() {
-    assert_eq!(compute_min_client_size(&HashMap::new()), (80, 24));
-    let sizes = HashMap::from([(1, (200, 50)), (2, (120, 60)), (3, (150, 30))]);
-    assert_eq!(compute_min_client_size(&sizes), (120, 30));
+/// The resizes the fake monitor has seen once there are `n` of them: it reads
+/// the channel in its own task, so `send` returning does not mean it has.
+async fn resizes_seen(resizes: &tokio::sync::Mutex<Vec<(u32, u32)>>, n: usize) -> Vec<(u32, u32)> {
+    for _ in 0..200 {
+        if resizes.lock().await.len() >= n {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    resizes.lock().await.clone()
+}
+
+/// Two clients, a wide one and a narrow one, watching session `s`.
+async fn two_clients(state: &Arc<AppState>) -> Arc<tokio::sync::Mutex<Vec<(u32, u32)>>> {
+    let resizes = session_with_fake_monitor(state, "s").await;
+    state
+        .sessions
+        .write()
+        .await
+        .get_mut("s")
+        .unwrap()
+        .connections = vec![1, 2];
+    set_client_size(state, "s", Some(1), 200, 50).await;
+    set_client_size(state, "s", Some(2), 80, 60).await;
+    resizes
+}
+
+/// `@tmuxy-size` picks the session's size from the clients' viewports: the
+/// smallest by default, the largest, or a fixed grid no client report moves.
+#[tokio::test]
+async fn the_session_is_sized_by_its_size_policy() {
+    let state = Arc::new(AppState::new());
+    let resizes = two_clients(&state).await;
+    assert_eq!(resizes_seen(&resizes, 2).await, vec![(200, 50), (80, 50)]);
+
+    set_size_policy(&state, "s", SizePolicy::Largest).await;
+    assert_eq!(resizes_seen(&resizes, 3).await[2], (200, 60));
+
+    set_size_policy(
+        &state,
+        "s",
+        SizePolicy::Fixed {
+            cols: 100,
+            rows: 30,
+        },
+    )
+    .await;
+    assert_eq!(resizes_seen(&resizes, 4).await[3], (100, 30));
+
+    // A client resizing its window changes nothing a fixed size says.
+    set_client_size(&state, "s", Some(2), 40, 20).await;
+    cleanup_connection(&state, "s", 1).await;
+    assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
+    assert_eq!(
+        state.sessions.read().await["s"].last_resize,
+        Some((100, 30))
+    );
+}
+
+/// `latest` follows the client used last: the one that reported a size, and
+/// then whichever sends a command.
+#[tokio::test]
+async fn a_latest_session_follows_the_client_used_last() {
+    let state = Arc::new(AppState::new());
+    let resizes = two_clients(&state).await;
+    set_size_policy(&state, "s", SizePolicy::Latest).await;
+    assert_eq!(resizes_seen(&resizes, 3).await[2], (80, 60));
+
+    note_client_activity(&state, "s", Some(1)).await;
+    assert_eq!(resizes_seen(&resizes, 4).await[3], (200, 50));
+
+    // Using the same client again is no resize, and neither is the other
+    // client reporting the size it already had: its grid is not its own size,
+    // so it reports it after every update, and taking that for a use made the
+    // two clients take the session from each other on every frame.
+    note_client_activity(&state, "s", Some(1)).await;
+    set_client_size(&state, "s", Some(2), 80, 60).await;
+    assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
+
+    // A new size from it is a use.
+    set_client_size(&state, "s", Some(2), 90, 40).await;
+    assert_eq!(resizes_seen(&resizes, 5).await[4], (90, 40));
 }

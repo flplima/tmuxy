@@ -29,6 +29,7 @@ import {
 } from '../../../utils/fontSizeManager';
 import { isTauri } from '../../../utils/platform';
 import { applyAppearance } from '../../../utils/appearanceManager';
+import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
@@ -73,8 +74,16 @@ export const uiPrefsActions = {
     }
   }),
 
-  uiPrefs_acceptThemeSettings: act(({ event, enqueue }) => {
+  uiPrefs_acceptThemeSettings: act(({ context, event, enqueue }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
+    const sizePolicy = event.appearance?.size ?? DEFAULT_SIZE_POLICY;
+    if (!sameSizePolicy(sizePolicy, context.sizePolicy)) {
+      enqueue(assign({ sizePolicy }));
+      // The size this client asks for and the cell its grid is drawn in both
+      // follow the policy.
+      enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
+      enqueue.raise({ type: 'REFIT_GRID' as const });
+    }
     // The appearance and the CSS variables have no client-side setting: the
     // config is their only source, so they always apply (and re-apply after
     // a source-file).

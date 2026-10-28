@@ -1,3 +1,4 @@
+pub mod client_size;
 pub mod command_error;
 pub mod constants;
 pub mod control_mode;

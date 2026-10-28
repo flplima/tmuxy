@@ -54,7 +54,7 @@ import { SidebarTree } from './components/SidebarTree';
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
 /** The phone's terminal type, scoped to the terminal so the chrome keeps its own. */
-function phoneTypeStyle(type: { fontSize: number; rowHeight: number } | null): CSSProperties {
+function gridTypeStyle(type: { fontSize: number; rowHeight: number } | null): CSSProperties {
   if (!type) return {};
   return {
     '--tmuxy-font-size': `${type.fontSize}px`,
@@ -165,7 +165,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       // the `.tab-overview-open .pane-layout` rule). A trackpad gesture in
       // progress is drawn the same way, by GestureStage.
       className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
-      style={{ position: 'relative' }}
+      // A grid fitted to a window sized for someone else (`@tmuxy-size`)
+      // carries its own font here; the phone's is on its terminal below.
+      style={{ position: 'relative', ...(phone ? {} : gridTypeStyle(gridType)) }}
     >
       {showLayout && (
         <>
@@ -217,7 +219,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       ref={ptyRef}
       className="phone-pty"
       style={{
-        ...phoneTypeStyle(gridType),
+        ...gridTypeStyle(gridType),
         ...(landscape ? { width: PHONE_COLS * charWidth } : {}),
       }}
     >

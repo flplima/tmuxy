@@ -25,6 +25,8 @@ The context holds all frontend state. Key fields:
 - `paneActivationOrder` — Most-recently-used pane order
 - `paneKeyOverrides` — Real-pane-id → placeholder-id mapping (mirrored from TmuxStore so React keys stay stable across optimistic-placeholder → real-pane id swaps)
 - `charWidth`, `charHeight`, `cellGap` — the cell grid: `charWidth` is the font advance measured once and snapped to a whole device pixel, `cellGap` the letter-spacing that makes text advance by exactly that width; both are published to CSS as `--cell-w` / `--cell-gap` on the app root (see `utils/cellMetrics.ts`, [RICH-RENDERING.md](RICH-RENDERING-CELL-GRID.md#the-cell-grid-invariant))
+- `measuredCell` — the cell the size actor measured (or cut for the phone) before any fit; `charWidth`/`charHeight`/`cellGap`/`gridFontSize` are the grid's cell fitted from it (`fittedGridCell`), and the sidebar columns and `targetCols`/`targetRows` are measured in it
+- `sizePolicy` — the config's `@tmuxy-size` (`smallest`, `largest`, `latest` or a fixed `COLSxROWS`), read with the appearance options. Every mode but `smallest` fits the grid's cell to the window tmux was given; a fixed one is also what `targetCols`/`targetRows` ask for
 - `targetCols`, `targetRows` — Browser viewport in character units
 - `containerWidth`, `containerHeight` — Browser container pixel dimensions
 - `themeName`, `themeMode`, `availableThemes` — Theme settings

@@ -32,7 +32,7 @@ pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
 #[cfg(test)]
-use clients::{compute_min_client_size, set_client_size};
+use clients::{note_client_activity, set_client_size, set_size_policy};
 use commands::command_failure;
 #[cfg(test)]
 use commands::{handle_command, CommandResponse};

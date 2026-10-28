@@ -5,6 +5,7 @@ use tmuxy_core::transport::{self, KeyBindings};
 use tmuxy_core::{CommandError, StateUpdate};
 use tracing::{debug, error, info, warn};
 
+use super::clients::set_size_policy;
 use super::commands::wait_for_monitor;
 use crate::state::{AppState, SessionBroadcast};
 
@@ -231,7 +232,13 @@ pub(super) async fn theme_settings_for(
     session: &str,
 ) -> Result<serde_json::Value, CommandError> {
     let tx = wait_for_monitor(state, session).await?;
-    tmuxy_core::theme::get_theme_settings(&tx).await
+    let settings = tmuxy_core::theme::get_theme_settings(&tx).await?;
+    // The session is sized by the same read the clients scale by.
+    let policy = settings["appearance"]["size"].clone();
+    if let Ok(policy) = serde_json::from_value(policy) {
+        set_size_policy(state, session, policy).await;
+    }
+    Ok(settings)
 }
 
 pub(super) async fn broadcast_theme_settings(state: &Arc<AppState>, session: &str) {

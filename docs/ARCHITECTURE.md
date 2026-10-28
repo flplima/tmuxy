@@ -71,7 +71,18 @@ The user never overrides what the app bundles; they copy a built-in theme to a n
 
 ## Multi-Client Viewport Sizing
 
-Like native tmux, when multiple browser clients connect to the same session, the session is sized to the **smallest client's viewport**. Each client reports its viewport size, the server computes the minimum, and sends a resize command through the monitor's control mode connection. Resize commands must go through control mode — external `tmux resize-window` commands are ignored when a control mode client is attached.
+Each client reports the viewport its pane container holds, in cells of the font it measures. The server sizes the session from those reports by the config's `@tmuxy-size` and sends the resize through the monitor's control-mode connection (external `tmux resize-window` commands are ignored while a control-mode client is attached). The policy is parsed in `tmuxy-core/src/client_size.rs`, read with the appearance options, and applied in `tmuxy-server/src/sse/clients.rs`.
+
+| `@tmuxy-size` | the session is | clients draw it |
+| --- | --- | --- |
+| `smallest` (default) | the smallest viewport, like native tmux | at their measured cell; a larger client leaves blank space |
+| `largest` | the largest viewport | a smaller client scales the grid down to fit |
+| `latest` | the viewport of the client used last: the last to send a command or report a new size | a smaller client scales down to fit |
+| `COLSxROWS` (`80x25`) | that grid, whatever the clients report | every client scales the grid to fill its container, up or down |
+
+The scaling is the client's: `fittedGridCell` (`tmuxy-ui/src/machines/app/helpers.ts`, over `utils/gridFit.ts`) fits the measured cell to the grid, the same way the phone layout fits 80 columns, and the pane container carries the fitted font. The chrome and the sidebar columns keep the measured cell. Under a fixed size a client also asks for that size, so opening a sidebar re-tiles nothing: in a browser the grid shrinks into the room left, and the desktop app instead widens the OS window by the column (`grow_window`, as far as the screen allows) and narrows it back when the column closes.
+
+The desktop app has one client per window, so only a fixed size changes anything there.
 
 ## Key Design Decisions
 

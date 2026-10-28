@@ -8,6 +8,7 @@ import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../d
 import type { DrawerDirection, FloatBackdrop, FloatPaneState, PaneGroup } from '../types/domain';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { Ctx, EnqueueAction } from './actionTypes';
+import { fitGridCell, fixedGridSize, type GridCell } from '../../utils/gridFit';
 
 /** The surfaces that can hold the keyboard away from the tiled panes. */
 export type KeyboardSurface = 'left' | 'right' | 'float';
@@ -56,6 +57,43 @@ export function gridExtent(
     cols: Math.max(...extent.map((p) => p.x + p.width)),
     rows: Math.max(...extent.map((p) => p.y + p.height)),
   };
+}
+
+/**
+ * The grid's cell for this context: the measured cell, fitted to the window
+ * when `@tmuxy-size` sized it for someone else (utils/gridFit.ts). A fixed
+ * size fits the grid it asks for, even before tmux has applied it; the
+ * phone layout keeps its own cut cell.
+ */
+export function fittedGridCell(
+  context: Pick<
+    Ctx,
+    | 'measuredCell'
+    | 'sizePolicy'
+    | 'phoneLayout'
+    | 'panes'
+    | 'activeWindowId'
+    | 'totalWidth'
+    | 'totalHeight'
+    | 'containerWidth'
+    | 'containerHeight'
+    | 'baseFontSize'
+  >,
+): GridCell {
+  if (context.phoneLayout) return context.measuredCell;
+  const grid =
+    fixedGridSize(context.sizePolicy) ??
+    gridExtent(context.panes, context.activeWindowId, {
+      cols: context.totalWidth,
+      rows: context.totalHeight,
+    });
+  return fitGridCell({
+    measured: context.measuredCell,
+    policy: context.sizePolicy,
+    grid,
+    container: { width: context.containerWidth, height: context.containerHeight },
+    fontPx: context.baseFontSize,
+  });
 }
 
 export const STATUS_MESSAGE_DURATION = 5000;

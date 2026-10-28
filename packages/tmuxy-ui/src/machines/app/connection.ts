@@ -7,7 +7,8 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
-import { gridExtent } from './helpers';
+import { fittedGridCell, gridExtent } from './helpers';
+import { fixedGridSize } from '../../utils/gridFit';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 import { TmuxOp } from '../../domain/commands';
 import { memorableSessionName } from '../../domain/sessionNames';
@@ -26,6 +27,7 @@ export const connectionGlobalEvents = {
   SERVERS_UPDATED: { actions: 'connection_serversUpdated' },
   TMUX_CLIPBOARD: { actions: 'connection_tmuxClipboard' },
   SET_CHAR_SIZE: { actions: 'connection_setCharSize' },
+  REFIT_GRID: { actions: 'connection_refitGrid' },
   SET_PHONE_LAYOUT: { actions: 'connection_setPhoneLayout' },
   SET_TARGET_SIZE: { actions: 'connection_setTargetSize' },
   SET_CONTAINER_SIZE: { actions: 'connection_setContainerSize' },
@@ -110,16 +112,19 @@ export const connectionActions = {
     });
   }),
 
-  connection_setCharSize: assignCtx(({ event }) =>
-    event.type === 'SET_CHAR_SIZE'
-      ? {
-          charWidth: event.charWidth,
-          charHeight: event.charHeight,
-          cellGap: event.cellGap,
-          gridFontSize: event.gridFontSize ?? null,
-        }
-      : {},
-  ),
+  connection_setCharSize: assignCtx(({ context, event }) => {
+    if (event.type !== 'SET_CHAR_SIZE') return {};
+    const measuredCell = {
+      charWidth: event.charWidth,
+      charHeight: event.charHeight,
+      cellGap: event.cellGap,
+      gridFontSize: event.gridFontSize ?? null,
+    };
+    return { measuredCell, ...fittedGridCell({ ...context, measuredCell }) };
+  }),
+
+  /** The grid's cell, fitted again: the size policy or the window's size changed. */
+  connection_refitGrid: assignCtx(({ context }) => fittedGridCell(context)),
 
   connection_setPhoneLayout: assignCtx(({ event }) =>
     event.type === 'SET_PHONE_LAYOUT'
@@ -129,8 +134,12 @@ export const connectionActions = {
 
   connection_setTargetSize: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_TARGET_SIZE') return;
-    const cols = context.phoneLayout ? PHONE_COLS : event.cols;
-    const rows = context.phoneLayout ? PHONE_ROWS : event.rows;
+    // A fixed `@tmuxy-size` is what every client asks for, whatever its
+    // container measures: the grid keeps its cols/rows and the cell is
+    // fitted to it instead (utils/gridFit.ts).
+    const fixed = context.phoneLayout ? null : fixedGridSize(context.sizePolicy);
+    const cols = context.phoneLayout ? PHONE_COLS : (fixed?.cols ?? event.cols);
+    const rows = context.phoneLayout ? PHONE_ROWS : (fixed?.rows ?? event.rows);
     enqueue(
       assign({
         targetCols: cols,
@@ -172,11 +181,11 @@ export const connectionActions = {
     }
   }),
 
-  connection_setContainerSize: assignCtx(({ event }) =>
-    event.type === 'SET_CONTAINER_SIZE'
-      ? { containerWidth: event.width, containerHeight: event.height }
-      : {},
-  ),
+  connection_setContainerSize: assignCtx(({ context, event }) => {
+    if (event.type !== 'SET_CONTAINER_SIZE') return {};
+    const container = { containerWidth: event.width, containerHeight: event.height };
+    return { ...container, ...fittedGridCell({ ...context, ...container }) };
+  }),
 
   connection_setBodySize: assignCtx(({ event }) =>
     event.type === 'SET_BODY_SIZE' ? { bodyWidth: event.width } : {},

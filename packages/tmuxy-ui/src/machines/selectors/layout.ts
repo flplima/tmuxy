@@ -198,12 +198,12 @@ export const selectGridDimensions = createMemoizedSelector(
  * scales to. The right column is drawn and its tmux pane sized in these cells.
  */
 export const selectSidebarCellMetrics = createMemoizedSelector(
-  (context: AppMachineContext) =>
-    [context.charWidth, context.cellGap, context.baseFontSize] as const,
+  (context: AppMachineContext) => [context.measuredCell, context.baseFontSize] as const,
   (context: AppMachineContext) => {
     const fontSize = smallFontSize(context.baseFontSize);
+    const { charWidth, cellGap } = context.measuredCell;
     const metrics = sidebarCellMetrics(
-      { charWidth: context.charWidth || DEFAULT_CHAR_WIDTH, cellGap: context.cellGap },
+      { charWidth: charWidth || DEFAULT_CHAR_WIDTH, cellGap },
       context.baseFontSize,
       fontSize,
       typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
@@ -230,6 +230,14 @@ export function selectDockRows(context: AppMachineContext): number {
   );
 }
 
+/**
+ * The cell the font measures, before the grid is fitted to the window
+ * (utils/gridFit.ts): what the sidebar columns are laid out in.
+ */
+export function selectMeasuredCell(context: AppMachineContext) {
+  return context.measuredCell;
+}
+
 export const selectCharSize = createMemoizedSelector(
   (context: AppMachineContext) => ({
     charWidth: context.charWidth,
@@ -253,7 +261,8 @@ export function selectPhoneLandscape(context: AppMachineContext): boolean {
 
 /**
  * The pane grid's own type when it is not the chrome's: on a phone, the font
- * size and row height that fit 80 columns across. Null otherwise.
+ * size and row height that fit 80 columns across; under a `@tmuxy-size` other
+ * than `smallest`, the ones that fit the window tmux was given. Null otherwise.
  */
 export const selectGridType = createMemoizedSelector(
   (context: AppMachineContext) => ({

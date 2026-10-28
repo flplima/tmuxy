@@ -84,8 +84,7 @@ export const selectSidebarLayout = createMemoizedSelector(
     [
       ctx.leftSidebarOpen,
       ctx.rightSidebarOpen,
-      ctx.charWidth,
-      ctx.cellGap,
+      ctx.measuredCell,
       ctx.baseFontSize,
       ctx.windows,
       ctx.sidebarColsPreview,
@@ -93,7 +92,8 @@ export const selectSidebarLayout = createMemoizedSelector(
   (
     context: AppMachineContext,
   ): { leftOpen: boolean; rightOpen: boolean; leftWidth: number; rightWidth: number } => {
-    const charWidth = context.charWidth || DEFAULT_CHAR_WIDTH;
+    // The columns are chrome: measured cells, whatever the grid is fitted to.
+    const charWidth = context.measuredCell.charWidth || DEFAULT_CHAR_WIDTH;
     const draggedCols = (side: 'left' | 'right') => {
       const preview = context.sidebarColsPreview;
       if (preview && preview.side === side) return preview.cols;

@@ -90,6 +90,7 @@ save the file). Opacities are 0.0–1.0; switches take `on`/`off`.
 | `@tmuxy-gesture-pinch-zoom`      | on      | Pinch out zooms a pane, pinch in unzooms it.                        |
 | `@tmuxy-gesture-pinch-overview`  | on      | Pinch in on an unzoomed tab opens the "all tabs" view.              |
 | `@tmuxy-native-menus`            | on      | Desktop app: native menu bar and popups; off keeps the in-app menus. |
+| `@tmuxy-size`                    | smallest | Grid size across clients: `smallest`, `largest`, `latest`, or a fixed `COLSxROWS` (`80x25`). Every size but `smallest` scales each client's grid to fit; a fixed one also keeps its cols/rows when a sidebar opens. |
 | `@tmuxy-css-<variable>`          | —       | One CSS variable, see above.                                        |
 
 A theme or mode picked in the app's menu is stored in `tmuxy.state.json` and

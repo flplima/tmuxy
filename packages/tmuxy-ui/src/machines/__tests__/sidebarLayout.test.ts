@@ -33,7 +33,13 @@ function sidebarWindow(side: 'left' | 'right', extra: Partial<TmuxWindow> = {}):
 }
 
 function ctx(overrides: Partial<AppMachineContext>): AppMachineContext {
-  return { ...createInitialContext(), charWidth: CHAR, ...overrides };
+  const initial = createInitialContext();
+  return {
+    ...initial,
+    measuredCell: { ...initial.measuredCell, charWidth: CHAR },
+    charWidth: CHAR,
+    ...overrides,
+  };
 }
 
 /** The pane container's content width for a body of `bodyWidth` with `dockedPx` taken by columns. */

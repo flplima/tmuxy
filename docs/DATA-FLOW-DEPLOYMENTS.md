@@ -134,7 +134,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model and recommendations.
 - SSE streaming with delta protocol works well over high-latency connections
 - `EventSource` auto-reconnects on brief network drops
 - Multi-client support — multiple browser tabs/devices can connect simultaneously
-- Viewport auto-sizing to the smallest connected client
+- Viewport auto-sizing across clients by `@tmuxy-size` (the smallest by default; the largest, the latest used, or a fixed grid every client scales to fit)
 - Mobile browsers work (touch events are translated to mouse events)
 
 **Limitations:**

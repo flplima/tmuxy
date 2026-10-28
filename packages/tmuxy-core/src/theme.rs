@@ -7,6 +7,7 @@
 //! in lockstep, and keeps every read and write on the control-mode connection
 //! (an external `tmux` while it is attached can crash tmux 3.5a).
 
+use crate::client_size::SizePolicy;
 use crate::constants::tmux_options;
 use crate::control_mode::MonitorCommandSender;
 use crate::executor::tmux_quote;
@@ -55,6 +56,9 @@ pub struct Appearance {
     pub gesture_pinch_overview: bool,
     /// The desktop app draws its menus natively (`@tmuxy-native-menus`).
     pub native_menus: bool,
+    /// How the session is sized across clients (`@tmuxy-size`): the backend
+    /// sizes the window by it, the client scales its grid to fit.
+    pub size: SizePolicy,
 }
 
 /// Widest "all tabs" grid the option accepts; past this a card is too small
@@ -79,6 +83,7 @@ impl Default for Appearance {
             gesture_pinch_zoom: true,
             gesture_pinch_overview: true,
             native_menus: true,
+            size: SizePolicy::Smallest,
         }
     }
 }
@@ -117,7 +122,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
 
 /// Every option the theme settings are read from, in the order the query
 /// prints them.
-const SETTINGS_OPTIONS: [&str; 17] = [
+const SETTINGS_OPTIONS: [&str; 18] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -135,6 +140,7 @@ const SETTINGS_OPTIONS: [&str; 17] = [
     tmux_options::GESTURE_PINCH_ZOOM,
     tmux_options::GESTURE_PINCH_OVERVIEW,
     tmux_options::NATIVE_MENUS,
+    tmux_options::SIZE,
 ];
 
 /// The prefix of the options that each set one CSS variable on the page:
@@ -256,6 +262,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
             defaults.gesture_pinch_overview,
         ),
         native_menus: parse_flag(value(tmux_options::NATIVE_MENUS), defaults.native_menus),
+        size: SizePolicy::parse(value(tmux_options::SIZE)),
     };
     let css_vars = parse_css_vars(lines.iter().copied());
     serde_json::json!({

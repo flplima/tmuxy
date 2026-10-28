@@ -1,4 +1,5 @@
 mod helpers;
+pub mod window_size;
 
 use serde_json::Value;
 use tauri::{Manager, State};

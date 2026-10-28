@@ -11,7 +11,7 @@ use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
 use tracing::trace;
 
-use super::clients::{new_window_client_size, set_client_size};
+use super::clients::{new_window_client_size, note_client_activity, set_client_size};
 use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settings_for};
 pub(super) use super::server_commands::wait_for_monitor;
 use super::server_commands::{
@@ -143,6 +143,7 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::RunTmuxCommand { command } => {
+            note_client_activity(state, session, conn_id).await;
             // Policy and sequence live in tmuxy-core (`run_client_command`)
             // and are shared with the desktop app; only the channel and the
             // re-broadcast after a `source-file` are ours.

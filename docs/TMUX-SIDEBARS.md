@@ -18,7 +18,7 @@ Both sidebars are **chrome windows of exactly the same shape as a float**: a sin
 
 The left column's pane carries **no content**: `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-tree` prints the widget marker and blocks, and the UI renders the registered `tree` widget in place of the pane's terminal, deriving the tree from state it already holds. The pane exists so the column has a real pane identity — something `ctrl+hjkl` and `tmuxy nav` can move into, and the backend can size — rather than being invisible to tmux entirely.
 
-Both columns are always real flex siblings of the pane area, whatever the window's size, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left (`selectSidebarLayout`). A column opens and shuts at once, with no slide; `prefix s` / `prefix S` toggle them.
+Both columns are always real flex siblings of the pane area, whatever the window's size, so an open sidebar shrinks the pane container and tmux re-tiles the panes into what is left (`selectSidebarLayout`). Under a fixed `@tmuxy-size` the grid keeps its cols/rows instead: the desktop window widens by the column, and whatever room that leaves the grid is drawn in a cell fitted to (see Multi-Client Viewport Sizing in [ARCHITECTURE.md](ARCHITECTURE.md)). The columns are always laid out in the measured cell, never the fitted one. A column opens and shuts at once, with no slide; `prefix s` / `prefix S` toggle them.
 
 Neither column draws a header — its title lives in the app header, in a cluster sized to exactly that column's width so the two dividers line up.
 

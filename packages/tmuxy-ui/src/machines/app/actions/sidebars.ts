@@ -12,10 +12,13 @@ import {
   selectLeftSidebarPane,
   selectRightSidebarPane,
   selectSettledPaneWidth,
+  selectSidebarLayout,
 } from '../../selectors/panesAndSidebars';
 import { selectDockRows } from '../../selectors/layout';
 import { calculateTargetSize } from '../../../utils/layout';
 import { releaseKeyboard } from '../helpers';
+import { fixedGridSize } from '../../../utils/gridFit';
+import { fitWindowToSidebar } from '../../../infra/desktopWindow';
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */
 export const SIDEBAR_START_TIMEOUT_MS = 4000;
@@ -26,13 +29,21 @@ const SIDEBAR_PREVIEW_TIMEOUT_MS = 5000;
 /**
  * Tell the grid its size with `side` open or shut, the moment the toggle is
  * made: tmux re-tiles once, for the width the column leaves, rather than after
- * the container's next measure.
+ * the container's next measure. A grid `@tmuxy-size` fixes is not re-tiled:
+ * the desktop window grows by the column instead (and the grid is fitted to
+ * the room left wherever it cannot).
  */
 function retileFor(context: Ctx, enqueue: Enqueue, side: 'left' | 'right', willOpen: boolean) {
+  if (fixedGridSize(context.sizePolicy) && !context.phoneLayout) {
+    const layout = selectSidebarLayout({ ...context, [`${side}SidebarOpen`]: true });
+    const width = side === 'left' ? layout.leftWidth : layout.rightWidth;
+    enqueue(() => fitWindowToSidebar(side, willOpen, width));
+    return;
+  }
   if (context.containerHeight <= 0) return;
   const width = selectSettledPaneWidth({ ...context, [`${side}SidebarOpen`]: willOpen });
   if (width === null) return;
-  const size = calculateTargetSize(context.charWidth, width, context.containerHeight);
+  const size = calculateTargetSize(context.measuredCell.charWidth, width, context.containerHeight);
   enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size });
 }
 

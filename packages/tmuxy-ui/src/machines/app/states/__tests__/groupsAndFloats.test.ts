@@ -124,6 +124,7 @@ describe('groupsAndFloats state', () => {
       containerWidth: 1000,
       containerHeight: 480,
       charWidth: 10,
+      measuredCell: { charWidth: 10, charHeight: 24, cellGap: 0, gridFontSize: null },
       baseFontSize: 15,
       targetCols: 100,
       targetRows: 20,

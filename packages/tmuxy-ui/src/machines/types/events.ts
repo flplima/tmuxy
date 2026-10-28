@@ -100,6 +100,7 @@ export type AppMachineEvent =
       gridFontSize?: number;
     }
   | { type: 'SET_PHONE_LAYOUT'; phone: boolean; landscape: boolean }
+  | { type: 'REFIT_GRID' }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;

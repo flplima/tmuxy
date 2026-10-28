@@ -41,6 +41,7 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
         (tmux_options::BLUR, "off"),
         (tmux_options::TRANSPARENCY, "off"),
         (tmux_options::TAB_OVERVIEW_COLS, "40"),
+        (tmux_options::SIZE, "80x25"),
     ]));
     assert_eq!(settings["theme"], "nord");
     assert_eq!(settings["mode"], DEFAULT_MODE);
@@ -52,6 +53,10 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
         MAX_TAB_OVERVIEW_COLS
     );
     assert_eq!(settings["appearance"]["animations"], true);
+    assert_eq!(
+        settings["appearance"]["size"],
+        serde_json::json!({ "mode": "fixed", "cols": 80, "rows": 25 })
+    );
 
     // A fresh config sets no theme: the theme is the default, not the
     // opacity that happens to be printed next.

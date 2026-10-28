@@ -352,6 +352,17 @@ export type KeyBindings = Schema.Schema.Type<typeof KeyBindings>;
  * Surface opacities, native blur and the other `@tmuxy-*` appearance options,
  * the same on every transport — mirrors `tmuxy_core::theme::Appearance`.
  */
+/**
+ * `@tmuxy-size`: how the session is sized across clients of different
+ * viewports (`tmuxy-core/src/client_size.rs`). Every mode but `smallest`
+ * scales the client's grid to fit the window tmux was given.
+ */
+export const SizePolicy = Schema.Union(
+  Schema.Struct({ mode: Schema.Literal('smallest', 'largest', 'latest') }),
+  Schema.Struct({ mode: Schema.Literal('fixed'), cols: Schema.Number, rows: Schema.Number }),
+);
+export type SizePolicy = Schema.Schema.Type<typeof SizePolicy>;
+
 export const Appearance = Schema.Struct({
   /** Window chrome: title bar, sidebar, the gaps between panes. */
   opacity: Schema.Number,
@@ -382,6 +393,8 @@ export const Appearance = Schema.Struct({
   gesturePinchOverview: Schema.Boolean,
   /** The desktop app draws its menus natively (`@tmuxy-native-menus`); absent from older servers. */
   nativeMenus: Schema.optional(Schema.Boolean),
+  /** `@tmuxy-size`; absent from older servers, which size to the smallest client. */
+  size: Schema.optional(SizePolicy),
 });
 export type Appearance = Schema.Schema.Type<typeof Appearance>;
 

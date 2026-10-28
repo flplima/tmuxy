@@ -21,7 +21,7 @@
 
 import { memo, useCallback, useRef, useState } from 'react';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
-import { selectCharSize, selectSidebarCellMetrics } from '../machines/selectors/layout';
+import { selectMeasuredCell, selectSidebarCellMetrics } from '../machines/selectors/layout';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../machines/constants';
 import { Tooltip } from './Tooltip';
 import type { WindowId } from '../domain/ids';
@@ -40,7 +40,7 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
   width,
 }: SidebarResizeHandleProps) {
   const send = useAppSend();
-  const { charWidth: paneCharWidth } = useAppSelector(selectCharSize);
+  const { charWidth: paneCharWidth } = useAppSelector(selectMeasuredCell);
   const dock = useAppSelector(selectSidebarCellMetrics);
   // The dock is sized in its own (smaller) cells; the tree column in pane cells.
   const charWidth = side === 'right' ? dock.cellWidth : paneCharWidth;

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tmuxy_core::client_size::SizePolicy;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -28,35 +28,22 @@ pub(super) fn monitor_config(session: &str) -> MonitorConfig {
     }
 }
 
-/// Compute the minimum (cols, rows) across all connected clients
-pub(super) fn compute_min_client_size(sizes: &HashMap<u64, (u32, u32)>) -> (u32, u32) {
-    let min_cols = sizes.values().map(|(c, _)| *c).min().unwrap_or(80);
-    let min_rows = sizes.values().map(|(_, r)| *r).min().unwrap_or(24);
-    (min_cols, min_rows)
-}
-
 /// The viewport size a freshly created window should be resized to, or `None`
-/// when no client has reported one yet. Feeds `executor`'s shared rewrite so
-/// the Tauri app and this server can't drift on the rewrite shape.
+/// when there is none yet (no client has reported one and the size is not
+/// fixed). Feeds `executor`'s shared rewrite so the Tauri app and this server
+/// can't drift on the rewrite shape.
 pub(super) async fn new_window_client_size(
     state: &Arc<AppState>,
     session: &str,
 ) -> Option<(u32, u32)> {
     let sessions = state.sessions.read().await;
-    sessions.get(session).and_then(|s| {
-        if s.client_sizes.is_empty() {
-            None
-        } else {
-            Some(compute_min_client_size(&s.client_sizes))
-        }
-    })
+    sessions.get(session).and_then(|s| s.size())
 }
 
-/// Apply a client's viewport: record it, and resize tmux to the minimum across
-/// every client watching. The resize is skipped when that minimum is what was
-/// sent last, which stops a feedback loop between clients of different sizes.
-/// What reached tmux is remembered as `last_resize`, which is also what a
-/// client's first state is held back for (`initial_state_for_size`).
+/// Apply a client's viewport: record it, and size tmux by the session's
+/// `@tmuxy-size` policy over every client watching. A report is a use of the
+/// client when the size is new, so it is also the one a `latest` session
+/// follows.
 #[instrument(skip(state), fields(%session))]
 pub(super) async fn set_client_size(
     state: &Arc<AppState>,
@@ -66,7 +53,7 @@ pub(super) async fn set_client_size(
     rows: u32,
 ) {
     // Without an id we cannot tell one caller's viewport from another's, and
-    // guessing would corrupt the min-size computation for every real client.
+    // guessing would corrupt the size computation for every real client.
     let Some(conn_id) = conn_id else {
         warn!(
             cols,
@@ -75,108 +62,162 @@ pub(super) async fn set_client_size(
         return;
     };
     debug!(%session, conn_id, cols, rows, "client set size");
-    let (min_size, command_tx) = {
+    {
         let mut sessions = state.sessions.write().await;
-        if let Some(session_conns) = sessions.get_mut(session) {
-            // A size counts only for a stream that is open: nothing would
-            // ever remove one for an id no stream owns, and it would pin the
-            // session's size for every real client until they all left.
-            if !session_conns.connections.contains(&conn_id) {
-                warn!(%session, conn_id, "ignoring client size for a connection with no open stream");
-                return;
-            }
-            session_conns.client_sizes.insert(conn_id, (cols, rows));
-            let sizes = &session_conns.client_sizes;
-            let min = compute_min_client_size(sizes);
-            // Skip if the minimum size hasn't changed since the last resize
-            if session_conns.last_resize == Some(min) {
-                return;
-            }
-            debug!(%session, ?sizes, ?min, "all client sizes");
-            // `last_resize` is NOT written here. It is the record of a size
-            // that reached tmux, and it is only known below whether one did:
-            // a monitor that has not registered its command channel yet means
-            // the resize is dropped, and marking it applied made every later
-            // attempt short-circuit on the check above — the client's size
-            // lost for the life of the session, with the window left at the
-            // control-mode PTY's 200x50 while the client drew 41 columns.
-            (Some(min), session_conns.monitor_command_tx.clone())
-        } else {
-            (None, None)
+        let Some(session_conns) = sessions.get_mut(session) else {
+            return;
+        };
+        // A size counts only for a stream that is open: nothing would ever
+        // remove one for an id no stream owns, and it would pin the session's
+        // size for every real client until they all left.
+        if !session_conns.connections.contains(&conn_id) {
+            warn!(%session, conn_id, "ignoring client size for a connection with no open stream");
+            return;
         }
+        // Only a new size is a use of the client. A client whose grid is not
+        // its own size reports the same one again on every update, and
+        // counting that made two clients take a `latest` session from each
+        // other on every frame.
+        let previous = session_conns.client_sizes.insert(conn_id, (cols, rows));
+        if previous != Some((cols, rows)) {
+            session_conns.latest_client = Some(conn_id);
+        }
+    }
+    apply_session_size(state, session).await;
+}
+
+/// A client sent a command: it is the one used last. Under `latest` that
+/// moves the session to its viewport.
+pub(super) async fn note_client_activity(
+    state: &Arc<AppState>,
+    session: &str,
+    conn_id: Option<u64>,
+) {
+    let Some(conn_id) = conn_id else { return };
+    let moved = {
+        let sessions = state.sessions.read().await;
+        sessions
+            .get(session)
+            .is_some_and(|s| s.latest_client != Some(conn_id) && s.connections.contains(&conn_id))
+    };
+    if !moved {
+        return;
+    }
+    let follow = {
+        let mut sessions = state.sessions.write().await;
+        let Some(session_conns) = sessions.get_mut(session) else {
+            return;
+        };
+        session_conns.latest_client = Some(conn_id);
+        session_conns.size_policy == SizePolicy::Latest
+    };
+    if follow {
+        apply_session_size(state, session).await;
+    }
+}
+
+/// The config was read: keep its `@tmuxy-size`, and resize when it changed.
+pub(super) async fn set_size_policy(state: &Arc<AppState>, session: &str, policy: SizePolicy) {
+    let changed = {
+        let mut sessions = state.sessions.write().await;
+        let Some(session_conns) = sessions.get_mut(session) else {
+            return;
+        };
+        let changed = session_conns.size_policy != policy;
+        session_conns.size_policy = policy;
+        changed
+    };
+    if changed {
+        debug!(%session, ?policy, "size policy changed");
+        apply_session_size(state, session).await;
+    }
+}
+
+/// Resize tmux to the size the session's policy picks, unless that is what
+/// was sent last — which stops a feedback loop between clients of different
+/// sizes. What reached tmux is remembered as `last_resize`, which is also
+/// what a client's first state is held back for (`initial_state_for_size`).
+pub(super) async fn apply_session_size(state: &Arc<AppState>, session: &str) {
+    let (size, command_tx) = {
+        let sessions = state.sessions.read().await;
+        let Some(session_conns) = sessions.get(session) else {
+            return;
+        };
+        let Some(size) = session_conns.size() else {
+            return;
+        };
+        if session_conns.last_resize == Some(size) {
+            return;
+        }
+        debug!(%session, sizes = ?session_conns.client_sizes, ?size, policy = ?session_conns.size_policy, "sizing session");
+        // `last_resize` is NOT written here. It is the record of a size that
+        // reached tmux, and it is only known below whether one did: a monitor
+        // that has not registered its command channel yet means the resize is
+        // dropped, and marking it applied made every later attempt
+        // short-circuit on the check above — the client's size lost for the
+        // life of the session, with the window left at the control-mode PTY's
+        // 200x50 while the client drew 41 columns.
+        (size, session_conns.monitor_command_tx.clone())
     };
 
-    if let Some((min_cols, min_rows)) = min_size {
-        debug!(min_cols, min_rows, "resizing to min");
-        let delivered = match command_tx {
-            Some(tx) => {
-                match tx
-                    .send(MonitorCommand::ResizeWindow {
-                        cols: min_cols,
-                        rows: min_rows,
-                    })
-                    .await
-                {
-                    Ok(_) => {
-                        trace!("resize command sent via monitor");
-                        true
-                    }
-                    // The monitor has gone; the next one sizes the session
-                    // from the client sizes it is given, so this one is
-                    // asked for again rather than run behind its back.
-                    Err(e) => {
-                        warn!(error = %e, "monitor channel closed, resize not sent");
-                        false
-                    }
-                }
+    let (cols, rows) = size;
+    let delivered = match command_tx {
+        Some(tx) => match tx.send(MonitorCommand::ResizeWindow { cols, rows }).await {
+            Ok(_) => {
+                trace!("resize command sent via monitor");
+                true
             }
-            None => {
-                // The monitor is still connecting. Leaving `last_resize` unset
-                // is the whole point: the next client size — or the same one
-                // again — has to be able to try, or this size never arrives.
-                debug!("no monitor channel yet, leaving the size to be asked again");
+            // The monitor has gone; the next one sizes the session from the
+            // client sizes it is given, so this one is asked for again rather
+            // than run behind its back.
+            Err(e) => {
+                warn!(error = %e, "monitor channel closed, resize not sent");
                 false
             }
-        };
-        if delivered {
-            let mut sessions = state.sessions.write().await;
-            if let Some(session_conns) = sessions.get_mut(session) {
-                session_conns.last_resize = Some((min_cols, min_rows));
-            }
+        },
+        None => {
+            // The monitor is still connecting. Leaving `last_resize` unset is
+            // the whole point: the next client size — or the same one again —
+            // has to be able to try, or this size never arrives.
+            debug!("no monitor channel yet, leaving the size to be asked again");
+            false
+        }
+    };
+    if delivered {
+        let mut sessions = state.sessions.write().await;
+        if let Some(session_conns) = sessions.get_mut(session) {
+            session_conns.last_resize = Some(size);
         }
     }
 }
 
-/// Remove a connection and resize tmux to remaining clients' minimum viewport
+/// Remove a connection and resize tmux to the clients still watching
 pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
-    let (resize_to, command_tx, needs_deferred_cleanup) = {
+    let (resize, needs_deferred_cleanup) = {
         let mut sessions = state.sessions.write().await;
 
-        let mut resize = None;
-        let mut cmd_tx = None;
+        let mut resize = false;
         let mut deferred = false;
 
         if let Some(session_conns) = sessions.get_mut(session) {
             // Remove this connection
             session_conns.connections.retain(|&id| id != conn_id);
             let had_size = session_conns.client_sizes.remove(&conn_id).is_some();
+            if session_conns.latest_client == Some(conn_id) {
+                session_conns.latest_client = None;
+            }
 
             if session_conns.connections.is_empty() {
                 // Don't immediately kill the monitor — a page reload will reconnect
                 // within a few seconds. Defer cleanup to give new clients a chance.
                 info!(%session, "last client disconnected, deferring monitor cleanup (2s grace period)");
                 deferred = true;
-            } else if had_size && !session_conns.client_sizes.is_empty() {
-                // Recompute minimum size for remaining clients
-                let new_min = compute_min_client_size(&session_conns.client_sizes);
-                // Reset last_resize so the new min will be applied
-                session_conns.last_resize = Some(new_min);
-                resize = Some(new_min);
-                cmd_tx = session_conns.monitor_command_tx.clone();
+            } else {
+                resize = had_size;
             }
         }
 
-        (resize, cmd_tx, deferred)
+        (resize, deferred)
     };
 
     // Defer monitor cleanup: wait 2 seconds, then check if clients reconnected.
@@ -243,15 +284,8 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
         return;
     }
 
-    // Resize tmux session to new minimum viewport
-    if let Some((min_cols, min_rows)) = resize_to {
-        if let Some(tx) = command_tx {
-            let _ = tx
-                .send(MonitorCommand::ResizeWindow {
-                    cols: min_cols,
-                    rows: min_rows,
-                })
-                .await;
-        }
+    // Size the session to the clients still watching.
+    if resize {
+        apply_session_size(state, session).await;
     }
 }

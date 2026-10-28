@@ -176,6 +176,10 @@ pub mod tmux_options {
     /// `on`/`off`: the desktop app draws its menus natively (the macOS menu
     /// bar, native popups everywhere). Off keeps the themed in-app menus.
     pub const NATIVE_MENUS: &str = "@tmuxy-native-menus";
+    /// How the session is sized across clients of different viewports:
+    /// `smallest` (default), `largest`, `latest`, or a fixed `COLSxROWS` —
+    /// see [`crate::client_size::SizePolicy`].
+    pub const SIZE: &str = "@tmuxy-size";
 }
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /

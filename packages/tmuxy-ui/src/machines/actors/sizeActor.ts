@@ -21,6 +21,8 @@ import {
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
   | { type: 'CONNECTED' }
+  /** Send the size again even if unchanged: what the machine asks tmux for has changed. */
+  | { type: 'RESEND_SIZE' }
   | { type: 'REMEASURE' };
 
 export interface SizeActorInput {
@@ -191,7 +193,10 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
 
     receive((event) => {
       if (event.type === 'OBSERVE_CONTAINER') {
-        measureHost = event.element;
+        // Measured beside the container, not in it: the container carries
+        // the grid's own font when it is fitted to the window (App.tsx), and
+        // a cell measured in that font would be fitted again on every pass.
+        measureHost = event.element.parentElement ?? event.element;
         remeasure();
         containerObserver?.disconnect();
         containerObserver = new ResizeObserver((entries) => {
@@ -225,8 +230,8 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
           bodyObserver.observe(body);
         }
       }
-      if (event.type === 'CONNECTED') {
-        // Force re-send size on reconnection
+      if (event.type === 'CONNECTED' || event.type === 'RESEND_SIZE') {
+        // Force re-send size on reconnection, or under a new size policy
         lastCols = 0;
         lastRows = 0;
         updateTargetSize();
