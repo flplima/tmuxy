@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::client_size::SizePolicy;
 use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig};
+use tmuxy_core::session::SessionName;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::state::AppState;
@@ -9,13 +10,14 @@ use crate::state::AppState;
 /// `tmuxy_core::session::session_exists` off the async worker threads (it
 /// runs a synchronous `has-session`, which would otherwise block a tokio
 /// worker). Used by the monitor loop, before its own connection is attached.
+/// A name outside the session alphabet names no session.
 pub(super) async fn session_exists(session: &str) -> bool {
-    let session = session.to_string();
-    tokio::task::spawn_blocking(move || {
-        tmuxy_core::session::session_exists(&session).unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false)
+    let Some(name) = SessionName::parse(session) else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || tmuxy_core::session::session_exists(&name).unwrap_or(false))
+        .await
+        .unwrap_or(false)
 }
 
 /// `tmuxy_core::session::session_count`, off the worker threads for the same

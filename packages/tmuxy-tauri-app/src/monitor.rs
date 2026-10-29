@@ -247,7 +247,8 @@ impl Host for DesktopHost {
     /// A session that cannot be asked about is taken to exist: a restore is
     /// for a session known to be gone, never a guess.
     async fn session_exists(&self, session: &str) -> bool {
-        tmuxy_core::session::session_exists(session).unwrap_or(true)
+        tmuxy_core::session::SessionName::parse(session)
+            .is_none_or(|name| tmuxy_core::session::session_exists(&name).unwrap_or(true))
     }
 
     /// Publish the live command channel so #[tauri::command] handlers can

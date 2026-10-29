@@ -75,6 +75,16 @@ fn session_names_are_held_to_the_alphabet() {
 }
 
 #[test]
+fn a_session_name_is_the_text_it_was_parsed_from() {
+    let name = SessionName::parse("tmuxy_test_1727").expect("a safe name parses");
+    assert_eq!(name.as_str(), "tmuxy_test_1727");
+    assert_eq!(name.to_string(), "tmuxy_test_1727");
+    assert_eq!(&*name, "tmuxy_test_1727");
+    assert_eq!(name.into_string(), "tmuxy_test_1727");
+    assert_eq!(SessionName::parse("a;b"), None);
+}
+
+#[test]
 fn a_css_name_cannot_leave_the_themes_dir_or_end_a_declaration() {
     for ok in ["nord", "my_theme-2", "a"] {
         assert!(is_safe_css_name(ok), "{ok:?}");

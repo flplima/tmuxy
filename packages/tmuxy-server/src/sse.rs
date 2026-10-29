@@ -17,6 +17,7 @@ use serde::Deserialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+use tmuxy_core::session::SessionName;
 use tmuxy_core::CommandError;
 use tokio::sync::broadcast;
 use tracing::{debug, info, trace, warn};
@@ -108,14 +109,11 @@ impl SessionQuery {
     /// The session the request names — the default one when it names none.
     /// The name is written into control-mode command lines, where a newline
     /// (or any control character) would end the command and start another.
-    fn session(self) -> Result<String, SessionRejection> {
+    fn session(self) -> Result<SessionName, SessionRejection> {
         let session = self
             .session
             .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string());
-        if !tmuxy_core::session::is_safe_session_name(&session) {
-            return Err(SessionRejection::Invalid);
-        }
-        Ok(session)
+        SessionName::parse(&session).ok_or(SessionRejection::Invalid)
     }
 }
 
@@ -177,7 +175,7 @@ pub async fn sse_handler(
     // A session the server is not already serving may be one the monitor
     // would have to create; see `MAX_AUTO_CREATED_SESSIONS`. Read-only tmux
     // calls, and only on that path: a stream for a known session pays nothing.
-    let unknown_here = !state.sessions.read().await.contains_key(&session);
+    let unknown_here = !state.sessions.read().await.contains_key(session.as_str());
     if unknown_here
         && !clients::session_exists(&session).await
         && !may_create_session(clients::session_count().await)
@@ -190,6 +188,7 @@ pub async fn sse_handler(
         );
         return SessionRejection::TooMany.into_response();
     }
+    let session = session.into_string();
 
     // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);

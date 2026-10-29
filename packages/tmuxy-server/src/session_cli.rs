@@ -52,8 +52,11 @@ enum SessionVerb {
     },
 }
 
+/// Whether a session by that name runs; a name outside the alphabet names
+/// none (a snapshot file could carry one).
 fn session_exists(name: &str) -> bool {
-    tmuxy_core::session::session_exists(name).unwrap_or(false)
+    tmuxy_core::session::SessionName::parse(name)
+        .is_some_and(|name| tmuxy_core::session::session_exists(&name).unwrap_or(false))
 }
 
 fn dir() -> PathBuf {

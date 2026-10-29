@@ -59,12 +59,12 @@ fn rejection_status(name: Option<&str>) -> StatusCode {
 #[test]
 fn a_server_serves_every_session_name() {
     assert_eq!(
-        query(Some("anything")).session().unwrap(),
-        "anything".to_string()
+        query(Some("anything")).session().unwrap().as_str(),
+        "anything"
     );
     assert_eq!(
-        query(None).session().unwrap(),
-        tmuxy_core::DEFAULT_SESSION_NAME.to_string()
+        query(None).session().unwrap().as_str(),
+        tmuxy_core::DEFAULT_SESSION_NAME
     );
 }
 

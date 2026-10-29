@@ -283,17 +283,53 @@ pub fn is_safe_socket(socket: &str) -> bool {
 /// creates fits, tmux forbids `.` and `:` in any case, and nothing in the
 /// alphabet means anything to a format string, a shell or a command parser.
 pub fn is_safe_session_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'))
+    SessionName::parse(name).is_some()
 }
 
-pub fn session_exists(session_name: &str) -> Result<bool> {
+/// A session name that passed [`is_safe_session_name`]: the only kind that
+/// reaches a tmux command line. Made through [`SessionName::parse`] alone, so
+/// a function taking one needs no check of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SessionName(String);
+
+impl SessionName {
+    /// `name` as a session name, or `None` when it is outside the alphabet.
+    pub fn parse(name: &str) -> Option<Self> {
+        let safe = !name.is_empty()
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'));
+        safe.then(|| Self(name.to_string()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl std::fmt::Display for SessionName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::ops::Deref for SessionName {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Whether tmux has a session called `name`, from a read-only `has-session`.
+pub fn session_exists(name: &SessionName) -> Result<bool> {
     let output = tmux_command()
-        .args(["has-session", "-t", session_name])
+        .args(["has-session", "-t", name.as_str()])
         .output()?;
-    tracing::debug!(session = session_name, exit = ?output.status.code(), "has-session");
+    tracing::debug!(session = %name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
 }
 
