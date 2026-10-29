@@ -31,10 +31,12 @@ type Story = StoryObj<typeof V86AppHarness>;
  */
 export const ClickingTheShownMembersTabTakesTheFocus: Story = {
   args: {
-    // `group add` groups the active pane: the right one, `%1`.
+    // `group add` groups the pane it is typed in: the right one, `%1`. (It
+    // used to group the ACTIVE pane whatever pane typed it, which is the bug
+    // ee39ce0b fixed; a line typed in `%0` would now group `%0`.)
     initCommands: [
-      'send-keys -t %0 -l "tmuxy pane group add && tmux set -g @tmuxy-story-ready 1"',
-      'send-keys -t %0 Enter',
+      'send-keys -t %1 -l "tmuxy pane group add && tmux set -g @tmuxy-story-ready 1"',
+      'send-keys -t %1 Enter',
     ],
     initDoneOption: '@tmuxy-story-ready',
   },

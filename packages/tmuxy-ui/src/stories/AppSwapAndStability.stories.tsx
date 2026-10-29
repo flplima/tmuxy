@@ -216,9 +216,19 @@ export const SwapDragReconcile: Story = {
     await new Promise((r) => setTimeout(r, 1800));
     glitches.assertNoGlitches('drag');
 
-    // And the swap actually stuck (server-confirmed geometry).
+    // And the swap actually stuck (server-confirmed geometry), with each pane
+    // showing its own run again: tmux redraws a swapped pane at its new size,
+    // and on a shared engine that has run other stories the redraw can land
+    // after the glitch window.
     const leftNow = paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
     expect(leftNow).toBe(dst);
+    await waitFor(
+      () => {
+        expect(numbersOf(canvas, src).slice(-1)[0]).toBe(200);
+        expect(numbersOf(canvas, dst).slice(-1)[0]).toBe(640);
+      },
+      { timeout: 20000, interval: 200 },
+    );
 
     // Never rendered out of order during the whole drag, and settled intact.
     expect(sampler.stop(), 'terminal content rendered in wrong lines during drag-swap').toBe(0);
@@ -286,9 +296,20 @@ export const SwapKeepsContentInCorrectLines: Story = {
     // Frame-sample the worst out-of-order break across both panes through the swap.
     const sampler = sampleBreaks(canvas);
 
-    // Swap the two (differently-sized) panes.
+    // Swap the two (differently-sized) panes, and wait for the swap to have
+    // landed: the panes have changed places and each shows its own run again.
+    // A fixed pause was not that wait — on a shared engine that has run other
+    // stories the round trip is slower, and the read below found a pane still
+    // mid-reflow with no numbers in it.
     cmd(`swap-pane -U -t ${bottom}`);
-    await sleep(2200);
+    await waitFor(
+      () => {
+        expect(byTop()).toEqual([bottom, top]);
+        expect(numbersOf(canvas, top).slice(-1)[0]).toBe(200);
+        expect(numbersOf(canvas, bottom).slice(-1)[0]).toBe(640);
+      },
+      { timeout: 20000, interval: 200 },
+    );
 
     // Content must never have rendered out of order at any painted frame.
     expect(sampler.stop(), 'terminal content rendered in wrong lines during swap').toBe(0);
