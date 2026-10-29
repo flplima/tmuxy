@@ -104,7 +104,10 @@ cmd_pane_run() {
   dir=$(mktemp -d /tmp/tmuxy-run.XXXXXX)
   {
     echo '#!/bin/bash'
-    printf '%s\n' "${cmd[*]}"
+    # Each word quoted for the shell again: `sh -c "echo a; sleep 1"` is one
+    # word to the caller and has to reach sh as one.
+    printf '%q ' "${cmd[@]}"
+    echo
     echo 'status=$?'
     echo "echo \$status > $(printf '%q' "$dir/status")"
     if $keep_open; then
@@ -207,7 +210,7 @@ cmd_pane_capture() {
     case "$1" in
       --help|-h)
         cat <<'EOF'
-Usage: tmuxy pane capture [target] [--trim] [--unwrap] [--format text|vt|html] [--json]
+Usage: tmuxy pane capture [-t <target>|<target>] [--trim] [--unwrap] [--format text|vt|html] [--json]
 
 What is on a pane's screen. --trim drops trailing spaces and blank lines;
 --unwrap joins lines the pane wrapped; --format vt keeps the colours as
@@ -215,6 +218,7 @@ escape sequences, html renders them as spans.
 EOF
         return
         ;;
+      -t) [ -n "${2:-}" ] || _die_usage "-t needs a pane or label"; target="$2"; shift 2 ;;
       --trim) trim=true; shift ;;
       --unwrap) flags+=(-J); shift ;;
       --format)

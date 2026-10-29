@@ -5,6 +5,8 @@
  * named on every command that used to go target-less.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 
 // A caller that really runs in pane %1.
@@ -235,6 +237,19 @@ describe('pane run', () => {
     expect(label).toBe("TMUX_PANE=%1 tmux -L tmuxy set-option -p -t %99 @tmuxy-label 'logs'");
   });
 
+  test('the command reaches the wrapper word for word: a quoted word stays one word', () => {
+    const { exitCode, tmuxCalls } = runCLI(
+      ['pane', 'run', '--', 'sh', '-c', 'echo hello from logs; sleep 300'],
+      { env: IN_PANE_1 },
+    );
+    expect(exitCode).toBe(0);
+    const [split] = runShells(tmuxCalls);
+    const wrapper = /'bash (\/tmp\/tmuxy-run\.[^/]+\/run\.sh)'/.exec(split)[1];
+    const script = fs.readFileSync(wrapper, 'utf8');
+    fs.rmSync(path.dirname(wrapper), { recursive: true, force: true });
+    expect(script).toContain('sh -c echo\\ hello\\ from\\ logs\\;\\ sleep\\ 300');
+  });
+
   test('--json: the pane, and with --wait the status', () => {
     const made = runCLI(['pane', 'run', '--json', '--', 'true'], { env: IN_PANE_1 });
     expect(JSON.parse(made.stdout)).toEqual({ ok: true, paneId: '%99' });
@@ -289,6 +304,16 @@ describe('pane capture', () => {
       env: { MOCK_TMUX_CAPTURE: 'one  \ntwo\n\n   \n' },
     });
     expect(stdout).toBe('one\ntwo\n');
+  });
+
+  test('-t names the pane, by id or by label, like every other verb', () => {
+    const byId = runCLI(['pane', 'capture', '-t', '%2']);
+    expect(byId.tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-t', '%2']);
+    const byLabel = runCLI(['pane', 'capture', '-t', 'logs'], {
+      env: { MOCK_TMUX_LABELS: '%1\t\tzsh\tmain:0\n%4\tlogs\tnpm\tmain:1' },
+    });
+    expect(byLabel.tmuxCalls.at(-1).args).toEqual(['capture-pane', '-p', '-t', '%4']);
+    expect(runCLI(['pane', 'capture', '-t']).exitCode).toBe(2);
   });
 
   test('--unwrap and --format vt are capture-pane’s -J and -e', () => {
