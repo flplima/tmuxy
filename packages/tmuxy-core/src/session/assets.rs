@@ -135,6 +135,18 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-preview"),
     ),
     (
+        "tmuxy/tmuxy-widget-browser",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-browser"),
+    ),
+    (
+        "tmuxy/browser.js",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/browser.js"),
+    ),
+    (
+        "tmuxy/browser-lib.js",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/browser-lib.js"),
+    ),
+    (
         "tmuxy/tmuxy-widget-tree",
         include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-tree"),
     ),
