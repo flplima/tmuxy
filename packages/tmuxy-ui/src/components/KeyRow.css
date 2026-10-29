@@ -1,10 +1,10 @@
 /* KeyRow — the phone's extra keys, between the terminal and the tree, in two
-   rows of six so each is a thumb's size. The chrome's own size, whatever the
+   rows of seven so each is a thumb's size. The chrome's own size, whatever the
    terminal's cell shrank to. */
 
 .key-row {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   flex: 0 0 auto;
   gap: 6px;
   padding: 6px 8px;
@@ -25,9 +25,16 @@
   touch-action: manipulation;
 }
 
+/* The arrows are one pad: a finger that lands on one and slides to another
+   must not scroll the page on the way. */
+.key-row-key[data-arrow] {
+  touch-action: none;
+}
+
 /* A latched modifier is inverse video in the theme's accent, like the prefix
    chip; a locked one keeps it with a heavier edge. The zoom key is lit the
-   same way while the terminal is zoomed. */
+   same way while the terminal is zoomed, and the prefix key while the prefix
+   is armed. */
 .key-row-key.is-latched {
   border-color: var(--theme-accent);
   background-color: var(--theme-accent);
@@ -39,8 +46,9 @@
   box-shadow: inset 0 -3px 0 var(--term-black);
 }
 
-/* The app menu at the row's end, a key's size so it is as easy to hit. */
+/* The app menu at the row's end, two keys wide so it is as easy to hit. */
 .key-row .app-menu-button {
+  grid-column: span 2;
   width: 100%;
   height: 40px;
   border: 1px solid var(--border-light);

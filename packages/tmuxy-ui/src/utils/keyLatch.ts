@@ -66,13 +66,21 @@ export function resetLatches(): void {
  */
 export function pressKey(key: string): void {
   const modifiers = takeModifiers();
-  window.dispatchEvent(
-    new KeyboardEvent('keydown', {
-      key,
-      ctrlKey: modifiers?.ctrlKey ?? false,
-      altKey: modifiers?.altKey ?? false,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
+  dispatchKeydown({
+    key,
+    ctrlKey: modifiers?.ctrlKey ?? false,
+    altKey: modifiers?.altKey ?? false,
+  });
+}
+
+/**
+ * Press a chord as given — the prefix key from the bindings — with no latch
+ * taken: it is a whole key of its own, not a key for ctrl or alt to colour.
+ */
+export function pressChord(init: KeyboardEventInit): void {
+  dispatchKeydown(init);
+}
+
+function dispatchKeydown(init: KeyboardEventInit): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }));
 }

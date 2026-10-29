@@ -131,6 +131,35 @@ export function formatTmuxKey(event: KeyboardEvent): string {
   return '';
 }
 
+/** The DOM key a tmux key name stands for: `formatTmuxKey`'s map, inverted. */
+const DOM_KEY_OF: Record<string, string> = Object.fromEntries(
+  Object.entries(KEY_MAP).map(([dom, tmux]) => [tmux, dom]),
+);
+
+/**
+ * The keydown that `formatTmuxKey` would name `name` — the prefix key from
+ * the bindings (`C-a`, `M-Space`, `F12`), pressed from the phone's key row as
+ * though typed. Null for a name no keydown produces.
+ */
+export function keyEventInitOf(name: string): KeyboardEventInit | null {
+  const init = { ctrlKey: false, altKey: false, shiftKey: false };
+  let rest = name;
+  while (
+    rest.length > 2 &&
+    rest[1] === '-' &&
+    (rest[0] === 'C' || rest[0] === 'M' || rest[0] === 'S')
+  ) {
+    if (rest[0] === 'C') init.ctrlKey = true;
+    else if (rest[0] === 'M') init.altKey = true;
+    else init.shiftKey = true;
+    rest = rest.slice(2);
+  }
+  if (rest === 'BTab') return { ...init, key: 'Tab', shiftKey: true };
+  const key = DOM_KEY_OF[rest] ?? rest;
+  if (key.length !== 1 && !DOM_KEY_OF[rest]) return null;
+  return { ...init, key };
+}
+
 /**
  * Placeholder pane ids (`__placeholder_*`) are client-side predictions from the
  * optimistic store — tmux has never heard of them. Until the placeholder

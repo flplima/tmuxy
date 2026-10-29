@@ -136,11 +136,15 @@ export const PhoneKeyboardDown: Story = {
       box(canvasElement.querySelector('.app-container')).right - 8,
     );
 
-    // Two rows of six: esc, tab, ctrl, alt, the keyboard and the zoom; the
-    // arrows, enter and the menu. Each a thumb's size.
+    // Two rows of seven: esc, tab, ctrl, alt, the prefix, the keyboard and the
+    // zoom; the arrows, enter and the menu (two keys wide). Each a thumb's size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
-    expect(keyboxes).toHaveLength(11);
-    expect(keyboxes.every((k) => k.height >= 40)).toBe(true);
+    expect(keyboxes).toHaveLength(12);
+    expect(keyboxes.every((k) => k.height >= 40 && k.width >= 44)).toBe(true);
+    expect(box(canvasElement.querySelector('[data-key-row="prefix"]')).top).toBeCloseTo(
+      box(canvasElement.querySelector('[data-key-row="esc"]')).top,
+      0,
+    );
     expect(box(canvasElement.querySelector('[data-key-row="←"]')).top).toBeGreaterThanOrEqual(
       box(canvasElement.querySelector('[data-key-row="esc"]')).bottom,
     );
@@ -394,5 +398,51 @@ export const BottomViewSwipesToTheDock: Story = {
       expect(bottom.getAttribute('data-view')).toBe('tree');
       expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
     });
+  },
+};
+
+export const PrefixKeyArmed: Story = {
+  parameters: {
+    docs: {
+      story: { inline: false, iframeHeight: 844 },
+      description: {
+        story:
+          'The prefix key on the key row arms tmux’s prefix with one tap and is lit in the accent while it waits for the next key, as the desktop status bar’s chip is. A second tap cancels it.',
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(ctx().phoneLayout).toBe(true), { timeout: 8000 });
+    const key = await waitFor(
+      () => {
+        const el = canvasElement.querySelector('[data-key-row="prefix"]') as HTMLElement | null;
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 8000 },
+    );
+    const row = box(canvasElement.querySelector('.key-row'));
+    const at = box(key);
+    expect(at.width).toBeGreaterThan(0);
+    expect(at.left).toBeGreaterThanOrEqual(row.left);
+    expect(at.right).toBeLessThanOrEqual(Math.min(row.right, window.innerWidth));
+    expect(key.getAttribute('aria-label')).toBe('Prefix (C-a)');
+    expect(key.getAttribute('aria-pressed')).toBe('false');
+    const dark = getComputedStyle(key).backgroundColor;
+
+    await userEvent.click(key);
+    await waitFor(() => expect(key.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });
+    expect(getComputedStyle(key).backgroundColor).not.toBe(dark);
+    // Lit the way a latched ctrl is: the same accent.
+    const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
+    await userEvent.click(ctrl);
+    await waitFor(() => expect(ctrl.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });
+    expect(getComputedStyle(key).backgroundColor).toBe(getComputedStyle(ctrl).backgroundColor);
+    await userEvent.click(ctrl);
+    await userEvent.click(ctrl);
+
+    await userEvent.click(key);
+    await waitFor(() => expect(key.getAttribute('aria-pressed')).toBe('false'), { timeout: 5000 });
+    expect(getComputedStyle(key).backgroundColor).toBe(dark);
   },
 };
