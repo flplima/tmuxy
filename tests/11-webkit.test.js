@@ -72,6 +72,21 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
     const at = await runRect(ctx.page, '.pane-layout-item', TOKEN);
     expect(at).not.toBeNull();
     await recordCopies(ctx.page);
+    // The blink lasts 450ms, less than a slow runner's poll: note each box
+    // as it is added rather than looking for it afterwards.
+    await ctx.page.evaluate(() => {
+      window.__flashes = [];
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node.classList?.contains('copy-flash')) {
+              const r = node.getBoundingClientRect();
+              window.__flashes.push({ left: r.left, top: r.top, width: r.width, height: r.height });
+            }
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await dragSelect(ctx.page, at);
     expect(await selectedText(ctx.page)).toBe(TOKEN);
 
@@ -98,12 +113,7 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
       'the release to fire a copy carrying the selected text',
     );
     expect(await copiedText(ctx.page)).toBe(TOKEN);
-    const flash = await ctx.page.evaluate(() =>
-      [...document.querySelectorAll('.copy-flash')].map((el) => {
-        const r = el.getBoundingClientRect();
-        return { left: r.left, top: r.top, width: r.width, height: r.height };
-      }),
-    );
+    const flash = await ctx.page.evaluate(() => window.__flashes);
     expect(flash.length).toBeGreaterThan(0);
     expect(flash[0].width).toBeGreaterThan(0);
     expect(flash[0].height).toBeGreaterThan(0);
