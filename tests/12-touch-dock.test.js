@@ -1,8 +1,10 @@
 /**
  * The phone's bottom view and the installable page: a sideways swipe on the
- * tree flips it to the dock — the pinned terminal the desktop keeps in its
- * right column, sized to the view — and back; the page links a manifest that
- * installs it on a home screen. The layout itself is tests/12-touch.test.js.
+ * tree slides it to the side pane — the pinned terminal the desktop keeps in
+ * its right column, sized to the view — the pane riding in beside the tree
+ * under the finger as a tab slide shows both tabs, and back; the page links a
+ * manifest that installs it on a home screen. The layout itself is
+ * tests/12-touch.test.js.
  */
 
 const {
@@ -10,6 +12,7 @@ const {
   usePhoneContext,
   expectOnScreen,
   swipeSideways,
+  swipeSidewaysPausing,
   boxOf,
   waitForPhoneGrid,
 } = require('./helpers/phone');
@@ -18,7 +21,7 @@ const { waitForCondition } = require('./helpers');
 describe('Phone width (390px) with a touchscreen: the bottom view and the app', () => {
   const ctx = usePhoneContext(PHONE);
 
-  test('a sideways swipe on the bottom view flips the tree to the dock, sized to the view, and back; the page installs as an app', async () => {
+  test('a sideways swipe slides the tree to the side pane under the finger, sized to the view, and back; the page installs as an app', async () => {
     if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
     await waitForPhoneGrid(ctx.page);
@@ -29,7 +32,29 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
     expectOnScreen(bottom, 'the bottom view');
     expect(await boxOf(ctx.page, '.phone-tree')).not.toBeNull();
     const y = bottom.top + 40;
-    await swipeSideways(ctx.page, y, 330, 60);
+    // Half way, finger down: the tree has moved left with it and the side
+    // pane is drawn at the tree's right edge, the width of the view, while
+    // the tree is still the view in front.
+    await swipeSidewaysPausing(ctx.page, y, 330, 60, async (pulled, step) => {
+      let tree = null;
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const sliding = await ctx.page.evaluate(
+            () => document.querySelector('[data-testid="phone-bottom"]')?.dataset.sliding,
+          );
+          tree = await boxOf(ctx.page, '.phone-tree');
+          const moved = tree.left - bottom.left;
+          return sliding === 'tracking' && moved <= pulled - step + 2 && moved >= pulled - 2;
+        },
+        3000,
+        () => `the tree to follow the finger ${pulled}px (last: ${JSON.stringify(tree)})`,
+      );
+      const side = await boxOf(ctx.page, '.phone-dock');
+      expect(Math.abs(side.left - tree.right)).toBeLessThanOrEqual(2);
+      expect(Math.abs(side.width - bottom.width)).toBeLessThanOrEqual(2);
+      expect(side.width - (bottom.right - side.left)).toBeGreaterThan(0);
+    });
     let dock = null;
     await waitForCondition(
       ctx.page,

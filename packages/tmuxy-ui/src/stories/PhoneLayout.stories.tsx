@@ -15,6 +15,7 @@ import { TmuxyApp } from '../lib';
 import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
+import { box, ctx, tapAt } from './phoneStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Layout',
@@ -34,23 +35,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-interface Snap {
-  context: {
-    targetCols: number;
-    targetRows: number;
-    charWidth: number;
-    charHeight: number;
-    phoneLayout: boolean;
-    phoneLandscape: boolean;
-  };
-}
-const ctx = () => (window as unknown as { app: { getSnapshot(): Snap } }).app.getSnapshot().context;
-
-const box = (el: Element | null) => {
-  if (!el) throw new Error('missing element');
-  return el.getBoundingClientRect();
-};
 
 export const PhoneKeyboardDown: Story = {
   parameters: {
@@ -294,32 +278,6 @@ export const LandscapeAndTheKeyboard: Story = {
   },
 };
 
-/** One finger on `el`: a touch sequence, as the browser would dispatch it. */
-function touch(el: Element, type: 'touchstart' | 'touchmove' | 'touchend', x: number, y: number) {
-  const point = new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
-  const touches = type === 'touchend' ? [] : [point];
-  el.dispatchEvent(
-    new TouchEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      touches,
-      changedTouches: [point],
-      targetTouches: touches,
-    }),
-  );
-}
-
-function tapAt(el: Element, x: number, y: number) {
-  touch(el, 'touchstart', x, y);
-  touch(el, 'touchend', x, y);
-}
-
-function swipeAcross(el: Element, y: number, fromX: number, toX: number) {
-  touch(el, 'touchstart', fromX, y);
-  for (let i = 1; i <= 6; i++) touch(el, 'touchmove', fromX + ((toX - fromX) * i) / 6, y);
-  touch(el, 'touchend', toX, y);
-}
-
 export const DoubleTapZoomsTheTerminal: Story = {
   parameters: {
     docs: {
@@ -368,46 +326,6 @@ export const DoubleTapZoomsTheTerminal: Story = {
         0,
       );
       expect(viewport.scrollLeft).toBe(0);
-    });
-  },
-};
-
-export const BottomViewSwipesToTheDock: Story = {
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 844 },
-      description: {
-        story:
-          'Under the keys, the tree; a sideways swipe on it flips the view to the dock — the pinned terminal the desktop keeps in its right column, asked of tmux the same way on first use (here the recording answers nothing, so the dock waits on “starting…”) — and a swipe back shows the tree again.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    await waitFor(
-      () => {
-        expect(ctx().phoneLayout).toBe(true);
-        expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
-      },
-      { timeout: 8000 },
-    );
-    const bottom = canvasElement.querySelector('[data-testid="phone-bottom"]')!;
-    const frame = box(bottom);
-    expect(bottom.getAttribute('data-view')).toBe('tree');
-
-    swipeAcross(bottom, frame.top + 40, frame.right - 20, frame.left + 20);
-    await waitFor(() => {
-      expect(bottom.getAttribute('data-view')).toBe('dock');
-      const dock = box(canvasElement.querySelector('.phone-dock'));
-      expect(dock.top).toBeGreaterThanOrEqual(frame.top - 1);
-      expect(dock.height).toBeGreaterThan(100);
-      expect(canvasElement.querySelector('.phone-dock')!.textContent).toContain('starting');
-    });
-    expect(canvasElement.querySelector('.phone-tree')).toBeNull();
-
-    swipeAcross(bottom, frame.top + 40, frame.left + 20, frame.right - 20);
-    await waitFor(() => {
-      expect(bottom.getAttribute('data-view')).toBe('tree');
-      expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
     });
   },
 };

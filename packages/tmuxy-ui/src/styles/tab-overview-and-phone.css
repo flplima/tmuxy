@@ -441,14 +441,47 @@
   line-height: 24px;
 }
 
-/* Under the keys: the tree, or the dock (PhoneBottomView). */
+/* Under the keys: the tree, or the side pane (PhoneBottomView). The track
+   slides under the finger on an inline transform, the view in front filling
+   the box and the other one riding a box's width to the side it is pulled
+   in from; a released slide settles on the tab slide's curve. */
 .phone-bottom {
-  display: flex;
+  position: relative;
   flex: 1 1 0;
-  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}
+
+.phone-bottom-track {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.phone-bottom-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-bottom-panel-left {
+  transform: translateX(-100%);
+}
+
+.phone-bottom-panel-right {
+  transform: translateX(100%);
+}
+
+.app-no-animations .phone-bottom-track {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phone-bottom-track {
+    transition: none !important;
+  }
 }
 
 .phone-tree {

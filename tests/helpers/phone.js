@@ -89,6 +89,30 @@ async function swipeSideways(page, y, fromX, toX) {
 }
 
 /**
+ * Swipe one finger sideways, pausing half way with the finger still down
+ * until `midway(pulled, step)` has had its look — `pulled` how far the finger
+ * has come, `step` one move of it (the browser hands the last move over with
+ * the next frame, so what is drawn may trail the finger by one) — then
+ * finishing the swipe.
+ */
+async function swipeSidewaysPausing(page, y, fromX, toX, midway) {
+  const cdp = await page.context().newCDPSession(page);
+  const steps = 12;
+  const at = (i) => ({ x: fromX + ((toX - fromX) * i) / steps, y });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at(0)] });
+  try {
+    for (let i = 1; i <= steps; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [at(i)] });
+      await delay(16);
+      if (i === steps / 2) await midway(at(i).x - fromX, (toX - fromX) / steps);
+    }
+  } finally {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+  }
+}
+
+/**
  * Rest one finger at `point`, without moving it, until `until` holds — what
  * the hold was for has happened — then lift it.
  */
@@ -162,6 +186,7 @@ module.exports = {
   drag,
   swipe,
   swipeSideways,
+  swipeSidewaysPausing,
   hold,
   keyRowCentre,
   boxOf,
