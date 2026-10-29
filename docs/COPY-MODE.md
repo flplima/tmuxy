@@ -8,14 +8,14 @@ like a native terminal rather than a series of `send-keys -X scroll` round-trips
 There are **two views** over that one machinery, and which one a pane is showing is
 `copyModeStates[paneId].mode` (`ScrollbackMode` in `domain/copyMode.ts`):
 
-|  | `scroll` — the native-like view | `copy` — tmux copy mode |
-| --- | --- | --- |
-| Opened by | wheel or touch scroll up on a pane that is not a full-screen application | `prefix [`, a CLI `copy-mode`, or tmux entering it itself |
-| Told to tmux | **nothing** — the pane never enters `in_mode` and the application keeps running | `copy-mode -t <pane>` |
-| Cursor | none | block copy cursor, which is also the selection's moving end |
-| Selection | the **browser's own**, on `user-select: text` content | cell ranges the client computes (`v`, `V`, `y`) |
-| Keys | go to the pane; the first one closes the view | intercepted and resolved as vi motions |
-| Closed by | typing, `Escape`, or scrolling back to the bottom | `q` / `Escape` / `y`, or scrolling to the bottom |
+|              | `scroll` — the native-like view                                                 | `copy` — tmux copy mode                                     |
+| ------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Opened by    | wheel or touch scroll up on a pane that is not a full-screen application        | `prefix [`, a CLI `copy-mode`, or tmux entering it itself   |
+| Told to tmux | **nothing** — the pane never enters `in_mode` and the application keeps running | `copy-mode -t <pane>`                                       |
+| Cursor       | none                                                                            | block copy cursor, which is also the selection's moving end |
+| Selection    | the **browser's own**, on `user-select: text` content                           | cell ranges the client computes (`v`, `V`, `y`)             |
+| Keys         | go to the pane; the first one closes the view                                   | intercepted and resolved as vi motions                      |
+| Closed by    | typing, `Escape`, or scrolling back to the bottom                               | `q` / `Escape` / `y`, or scrolling to the bottom            |
 
 They share the record, the loader, the chunk merge and the renderer, so a pane has at most one of
 them and the difference is only in cursor, selection, key routing and what tmux is told.
@@ -197,6 +197,17 @@ rebuilding it at the bottom. Without those three, a long swipe landed one row ab
 
 ## Clipboard
 
+**Copy on select**, as the Claude Code TUI does it: the mouse release that ends a browser selection
+over terminal text (a drag, a double or triple click, on the live screen or in the scroll view) puts
+the text on the clipboard at once, blinks it, and raises an info notification saying how many
+characters went. The selection stays on screen, and the screen holds still under it. The next key —
+`Ctrl+C`, `Cmd+C`, a letter — clears the selection and is processed as typed: `Ctrl+C` interrupts
+the shell, a letter goes to the pane, `Cmd+C` copies the same text once more before the highlight
+goes. A modifier on its own leaves it. The same text still selected on a later release is not copied
+twice; once the selection has gone, selecting it again copies again. The keyboard actor's clipboard
+module owns this (`machines/actors/keyboard/imeAndClipboard.ts`); the touch hold on a phone keeps
+its own Copy/Cancel bar.
+
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
 lines). Every copy blinks the copied text where it is (`utils/copyFlash.ts`). Copy mode paints its own
 selection, so its copy sets `copiedAt` on the view, the scrollback marks itself `data-copied`, and the
@@ -209,20 +220,20 @@ types the selection into the pane. Either closes the view.
 
 ## Key files
 
-| File | Responsibility |
-| --- | --- |
-| `packages/tmuxy-ui/src/components/ScrollbackTerminal.tsx` | Virtual-scrolling renderer for loaded scrollback + client cursor/selection |
-| `packages/tmuxy-ui/src/components/TerminalPane.tsx` | Chooses `ScrollbackTerminal` vs live `Terminal`; owns the native scroll container and `onScroll` |
-| `packages/tmuxy-ui/src/machines/app/actions/copyMode.ts` | XState actions for both views: enter/exit, cursor/selection, scroll, chunk merge, prefetch |
-| `packages/tmuxy-ui/src/utils/nativeSelection.ts` | Reading the browser's selection and selecting the word under a point |
-| `packages/tmuxy-ui/src/machines/app/states/copyMode.ts` | Wires `COPY_MODE_*` events to their actions (idle-only) |
-| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | Intercepts keydowns in copy mode → `COPY_MODE_KEY` / `COPY_SELECTION`; native clipboard `copy` handler |
-| `packages/tmuxy-ui/src/utils/copyModeKeys.ts` | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit |
-| `packages/tmuxy-ui/src/utils/copyMode.ts` | Pure helpers: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
-| `packages/tmuxy-ui/src/hooks/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
-| `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
-| `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |
-| `packages/tmuxy-ui/src/infra/transport/drivers/guest/GuestEngine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment |
+| File                                                                 | Responsibility                                                                                                 |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `packages/tmuxy-ui/src/components/ScrollbackTerminal.tsx`            | Virtual-scrolling renderer for loaded scrollback + client cursor/selection                                     |
+| `packages/tmuxy-ui/src/components/TerminalPane.tsx`                  | Chooses `ScrollbackTerminal` vs live `Terminal`; owns the native scroll container and `onScroll`               |
+| `packages/tmuxy-ui/src/machines/app/actions/copyMode.ts`             | XState actions for both views: enter/exit, cursor/selection, scroll, chunk merge, prefetch                     |
+| `packages/tmuxy-ui/src/utils/nativeSelection.ts`                     | Reading the browser's selection and selecting the word under a point                                           |
+| `packages/tmuxy-ui/src/machines/app/states/copyMode.ts`              | Wires `COPY_MODE_*` events to their actions (idle-only)                                                        |
+| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts`             | Intercepts keydowns in copy mode → `COPY_MODE_KEY` / `COPY_SELECTION`; native clipboard `copy` handler         |
+| `packages/tmuxy-ui/src/utils/copyModeKeys.ts`                        | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit                      |
+| `packages/tmuxy-ui/src/utils/copyMode.ts`                            | Pure helpers: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
+| `packages/tmuxy-ui/src/hooks/usePaneMouse.ts` / `usePaneTouch.ts`    | Mouse/touch → copy-mode enter, selection, and native scroll                                                    |
+| `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts`                 | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED`                 |
+| `packages/tmuxy-core/src/lib.rs`                                     | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core)                                       |
+| `packages/tmuxy-ui/src/infra/transport/drivers/guest/GuestEngine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment               |
 
 ## Related
 

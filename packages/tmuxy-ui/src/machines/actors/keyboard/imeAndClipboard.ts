@@ -1,6 +1,13 @@
 /**
- * IME composition, clipboard paste/copy, and hidden-input focus restoration
- * listeners for keyboardActor.
+ * IME composition, clipboard paste/copy, copy-on-select, and hidden-input
+ * focus restoration listeners for keyboardActor.
+ *
+ * Copy on select, as the Claude Code TUI does it: the mouse release that
+ * ends a selection over terminal text puts that text on the clipboard at
+ * once, blinks it, and says in the snackbar how many characters went. The
+ * selection stays on screen; the next key clears it (keyboardActor) and is
+ * processed as typed. A release that leaves the same text selected — a click
+ * inside it, a drag that ends where it began — copies nothing twice.
  */
 
 import type { AnyActorRef } from 'xstate';
@@ -12,7 +19,7 @@ import {
   setupMobileKeyboard,
 } from '../../../utils/mobileKeyboard';
 import { flashCopiedRange } from '../../../utils/copyFlash';
-import { terminalTextOf } from '../../../utils/nativeSelection';
+import { terminalSelection, terminalTextOf } from '../../../utils/nativeSelection';
 import { getLatches, pressKey } from '../../../utils/keyLatch';
 import { noteFocus, PANE_SURFACE } from '../../../utils/chromeTab';
 import { isModelPaneId, type PaneId } from '../../../domain/ids';
@@ -155,6 +162,42 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     return !!selection && !selection.isCollapsed && selection.toString().length > 0;
   };
 
+  // What the last release copied, so the same selection is not copied again
+  // until it has gone and come back.
+  let copiedOnSelect: string | null = null;
+  const copyOnSelect = () => {
+    if (!deps.isEnabled() || isTouchDevice()) return;
+    const selected = terminalSelection();
+    if (!selected) {
+      copiedOnSelect = null;
+      return;
+    }
+    if (selected.text === copiedOnSelect) return;
+    copiedOnSelect = selected.text;
+    pendingCopyText = selected.text;
+    const wrote = document.execCommand('copy');
+    if (!wrote) {
+      pendingCopyText = null;
+      void navigator.clipboard?.writeText(selected.text);
+    }
+    flashCopiedRange(selected.range);
+    const count = [...selected.text].length;
+    deps.parent.send({
+      type: 'NOTIFY',
+      kind: 'info',
+      text: `Copied ${count} character${count === 1 ? '' : 's'}`,
+    });
+  };
+  const handleMouseUp = (event: MouseEvent) => {
+    if (event.button !== 0) return;
+    copyOnSelect();
+  };
+  // The selection going — a key cleared it, a click collapsed it — frees the
+  // same text to be copied again when it is selected again.
+  const handleSelectionChange = () => {
+    if (copiedOnSelect !== null && !hasSelection()) copiedOnSelect = null;
+  };
+
   const restoreKeyboardFocus = (byPointer: boolean) => {
     if (isTouchDevice() || hasSelection()) return;
     const active = document.activeElement as HTMLElement | null;
@@ -201,6 +244,8 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   window.addEventListener('compositionend', handleCompositionEnd);
   window.addEventListener('paste', handlePaste);
   window.addEventListener('copy', handleCopy);
+  window.addEventListener('mouseup', handleMouseUp);
+  document.addEventListener('selectionchange', handleSelectionChange);
 
   const cleanup = () => {
     cleanupKeyboardInput();
@@ -214,12 +259,18 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     window.removeEventListener('compositionend', handleCompositionEnd);
     window.removeEventListener('paste', handlePaste);
     window.removeEventListener('copy', handleCopy);
+    window.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('selectionchange', handleSelectionChange);
   };
 
   return {
     isComposing: () => isComposing,
     setPendingCopyText: (text: string) => {
       pendingCopyText = text;
+    },
+    /** A key cleared the selection: the same text copies again when selected again. */
+    noteSelectionCleared: () => {
+      copiedOnSelect = null;
     },
     syncKeyboardInputTarget,
     cleanup,

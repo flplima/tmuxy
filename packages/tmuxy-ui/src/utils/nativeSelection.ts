@@ -93,3 +93,23 @@ export function cloneNativeSelectionRange(): Range | null {
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
   return selection.getRangeAt(0).cloneRange();
 }
+
+/**
+ * The page's selection while it lies over terminal text: the range and the
+ * text a terminal copies from it; null when nothing is selected or the
+ * selection is elsewhere (a form field, the chrome).
+ */
+export function terminalSelection(): { range: Range; text: string } | null {
+  if (typeof window === 'undefined') return null;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  const text = terminalTextOf(range);
+  return text === null || text.length === 0 ? null : { range, text };
+}
+
+/** Collapse the page's selection: the highlight goes, the clipboard keeps what it got. */
+export function clearNativeSelection(): void {
+  if (typeof window === 'undefined') return;
+  window.getSelection()?.removeAllRanges();
+}

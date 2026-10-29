@@ -3,6 +3,7 @@
  * dispatches prefix, sticky key-table, root, and literal/keystroke ops.
  */
 
+import { clearNativeSelection, terminalSelection } from '../../utils/nativeSelection';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../utils/mobileKeyboard';
@@ -15,6 +16,7 @@ import {
   CLIENT_KEYS,
   type ClientKey,
   formatTmuxKey,
+  isModifierOnlyKey,
   isRealFormControl,
   isTextKey,
   realPaneId,
@@ -141,9 +143,27 @@ export function createKeyboardActor() {
     const notifyKeyPress = (event: KeyboardEvent) =>
       input.parent.send({ type: 'KEY_PRESS', key: event.key });
 
+    // A selection over terminal text is already on the clipboard (copied on
+    // the release that made it). The next key — Ctrl+C, Cmd+C, a letter —
+    // clears the highlight and is processed as typed: Ctrl+C interrupts the
+    // shell, a letter goes to the pane, Cmd+C copies the same text again
+    // before the highlight goes. A modifier on its own leaves it, so Shift
+    // or Cmd pressed on the way to a chord does not lose it.
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!enabled) return;
       if (isRealFormControl(event.target)) return;
+      const selected = !isModifierOnlyKey(event.key) && terminalSelection() !== null;
+      try {
+        routeKeyDown(event);
+      } finally {
+        if (selected) {
+          clearNativeSelection();
+          imeClipboard.noteSelectionCleared();
+        }
+      }
+    };
+
+    const routeKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === 'Tab' &&
         !event.ctrlKey &&
