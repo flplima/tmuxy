@@ -38,7 +38,7 @@
 }
 
 /* The blur: over the placeholder on first load, over the last snapshot of
-   the panes while reconnecting. */
+   the panes behind a fatal or a detach. */
 .connection-overlay-scrim {
   position: absolute;
   inset: 0;

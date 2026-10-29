@@ -80,6 +80,37 @@
   outline: none;
 }
 
+/* The reconnect notice: the spinner the first-load overlay uses, at the
+   text's size, and a "Retry now" drawn as a small button rather than a
+   close, since the card leaves on its own when the channel is back. */
+.snackbar-reconnect {
+  align-items: center;
+}
+
+.snackbar-spinner {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
+.snackbar-action {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.snackbar-action:hover,
+.snackbar-action:focus-visible {
+  background-color: color-mix(in srgb, var(--text-primary) 15%, transparent);
+  outline: none;
+}
+
 @keyframes snackbar-in {
   from {
     opacity: 0;

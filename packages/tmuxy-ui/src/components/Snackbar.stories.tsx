@@ -1,6 +1,7 @@
 /**
  * Snackbar stories — the error corner: one entry, a stack, and the close
- * button; and a tmux message beside an error. Entries are raised through the
+ * button; a tmux message beside an error; and the reconnect notice a dropped
+ * channel raises once it has stayed down. Entries are raised through the
  * machine exactly as the app does.
  */
 
@@ -11,6 +12,7 @@ import { useAppSend } from '../machines/appHooks';
 import { FixtureProvider } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
 import panes from '../stories/fixtures/gen/panes.json';
+import { RECONNECT_NOTICE_DELAY_MS } from '../machines/constants';
 
 const PANES = asFixture(panes);
 
@@ -113,5 +115,67 @@ export const TmuxMessage: Story = {
     await userEvent.click(within(message).getByRole('button', { name: /dismiss/i }));
     await waitFor(() => expect(stack.queryByRole('status')).toBeNull());
     expect(stack.getByRole('alert')).toHaveTextContent(ERRORS[0]);
+  },
+};
+
+/** The channel dropping and coming back, as the adapter would report it. */
+function Channel() {
+  const send = useAppSend();
+  return (
+    <div style={{ display: 'flex', gap: 8, padding: 12 }}>
+      <button type="button" onClick={() => send({ type: 'TMUX_RECONNECTING' })}>
+        drop
+      </button>
+      <button type="button" onClick={() => send({ type: 'TMUX_RECONNECTED' })}>
+        back
+      </button>
+    </div>
+  );
+}
+
+export const ReconnectingAfterTwoSeconds: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story:
+          'The channel drops with a session on screen. For two seconds nothing is shown — a drop that heals at once is never seen. Past that, a notice in the corner: a spinner, "Reconnecting…", and "Retry now". No overlay, no blur: the panes stay in view and usable. The notice leaves on its own when the channel is back.',
+      },
+    },
+  },
+  render: () => (
+    <FixtureProvider height={320} fixture={PANES} start="one">
+      <Channel />
+      <Snackbar />
+    </FixtureProvider>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(document.body);
+    const droppedAt = Date.now();
+    await userEvent.click(canvas.getByRole('button', { name: 'drop' }));
+    // Quiet first: well inside the delay there is nothing to see.
+    await new Promise((r) => setTimeout(r, RECONNECT_NOTICE_DELAY_MS / 2));
+    expect(body.queryByTestId('reconnect-notice')).toBeNull();
+    expect(document.querySelector('[data-testid="loading-display"]')).toBeNull();
+    const notice = await waitFor(
+      () => {
+        const el = body.getByTestId('reconnect-notice');
+        expect(el).toBeVisible();
+        return el;
+      },
+      { timeout: RECONNECT_NOTICE_DELAY_MS + 2000 },
+    );
+    expect(Date.now() - droppedAt).toBeGreaterThanOrEqual(RECONNECT_NOTICE_DELAY_MS - 50);
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent('Reconnecting…');
+    expect(notice.querySelector('.connection-spinner')).not.toBeNull();
+    expect(within(notice).getByRole('button', { name: 'Retry now' })).toBeVisible();
+    // A card in the corner, not a wall: nothing covers the fixture's panes.
+    const rect = notice.getBoundingClientRect();
+    expect(rect.width).toBeLessThan(window.innerWidth / 2);
+    expect(document.querySelector('.connection-overlay-scrim')).toBeNull();
+
+    await userEvent.click(canvas.getByRole('button', { name: 'back' }));
+    await waitFor(() => expect(body.queryByTestId('reconnect-notice')).toBeNull());
   },
 };

@@ -43,7 +43,7 @@ describe('TMUX_DISCONNECTED', () => {
     const actor = createActor(appMachine).start();
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send({ type: 'TMUX_RECONNECTING' });
-    expect(actor.getSnapshot().value).toBe('reconnecting');
+    expect(actor.getSnapshot().matches('reconnecting')).toBe(true);
     actor.send({ type: 'TMUX_DISCONNECTED' });
     expectDisconnected(actor);
   });

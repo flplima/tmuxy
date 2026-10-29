@@ -24,6 +24,14 @@ export const DEFAULT_ROWS = 24;
 export const DEFAULT_SESSION_NAME = 'tmuxy';
 
 /**
+ * How long a dropped channel stays silent before the user is told: a brief
+ * drop that reconnects inside this window (a Wi-Fi roam, a sleep/wake) is
+ * never seen. Past it, a notice in the snackbar corner, never an overlay —
+ * the panes stay in view and usable.
+ */
+export const RECONNECT_NOTICE_DELAY_MS = 2000;
+
+/**
  * Width of the left sidebar column (the tab/pane tree widget), in columns.
  *
  * Both sidebars are REAL tmux panes, so these numbers are also the width tmux

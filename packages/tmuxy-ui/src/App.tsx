@@ -74,7 +74,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const containerSize = useAppSelector(selectContainerSize);
   const cellMetrics = useAppSelector(selectCellMetrics);
   const isConnecting = useAppState('connecting');
-  const isReconnecting = useAppState('reconnecting');
   const isDetached = useAppState('detached');
   const tabOverviewOpen = useAppSelector((ctx) => ctx.tabOverviewOpen);
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
@@ -144,23 +143,16 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const showLayout = isReady || hasBeenReadyRef.current;
 
   // What covers the pane area while nothing live is on it: a fatal (the
-  // backend gave up) wins, then a dropped channel, then the first connection.
-  // The layout, once shown, stays mounted underneath as the blurred last
+  // backend gave up) wins, then a detach, then the first connection. The
+  // layout, once shown, stays mounted underneath as the blurred last
   // snapshot — even through a fatal, so a Retry has something to come back to.
-  // `detached` sits above `reconnecting`: the user asked to step away, and
-  // presenting that as a retry is the thing comparable clients get wrong.
+  // A dropped channel (`reconnecting`) covers nothing: the panes keep their
+  // last frame and the snackbar corner says so once the drop has lasted
+  // (ReconnectNotice); presenting a drop as a wall is the thing comparable
+  // clients get wrong.
   const overlayMode: ConnectionOverlayMode | null =
-    fatalError != null
-      ? 'fatal'
-      : isDetached
-        ? 'detached'
-        : isReconnecting
-          ? 'reconnecting'
-          : !showLayout
-            ? 'connecting'
-            : null;
+    fatalError != null ? 'fatal' : isDetached ? 'detached' : !showLayout ? 'connecting' : null;
   const retry = useCallback(() => window.location.reload(), []);
-  const reconnectNow = useCallback(() => send({ type: 'RECONNECT_NOW' }), [send]);
 
   const paneContainer = (
     <div
@@ -195,7 +187,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           fatalError={fatalError}
           log={log}
           onRetry={retry}
-          onReconnectNow={reconnectNow}
         >
           {/* Detached: the way back in, the session switcher's list over the
               blurred session the user stepped out of. */}

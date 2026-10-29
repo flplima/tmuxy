@@ -76,25 +76,6 @@ export const Connecting: Story = {
   },
 };
 
-export const ReconnectingOverSnapshot: Story = {
-  args: { mode: 'reconnecting', hasLayout: true },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const overlay = canvas.getByTestId('loading-display');
-    expect(overlay).toHaveAttribute('data-mode', 'reconnecting');
-    // The snapshot is the backdrop and the scrim blurs it; the overlay spans
-    // the whole pane area so nothing underneath is clickable.
-    expect(overlay.querySelector('.connection-placeholder')).toBeNull();
-    const scrim = overlay.querySelector('.connection-overlay-scrim') as HTMLElement;
-    expect(getComputedStyle(scrim).backdropFilter).toContain('blur');
-    const o = overlay.getBoundingClientRect();
-    const c = canvasElement.querySelector('.pane-container')!.getBoundingClientRect();
-    expect(Math.abs(o.width - c.width)).toBeLessThan(2);
-    expect(Math.abs(o.height - c.height)).toBeLessThan(2);
-    expect(canvas.getByText('Connecting…')).toBeVisible();
-  },
-};
-
 export const Fatal: Story = {
   args: { mode: 'fatal', hasLayout: true, fatalError: 'tmux server exited (control mode closed)' },
   play: async ({ canvasElement }) => {

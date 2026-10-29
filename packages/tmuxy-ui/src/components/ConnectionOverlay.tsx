@@ -5,13 +5,12 @@
  *  - `connecting` (first load): a pane placeholder (header bar + terminal
  *    surface in the theme's colours) under a blurred scrim, a spinner and the
  *    single word "Connecting…". No log, no details.
- *  - `reconnecting` (the channel dropped after a frame was shown): the last
- *    snapshot of the panes stays mounted underneath (`hasLayout`), blurred,
- *    with the same spinner and word. The overlay leaves on the first state
- *    update after the channel is back.
  *  - `fatal` (the backend stopped retrying): the one-line reason, a Retry
  *    button, and the command/error log behind a collapsed "Details"
  *    disclosure so support information stays reachable.
+ *
+ * A dropped channel after a frame was shown is not an overlay: the panes stay
+ * in view and usable, and the snackbar corner says so (ReconnectNotice).
  *
  * Presentational: App decides the mode from the machine state and passes
  * everything in, so the three looks can be shown on their own in Storybook.
@@ -21,7 +20,7 @@ import type { ReactNode } from 'react';
 import type { LogEntry } from '../machines/types/domain';
 import './ConnectionOverlay.css';
 
-export type ConnectionOverlayMode = 'connecting' | 'reconnecting' | 'fatal' | 'detached';
+export type ConnectionOverlayMode = 'connecting' | 'fatal' | 'detached';
 
 export interface ConnectionOverlayProps {
   mode: ConnectionOverlayMode;
@@ -33,8 +32,6 @@ export interface ConnectionOverlayProps {
   fatalError: string | null;
   log: LogEntry[];
   onRetry: () => void;
-  /** `reconnecting` only: try again now instead of waiting out the backoff. Absent hides the button. */
-  onReconnectNow?: () => void;
   /**
    * What `detached` mode puts on the scrim — the session switcher. Passed in
    * rather than imported so this stays presentational and showable on its own
@@ -61,7 +58,6 @@ export function ConnectionOverlay({
   fatalError,
   log,
   onRetry,
-  onReconnectNow,
   children,
 }: ConnectionOverlayProps) {
   const isFatal = mode === 'fatal';
@@ -97,11 +93,6 @@ export function ConnectionOverlay({
         )}
         {isDetached && children}
         {!isFatal && !isDetached && error && <p className="connection-overlay-note">{error}</p>}
-        {mode === 'reconnecting' && onReconnectNow && (
-          <button type="button" className="connection-overlay-retry" onClick={onReconnectNow}>
-            Retry now
-          </button>
-        )}
         {isFatal && (
           <>
             <p className="connection-overlay-note">

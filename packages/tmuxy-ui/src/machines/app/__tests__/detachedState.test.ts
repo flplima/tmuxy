@@ -63,6 +63,6 @@ describe('detached state', () => {
     // in — it belongs in `reconnecting`, which shows a spinner.
     const actor = detachedActor();
     actor.send({ type: 'TMUX_RECONNECTING' });
-    expect(actor.getSnapshot().value).toBe('reconnecting');
+    expect(actor.getSnapshot().matches('reconnecting')).toBe(true);
   });
 });

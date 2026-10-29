@@ -13,6 +13,7 @@
  *   - resizeMachine: idle/resizing, spawns pointer listener
  */
 
+import { RECONNECT_NOTICE_DELAY_MS } from '../constants';
 import {
   setup,
   assign,
@@ -221,7 +222,16 @@ export const appMachine = setup({
       },
     },
 
+    // The channel dropped after a frame was shown. `quiet` for the first
+    // RECONNECT_NOTICE_DELAY_MS, so a drop that heals at once is never seen;
+    // then `noticed`, which the snackbar's ReconnectNotice renders. The panes
+    // stay mounted and usable throughout: no overlay, no blur.
     reconnecting: {
+      initial: 'quiet',
+      states: {
+        quiet: { after: { [RECONNECT_NOTICE_DELAY_MS]: 'noticed' } },
+        noticed: {},
+      },
       on: {
         TMUX_RECONNECTED: {
           target: 'idle',

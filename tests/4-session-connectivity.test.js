@@ -110,9 +110,9 @@ describe('Scenario 12: Session Reconnect', () => {
   }, 180000);
 });
 
-// ==================== Scenario 12b: Connection overlay ====================
+// ==================== Scenario 12b: Connection overlay and the reconnect notice ====================
 
-describe('Scenario 12b: Connection overlay', () => {
+describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
   const ctx = createTestContext();
   beforeAll(ctx.beforeAll, ctx.hookTimeout);
   afterAll(ctx.afterAll);
@@ -121,9 +121,10 @@ describe('Scenario 12b: Connection overlay', () => {
 
   // The old "Connecting to tmux…" page dumped the command log on screen and
   // unmounted the panes. Now a first load shows a placeholder + spinner, and
-  // a dropped channel keeps the last frame mounted under a blurred overlay
-  // that leaves on its own once the channel is back.
-  test('reload shows no log → offline blurs the last frame under "Connecting…" → online clears it → shell still works', async () => {
+  // a dropped channel keeps the last frame in view, uncovered: after two
+  // quiet seconds a notice in the snackbar corner says "Reconnecting…", and
+  // it leaves on its own once the channel is back.
+  test('reload shows no log → offline keeps the panes in view and after 2s says "Reconnecting…" in the corner → online clears it → shell still works', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -153,48 +154,70 @@ describe('Scenario 12b: Connection overlay', () => {
     expect(await page.$('[data-testid="loading-display"]')).toBeNull();
 
     // Step 2: the network goes away and the channel drops → the adapter's
-    // reconnect loop keeps failing while offline → overlay over the panes,
-    // which stay mounted underneath.
+    // reconnect loop keeps failing while offline. For two seconds nothing is
+    // shown — a drop that heals at once is never seen — then a notice in the
+    // snackbar corner, with the panes still in view and uncovered.
     await page.context().setOffline(true);
+    const droppedAt = Date.now();
     await page.evaluate(() => {
       const es = window.__eventSources[window.__eventSources.length - 1];
       es.dispatchEvent(new Event('error'));
     });
     await waitForCondition(
       page,
-      async () => (await page.$('[data-mode="reconnecting"]')) !== null,
+      async () => (await page.$('[data-testid="reconnect-notice"]')) !== null,
       20000,
-      'the reconnecting overlay',
+      'the reconnecting notice',
     );
+    expect(Date.now() - droppedAt).toBeGreaterThanOrEqual(1900);
     const shown = await page.evaluate(() => {
-      const overlay = document.querySelector('[data-mode="reconnecting"]');
+      const notice = document.querySelector('[data-testid="reconnect-notice"]');
       const container = document.querySelector('.pane-container');
-      const scrim = overlay.querySelector('.connection-overlay-scrim');
       return {
         panes: document.querySelectorAll('.pane-layout-item').length,
-        overlay: overlay.getBoundingClientRect().toJSON(),
+        notice: notice.getBoundingClientRect().toJSON(),
         container: container.getBoundingClientRect().toJSON(),
-        text: overlay.textContent,
-        blur: getComputedStyle(scrim).backdropFilter,
-        spinner: Boolean(overlay.querySelector('.connection-spinner')),
+        text: notice.textContent,
+        role: notice.getAttribute('role'),
+        spinner: Boolean(notice.querySelector('.connection-spinner')),
+        overlay: document.querySelector('[data-testid="loading-display"]') !== null,
+        scrim: document.querySelector('.connection-overlay-scrim') !== null,
+        onTop:
+          document
+            .elementFromPoint(
+              notice.getBoundingClientRect().left + 8,
+              notice.getBoundingClientRect().top + 8,
+            )
+            ?.closest('[data-testid="reconnect-notice"]') !== null,
+        paneUncovered:
+          document
+            .elementFromPoint(
+              container.getBoundingClientRect().left + 20,
+              container.getBoundingClientRect().bottom - 20,
+            )
+            ?.closest('.pane-layout-item') !== null,
       };
     });
     expect(shown.panes).toBe(2);
-    expect(shown.text).toContain('Connecting');
-    expect(shown.text).not.toContain('Details');
+    expect(shown.text).toContain('Reconnecting');
+    expect(shown.text).toContain('Retry now');
+    expect(shown.role).toBe('status');
     expect(shown.spinner).toBe(true);
-    expect(shown.blur).toContain('blur');
-    expect(Math.abs(shown.overlay.width - shown.container.width)).toBeLessThan(2);
-    expect(Math.abs(shown.overlay.height - shown.container.height)).toBeLessThan(2);
+    expect(shown.overlay).toBe(false);
+    expect(shown.scrim).toBe(false);
+    expect(shown.onTop).toBe(true);
+    expect(shown.paneUncovered).toBe(true);
+    expect(shown.notice.width).toBeLessThan(shown.container.width / 2);
+    expect(shown.notice.height).toBeLessThan(shown.container.height / 4);
 
-    // Step 3: the network is back → the overlay leaves on the first update
+    // Step 3: the network is back → the notice leaves on the first update
     // and the shell is live again.
     await page.context().setOffline(false);
     await waitForCondition(
       page,
-      async () => (await page.$('[data-mode]')) === null,
+      async () => (await page.$('[data-testid="reconnect-notice"]')) === null,
       45000,
-      'the overlay to clear after the channel recovers',
+      'the notice to clear after the channel recovers',
     );
     await focusPage(page);
     await typeInTerminal(page, 'echo OVERLAY_OK');
@@ -225,14 +248,14 @@ describe('Scenario 12b: Connection overlay', () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForPaneCount(page, 1, 15000);
 
-    const overlayShown = async () => (await page.$('[data-mode="reconnecting"]')) !== null;
+    const noticeShown = async () => (await page.$('[data-testid="reconnect-notice"]')) !== null;
     const dropTheLink = async () => {
       await page.context().setOffline(true);
       await page.evaluate(() => {
         const es = window.__eventSources[window.__eventSources.length - 1];
         es.dispatchEvent(new Event('error'));
       });
-      await waitForCondition(page, overlayShown, 20000, 'the reconnecting overlay');
+      await waitForCondition(page, noticeShown, 20000, 'the reconnecting notice');
     };
 
     // Offline until two retries have failed (the backoff runs 1s, 2s, 4s…),
@@ -255,14 +278,14 @@ describe('Scenario 12b: Connection overlay', () => {
       await page.context().setOffline(false);
       await waitForCondition(
         page,
-        async () => (await page.$('[data-mode]')) === null,
+        async () => !(await noticeShown()),
         15000,
-        `drop ${drop}: the overlay to clear`,
+        `drop ${drop}: the notice to clear`,
       );
       expect(Date.now() - backAt).toBeLessThan(4000);
     }
 
-    // The button is the user's own way to say "now": visible on the overlay,
+    // The button is the user's own way to say "now": visible on the notice,
     // and pressing it opens a stream immediately rather than at the next tick.
     await dropTheLink();
     await waitForFailedRetries(2);
@@ -280,12 +303,7 @@ describe('Scenario 12b: Connection overlay', () => {
     );
 
     await page.context().setOffline(false);
-    await waitForCondition(
-      page,
-      async () => (await page.$('[data-mode]')) === null,
-      15000,
-      'the overlay to clear',
-    );
+    await waitForCondition(page, async () => !(await noticeShown()), 15000, 'the notice to clear');
     await focusPage(page);
     await typeInTerminal(page, 'echo RECONNECT_OK');
     await pressEnter(page);
