@@ -271,8 +271,8 @@
 /* The blink that says "copied" (utils/copyFlash.ts). Copy mode paints its own
    selection, so its copied cells blink in place; a browser selection is covered
    by fixed boxes laid over its rectangles. An inset shadow draws over a cell's
-   background (which the selection sets inline) and under its text, so the text
-   stays readable through the flash. */
+   background and the selection's wash (a background image) and under its
+   text, so the text stays readable through the flash. */
 @keyframes copy-flash {
   0%,
   50%,

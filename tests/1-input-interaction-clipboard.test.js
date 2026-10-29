@@ -81,28 +81,27 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const still = await runRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     expect(Math.abs(still.box.top - at.box.top)).toBeLessThanOrEqual(1);
 
-    // The selection wears the theme's two colours reversed: its foreground as
-    // the ground, its background as the text.
+    // The selection is a wash of the theme's foreground over its background,
+    // under text that keeps its own colour.
     const paint = await ctx.page.evaluate(() => {
       const node = window.getSelection().getRangeAt(0).startContainer;
       const el = node.nodeType === 1 ? node : node.parentElement;
       const sel = getComputedStyle(el, '::selection');
       const probe = document.createElement('span');
-      probe.style.backgroundColor = 'var(--term-foreground)';
-      probe.style.color = 'var(--term-background)';
+      probe.style.backgroundColor =
+        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
       document.body.appendChild(probe);
-      const want = getComputedStyle(probe);
       const result = {
         bg: sel.backgroundColor,
         fg: sel.color,
-        wantBg: want.backgroundColor,
-        wantFg: want.color,
+        wantBg: getComputedStyle(probe).backgroundColor,
+        ownFg: getComputedStyle(el).color,
       };
       probe.remove();
       return result;
     });
     expect(paint.wantBg).not.toBe('rgba(0, 0, 0, 0)');
-    expect({ bg: paint.bg, fg: paint.fg }).toEqual({ bg: paint.wantBg, fg: paint.wantFg });
+    expect({ bg: paint.bg, fg: paint.fg }).toEqual({ bg: paint.wantBg, fg: paint.ownFg });
 
     // 2. Copying blinks the copied text: boxes laid over the selection, which
     //    go away on their own.
@@ -306,15 +305,16 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const cells = await ctx.page.evaluate(() => {
       const cell = document.querySelector('[data-copy-mode="true"] .terminal-selected');
       const probe = document.createElement('span');
-      probe.style.backgroundColor = 'var(--term-foreground)';
-      probe.style.color = 'var(--term-background)';
+      const wash = 'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
+      probe.style.backgroundImage = `linear-gradient(${wash}, ${wash})`;
+      probe.style.color = 'var(--term-foreground)';
       document.body.appendChild(probe);
       const got = getComputedStyle(cell);
       const want = getComputedStyle(probe);
       const result = {
-        bg: got.backgroundColor,
+        bg: got.backgroundImage,
         fg: got.color,
-        wantBg: want.backgroundColor,
+        wantBg: want.backgroundImage,
         wantFg: want.color,
       };
       probe.remove();

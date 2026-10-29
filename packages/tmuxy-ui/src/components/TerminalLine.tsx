@@ -245,14 +245,6 @@ export const TerminalLine = memo(
           ]
             .filter(Boolean)
             .join(' ') || undefined;
-        if (currentGroup.selected) {
-          style = {
-            ...style,
-            color: 'var(--selection-fg)',
-            backgroundColor: 'var(--selection-bg)',
-          };
-        }
-
         // Block Elements are drawn as CSS rectangles rather than font glyphs so
         // they fill the cell exactly and stacked rows tile seamlessly. The
         // character stays as (transparent) text, keeping copy/paste intact.

@@ -34,11 +34,7 @@ function applyStyleToElement(
   style: CellStyle | undefined,
   selected: boolean,
 ): void {
-  if (selected) {
-    el.className = 'terminal-selected';
-    el.style.color = 'var(--selection-fg)';
-    el.style.backgroundColor = 'var(--selection-bg)';
-  }
+  if (selected) el.className = 'terminal-selected';
 
   if (!style) return;
 
@@ -51,10 +47,8 @@ function applyStyleToElement(
     bg = tmp || 'var(--term-foreground)';
   }
 
-  if (!selected) {
-    if (fg) el.style.color = fg;
-    if (bg) el.style.backgroundColor = bg;
-  }
+  if (fg) el.style.color = fg;
+  if (bg) el.style.backgroundColor = bg;
 
   if (style.bold) el.style.fontWeight = 'bold';
   if (style.dim) el.style.opacity = '0.5';
@@ -250,8 +244,6 @@ export function renderLineToDOM(
     if (padLen > 0) {
       const span = document.createElement('span');
       span.className = 'terminal-selected';
-      span.style.color = 'var(--selection-fg)';
-      span.style.backgroundColor = 'var(--selection-bg)';
       span.textContent = ' '.repeat(padLen);
       el.appendChild(span);
     }
