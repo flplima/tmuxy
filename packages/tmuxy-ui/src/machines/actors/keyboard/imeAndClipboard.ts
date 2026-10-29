@@ -43,15 +43,39 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       return;
     }
     const target = realPaneId(currentPane);
-    if (
-      !isTouchDevice() &&
-      !keyboardFocusEstablished &&
-      target !== null &&
-      document.activeElement === document.body
-    ) {
+    if (!isTouchDevice() && !keyboardFocusEstablished && target !== null && nothingFocused()) {
       focusKeyboardInput(target);
       keyboardFocusEstablished = true;
     }
+  };
+
+  /** No element holds the focus: the body, the root, or nothing at all. */
+  const nothingFocused = () => {
+    const active = document.activeElement;
+    return active === null || active === document.body || active === document.documentElement;
+  };
+
+  /**
+   * The page got the focus with no pane asked for it: a reload, a switch back
+   * to the tab, a return to the window. The browser restores whatever element
+   * it last had, which may be the body or a chrome control after a re-render
+   * dropped the hidden input — and a keystroke from there is typed into
+   * nothing. Unless a form control, a frame or the tree holds the focus, the
+   * hidden input takes it for the active pane, so typing works at once.
+   */
+  const reclaimKeyboard = () => {
+    if (isTouchDevice() || primaryPointerDown || hasSelection()) return;
+    if (deps.isLeftSidebarFocused()) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active === getMobileInput()) return;
+    if (isRealFormControl(active) || active?.tagName === 'IFRAME') return;
+    const paneId = realPaneId(deps.getOverlayPaneId() ?? deps.getActivePaneId());
+    if (paneId === null) return;
+    focusKeyboardInput(paneId);
+    keyboardFocusEstablished = true;
+  };
+  const handleVisible = () => {
+    if (document.visibilityState === 'visible') reclaimKeyboard();
   };
 
   const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
@@ -171,6 +195,8 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   window.addEventListener('pointercancel', handlePointerCancel);
   window.addEventListener('pointerup', handlePointerUp);
   window.addEventListener('focusin', handleFocusIn);
+  window.addEventListener('focus', reclaimKeyboard);
+  document.addEventListener('visibilitychange', handleVisible);
   window.addEventListener('compositionstart', handleCompositionStart);
   window.addEventListener('compositionend', handleCompositionEnd);
   window.addEventListener('paste', handlePaste);
@@ -179,6 +205,8 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   const cleanup = () => {
     cleanupKeyboardInput();
     window.removeEventListener('focusin', handleFocusIn);
+    window.removeEventListener('focus', reclaimKeyboard);
+    document.removeEventListener('visibilitychange', handleVisible);
     window.removeEventListener('pointerup', handlePointerUp);
     window.removeEventListener('pointerdown', handlePointerDown, true);
     window.removeEventListener('pointercancel', handlePointerCancel);
