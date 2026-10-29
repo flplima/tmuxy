@@ -186,6 +186,10 @@ cmd_widget() {
       exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
       ;;
 
+    browser)
+      exec "$SCRIPTS_DIR/tmuxy-widget-browser" "$@"
+      ;;
+
     --help|-h)
       usage_widget
       ;;

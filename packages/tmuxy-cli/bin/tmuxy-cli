@@ -120,8 +120,9 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (tree, preview)
+  widget      Display widgets (tree, preview, browser)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
+  browser     Show a web page live in this pane and drive it (tmuxy widget browser)
   run         Run any tmux command safely
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
@@ -230,6 +231,8 @@ Commands:
   tree          Display the tabs+panes tree (the left sidebar's content)
   preview       Show a local .html or .md file, kept up to date as it
                 changes [--net] [--no-theme] [file] (also: tmuxy open)
+  browser       Show a web page live, drawn from a headless Chrome, and
+                drive it from the pane [options] <url> (also: tmuxy browser)
 EOF
 }
 
@@ -352,6 +355,10 @@ case "${1:-}" in
   open)
     shift
     cmd_widget preview "$@"
+    ;;
+  browser)
+    shift
+    cmd_widget browser "$@"
     ;;
   cleanup)
     shift
