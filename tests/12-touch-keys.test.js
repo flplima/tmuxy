@@ -169,8 +169,10 @@ describe('Phone width (390px) with a touchscreen: the prefix key, and arrows tha
     );
     expect((await prefixKey()).background).toBe(before.background);
 
-    // 5. A second tap while armed cancels: dark again, and `c` is just a
-    //    letter on the line, not a tab.
+    // 5. A second tap while armed cancels: dark again, and what is typed next
+    //    is text for the shell, not keys for the prefix table. (With the
+    //    prefix still armed, the `e` of echo would be eaten as an unbound
+    //    prefix key and CANCEL_OK would never print.)
     await ctx.page.touchscreen.tap(prefix.x, prefix.y);
     await waitForCondition(
       ctx.page,
@@ -185,23 +187,9 @@ describe('Phone width (390px) with a touchscreen: the prefix key, and arrows tha
       5000,
       'the second tap to cancel',
     );
-    await typeOnVirtualKeyboard(ctx.page, 'c');
-    // The line is the prompt and then the c (a shell may suggest the rest of
-    // an old command after it in grey; that is still the c typed).
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const line = await promptLine();
-        return (
-          line !== fresh &&
-          line.startsWith(fresh) &&
-          line.slice(fresh.length).trimStart().startsWith('c')
-        );
-      },
-      5000,
-      async () =>
-        `the c on the line (line: ${JSON.stringify(await promptLine())}, fresh: ${JSON.stringify(fresh)}, focus: ${await ctx.page.evaluate(() => document.activeElement?.tagName)}, tabs: ${await tabCount()})`,
-    );
+    await typeOnVirtualKeyboard(ctx.page, 'echo CANCEL_OK');
+    await ctx.page.keyboard.press('Enter');
+    await waitForTerminalText(ctx.page, 'CANCEL_OK', 15000, { notOnLineWith: 'echo' });
     expect(await tabCount()).toBe(tabsBefore + 1);
   }, 180000);
 });
