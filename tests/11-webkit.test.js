@@ -58,7 +58,7 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
   beforeEach(ctx.beforeEach, ctx.hookTimeout);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('drag selects, Cmd+C copies it, and the context menu does not clear it', async () => {
+  test('drag selects and copies, Cmd+C copies again and clears, and the context menu does not clear a fresh one', async () => {
     if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
 
@@ -71,6 +71,7 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
     //    drag is making. The result was a drag that selected nothing at all.
     const at = await runRect(ctx.page, '.pane-layout-item', TOKEN);
     expect(at).not.toBeNull();
+    await recordCopies(ctx.page);
     await dragSelect(ctx.page, at);
     expect(await selectedText(ctx.page)).toBe(TOKEN);
 
@@ -87,16 +88,14 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
     await delay(DELAYS.LONG);
     expect(await selectedText(ctx.page)).toBe(TOKEN);
 
-    // 3. Cmd+C copies what is selected, and copying does not take it away.
-    //    The copy EVENT is the assertion (the system clipboard needs a
-    //    permission no headless browser grants), plus the blink the user sees.
-    await recordCopies(ctx.page);
-    await ctx.page.keyboard.press('Meta+c');
+    // 3. The release itself copied what was selected (copy on select). The
+    //    copy EVENT is the assertion (the system clipboard needs a permission
+    //    no headless browser grants), plus the blink the user sees.
     await waitForCondition(
       ctx.page,
       async () => (await copiedText(ctx.page)) !== null,
       5000,
-      'Cmd+C to fire a copy carrying the selected text',
+      'the release to fire a copy carrying the selected text',
     );
     expect(await copiedText(ctx.page)).toBe(TOKEN);
     const flash = await ctx.page.evaluate(() =>
@@ -110,6 +109,22 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
     expect(flash[0].height).toBeGreaterThan(0);
     expect(Math.abs(flash[0].left - at.box.left)).toBeLessThanOrEqual(2);
     expect(Math.abs(flash[0].top - at.box.top)).toBeLessThanOrEqual(2);
+    expect(await selectedText(ctx.page)).toBe(TOKEN);
+
+    // Cmd+C copies the same text once more and, as the next key, clears the
+    // highlight; the text stays on the clipboard. A fresh drag selects again.
+    await ctx.page.evaluate(() => {
+      window.__copied = null;
+    });
+    await ctx.page.keyboard.press('Meta+c');
+    await waitForCondition(
+      ctx.page,
+      async () => (await copiedText(ctx.page)) === TOKEN,
+      5000,
+      'Cmd+C to copy the selected text again',
+    );
+    expect(await selectedText(ctx.page)).toBe('');
+    await dragSelect(ctx.page, at);
     expect(await selectedText(ctx.page)).toBe(TOKEN);
 
     // 4. The escaped bug itself: right-clicking a selection opens a menu, the
