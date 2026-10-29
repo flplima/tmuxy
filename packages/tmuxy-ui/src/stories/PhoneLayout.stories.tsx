@@ -74,17 +74,20 @@ export const PhoneKeyboardDown: Story = {
     // No bottom bar of the app's own.
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    // The tab strip: both tabs, then the "+" at its right end, and nothing else.
+    // The tab strip: the menu at its left end, both tabs, then the "+" at its
+    // right end, and nothing else.
     const strip = canvasElement.querySelector('.phone-tab-strip')!;
     expect([...strip.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual([
       expect.stringContaining('main'),
       expect.stringContaining('logs'),
     ]);
+    const menu = box(strip.querySelector('.app-menu-button'));
     const add = box(strip.querySelector('.tab-add'));
     const tabs = [...strip.querySelectorAll('[role="tab"]')].map(box);
-    expect(tabs.every((tab) => tab.right <= add.left)).toBe(true);
+    expect(menu.left - box(strip).left).toBeLessThan(16);
+    expect(tabs.every((tab) => tab.left >= menu.right && tab.right <= add.left)).toBe(true);
     expect(box(strip).right - add.right).toBeLessThan(16);
-    expect(strip.querySelectorAll('button').length).toBe(1);
+    expect(strip.querySelectorAll('button').length).toBe(2);
 
     // 80 columns asked for, and 80 columns span the screen less 4px of
     // padding each side (the grid's outer borders), the status line under
@@ -137,7 +140,7 @@ export const PhoneKeyboardDown: Story = {
     );
 
     // Two rows of seven: esc, tab, ctrl, alt, the prefix, the keyboard and the
-    // zoom; the arrows, enter and the menu (two keys wide). Each a thumb's size.
+    // zoom; the arrows and enter (three keys wide). Each a thumb's size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
     expect(keyboxes.every((k) => k.height >= 40 && k.width >= 44)).toBe(true);
@@ -148,10 +151,12 @@ export const PhoneKeyboardDown: Story = {
     expect(box(canvasElement.querySelector('[data-key-row="←"]')).top).toBeGreaterThanOrEqual(
       box(canvasElement.querySelector('[data-key-row="esc"]')).bottom,
     );
-    expect(box(canvasElement.querySelector('[data-key-row="⤢"]')).top).toBeCloseTo(
+    expect(box(canvasElement.querySelector('[data-key-row="zoom"]')).top).toBeCloseTo(
       box(canvasElement.querySelector('[data-key-row="esc"]')).top,
       0,
     );
+    // The zoom key is a magnifier, not a glyph.
+    expect(canvasElement.querySelector('[data-key-row="zoom"] svg circle')).not.toBeNull();
 
     // ctrl: latched, locked, off.
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
@@ -173,13 +178,13 @@ export const PhoneKeyboardDown: Story = {
   },
 };
 
-export const AppMenuFromTheKeyRow: Story = {
+export const AppMenuFromTheTabStrip: Story = {
   parameters: {
     docs: {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'A phone has no status bar, so the app menu ends the key row, a key’s height. Tapping it opens the menu on screen.',
+          'A phone has no status bar, so the app menu opens from the tab strip’s left end, before the first tab and as tall as the "+" at the other end. Tapping it opens the menu on screen.',
       },
     },
   },
@@ -187,19 +192,25 @@ export const AppMenuFromTheKeyRow: Story = {
     await waitFor(() => expect(ctx().phoneLayout).toBe(true), { timeout: 8000 });
     const button = await waitFor(
       () => {
-        const el = canvasElement.querySelector('.key-row .app-menu-button') as HTMLElement | null;
+        const el = canvasElement.querySelector(
+          '.phone-tab-strip .app-menu-button',
+        ) as HTMLElement | null;
         expect(el).not.toBeNull();
+        expect(canvasElement.querySelector('.phone-tab-strip [role="tab"]')).not.toBeNull();
         return el!;
       },
       { timeout: 8000 },
     );
-    const keys = box(canvasElement.querySelector('.key-row'));
+    expect(canvasElement.querySelector('.key-row .app-menu-button')).toBeNull();
+    const strip = box(canvasElement.querySelector('.phone-tab-strip'));
     const at = box(button);
-    expect(at.left).toBeGreaterThanOrEqual(keys.left);
-    expect(at.right).toBeLessThanOrEqual(Math.min(keys.right, window.innerWidth));
-    expect(at.height).toBeGreaterThanOrEqual(
-      box(canvasElement.querySelector('[data-key-row="esc"]')).height - 1,
-    );
+    const firstTab = box(canvasElement.querySelector('.phone-tab-strip [role="tab"]'));
+    const add = box(canvasElement.querySelector('.phone-tab-strip .tab-add'));
+    expect(at.left).toBeGreaterThanOrEqual(strip.left);
+    expect(at.right).toBeLessThanOrEqual(firstTab.left);
+    expect(at.width).toBeGreaterThanOrEqual(40);
+    expect(at.height).toBeCloseTo(add.height, 0);
+    expect(at.top + at.height / 2).toBeCloseTo(firstTab.top + firstTab.height / 2, 0);
 
     await userEvent.click(button);
     const item = await waitFor(
@@ -330,7 +341,7 @@ export const DoubleTapZoomsTheTerminal: Story = {
     const log = canvasElement.querySelector('.pane-active [role="log"]')!;
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
-    const zoomKey = canvasElement.querySelector('[data-key-row="⤢"]') as HTMLElement;
+    const zoomKey = canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement;
     const at = { x: grid.left + grid.width / 2, y: grid.top + grid.height / 2 };
 
     tapAt(log, at.x, at.y);

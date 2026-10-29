@@ -304,8 +304,9 @@
   border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
 }
 
-/* The tabs, then the "+" at the strip's right end (PhoneTabStrip). The tab
-   list takes the width between them and scrolls sideways when it overflows. */
+/* The app menu at the strip's left end, the tabs, then the "+" at its right
+   end (PhoneTabStrip). The tab list takes the width between them and scrolls
+   sideways when it overflows. */
 .phone-tab-strip {
   display: flex;
   flex: none;
@@ -316,9 +317,11 @@
   box-sizing: border-box;
 }
 
-/* A thumb's target: the desktop "+" is a 24px glyph for a pointer. Same
-   height as the strip, a key's width, drawn like the key row's keys. */
-.phone-tab-strip .tab-add {
+/* A thumb's target: the desktop "+" and hamburger are 24px glyphs for a
+   pointer. Same height as the tabs, a key's width, drawn like the key row's
+   keys, one at each end of the strip. */
+.phone-tab-strip .tab-add,
+.phone-tab-strip .app-menu-button {
   width: 40px;
   min-width: 40px;
   height: 32px;

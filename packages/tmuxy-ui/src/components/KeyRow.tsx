@@ -1,8 +1,8 @@
 /**
  * KeyRow — the keys a phone keyboard has no key for, in two rows under the
  * terminal: esc, tab, ctrl, alt, the prefix, the keyboard and the zoom on the
- * first; the arrows, enter and the app menu on the second. Two rows so each
- * key is a thumb's size.
+ * first; the arrows and a wide enter on the second. Two rows so each key is a
+ * thumb's size.
  *
  * Each key is pressed through the keyboard path (`utils/keyLatch` → a keydown
  * on the window), so the prefix, the bindings and copy mode treat it as a
@@ -18,14 +18,13 @@
  * one and slides onto another presses that one instead (`utils/keyRepeat`).
  *
  * ⌨ puts the phone's keyboard up or away (a tap on a pane only focuses it —
- * utils/mobileKeyboard.ts), and ⤢ zooms the terminal in the browser or puts
- * it back, as a double tap on it does (the `phone` slice).
+ * utils/mobileKeyboard.ts), and the magnifier zooms the terminal in the
+ * browser or puts it back, as a double tap on it does (the `phone` slice); its
+ * glass reads + while the terminal is at its size and − while it is zoomed.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
- * stays up while the row is used.
- *
- * The row ends with the app menu: a phone has no status bar, and this row is
- * the one piece of chrome it keeps.
+ * stays up while the row is used. The app menu is not here: it opens from
+ * the tab strip's left end (components/PhoneTabStrip.tsx).
  */
 
 import { memo, useMemo, useSyncExternalStore, type PointerEvent } from 'react';
@@ -43,7 +42,6 @@ import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectPhoneZoom } from '../machines/selectors/layout';
 import { selectKeyBindings, selectPrefixActive } from '../machines/selectors/ui';
 import { keyEventInitOf } from '../machines/actors/keyboard/keyFormatting';
-import { AppMenu } from './menus/AppMenu';
 import './KeyRow.css';
 
 type RowKey =
@@ -60,13 +58,35 @@ const KEYS: readonly RowKey[] = [
   { kind: 'modifier', label: 'alt', modifier: 'alt', name: 'Alt' },
   { kind: 'prefix', label: 'prefix', name: 'Prefix' },
   { kind: 'keyboard', label: '⌨', name: 'Toggle keyboard' },
-  { kind: 'zoom', label: '⤢', name: 'Toggle zoom' },
+  { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
   { kind: 'key', label: '←', key: 'ArrowLeft', name: 'Left', arrow: true },
   { kind: 'key', label: '↑', key: 'ArrowUp', name: 'Up', arrow: true },
   { kind: 'key', label: '↓', key: 'ArrowDown', name: 'Down', arrow: true },
   { kind: 'key', label: '→', key: 'ArrowRight', name: 'Right', arrow: true },
   { kind: 'key', label: '⏎', key: 'Enter', name: 'Enter' },
 ];
+
+/** A magnifier, with + in the glass to zoom in and − to put the zoom back. */
+function Magnifier({ zoomed }: { zoomed: boolean }) {
+  return (
+    <svg
+      className="key-row-magnifier"
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <circle cx="7.5" cy="7.5" r="5.25" />
+      <line x1="11.5" y1="11.5" x2="16" y2="16" />
+      <line x1="5" y1="7.5" x2="10" y2="7.5" />
+      {!zoomed && <line x1="7.5" y1="5" x2="7.5" y2="10" />}
+    </svg>
+  );
+}
 
 /** The arrow key under a point on screen, by the DOM key it presses. */
 function arrowAt(x: number, y: number): string | null {
@@ -147,11 +167,10 @@ export const KeyRow = memo(function KeyRow() {
             onMouseDown={(e) => e.preventDefault()}
             onClick={arrow ? undefined : () => press(k)}
           >
-            {k.label}
+            {k.kind === 'zoom' ? <Magnifier zoomed={zoomed} /> : k.label}
           </button>
         );
       })}
-      <AppMenu />
     </div>
   );
 });
