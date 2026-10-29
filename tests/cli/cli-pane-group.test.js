@@ -16,6 +16,39 @@ describe('CLI pane group subcommands', () => {
     });
   });
 
+  // The verbs that leave `#{pane_id}` for run-shell to expand: run-shell
+  // expands it against ITS target, and with none tmux takes the session's
+  // current window — the tab in front, not the caller's — because the CLI's
+  // client is unattached. The caller's pane is therefore run-shell's target,
+  // from the environment or from the dispatcher's own resolution.
+  describe('the pane a format expands to', () => {
+    test.each(['add', 'close', 'next', 'prev'])(
+      'pane group %s names the caller pane as the run-shell target',
+      (verb) => {
+        const { tmuxCalls } = runCLI(['pane', 'group', verb], {
+          env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+        });
+        expect(tmuxCalls).toHaveLength(1);
+        expect(tmuxCalls[0].target).toBe('%7');
+        expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
+      },
+    );
+
+    test('from outside a pane, the resolved pane is the target', () => {
+      const { tmuxCalls, paneResolution } = runCLI(['pane', 'group', 'add'], {
+        env: { MOCK_TMUX_CALLER_PANES: '0\\tidle\\t%3\\n1\\tmain\\t%0' },
+      });
+      expect(paneResolution).not.toBeNull();
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].target).toBe('%0');
+    });
+
+    test('with no pane known, run-shell goes target-less', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'add']);
+      expect(tmuxCalls[0].target).toBeUndefined();
+    });
+  });
+
   describe('pane group close', () => {
     test('execs run-shell with pane-group close (no arg)', () => {
       const { tmuxCalls } = runCLI(['pane', 'group', 'close']);

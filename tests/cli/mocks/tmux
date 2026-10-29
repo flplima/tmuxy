@@ -147,6 +147,9 @@ case "${1:-}" in
     fi
     ;;
   run-shell)
+    # `_run_shell` names the caller's pane as the target; the command is the
+    # argument after it either way.
+    if [ "${2:-}" = "-t" ]; then set -- "$1" "${@:4}"; fi
     case "$*" in
       # A list that ends in a `breakp -P` prints the window it made, even
       # when a `splitw` precedes it (`tab create`).

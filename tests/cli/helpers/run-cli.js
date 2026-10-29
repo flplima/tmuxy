@@ -60,8 +60,18 @@ const RUN_SHELL_WRAP = /^\{ (.*) ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'
 
 function withoutRunShellWrap(tmuxCalls) {
   return tmuxCalls.map((call) => {
-    const match = call.args[0] === 'run-shell' && RUN_SHELL_WRAP.exec(call.args[1] ?? '');
-    return match ? { ...call, args: [call.args[0], match[1], ...call.args.slice(2)] } : call;
+    if (call.args[0] !== 'run-shell') return call;
+    // The caller's pane, when the CLI knew one, is run-shell's `-t` target;
+    // it is lifted out so the command stays at args[1] and tests can assert
+    // on it as `target`.
+    const targeted = call.args[1] === '-t';
+    const rest = call.args.slice(targeted ? 3 : 1);
+    const match = RUN_SHELL_WRAP.exec(rest[0] ?? '');
+    return {
+      ...call,
+      ...(targeted && { target: call.args[2] }),
+      args: ['run-shell', match ? match[1] : rest[0], ...rest.slice(1)],
+    };
   });
 }
 

@@ -55,8 +55,8 @@ describe('tmuxy agent', () => {
     expect(hook('claude', 'UserPromptSubmit', 'working', where).exitCode).toBe(0);
     let calls = await callsAfterHook(where.log, 1);
     expect(calls).toHaveLength(1);
-    expect(calls[0][2]).toBe('run-shell');
-    expect(calls[0][3]).toContain(
+    expect(calls[0].slice(2, 5)).toEqual(['run-shell', '-t', '%5']);
+    expect(calls[0][5]).toContain(
       "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'working'",
     );
 
@@ -66,7 +66,7 @@ describe('tmuxy agent', () => {
     expect(hook('claude', 'SessionEnd', 'clear', where).exitCode).toBe(0);
     calls = await callsAfterHook(where.log, 2);
     expect(calls).toHaveLength(2);
-    expect(calls[1][3]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
+    expect(calls[1][5]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
   });
 
   test('outside a tmuxy pane a hook changes nothing, and still answers Antigravity', async () => {

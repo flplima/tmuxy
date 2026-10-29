@@ -79,10 +79,16 @@ _tmux() {
 # view-mode on the target pane instead of handing it to the calling client,
 # and a pane in view-mode swallows every key typed into it. One failing
 # `tmuxy run` left the shell unreachable.
+# Formats in the command (`#{pane_id}`, `#{pane_width}`, `#{session_id}`)
+# expand against run-shell's own target. Without one, tmux resolves it from
+# the CLI's client — unattached, so the session's current window and active
+# pane, not the caller's — which is how `pane group add` from a background
+# tab grouped a pane in the tab in front. The caller's pane is the target
+# whenever one is known (TMUX_PANE, resolved by packages/tmuxy-cli/bin/tmuxy-cli).
 _run_shell() {
   local dir status=0
   dir=$(mktemp -d)
-  _tmux run-shell "{ $1 ; } >$(shquote "$dir/out") 2>$(shquote "$dir/err"); echo \$? >$(shquote "$dir/status")" 2>"$dir/client-err" || status=$?
+  _tmux run-shell ${TMUX_PANE:+-t "$TMUX_PANE"} "{ $1 ; } >$(shquote "$dir/out") 2>$(shquote "$dir/err"); echo \$? >$(shquote "$dir/status")" 2>"$dir/client-err" || status=$?
   # No status file means run-shell never ran the command; its own status
   # stands — unless there was no server to run it, which is exit 4.
   if [ -f "$dir/status" ]; then
