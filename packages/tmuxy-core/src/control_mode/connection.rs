@@ -2,6 +2,8 @@
 //!
 //! Handles spawning the `tmux -CC` process and communicating with it.
 
+#[cfg(target_os = "linux")]
+mod appimage_env;
 mod spawn;
 
 use super::log::{LogKind, LogSink};

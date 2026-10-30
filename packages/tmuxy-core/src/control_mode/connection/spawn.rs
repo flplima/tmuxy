@@ -313,9 +313,19 @@ impl ControlModeConnection {
         // helpers. Carrying those into tmux makes user Python tools such as
         // Kitty's `kitten` load the bundled interpreter paths instead of
         // their own, which can fail before an image is sent.
+        // Its library path too: every pane would load the bundle's older
+        // libraries before the system's (see appimage_env).
         #[cfg(target_os = "linux")]
         if std::env::var_os("APPIMAGE").is_some() {
             cmd = cmd.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
+            if let (Some(appdir), Ok(libs)) =
+                (std::env::var_os("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
+            {
+                cmd = match super::appimage_env::without_appdir(&libs, appdir.as_ref()) {
+                    Some(kept) => cmd.env("LD_LIBRARY_PATH", kept),
+                    None => cmd.env_remove("LD_LIBRARY_PATH"),
+                };
+            }
         }
         if std::env::var_os("TERM").is_none() {
             cmd = cmd.env("TERM", "xterm-256color");
