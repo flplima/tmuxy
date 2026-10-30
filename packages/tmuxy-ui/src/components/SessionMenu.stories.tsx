@@ -35,7 +35,7 @@ const meta: Meta<typeof FixtureApp> = {
     start: 'closed',
     onAdapterReady: keepAdapter,
     // The toggle opens the column; tmux's answer is the tree beside the panes.
-    transitions: [{ match: /^split-window\b.*'tmuxy widget tree'/, to: 'open' }],
+    transitions: [{ match: /^split-window\b.*tmuxy-widget-tree'/, to: 'open' }],
   },
 };
 export default meta;

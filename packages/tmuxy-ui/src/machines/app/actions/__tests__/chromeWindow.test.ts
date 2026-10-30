@@ -37,7 +37,7 @@ describe('chrome window creation', () => {
     const cmd = toTmuxCommand(TmuxOp.OpenSidebar({ side: 'left', splitFrom: null }));
     expect(cmd).toBe(
       [
-        "split-window 'tmuxy widget tree'",
+        "split-window '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree'",
         'break-pane -d -n __sidebar-left',
         'set-option -w -t :__sidebar-left @tmuxy-window-type sidebar-left',
       ].join(' \\; '),
@@ -55,7 +55,9 @@ describe('chrome window creation', () => {
     // wherever tmux's current pane happens to be — which is how the tree came
     // up as a bare pane in the first tab.
     const cmd = toTmuxCommand(TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%31') }));
-    expect(cmd.startsWith("split-window -t %31 'tmuxy widget tree'")).toBe(true);
+    expect(
+      cmd.startsWith("split-window -t %31 '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree'"),
+    ).toBe(true);
     // The break must stay bare: its -t is a destination, not a target.
     expect(cmd).toContain('break-pane -d -n __sidebar-left');
     expect(cmd).not.toContain('break-pane -t');
@@ -66,7 +68,9 @@ describe('chrome window creation', () => {
     const cmd = toTmuxCommand(
       TmuxOp.OpenSidebar({ side: 'left', splitFrom: placeholderPaneId('pane_1') }),
     );
-    expect(cmd.startsWith("split-window 'tmuxy widget tree'")).toBe(true);
+    expect(cmd.startsWith("split-window '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree'")).toBe(
+      true,
+    );
   });
 
   it('still names a free index up front for a float, which has no fixed name', () => {

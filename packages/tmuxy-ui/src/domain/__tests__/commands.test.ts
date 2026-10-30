@@ -193,7 +193,7 @@ const cases: Array<[TmuxOp, string]> = [
   ],
   [
     TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%1') }),
-    "split-window -t %1 'tmuxy widget tree' \\; break-pane -d -n __sidebar-left \\; " +
+    "split-window -t %1 '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree' \\; break-pane -d -n __sidebar-left \\; " +
       'set-option -w -t :__sidebar-left @tmuxy-window-type sidebar-left',
   ],
   [

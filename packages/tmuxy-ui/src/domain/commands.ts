@@ -37,8 +37,17 @@ export const CONFIG_FILE = '~/.config/tmuxy/tmuxy.conf';
 /** The fixed window name of a sidebar column: unique, so a create can target it by name. */
 export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
 
-/** What a sidebar column runs: the tree widget, or (`null`) the default shell. */
-const SIDEBAR_RUN = { left: 'tmuxy widget tree', right: null } as const;
+/**
+ * What a sidebar column runs: the tree widget, or (`null`) the default shell.
+ * The tree is the bundled script by its installed path, as every other script
+ * the client runs: a bare `tmuxy` is whatever PATH holds, and a stale one (a
+ * launcher left pointing at an unmounted AppImage) exited at once, its window
+ * went with it, and the column sat on "starting…" for good.
+ */
+const SIDEBAR_RUN = {
+  left: '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree',
+  right: null,
+} as const;
 
 /** A pane direction in tmux's own letters. */
 export type PaneDirection = 'L' | 'R' | 'U' | 'D';
