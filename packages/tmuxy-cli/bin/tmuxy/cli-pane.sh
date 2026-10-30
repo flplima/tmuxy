@@ -369,6 +369,30 @@ cmd_pane_group() {
       _pane_done
       ;;
 
+    all)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group all [%id]   (every pane in the tab joins %id's group)"; return ;;
+      esac
+      # A pane named on the command line is quoted; the default is a format
+      # for run-shell to expand to the caller's pane.
+      local anchor="${1:-}"
+      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
+      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' all $anchor"
+      _pane_done
+      ;;
+
+    ungroup)
+      case "${1:-}" in
+        --help|-h) echo "Usage: tmuxy pane group ungroup [%id]   (the group's members become splits in the tab)"; return ;;
+      esac
+      # A pane named on the command line is quoted; the default is a format
+      # for run-shell to expand to the caller's pane.
+      local anchor="${1:-}"
+      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
+      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' ungroup $anchor"
+      _pane_done
+      ;;
+
     --help|-h|"")
       usage_pane_group
       ;;

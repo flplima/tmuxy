@@ -204,6 +204,8 @@ Commands:
   move          Move a member to another place in its group <%id> <index>
   join          Make a pane a member of another pane's group <%id> <%member> [index]
   leave         Take a member out of its group [%id] [--tab | --beside <%id> <dir>]
+  all           Every pane in the tab joins one group, %id's (the current pane's) [%id]
+  ungroup       A group's members come back as splits in the tab, and the group is gone [%id]
 EOF
 }
 

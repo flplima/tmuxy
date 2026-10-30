@@ -119,6 +119,7 @@ case "${1:-}" in
       # `pane wait` polls whether the program has exited, and how.
       *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
+      *'#{@tmuxy-group-id}'*) echo "${MOCK_TMUX_GROUP_ID:-}" ;;
       *'#{window_id}'*) echo "${MOCK_TMUX_WINDOW_ID:-}" ;;
       *'#{pane_id}'*) echo "${MOCK_TMUX_PANE_ID:-}" ;;
       *'#{window_height}'*) echo "${MOCK_TMUX_WINDOW_ROWS:-}" ;;

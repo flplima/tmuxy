@@ -1,0 +1,48 @@
+#!/bin/bash
+# pane-group-tab <verb> <%id>: a whole tab's worth of pane-group work, built
+# from the one-pane verbs of `pane-group` (tmuxy_core::groups does each step).
+#   all <%id>       every other pane in %id's tab becomes a member of %id's group
+#                   (a new group when it has none): one slot, the others parked
+#   ungroup <%id>   every member of %id's group comes back as a split beside %id,
+#                   and the group is gone; the tab is re-tiled so the splits share it
+set -euo pipefail
+source "${0%/*}/_lib"
+
+verb="${1:-}"
+pane="${2:-}"
+[ -n "$verb" ] && [ -n "$pane" ] || { echo "Usage: pane-group-tab <all|ungroup> <%id>" >&2; exit "$EXIT_USAGE"; }
+
+group_script="$SCRIPTS_DIR/pane-group"
+
+case "$verb" in
+  all)
+    window=$(_tmux display-message -p -t "$pane" '#{window_id}')
+    others=$(_tmux list-panes -t "$window" -F '#{pane_id}' | grep -vx "$pane" || true)
+    [ -n "$others" ] || exit 0
+    # Each join parks the pane and tags it; the first one makes the group.
+    for other in $others; do
+      bash "$group_script" join "$other" "$pane"
+    done
+    ;;
+  ungroup)
+    group=$(_tmux display-message -p -t "$pane" '#{@tmuxy-group-id}')
+    [ -n "$group" ] || exit 0
+    # The members in their group order, the shown one (%id) left for last:
+    # each comes back as a split to the right of %id, then the tab is tiled.
+    members=$(_tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id} #{@tmuxy-group-pos}' \
+      | awk -v g="$group" -v p="$pane" '$2 == g && $1 != p { print $3, $1 }' | sort -n | awk '{ print $2 }')
+    for member in $members; do
+      bash "$group_script" leave "$member" --beside "$pane" right
+    done
+    # A group left with one member dissolves on its own; only a pane still
+    # tagged has a group to leave.
+    if [ -n "$(_tmux display-message -p -t "$pane" '#{@tmuxy-group-id}')" ]; then
+      bash "$group_script" leave "$pane" --tab
+    fi
+    window=$(_tmux display-message -p -t "$pane" '#{window_id}')
+    _tmux select-layout -t "$window" tiled
+    ;;
+  *)
+    echo "Unknown verb: $verb" >&2; exit "$EXIT_USAGE"
+    ;;
+esac

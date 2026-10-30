@@ -26,6 +26,18 @@ const MOCKS_DIR = path.resolve(__dirname, '../mocks');
  * @returns {{ stdout: string, stderr: string, exitCode: number | null }}
  */
 function runGroupScript(verb, args, env = {}, { standalone = false } = {}) {
+  return runScript('pane-group', verb, args, env, { standalone });
+}
+
+/**
+ * Drive `pane-group-tab <verb>` (a tab's worth of group work) the same way:
+ * the stub server records each one-pane verb it is handed, one per line.
+ */
+function runGroupTabScript(verb, args, env = {}) {
+  return runScript('pane-group-tab', verb, args, env, { standalone: false });
+}
+
+function runScript(script, verb, args, env, { standalone }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-group-'));
   try {
     fs.writeFileSync(
@@ -45,7 +57,7 @@ function runGroupScript(verb, args, env = {}, { standalone = false } = {}) {
     const base = { ...process.env };
     delete base.TMUXY_SERVER_BIN;
     delete base.TMUXY_SERVER_SUBCOMMAND;
-    const result = spawnSync('bash', [path.join(SCRIPTS_DIR, 'pane-group'), verb, ...args], {
+    const result = spawnSync('bash', [path.join(SCRIPTS_DIR, script), verb, ...args], {
       encoding: 'utf8',
       env: { ...base, PATH: `${dir}:${MOCKS_DIR}:${process.env.PATH}`, ...env },
     });
@@ -87,4 +99,4 @@ function runGroupScriptInBareTree(verb, args) {
   }
 }
 
-module.exports = { runGroupScript, runGroupScriptInBareTree };
+module.exports = { runGroupScript, runGroupTabScript, runGroupScriptInBareTree };
