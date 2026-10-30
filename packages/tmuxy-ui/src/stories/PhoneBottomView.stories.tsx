@@ -32,6 +32,9 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
+/** A released slide settles in up to 320 ms, then React re-renders: a slow runner needs more than waitFor's default second. */
+const SETTLE = { timeout: 4000 };
+
 export const BottomViewSlidesToTheSidePane: Story = {
   parameters: {
     docs: {
@@ -70,7 +73,7 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(tree.left).toBeCloseTo(frame.left + pulled, 0);
       expect(dock.left).toBeCloseTo(tree.right, 0);
       expect(dock.width).toBeCloseTo(frame.width, 0);
-    });
+    }, SETTLE);
     for (let i = 4; i <= 6; i++) touch(bottom, 'touchmove', fromX + ((toX - fromX) * i) / 6, y);
     touch(bottom, 'touchend', toX, y);
 
@@ -83,7 +86,7 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(dock.top).toBeGreaterThanOrEqual(frame.top - 1);
       expect(dock.height).toBeGreaterThan(100);
       expect(canvasElement.querySelector('.phone-dock')!.textContent).toContain('starting');
-    });
+    }, SETTLE);
     expect(canvasElement.querySelector('.phone-tree')).toBeNull();
 
     // A short pull lets go short of the mark: it settles back where it was.
@@ -93,7 +96,7 @@ export const BottomViewSlidesToTheSidePane: Story = {
     await waitFor(() => {
       expect(bottom.getAttribute('data-sliding')).toBeNull();
       expect(bottom.getAttribute('data-view')).toBe('dock');
-    });
+    }, SETTLE);
 
     // The way back: the tree rides in from the left.
     swipeAcross(bottom, y, frame.left + 20, frame.right - 20);
@@ -102,7 +105,7 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(bottom.getAttribute('data-sliding')).toBeNull();
       expect(canvasElement.querySelector('.phone-tree [role="treeitem"]')).not.toBeNull();
       expect(box(canvasElement.querySelector('.phone-tree')).left).toBeCloseTo(frame.left, 0);
-    });
+    }, SETTLE);
     expect(canvasElement.querySelector('.phone-dock')).toBeNull();
   },
 };
