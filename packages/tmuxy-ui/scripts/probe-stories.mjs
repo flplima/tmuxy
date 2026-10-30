@@ -58,6 +58,7 @@ import {
   printProbeSummary,
   runAxe,
   writeArtifacts,
+  writeProbeResults,
 } from './lib/probe-common.mjs';
 
 const { filters: FILTERS, storybookUrl: STORYBOOK_URL } = parseProbeArgs(process.argv.slice(2));
@@ -353,5 +354,6 @@ try {
 }
 
 const blocking = printProbeSummary({ results, ids, quarantine, quarantineStatus });
+writeProbeResults(results, (id) => quarantineStatus(id).shielded);
 
 process.exit(blocking.length === 0 ? 0 : 1);

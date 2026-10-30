@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# `ids=<id id …>` for the stories a probe results file (PROBE_RESULTS_JSON,
+# packages/tmuxy-ui/scripts/lib/probe-common.mjs) marks as failed — the
+# nightly's input to its re-run on a fresh runner. A missing file prints
+# `ids=`: the probe died before writing it, and `report` says so.
+set -euo pipefail
+file=${1:?usage: failed-stories <results.json>}
+if [ ! -s "$file" ]; then
+  echo "ids="
+  exit 0
+fi
+node -e '
+  const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  console.log("ids=" + r.stories.filter((s) => !s.ok).map((s) => s.id).join(" "));
+' "$file"

@@ -36,6 +36,7 @@ import {
   parseProbeArgs,
   printFailures,
   writeArtifacts,
+  writeProbeResults,
 } from './lib/probe-common.mjs';
 
 const {
@@ -195,6 +196,7 @@ for (let i = 0; i < ids.length; i++) {
 }
 
 await browser.close();
+writeProbeResults(results);
 
 const failed = results.filter((r) => !r.ok);
 console.log('');
