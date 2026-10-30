@@ -47,8 +47,23 @@ export function tapAt(el: Element, x: number, y: number) {
   touch(el, 'touchend', x, y);
 }
 
-export function swipeAcross(el: Element, y: number, fromX: number, toX: number) {
+/**
+ * One finger across `el` in real time: `steps` moves `stepMs` apart, so the
+ * release speed the app measures is the gesture's own, not however many
+ * milliseconds a runner happened to put between events dispatched at once.
+ */
+export async function swipeTimed(
+  el: Element,
+  y: number,
+  fromX: number,
+  toX: number,
+  { steps = 6, stepMs = 16 } = {},
+) {
   touch(el, 'touchstart', fromX, y);
-  for (let i = 1; i <= 6; i++) touch(el, 'touchmove', fromX + ((toX - fromX) * i) / 6, y);
+  for (let i = 1; i <= steps; i++) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    touch(el, 'touchmove', fromX + ((toX - fromX) * i) / steps, y);
+  }
+  await new Promise((r) => setTimeout(r, stepMs));
   touch(el, 'touchend', toX, y);
 }

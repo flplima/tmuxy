@@ -11,7 +11,8 @@ import { TmuxyApp } from '../lib';
 import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
-import { box, ctx, swipeAcross, touch } from './phoneStoryHelpers';
+import { box, ctx, swipeTimed, touch } from './phoneStoryHelpers';
+import { SWIPE_SETTLE_MAX_MS } from '../utils/gestures';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Bottom View',
@@ -83,23 +84,26 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(bottom.getAttribute('data-sliding')).toBeNull();
       const dock = box(canvasElement.querySelector('.phone-dock'));
       expect(dock.left).toBeCloseTo(frame.left, 0);
-      expect(dock.top).toBeGreaterThanOrEqual(frame.top - 1);
+      // Read now, not at the start: the page may settle its height meanwhile.
+      expect(dock.top).toBeGreaterThanOrEqual(box(bottom).top - 1);
       expect(dock.height).toBeGreaterThan(100);
       expect(canvasElement.querySelector('.phone-dock')!.textContent).toContain('starting');
     }, SETTLE);
     expect(canvasElement.querySelector('.phone-tree')).toBeNull();
 
-    // A short pull lets go short of the mark: it settles back where it was.
-    touch(bottom, 'touchstart', frame.left + 20, y);
-    touch(bottom, 'touchmove', frame.left + 50, y);
-    touch(bottom, 'touchend', frame.left + 50, y);
+    // A short, slow pull lets go short of the mark: it settles back where it
+    // was. The settle is given its longest time before the view is read, so a
+    // flip that was coming has come.
+    const yNow = () => box(bottom).top + 40;
+    await swipeTimed(bottom, yNow(), frame.left + 20, frame.left + 50, { steps: 3, stepMs: 150 });
+    await new Promise((r) => setTimeout(r, SWIPE_SETTLE_MAX_MS + 150));
     await waitFor(() => {
       expect(bottom.getAttribute('data-sliding')).toBeNull();
       expect(bottom.getAttribute('data-view')).toBe('dock');
     }, SETTLE);
 
     // The way back: the tree rides in from the left.
-    swipeAcross(bottom, y, frame.left + 20, frame.right - 20);
+    await swipeTimed(bottom, yNow(), frame.left + 20, frame.right - 20);
     await waitFor(() => {
       expect(bottom.getAttribute('data-view')).toBe('tree');
       expect(bottom.getAttribute('data-sliding')).toBeNull();
