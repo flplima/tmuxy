@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { inputPause, tmuxCaughtUp } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import {
   pasteLine,
@@ -38,7 +39,6 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const findPane = (id: string) =>
       paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
 
@@ -81,7 +81,7 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     };
     await fillShort(a, 'SHORT_AAA');
     await fillShort(b, 'SHORT_BBB');
-    await sleep(500);
+    await tmuxCaughtUp();
 
     // Precondition: both panes are short and top-anchored before the swap.
     for (const id of [a, b]) {
@@ -109,14 +109,14 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
           bubbles: true,
         }),
       );
-      await sleep(100);
+      await inputPause(100);
     }
     dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
     await waitFor(() => expect(paneIds(canvas)[0]).toBe(b), {
       timeout: 30000,
       interval: 400,
     }).catch(() => {});
-    await sleep(2000);
+    await tmuxCaughtUp();
 
     // After the swap, each pane's short content must remain TOP-anchored: the
     // deepest non-blank row and the cursor stay in the upper half of the pane,

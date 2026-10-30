@@ -270,6 +270,9 @@ const BLIND_WAIT_CEILING = {
   'tests/helpers': 0,
   // Test bodies. Each one affects a single test.
   tests: 11,
+  // Stories over real tmux wait on it instead (src/stories/tmuxBarrier.ts).
+  'v86 stories': 0,
+  stories: 15,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */
@@ -367,7 +370,7 @@ function countBlindWaits(content) {
 }
 
 function checkBlindWaitRatchet() {
-  const counts = { 'tests/helpers': 0, tests: 0 };
+  const counts = Object.fromEntries(Object.keys(BLIND_WAIT_CEILING).map((k) => [k, 0]));
   const helperDir = path.join(root, 'tests/helpers');
 
   for (const file of listFiles(path.join(root, 'tests'), new Set(['.js']))) {
@@ -376,12 +379,19 @@ function checkBlindWaitRatchet() {
     counts[bucket] += countBlindWaits(fs.readFileSync(file, 'utf8'));
   }
 
+  const storyDir = path.join(root, 'packages/tmuxy-ui/src/stories');
+  for (const file of listFiles(storyDir, new Set(['.ts', '.tsx']))) {
+    const content = fs.readFileSync(file, 'utf8');
+    const v86 = /tags:\s*\[[^\]]*'v86'|^\/\/ v86 helpers/m.test(content);
+    counts[v86 ? 'v86 stories' : 'stories'] += countBlindWaits(content);
+  }
+
   for (const [bucket, ceiling] of Object.entries(BLIND_WAIT_CEILING)) {
     const count = counts[bucket];
     if (count > ceiling) {
       addError(
         `[tests] ${count} blind waits in ${bucket}/ exceeds the ceiling of ${ceiling}. ` +
-          'Use waitForCondition(page, fn, budget, description) instead — see ' +
+          'Use waitForCondition (tests) or waitFor (stories) instead — see ' +
           'BLIND_WAIT_CEILING in bin/check-repo-policy.mjs.',
       );
     } else if (count < ceiling) {

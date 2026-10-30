@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { tmuxCaughtUp } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import { armPaintProbe, addsElement } from './immediacy';
 import { GlitchRecorder } from './glitchRecorder';
@@ -107,7 +108,7 @@ export const SelectPaneImmediate: Story = {
     // Record every class value the pane passes through while the real
     // select-pane round-trips; none may lack `pane-active`.
     const classes = recordClassHistory(targetWrapper);
-    await new Promise((r) => setTimeout(r, 1500));
+    await tmuxCaughtUp();
     classes.disconnect();
     expect(classes.history().filter((c) => !c.includes('pane-active'))).toEqual([]);
     expect(activePaneId()).toBe(target);
@@ -188,7 +189,7 @@ export const NavigateKeysImmediate: Story = {
 
     // The predicted target must BE tmux's choice — no second flip.
     const classes = recordClassHistory(mruWrapper);
-    await new Promise((r) => setTimeout(r, 1500));
+    await tmuxCaughtUp();
     classes.disconnect();
     expect(classes.history().filter((c) => !c.includes('pane-active'))).toEqual([]);
     expect(activePaneId()).toBe(mruTarget);
@@ -332,8 +333,8 @@ export const KillPaneOptimisticTimeline: Story = {
       interval: 100,
     });
 
-    // No resurrection while the server confirms; focus is a real survivor.
-    await new Promise((r) => setTimeout(r, 1500));
+    // No resurrection once the server has confirmed; focus is a real survivor.
+    await tmuxCaughtUp();
     expect(paneIds(canvas)).not.toContain(doomed);
     expect(activePaneId()).toMatch(/^%\d+$/);
     expect(activePaneId()).not.toBe(doomed);

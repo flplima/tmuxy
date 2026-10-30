@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { tmuxCaughtUp } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import { ResizeGlitchRecorder } from './resizeGlitch';
 import {
@@ -78,7 +79,7 @@ export const ResizePaneDragVertical: Story = {
       { timeout: 30000, interval: 500 },
     );
     await settleGeometry(canvas);
-    await new Promise((res) => setTimeout(res, 800));
+    await tmuxCaughtUp();
     const after = paneRect(canvas, grower).height;
     expect(Math.abs(paneRect(canvas, grower).height - after)).toBeLessThan(10);
     // No pane's top/height may reverse: not the resized panes flashing back to
@@ -135,7 +136,7 @@ export const ResizePaneDragGrid: Story = {
       { timeout: 30000, interval: 500 },
     );
     await settleGeometry(canvas);
-    await new Promise((res) => setTimeout(res, 800));
+    await tmuxCaughtUp();
     rec.assertNoBounces();
   },
 };
@@ -166,7 +167,7 @@ export const SplitPaneInGridNoRowJump: Story = {
         interval: 500,
       });
       await settleGeometry(canvas);
-      await new Promise((res) => setTimeout(res, 800));
+      await tmuxCaughtUp();
       // No existing pane's content jumped a row while the new pane appeared.
       rec.assertNoBounces();
     };

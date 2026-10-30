@@ -104,8 +104,32 @@ export function AppProvider({
       if (position.diverged) return false;
       return position.seq === null || store.getAppliedSeq() === position.seq;
     };
-    (window as unknown as { app: typeof actorRef & { settled: () => boolean } }).app =
-      Object.assign(actorRef, { settled });
+    // "Has tmux done everything sent so far, and does the screen show it?" —
+    // what a story over real tmux (the v86 tier) awaits instead of sleeping
+    // for as long as tmux usually takes. A query rides the same control-mode
+    // connection as every command and tmux answers in order, so its reply
+    // means every earlier command is done and its notifications have reached
+    // the core; then the store catches up (`settled`), and the frame after
+    // that paints it. Over recorded fixtures and mocks there is no tmux to
+    // ask, and `settled` is the whole answer. Unbounded on purpose: the
+    // caller's own deadline is the bound, and a slow runner must read as
+    // slow, not as done.
+    const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+    const caughtUp = async (): Promise<void> => {
+      while (!settled()) await nextFrame();
+      const transport = runtime.runSync(TmuxTransport);
+      if (transport.answersQueries()) {
+        await runtime.runPromise(transport.query('display-message -p caught-up'));
+        while (!settled()) await nextFrame();
+      }
+      await nextFrame();
+      await nextFrame();
+    };
+    (
+      window as unknown as {
+        app: typeof actorRef & { settled: () => boolean; caughtUp: () => Promise<void> };
+      }
+    ).app = Object.assign(actorRef, { settled, caughtUp });
   }, [actorRef, runtime, store]);
 
   return (

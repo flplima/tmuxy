@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { inputPause } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import {
   pasteLine,
@@ -61,7 +62,7 @@ export const ScrollViewWheel: Story = {
         paneEl().dispatchEvent(
           new WheelEvent('wheel', { deltaY: dy, bubbles: true, cancelable: true }),
         );
-        await new Promise((r) => setTimeout(r, gapMs));
+        await inputPause(gapMs);
       }
     };
     // Wheel up: opens the scroll view and scrolls the ScrollbackTerminal back.
@@ -130,8 +131,21 @@ export const SyncPanes: Story = {
     await set('off', 'SYNC_UNSET_42');
     pasteLine('echo SYNC_OFF_42');
     await waitFor(() => expect(inPanes(/SYNC_OFF_42/)).toBe(1), { timeout: 30000, interval: 500 });
-    // Give the mirror a beat, then confirm it STAYED in one pane (not just raced).
-    await new Promise((r) => setTimeout(r, 1500));
+    // Then confirm it STAYED in one pane, not just raced: a fence typed into
+    // the OTHER pane runs after anything mirrored into it, since its shell
+    // reads its input in order. Once the fence has printed there (typed line
+    // and output, two occurrences), a mirrored SYNC_OFF_42 would have too.
+    const other: HTMLElement = paneGroups(canvas).find(
+      (p: HTMLElement) => p.getAttribute('data-pane-id') !== activePaneId(),
+    )!;
+    const otherId = other.getAttribute('data-pane-id');
+    await user.click((other.querySelector('.terminal-line') as HTMLElement | null) ?? other);
+    await waitFor(() => expect(activePaneId()).toBe(otherId), { timeout: 15000, interval: 200 });
+    pasteLine('echo SYNC_FENCE_42');
+    await waitFor(
+      () => expect((other.textContent ?? '').split('SYNC_FENCE_42').length - 1).toBe(2),
+      { timeout: 30000, interval: 500 },
+    );
     expect(inPanes(/SYNC_OFF_42/)).toBe(1);
   },
 };

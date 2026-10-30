@@ -33,8 +33,17 @@ export const SessionRoundTrip: Story = {
       window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }
     ).app;
     const panesOnM = paneIds(canvas).length;
-    pasteLine('tmux new-session -d -s rt');
-    await new Promise((r) => setTimeout(r, 2500));
+    // The marker prints once the session exists: typed line and output.
+    pasteLine('tmux new-session -d -s rt && echo RT_MADE');
+    await waitFor(
+      () =>
+        expect(
+          paneGroups(canvas).some(
+            (p: HTMLElement) => (p.textContent ?? '').split('RT_MADE').length - 1 >= 2,
+          ),
+        ).toBe(true),
+      { timeout: 30000, interval: 500 },
+    );
     app.send({ type: 'SWITCH_SESSION', sessionName: 'rt' });
     await waitFor(() => expect(sessionName()).toBe('rt'), { timeout: 30000, interval: 500 });
     await waitFor(() => expect(paneGroups(canvas).length).toBe(1), {

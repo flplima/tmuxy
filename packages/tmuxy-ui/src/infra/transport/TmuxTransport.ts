@@ -41,6 +41,8 @@ export interface TmuxTransportService {
   ) => Effect.Effect<A, AdapterError>;
   /** Read from tmux (see `TmuxAdapter.query`); a TransportError where it cannot (recorded fixtures). */
   readonly query: (command: string) => Effect.Effect<string, AdapterError>;
+  /** Whether `query` reaches a tmux at all: false on recorded fixtures and mocks. */
+  readonly answersQueries: () => boolean;
   /** Stage a preview pane's page (see `TmuxAdapter.stagePreview`); its frame's URL. */
   readonly stagePreview: (paneId: string, html: string) => Effect.Effect<string, AdapterError>;
   readonly switchSession: (sessionName: string) => Effect.Effect<void, AdapterError>;
@@ -121,6 +123,7 @@ export function serviceOver(
     reconnectNow: Effect.sync(() => driver.reconnectNow?.()),
 
     enumeratesSessions: () => driver.enumeratesSessions === true,
+    answersQueries: () => driver.query !== undefined,
     pendingCommands: () => driver.pendingCommands?.() ?? 0,
     streamPosition: () => driver.streamPosition?.() ?? null,
     subscribe: Stream.fromPubSub(pubsub, { scoped: true }),
