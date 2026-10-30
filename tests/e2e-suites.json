@@ -45,7 +45,6 @@
     { "name": "13-send-permission", "path": "tests/13-send-permission.test.js" },
     { "name": "14-widget-authorisation", "path": "tests/14-widget-authorisation.test.js" },
     { "name": "14-widget-preview", "path": "tests/14-widget-preview.test.js" },
-    { "name": "17-widget-browser", "path": "tests/17-widget-browser.test.js" },
     {
       "name": "15-session-snapshot",
       "path": "tests/15-session-snapshot.test.js",

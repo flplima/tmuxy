@@ -19,16 +19,10 @@ schema in [TMUX.md](TMUX.md)). The process must stay
 alive; closing the pipe fires the wrapper's EXIT trap, which clears the marker and hands the pane
 back to a shell. That is what ctrl+c in a widget pane does.
 
-| Widget    | Started by                                                                                                                                     | Content it reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tree`    | `tmuxy widget tree`                                                                                                                            | none — the tabs/panes tree is derived from state the app already holds                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Widget | Started by | Content it reads |
+| --- | --- | --- |
+| `tree` | `tmuxy widget tree` | none — the tabs/panes tree is derived from state the app already holds |
 | `preview` | `tmuxy open [--net] [--no-theme] [file]` (alias: `tmuxy widget preview`; without a file, `index.html` or `README.md` in the current directory) | `__FILE__:<name>` and `__REV__:<fingerprint>` — the file's name and a line rewritten in place whenever the file changes (inotify where there is one, a poll every second otherwise). The file itself never travels in pane output: the widget reads it with `read_preview`, which tmux authorises (below). A markdown document is drawn by the app, mermaid fences as diagrams, in the theme's colours; an HTML page is drawn in a sandboxed frame, in the theme's colours unless `--no-theme` |
-
-`tmuxy widget browser <url>` (alias: `tmuxy browser`) is listed with the widgets but is not one in
-this sense: it prints no marker and the frontend renders nothing for it specially. It is a program
-in the pane — a headless Chrome's screencast written as Kitty graphics, the pane's input forwarded
-to the page over DevTools — and so goes through the image pipeline every pane has. It is described
-in [RICH-RENDERING-BROWSER.md](RICH-RENDERING-BROWSER.md).
 
 ### A preview: what it reads, and the page it frames
 
