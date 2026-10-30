@@ -39,7 +39,7 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     start: 'right-active',
     transitions: [
       { match: /^select-pane -t %0$/, to: 'left-active' },
-      { match: /^split-window\b.*'tmuxy widget tree'/, to: 'tree-open' },
+      { match: /^split-window\b.*tmuxy-widget-tree'/, to: 'tree-open' },
     ],
   },
   play: async ({ canvasElement }) => {

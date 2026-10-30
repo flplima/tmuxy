@@ -200,9 +200,44 @@ fn a_restore_keeps_the_programs_word_and_runs_the_chrome() {
     // The sidebar's widget runs, and is not tagged.
     let i_widget = lines
         .iter()
-        .position(|l| l == "run: send-keys -t work:3.0 -l tmuxy widget tree")
+        .position(|l| l == &format!("run: send-keys -t work:3.0 -l {LEFT_SIDEBAR_WIDGET}"))
         .unwrap();
     assert_eq!(lines[i_widget + 1], "run: send-keys -t work:3.0 Enter");
+    assert!(!lines
+        .iter()
+        .any(|l| l.contains("-t work:3.0 @tmuxy-pane-restore")));
+}
+
+/// A snapshot saved while the sidebar ran a bare `tmuxy widget tree` restores
+/// the sidebar all the same, and runs the bundled script, which a stale
+/// `tmuxy` on PATH cannot break.
+#[test]
+fn an_older_snapshots_sidebar_runs_the_bundled_widget() {
+    let mut snapshot = fixture();
+    snapshot.windows.push(WindowSnapshot {
+        index: 3,
+        name: "__sidebar-left".into(),
+        active: false,
+        layout: "bd23,30x27,0,0,6".into(),
+        window_type: Some("sidebar-left".into()),
+        float_parent_index: None,
+        options: BTreeMap::new(),
+        panes: vec![PaneSnapshot {
+            index: 0,
+            active: true,
+            cwd: "/tmp".into(),
+            command: None,
+            restore_command: Some(LEGACY_LEFT_SIDEBAR_WIDGET.into()),
+            options: BTreeMap::new(),
+            scrollback: None,
+            offer: None,
+        }],
+    });
+    let lines = joined(&plan(&snapshot, &RestoreOptions::default()));
+    assert!(lines.contains(&format!(
+        "run: send-keys -t work:3.0 -l {LEFT_SIDEBAR_WIDGET}"
+    )));
+    assert!(!lines.iter().any(|l| l.contains("-l tmuxy widget tree")));
     assert!(!lines
         .iter()
         .any(|l| l.contains("-t work:3.0 @tmuxy-pane-restore")));

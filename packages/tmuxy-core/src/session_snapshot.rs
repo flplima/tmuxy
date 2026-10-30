@@ -51,9 +51,14 @@ pub const RESTORE_OPTION: &str = tmux_options::PANE_RESTORE;
 /// age has passed, so a program the user DID just start is recorded then.
 pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// What a left sidebar runs; the client starts it the same way
-/// (`groupsAndFloats.ts`). A sidebar is tmuxy's own window, so a restore
-/// runs it rather than offering it.
-pub const LEFT_SIDEBAR_WIDGET: &str = "tmuxy widget tree";
+/// (`OpenSidebar` in domain/commands.ts). A sidebar is tmuxy's own window, so a
+/// restore runs it rather than offering it. The bundled script by its installed
+/// path, not a bare `tmuxy`: that is whatever PATH holds, and a stale one exits
+/// at once and takes the column's window with it.
+pub const LEFT_SIDEBAR_WIDGET: &str = "$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree";
+/// What a left sidebar ran before it named the bundled script; a snapshot saved
+/// then still says so, and restores as the sidebar all the same.
+pub const LEGACY_LEFT_SIDEBAR_WIDGET: &str = "tmuxy widget tree";
 
 // =============================================================================
 // Model
