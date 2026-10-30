@@ -20,7 +20,7 @@ fi
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # Rewritten by the release's bump-version, so it is package.json's version.
-TMUXY_VERSION="${TMUXY_VERSION:-0.1.3}"
+TMUXY_VERSION="${TMUXY_VERSION:-0.1.4}"
 
 # --- Helpers ---
 
