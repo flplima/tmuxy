@@ -33,7 +33,7 @@ pub(super) fn monitor_config(session: &str) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
         create_session: true,
-        working_dir: Some(crate::state::find_workspace_root()),
+        working_dir: Some(crate::state::session_start_dir()),
         ..Default::default()
     }
 }

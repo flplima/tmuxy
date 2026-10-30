@@ -16,8 +16,8 @@ use crate::request_guard::HostPolicy;
 
 mod handlers;
 pub(crate) use handlers::build_response;
-pub use handlers::find_workspace_root;
 use handlers::image_handler;
+pub use handlers::{find_workspace_root, session_start_dir};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

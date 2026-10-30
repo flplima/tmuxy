@@ -337,3 +337,34 @@ async fn an_oversized_trace_body_is_refused_before_it_is_read() {
     let response = app().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
+
+mod session_start_dir {
+    use super::super::handlers::session_start_dir_from;
+    use std::path::PathBuf;
+
+    #[test]
+    fn a_checkout_wins_so_the_dev_loop_starts_in_the_repo() {
+        let dir = session_start_dir_from(
+            Some(PathBuf::from("/src/tmuxy")),
+            Some(PathBuf::from("/home/u")),
+            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
+        );
+        assert_eq!(dir, PathBuf::from("/src/tmuxy"));
+    }
+
+    #[test]
+    fn outside_a_checkout_the_home_directory_not_the_process_cwd() {
+        let dir = session_start_dir_from(
+            None,
+            Some(PathBuf::from("/home/u")),
+            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
+        );
+        assert_eq!(dir, PathBuf::from("/home/u"));
+    }
+
+    #[test]
+    fn with_no_home_the_cwd_is_what_is_left() {
+        let dir = session_start_dir_from(None, None, Some(PathBuf::from("/")));
+        assert_eq!(dir, PathBuf::from("/"));
+    }
+}

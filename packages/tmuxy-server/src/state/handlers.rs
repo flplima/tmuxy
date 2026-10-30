@@ -64,28 +64,51 @@ pub(super) async fn image_handler(
     }
 }
 
-/// Find the workspace root (directory with package.json containing "workspaces")
+/// The repository root when the server runs from a checkout (the directory
+/// whose package.json declares "workspaces"), else the process's cwd. Dev mode
+/// serves the frontend from here.
 pub fn find_workspace_root() -> std::path::PathBuf {
-    std::env::current_dir()
-        .ok()
-        .and_then(|p| {
-            let mut current = p;
-            loop {
-                let pkg_json = current.join("package.json");
-                if pkg_json.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-                        if content.contains("\"workspaces\"") {
-                            return Some(current);
-                        }
-                    }
-                }
-                if !current.pop() {
-                    break;
-                }
+    checkout_root().unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    })
+}
+
+/// The directory a session this server creates starts in, and so the cwd of
+/// every new tab in it. Inside a checkout, the checkout (the dev loop lives
+/// there); otherwise the home directory. Never the bare process cwd: an
+/// AppImage runs from its mount (`/tmp/.mount_tmuxy…/usr`) and a desktop
+/// launcher from `/`, and every new tab opened a shell there.
+pub fn session_start_dir() -> std::path::PathBuf {
+    session_start_dir_from(
+        checkout_root(),
+        std::env::var_os("HOME").map(std::path::PathBuf::from),
+        std::env::current_dir().ok(),
+    )
+}
+
+pub(crate) fn session_start_dir_from(
+    checkout: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+    cwd: Option<std::path::PathBuf>,
+) -> std::path::PathBuf {
+    checkout
+        .or(home)
+        .or(cwd)
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
+/// The nearest ancestor of the cwd whose package.json declares "workspaces".
+fn checkout_root() -> Option<std::path::PathBuf> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        let pkg_json = current.join("package.json");
+        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
+            if content.contains("\"workspaces\"") {
+                return Some(current);
             }
-            None
-        })
-        .unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-        })
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }
