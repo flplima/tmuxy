@@ -13,6 +13,7 @@ See [docs/COPY-MODE.md](docs/COPY-MODE.md) for the client-side scrollback render
 See [docs/SECURITY.md](docs/SECURITY.md) for security risks, mitigations, and deployment warnings.
 See [docs/TELEMETRY.md](docs/TELEMETRY.md) for every network connection tmuxy and its website make, and how to turn each off (tmuxy itself sends no telemetry).
 See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
+See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it now tells a flake from a defect.
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.

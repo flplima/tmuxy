@@ -9,7 +9,7 @@ Two tiers, cheapest first. All play functions follow the same rules as E2E tests
 | Tier | What runs | Where |
 | --- | --- | --- |
 | Deterministic probe (`npm run test-storybook -w tmuxy-ui`) | Every non-`v86` story + its play function, fresh Chromium page each, 1280x800, 3 at a time | CI: `storybook-probe` (blocking) runs the commit tier with the axe pass — `PROBE_TIER=commit` leaves out stories tagged `nightly`. Every story runs nightly in `nightly-v86.yml` (`deterministic`) |
-| v86 probe (`npm run test-storybook:v86 -w tmuxy-ui`) | Every `v86`-tagged story on ONE shared page (real tmux in the x86 emulator, snapshot-reset between stories; periodic cold-boot to cap accumulated drift) | CI: `storybook-v86-probe` runs the gate, blocking: the ids matching `split-optimistic-timeline`, `split-rejected-rollback` and `resize-pane-drag` (a substring match, so the last also takes `ResizePaneDragVertical` and `ResizePaneDragGrid`). The full sweep moved to the nightly `nightly-v86.yml`, where it blocks and opens an issue |
+| v86 probe (`npm run test-storybook:v86 -w tmuxy-ui`) | Every `v86`-tagged story on ONE shared page (real tmux in the x86 emulator, snapshot-reset between stories; periodic cold-boot to cap accumulated drift) | CI: `storybook-v86-probe` runs the gate, blocking: the ids matching `split-optimistic-timeline`, `split-rejected-rollback` and `resize-pane-drag` (a substring match, so the last also takes `ResizePaneDragVertical` and `ResizePaneDragGrid`). The full sweep moved to the nightly `nightly-v86.yml`; see [When the nightly reports](#when-the-nightly-reports) |
 
 The `v86` tier needs two gitignored artifact sets that Storybook mounts as static dirs (`.storybook/main.ts`): `packages/tmuxy-wasm/pkg` from `npm run build:wasm` (needs the `wasm32-unknown-unknown` target and a `wasm-bindgen` CLI matching the version in `Cargo.lock`), and `packages/tmuxy-ui/v86-assets` from `npm run fetch:v86-image -w tmuxy-ui` plus `npm run build:v86-snapshot -w tmuxy-ui` (needs the `i686-unknown-linux-musl` target for the guest `tmuxy-group` and `zstd`). Without them the `V86AppHarness` stories render the app's Connection Error screen with a failed dynamic import of `/wasm/tmuxy_wasm.js`. Both directories must at least exist for Storybook to start; the `storybook-probe` CI job creates them empty because it only runs the deterministic tier. The `v86` tag is set at the meta level of a story file; `probe-stories.mjs` excludes it and `probe-spikes.mjs` selects it. The `nightly` tag is set per story (`tags: ['nightly']` on the export) and is the story-side of [Tiers](TESTS-LAYERS.md#tiers-per-commit-nightly-and-before-a-release): frame-sampled animations, render-count budgets and language sweeps carry it, and `PROBE_TIER` decides whether a run takes them.
 
@@ -26,6 +26,28 @@ To reproduce a CI failure locally, the knobs are `PROBE_REPEAT`, `PROBE_CONCURRE
 **Quarantine** (`packages/tmuxy-ui/scripts/probe-quarantine.json`) is the one way a known failure stops gating, and it is deliberately hard to abuse: every entry needs a reason and a `YYYY-MM-DD` expiry, after which it blocks again; there is a hard cap on how many entries may exist; and a malformed or over-cap file makes the probe exit without running anything. A quarantined story still runs and is still reported — it just does not fail the job, and it is listed as ready to remove once it passes.
 
 A quarantined story that fails by **timing out** is the one kind quarantine must not hide: it sits at the per-story deadline on every push, reports nothing new, and once cost the commit probe two minutes a run for weeks before anyone looked. Its entry carries `failure: "probe-timeout"`, and the story must then also carry the `nightly` tag — the commit-tier probe refuses to run otherwise. The probe prints the ten slowest stories of every run, and names any shielded timeout whose entry does not declare it.
+
+### When the nightly reports
+
+The nightly sweep (`nightly-v86.yml`) runs every story, and a story that fails is run again that night, alone, on a fresh runner. From the two runs each story gets one verdict for the night: **pass**; **flaky**, failed in the sweep and passed on the fresh runner; or **confirmed**, failed both times. Tonight's verdicts join the last nights' in a ledger kept in the Actions cache, and `packages/tmuxy-ui/scripts/lib/nightly-ledger.mjs` decides from them:
+
+| Tonight                                         | What happens                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| A confirmed failure                             | Reported on the tracking issue that night, with its error, and the run goes red |
+| A story flaky on 2 or more of the last 7 nights | Reported the same way: a story that keeps flaking is racing something           |
+| A one-night flake                               | Logged in the run, kept in the ledger, not reported; the run stays green        |
+| A sweep job that wrote no results               | Reported: no verdict is not a pass                                              |
+| Nothing of the above                            | The tracking issue is closed                                                    |
+
+Before this, any failure opened the issue and the next green night closed it. Issues #87 to #145 were mostly one story failing once on a loaded runner, a different one each night, so the issue stopped meaning anything. `docs/NIGHTLY-SWEEP.md` has that history and why the guest stayed on v86.
+
+A reported story is fixed, not retried: the second run already was the retry. Reproduce it with `PROBE_REPEAT` and `PROBE_CPU_THROTTLE` as above. When it fails one run in ten, the story is waiting on time where it should wait on a state.
+
+### Step animations, don't sample them
+
+A story that asserts how an animation looks must not sample real frames. A CSS transition of 80ms is about five frames, and a runner that drops two of them leaves no sample mid-fade: the story then fails one run in ten while the product is fine. That is the nightly failure of 2026-10-29 (`FocusCueNeverHardFlips`).
+
+Read the transition instead. `getAnimations()` returns a running CSS transition as an object; a story pauses it, sets its `currentTime` to each point it wants to check, and reads the computed style there. A MutationObserver on the element catches the class change before the next frame, so no part of the fade has run yet. `stepFocusCueOnElement` in `src/stories/animationStoryHelpers.ts` is the model. A transition that is missing is itself the failure a "hard flip" assertion looks for.
 
 ### Accessibility
 
