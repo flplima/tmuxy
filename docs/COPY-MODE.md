@@ -199,7 +199,7 @@ rebuilding it at the bottom. Without those three, a long swipe landed one row ab
 
 **Copy on select**, as the Claude Code TUI does it: the mouse release that ends a browser selection
 over terminal text (a drag, a double or triple click, on the live screen or in the scroll view) puts
-the text on the clipboard at once, blinks it, and raises an info notification saying how many
+the text on the clipboard at once and raises an info notification saying how many
 characters went. The selection stays on screen, and the screen holds still under it. The next key —
 `Ctrl+C`, `Cmd+C`, a letter — clears the selection and is processed as typed: `Ctrl+C` interrupts
 the shell, a letter goes to the pane, `Cmd+C` copies the same text once more before the highlight
@@ -209,7 +209,8 @@ module owns this (`machines/actors/keyboard/imeAndClipboard.ts`); the touch hold
 its own Copy/Cancel bar.
 
 Selected text is extracted client-side (`extractSelectedText`, which joins wrapped rows into logical
-lines). Every copy blinks the copied text where it is (`utils/copyFlash.ts`). Copy mode paints its own
+lines). A copy by key or menu blinks the copied text in place (`utils/copyFlash.ts`); copy on select
+does not. Copy mode paints its own
 selection, so its copy sets `copiedAt` on the view, the scrollback marks itself `data-copied`, and the
 view closes when the blink is over — keyboard yank, `Ctrl/Cmd-C` and a drag release alike. A browser
 selection is covered by fixed boxes laid over its rectangles instead, on `Cmd+C` and on the

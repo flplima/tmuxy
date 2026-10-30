@@ -10,7 +10,8 @@
  *
  * What does not fit then is the terminal's lower rows, and the one that matters
  * is the cursor's: `useCursorInView` scrolls the clipped terminal so the row
- * being typed on stays on screen, a row of margin below it.
+ * being typed on stays on screen, a row of margin below it — zoomed as well,
+ * where it also keeps the cursor's column in the sideways view.
  */
 
 import { type RefObject, useEffect, useLayoutEffect } from 'react';
@@ -47,14 +48,17 @@ export function useVisualViewport(enabled: boolean): void {
  * Scroll `ref` — a terminal cut short by the space it has — so the cursor's
  * row is in view a row above the bottom edge, with as much as fits of what is
  * above it: in a terminal that is the output the line being typed answers.
- * Runs when the box resizes (a keyboard coming up) and whenever `cursorKey`
- * (where the cursor is) changes. A terminal that fits has nothing to scroll,
- * and stays at its top.
+ * Zoomed, `xRef` is the viewport the doubled grid scrolls sideways in, and it
+ * is scrolled too when the cursor's column has left it. Runs when the box
+ * resizes (a keyboard coming up) and whenever `cursorKey` (where the cursor
+ * is) changes. A terminal that fits has nothing to scroll, and stays at its
+ * top.
  */
 export function useCursorInView(
   ref: RefObject<HTMLElement | null>,
   enabled: boolean,
   cursorKey: string,
+  xRef: RefObject<HTMLElement | null> | null = null,
 ): void {
   useLayoutEffect(() => {
     const box = ref.current;
@@ -68,6 +72,11 @@ export function useCursorInView(
       const bottom = at.bottom - frame.top + box.scrollTop;
       // The browser clamps it to what there is to scroll.
       box.scrollTop = Math.max(0, bottom + at.height - box.clientHeight);
+      const sideways = xRef?.current;
+      if (!sideways) return;
+      const view = sideways.getBoundingClientRect();
+      if (at.left < view.left) sideways.scrollLeft -= view.left - at.left + at.width * 4;
+      else if (at.right > view.right) sideways.scrollLeft += at.right - view.right + at.width * 4;
     };
     follow();
     // The cursor's own element moves in the same commit or the next frame.
@@ -78,36 +87,39 @@ export function useCursorInView(
       cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [ref, enabled, cursorKey]);
+  }, [ref, enabled, cursorKey, xRef]);
 }
 
 /** How much the phone's zoom enlarges the terminal (styles mirror it as `--phone-zoom`). */
 export const PHONE_ZOOM = 2;
 
 /**
- * The phone's zoom: `ref` is the viewport the zoomed grid scrolls in. When
- * the zoom comes on, scroll it so the point that was tapped (client px, or
- * the middle when none) sits in the middle of the view; when it goes off,
- * back to the corner. The scaling itself is the stylesheet's
- * (`.phone-pty.is-zoomed`).
+ * The phone's zoom: `xRef` is the viewport the zoomed grid scrolls sideways
+ * in, `yRef` the terminal box that scrolls up and down when the doubled grid
+ * is taller than it. When the zoom comes on, scroll both so the point that
+ * was tapped (client px, or the middle when none) sits in the middle of the
+ * view; when it goes off, back to the corner. The scaling itself is the
+ * stylesheet's (`.phone-pty.is-zoomed`).
  */
 export function usePhoneZoomScroll(
-  ref: RefObject<HTMLElement | null>,
+  xRef: RefObject<HTMLElement | null>,
+  yRef: RefObject<HTMLElement | null>,
   zoom: { x: number | null; y: number | null } | null,
 ): void {
   useLayoutEffect(() => {
-    const box = ref.current;
-    if (!box) return;
+    const sideways = xRef.current;
+    const upright = yRef.current;
+    if (!sideways || !upright) return;
     if (!zoom) {
-      box.scrollTo(0, 0);
+      sideways.scrollTo(0, 0);
+      upright.scrollTo(0, 0);
       return;
     }
-    const frame = box.getBoundingClientRect();
+    const frame = sideways.getBoundingClientRect();
+    const box = upright.getBoundingClientRect();
     const x = zoom.x ?? frame.left + frame.width / 2;
-    const y = zoom.y ?? frame.top + frame.height / 2;
-    box.scrollTo({
-      left: (x - frame.left) * PHONE_ZOOM - frame.width / 2,
-      top: (y - frame.top) * PHONE_ZOOM - frame.height / 2,
-    });
-  }, [ref, zoom]);
+    const y = zoom.y ?? box.top + box.height / 2;
+    sideways.scrollTo({ left: (x - frame.left) * PHONE_ZOOM - frame.width / 2 });
+    upright.scrollTo({ top: (y - frame.top) * PHONE_ZOOM - box.height / 2 });
+  }, [xRef, yRef, zoom]);
 }

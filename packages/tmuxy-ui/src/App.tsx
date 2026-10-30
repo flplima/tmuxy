@@ -92,8 +92,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const zoomRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
   useVisualViewport(phone);
-  useCursorInView(ptyRef, phone, cursorKey);
-  usePhoneZoomScroll(zoomRef, phoneZoom);
+  useCursorInView(ptyRef, phone, cursorKey, phoneZoom ? zoomRef : null);
+  usePhoneZoomScroll(zoomRef, ptyRef, phoneZoom);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
   useSelectionRows();
@@ -202,13 +202,16 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneTabs = showLayout && <PhoneTabStrip />;
   const phoneKeys = showLayout && <KeyRow />;
   // Every tab and pane, where the tab strip would be on a desktop — or the
-  // dock, after a sideways swipe (PhoneBottomView).
-  const phoneTree = showLayout && <PhoneBottomView />;
+  // dock, after a sideways swipe (PhoneBottomView). Zoomed and upright, it
+  // makes way: the doubled grid takes its place, every row in view.
+  const phoneTree = showLayout && !(phoneZoom && !landscape) && <PhoneBottomView />;
   // The terminal at the phone's cell: the grid, then tmux's status line
   // under it. Sideways, it is as wide as its 80 columns and the chrome takes
-  // the column beside it. A double tap zooms the grid in the browser
-  // (`phoneZoom`): the viewport around it scrolls, and is scrolled to the
-  // point tapped.
+  // the column beside it. A double tap or the zoom key zooms the grid in the
+  // browser (`phoneZoom`): the viewport around it is the grid's doubled
+  // height and scrolls sideways, the terminal box scrolls up and down when the
+  // doubled grid does not fit (a keyboard up, or held sideways), and both are
+  // scrolled to the point tapped, then to the cursor as it moves.
   const phonePty = (
     <div
       ref={ptyRef}

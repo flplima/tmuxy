@@ -373,10 +373,23 @@
 
 /* Zoomed (a double tap, or the key row's zoom key): the grid drawn at twice
    its size — a transform, so the container still measures the same and tmux
-   is told nothing — and the viewport scrolls around it with the finger
-   (hooks/usePaneTouch.ts leaves the finger to the browser while zoomed). */
+   is told nothing. The viewport is the doubled grid's full height, so every
+   row is there, and scrolls sideways; upright, the bottom view makes way
+   (App.tsx) so the whole height fits. When it does not — a keyboard up, or
+   held sideways — the terminal box scrolls up and down, kept on the cursor's
+   row (hooks/usePhoneViewport.ts). The finger pans both: usePaneTouch.ts
+   leaves it to the browser while zoomed. */
+.phone-pty.is-zoomed {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-width: none;
+}
+
 .phone-pty.is-zoomed .phone-zoom-viewport {
-  overflow: auto;
+  height: calc(var(--phone-zoom) * (24 * var(--line-height-terminal) + 4px));
+  overflow-x: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   touch-action: pan-x pan-y;
   scrollbar-width: none;

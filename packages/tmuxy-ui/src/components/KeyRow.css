@@ -1,10 +1,10 @@
-/* KeyRow — the phone's extra keys, between the terminal and the tree, on a
-   grid of seven columns so each is a thumb's size. The chrome's own size,
-   whatever the terminal's cell shrank to. */
+/* KeyRow — the phone's extra keys, between the terminal and the tree, in two
+   rows of six so each is a thumb's size. The chrome's own size, whatever the
+   terminal's cell shrank to. */
 
 .key-row {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   flex: 0 0 auto;
   gap: 6px;
   padding: 6px 8px;
@@ -50,10 +50,4 @@
 .key-row-magnifier {
   display: block;
   margin: 0 auto;
-}
-
-/* Enter fills the second row's end, three keys wide: the one key pressed
-   after every line, as wide as a thumb can miss. */
-.key-row-key[data-key-row='⏎'] {
-  grid-column: span 3;
 }

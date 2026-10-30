@@ -105,7 +105,8 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
 
     // 3. The release itself copied what was selected (copy on select). The
     //    copy EVENT is the assertion (the system clipboard needs a permission
-    //    no headless browser grants), plus the blink the user sees.
+    //    no headless browser grants). Selecting does not blink: the
+    //    notification is the sign.
     await waitForCondition(
       ctx.page,
       async () => (await copiedText(ctx.page)) !== null,
@@ -113,12 +114,7 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
       'the release to fire a copy carrying the selected text',
     );
     expect(await copiedText(ctx.page)).toBe(TOKEN);
-    const flash = await ctx.page.evaluate(() => window.__flashes);
-    expect(flash.length).toBeGreaterThan(0);
-    expect(flash[0].width).toBeGreaterThan(0);
-    expect(flash[0].height).toBeGreaterThan(0);
-    expect(Math.abs(flash[0].left - at.box.left)).toBeLessThanOrEqual(2);
-    expect(Math.abs(flash[0].top - at.box.top)).toBeLessThanOrEqual(2);
+    expect(await ctx.page.evaluate(() => window.__flashes)).toHaveLength(0);
     expect(await selectedText(ctx.page)).toBe(TOKEN);
 
     // Cmd+C copies the same text once more and, as the next key, clears the
@@ -133,6 +129,13 @@ describe('WebKit: a selection survives every focus move that follows it', () => 
       5000,
       'Cmd+C to copy the selected text again',
     );
+    // A copy key is a deliberate copy: it blinks the text it took, where it is.
+    const flash = await ctx.page.evaluate(() => window.__flashes);
+    expect(flash.length).toBeGreaterThan(0);
+    expect(flash[0].width).toBeGreaterThan(0);
+    expect(flash[0].height).toBeGreaterThan(0);
+    expect(Math.abs(flash[0].left - at.box.left)).toBeLessThanOrEqual(2);
+    expect(Math.abs(flash[0].top - at.box.top)).toBeLessThanOrEqual(2);
     expect(await selectedText(ctx.page)).toBe('');
     await dragSelect(ctx.page, at);
     expect(await selectedText(ctx.page)).toBe(TOKEN);

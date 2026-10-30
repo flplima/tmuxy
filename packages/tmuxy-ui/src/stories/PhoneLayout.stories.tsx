@@ -123,22 +123,22 @@ export const PhoneKeyboardDown: Story = {
       box(canvasElement.querySelector('.app-container')).right - 8,
     );
 
-    // Two rows of seven: esc, tab, ctrl, alt, the prefix, the keyboard and the
-    // zoom; the arrows and enter (three keys wide). Each a thumb's size.
+    // Two rows of six, every key the same width: esc, tab, ctrl, alt, the
+    // prefix and the keyboard; the arrows, enter and the zoom. Each a thumb's
+    // size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
-    expect(keyboxes.every((k) => k.height >= 40 && k.width >= 44)).toBe(true);
-    expect(box(canvasElement.querySelector('[data-key-row="prefix"]')).top).toBeCloseTo(
-      box(canvasElement.querySelector('[data-key-row="esc"]')).top,
-      0,
-    );
-    expect(box(canvasElement.querySelector('[data-key-row="←"]')).top).toBeGreaterThanOrEqual(
-      box(canvasElement.querySelector('[data-key-row="esc"]')).bottom,
-    );
-    expect(box(canvasElement.querySelector('[data-key-row="zoom"]')).top).toBeCloseTo(
-      box(canvasElement.querySelector('[data-key-row="esc"]')).top,
-      0,
-    );
+    expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);
+    expect(keyboxes.every((k) => Math.abs(k.width - keyboxes[0].width) < 1)).toBe(true);
+    const rowTops = [...new Set(keyboxes.map((k) => Math.round(k.top)))];
+    expect(rowTops).toHaveLength(2);
+    expect(keyboxes.filter((k) => Math.round(k.top) === rowTops[0])).toHaveLength(6);
+    const keyAt = (label: string) => box(canvasElement.querySelector(`[data-key-row="${label}"]`));
+    expect(keyAt('⌨').top).toBeCloseTo(keyAt('esc').top, 0);
+    expect(keyAt('←').top).toBeGreaterThanOrEqual(keyAt('esc').bottom);
+    expect(keyAt('⏎').top).toBeCloseTo(keyAt('←').top, 0);
+    expect(keyAt('zoom').top).toBeCloseTo(keyAt('←').top, 0);
+    expect(keyAt('zoom').left).toBeGreaterThan(keyAt('⏎').left);
     // The zoom key is a magnifier, not a glyph.
     expect(canvasElement.querySelector('[data-key-row="zoom"] svg circle')).not.toBeNull();
 

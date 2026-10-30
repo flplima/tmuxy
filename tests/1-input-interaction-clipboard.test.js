@@ -63,6 +63,17 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     await runCommand(ctx.page, 'echo "DRAG_SELECT_ME and more"', 'DRAG_SELECT_ME');
     const at = await shownRunRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     await recordCopies(ctx.page);
+    // Every blink box as it is added: the blink outlasts no poll.
+    await ctx.page.evaluate(() => {
+      window.__flashes = 0;
+      new MutationObserver((records) => {
+        for (const record of records) {
+          for (const node of record.addedNodes) {
+            if (node.classList?.contains('copy-flash')) window.__flashes += 1;
+          }
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
     await dragSelect(ctx.page, at);
     expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
 
@@ -93,6 +104,8 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     expect(notice.width).toBeGreaterThan(0);
     expect(notice.height).toBeGreaterThan(0);
     expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
+    // The notice is the sign: selecting does not blink the text.
+    expect(await ctx.page.evaluate(() => window.__flashes)).toBe(0);
 
     // The job has printed in tmux; the pane on screen holds still, the
     // selection still reads the same text, and it still sits on the same row.

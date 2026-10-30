@@ -1,7 +1,7 @@
 /**
- * KeyRow — the keys a phone keyboard has no key for, in two rows under the
- * terminal: esc, tab, ctrl, alt, the prefix, the keyboard and the zoom on the
- * first; the arrows and a wide enter on the second. Two rows so each key is a
+ * KeyRow — the keys a phone keyboard has no key for, in two rows of six under
+ * the terminal: esc, tab, ctrl, alt, the prefix and the keyboard on the first;
+ * the arrows, enter and the zoom on the second. Two even rows so each key is a
  * thumb's size.
  *
  * Each key is pressed through the keyboard path (`utils/keyLatch` → a keydown
@@ -58,12 +58,12 @@ const KEYS: readonly RowKey[] = [
   { kind: 'modifier', label: 'alt', modifier: 'alt', name: 'Alt' },
   { kind: 'prefix', label: 'prefix', name: 'Prefix' },
   { kind: 'keyboard', label: '⌨', name: 'Toggle keyboard' },
-  { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
   { kind: 'key', label: '←', key: 'ArrowLeft', name: 'Left', arrow: true },
   { kind: 'key', label: '↑', key: 'ArrowUp', name: 'Up', arrow: true },
   { kind: 'key', label: '↓', key: 'ArrowDown', name: 'Down', arrow: true },
   { kind: 'key', label: '→', key: 'ArrowRight', name: 'Right', arrow: true },
   { kind: 'key', label: '⏎', key: 'Enter', name: 'Enter' },
+  { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
 ];
 
 /** A magnifier, with + in the glass to zoom in and − to put the zoom back. */
