@@ -11,7 +11,9 @@ import {
 } from './gitContext';
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { selectSessions, selectRepositories } from '../machines/selectors/ui';
+import type { PaneGroup } from '../machines/types/domain';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
+import { inGridOrder } from '../utils/gridOrder';
 
 /**
  * A flattened, keyboard-navigable row: the attached session's tabs, each with
@@ -22,7 +24,53 @@ export type Row =
    *  strip shows. tmux's own window index has gaps where chrome windows sit,
    *  and printing it here made the two disagree. */
   | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
-  | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean };
+  /** `parkedBehind`: a group member out of view, listed under the member in
+   *  view (`parkedBehind` is that pane); choosing it switches the group. */
+  | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean; parkedBehind?: PaneId };
+
+/**
+ * The rows, top to bottom: each tab in strip order, then its panes in grid
+ * order, and under a pane that fronts a group the group's other members in
+ * their group order — parked out of view in the stash, so they have no place
+ * in the grid, but they are the tab's panes all the same.
+ */
+export function buildTreeRows(
+  windows: readonly TmuxWindow[],
+  panes: readonly TmuxPane[],
+  collapsed: ReadonlySet<WindowId>,
+  paneGroups: Readonly<Record<string, PaneGroup>>,
+): Row[] {
+  const out: Row[] = [];
+  const byId = new Map(panes.map((p) => [p.tmuxId, p]));
+  const groups = Object.values(paneGroups);
+  windows.forEach((window, i) => {
+    const isCollapsed = collapsed.has(window.id);
+    out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
+    if (isCollapsed) return;
+    const windowPanes = inGridOrder(
+      panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
+    );
+    windowPanes.forEach((pane, i) => {
+      const last = i === windowPanes.length - 1;
+      const group = groups.find((g) => g.paneIds.includes(pane.tmuxId));
+      const parked = (group?.paneIds ?? [])
+        .filter((id) => id !== pane.tmuxId)
+        .map((id) => byId.get(id))
+        .filter((p): p is TmuxPane => p !== undefined);
+      out.push({ kind: 'pane', pane, window, last: last && parked.length === 0 });
+      parked.forEach((member, j) => {
+        out.push({
+          kind: 'pane',
+          pane: member,
+          window,
+          last: last && j === parked.length - 1,
+          parkedBehind: pane.tmuxId,
+        });
+      });
+    });
+  });
+  return out;
+}
 
 /** An open right-click menu targeting a tree row, positioned at the cursor. */
 export type MenuState =

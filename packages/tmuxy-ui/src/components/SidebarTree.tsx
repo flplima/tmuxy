@@ -58,7 +58,6 @@ import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
 import { selectSessions, selectRepositories } from '../machines/selectors/ui';
 import { tabPaneStates } from '../utils/paneState';
-import { inGridOrder } from '../utils/gridOrder';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { PaneId, WindowId } from '../domain/ids';
@@ -66,12 +65,12 @@ import { useReorderDrag } from '../hooks/useReorderDrag';
 import { tabWalksChrome } from '../utils/chromeTab';
 import { isRealFormControl } from '../machines/actors/keyboard/keyFormatting';
 import {
-  isPlaceholderPane,
   rowDomId,
   rowKey,
   useSidebarGitContext,
   type MenuState,
   type Row,
+  buildTreeRows,
 } from './sidebarTreeRows';
 import { SidebarTreeRow } from './SidebarTreeRow';
 
@@ -82,6 +81,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
+  const paneGroups = useAppSelector((ctx) => ctx.paneGroups);
   const unreadPaneIds = useAppSelectorShallow((ctx) => ctx.unreadPaneIds);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
@@ -118,28 +118,17 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     if (!pane || pane.windowId === pendingMove.windowId) setPendingMove(null);
   }, [panes, pendingMove]);
 
+  // In the order they sit in the grid, so the list follows the layout as it
+  // changes (a split, a swap, a move) rather than tmux's creation order; a
+  // group's parked members under the member in view.
   const rows = useMemo<Row[]>(() => {
-    const out: Row[] = [];
     const placed = pendingMove
       ? panes.map((p) =>
           p.tmuxId === pendingMove.paneId ? { ...p, windowId: pendingMove.windowId } : p,
         )
       : panes;
-    windows.forEach((window, i) => {
-      const isCollapsed = collapsed.has(window.id);
-      out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
-      if (isCollapsed) return;
-      // In the order they sit in the grid, so the list follows the layout as
-      // it changes (a split, a swap, a move) rather than tmux's creation order.
-      const windowPanes = inGridOrder(
-        placed.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
-      );
-      windowPanes.forEach((pane, i) => {
-        out.push({ kind: 'pane', pane, window, last: i === windowPanes.length - 1 });
-      });
-    });
-    return out;
-  }, [windows, panes, collapsed, pendingMove]);
+    return buildTreeRows(windows, placed, collapsed, paneGroups);
+  }, [windows, panes, collapsed, pendingMove, paneGroups]);
 
   // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -167,6 +156,18 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           // through the same optimistic path a click on it takes.
           if (row.window.id !== activeWindowId) {
             send({ type: 'SELECT_TAB', windowId: row.window.id });
+          }
+          // A parked member has no place to focus until it is shown: it
+          // takes the slot of the member in view, as its header tab does.
+          if (row.parkedBehind) {
+            send({
+              type: 'DISPATCH_OP',
+              op: TmuxOp.GroupSwitch({
+                clickedPaneId: row.pane.tmuxId,
+                visiblePaneId: row.parkedBehind,
+              }),
+            });
+            return;
           }
           send({ type: 'FOCUS_PANE', paneId: row.pane.tmuxId });
           return;

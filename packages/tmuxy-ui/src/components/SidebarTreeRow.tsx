@@ -14,9 +14,9 @@ import type { useReorderDrag } from '../hooks/useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
 
-/** Nesting depth for `aria-level`: tabs 1, their panes 2. */
+/** Nesting depth for `aria-level`: tabs 1, their panes 2, a group's parked members 3. */
 function rowLevel(r: Row): number {
-  return r.kind === 'tab' ? 1 : 2;
+  return r.kind === 'tab' ? 1 : r.parkedBehind ? 3 : 2;
 }
 
 /** A pane's cwd as its row shows it: with the trailing slash of a directory. */
@@ -238,8 +238,11 @@ export function SidebarTreeRow({
       aria-selected={isSelected}
       className={`sidebar-tree-pane${isActive ? ' is-active' : ''}${
         inCurrentTab ? ' in-current-tab' : ''
-      }${isSelected ? ' is-selected' : ''}${dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''}`}
+      }${isSelected ? ' is-selected' : ''}${dragPaneId === row.pane.tmuxId ? ' is-dragging' : ''}${
+        row.parkedBehind ? ' is-parked' : ''
+      }`}
       data-pane-id={row.pane.tmuxId}
+      data-parked-behind={row.parkedBehind}
       data-pane-state={state}
       data-testid={`tree-pane-${row.pane.tmuxId}`}
       draggable

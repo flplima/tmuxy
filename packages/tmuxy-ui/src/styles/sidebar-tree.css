@@ -45,6 +45,13 @@
   overflow: hidden;
 }
 
+/* A group member parked out of view, under the member in view: a step
+   further in, and dimmer, since it is not on screen until it is chosen. */
+.sidebar-tree-pane.is-parked {
+  padding-left: calc(var(--spacing-2xl) + 1.4em);
+  opacity: 0.7;
+}
+
 /* Tabs are the tree's headings, with a little room above every tab after the
    first. Four steps of ink, and the tab decides the first three: an inactive
    tab's row and every pane under it are dimmed as one block, so the current
