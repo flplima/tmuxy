@@ -107,6 +107,10 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-cli/bin/tmuxy/pane-group"),
     ),
     (
+        "tmuxy/pane-group-tab",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/pane-group-tab"),
+    ),
+    (
         "tmuxy/paste-synced",
         include_str!("../../../tmuxy-cli/bin/tmuxy/paste-synced"),
     ),
