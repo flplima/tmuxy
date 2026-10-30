@@ -24,15 +24,17 @@ export type Row =
    *  strip shows. tmux's own window index has gaps where chrome windows sit,
    *  and printing it here made the two disagree. */
   | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
-  /** `parkedBehind`: a group member out of view, listed under the member in
+  /** `parkedBehind`: a group member out of view, listed beside the member in
    *  view (`parkedBehind` is that pane); choosing it switches the group. */
   | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean; parkedBehind?: PaneId };
 
 /**
  * The rows, top to bottom: each tab in strip order, then its panes in grid
- * order, and under a pane that fronts a group the group's other members in
- * their group order — parked out of view in the stash, so they have no place
- * in the grid, but they are the tab's panes all the same.
+ * order. A pane group takes its slot's place with ALL its members, in the
+ * group's own order, at the same level as the other panes: the parked ones
+ * live in the stash session, so no window of the tab lists them, yet they are
+ * the tab's panes. The order is the group's, not "shown first", so switching
+ * the member in view does not move rows.
  */
 export function buildTreeRows(
   windows: readonly TmuxWindow[],
@@ -47,26 +49,28 @@ export function buildTreeRows(
     const isCollapsed = collapsed.has(window.id);
     out.push({ kind: 'tab', window, position: i + 1, collapsed: isCollapsed });
     if (isCollapsed) return;
-    const windowPanes = inGridOrder(
+    const listed: Array<{ pane: TmuxPane; parkedBehind?: PaneId }> = [];
+    for (const pane of inGridOrder(
       panes.filter((p) => p.windowId === window.id && !isPlaceholderPane(p)),
-    );
-    windowPanes.forEach((pane, i) => {
-      const last = i === windowPanes.length - 1;
+    )) {
       const group = groups.find((g) => g.paneIds.includes(pane.tmuxId));
-      const parked = (group?.paneIds ?? [])
-        .filter((id) => id !== pane.tmuxId)
-        .map((id) => byId.get(id))
-        .filter((p): p is TmuxPane => p !== undefined);
-      out.push({ kind: 'pane', pane, window, last: last && parked.length === 0 });
-      parked.forEach((member, j) => {
-        out.push({
-          kind: 'pane',
-          pane: member,
-          window,
-          last: last && j === parked.length - 1,
-          parkedBehind: pane.tmuxId,
-        });
-      });
+      if (!group) {
+        listed.push({ pane });
+        continue;
+      }
+      for (const id of group.paneIds) {
+        const member = byId.get(id);
+        if (!member) continue;
+        listed.push(id === pane.tmuxId ? { pane } : { pane: member, parkedBehind: pane.tmuxId });
+      }
+    }
+    listed.forEach(({ pane, parkedBehind }, j) => {
+      const last = j === listed.length - 1;
+      out.push(
+        parkedBehind
+          ? { kind: 'pane', pane, window, last, parkedBehind }
+          : { kind: 'pane', pane, window, last },
+      );
     });
   });
   return out;

@@ -31,7 +31,7 @@ import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
-import type { GitRepository, SessionTreeNode, TmuxServer } from '../types/domain';
+import type { GitRepository, SessionTreeNode, SessionTreePane, TmuxServer } from '../types/domain';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
@@ -69,7 +69,7 @@ const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${
  */
 const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 
-const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}`;
+const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}${SEP}#{@tmuxy-group-id}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;
 export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
@@ -80,7 +80,9 @@ export const LIST_PANES_COMMAND = `list-panes -a -F '${PANES_FORMAT}'`;
  * Pure and exported for unit testing. Windows are index-ordered within a
  * session; sessions are name-ordered. tmuxy-internal windows (floats, groups,
  * the hidden sidebar/backdrop) are dropped; panes orphaned from a kept window
- * are dropped too.
+ * are dropped too. A pane-group member parked in the stash session is listed
+ * with the tab its group is shown in — it is that tab's pane, out of view — so
+ * its cwd and branch reach the tree like any other.
  */
 export function parseSessions(windowsOut: string, panesOut: string): SessionTreeNode[] {
   const bySession = new Map<string, SessionTreeNode>();
@@ -108,19 +110,32 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
     });
   }
 
+  // Where each group is shown: its member in a kept window.
+  const shownGroup = new Map<string, { session: string; windowId: WindowId }>();
+  const parked: Array<{ group: string; pane: SessionTreePane }> = [];
   for (const line of panesOut.split('\n')) {
     if (!line) continue;
-    const [session, windowId, paneId, command, active, title, cwd] = line.split(SEP);
+    const [session, windowId, paneId, command, active, title, cwd, group] = line.split(SEP);
     if (!session || !isWindowId(windowId) || !isPaneId(paneId)) continue;
-    if (!keptWindowIds.has(windowId)) continue;
-    ensure(session).panes.push({
+    const pane: SessionTreePane = {
       id: paneId,
       windowId,
       command: command ?? '',
       title: title ?? '',
       cwd: cwd ?? '',
       active: active === '1',
-    });
+    };
+    if (session === STASH_SESSION) {
+      if (group) parked.push({ group, pane: { ...pane, active: false } });
+      continue;
+    }
+    if (!keptWindowIds.has(windowId)) continue;
+    if (group) shownGroup.set(group, { session, windowId });
+    ensure(session).panes.push(pane);
+  }
+  for (const { group, pane } of parked) {
+    const shown = shownGroup.get(group);
+    if (shown) ensure(shown.session).panes.push({ ...pane, windowId: shown.windowId });
   }
 
   const nodes = Array.from(bySession.values());

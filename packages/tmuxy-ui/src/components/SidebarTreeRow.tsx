@@ -14,9 +14,9 @@ import type { useReorderDrag } from '../hooks/useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
 
-/** Nesting depth for `aria-level`: tabs 1, their panes 2, a group's parked members 3. */
+/** Nesting depth for `aria-level`: tabs 1, their panes (a group's members included) 2. */
 function rowLevel(r: Row): number {
-  return r.kind === 'tab' ? 1 : r.parkedBehind ? 3 : 2;
+  return r.kind === 'tab' ? 1 : 2;
 }
 
 /** A pane's cwd as its row shows it: with the trailing slash of a directory. */

@@ -16,7 +16,9 @@ const pane = (id: string, windowId: string, x = 0, y = 0): TmuxPane =>
 
 const kinds = (rows: ReturnType<typeof buildTreeRows>) =>
   rows.map((r) =>
-    r.kind === 'tab' ? `tab ${r.window.id}` : `${r.parkedBehind ? '  ' : ''}pane ${r.pane.tmuxId}`,
+    r.kind === 'tab'
+      ? `tab ${r.window.id}`
+      : `pane ${r.pane.tmuxId}${r.parkedBehind ? ' (parked)' : ''}`,
   );
 
 describe('buildTreeRows', () => {
@@ -31,21 +33,41 @@ describe('buildTreeRows', () => {
     expect(rows[2]).toMatchObject({ last: true });
   });
 
-  it('lists the members parked behind a group’s shown pane under it, in group order', () => {
+  it('lists a group at its slot with all its members, in group order, at one level', () => {
+    const groups = { g1: { id: gid('g1'), paneIds: [pid('%4'), pid('%1'), pid('%7')] } };
     const rows = buildTreeRows(
       [win('@1')],
       [pane('%1', '@1'), pane('%7', '@9'), pane('%4', '@9'), pane('%2', '@1', 40, 0)],
       new Set(),
-      { g1: { id: gid('g1'), paneIds: [pid('%4'), pid('%1'), pid('%7')] } },
+      groups,
     );
-    expect(kinds(rows)).toEqual(['tab @1', 'pane %1', '  pane %4', '  pane %7', 'pane %2']);
-    expect(rows[2]).toMatchObject({ parkedBehind: pid('%1'), window: { id: wid('@1') } });
-    // The branch's end moves to the last parked member when the shown pane
-    // was the tab's last.
-    const only = buildTreeRows([win('@1')], [pane('%1', '@1'), pane('%7', '@9')], new Set(), {
-      g1: { id: gid('g1'), paneIds: [pid('%1'), pid('%7')] },
-    });
-    expect(only.map((r) => r.kind === 'pane' && r.last)).toEqual([false, false, true]);
+    expect(kinds(rows)).toEqual([
+      'tab @1',
+      'pane %4 (parked)',
+      'pane %1',
+      'pane %7 (parked)',
+      'pane %2',
+    ]);
+    expect(rows[1]).toMatchObject({ parkedBehind: pid('%1'), window: { id: wid('@1') } });
+    expect(rows.map((r) => r.kind === 'pane' && r.last)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it('keeps the rows where they are when another member is shown', () => {
+    const groups = { g1: { id: gid('g1'), paneIds: [pid('%4'), pid('%1'), pid('%7')] } };
+    const ids = (shown: string, parked: string[]) =>
+      buildTreeRows(
+        [win('@1')],
+        [pane(shown, '@1'), ...parked.map((id) => pane(id, '@9'))],
+        new Set(),
+        groups,
+      ).map((r) => (r.kind === 'pane' ? r.pane.tmuxId : r.window.id));
+    expect(ids('%1', ['%4', '%7'])).toEqual(ids('%7', ['%4', '%1']));
   });
 
   it('a member the model has not listed yet is simply absent', () => {

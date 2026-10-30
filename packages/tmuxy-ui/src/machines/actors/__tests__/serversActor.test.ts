@@ -48,6 +48,25 @@ describe('parseSessions', () => {
     expect(session.panes.map((p) => p.id)).toEqual(['%0']);
   });
 
+  it('lists a parked group member with the tab its group is shown in, cwd and all', () => {
+    const windows = [
+      row('main', '@0', '0', 'work', ''),
+      row('__tmuxy_stash', '@9', '0', 'grp', ''),
+    ].join('\n');
+    const panes = [
+      row('main', '@0', '%0', 'zsh', '1', '', '/src/app', 'g2'),
+      row('__tmuxy_stash', '@9', '%9', 'vim', '1', '', '/src/lib', 'g2'),
+      // A parked pane whose group is shown nowhere has no tab to join.
+      row('__tmuxy_stash', '@9', '%8', 'top', '0', '', '/tmp', 'g7'),
+    ].join('\n');
+
+    const [session] = parseSessions(windows, panes);
+    expect(session.panes.map((p) => [p.id, p.windowId, p.cwd, p.active])).toEqual([
+      ['%0', '@0', '/src/app', true],
+      ['%9', '@0', '/src/lib', false],
+    ]);
+  });
+
   it('carries each pane cwd, empty when tmux reports none', () => {
     const [session] = parseSessions(
       row('s', '@0', '0', 'w', 'tab'),

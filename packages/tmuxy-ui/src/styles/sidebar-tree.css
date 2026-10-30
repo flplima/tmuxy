@@ -45,10 +45,9 @@
   overflow: hidden;
 }
 
-/* A group member parked out of view, under the member in view: a step
-   further in, and dimmer, since it is not on screen until it is chosen. */
+/* A group member parked out of view, at the same level as the member in
+   view: dimmer, since it is not on screen until it is chosen. */
 .sidebar-tree-pane.is-parked {
-  padding-left: calc(var(--spacing-2xl) + 1.4em);
   opacity: 0.7;
 }
 
