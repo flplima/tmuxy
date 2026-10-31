@@ -182,6 +182,11 @@ if [ -n "$OWN_PANE" ]; then
 fi
 [ -n "$CALLER" ] || CALLER="$(basename "$(ps -o comm= -p "$PPID" 2>/dev/null || true)")"
 [ -n "$CALLER" ] || CALLER="a script"
+# A process is named after the file it runs, and Claude Code runs as
+# `.../claude/versions/<version>`, so it reports a bare version (`2.1.314`):
+# the question would name that, and `@tmuxy-send-allow claude` would never
+# match it. Same rule as the backend's `normalize_pane_command`.
+[[ "$CALLER" =~ ^[0-9]+(\.[0-9]+)+$ ]] && CALLER="claude"
 
 # --- Skipping the question ---
 

@@ -127,6 +127,17 @@ describe('tmuxy pane send', () => {
       expect(payload.token).toMatch(/^3-\d+-\d+$/);
     });
 
+    test('names Claude Code claude, not the version its binary is filed under', () => {
+      // Claude Code runs as `~/.local/share/claude/versions/2.1.314`, so tmux
+      // reports its pane's command as `2.1.314`.
+      const { tmuxCalls } = send(['-t', '%3', 'ls', 'Enter'], {
+        ...IN_PANE_1,
+        MOCK_TMUX_PANE_COMMAND: '2.1.314',
+        MOCK_TMUX_ANSWER: 'no',
+      });
+      expect(askPayload(tmuxCalls).caller).toBe('claude');
+    });
+
     test('marks the caller’s pane as waiting on the user, then puts back what it said', () => {
       const { tmuxCalls } = send(['-t', '%3', 'ls', 'Enter'], {
         ...IN_PANE_1,
@@ -200,6 +211,19 @@ describe('tmuxy pane send', () => {
       expect(commands).toContain("tmux -L tmuxy send-keys -t '%3' -- 'make' 'Enter'");
       expect(commands).toContain("tmux -L tmuxy set-option -p -t '%3' @tmuxy-pane-state unread");
       expect(stdout).toContain('sent to %3: make Enter');
+    });
+
+    test('Claude Code is on the allow list as claude, whatever its version', () => {
+      const { exitCode, tmuxCalls } = send(['-t', '%3', 'make', 'Enter'], {
+        ...IN_PANE_1,
+        MOCK_TMUX_PANE_COMMAND: '2.1.314',
+        MOCK_TMUX_SEND_ALLOW: 'claude',
+      });
+      expect(exitCode).toBe(0);
+      expect(askPayload(tmuxCalls)).toBeNull();
+      expect(runShellCommands(tmuxCalls)).toContain(
+        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%3' -- 'make' 'Enter'",
+      );
     });
 
     test('a pane that says it is working keeps saying so', () => {

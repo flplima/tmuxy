@@ -116,6 +116,8 @@ case "${1:-}" in
       # `verified_own_pane`: the process in the caller's pane. A test whose
       # caller runs there names an ancestor of the CLI (jest's own pid).
       *'#{pane_pid}'*) echo "${MOCK_TMUX_PANE_PID:-}" ;;
+      # `pane send` names the caller after the program in front in its pane.
+      *'#{pane_current_command}'*) echo "${MOCK_TMUX_PANE_COMMAND:-}" ;;
       # `pane wait` polls whether the program has exited, and how.
       *'#{pane_dead}'*) printf '%s\t%s\n' "${MOCK_TMUX_PANE_DEAD:-0}" "${MOCK_TMUX_PANE_DEAD_STATUS:-0}" ;;
       *'#{session_name}'*) echo "${MOCK_TMUX_SESSION:-}" ;;
