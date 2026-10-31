@@ -66,8 +66,10 @@ fn serializes_to_the_frontend_wire_shape() {
     assert!(json["panes"][0].get("tmux_id").is_some());
 }
 
-#[test]
-fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
+/// The clipboard writes a copy-mode yank of `buffer` leads to, through the
+/// whole push API: %pane-mode-changed, %paste-buffer-changed, then tmux's
+/// answer to the marker-wrapped show-buffer the aggregator asks for.
+fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, String)> {
     use tmuxy_core::control_mode::SideEffect;
 
     let mut parser = Parser::new();
@@ -94,16 +96,14 @@ fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
         .expect("show-buffer command emitted");
     assert!(cmd.contains("TMUXY_BUF_BEGIN") && cmd.contains("show-buffer -b 'buffer0'"));
 
-    // The marker-wrapped response resolves to a WriteClipboard effect with the
-    // exact buffer text — never misread as capture-pane output.
     // Each command in the list gets its own %begin/%end block, exactly as
     // tmux 3.7a control mode delivers it.
-    let response = concat!(
-        "%begin 3 3 1\nTMUXY_BUF_BEGIN\n%end 3 3 1\n",
-        "%begin 4 4 1\nyanked line one\nyanked line two\n%end 4 4 1\n",
-        "%begin 5 5 1\nTMUXY_BUF_END\n%end 5 5 1\n",
+    let response = format!(
+        "%begin 3 3 1\nTMUXY_BUF_BEGIN\n%end 3 3 1\n\
+         %begin 4 4 1\n{buffer}\n%end 4 4 1\n\
+         %begin 5 5 1\nTMUXY_BUF_END\n%end 5 5 1\n"
     );
-    let mut clipboard: Vec<(Option<tmuxy_core::PaneId>, String)> = Vec::new();
+    let mut clipboard = Vec::new();
     for line in response.split('\n') {
         if let Some(event) = parser.parse_line(line) {
             for effect in agg.step(event).effects {
@@ -113,8 +113,33 @@ fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
             }
         }
     }
+    clipboard
+}
+
+#[test]
+fn copy_mode_yank_mirrors_paste_buffer_to_clipboard() {
+    // The marker-wrapped response resolves to a WriteClipboard effect with the
+    // exact buffer text — never misread as capture-pane output.
+    let clipboard = clipboard_writes_of_a_yank("yanked line one\nyanked line two");
     assert_eq!(clipboard.len(), 1, "exactly one clipboard write");
     assert_eq!(clipboard[0].1, "yanked line one\nyanked line two");
+}
+
+/// A paste buffer holds whatever a pane's program put in it, so its mirror
+/// gets the same cap as an OSC 52 write — at the aggregator, where the
+/// in-browser engine (which has no emitter of its own to check) sees it too.
+#[test]
+fn a_paste_buffer_over_the_clipboard_cap_is_not_mirrored() {
+    use tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES;
+
+    let at_cap = clipboard_writes_of_a_yank(&"x".repeat(MAX_CLIPBOARD_BYTES));
+    assert_eq!(at_cap.len(), 1, "a buffer at the cap is mirrored");
+    assert_eq!(at_cap[0].1.len(), MAX_CLIPBOARD_BYTES);
+
+    assert!(
+        clipboard_writes_of_a_yank(&"x".repeat(MAX_CLIPBOARD_BYTES + 1)).is_empty(),
+        "a buffer over the cap must not reach the clipboard"
+    );
 }
 
 /// tmux passes a pane's UTF-8 through raw and cuts `%output` wherever its read

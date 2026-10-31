@@ -184,7 +184,10 @@ impl StateAggregator {
             self.buffer_read_armed = false;
             self.pending_buffer_reads.pop_front();
             let text = output.trim_end_matches(['\r', '\n']).to_string();
-            if success && !text.is_empty() {
+            // The buffer can hold anything a pane's program put there, so it
+            // gets the same cap as an OSC 52 write, here where every
+            // consumer of the effect (the in-browser engine included) sees it.
+            if success && !text.is_empty() && text.len() <= MAX_CLIPBOARD_BYTES {
                 return ProcessEventResult {
                     clipboard_writes: vec![(None, text)],
                     ..Default::default()

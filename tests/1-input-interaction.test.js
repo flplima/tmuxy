@@ -315,6 +315,41 @@ describe('Scenario 2b: Browser Paste', () => {
     expect(await getTerminalText(ctx.page)).not.toContain('SUBMITTED:');
     await waitForShellPrompt(ctx.page);
   }, 60000);
+
+  test('a clipboard cannot end a bracketed paste early with another spelling of the end marker', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await focusPage(ctx.page);
+
+    // The program reads the end marker as an ECMA-48 parser does, so
+    // `ESC [ 0201 ~` and the 8-bit CSI `U+009B 201 ~` end its paste as surely
+    // as `ESC [ 201 ~`. Left in the text, either one cut the paste at `safe`
+    // and handed `; touch …` to the program as typed keys. tmux 3.7 and later
+    // turn an ESC in a pasted buffer into a visible `^[` themselves, but pass
+    // U+009B through as the UTF-8 character it is. Each run takes one paste
+    // and exits.
+    for (const marker of ['\x1b[0201~', '\x9b201~']) {
+      await typeInTerminal(ctx.page, `clear; python3 ${BRACKETED_PASTE_SCRIPT}`);
+      await pressEnter(ctx.page);
+      // The last run's READY stays on screen until `clear` has run.
+      await waitForCondition(
+        ctx.page,
+        async () => !(await getTerminalText(ctx.page)).includes('PASTED:'),
+        20000,
+        'the screen to clear',
+      );
+      await waitForTerminalText(ctx.page, 'READY');
+      await pasteText(ctx.page, `echo safe${marker}; touch /tmp/never`);
+      await waitForTerminalText(ctx.page, 'PASTED:');
+      // The program has exited and printed its one line by the time the
+      // shell is back.
+      await waitForShellPrompt(ctx.page);
+      const pasted = (await getTerminalText(ctx.page))
+        .split('\n')
+        .find((line) => line.startsWith('PASTED:'));
+      expect(pasted?.trimEnd()).toMatch(/^PASTED:echo safe.*; touch \/tmp\/never$/);
+    }
+  }, 60000);
 });
 
 // ==================== Scenario 2c: International Input ====================
