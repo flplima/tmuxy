@@ -1,0 +1,149 @@
+/* Catppuccin theme - https://catppuccin.com */
+
+:root.theme-dark {
+  /* Terminal Colors - Catppuccin Mocha */
+  --term-black: #45475a;
+  --term-red: #f38ba8;
+  --term-green: #a6e3a1;
+  --term-yellow: #f9e2af;
+  --term-blue: #89b4fa;
+  --term-magenta: #f5c2e7;
+  --term-cyan: #94e2d5;
+  --term-white: #bac2de;
+  --term-bright-black: #585b70;
+  --term-bright-red: #f38ba8;
+  --term-bright-green: #a6e3a1;
+  --term-bright-yellow: #f9e2af;
+  --term-bright-blue: #89b4fa;
+  --term-bright-magenta: #f5c2e7;
+  --term-bright-cyan: #94e2d5;
+  --term-bright-white: #cdd6f4;
+
+  --term-foreground: #cdd6f4;
+  --term-background: #1e1e2e;
+
+  --bg-black: #1e1e2e;
+  --window-bg-rgb: 40, 40, 60;
+  --bg-dark: #181825;
+  --bg-dark-alt: #1e1e2e;
+  --bg-medium: #313244;
+  --bg-elevated-alt: #45475a;
+  --bg-highlight: #3b3d54;
+  --bg-highlight-alt: #585b70;
+
+  --text-primary: #cdd6f4;
+  --text-secondary: #bac2de;
+  --text-muted: #9399b2;
+  --text-dimmed: #a6adc8;
+  --text-quiet: #a6adc8;
+  --text-subtle: #6c7086;
+  --text-dark: #1e1e2e;
+
+  --border-medium: #313244;
+  --border-light: #45475a;
+
+  --pane-header-text-active: var(--theme-accent);
+  --pane-header-text-inactive: var(--text-dimmed);
+
+  --accent-green: #a6e3a1;
+  /* Catppuccin Blue (#89b4fa) tuned to 4.5:1 across dark chrome and panes */
+  --theme-accent: #89b4fa;
+  --accent-orange: #fab387;
+  --accent-green-bg: #223b2b;
+
+  --accent-blue-light: rgba(137, 180, 250, 0.8);
+  --accent-blue-bg: rgba(137, 180, 250, 0.1);
+  --accent-blue-bg-hover: rgba(137, 180, 250, 0.3);
+  --accent-blue-bg-active: rgba(137, 180, 250, 0.5);
+
+  --link-color: #89b4fa;
+  --link-hover: #b4befe;
+  --link-active: #74c7ec;
+
+  --error-color: #f38ba8;
+  --error-light: #eba0ac;
+
+  --cursor-bg: #cdd6f4;
+  --cursor-text: #1e1e2e;
+  --cursor-inactive: #585b70;
+
+  --tmux-status-bg: #a6e3a1;
+
+  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
+  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
+}
+
+:root.theme-light {
+  /* Terminal Colors - Catppuccin Latte */
+  --term-black: #bcc0cc;
+  --term-red: #d20f39;
+  --term-green: #40a02b;
+  --term-yellow: #df8e1d;
+  --term-blue: #1e66f5;
+  --term-magenta: #ea76cb;
+  --term-cyan: #179299;
+  --term-white: #5c5f77;
+  --term-bright-black: #acb0be;
+  --term-bright-red: #d20f39;
+  --term-bright-green: #40a02b;
+  --term-bright-yellow: #df8e1d;
+  --term-bright-blue: #1e66f5;
+  --term-bright-magenta: #ea76cb;
+  --term-bright-cyan: #179299;
+  --term-bright-white: #4c4f69;
+
+  --term-foreground: #4c4f69;
+  --term-background: #eff1f5;
+
+  --bg-black: #eff1f5;
+  --window-bg-rgb: 230, 233, 239;
+  --bg-dark: #e6e9ef;
+  --bg-dark-alt: #dce0e8;
+  --bg-medium: #e0e3eb;
+  --bg-elevated-alt: #ccd0da;
+  --bg-highlight: #e0e3eb;
+  --bg-highlight-alt: #bcc0cc;
+
+  --text-primary: #4c4f69;
+  --text-secondary: #52556d;
+  --text-muted: #6c6f85;
+  --text-dimmed: #585b73;
+  --text-quiet: #585b73;
+  --text-subtle: #8c8fa1;
+  --text-dark: #eff1f5;
+
+  --border-medium: #ccd0da;
+  --border-light: #bcc0cc;
+
+  --pane-header-text-active: var(--theme-accent);
+  --pane-header-text-inactive: var(--text-dimmed);
+
+  --accent-green: #2d6f1e;
+  /* Catppuccin Latte Blue tuned to 4.5:1+ contrast across all grounds */
+  --theme-accent: #144ebf;
+  --accent-orange: #a84605;
+  --accent-green-bg: #e2f0dc;
+
+  --accent-blue-light: rgba(24, 94, 224, 0.8);
+  --accent-blue-bg: rgba(24, 94, 224, 0.08);
+  --accent-blue-bg-hover: rgba(24, 94, 224, 0.15);
+  --accent-blue-bg-active: rgba(24, 94, 224, 0.25);
+
+  --link-color: #1e66f5;
+  --link-hover: #179299;
+  --link-active: #04a5e5;
+
+  --error-color: #d20f39;
+  --error-light: #e64553;
+
+  --cursor-bg: #4c4f69;
+  --cursor-text: #eff1f5;
+  --cursor-inactive: #acb0be;
+
+  --tmux-status-bg: #2d6f1e;
+
+  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.25);
+  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.25);
+}

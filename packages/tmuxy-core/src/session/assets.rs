@@ -10,6 +10,10 @@ use super::{config_dir, write_app_owned_conf};
 /// [`resolve_user_css`], which is also where a user's own theme lives.
 pub(super) const BUNDLED_THEMES: &[(&str, &str)] = &[
     (
+        "catppuccin.css",
+        include_str!("../../../tmuxy-ui/public/themes/catppuccin.css"),
+    ),
+    (
         "default.css",
         include_str!("../../../tmuxy-ui/public/themes/default.css"),
     ),
