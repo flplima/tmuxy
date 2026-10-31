@@ -14,7 +14,7 @@ use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
 use super::{
-    bound, emit, hash_str, is_enabled, level, scrub, TraceLevel, CHANNEL_CAP, FULL_ONLY,
+    bound, emit, full_only, hash_str, is_enabled, level, scrub, TraceLevel, CHANNEL_CAP, FULL_ONLY,
     HASH_FIELDS, MAX_BYTES, MAX_FULL, SCRUB_FIELDS, VERBATIM,
 };
 
@@ -292,7 +292,7 @@ impl FieldVisitor {
             self.fields.insert(key.to_string(), Value::from(v));
         } else if FULL_ONLY.contains(&key) && lvl == TraceLevel::Full {
             self.fields
-                .insert(key.to_string(), Value::from(bound(value, MAX_FULL)));
+                .insert(key.to_string(), Value::from(full_only(value)));
         }
     }
 
