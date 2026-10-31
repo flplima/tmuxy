@@ -35,8 +35,8 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | nightly `perf measurements / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
 | nightly `perf measurements / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
 | `perf measurements / soak` (nightly) and `interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
-| weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts) |
-| `dependabot actions merge / merge` | nothing to run: it only merges a green `dependabot/github_actions/*` PR |
+| weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts; add `--red-prs` for what a hand-dispatched run with `red_prs` would hand over) |
+| `dependabot actions merge / merge` | `gh pr diff <n> \| node bin/ci/actions-bump.mjs` — it merges a green Dependabot PR only when that prints nothing (a moved `actions/*` pin and no other line); anything else waits for a review |
 
 ## Artifact/log entry points
 

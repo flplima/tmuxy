@@ -2,8 +2,11 @@ name: sunday sweep
 
 # Every Sunday morning, hands what needs fixing to the Copilot cloud agent
 # (bin/ci/sunday-sweep.mjs): open high/critical Dependabot and CodeQL alerts
-# become `agent-fix` issues assigned to the agent, and a red Dependabot PR
-# gets an agent task on its own branch. At most three a run.
+# become `agent-fix` issues assigned to the agent. A red Dependabot PR is
+# only listed: its failing log is output of the code the bump brings in, so a
+# person reads it and hands it over by dispatching this workflow with
+# `red_prs`, and the agent then gets a task on the PR's branch. At most three
+# a run.
 #
 # The token is a fine-grained PAT for this repository only
 # (`COPILOT_AGENT_PAT`: metadata, Dependabot alerts and code scanning alerts
@@ -23,6 +26,10 @@ on:
         description: Say what would be handed over, change nothing
         type: boolean
         default: true
+      red_prs:
+        description: Hand over red Dependabot PRs too (read their failing logs first)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,9 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
@@ -47,14 +54,14 @@ jobs:
           GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
           GH_REPO: ${{ github.repository }}
           DRY: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || secrets.COPILOT_AGENT_PAT == '' }}
+          RED_PRS: ${{ github.event_name == 'workflow_dispatch' && inputs.red_prs }}
         run: |
           set -euo pipefail
           if [ -z "$GH_TOKEN" ]; then
             echo "COPILOT_AGENT_PAT is not set: nothing can be read or handed over." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if [ "$DRY" = "true" ]; then
-            node bin/ci/sunday-sweep.mjs --dry-run
-          else
-            node bin/ci/sunday-sweep.mjs
-          fi
+          ARGS=()
+          if [ "$DRY" = "true" ]; then ARGS+=(--dry-run); fi
+          if [ "$RED_PRS" = "true" ]; then ARGS+=(--red-prs); fi
+          node bin/ci/sunday-sweep.mjs "${ARGS[@]}"

@@ -1,14 +1,22 @@
 name: dependabot actions merge
 
-# Merges Dependabot's bumps of the workflows' own actions once the suite is
+# Merges Dependabot's bumps of GitHub's own `actions/*` once the suite is
 # green on them. Only those: npm and cargo bumps stay manual, because Tauri
 # pins crates tightly and a blind bump breaks the desktop build
-# (.github/dependabot.yml). An action bump cannot reach the shipped app.
+# (.github/dependabot.yml), and a third-party action's bump waits for a person
+# to read it. An action runs inside the release build, next to the signing
+# credentials, so a bump is code that reaches the shipped app; GitHub's own
+# are trusted as much as the runner they run on, and no one else's are.
+# bin/ci/actions-bump.mjs reads the PR's diff and refuses anything but a moved
+# `actions/*` commit pin.
 #
 # It waits for `lint and tests` to finish rather than enabling auto-merge on
 # the PR: main has no required check, so auto-merge would merge at once.
 # `workflow_run` runs in this repository's context and never checks the PR's
-# code out; it only reads the run and merges the PR it belongs to.
+# code out (only main's bin/ci); it reads the run and merges the PR it belongs
+# to. The run's actor alone proves nothing — a fork can get Dependabot to
+# re-trigger a run on a branch it names `dependabot/github_actions/...` — so
+# the run must come from this repository and the PR must be Dependabot's own.
 
 on:
   workflow_run:
@@ -24,6 +32,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
       startsWith(github.event.workflow_run.head_branch, 'dependabot/github_actions/')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -31,6 +40,11 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: bin/ci
+          persist-credentials: false
+
       - name: Merge the green bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -39,10 +53,15 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          PR=$(gh pr list --head "$BRANCH" --state open --json number,headRefOid \
-            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\") | .number")
+          PR=$(gh pr list --head "$BRANCH" --author app/dependabot --state open \
+            --json number,headRefOid,isCrossRepository \
+            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\" and (.isCrossRepository | not)) | .number")
           if [ -z "$PR" ]; then
-            echo "No open PR on $BRANCH at $HEAD_SHA (pushed again since, or already merged)."
+            echo "No open Dependabot PR on $BRANCH at $HEAD_SHA (pushed again since, or already merged)."
+            exit 0
+          fi
+          if ! gh pr diff "$PR" | node bin/ci/actions-bump.mjs; then
+            echo "PR #$PR moves more than an actions/* pin: it waits for a review."
             exit 0
           fi
           # The sha pins the merge to the commit the suite passed on.

@@ -40,9 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -54,11 +54,12 @@ jobs:
       # The v86 guest the demo runs, built as the storybook-probe job builds it
       # (lint-and-tests.yml): wasm32 for tmuxy-wasm, i686-musl for the guest
       # binaries build-v86-snapshot.mjs cross-compiles on a cache miss.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown,i686-unknown-linux-musl
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       # The CLI and the crate must agree exactly on the bindgen schema
       # (bin/wasm-bindgen-version reads the lockfile's).
@@ -67,7 +68,7 @@ jobs:
         run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
 
       - name: Install wasm-bindgen CLI
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
@@ -77,7 +78,7 @@ jobs:
       # Same key as lint-and-tests.yml, so a snapshot either job built is reused.
       - name: Cache v86 guest assets
         id: v86-assets-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: packages/tmuxy-ui/v86-assets
           key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
@@ -95,7 +96,7 @@ jobs:
       # the i686-musl tmuxy-group and tmuxy-pty cross-compiled into it.
       - name: Cache the CheerpX guest image
         id: cheerpx-image-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: packages/tmuxy-ui/cheerpx-assets/tmuxy.ext2
           key: ${{ runner.os }}-cheerpx-image-${{ hashFiles('packages/tmuxy-ui/scripts/build-cheerpx-image.mjs', 'packages/tmuxy-ui/scripts/lib/guest.mjs', 'packages/tmuxy-ui/cheerpx/**', 'packages/tmuxy-pty/**', 'packages/tmuxy-group/**', 'packages/tmuxy-core/**', 'Cargo.lock', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**') }}
@@ -120,7 +121,7 @@ jobs:
           test -s packages/tmuxy-demo/out/coi-sw.js || { echo "demo export has no isolation worker"; exit 1; }
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: packages/tmuxy-demo/out
 
@@ -134,4 +135,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

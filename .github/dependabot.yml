@@ -34,14 +34,25 @@ updates:
     commit-message:
       prefix: "🔧"
 
-  # The workflows' own actions.
+  # The workflows' own actions, every one pinned to a commit sha with its tag
+  # as a trailing comment; Dependabot moves the sha and the comment together.
+  # A release is a week old before it is proposed: a hijacked tag is usually
+  # found and pulled within days, and the cooldown keeps that week off main.
+  # GitHub's own `actions/*` and everyone else's come in separate PRs, because
+  # `dependabot actions merge` merges only the first kind; a third-party bump
+  # waits for a person to read what the new commit does.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
+    cooldown:
+      default-days: 7
     groups:
-      actions:
+      github-actions:
+        patterns: ["actions/*"]
+      third-party-actions:
         patterns: ["*"]
+        exclude-patterns: ["actions/*"]
     commit-message:
       prefix: "🔧"
