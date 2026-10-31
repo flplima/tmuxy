@@ -9,6 +9,7 @@
  */
 
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const {
@@ -240,6 +241,83 @@ describe('Scenario: tmuxy open previews a local file', () => {
     }, shown.paneId);
     expect(refused.status).toBe(400);
     expect(refused.body.kind).toBe('forbidden');
+  }, 120000);
+
+  /**
+   * Mermaid lays a diagram out by drawing it into a document and
+   * only then hands the SVG back to be sanitized. That document was the app's
+   * own: an `<img>` in a label loaded from there — telling its host the file
+   * was read, with no `--net` — and anything else in it ran with the app's
+   * access to the API. A `$$…$$` formula was measured in the app's document
+   * too, with the rest of its line. Each kind is drawn here, gitGraph among
+   * them because it looks its SVG up in the app's document.
+   */
+  test('a diagram is drawn away from the app: what its labels hold reaches neither the page nor the network', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    await waitForShellPrompt(ctx.page);
+
+    const hits = [];
+    const beacon = http.createServer((req, res) => {
+      hits.push(req.url);
+      res.writeHead(404);
+      res.end();
+    });
+    await new Promise((resolve) => beacon.listen(0, '127.0.0.1', resolve));
+    const origin = `http://127.0.0.1:${beacon.address().port}`;
+    try {
+      // Every <img> naming the beacon that ever enters the app's document.
+      await ctx.page.evaluate((origin) => {
+        window.beaconImages = [];
+        new MutationObserver((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes) {
+              if (node.nodeType !== Node.ELEMENT_NODE) continue;
+              const found = [node, ...node.querySelectorAll('img')].filter(
+                (el) => el.localName === 'img' && (el.getAttribute('src') ?? '').startsWith(origin),
+              );
+              window.beaconImages.push(...found.map((el) => el.getAttribute('src')));
+            }
+          }
+        }).observe(document, { childList: true, subtree: true });
+      }, origin);
+
+      const doc = path.join(dir, 'diagrams.md');
+      const fence = (body) => `\`\`\`mermaid\n${body}\n\`\`\`\n`;
+      fs.writeFileSync(
+        doc,
+        `# Diagrams\n\n${fence(`graph TD\n  A["<img src='${origin}/label.png'> Start"] --> B[End]`)}\n` +
+          `${fence(`sequenceDiagram\n  Alice->>Bob: $$x$$ <img src='${origin}/formula.png'> Hello`)}\n` +
+          `${fence('gitGraph\n  commit\n  branch feature\n  commit')}\n`,
+      );
+      await openPreview(ctx, doc);
+
+      let diagrams = null;
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          diagrams = await ctx.page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll('.preview-markdown .preview-mermaid svg'),
+              (svg) => {
+                const r = svg.getBoundingClientRect();
+                return { width: r.width, height: r.height, text: svg.textContent };
+              },
+            ),
+          );
+          return diagrams.length === 3 && diagrams.every((d) => d.width > 0 && d.height > 0);
+        },
+        30000,
+        () => `all three diagrams drawn (${JSON.stringify(diagrams)})`,
+      );
+      expect(diagrams[0].text).toContain('Start');
+      expect(diagrams[1].text).toContain('Hello');
+      expect(diagrams[2].text).toContain('feature');
+      expect(await ctx.page.evaluate(() => window.beaconImages)).toEqual([]);
+      expect(hits).toEqual([]);
+    } finally {
+      beacon.close();
+    }
   }, 120000);
 
   test('a page: framed offline with only its own files, kept in place as it changes, and Ctrl+C from inside it', async () => {
