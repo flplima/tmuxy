@@ -73,7 +73,11 @@ export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }
     return entry.type === 'story' && tags.includes('v86') === v86 && inTier(tags);
   });
   if (filters.length === 0) return ids;
-  return ids.filter((id) => filters.some((f) => id.includes(f)));
+  // PROBE_EXACT=1 takes the filters as whole ids: the nightly's re-run of
+  // tonight's failures must not also take every story an id is a prefix of
+  // (`resize-pane-drag` would take its Vertical and Grid siblings).
+  const exact = process.env.PROBE_EXACT === '1';
+  return ids.filter((id) => filters.some((f) => (exact ? id === f : id.includes(f))));
 }
 
 /**
@@ -305,4 +309,24 @@ export function printProbeSummary({ results, ids, quarantine, quarantineStatus }
   }
 
   return blocking;
+}
+
+/**
+ * The run's verdict per story, for the nightly ledger (`lib/nightly-ledger.mjs`):
+ * `{ stories: [{ id, ok, reason, message }] }` at `PROBE_RESULTS_JSON`, when it
+ * is set. A story is `ok` only if every attempt it had in this run passed; a
+ * quarantined failure counts as `ok`, since quarantine is the decision that it
+ * must not be reported.
+ */
+export function writeProbeResults(results, isShielded = () => false) {
+  const path = process.env.PROBE_RESULTS_JSON;
+  if (!path) return;
+  const byId = new Map();
+  for (const r of results) {
+    const prev = byId.get(r.id);
+    const ok = r.ok || isShielded(r.id);
+    if (prev && !prev.ok) continue;
+    byId.set(r.id, { id: r.id, ok, reason: r.reason ?? null, message: r.message ?? null });
+  }
+  writeFileSync(path, JSON.stringify({ stories: [...byId.values()] }, null, 2));
 }

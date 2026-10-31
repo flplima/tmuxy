@@ -53,6 +53,15 @@ describe('TmuxTransport over a driver', () => {
     }
   });
 
+  it('answers queries only over a driver that can reach tmux', async () => {
+    const live = fakeTransport({ query: (async () => 'ok') as TmuxAdapter['query'] });
+    const recorded = fakeTransport({});
+    expect(await live.runtime.runPromise(call((t) => Effect.sync(t.answersQueries)))).toBe(true);
+    expect(await recorded.runtime.runPromise(call((t) => Effect.sync(t.answersQueries)))).toBe(
+      false,
+    );
+  });
+
   it('connect success completes', async () => {
     const adapter = fakeTransport({
       connect: vi.fn(async () => {}),

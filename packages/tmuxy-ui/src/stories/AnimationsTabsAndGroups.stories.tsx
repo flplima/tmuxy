@@ -35,7 +35,7 @@ import {
   watchResizingGate,
   watchLifecycleClasses,
   assertGatesDeclareFocusCue,
-  sampleFocusCueOnElement,
+  stepFocusCueOnElement,
 } from './animationStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
@@ -215,9 +215,8 @@ export const FocusCueNeverHardFlips: Story = {
     ];
     appearance.forEach(([k, v]) => root.style.setProperty(k, v));
 
-    // Don't start sampling until the cue is actually live: the vars have to
-    // have resolved into a translucent surface on the inactive pane, or every
-    // sample compares a faded text opacity against an unresolved surface.
+    // The cue must be live first: the vars resolved into a translucent
+    // surface on the inactive pane.
     await waitFor(() => {
       const inactive = layout.querySelector<HTMLElement>('.pane-layout-item:not(.pane-active)');
       expect(inactive).not.toBeNull();
@@ -231,38 +230,37 @@ export const FocusCueNeverHardFlips: Story = {
     const target = paneNodes(canvasElement).find((p) => p !== before);
     expect(target).toBeDefined();
 
-    const cueSampler = sampleFocusCueOnElement(target!);
-    const { samples } = cueSampler;
+    // Armed before the click, so it steps the fade before any frame of it runs.
+    const cue = stepFocusCueOnElement(target!);
 
-    try {
-      // Click inside the pane, not the layout box: the pane's mouse handler is
-      // on the terminal element, and events bubble up — a click on the outer
-      // `.pane-layout-item` never reaches it (which is also what a real user's
-      // click hits, since the terminal fills the pane).
-      const hit =
-        target!.querySelector<HTMLElement>('.terminal-line') ??
-        target!.querySelector<HTMLElement>('.terminal-content') ??
-        target!;
-      await userEvent.click(hit);
-      await waitFor(() => expect(target!.classList.contains('pane-active')).toBe(true));
-      await wait(150);
-    } finally {
-      cueSampler.stop();
-    }
-    expect(samples.length).toBeGreaterThan(6);
+    // Click the terminal, as a user does: the pane's mouse handler is there,
+    // and a click on the outer `.pane-layout-item` never reaches it.
+    const hit =
+      target!.querySelector<HTMLElement>('.terminal-line') ??
+      target!.querySelector<HTMLElement>('.terminal-content') ??
+      target!;
+    await userEvent.click(hit);
+    await waitFor(() => expect(target!.classList.contains('pane-active')).toBe(true));
+    const run = await cue;
 
-    const worst = samples.reduce((m, s) => Math.max(m, Math.abs(s.text - s.surface)), 0);
-    // A hard flip is a gap of ~0.30 (the full dim), so this has wide margin
-    // over the sub-frame jitter of two getComputedStyle reads under CI load.
+    // Both halves are transitions on one clock; a hard flip has none.
+    expect(run.surface, 'the surface hard-flipped: no background-color transition').not.toBeNull();
+    expect(run.text, 'the text hard-flipped: no opacity transition').not.toBeNull();
+    expect(run.surface).toEqual(run.text);
+
+    // The two agree at every point; a hard flip is a gap of ~0.30.
+    const worst = run.steps.reduce((m, s) => Math.max(m, Math.abs(s.text - s.surface)), 0);
     expect(
       worst,
-      `surface alpha and text opacity diverged: ${JSON.stringify(samples.slice(0, 8))}`,
+      `surface alpha and text opacity diverged: ${JSON.stringify(run.steps)}`,
     ).toBeLessThanOrEqual(0.05);
 
-    // ...and the cue really animated rather than both snapping in one frame:
-    // at least one sampled frame sits strictly between the dim and full values.
+    // ...and it really fades: from the dim to full, rising at every point.
     const dim = parseFloat(getComputedStyle(root).getPropertyValue('--inactive-text-opacity'));
-    expect(samples.some((s) => s.text > dim + 0.01 && s.text < 0.99)).toBe(true);
+    expect(run.steps[0].text).toBeCloseTo(dim, 2);
+    expect(run.steps[run.steps.length - 1].text).toBeCloseTo(1, 2);
+    const rising = run.steps.every((s, i) => i === 0 || s.text > run.steps[i - 1].text);
+    expect(rising, `the text did not fade: ${JSON.stringify(run.steps)}`).toBe(true);
 
     assertGatesDeclareFocusCue(layout, canvasElement);
 

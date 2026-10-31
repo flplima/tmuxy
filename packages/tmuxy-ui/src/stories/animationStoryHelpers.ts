@@ -149,32 +149,75 @@ export function assertGatesDeclareFocusCue(layout: HTMLElement, canvasElement: H
   }
 }
 
+/** One stepped point of the focus cue: how far through the fade, and both values there. */
+export interface FocusCueStep {
+  progress: number;
+  text: number;
+  surface: number;
+}
+
+/** What `stepFocusCueOnElement` found when `target` turned active. */
+export interface FocusCueRun {
+  steps: FocusCueStep[];
+  /** The two transitions' timing, so a story can assert they share one clock. */
+  surface: { duration: number; easing: string } | null;
+  text: { duration: number; easing: string } | null;
+}
+
+const timingOf = (t: CSSTransition | undefined) => {
+  if (!t) return null;
+  const timing = t.effect!.getTiming();
+  return { duration: Number(timing.duration), easing: String(timing.easing) };
+};
+
 /**
- * Sample ONE pinned element every frame — the pane about to gain focus —
- * never `active()`. Following the active pane means hopping to a different
- * node at the moment the class moves, so a frame lands on the outgoing
- * pane's text and the incoming pane's surface and they legitimately differ.
+ * The focus cue of ONE pinned element — the pane about to gain focus — read
+ * deterministically. When `target` gains `pane-active`, a MutationObserver
+ * callback (before the next frame, so before any of the fade has run) finds
+ * the two CSS transitions the cue is made of — the surface's
+ * `background-color` on the pane and the text's `opacity` on its terminal —
+ * pauses them, and steps both through `points` evenly spaced moments of their
+ * own duration, reading the two values at each.
+ *
+ * Sampling real frames instead missed the fade about one run in ten: a frame
+ * that lands late sees the transition already over, and "the text faded"
+ * found no sample mid-way. Stepping cannot miss it, and a surface that
+ * hard-flips has no transition to step at all, which the run reports.
  */
-export function sampleFocusCueOnElement(target: HTMLElement): {
-  samples: { text: number; surface: number }[];
-  stop: () => void;
-} {
-  const samples: { text: number; surface: number }[] = [];
-  let sampling = true;
+export function stepFocusCueOnElement(target: HTMLElement, points = 11): Promise<FocusCueRun> {
   // The text dim lives on the pane's terminal, not its header.
   const content = target.querySelector<HTMLElement>('.pane-content')!;
-  const sampleFrame = () => {
-    samples.push({
-      text: parseFloat(getComputedStyle(content).opacity),
-      surface: alphaOf(getComputedStyle(target).backgroundColor),
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (!target.classList.contains('pane-active')) return;
+      observer.disconnect();
+      // getAnimations() flushes style, so the class change has started its
+      // transitions, at their very beginning.
+      const transitions = target
+        .getAnimations({ subtree: true })
+        .filter((a): a is CSSTransition => a instanceof CSSTransition);
+      const on = (t: CSSTransition) => (t.effect as KeyframeEffect | null)?.target;
+      const surfaceT = transitions.find(
+        (t) => on(t) === target && t.transitionProperty === 'background-color',
+      );
+      const textT = transitions.find(
+        (t) => on(t) === content && t.transitionProperty === 'opacity',
+      );
+      const stepped = [surfaceT, textT].filter((t): t is CSSTransition => !!t);
+      stepped.forEach((t) => t.pause());
+      const steps: FocusCueStep[] = [];
+      for (let i = 0; i < points; i++) {
+        const progress = i / (points - 1);
+        for (const t of stepped) t.currentTime = Number(t.effect!.getTiming().duration) * progress;
+        steps.push({
+          progress,
+          text: parseFloat(getComputedStyle(content).opacity),
+          surface: alphaOf(getComputedStyle(target).backgroundColor),
+        });
+      }
+      stepped.forEach((t) => t.finish());
+      resolve({ steps, surface: timingOf(surfaceT), text: timingOf(textT) });
     });
-    if (sampling) requestAnimationFrame(sampleFrame);
-  };
-  requestAnimationFrame(sampleFrame);
-  return {
-    samples,
-    stop: () => {
-      sampling = false;
-    },
-  };
+    observer.observe(target, { attributes: true, attributeFilter: ['class'] });
+  });
 }

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { inputPause, tmuxCaughtUp, transitionsDone } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import { armPaintProbe } from './immediacy';
 import { GlitchRecorder } from './glitchRecorder';
@@ -162,7 +163,7 @@ export const SwapDragReconcile: Story = {
           bubbles: true,
         }),
       );
-      await new Promise((r) => setTimeout(r, 80));
+      await inputPause(80);
     }
 
     // Hover onto the target: once the pointer has rested there for the swap
@@ -189,7 +190,7 @@ export const SwapDragReconcile: Story = {
     dstEl.dispatchEvent(
       new MouseEvent('mousemove', { clientX: endX, clientY: endY, bubbles: true }),
     );
-    await new Promise((r) => setTimeout(r, SWAP_DWELL_MS));
+    await inputPause(SWAP_DWELL_MS);
     countingDwell = false;
     const hoverBudget = dwellFrames + 5;
     const hoverFrames = await hoverProbe.wait(hoverBudget, 5000);
@@ -211,9 +212,10 @@ export const SwapDragReconcile: Story = {
     // Let the swap's CSS transition finish, then record across the server
     // reconcile: no size jumps, no pane remounts — the confirmation must be
     // visually invisible.
-    await new Promise((r) => setTimeout(r, 600));
-    const glitches = new GlitchRecorder(canvasElement.querySelector('.pane-layout')!);
-    await new Promise((r) => setTimeout(r, 1800));
+    const layout = canvasElement.querySelector('.pane-layout')!;
+    await transitionsDone(layout);
+    const glitches = new GlitchRecorder(layout);
+    await tmuxCaughtUp();
     glitches.assertNoGlitches('drag');
 
     // And the swap actually stuck (server-confirmed geometry), with each pane
@@ -260,7 +262,6 @@ export const SwapKeepsContentInCorrectLines: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     const cmd = (c: string) =>
       (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
         type: 'SEND_TMUX_COMMAND',
@@ -287,7 +288,7 @@ export const SwapKeepsContentInCorrectLines: Story = {
     });
     let [top, bottom] = byTop();
     cmd(`resize-pane -t ${bottom} -U 4`);
-    await sleep(800);
+    await tmuxCaughtUp();
     [top, bottom] = byTop();
 
     await fillWithSeq(canvas, user, top, 100, 200);

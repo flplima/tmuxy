@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { tmuxCaughtUp, transitionsDone } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import { armPaintProbe, addsElement } from './immediacy';
 import { GlitchRecorder } from './glitchRecorder';
@@ -157,7 +158,7 @@ export const ResizePaneDrag: Story = {
     });
     await settleGeometry(canvas);
     // Let the trailing per-command layout confirms and the preview-clear land.
-    await new Promise((res) => setTimeout(res, 800));
+    await tmuxCaughtUp();
     const after = paneRect(canvas, a).width;
     expect(Math.abs(paneRect(canvas, a).width - after)).toBeLessThan(10);
     // No geometry reversal at any point — not the post-release flash-back to
@@ -232,14 +233,11 @@ export const SplitRejectedRollback: Story = {
     const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
 
     // Geometry must be at rest before we snapshot it — the previous attempt's
-    // CSS transition / layout refresh may still be settling.
+    // round trip and its CSS transition may still be landing.
     const stableSig = async (): Promise<string> => {
-      for (let i = 0; i < 20; i++) {
-        const a = rectSignature(canvas);
-        await new Promise((r) => setTimeout(r, 350));
-        if (rectSignature(canvas) === a) return a;
-      }
-      throw new Error('pane geometry never settled');
+      await tmuxCaughtUp();
+      await transitionsDone(layoutRoot);
+      return rectSignature(canvas);
     };
 
     let sawRollback = false;

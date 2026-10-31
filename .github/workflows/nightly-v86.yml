@@ -8,10 +8,14 @@ name: nightly v86 sweep
 #
 # The three blocking gate stories still run per commit in lint-and-tests.yml.
 #
-# There is no quarantine list for this sweep: every failure turns it red and
-# opens the issue. The stories that never passed against the guest's real tmux
-# were deleted rather than shielded — a sweep that is red every night with the
-# same known set is the same as having no nightly at all.
+# There is no quarantine list for this sweep. A story that fails is run again
+# that night on a FRESH runner (the `reconfirm-*` jobs), and `report` decides
+# from both runs and the nights before (scripts/nightly-ledger.mjs): a story
+# that fails twice is reported that night; one that passes the second time is
+# a flake, kept in the ledger, and reported once it flakes on 2 of the last 7
+# nights. Issues #87-#145 were each one story failing once on a loaded
+# runner: an issue a night, closed by the next green run, which taught that
+# the issue means nothing. docs/TESTS-STORYBOOK.md § "When the nightly reports".
 
 on:
   schedule:
@@ -30,70 +34,39 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
+    outputs:
+      failed: ${{ steps.failed.outputs.ids }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/storybook-probe-setup
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
-          # that build-v86-snapshot.mjs cross-compiles on a cache miss.
-          targets: wasm32-unknown-unknown,i686-unknown-linux-musl
-
-      - uses: swatinem/rust-cache@v2
-
-      # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
-      # version is read from the lockfile (bin/wasm-bindgen-version).
-      - name: Read the wasm-bindgen version from Cargo.lock
-        id: wasm-bindgen
-        run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Install wasm-bindgen CLI
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build tmuxy-wasm
-        run: npm run build:wasm
-
-      - name: Cache v86 guest assets
-        id: v86-assets-cache
-        uses: actions/cache@v6
-        with:
-          path: packages/tmuxy-ui/v86-assets
-          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
-
-      - name: Build v86 guest assets (cache miss)
-        if: steps.v86-assets-cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
-          npm run fetch:v86-image -w tmuxy-ui
-          npm run build:v86-snapshot -w tmuxy-ui
-
-      - uses: ./.github/actions/install-chromium
-
-      - name: Start Storybook (dev server)
-        run: |
-          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/ci/wait-for-server http://localhost:6006/index.json 180000
+          v86: 'true'
+          storybook-log: /tmp/storybook.log
 
       # PROBE_TIMINGS_JSON is the per-story timing record (docs/PERFORMANCE.md
-      # Axis A). Nothing collected it before, so the numbers were written to a
-      # file inside a container that was then thrown away.
+      # Axis A). The step's failure does not end the night: the stories it
+      # names are re-run on a fresh runner, and `report` decides.
       - name: Probe v86 stories (shared engine, single page)
+        continue-on-error: true
         run: |
           mkdir -p perf
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           PROBE_TIMINGS_JSON="$PWD/tests/perf/v86-probe-timings.json" \
+          PROBE_RESULTS_JSON="$RUNNER_TEMP/results-sweep.json" \
             npm run test-storybook:v86 -w tmuxy-ui
+
+      - name: Stories that failed
+        id: failed
+        run: bin/ci/failed-stories "$RUNNER_TEMP/results-sweep.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results-sweep
+          path: ${{ runner.temp }}/results-sweep.json
+          if-no-files-found: warn
 
       - name: Upload probe timings
         if: always()
@@ -103,112 +76,234 @@ jobs:
           path: tests/perf/v86-probe-timings.json
           if-no-files-found: error
 
-      - name: Storybook logs (debug)
-        if: failure()
-        run: tail -200 /tmp/storybook.log
-
-      - name: Upload Storybook log
-        if: failure()
+      - name: Upload probe artifacts and the Storybook log
+        if: steps.failed.outputs.ids != ''
         uses: actions/upload-artifact@v7
         with:
-          name: v86-storybook-log-${{ github.run_id }}
-          path: /tmp/storybook.log
-          if-no-files-found: warn
+          name: v86-sweep-artifacts-${{ github.run_id }}
+          path: |
+            packages/tmuxy-ui/probe-artifacts
+            /tmp/storybook.log
+          if-no-files-found: ignore
 
-  # A nightly that fails into an empty room is the same as no nightly. One
-  # issue is kept open and commented on, rather than a new one every night.
   # The deterministic (DemoAdapter) stories a push leaves out — the ones
   # tagged `nightly` — and the axe accessibility pass over every story, which
   # the per-commit probe skips. docs/TESTS-LAYERS.md § Tiers.
   deterministic:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      failed: ${{ steps.failed.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/storybook-probe-setup
+        with:
+          storybook-log: /tmp/storybook-deterministic.log
+
+      - name: Probe every deterministic story, with the a11y pass
+        continue-on-error: true
+        env:
+          PROBE_TIER: all
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          PROBE_RESULTS_JSON="$RUNNER_TEMP/results-deterministic.json" \
+            npm run test-storybook -w tmuxy-ui
+
+      - name: Stories that failed
+        id: failed
+        run: bin/ci/failed-stories "$RUNNER_TEMP/results-deterministic.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-results-deterministic
+          path: ${{ runner.temp }}/results-deterministic.json
+          if-no-files-found: warn
+
+      - name: Upload probe artifacts and the Storybook log
+        if: steps.failed.outputs.ids != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: storybook-deterministic-artifacts-${{ github.run_id }}
+          path: |
+            packages/tmuxy-ui/probe-artifacts
+            /tmp/storybook-deterministic.log
+          if-no-files-found: ignore
+
+  # Tonight's failures again, alone, on a runner that ran nothing else: a
+  # story that fails here too is a defect, one that passes was the sweep's
+  # machine. PROBE_EXACT keeps an id from also taking the stories it prefixes.
+  reconfirm-v86:
+    needs: sweep
+    if: needs.sweep.outputs.failed != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/storybook-probe-setup
+        with:
+          v86: 'true'
+          storybook-log: /tmp/storybook.log
+      - name: Probe tonight's failing v86 stories
+        continue-on-error: true
+        env:
+          IDS: ${{ needs.sweep.outputs.failed }}
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          # shellcheck disable=SC2086 # one id per word
+          PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-v86.json" \
+            npm run test-storybook:v86 -w tmuxy-ui -- $IDS
+      # Alone in its artifact, so it lands where `report` reads it.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-results-reconfirm-v86
+          path: ${{ runner.temp }}/results-reconfirm-v86.json
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reconfirm-v86-artifacts-${{ github.run_id }}
+          path: packages/tmuxy-ui/probe-artifacts
+          if-no-files-found: ignore
+
+  reconfirm-deterministic:
+    needs: deterministic
+    if: needs.deterministic.outputs.failed != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/storybook-probe-setup
+        with:
+          storybook-log: /tmp/storybook-deterministic.log
+      - name: Probe tonight's failing deterministic stories
+        continue-on-error: true
+        env:
+          IDS: ${{ needs.deterministic.outputs.failed }}
+          PROBE_TIER: all
+        run: |
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+          # shellcheck disable=SC2086 # one id per word
+          PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-deterministic.json" \
+            npm run test-storybook -w tmuxy-ui -- $IDS
+      # Alone in its artifact, so it lands where `report` reads it.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: nightly-results-reconfirm-deterministic
+          path: ${{ runner.temp }}/results-reconfirm-deterministic.json
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: reconfirm-deterministic-artifacts-${{ github.run_id }}
+          path: packages/tmuxy-ui/probe-artifacts
+          if-no-files-found: ignore
+
+  # One issue is kept open and commented on, rather than a new one every
+  # night, and only for what the ledger says is a defect. A night with nothing
+  # to report closes it (bin/ci/nightly-issue); a manual run counts, since
+  # re-running the sweep after a fix is how one is confirmed. Only a scheduled
+  # night opens the issue or enters the ledger's history.
+  report:
+    needs: [sweep, deterministic, reconfirm-v86, reconfirm-deterministic]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install npm dependencies
-        run: npm ci
-
-      - uses: ./.github/actions/install-chromium
-
-      - name: Create placeholder v86 asset dirs
-        run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
-
-      - name: Start Storybook (dev server)
-        run: |
-          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook-deterministic.log &
-          bin/ci/wait-for-server http://localhost:6006/index.json 180000
-
-      - name: Probe every deterministic story, with the a11y pass
-        env:
-          PROBE_TIER: all
-        run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          npm run test-storybook -w tmuxy-ui
-
-      - name: Probe failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v7
+      - uses: actions/download-artifact@v7
         with:
-          name: storybook-deterministic-artifacts-${{ github.run_id }}
-          path: packages/tmuxy-ui/probe-artifacts
-          if-no-files-found: ignore
+          pattern: nightly-results-*
+          path: results
 
-      - name: Storybook logs (debug)
-        if: failure()
-        run: tail -200 /tmp/storybook-deterministic.log
+      # The ledger's memory: one verdict file per scheduled night, carried
+      # from cache to cache (a cache key cannot be overwritten, so each night
+      # saves under its own and restores the newest).
+      - uses: actions/cache/restore@v6
+        with:
+          path: ledger
+          key: ${{ runner.os }}-nightly-ledger-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-nightly-ledger-
 
-  report-failure:
-    needs: [sweep, deterministic]
-    if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: write
+      - name: Decide tonight's verdict
+        id: ledger
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p ledger
+          node packages/tmuxy-ui/scripts/nightly-ledger.mjs \
+            --sweep results/nightly-results-sweep/results-sweep.json \
+                    results/nightly-results-deterministic/results-deterministic.json \
+            --reconfirm results/nightly-results-reconfirm-v86/results-reconfirm-v86.json \
+                        results/nightly-results-reconfirm-deterministic/results-reconfirm-deterministic.json \
+            --history ledger \
+            --verdicts-out "$RUNNER_TEMP/tonight.json" \
+            --body-out "$RUNNER_TEMP/report.md"
 
-    steps:
-      - uses: actions/checkout@v7
-      - name: Open or update the tracking issue
+      # A sweep job that crashed before writing its results told us nothing,
+      # and nothing is not a pass.
+      - name: Both sweeps wrote results
+        run: |
+          test -s results/nightly-results-sweep/results-sweep.json
+          test -s results/nightly-results-deterministic/results-deterministic.json
+
+      - name: Report a sweep that wrote no results
+        if: failure() && github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          set -euo pipefail
-          TITLE="Nightly v86 sweep is failing"
-          BODY="The nightly story sweep failed: the full v86 sweep, the deterministic nightly tier with the a11y pass, or both (the run's job list says which).
-
-          The run log lists the failing stories under 'failures', each with its error and the first lines of its stack.
+          BODY="A sweep job ended without writing its results, so tonight has no verdict: it crashed, timed out, or never started. The run's job list says which.
 
           Run: $RUN_URL
-          Commit: ${{ github.sha }}
+          Commit: ${{ github.sha }}" bin/ci/nightly-issue report "Nightly v86 sweep is failing"
 
-          Per-story timings and the Storybook log are attached to that run as artifacts."
+      - name: Keep tonight in the ledger
+        if: github.event_name == 'schedule'
+        run: |
+          cp "$RUNNER_TEMP/tonight.json" "ledger/${{ github.run_id }}.json"
+          # Fourteen nights is twice the window; older ones only add bytes.
+          ls -1t ledger/*.json | tail -n +15 | xargs -r rm --
 
-          BODY="$BODY" bin/ci/nightly-issue report "$TITLE"
+      - if: github.event_name == 'schedule'
+        uses: actions/cache/save@v6
+        with:
+          path: ledger
+          key: ${{ runner.os }}-nightly-ledger-${{ github.run_id }}
 
-  # Both sweeps passed, so the tracking issue is closed (bin/ci/nightly-issue). A
-  # manual run counts: re-running the sweep after a fix is how one is
-  # confirmed.
-  resolve-issue:
-    needs: [sweep, deterministic]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: actions/checkout@v7
+      - name: Open or update the tracking issue
+        if: steps.ledger.outputs.report == 'true' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: BODY="$(cat "$RUNNER_TEMP/report.md")" bin/ci/nightly-issue report "Nightly v86 sweep is failing"
+
       - name: Close the tracking issue
+        if: steps.ledger.outputs.report == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bin/ci/nightly-issue resolve "Nightly v86 sweep is failing"
+
+      # The run's colour is the ledger's verdict: red for a defect, green for
+      # a clean night or a one-off flake (named in the step above's log).
+      - name: Fail on a reported defect
+        if: steps.ledger.outputs.report == 'true'
+        run: |
+          cat "$RUNNER_TEMP/report.md"
+          exit 1

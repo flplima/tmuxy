@@ -1,5 +1,7 @@
+// v86 helpers: shared by the stories over real tmux, held to their blind-wait ceiling.
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { ResizeGlitchRecorder } from './resizeGlitch';
+import { inputPause, tmuxCaughtUp, transitionsDone } from './tmuxBarrier';
 
 /**
  * Enter a command line by pasting it — a first-class real-user path (pasting a
@@ -245,7 +247,7 @@ export async function dragDivider(
         clientY: startY + (dy * i) / steps,
       }),
     );
-    await new Promise((res) => setTimeout(res, 8));
+    await inputPause(8);
   }
   recorder.mark('mouseup');
   doc.dispatchEvent(
@@ -374,17 +376,26 @@ export const realPaneIdsSorted = (canvas: Canvas): string[] =>
     .sort();
 
 /**
- * Wait for pane geometry to be at rest (two identical samples 400ms apart) —
- * the boot-time `refresh-client -C` resize can land seconds into a story and
- * invalidates any rect captured before it.
+ * Wait for pane geometry to be at rest: tmux has caught up, the layout's
+ * transitions have finished, and one more round trip changes nothing — the
+ * boot-time `refresh-client -C` resize can land seconds into a story and
+ * invalidates any rect captured before it. Sampling across round trips
+ * rather than a fixed 400ms keeps a slow runner from reading as "at rest"
+ * before the resize has even arrived.
  */
 export async function settleGeometry(canvas: Canvas): Promise<void> {
-  for (let i = 0; i < 20; i++) {
-    const a = rectSignature(canvas);
-    await new Promise((r) => setTimeout(r, 400));
-    if (rectSignature(canvas) === a) return;
+  const layout = document.querySelector('.pane-layout');
+  const atRest = async () => {
+    await tmuxCaughtUp();
+    if (layout) await transitionsDone(layout);
+    return rectSignature(canvas);
+  };
+  let before = await atRest();
+  for (;;) {
+    const after = await atRest();
+    if (after === before) return;
+    before = after;
   }
-  throw new Error('pane geometry never settled');
 }
 
 /** Stable geometry signature of every real pane, for exact-restore asserts. */

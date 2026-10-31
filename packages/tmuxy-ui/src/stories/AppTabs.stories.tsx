@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
+import { tmuxCaughtUp } from './tmuxBarrier';
 import { withTmuxView } from './tmuxView';
 import { focusFirstPane } from './appStoryHelpers';
 
@@ -34,7 +35,6 @@ export const NewTabNoBlinkFirstRowVisible: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
     const tabList = canvasElement.querySelector('.tab-list') as HTMLElement;
     const tabCount = () => tabList.querySelectorAll('.tab-name').length;
@@ -57,7 +57,7 @@ export const NewTabNoBlinkFirstRowVisible: Story = {
     const add = await canvas.findByRole('button', { name: /create new tab/i }, { timeout: 8000 });
     await user.click(add);
     await waitFor(() => expect(tabCount()).toBe(before + 1), { timeout: 30000, interval: 100 });
-    await sleep(2500); // settle
+    await tmuxCaughtUp();
     running = false;
     obs.disconnect();
 

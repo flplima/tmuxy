@@ -1,0 +1,85 @@
+name: Set up a Storybook story probe
+# Everything a story probe needs before it runs, for the nightly sweep and for
+# its re-run of the night's failures on a fresh runner (nightly-v86.yml): node
+# and the npm dependencies, Chromium, and a Storybook dev server on :6006.
+# With `v86: 'true'`, also the guest the v86 stories boot: tmuxy-wasm (Rust,
+# with the wasm-bindgen CLI the lockfile names) and the v86 image and
+# snapshot, from cache when nothing that goes into them changed.
+inputs:
+  v86:
+    description: "'true' to build tmuxy-wasm and the v86 guest assets"
+    required: false
+    default: 'false'
+  storybook-log:
+    description: Where the Storybook dev server writes its log
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+        cache: npm
+
+    - if: inputs.v86 == 'true'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
+        # that build-v86-snapshot.mjs cross-compiles on a cache miss.
+        targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+
+    - if: inputs.v86 == 'true'
+      uses: swatinem/rust-cache@v2
+
+    # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
+    # version is read from the lockfile (bin/wasm-bindgen-version).
+    - if: inputs.v86 == 'true'
+      name: Read the wasm-bindgen version from Cargo.lock
+      id: wasm-bindgen
+      shell: bash
+      run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
+
+    - if: inputs.v86 == 'true'
+      name: Install wasm-bindgen CLI
+      uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+
+    - name: Install npm dependencies
+      shell: bash
+      run: npm ci
+
+    - if: inputs.v86 == 'true'
+      name: Build tmuxy-wasm
+      shell: bash
+      run: npm run build:wasm
+
+    - if: inputs.v86 == 'true'
+      name: Cache v86 guest assets
+      id: v86-assets-cache
+      uses: actions/cache@v6
+      with:
+        path: packages/tmuxy-ui/v86-assets
+        key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
+
+    - if: inputs.v86 == 'true' && steps.v86-assets-cache.outputs.cache-hit != 'true'
+      name: Build v86 guest assets (cache miss)
+      shell: bash
+      run: |
+        sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
+        npm run fetch:v86-image -w tmuxy-ui
+        npm run build:v86-snapshot -w tmuxy-ui
+
+    # Storybook mounts both as static dirs and will not start without them.
+    - if: inputs.v86 != 'true'
+      name: Create placeholder v86 asset dirs
+      shell: bash
+      run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
+
+    - uses: ./.github/actions/install-chromium
+
+    - name: Start Storybook (dev server)
+      shell: bash
+      run: |
+        npm run storybook -w tmuxy-ui -- --ci --quiet 2>"${{ inputs.storybook-log }}" &
+        bin/ci/wait-for-server http://localhost:6006/index.json 180000
