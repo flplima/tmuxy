@@ -150,6 +150,23 @@
   line-height: 1.5;
 }
 
+/* The document's YAML front matter: metadata, set apart from what it heads. */
+.preview-front-matter {
+  border: 1px dashed var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.preview-front-matter-key {
+  color: var(--theme-accent);
+}
+
 .preview-pre code {
   background: none;
   padding: 0;

@@ -19,7 +19,11 @@ import { useKeyedRequest } from './useKeyedRequest';
 import { useBindingOwnsKey } from '../../../machines/appHooks';
 import type { PreviewSource } from './previewSource';
 import type { PreviewTheme } from './previewTheme';
-import { previewResourcePath, type PreviewDocument } from '../../../domain/preview';
+import {
+  previewResourcePath,
+  splitFrontMatter,
+  type PreviewDocument,
+} from '../../../domain/preview';
 import { openExternalUrl, safeHref } from '../../../utils/openUrl';
 
 function LocalImage({ path, alt, source }: { path: string; alt: string; source: PreviewSource }) {
@@ -79,6 +83,36 @@ function components(source: PreviewSource, theme: PreviewTheme, net: boolean): C
       return <pre className="preview-pre">{children}</pre>;
     },
   };
+}
+
+/** A YAML line's key, after any indent and list dash: `title:`, `  - name:`. */
+const YAML_KEY = /^(\s*(?:-\s+)?)([^\s:#][^:#]*?):(?=\s|$)/;
+
+/**
+ * The document's front matter, as the YAML it is: a block of its own above
+ * the document, its keys picked out. Text only, so a value is never markup.
+ */
+function FrontMatter({ yaml }: { yaml: string }) {
+  return (
+    <pre className="preview-front-matter">
+      {yaml.split(/\r?\n/).map((line, i) => {
+        const key = YAML_KEY.exec(line);
+        return (
+          <div key={i}>
+            {key ? (
+              <>
+                {key[1]}
+                <span className="preview-front-matter-key">{key[2]}</span>:
+                {line.slice(key[0].length)}
+              </>
+            ) : (
+              line || '\n'
+            )}
+          </div>
+        );
+      })}
+    </pre>
+  );
 }
 
 const LINE = 24;
@@ -141,12 +175,14 @@ export function MarkdownPreview({
   const scrollRef = useRef<HTMLDivElement>(null);
   usePagerKeys(scrollRef, active);
   const rendering = useMemo(() => components(source, theme, doc.net), [source, theme, doc.net]);
+  const { frontMatter, body } = useMemo(() => splitFrontMatter(doc.text), [doc.text]);
   // The scroller outlives each re-read: the document is replaced inside it,
   // so the reader stays where they were when the file changes.
   return (
     <div ref={scrollRef} className="preview-markdown" tabIndex={0}>
+      {frontMatter?.trim() ? <FrontMatter yaml={frontMatter} /> : null}
       <Markdown remarkPlugins={[remarkGfm]} components={rendering}>
-        {doc.text}
+        {body}
       </Markdown>
     </div>
   );

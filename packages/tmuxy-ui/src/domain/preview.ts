@@ -130,3 +130,24 @@ export function parsePreviewLines(lines: string[]): PreviewLines {
   }
   return { file, rev, themed };
 }
+
+/** A markdown document split into its YAML front matter and the rest. */
+export interface MarkdownParts {
+  /** The YAML between the fences, or null when the document opens without any. */
+  frontMatter: string | null;
+  body: string;
+}
+
+/**
+ * A `---` line opening the document, the YAML, then a `---` or `...` line
+ * closing it — the front matter Jekyll, Hugo and GitHub read. CommonMark has no
+ * such thing: it draws the opening fence as a rule and the closing one as the
+ * underline of a heading made of the YAML.
+ */
+const FRONT_MATTER = /^\uFEFF?---[ \t]*\r?\n(?:([\s\S]*?)\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/;
+
+export function splitFrontMatter(text: string): MarkdownParts {
+  const match = FRONT_MATTER.exec(text);
+  if (!match) return { frontMatter: null, body: text };
+  return { frontMatter: match[1] ?? '', body: text.slice(match[0].length) };
+}
