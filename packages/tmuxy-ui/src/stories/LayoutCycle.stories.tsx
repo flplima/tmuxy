@@ -37,7 +37,10 @@ type Story = StoryObj<typeof FixtureApp>;
  * tmux's answer arrives as one quiet update, which the app animates (the
  * geometry transition of a lone layout change), so the panes pass through
  * the frames between their two boxes. Those frames are the motion, not
- * jumps: the geometry is held to a monotonic morph instead.
+ * jumps: the geometry is held to a monotonic morph instead — each pane's box
+ * and the top of its rows move one way, start to end. A pane growing below a
+ * top edge that holds keeps its rows there while it opens; hung from its
+ * bottom edge, its new rows started 360px above where they land.
  */
 export const LayoutCycle: Story = {
   play: async ({ canvasElement }) => {
@@ -76,7 +79,7 @@ export const LayoutCycle: Story = {
       expect(r.width).toBeGreaterThan(0);
       expect(r.height).toBeGreaterThan(0);
     }
-    motion.assertNoBounces();
+    motion.assertMonotonicMorph();
     glitches.assertNoGlitches('layoutCycle', { sizeJumps: Number.POSITIVE_INFINITY });
   },
 };

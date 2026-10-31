@@ -308,10 +308,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   opened one line above the live screen and the finger had to
                   start again. */}
               {
-                <div
-                  hidden={!!copyState}
-                  style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}
-                >
+                <div hidden={!!copyState} className="pane-live-screen">
                   <Terminal
                     content={shown.content}
                     cursorX={shown.cursorX}

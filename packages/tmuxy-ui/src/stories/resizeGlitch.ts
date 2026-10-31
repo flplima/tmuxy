@@ -223,6 +223,47 @@ export class ResizeGlitchRecorder {
     };
   }
 
+  /**
+   * Stop and throw if any pane's painted geometry turned back on itself. A
+   * morph is one transition per pane, so each dimension travels one way from
+   * start to end. `assertNoBounces` only sees a turn that lands back on its
+   * exact start in one step — what a runner that drops frames shows of it;
+   * one that paints every frame shows the same turn with the way back in
+   * between, which this catches too.
+   */
+  assertMonotonicMorph(): ResizeGlitchReport {
+    const report = this.assertNoBounces();
+    const turns: string[] = [];
+    for (const [paneId, samples] of this.byPane) {
+      for (const dim of RAF_DIMS) {
+        const seq = samples.filter((s) => s.source === 'raf' && s.values[dim] !== undefined);
+        if (seq.length === 0) continue;
+        const start = seq[0].values[dim]!;
+        const minAmp = this.opts[dim];
+        let dir = 0;
+        let peak = start;
+        for (const s of seq) {
+          const v = s.values[dim]!;
+          if (dir === 0) {
+            if (Math.abs(v - start) >= minAmp) {
+              dir = Math.sign(v - start);
+              peak = v;
+            }
+          } else if ((v - peak) * dir > 0) {
+            peak = v;
+          } else if ((peak - v) * dir >= minAmp) {
+            turns.push(`${paneId} ${dim} ${start}→${peak}→${v} @${Math.round(s.ts)}ms`);
+            break;
+          }
+        }
+      }
+    }
+    if (turns.length > 0) {
+      throw new Error(`morph turned back on itself:\n  ${turns.slice(0, 8).join('\n  ')}`);
+    }
+    return report;
+  }
+
   /** Stop and throw if any reversal was recorded. */
   assertNoBounces(): ResizeGlitchReport {
     const report = this.stop();

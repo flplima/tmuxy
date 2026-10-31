@@ -53,6 +53,7 @@ import {
 } from './PaneLayoutMorph';
 import { PaneLayoutItem } from './AnimatedPaneWrapper';
 import { usePaneDragResizeListeners, usePaneZoomObserver } from './paneWrapperHooks';
+import { useMorphContentAnchor } from './paneContentAnchor';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
@@ -335,6 +336,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     prevAllPaneIdsRef,
     bumpAnimTick,
   });
+
+  useMorphContentAnchor(containerRef, currView);
 
   usePaneZoomObserver({
     containerRef,
