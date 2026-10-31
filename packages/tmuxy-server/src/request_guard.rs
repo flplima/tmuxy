@@ -47,11 +47,11 @@ pub enum HostPolicy {
     /// `--no-auth` on a routable bind there are no credentials to need, and
     /// the rebind is a shell.
     ///
-    /// `bound` is `None` for a wildcard bind (`0.0.0.0`, `::`), where the
-    /// server genuinely does not know which of its addresses a request
-    /// arrived on. With no `allowed` list either, there is nothing left to
-    /// check and any `Host` passes; that is the container case, where the
-    /// published port is the boundary.
+    /// `bound` is `None` for a wildcard bind (`0.0.0.0`, `::`), which answers
+    /// on every address the machine has: any IP literal is one of them, and a
+    /// hostname still has to be loopback or allowed. A container's published
+    /// port is no boundary — Docker publishes on every host interface unless
+    /// told otherwise — so the wildcard checks `Host` like any other bind.
     Bound {
         bound: Option<IpAddr>,
         allowed: Vec<String>,
@@ -122,11 +122,6 @@ pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static st
             }
         }
         HostPolicy::Bound { bound, allowed } => {
-            // A wildcard bind with no allowed list has nothing to compare
-            // against — see the variant's docs.
-            if bound.is_none() && allowed.is_empty() {
-                return Ok(());
-            }
             let name = host.map(hostname).ok_or("request has no Host header")?;
             if !is_loopback_name(name) && !names_this_server(name, *bound, allowed) {
                 return Err("request Host is not this server (see --allowed-host)");
@@ -138,12 +133,14 @@ pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static st
 }
 
 /// Whether `name` is an address or hostname this server answers to: the
-/// literal it bound, or one the operator listed with `--allowed-host`. An
-/// allowed entry is compared by its hostname, as `name` is, so one written
-/// with a port or IPv6 brackets (`example.com:8443`, `[::1]`) still matches.
+/// literal it bound (any literal, for a wildcard bind), or one the operator
+/// listed with `--allowed-host`. An IP literal is never a rebound name — a
+/// page whose origin is that address was served by it. An allowed entry is
+/// compared by its hostname, as `name` is, so one written with a port or IPv6
+/// brackets (`example.com:8443`, `[::1]`) still matches.
 fn names_this_server(name: &str, bound: Option<IpAddr>, allowed: &[String]) -> bool {
-    if let Some(bound) = bound {
-        if name.parse::<IpAddr>().is_ok_and(|ip| ip == bound) {
+    if let Ok(ip) = name.parse::<IpAddr>() {
+        if bound.is_none_or(|bound| bound == ip) {
             return true;
         }
     }
@@ -204,9 +201,8 @@ mod tests {
         HostPolicy::Loopback { allowed: vec![] }
     }
 
-    /// A wildcard bind with no allowed list: the one shape that still accepts
-    /// any `Host`, because the server knows no address of its own to compare.
-    fn any_bind() -> HostPolicy {
+    /// A wildcard bind with no allowed list — `bin/dev-server` in a container.
+    fn wildcard_bind() -> HostPolicy {
         HostPolicy::Bound {
             bound: None,
             allowed: vec![],
@@ -270,7 +266,37 @@ mod tests {
             ("sec-fetch-site", "same-origin"),
         ]);
         assert!(check(&rebound, &loopback()).is_err());
-        assert_eq!(check(&rebound, &any_bind()), Ok(()));
+    }
+
+    /// SEC-CRIT-01. A wildcard bind with no allowed list let any `Host`
+    /// through, on the theory that a container's published port was the
+    /// boundary. Docker publishes on every host interface, and the dev server
+    /// runs `--no-auth` there, so a rebound name was a shell for any page the
+    /// developer opened.
+    #[test]
+    fn a_rebound_domain_is_refused_on_a_wildcard_bind() {
+        let rebound = headers(&[
+            ("host", "attacker.example:9000"),
+            ("origin", "http://attacker.example:9000"),
+            ("sec-fetch-site", "same-origin"),
+        ]);
+        assert!(check(&rebound, &wildcard_bind()).is_err());
+
+        // Loopback, a published port's forwarded `localhost`, and any address
+        // of the machine still reach it.
+        for host in [
+            "localhost:14089",
+            "127.0.0.1:9000",
+            "192.168.1.20:9000",
+            "[fd00::1]:9000",
+        ] {
+            assert_eq!(
+                check(&headers(&[("host", host)]), &wildcard_bind()),
+                Ok(()),
+                "{host}"
+            );
+        }
+        assert!(check(&HeaderMap::new(), &wildcard_bind()).is_err());
     }
 
     #[test]
@@ -396,6 +422,9 @@ mod tests {
             ("host", "example.com:443"),
             ("origin", "https://example.com"),
         ]);
-        assert_eq!(check(&tls, &any_bind()), Ok(()));
+        let policy = HostPolicy::Loopback {
+            allowed: vec!["example.com".into()],
+        };
+        assert_eq!(check(&tls, &policy), Ok(()));
     }
 }

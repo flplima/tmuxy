@@ -48,11 +48,13 @@ The API is a remote shell, and a browser sends requests on behalf of whatever pa
 | --- | --- | --- |
 | `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
 | `Origin` | Must name the host the request was sent to | The same, in a browser without Fetch Metadata |
-| `Host` | Must be a loopback name, the address the server bound, or an `--allowed-host` | DNS rebinding |
+| `Host` | Must be a loopback name, the address the server bound (any IP literal, for a wildcard bind), or an `--allowed-host` | DNS rebinding |
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 
-The `Host` rule applies to a routable bind too: the address it bound is a name it answers to, and so is anything passed with `--allowed-host` (repeatable, or `TMUXY_ALLOWED_HOSTS`). The one gap left is a **wildcard** bind (`0.0.0.0`, `::`) given no allowed list, where the server genuinely does not know which of its addresses a request arrived on and any `Host` passes — the container case, where the published port is the boundary. Naming the host you reach it by closes that too.
+The `Host` rule applies to a routable bind too: the address it bound is a name it answers to, and so is anything passed with `--allowed-host` (repeatable, or `TMUXY_ALLOWED_HOSTS`). A **wildcard** bind (`0.0.0.0`, `::`) answers on every address the machine has, so it accepts any IP literal — never a rebound name, since a page whose origin is an address was served by that address — and still refuses any hostname that is not loopback or allowed. Reaching a wildcard bind by name (a LAN hostname, a Codespaces forwarding domain) needs `--allowed-host`.
+
+A container's published port is not a boundary on its own: Docker publishes `-p PORT:...` on every host interface, past the host firewall. `bin/devcontainer` publishes on `127.0.0.1` for that reason, since the dev server inside runs `--no-auth`.
 
 ## What the App Will Load and Draw
 

@@ -108,7 +108,10 @@ cmd_run() {
 
   # Where to listen. In a CONTAINER the published port reaches the server on the
   # container's own interface rather than its loopback, so it has to bind
-  # 0.0.0.0 — and only this machine can reach that published port.
+  # 0.0.0.0 — and only this machine can reach that published port, which
+  # bin/devcontainer publishes on 127.0.0.1. The server still checks `Host`
+  # on a wildcard bind (DNS rebinding), so a forwarded name that is neither
+  # loopback nor an IP — Codespaces' — has to be passed as --allowed-host.
   #
   # On a laptop that pair is a different thing entirely: `npm start` runs this
   # same function, and 0.0.0.0 with --no-auth serves the tmuxy-dev shell to the
@@ -122,12 +125,16 @@ cmd_run() {
   else
     host=127.0.0.1
   fi
+  local allowed=""
+  if [[ -n "${CODESPACE_NAME:-}" && -n "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}" ]]; then
+    allowed=" --allowed-host $CODESPACE_NAME-$port.$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN"
+  fi
   echo "   Listening on $host:$port"
 
   exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/tmuxy-server/src \
-    -x "run -p tmuxy-server -- --port $port --host $host --no-auth --dev"
+    -x "run -p tmuxy-server -- --port $port --host $host --no-auth --dev$allowed"
 }
 
 cmd_start() {
