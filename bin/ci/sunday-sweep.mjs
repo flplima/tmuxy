@@ -11,12 +11,17 @@
  * - **Red Dependabot PRs**: a Dependabot PR whose checks failed gets an agent
  *   task on its own branch, with the failing log's tail, to fix the breakage
  *   without undoing the bump. A `<!-- agent-fix -->` comment marks it done.
+ *   Only with `--red-prs`, which a person passes by dispatching the workflow
+ *   by hand: that log is written by the code the bump brings in, so someone
+ *   reads it before an agent that can push does. A scheduled run lists them.
  *
  * Alert and log text is other people's: it goes to the agent fenced as data,
+ * stripped of anything a reviewer would not see (bin/ci/untrusted-text.mjs),
  * and the agent's PRs stay drafts whose workflows wait for "Approve and run".
  *
- *   bin/ci/sunday-sweep.mjs             dispatch
- *   bin/ci/sunday-sweep.mjs --dry-run   say what it would dispatch, change nothing
+ *   bin/ci/sunday-sweep.mjs                     dispatch the alerts
+ *   bin/ci/sunday-sweep.mjs --red-prs           ... and the red Dependabot PRs
+ *   bin/ci/sunday-sweep.mjs --dry-run           say what it would dispatch, change nothing
  *
  * Needs `gh` with a token that can read security alerts and start agent
  * tasks (the workflow's \`COPILOT_AGENT_PAT\`); \`GH_REPO\` names the repository.
@@ -25,8 +30,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fenced, inline } from './untrusted-text.mjs';
 
 const dryRun = process.argv.includes('--dry-run');
+const redPRs = process.argv.includes('--red-prs');
 const MAX_DISPATCHES = 3;
 const LABEL = 'agent-fix';
 const MARKER = '<!-- agent-fix -->';
@@ -78,38 +85,6 @@ const repo =
   process.env.GH_REPO ||
   gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).trim();
 
-/** `text` without ANSI escapes (a log is full of colour codes) or other control characters. */
-const withoutControls = (text) => {
-  let out = '';
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code === 0x1b && text[i + 1] === '[') {
-      // A CSI sequence runs to its final byte, 0x40–0x7e.
-      let end = i + 2;
-      while (end < text.length && !(text.charCodeAt(end) >= 0x40 && text.charCodeAt(end) <= 0x7e))
-        end++;
-      i = end;
-      continue;
-    }
-    if ((code < 0x20 && code !== 0x0a && code !== 0x09) || code === 0x7f) continue;
-    out += text[i];
-  }
-  return out;
-};
-
-/**
- * Text from an alert, a PR or a log, fenced so it reads as data: no control
- * characters, no run of backticks or tildes long enough to close the fence or
- * open another, and no leading `#` to pass for a heading of the prompt.
- */
-const fenced = (text, max = 4000) =>
-  '```text\n' +
-  withoutControls(String(text ?? ''))
-    .replace(/[`~]{3,}/g, (run) => "'".repeat(run.length))
-    .replace(/^(\s*)#/gm, '$1\\#')
-    .slice(0, max) +
-  '\n```';
-
 const report = [];
 const say = (line) => {
   console.log(line);
@@ -148,8 +123,8 @@ for (const alert of alertsOf(
 )) {
   const severity = alert.security_advisory?.severity;
   if (!serious(severity)) continue;
-  const pkg = alert.dependency?.package?.name ?? '';
-  const id = alert.security_advisory?.ghsa_id ?? `dependabot-${alert.number}`;
+  const pkg = inline(alert.dependency?.package?.name);
+  const id = inline(alert.security_advisory?.ghsa_id ?? `dependabot-${alert.number}`);
   const title = `${LABEL}: ${id} in ${pkg}`;
   if (openFixIssues.has(title)) continue;
   if (pkg && dependabotPRs.some((pr) => `${pr.title}\n${pr.body}`.includes(pkg))) continue;
@@ -158,12 +133,12 @@ for (const alert of alertsOf(
     kind: 'issue',
     title,
     body: [
-      `Dependabot alert ${alert.html_url} (${severity}).`,
+      `Dependabot alert ${inline(alert.html_url)} (${severity}).`,
       '',
-      `- package: \`${pkg}\` (${alert.dependency?.package?.ecosystem})`,
-      `- manifest: \`${alert.dependency?.manifest_path}\``,
-      `- vulnerable: \`${vuln.vulnerable_version_range}\``,
-      `- first patched: \`${vuln.first_patched_version?.identifier ?? 'none yet'}\``,
+      `- package: \`${pkg}\` (${inline(alert.dependency?.package?.ecosystem)})`,
+      `- manifest: \`${inline(alert.dependency?.manifest_path)}\``,
+      `- vulnerable: \`${inline(vuln.vulnerable_version_range)}\``,
+      `- first patched: \`${inline(vuln.first_patched_version?.identifier ?? 'none yet')}\``,
       '',
       'Advisory summary (data from the alert):',
       fenced(alert.security_advisory?.summary),
@@ -180,17 +155,19 @@ for (const alert of alertsOf(
 )) {
   const severity = alert.rule?.security_severity_level;
   if (!serious(severity)) continue;
-  const where = alert.most_recent_instance?.location ?? {};
-  const title = `${LABEL}: ${alert.rule?.id} at ${where.path}:${where.start_line}`;
+  const location = alert.most_recent_instance?.location ?? {};
+  const rule = inline(alert.rule?.id);
+  const where = inline(`${location.path}:${location.start_line}`);
+  const title = `${LABEL}: ${rule} at ${where}`;
   if (openFixIssues.has(title)) continue;
   work.push({
     kind: 'issue',
     title,
     body: [
-      `CodeQL alert ${alert.html_url} (${severity}).`,
+      `CodeQL alert ${inline(alert.html_url)} (${severity}).`,
       '',
-      `- rule: \`${alert.rule?.id}\``,
-      `- location: \`${where.path}:${where.start_line}\``,
+      `- rule: \`${rule}\``,
+      `- location: \`${where}\``,
       '',
       'Rule description (data from the alert):',
       fenced(alert.rule?.description, 500),
@@ -207,6 +184,7 @@ for (const alert of alertsOf(
 // --- Red Dependabot PRs → agent tasks on their own branch -----------------------
 
 const failed = (check) => ['FAILURE', 'TIMED_OUT', 'CANCELLED'].includes(check.conclusion);
+let heldBack = 0;
 for (const pr of dependabotPRs) {
   const red = (pr.statusCheckRollup ?? []).filter(failed);
   if (red.length === 0) continue;
@@ -220,6 +198,14 @@ for (const pr of dependabotPRs) {
     '.comments[].body',
   ]);
   if (comments.includes(MARKER)) continue;
+  if (!redPRs) {
+    heldBack++;
+    say(
+      `Dependabot PR #${pr.number} fails CI: read its failing log, then dispatch the sweep ` +
+        'with "hand over red Dependabot PRs" to give it to the agent.',
+    );
+    continue;
+  }
   const runId = red
     .map((check) => /\/actions\/runs\/(\d+)/.exec(check.detailsUrl ?? '')?.[1])
     .find(Boolean);
@@ -236,7 +222,7 @@ for (const pr of dependabotPRs) {
     pr,
     prompt: [
       `Dependabot PR #${pr.number} fails CI.`,
-      `Fix the breakage on its branch \`${pr.headRefName}\` without reverting the bump.`,
+      `Fix the breakage on its branch \`${inline(pr.headRefName)}\` without reverting the bump.`,
       '',
       'Its title (data from the PR):',
       fenced(pr.title, 300),
@@ -252,7 +238,7 @@ for (const pr of dependabotPRs) {
 
 // --- Dispatch -----------------------------------------------------------------
 
-if (work.length === 0)
+if (work.length === 0 && heldBack === 0)
   say('Nothing to hand over: no open serious alert or red Dependabot PR needs it.');
 const now = work.slice(0, MAX_DISPATCHES);
 if (work.length > now.length) {

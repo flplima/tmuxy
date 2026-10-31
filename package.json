@@ -27,7 +27,7 @@
     "lint": "bin/lint-gate check eslint",
     "lint:tests": "eslint tests/",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .github || true",
-    "check:policy": "node bin/check-repo-policy.mjs",
+    "check:policy": "node bin/check-repo-policy.mjs && node bin/ci/workflow-pins.mjs",
     "check:fast": "bin/lint-gate check && npm test -- --run",
     "check:full": "npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
   },

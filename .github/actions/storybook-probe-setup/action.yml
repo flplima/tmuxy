@@ -16,20 +16,21 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
         node-version: 22
         cache: npm
 
     - if: inputs.v86 == 'true'
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
       with:
+        toolchain: stable
         # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
         # that build-v86-snapshot.mjs cross-compiles on a cache miss.
         targets: wasm32-unknown-unknown,i686-unknown-linux-musl
 
     - if: inputs.v86 == 'true'
-      uses: swatinem/rust-cache@v2
+      uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
     # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
     # version is read from the lockfile (bin/wasm-bindgen-version).
@@ -41,7 +42,7 @@ runs:
 
     - if: inputs.v86 == 'true'
       name: Install wasm-bindgen CLI
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
       with:
         tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
@@ -57,7 +58,7 @@ runs:
     - if: inputs.v86 == 'true'
       name: Cache v86 guest assets
       id: v86-assets-cache
-      uses: actions/cache@v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: packages/tmuxy-ui/v86-assets
         key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
