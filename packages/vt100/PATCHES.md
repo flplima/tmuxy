@@ -20,6 +20,9 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   `Vec::resize` truncated at the bottom and lost the rows for good, which
   rendered a pane empty after un-zooming. Covered by
   `tests/pane_reflow_parity.rs` and `tests/zoom_resize_probe.rs` in tmuxy-core.
+  Growing also clamps the scrollback view offset to the history left above
+  the screen, so a view scrolled back further than that cannot underflow
+  `visible_rows` (`tests/degenerate_size.rs`).
 - **An unused alternate screen holds no rows**: `Grid::free_rows` drops them,
   `Screen` calls it when the application leaves the alternate screen (tmux
   drops it then too, so re-entering with `?47` starts blank), and `set_size`
@@ -60,7 +63,11 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   wide glyph on a coloured row (an editor's cursor line) leaves no
   default-background hole beside it.
 - **Width clamp**: a character is never wider than the grid, and a zero-column
-  grid draws nothing instead of indexing a cell that does not exist.
+  grid draws nothing instead of indexing a cell that does not exist. The cell
+  takes the clamped width, so a wide character in a one-column grid is a
+  narrow cell; marked wide, the next write or erase over it reached for a
+  continuation column that does not exist and panicked
+  (`tests/degenerate_size.rs`).
 - **`Screen::take_scrollback` / `restore_scrollback`** (`Grid` has the same
   pair): the rows above the screen moved from one screen to another, so
   tmuxy can rebuild a pane's screen from a `capture-pane` without forgetting
@@ -79,6 +86,18 @@ the `Grid`, `Row` and `Attrs` writers behind them, and the whole `term`
 module (the escape-code builders, with the `itoa` dependency) are gone —
 about 1,300 lines no caller reached. `Screen::contents`, `rows`,
 `cursor_position` and the cell accessors stay.
+
+## `row.rs`
+
+- **Shrinking a row drops a wide character it cuts in half**: `Row::resize`
+  goes through `truncate` when it shortens the row, as `insert_cells` already
+  did. Upstream's `Vec::resize` left the first half in the last column still
+  marked wide, and the next write or erase there indexed its continuation
+  one past the end of the row — a panic from narrowing a pane over CJK text
+  or an emoji. `truncate` no longer indexes the cell before an empty row, and
+  `clear_wide` and `erase` look the other half up with checked arithmetic, so
+  a stale wide flag at the edge clears nothing instead of panicking.
+  Covered by `tests/degenerate_size.rs` in tmuxy-core.
 
 ## `cell.rs`
 

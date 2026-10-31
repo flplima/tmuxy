@@ -178,6 +178,9 @@ impl Grid {
                 }
                 self.pos.row += restore as u16;
                 self.saved_pos.row += restore as u16;
+                // A view scrolled into the history cannot reach further back
+                // than the rows still left there.
+                self.scrollback_offset = self.scrollback_offset.min(self.scrollback.len());
             }
             self.rows.resize(usize::from(size.rows), self.new_row());
         }
