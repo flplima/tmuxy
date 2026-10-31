@@ -35,7 +35,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-type Theme = 'default' | 'dracula' | 'fallout' | 'gruvbox' | 'nord' | 'solarized' | 'tokyonight';
+type Theme = 'catppuccin' | 'default' | 'dracula' | 'fallout' | 'gruvbox' | 'nord' | 'solarized' | 'tokyonight';
 type Mode = 'dark' | 'light';
 
 const app = () =>
@@ -159,3 +159,6 @@ export const SolarizedDark = face('solarized', 'dark');
 export const SolarizedLight = face('solarized', 'light');
 export const TokyonightDark = face('tokyonight', 'dark');
 export const TokyonightLight = face('tokyonight', 'light');
+
+export const CatppuccinDark = face('catppuccin', 'dark');
+export const CatppuccinLight = face('catppuccin', 'light');

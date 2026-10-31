@@ -71,6 +71,7 @@ export interface FixtureAdapterOptions {
 }
 
 const THEMES = [
+  { name: 'catppuccin', displayName: 'Catppuccin' },
   { name: 'default', displayName: 'Default' },
   { name: 'dracula', displayName: 'Dracula' },
   { name: 'fallout', displayName: 'Fallout' },
