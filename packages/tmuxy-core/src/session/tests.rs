@@ -102,9 +102,14 @@ fn a_css_name_cannot_leave_the_themes_dir_or_end_a_declaration() {
 fn the_users_file_is_served_first_and_a_built_in_falls_back_to_the_bundle() {
     let dir = std::env::temp_dir().join(format!("tmuxy-css-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
+    let nord = BUNDLED_THEMES
+        .iter()
+        .find(|(name, _)| *name == "nord.css")
+        .unwrap()
+        .1;
     assert_eq!(
         resolve_user_css_in(&dir, "/themes/nord.css").as_deref(),
-        Some(BUNDLED_THEMES[4].1.as_bytes())
+        Some(nord.as_bytes())
     );
     assert_eq!(resolve_user_css_in(&dir, "custom.css"), Some(Vec::new()));
     assert!(resolve_user_css_in(&dir, "themes/mine.css").is_none());
