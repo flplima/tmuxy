@@ -20,7 +20,9 @@ tmuxy is a web/desktop UI over a real tmux server. When running inside tmuxy, pa
 1. **Never run a mutating raw `tmux` command.** External `tmux` mutations crash tmux
    3.3a–3.5a while control mode is attached. Route everything through the `tmuxy` CLI,
    which wraps mutations in `tmux run-shell`. Escape hatch: `tmuxy run <tmux cmd>`
-   (it refuses input into other panes and anything that runs a shell — use `pane send -t`).
+   for commands that read, arrange or close panes and windows (`tmuxy run --help` lists
+   them); it refuses keys, options, key bindings and anything that runs a shell — keys
+   go through `pane send`.
 2. **Read-only `tmux` is fine** as a direct subprocess (`display-message -p`,
    `list-panes`, `show-options -qv`).
 3. **Never use `new-window`/`neww`** — it crashes tmux 3.5a. `tmuxy tab create` does
@@ -50,7 +52,7 @@ tmuxy pane group add            # group the current pane (members become header 
 tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switch, next, prev, close
 tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
-tmuxy run <tmux cmd>            # a tmux command, routed safely through run-shell
+tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
 tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
 ```
 

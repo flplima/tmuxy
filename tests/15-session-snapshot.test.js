@@ -307,7 +307,8 @@ describe('Scenario 32: Session snapshots', () => {
         'the tree sidebar to close',
       );
     }
-    srv.cli(['run', `new-session -d -s ${SPARE}`]);
+    // `tmuxy run` creates no session: new-session takes a shell command.
+    srv.asOperator(`new-session -d -s ${SPARE}`);
     srv.cli(['session', 'save', SPARE]);
     srv.cli(['run', `kill-session -t ${SPARE}`]);
     await page.click('.statusline-session');
@@ -343,11 +344,9 @@ describe('Scenario 32: Session snapshots', () => {
     //    The sessions on the server going in, and the server's own account,
     //    are what a forget that finds no tmux server left needs to be read
     //    (CI has seen the second forget find the server gone).
-    //    `##` keeps run-shell from expanding the format in its own session,
-    //    which would print that one name once per session.
     const sessions = () => {
       try {
-        return srv.cli(['run', 'list-sessions -F "##{session_name} ##{session_attached}"']);
+        return srv.cli(['run', 'list-sessions -F "#{session_name} #{session_attached}"']);
       } catch (error) {
         return `(${error.message})`;
       }

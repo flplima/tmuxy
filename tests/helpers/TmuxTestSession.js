@@ -64,8 +64,8 @@ class TmuxTestSession {
   }
 
   /**
-   * Run a mutating tmux command the CLI's `tmuxy run` refuses (input into a
-   * pane, a config file): the harness doing what the person at the keyboard
+   * Run a mutating tmux command the CLI's `tmuxy run` refuses (keys into a
+   * pane, a config file, an option): the harness doing what the person at the keyboard
    * would, not a path under test. See `tmuxRunAsOperator`.
    */
   runAsOperator(command) {
