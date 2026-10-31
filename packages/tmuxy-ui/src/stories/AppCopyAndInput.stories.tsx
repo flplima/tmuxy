@@ -95,8 +95,10 @@ export const ScrollViewWheel: Story = {
 
 /**
  * Sync panes: `synchronize-panes` in real tmux — typed input then mirrors into
- * every pane of the window. Set through the CLI (no key is bound to it), and
- * by value rather than toggled: the command that turns it off is itself
+ * every pane of the window. Set with tmux itself at the shell, as the user
+ * would (no key is bound to it, and `tmuxy run` sets no option: an option
+ * that mirrors keys would carry an agent's keys into every pane), and by
+ * value rather than toggled: the command that turns it off is itself
  * mirrored into every pane, and a toggle run twice would leave it on. We paste
  * a sentinel with sync ON (must render in BOTH panes) and another after
  * turning it OFF (must render in exactly one) — the negative half guards
@@ -114,7 +116,7 @@ export const SyncPanes: Story = {
     // the output is its second occurrence. A sentinel typed before the setting
     // lands would reach one pane and read as sync not working.
     const set = async (value: 'on' | 'off', marker: string) => {
-      pasteLine(`tmuxy run setw synchronize-panes ${value} && echo ${marker}`);
+      pasteLine(`tmux setw synchronize-panes ${value} && echo ${marker}`);
       await waitFor(
         () =>
           expect(

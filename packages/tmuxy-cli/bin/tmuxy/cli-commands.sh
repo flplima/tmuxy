@@ -314,74 +314,64 @@ cmd_nav() {
 
 # --- Run escape hatch ---
 
-# Whether `word` names one of `names` the way tmux reads a command name: the
-# name or its alias exactly, or a prefix of the name (tmux takes a unique one).
-# `set` and `show` are aliases of their own, never prefixes of the others.
-_names_command() {
-  local word="$1" name
-  shift
-  for name in "$@"; do
-    [ "$word" = "$name" ] && return 0
-    case "$word" in set|setw|show|showw) continue ;; esac
-    [ "${#word}" -ge 2 ] && [ "${name#"$word"}" != "$name" ] && [[ "$name" == *-* ]] && return 0
-  done
-  return 1
-}
-
-# The pane `-t` names in a tmux command's arguments (`-t %3`, `-t%3`, or the
-# last flag of a cluster, `-lt %3`); empty when there is none.
-_target_of() {
-  local arg rest
-  while [ $# -gt 0 ]; do
-    arg="$1"
-    shift
-    case "$arg" in
-      --) break ;;
-      -*)
-        rest="${arg#-}"
-        case "$rest" in
-          *t*)
-            rest="${rest#*t}"
-            if [ -n "$rest" ]; then printf '%s' "$rest"; else printf '%s' "${1:-}"; fi
-            return
-            ;;
-        esac
-        ;;
-    esac
-  done
-}
+# The tmux commands `tmuxy run` passes on, by their names and aliases. They
+# read the server, move panes and windows about, or close them. Left out is
+# every command that types into a pane (`send-keys`, `paste-buffer`,
+# `pipe-pane`: keys go through `tmuxy pane send`, which asks the user before
+# typing into another pane), runs a shell or keeps a command for later
+# (`run-shell`, `if-shell`, `split-window <cmd>`, `new-session <cmd>`,
+# `bind-key`, `command-prompt`, `display-popup`, ...), and every write to an
+# option, hook or environment: an option can run a shell (`status-right`
+# with `#(...)`, `command-alias`, `default-command`) or mirror a pane's keys
+# into every other one (`synchronize-panes`).
+RUN_COMMANDS=(
+  break-pane breakp capture-pane capturep clear-history clearhist clock-mode
+  copy-mode delete-buffer deleteb display-message display has-session has
+  join-pane joinp kill-pane killp kill-server kill-session kill-window killw
+  last-pane lastp last-window last link-window linkw list-buffers lsb
+  list-clients lsc list-commands lscm list-keys lsk list-panes lsp
+  list-sessions ls list-windows lsw move-pane movep move-window movew
+  new-window neww next-layout nextl next-window next previous-layout prevl
+  previous-window prev rename-session rename rename-window renamew
+  resize-pane resizep resize-window resizew rotate-window rotatew
+  select-layout selectl select-pane selectp select-window selectw
+  show-buffer showb show-hooks show-messages showmsgs show-options show
+  show-window-options showw swap-pane swapp swap-window swapw
+  unlink-window unlinkw
+)
 
 # What `tmuxy run` will not do, as the reason it says so; nothing when the
-# command may run. The send question (`tmuxy pane send -t`) is how another
-# pane is typed into, and this is the one other door to tmux the CLI has.
+# command may run. Takes the command's words, name first.
+#
+# A name counts only as written: tmux would also take a unique prefix of one
+# (`i` is `if-shell`), so a prefix of an allowed name is not allowed. The
+# arguments reach tmux as they are, so what tmux itself reads in them is
+# refused too: an argument ending in `;` ends the command and starts another,
+# and a format either runs a shell, `#(...)`, or expands a value as a format
+# again (the `E:` and `T:` modifiers), over a pane title or a path any
+# program can set.
 _run_refusal() {
-  local verb="$1"
-  shift
-  if _names_command "$verb" send-keys send send-prefix paste-buffer pasteb pipe-pane pipep; then
-    local target own
-    target="$(_target_of "$@")"
-    own="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
-    if [ -z "$own" ] || { [ -n "$target" ] && [ "$target" != "$own" ]; }; then
-      echo "input into another pane goes through \`tmuxy pane send -t <pane>\`, which asks the user"
+  local arg reexpand='[{;][ET][:;]'
+  for arg in "$@"; do
+    case "$arg" in
+      *';')
+        echo "tmux reads an argument ending in ';' as the start of another command"
+        return
+        ;;
+      *'#('*)
+        echo "a '#(' format runs a shell"
+        return
+        ;;
+    esac
+    if [[ "$arg" =~ $reexpand ]]; then
+      echo "the E: and T: formats expand a value again, and a '#(' in it runs a shell"
+      return
     fi
-    return
-  fi
-  if _names_command "$verb" run-shell run if-shell if respawn-pane respawnp respawn-window respawnw \
-    set-environment setenv set-hook source-file source; then
-    echo "$verb runs a shell or changes what one runs"
-    return
-  fi
-  if _names_command "$verb" set-option set set-window-option setw; then
-    local arg
-    for arg in "$@"; do
-      case "$arg" in
-        @tmuxy-ask* | @tmuxy-send-* | @tmuxy-pane-restore)
-          echo "$arg belongs to the send question and the client that answers it"
-          return
-          ;;
-      esac
-    done
-  fi
+  done
+  case " ${RUN_COMMANDS[*]} " in
+    *" $1 "*) ;;
+    *) echo "'$1' is not a command \`tmuxy run\` passes on (\`tmuxy run --help\` lists them); keys go through \`tmuxy pane send\`" ;;
+  esac
 }
 
 cmd_run() {
@@ -390,35 +380,28 @@ cmd_run() {
     "") _die_usage "tmux command required" usage_run ;;
   esac
 
-  local tmux_cmd="$1"
-  shift
-
-  # The first argument is spliced into the line run-shell hands a shell. It
-  # may be a whole command (`tmuxy run 'list-sessions -F "#{session_name}"'`),
-  # whose quotes that shell then reads, but never shell syntax of its own: no
-  # `;` to chain another command, no `$(…)`, no redirection.
+  # The command may come as one argument (`tmuxy run 'list-sessions -F
+  # "#{session_name}"'`): its words, split as a shell splits them. Every word
+  # but the name, which is one of RUN_COMMANDS, is quoted on its way to
+  # run-shell, so neither run-shell's format expansion nor its shell reads
+  # anything in them.
   local words=() word
-  if [[ "$tmux_cmd" == *[[:space:]]* ]]; then
-    local syntax='[;|&$`<>()\\]'
-    if [[ "$tmux_cmd" =~ $syntax ]] || [[ "$tmux_cmd" == *$'\n'* ]]; then
-      _fail "$EXIT_FAILED" "refused: '$tmux_cmd' holds shell syntax; pass the command's words as arguments"
-    fi
-    # Its words as that shell will split them, for the checks below.
-    while IFS= read -r -d '' word; do words+=("$word"); done < <(printf '%s' "$tmux_cmd" | xargs printf '%s\0')
+  if [[ "$1" == *[[:space:]]* ]]; then
+    while IFS= read -r -d '' word; do words+=("$word"); done < <(printf '%s' "$1" | xargs printf '%s\0')
   else
-    words=("$tmux_cmd")
+    words=("$1")
   fi
-  # The command name is one word of a command name and nothing else.
-  if ! [[ "${words[0]:-}" =~ ^[a-z][a-z-]*$ ]]; then
-    _die_usage "'$tmux_cmd' is not a tmux command name"
-  fi
+  shift
+  words+=("$@")
   local refusal
-  refusal="$(_run_refusal "${words[@]}" "$@")"
+  refusal="$(_run_refusal "${words[@]}")"
   if [ -n "$refusal" ]; then
     _fail "$EXIT_FAILED" "refused: $refusal"
   fi
+  local name="${words[0]}"
+  set -- "${words[@]:1}"
 
-  case "${words[0]}" in
+  case "$name" in
     new-window|neww)
       # Intercept: new-window crashes tmux 3.5a with control mode attached.
       # `tmuxy tab create` is the one place that knows the safe shape (splitw
@@ -443,13 +426,13 @@ cmd_run() {
         # The command's output and status as one object: what tmux printed
         # is a string, and a failure is `ok:false` with the exit code it had.
         local out status=0
-        out=$(_run_safe "$tmux_cmd $(shquote "$@")") || status=$?
+        out=$(_run_safe "$name $(shquote "$@")") || status=$?
         local ok=true
         [ "$status" -eq 0 ] || ok=false
         printf '{"ok":%s,"status":%s,"stdout":%s}\n' "$ok" "$status" "$(json_string "$out")"
         return "$status"
       fi
-      _run_safe "$tmux_cmd $(shquote "$@")"
+      _run_safe "$name $(shquote "$@")"
       ;;
   esac
 }
