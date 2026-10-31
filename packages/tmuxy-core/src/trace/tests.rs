@@ -120,6 +120,68 @@ fn levels_trade_hashing_and_command_strings() {
     );
 }
 
+/// SEC-CRIT-02. `Full` keeps command strings, and every keystroke and paste
+/// is one — so a password typed at a `sudo` prompt landed in trace.ndjson in
+/// the clear, against the promise that keystroke payloads are never captured
+/// at any level.
+#[test]
+fn full_keeps_the_command_but_never_the_keys_or_the_paste() {
+    let full = |cmd: &str| {
+        super::admit_json_at("command", Value::from(cmd), TraceLevel::Full)
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    // What the UI sends for typed text, a key, and a paste.
+    for (sent, kept) in [
+        ("send-keys -t %0 -l -- 'hunter2'", "send-keys …"),
+        ("send-keys -t %0 Enter", "send-keys …"),
+        ("send -t %0 -l -- hunter2", "send …"),
+        ("send-k -t %0 -l -- hunter2", "send-k …"),
+        (
+            "set-buffer -b tmuxy-paste \"hunter2\" ; paste-buffer -p -d -b tmuxy-paste -t %0",
+            "set-buffer …",
+        ),
+        ("setb -a -b tmuxy-paste hunter2", "setb …"),
+        // Further into a compound, a newline-joined batch, or glued to `;`.
+        (
+            "selectp -t %1 \\; send-keys -l hunter2",
+            "selectp -t %1 \\; send-keys …",
+        ),
+        (
+            "send-keys -t %0 -l -- abc\nsend-keys -t %0 Enter\nsend-keys -t %0 -l -- hunter2",
+            "send-keys …",
+        ),
+        (
+            "selectp -t %1;send-keys -l hunter2",
+            "selectp -t %1;send-keys …",
+        ),
+    ] {
+        assert_eq!(full(sent), kept, "{sent}");
+    }
+    // A command that carries no keystrokes stays whole.
+    assert_eq!(full("resizep -t %0 -Z"), "resizep -t %0 -Z");
+}
+
+/// A client's structural fields are identifiers; free text in them would slip
+/// past the hashing that `name` gets everywhere else.
+#[test]
+fn client_structural_fields_admit_only_identifiers() {
+    let mut input = Map::new();
+    input.insert("layer".into(), Value::from("xstate"));
+    input.insert("name".into(), Value::from("my password is hunter2"));
+    input.insert("component".into(), Value::from("open_url"));
+    input.insert("phase".into(), Value::from("x".repeat(65)));
+    input.insert("level".into(), Value::from(3));
+    let out = sanitize_client_fields(input);
+    assert_eq!(out.get("layer").unwrap(), "xstate");
+    assert_eq!(out.get("component").unwrap(), "open_url");
+    assert!(!out.contains_key("name"));
+    assert!(!out.contains_key("phase"));
+    assert!(!out.contains_key("level"));
+}
+
 #[test]
 fn kill_switch_env_disables() {
     std::env::set_var("TMUXY_NO_TRACE", "1");

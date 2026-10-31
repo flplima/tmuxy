@@ -14,7 +14,11 @@ impl<C: ControlLink> TmuxMonitor<C> {
         command: &str,
         reply: Option<oneshot::Sender<CommandReply>>,
     ) {
-        debug!(%command, wants_reply = reply.is_some(), "processing user command");
+        debug!(
+            command = %crate::trace::redact_command(command),
+            wants_reply = reply.is_some(),
+            "processing user command"
+        );
         let unescaped = command.replace(" \\; ", " ; ");
         let is_compound = is_multi_step_run_shell(&unescaped);
         if is_compound {

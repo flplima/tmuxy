@@ -16,7 +16,6 @@
 //! **lossy under pressure** (drops events rather than block the hot path), so
 //! the instrument cannot stall the interactive path it is measuring.
 
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::TrySendError;
@@ -28,8 +27,11 @@ use serde_json::{Map, Value};
 mod layer;
 use layer::TraceHandle;
 pub use layer::TraceLayer;
+mod redact;
 #[cfg(test)]
 use layer::{target_allowed, FieldVisitor};
+pub use redact::redact_command;
+use redact::{bound, full_only, hash_str, scrub};
 
 /// Bounded queue between the emit sites and the writer thread. When full, new
 /// events are dropped (counted) rather than blocking the caller.
@@ -86,7 +88,8 @@ const HASH_FIELDS: &[&str] = &["name", "new_name", "title", "path", "cwd", "file
 const SCRUB_FIELDS: &[&str] = &["error", "message", "reason", "detail"];
 
 /// Field keys admitted only at `Full` — raw command strings whose args can carry
-/// arbitrary content (e.g. `run-shell`). Dropped at `Shape`/`Labeled`.
+/// arbitrary content (e.g. `run-shell`). Dropped at `Shape`/`Labeled`, and
+/// passed through [`redact_command`] at `Full`.
 const FULL_ONLY: &[&str] = &["command", "args"];
 
 /// Truncation bound for free-text fields kept at `Full`.
@@ -396,9 +399,12 @@ pub fn sanitize_client_fields(input: Map<String, Value>) -> Map<String, Value> {
     out
 }
 
-/// Structural keys the client controls; safe but bounded so a hostile client
-/// can't smuggle a payload through them.
+/// Structural keys the client controls. Their values are identifiers (an event
+/// type, a command name), so anything that is not one is dropped rather than
+/// let a client smuggle free text past the `name` hashing.
 const STRUCTURAL: &[&str] = &["layer", "component", "name", "phase", "level"];
+/// The longest structural value a client may send.
+const MAX_STRUCTURAL: usize = 64;
 /// Numeric keys accepted verbatim from a client (timing/correlation).
 const CLIENT_NUM: &[&str] = &["ts_wall", "ts_mono", "dur_us"];
 
@@ -406,8 +412,21 @@ fn admit_json(key: &str, value: Value) -> Option<Value> {
     admit_json_at(key, value, level())
 }
 
+/// `[A-Za-z0-9_.:-]{1,64}`: what an event type or command name looks like.
+fn is_identifier(s: &str) -> bool {
+    (1..=MAX_STRUCTURAL).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+}
+
 fn admit_json_at(key: &str, value: Value, lvl: TraceLevel) -> Option<Value> {
-    if STRUCTURAL.contains(&key) || VERBATIM.contains(&key) {
+    if STRUCTURAL.contains(&key) {
+        return match value {
+            Value::String(s) if is_identifier(&s) => Some(Value::from(s)),
+            _ => None,
+        };
+    }
+    if VERBATIM.contains(&key) {
         return Some(bound_string(value));
     }
     if HASH_FIELDS.contains(&key) {
@@ -432,7 +451,7 @@ fn admit_json_at(key: &str, value: Value, lvl: TraceLevel) -> Option<Value> {
     }
     if FULL_ONLY.contains(&key) && lvl == TraceLevel::Full {
         return match value {
-            Value::String(s) => Some(Value::from(bound(&s, MAX_FULL))),
+            Value::String(s) => Some(Value::from(full_only(&s))),
             _ => None,
         };
     }
@@ -466,37 +485,6 @@ fn emit(mut obj: Map<String, Value>) {
     if let Err(TrySendError::Full(_)) = handle.tx.try_send(line) {
         handle.dropped.fetch_add(1, Ordering::Relaxed);
     }
-}
-
-// =============================================================================
-// Redaction helpers
-// =============================================================================
-
-/// Stable, non-cryptographic hash for de-identifying a name/path. `DefaultHasher`
-/// uses fixed keys, so the id is stable within and across runs — enough to
-/// correlate "same window" without recording the window's name.
-fn hash_str(s: &str) -> String {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    salt().hash(&mut h);
-    s.hash(&mut h);
-    format!("h:{:016x}", h.finish())
-}
-
-/// Redact the home directory to `~` and truncate. serde escaping already keeps
-/// newlines from breaking the NDJSON framing; this bounds size and strips the
-/// most common absolute-path leak.
-fn scrub(s: &str) -> String {
-    let replaced = match dirs::home_dir().and_then(|h| h.to_str().map(String::from)) {
-        Some(home) if !home.is_empty() => s.replace(&home, "~"),
-        _ => s.to_string(),
-    };
-    replaced.chars().take(MAX_SCRUB).collect()
-}
-
-/// Truncate to `n` chars without any redaction (used for values already deemed
-/// safe, or at `Full` where content is explicitly opted in).
-fn bound(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
 }
 
 #[cfg(test)]

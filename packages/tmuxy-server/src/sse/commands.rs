@@ -159,7 +159,11 @@ pub(super) async fn handle_command(
                 },
             )
             .await?;
-            trace!(?conn_id, %command, "client sent command via control mode");
+            trace!(
+                ?conn_id,
+                command = %tmuxy_core::trace::redact_command(&command),
+                "client sent command via control mode"
+            );
             Ok(serde_json::json!(null))
         }
         ClientCommand::QueryTmux { command } => {

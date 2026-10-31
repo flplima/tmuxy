@@ -175,11 +175,14 @@ enable time, applied by the same allowlist visitor and the ingest sanitizer:
 | --- | --- | --- | --- |
 | `shape` (default) | typed ops + target ids, delta `seq`, command **verb** (not args), timing, **hashed** names, typed error **codes** | none — no content | yes, attach to a bug report |
 | `labeled` | window/session **names**, cwd, paths in the clear; error text | reveals project/dir names + activity | trusted only |
-| `full` | full command **strings** (incl. `run-shell` args) | high | never |
+| `full` | full command **strings** (incl. `run-shell` args), cut at the first keystroke-carrying command | high | never |
 
 The bright line holds at **every** level: pane `%output` and keystroke payloads
-are never captured — they are not on any instrumented path. `full` is a
-local-debug escape hatch, not a content firehose.
+are never captured. Typed keys and pastes do travel as commands (`send-keys`,
+`set-buffer`), so a command string is cut to `send-keys …` at its first such
+command before it is written — in the trace and in the server's own debug log
+(`redact_command` in `tmuxy-core/src/trace.rs`). `full` is a local-debug escape
+hatch, not a content firehose.
 
 Name/path **hashing is salted per process** (a random `RandomState` seed), so a
 hashed value can't be confirmed by hashing a guessed name and can't be correlated
@@ -224,7 +227,10 @@ Off-switches people already expect, honored explicitly:
 
 The gate is **enforced server-side and fails closed**: the `POST /trace` ingest
 endpoint rejects unless tracing is on, regardless of what any client believes,
-so a stale client-side flag can't reopen it. **Client hot-path cost when off is a
+so a stale client-side flag can't reopen it. What a client sends is re-run
+through the same allowlist, and its structural fields (`layer`, `name`,
+`component`, …) are kept only when they look like identifiers
+(`[A-Za-z0-9_.:-]`, at most 64 characters). **Client hot-path cost when off is a
 single boolean early-return**, the same pattern `latencyTracker` uses so
 production pays nothing.
 
