@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePreviewLines, previewKind, previewResourcePath } from '../preview';
+import { parsePreviewLines, previewKind, previewResourcePath, splitFrontMatter } from '../preview';
 
 describe('preview resource paths', () => {
   it('normalises what a document wrote into the path read_preview takes', () => {
@@ -53,5 +53,37 @@ describe('preview widget lines', () => {
 
   it('takes the last rev on a line rewritten in place', () => {
     expect(parsePreviewLines(['__REV__:old__REV__:new']).rev).toBe('new');
+  });
+});
+
+describe('markdown front matter', () => {
+  it('takes the YAML between the opening fences off the document', () => {
+    expect(splitFrontMatter('---\ntitle: Notes\ntags: [a, b]\n---\n# Notes\n')).toEqual({
+      frontMatter: 'title: Notes\ntags: [a, b]',
+      body: '# Notes\n',
+    });
+    // `...` closes it too, CRLF and a BOM are the same document, and an empty
+    // block is still a block.
+    expect(splitFrontMatter('\uFEFF---\r\na: 1\r\n...\r\nText')).toEqual({
+      frontMatter: 'a: 1',
+      body: 'Text',
+    });
+    expect(splitFrontMatter('---\n---\nText')).toEqual({ frontMatter: '', body: 'Text' });
+    // It ends at the first closing fence, not a rule further down.
+    expect(splitFrontMatter('---\na: 1\n---\nx\n\n---\n')).toEqual({
+      frontMatter: 'a: 1',
+      body: 'x\n\n---\n',
+    });
+  });
+
+  it('leaves a document that does not open with it as it is', () => {
+    for (const text of [
+      '# Title\n\n---\na: 1\n---\n', // not at the top
+      '---\na: 1\n', // never closed
+      '----\na: 1\n----\n', // a longer rule
+      ' ---\na: 1\n---\n', // indented
+    ]) {
+      expect(splitFrontMatter(text)).toEqual({ frontMatter: null, body: text });
+    }
   });
 });

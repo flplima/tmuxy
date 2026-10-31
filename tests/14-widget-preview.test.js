@@ -43,6 +43,7 @@ function activePreview(page) {
     const h1 = md?.querySelector('h1');
     const svg = md?.querySelector('.preview-mermaid svg');
     const img = md?.querySelector('img');
+    const frontMatter = md?.querySelector('.preview-front-matter');
     const frame = pane?.querySelector('iframe.preview-frame');
     const box = (el) => {
       const r = el?.getBoundingClientRect();
@@ -54,6 +55,10 @@ function activePreview(page) {
       headingBox: box(h1),
       diagram: box(svg),
       imageWidth: img?.naturalWidth ?? 0,
+      frontMatter: frontMatter?.innerText ?? null,
+      frontMatterBox: box(frontMatter),
+      // CommonMark alone draws front matter as a rule and a heading.
+      strays: md ? md.querySelectorAll('hr, h2').length : 0,
       scrollTop: md?.scrollTop ?? 0,
       frame: frame
         ? { box: box(frame), title: frame.title, scrollY: Number(frame.dataset.scrollY ?? 0) }
@@ -147,7 +152,7 @@ describe('Scenario: tmuxy open previews a local file', () => {
     const write = (title) =>
       fs.writeFileSync(
         doc,
-        `# ${title}\n\n![logo](img/logo.png)\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n\n${lines(80)}\n`,
+        `---\ntitle: ${title}\ntags: [notes]\n---\n\n# ${title}\n\n![logo](img/logo.png)\n\n\`\`\`mermaid\ngraph TD\n  A --> B\n\`\`\`\n\n${lines(80)}\n`,
       );
     write('Doc One');
     await openPreview(ctx, doc);
@@ -163,6 +168,10 @@ describe('Scenario: tmuxy open previews a local file', () => {
       () => `the document, its diagram and its image (${JSON.stringify(shown)})`,
     );
     expect(shown.headingBox.height).toBeGreaterThan(0);
+    // The front matter is a block of its own, above the document.
+    expect(shown.frontMatter).toBe('title: Doc One\ntags: [notes]');
+    expect(shown.frontMatterBox.height).toBeGreaterThan(0);
+    expect(shown.strays).toBe(0);
 
     // Read down it, then change the file: the preview follows and stays put.
     const md = await ctx.page.$('.pane-wrapper .preview-markdown');
