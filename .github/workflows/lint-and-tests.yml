@@ -57,7 +57,7 @@ jobs:
       audit: ${{ steps.changes.outputs.audit }}
       nightly-e2e: ${{ steps.changes.outputs.nightly-e2e }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: changes
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -81,9 +81,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -94,7 +94,7 @@ jobs:
         run: npm run build -w tmuxy-ui
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: frontend-dist
           path: packages/tmuxy-ui/dist
@@ -111,14 +111,16 @@ jobs:
     needs: build-frontend
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: packages/tmuxy-ui/dist
@@ -127,7 +129,7 @@ jobs:
         run: cargo build --profile ci -p tmuxy-server
 
       - name: Upload server binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tmuxy-server-release
           path: target/ci/tmuxy-server
@@ -159,16 +161,18 @@ jobs:
     needs: changes
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       # The five tmuxy-core integration tests drive a real `tmux -CC`.
       # Homebrew's tmux, not a source build: this job exists to catch macOS
@@ -213,7 +217,7 @@ jobs:
     outputs:
       suites: ${{ steps.plan.outputs.suites }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: plan
         env:
           TIER: ${{ inputs.e2e-tier || 'commit' }}
@@ -263,9 +267,9 @@ jobs:
       TMUXY_E2E_TRACE: /tmp/tmuxy-e2e-trace.ndjson
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -296,13 +300,13 @@ jobs:
         if: matrix.suite.webkit
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: packages/tmuxy-ui/dist
 
       - name: Download server binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: tmuxy-server-release
           path: target/release
@@ -347,7 +351,7 @@ jobs:
 
       - name: Upload failure evidence
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-${{ matrix.suite.name }}-attempt-${{ github.run_attempt }}
           path: |
@@ -382,9 +386,9 @@ jobs:
     name: storybook-probe (${{ matrix.shard }})
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -422,7 +426,7 @@ jobs:
       # which nobody could act on.
       - name: Probe failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: storybook-probe-artifacts-${{ strategy.job-index }}
           path: packages/tmuxy-ui/probe-artifacts/
@@ -448,20 +452,21 @@ jobs:
     # a failure opens an issue and the per-story timings are kept.
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
           # that build-v86-snapshot.mjs cross-compiles on a cache miss.
           targets: wasm32-unknown-unknown,i686-unknown-linux-musl
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
       # version is read from the lockfile (bin/wasm-bindgen-version) rather
@@ -471,7 +476,7 @@ jobs:
         run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
 
       - name: Install wasm-bindgen CLI
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
         with:
           tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
 
@@ -484,7 +489,7 @@ jobs:
       # the build scripts or the baked-in tmuxy CLI/config change.
       - name: Cache v86 guest assets
         id: v86-assets-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: packages/tmuxy-ui/v86-assets
           key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
@@ -513,7 +518,7 @@ jobs:
       # which nobody could act on.
       - name: Probe failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: storybook-v86-probe-artifacts
           path: packages/tmuxy-ui/probe-artifacts/
@@ -544,16 +549,18 @@ jobs:
     if: needs.changes.outputs.desktop == 'true'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Install system dependencies
         run: |
@@ -575,7 +582,7 @@ jobs:
       # (~2 min). Pinned so the cache key describes exactly what is in it.
       - name: Cache tauri-driver
         id: tauri-driver-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cargo/bin/tauri-driver
           key: ${{ runner.os }}-tauri-driver-2.0.6
@@ -587,7 +594,7 @@ jobs:
       - uses: ./.github/actions/install-node-modules
 
       - name: Download frontend dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: frontend-dist
           path: packages/tmuxy-ui/dist
@@ -650,9 +657,9 @@ jobs:
     if: needs.changes.outputs.audit == 'true'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -660,9 +667,13 @@ jobs:
       - name: npm audit (production dependencies, high and above)
         run: npm audit --omit=dev --audit-level=high
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
 
-      - uses: taiki-e/install-action@cargo-audit
+      - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
+        with:
+          tool: cargo-audit
 
       - name: cargo audit
         run: cargo audit
@@ -690,7 +701,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Timing summary
         env:
           GH_TOKEN: ${{ github.token }}

@@ -24,8 +24,12 @@ on:
     - cron: '30 6 * * *'
   workflow_dispatch:
 
+# Read-only by default. Only `release` writes to this repository (it creates
+# the GitHub Release); the tap bumps push with their own token. Every other
+# job runs build scripts from npm and crates.io, and none of them needs a token
+# that can push a commit or a tag.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # The full test suite, run against the TAG ref itself.
@@ -85,35 +89,36 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
-    # macOS signing + notarization credentials. Read by the Tauri CLI itself
-    # during `tauri build` — it imports the cert into a throwaway keychain,
-    # signs the bundle with the hardened runtime, then notarizes and staples.
+    # macOS signing + notarization credentials live on the three steps that
+    # use them (stage the key, `tauri build`, notarize the DMG), never on the
+    # job: every other step runs code from npm and crates.io — `npm ci`'s
+    # install scripts, every crate's build.rs in `cargo test`, the
+    # `cargo install` of the smoke-test driver — and none of it needs a
+    # Developer ID. The key file is deleted as soon as notarization is done.
     #
     # Every one is OPTIONAL: with no APPLE_CERTIFICATE the CLI skips signing
     # entirely, so forks and any build made before the secrets exist still
-    # produce a working (unsigned) DMG rather than failing.
+    # produce a working (unsigned) DMG rather than failing. NOTARIZE says
+    # whether the key is there without carrying it.
     env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      # App Store Connect API key — preferred over APPLE_ID/APPLE_PASSWORD
-      # because it carries no 2FA and can be revoked on its own.
-      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      NOTARIZE: ${{ matrix.platform == 'macos' && secrets.APPLE_API_KEY != '' }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           targets: ${{ matrix.rust-targets }}
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -145,7 +150,7 @@ jobs:
       # strings — so materialise it and hand the CLI its path. Skipped (with the
       # build then unsigned) whenever the key secret is absent.
       - name: Stage the notarization key (macOS)
-        if: matrix.platform == 'macos' && env.APPLE_API_KEY != ''
+        if: env.NOTARIZE == 'true'
         run: |
           KEY_DIR="$HOME/private_keys"
           mkdir -p "$KEY_DIR"
@@ -153,11 +158,23 @@ jobs:
           chmod 600 "$KEY_DIR/AuthKey_$APPLE_API_KEY.p8"
           echo "APPLE_API_KEY_PATH=$KEY_DIR/AuthKey_$APPLE_API_KEY.p8" >> "$GITHUB_ENV"
         env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
 
+      # Read by the Tauri CLI itself: it imports the cert into a throwaway
+      # keychain (deleted when it is done), signs the bundle with the hardened
+      # runtime, then notarizes and staples. Empty on Linux.
       - name: Build Tauri app
         run: npx tauri build ${{ matrix.tauri-args }}
         working-directory: packages/tmuxy-tauri-app
+        env:
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          # App Store Connect API key — preferred over APPLE_ID/APPLE_PASSWORD
+          # because it carries no 2FA and can be revoked on its own.
+          APPLE_API_ISSUER: ${{ matrix.platform == 'macos' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'macos' && secrets.APPLE_API_KEY || '' }}
 
       # The Tauri CLI notarizes and staples the .app, then wraps it in a DMG —
       # so the DMG itself carries a Developer ID signature and no ticket of its
@@ -174,7 +191,10 @@ jobs:
       # cask strips the quarantine attribute) — this is for the person who
       # clicks the asset on the releases page.
       - name: Notarize and staple the DMG itself (macOS)
-        if: matrix.platform == 'macos' && env.APPLE_API_KEY != ''
+        if: env.NOTARIZE == 'true'
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
           DMG=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg | head -1)
@@ -191,6 +211,13 @@ jobs:
           # the whole point — the ticket travels with the file.
           xcrun stapler validate "$DMG"
 
+      # Nothing after this point signs, so nothing after it gets the key. Run
+      # on failure too: a failed notarization must not leave it for the next
+      # step either.
+      - name: Delete the notarization key (macOS)
+        if: always() && env.NOTARIZE == 'true'
+        run: rm -rf "$HOME/private_keys"
+
       # --- Smoke Test (Linux + macOS) ---
       # Both platforms use WebdriverIO for full GUI verification: launch app,
       # type a command, verify output appears in the terminal UI.
@@ -206,7 +233,7 @@ jobs:
       - name: Cache tauri-driver (Linux)
         if: matrix.platform == 'linux'
         id: tauri-driver-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cargo/bin/tauri-driver
           key: ${{ matrix.os }}-tauri-driver-2.0.6
@@ -223,11 +250,16 @@ jobs:
         with:
           cache-key-namespace: ${{ matrix.os }}
 
+      # Pinned and --locked like tauri-driver: an unpinned install builds
+      # whatever crates.io serves today, its dependencies included, on the
+      # runner that just held the signing credentials. Keep the version in
+      # step with the `tauri-plugin-webdriver` minor the app's `webdriver`
+      # feature uses.
       - name: Install smoke test deps (macOS)
         if: matrix.platform == 'macos'
         run: |
           brew install tmux
-          cargo install tauri-webdriver
+          cargo install tauri-webdriver --version 0.2.0 --locked
 
       - name: Build smoke test binary (macOS)
         if: matrix.platform == 'macos'
@@ -510,7 +542,7 @@ jobs:
 
       - name: Upload AppImage
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tmuxy-linux-appimage-${{ matrix.arch }}
           path: target/release/bundle/appimage/*.AppImage
@@ -518,7 +550,7 @@ jobs:
 
       - name: Upload .deb
         if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tmuxy-linux-deb-${{ matrix.arch }}
           path: target/release/bundle/deb/*.deb
@@ -526,7 +558,7 @@ jobs:
 
       - name: Upload .dmg
         if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: tmuxy-macos-dmg
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
@@ -552,9 +584,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
@@ -570,7 +602,7 @@ jobs:
           tmux -V
 
       - name: Download the AppImage built here
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: tmuxy-linux-appimage-amd64
           path: new-build
@@ -765,9 +797,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: all-artifacts
 

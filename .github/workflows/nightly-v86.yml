@@ -37,7 +37,7 @@ jobs:
     outputs:
       failed: ${{ steps.failed.outputs.ids }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/storybook-probe-setup
         with:
@@ -62,7 +62,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nightly-results-sweep
           path: ${{ runner.temp }}/results-sweep.json
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload probe timings
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: v86-probe-timings-${{ github.run_id }}
           path: tests/perf/v86-probe-timings.json
@@ -78,7 +78,7 @@ jobs:
 
       - name: Upload probe artifacts and the Storybook log
         if: steps.failed.outputs.ids != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: v86-sweep-artifacts-${{ github.run_id }}
           path: |
@@ -95,7 +95,7 @@ jobs:
     outputs:
       failed: ${{ steps.failed.outputs.ids }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: ./.github/actions/storybook-probe-setup
         with:
@@ -116,7 +116,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nightly-results-deterministic
           path: ${{ runner.temp }}/results-deterministic.json
@@ -124,7 +124,7 @@ jobs:
 
       - name: Upload probe artifacts and the Storybook log
         if: steps.failed.outputs.ids != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: storybook-deterministic-artifacts-${{ github.run_id }}
           path: |
@@ -141,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/storybook-probe-setup
         with:
           v86: 'true'
@@ -156,13 +156,13 @@ jobs:
           PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-v86.json" \
             npm run test-storybook:v86 -w tmuxy-ui -- $IDS
       # Alone in its artifact, so it lands where `report` reads it.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: nightly-results-reconfirm-v86
           path: ${{ runner.temp }}/results-reconfirm-v86.json
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: reconfirm-v86-artifacts-${{ github.run_id }}
@@ -175,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/storybook-probe-setup
         with:
           storybook-log: /tmp/storybook-deterministic.log
@@ -190,13 +190,13 @@ jobs:
           PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-deterministic.json" \
             npm run test-storybook -w tmuxy-ui -- $IDS
       # Alone in its artifact, so it lands where `report` reads it.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: nightly-results-reconfirm-deterministic
           path: ${{ runner.temp }}/results-reconfirm-deterministic.json
           if-no-files-found: warn
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: reconfirm-deterministic-artifacts-${{ github.run_id }}
@@ -217,13 +217,13 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: nightly-results-*
           path: results
@@ -231,7 +231,7 @@ jobs:
       # The ledger's memory: one verdict file per scheduled night, carried
       # from cache to cache (a cache key cannot be overwritten, so each night
       # saves under its own and restores the newest).
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ledger
           key: ${{ runner.os }}-nightly-ledger-${{ github.run_id }}
@@ -279,7 +279,7 @@ jobs:
           ls -1t ledger/*.json | tail -n +15 | xargs -r rm --
 
       - if: github.event_name == 'schedule'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ledger
           key: ${{ runner.os }}-nightly-ledger-${{ github.run_id }}
