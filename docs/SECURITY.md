@@ -76,7 +76,7 @@ What the server does _not_ do is interpolate a client's command into a shell of 
 
 **Impact:** Anyone on the network gets shell access.
 
-**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container's published port on a single-user machine. DNS rebinding on top of this is now refused by the `Host` check unless the bind is a wildcard with no `--allowed-host` ([Cross-Origin Requests](SECURITY-NETWORK.md#cross-origin-requests)); naming the host closes that case.
+**Mitigation:** Use a password instead, or listen on 127.0.0.1 and tunnel. Keep `--no-auth` to an isolated network such as a container port published on `127.0.0.1` (a bare `-p PORT:...` publishes on every host interface). DNS rebinding on top of this is refused by the `Host` check on every bind, wildcard included ([Cross-Origin Requests](SECURITY-NETWORK.md#cross-origin-requests)).
 
 ### 5. Browsers Without Fetch Metadata (Low)
 

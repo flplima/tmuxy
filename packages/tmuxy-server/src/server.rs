@@ -140,7 +140,7 @@ fn resolve_listen(
     // `Host` against it. It used to be discarded here, so `--allowed-host` (and
     // `TMUXY_ALLOWED_HOSTS`, which the public demo builds it from) silently did
     // nothing, and a routable `--no-auth` bind was one DNS rebind from a shell.
-    // `bound` is None for a wildcard, where the server cannot know its address.
+    // `bound` is None for a wildcard, which answers on every address it has.
     let bound = (!ip.is_unspecified()).then_some(ip);
     Ok(Listen {
         ip,

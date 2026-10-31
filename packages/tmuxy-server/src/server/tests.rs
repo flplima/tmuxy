@@ -124,8 +124,8 @@ fn loopback_is_served_without_a_password() {
 #[test]
 fn a_routable_address_needs_a_password_or_no_auth() {
     assert!(resolve_listen("0.0.0.0", false, false, vec![]).is_err());
-    // A wildcard bind knows no address of its own, so there is nothing to
-    // compare a `Host` against beyond an allowed list.
+    // A wildcard bind knows no address of its own: `bound` is None, and the
+    // guard accepts any IP literal in its place.
     assert_eq!(
         resolve_listen("0.0.0.0", true, false, vec![])
             .unwrap()
