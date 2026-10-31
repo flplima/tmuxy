@@ -133,6 +133,7 @@ Implemented:
 - **Loopback by default** — a routable address needs a password or `--no-auth`
 - **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
 - **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
+- **Security headers on the app** — a `Content-Security-Policy` that keeps a preview in its frame and the app out of other sites' frames, plus `X-Frame-Options` and `nosniff`
 
 Not yet implemented, but would improve the security posture:
 
