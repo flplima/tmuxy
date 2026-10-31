@@ -200,8 +200,29 @@
    (which would clip anything the rows painted there themselves). */
 .terminal-edges {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   pointer-events: none;
+}
+
+/* The live screen is sized to tmux's rows and hangs from the pane's bottom
+   edge, keeping the prompt in view when it outgrows the box. */
+.pane-live-screen {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* While a pane grows with its top edge holding, it hangs from the top
+   instead (components/paneContentAnchor.ts): the rows are already the new
+   ones while the box is still opening, and hung from the bottom they would
+   start out far above where they land. */
+.pane-layout-item[data-content-anchor='top'] .pane-live-screen,
+.pane-layout-item[data-content-anchor='top'] .terminal-edges {
+  top: 0;
+  bottom: auto;
 }
 
 .terminal-edge {

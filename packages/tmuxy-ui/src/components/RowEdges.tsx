@@ -9,8 +9,10 @@
  * inside the padded box, so its strips sit in the padding: the left strip in
  * the first cell's background, the right one in the last cell's.
  *
- * Rows are bottom-anchored like the terminal itself (`bottom: 0` in
- * TerminalPane), so strip `i` counts up from the last row.
+ * The strips are laid out over the terminal's own rows and hang from the same
+ * edge it does (`.pane-live-screen`): the bottom, or the top while a growing
+ * pane's height is in flight (`paneContentAnchor.ts`). Strip `i` counts up
+ * from the last row.
  *
  * The RIGHT strip is painted only for a row that reaches the last column. A
  * row's last CELL is not the same thing as its right EDGE: tmux reports a row
@@ -61,7 +63,12 @@ export const RowEdges = memo(function RowEdges({ lines, cols }: RowEdgesProps) {
   }
   if (strips.length === 0) return null;
   return (
-    <div className="terminal-edges" aria-hidden="true" data-testid="terminal-edges">
+    <div
+      className="terminal-edges"
+      aria-hidden="true"
+      data-testid="terminal-edges"
+      style={{ height: `calc(${count} * var(--line-height-terminal))` }}
+    >
       {strips}
     </div>
   );
