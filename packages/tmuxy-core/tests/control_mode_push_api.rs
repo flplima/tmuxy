@@ -3,7 +3,7 @@
 //! `StateAggregator::step` → `TmuxState`. Runs in native CI (no browser, no
 //! tokio) and exercises the same code the WASM binding reuses verbatim.
 
-use tmuxy_core::control_mode::{Parser, StateAggregator};
+use tmuxy_core::control_mode::{Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER};
 use tmuxy_core::TmuxState;
 
 /// Feed a whole control-mode stream line-by-line through the public push API.
@@ -94,14 +94,16 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
             _ => None,
         })
         .expect("show-buffer command emitted");
-    assert!(cmd.contains("TMUXY_BUF_BEGIN") && cmd.contains("show-buffer -b 'buffer0'"));
+    let begin = agg.markers().tag(BUFFER_BEGIN_MARKER);
+    let end = agg.markers().tag(BUFFER_END_MARKER);
+    assert!(cmd.contains(&begin) && cmd.contains("show-buffer -b 'buffer0'"));
 
     // Each command in the list gets its own %begin/%end block, exactly as
     // tmux 3.7a control mode delivers it.
     let response = format!(
-        "%begin 3 3 1\nTMUXY_BUF_BEGIN\n%end 3 3 1\n\
+        "%begin 3 3 1\n{begin}\n%end 3 3 1\n\
          %begin 4 4 1\n{buffer}\n%end 4 4 1\n\
-         %begin 5 5 1\nTMUXY_BUF_END\n%end 5 5 1\n"
+         %begin 5 5 1\n{end}\n%end 5 5 1\n",
     );
     let mut clipboard = Vec::new();
     for line in response.split('\n') {

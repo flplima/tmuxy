@@ -34,7 +34,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Where it's applied:**
 
-- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound) and swaps it for the rewrite, via `rewrite_new_window_in_compound` and `new_window_rewrite` in `executor.rs`, the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
+- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `rewrite_new_window_in_compound` and `new_window_rewrite` in `executor.rs`, the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
 - `packages/tmuxy-cli/bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 

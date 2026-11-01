@@ -178,6 +178,9 @@ impl Grid {
                 }
                 self.pos.row += restore as u16;
                 self.saved_pos.row += restore as u16;
+                // A view scrolled into the history cannot reach further back
+                // than the rows still left there.
+                self.scrollback_offset = self.scrollback_offset.min(self.scrollback.len());
             }
             self.rows.resize(usize::from(size.rows), self.new_row());
         }
@@ -374,7 +377,7 @@ impl Grid {
                 .unwrap()
                 .is_wide_continuation();
         let row = self.current_row_mut();
-        for _ in 0..count {
+        for _ in 0..count.min(size.cols.saturating_sub(pos.col)) {
             if wide {
                 row.get_mut(pos.col).unwrap().set_wide_continuation(false);
             }
@@ -406,7 +409,8 @@ impl Grid {
     }
 
     pub fn insert_lines(&mut self, count: u16) {
-        for _ in 0..count {
+        let room = self.scroll_bottom.saturating_sub(self.pos.row) + 1;
+        for _ in 0..count.min(room) {
             self.rows.remove(usize::from(self.scroll_bottom));
             self.rows.insert(usize::from(self.pos.row), self.new_row());
             // self.scroll_bottom is maintained to always be a valid row
@@ -441,7 +445,7 @@ impl Grid {
     }
 
     pub fn scroll_down(&mut self, count: u16) {
-        for _ in 0..count {
+        for _ in 0..count.min(self.scroll_bottom - self.scroll_top + 1) {
             self.rows.remove(usize::from(self.scroll_bottom));
             self.rows
                 .insert(usize::from(self.scroll_top), self.new_row());
@@ -533,7 +537,7 @@ impl Grid {
 
     pub fn col_tab(&mut self) {
         self.pos.col -= self.pos.col % 8;
-        self.pos.col += 8;
+        self.pos.col = self.pos.col.saturating_add(8);
         self.col_clamp();
     }
 

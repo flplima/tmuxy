@@ -749,6 +749,10 @@ impl Screen {
             // that self.grid().pos().col has a valid value.
             .unwrap();
         cell.set(c, attrs);
+        // The clamped width, not the character's: a wide character drawn
+        // into a one-column grid is a narrow cell, with no continuation half
+        // in a column that does not exist.
+        cell.set_wide(width > 1);
         self.grid_mut().col_inc(1);
         if width > 1 {
             let pos = self.grid().pos();

@@ -287,7 +287,7 @@ describe('toTmuxCommand', () => {
 
   it('pastes into a session target alone: a name never reaches the shell the synced paste runs in', () => {
     expect(toTmuxCommand(TmuxOp.PasteText({ target: "x'; touch y; '", text: 'a' }))).toBe(
-      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t x'; touch y; '`,
+      `set-buffer -b tmuxy-paste "a"\npaste-buffer -p -d -b tmuxy-paste -t 'x'\\''; touch y; '\\'''`,
     );
   });
 

@@ -11,7 +11,7 @@ use crate::titlebar;
 use crate::windows;
 
 pub(crate) use helpers::is_openable_url;
-use helpers::{open_path, query_via_monitor, resize_via_monitor, route, wait_for_monitor};
+use helpers::{open_path, query_via_monitor, resize_via_monitor, route_query, wait_for_monitor};
 
 use tmuxy_core::session::session_name as get_session;
 
@@ -86,9 +86,10 @@ pub async fn run_tmux_command(
 }
 
 /// Run a tmux command and return what it printed — the one way the frontend
-/// reads from tmux. Same route as a mutation, same connection; the reply is
+/// reads from tmux. Same connection as a mutation; only reads route
+/// (`route_query`), a mutation goes through `run_tmux_command`. The reply is
 /// the command's own output (`RunCommandWithReply`), and an `%error` from
-/// tmux comes back as an error of kind `tmux`; a blocked command as
+/// tmux comes back as an error of kind `tmux`; a refused command as
 /// `forbidden`.
 #[tauri::command]
 pub async fn query_tmux(
@@ -96,8 +97,8 @@ pub async fn query_tmux(
     command: String,
 ) -> Result<String, CommandError> {
     let entry = windows::entry_for(&window)?;
-    let Some(routed) = route(&entry.monitor, &entry.session(), &command) else {
-        return Err(CommandError::forbidden("command not allowed"));
+    let Some(routed) = route_query(&command) else {
+        return Err(CommandError::forbidden("a query only reads"));
     };
     query_via_monitor(&entry.monitor, &routed).await
 }

@@ -175,9 +175,10 @@ impl ControlModeConnection {
     ///
     /// Commands are sent as plain text followed by newline.
     /// The response will come as a `CommandResponse` event. Response
-    /// correlation happens via the `TMUXY_CAP_BEGIN`/`END` markers, not
-    /// command numbers, so nothing is returned on success.
+    /// correlation happens via the aggregator's marker lines (`Markers`),
+    /// not command numbers, so nothing is returned on success.
     pub async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
+        one_control_mode_line(cmd)?;
         if let Err(e) = self
             .pty_writer
             .write_all(format!("{}\n", cmd).as_bytes())
@@ -213,6 +214,9 @@ impl ControlModeConnection {
     pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
         if commands.is_empty() {
             return Ok(());
+        }
+        for cmd in commands {
+            one_control_mode_line(cmd)?;
         }
 
         // Write all commands without flushing
@@ -277,6 +281,19 @@ impl ControlModeConnection {
 // false). Cleanup relies on the PTY instead — dropping the master sends SIGHUP
 // to the tmux client, which detaches it. `graceful_close` is the intended path
 // and deliberately avoids SIGKILL so tmux can detach cleanly.
+
+/// Refuse a write that is not exactly one control-mode line. Control mode
+/// reads a command per line: a newline inside one starts a command nobody
+/// built (quoting does not stop it), and an empty line detaches the client.
+/// A multi-line command is split first (`control_mode_lines`).
+fn one_control_mode_line(cmd: &str) -> Result<(), TmuxError> {
+    if cmd.contains('\n') || cmd.trim().is_empty() {
+        return Err(TmuxError::other(
+            "refused to write a control-mode command that is not exactly one line",
+        ));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]

@@ -180,10 +180,7 @@ impl StateAggregator {
                 }
                 self.pending_buffer_reads.push_back(buffer_name.clone());
                 ProcessEventResult {
-                    commands: vec![format!(
-                        "display-message -p 'TMUXY_BUF_BEGIN' ; show-buffer -b {} ; display-message -p 'TMUXY_BUF_END'",
-                        crate::tmux_quote(&buffer_name)
-                    )],
+                    commands: vec![self.markers.buffer_read_command(&buffer_name)],
                     ..Default::default()
                 }
             }

@@ -80,17 +80,21 @@ impl Row {
         let wide = self.cells[usize::from(i)].is_wide();
         self.clear_wide(i);
         self.cells[usize::from(i)].clear(attrs);
-        if i == self.cols() - if wide { 2 } else { 1 } {
+        if i == self.cols().saturating_sub(if wide { 2 } else { 1 }) {
             self.wrapped = false;
         }
     }
 
+    /// Cut the row to `len` cells. A wide character whose continuation half
+    /// was cut off goes with it: left in the last column, it would claim a
+    /// cell that no longer exists.
     pub fn truncate(&mut self, len: u16) {
         self.cells.truncate(usize::from(len));
         self.wrapped = false;
-        let last_cell = &mut self.cells[usize::from(len) - 1];
-        if last_cell.is_wide() {
-            last_cell.clear(*last_cell.attrs());
+        if let Some(last_cell) = self.cells.last_mut() {
+            if last_cell.is_wide() {
+                last_cell.clear(*last_cell.attrs());
+            }
         }
     }
 
@@ -106,8 +110,12 @@ impl Row {
     }
 
     pub fn resize(&mut self, len: u16, cell: crate::Cell) {
-        self.cells.resize(usize::from(len), cell);
-        self.wrapped = false;
+        if usize::from(len) < self.cells.len() {
+            self.truncate(len);
+        } else {
+            self.cells.resize(usize::from(len), cell);
+            self.wrapped = false;
+        }
     }
 
     pub fn wrap(&mut self, wrap: bool) {
@@ -118,16 +126,21 @@ impl Row {
         self.wrapped
     }
 
+    /// Clear the other half of the wide character at `col`, if it has one.
     pub fn clear_wide(&mut self, col: u16) {
-        let cell = &self.cells[usize::from(col)];
-        let other = if cell.is_wide() {
-            &mut self.cells[usize::from(col + 1)]
-        } else if cell.is_wide_continuation() {
-            &mut self.cells[usize::from(col - 1)]
-        } else {
+        let Some(cell) = self.get(col) else {
             return;
         };
-        other.clear(*other.attrs());
+        let other = if cell.is_wide() {
+            col.checked_add(1)
+        } else if cell.is_wide_continuation() {
+            col.checked_sub(1)
+        } else {
+            None
+        };
+        if let Some(other) = other.and_then(|other| self.get_mut(other)) {
+            other.clear(*other.attrs());
+        }
     }
 
     pub fn write_contents(&self, contents: &mut String, start: u16, width: u16, wrapping: bool) {

@@ -90,8 +90,10 @@ export class KeyBatcher {
 
     const command = args.command as string;
 
-    // Match literal send-keys: send-keys -t SESSION -l -- 'ESCAPED_TEXT'
-    const literalMatch = command.match(/^send-keys -t (\S+) -l (?:-- )?(.+)$/);
+    // Match literal send-keys: send-keys -t SESSION -l -- 'ESCAPED_TEXT'.
+    // Only a target `target()` leaves bare is batched: a quoted one would be
+    // cut at its first space here and quoted a second time on the way out.
+    const literalMatch = command.match(/^send-keys -t ([\w.@%:-]+) -l (?:-- )?(.+)$/);
     if (literalMatch) {
       const [, session, escapedText] = literalMatch;
       const rawText = unescapeLiteralText(escapedText);
@@ -119,7 +121,7 @@ export class KeyBatcher {
     // rejects as an unknown key — the whole combined command fails and no
     // event is delivered (a click's press+release land within one batch
     // window, so a plain click would deliver nothing at all).
-    const sendKeysMatch = command.match(/^send-keys -t (\S+) (?!-l )(?!-H )(.+)$/);
+    const sendKeysMatch = command.match(/^send-keys -t ([\w.@%:-]+) (?!-l )(?!-H )(.+)$/);
     if (sendKeysMatch) {
       const [, session, keys] = sendKeysMatch;
 

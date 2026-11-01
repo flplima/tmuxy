@@ -336,9 +336,15 @@ pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
     parse_ansi_to_cells(content, width, line_count)
 }
 
-/// Parse ANSI content into structured cells using vt100 terminal emulation
+/// Parse ANSI content into structured cells using vt100 terminal emulation.
+///
+/// The grid is at most `u16::MAX` on a side and at least 1: a capture of a
+/// pane with a deep history can run past 65,535 lines, and a plain `as u16`
+/// wrapped that to a zero-row grid the first character panicked on. A taller
+/// capture keeps its last 65,535 lines.
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
-    let mut parser = vt100::Parser::new(height as u16, width as u16, 0);
+    let side = |n: u32| u16::try_from(n.max(1)).unwrap_or(u16::MAX);
+    let mut parser = vt100::Parser::new(side(height), side(width), 0);
 
     let normalized = control_mode::normalize_capture_bytes(content.as_bytes());
     parser.process(&normalized);

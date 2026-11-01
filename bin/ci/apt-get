@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# `sudo apt-get "$@"` with a deadline on the whole command. apt bounds each
+# read of a silent connection, but nothing bounds the command: a rust-tests
+# job sat in `apt-get update` for 44 minutes with no output until the job's
+# own timeout cancelled it. Here an attempt that runs past 10 minutes is
+# killed (SIGKILL 30s after SIGTERM, if apt ignores that) and tried again on
+# fresh connections. Every attempt first finishes whatever dpkg a killed
+# install left half-configured (a no-op otherwise), or apt would refuse to
+# start. APT_ATTEMPTS (default 3) is 1 for a fast path with its own fallback.
+set -euo pipefail
+attempts=${APT_ATTEMPTS:-3}
+for ((attempt = 1; attempt <= attempts; attempt++)); do
+  sudo DEBIAN_FRONTEND=noninteractive timeout --kill-after=30 120 dpkg --configure -a || true
+  if sudo DEBIAN_FRONTEND=noninteractive timeout --kill-after=30 600 \
+    apt-get -o Acquire::Retries=3 "$@"; then
+    exit 0
+  fi
+  echo "apt-get $* failed (attempt $attempt of $attempts)" >&2
+  if [ "$attempt" -lt "$attempts" ]; then sleep $((attempt * 15)); fi
+done
+exit 1

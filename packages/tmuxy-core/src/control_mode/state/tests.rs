@@ -285,18 +285,27 @@ pub(super) fn response(output: &str, success: bool) -> ControlModeEvent {
     }
 }
 
+/// What a marker block of `agg`'s own prints: `name`, its token, `arg`.
+pub(super) fn marked(agg: &StateAggregator, name: &str, arg: &str) -> String {
+    format!("{} {arg}", agg.markers().tag(name))
+        .trim_end()
+        .to_string()
+}
+
 /// A reply-wrapped command's blocks come back whole, to the caller only.
 #[test]
 fn reply_markers_collect_the_blocks_between_them() {
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
 
-    let lines = reply_wrapped_lines(7, "display-message -p HELLO");
-    assert!(lines[0].contains("TMUXY_RPY_BEGIN 7"));
+    let lines = agg
+        .markers()
+        .reply_wrapped_lines(7, "display-message -p HELLO");
+    assert!(lines[0].contains(&marked(&agg, REPLY_BEGIN_MARKER, "7")));
     assert_eq!(lines[1], "display-message -p HELLO");
-    assert!(lines[2].contains("TMUXY_RPY_END 7"));
+    assert!(lines[2].contains(&marked(&agg, REPLY_END_MARKER, "7")));
 
-    let begin = agg.step(response("TMUXY_RPY_BEGIN 7\n", true));
+    let begin = agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "7"), true));
     assert!(
         begin.effects.is_empty(),
         "the BEGIN marker is not an emission"
@@ -306,7 +315,7 @@ fn reply_markers_collect_the_blocks_between_them() {
         body.effects.is_empty(),
         "a collected block is not an emission"
     );
-    let end = agg.step(response("TMUXY_RPY_END 7\n", true));
+    let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "7"), true));
 
     assert!(
         matches!(
@@ -326,11 +335,11 @@ fn reply_markers_collect_the_blocks_between_them() {
 fn a_command_lists_blocks_stay_on_their_own_lines() {
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
-    agg.step(response("TMUXY_RPY_BEGIN 9", true));
+    agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "9"), true));
     agg.step(response("C-a", true));
     agg.step(response("", true));
     agg.step(response("bind-key -T prefix Space next-layout", true));
-    let end = agg.step(response("TMUXY_RPY_END 9", true));
+    let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "9"), true));
     assert!(
         matches!(
             &end.effects[..],
@@ -347,9 +356,9 @@ fn a_command_lists_blocks_stay_on_their_own_lines() {
 #[test]
 fn a_failed_block_fails_the_reply_and_still_closes_it() {
     let mut agg = StateAggregator::new();
-    agg.step(response("TMUXY_RPY_BEGIN 3\n", true));
+    agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "3"), true));
     agg.step(response("can't find window: @999\n", false));
-    let end = agg.step(response("TMUXY_RPY_END 3\n", true));
+    let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "3"), true));
     assert!(
         matches!(
             &end.effects[..],
@@ -370,12 +379,12 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
     seed_pane(&mut agg, "%0", "@0");
     let before = agg.panes.len();
 
-    agg.step(response("TMUXY_RPY_BEGIN 9\n", true));
+    agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "9"), true));
     // Two rows in LIST_PANES_CMD shape for panes of some other session.
     let rows = "%40,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n\
                     %41,1,0,0,80,24,0,0,0,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n";
     let body = agg.step(response(rows, true));
-    let end = agg.step(response("TMUXY_RPY_END 9\n", true));
+    let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "9"), true));
 
     assert_eq!(agg.panes.len(), before, "query rows must not become panes");
     assert!(
@@ -393,9 +402,9 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
 #[test]
 fn a_mismatched_end_marker_fails_the_stale_reply() {
     let mut agg = StateAggregator::new();
-    agg.step(response("TMUXY_RPY_BEGIN 1\n", true));
+    agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "1"), true));
     agg.step(response("old\n", true));
-    let end = agg.step(response("TMUXY_RPY_END 2\n", true));
+    let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "2"), true));
     assert!(matches!(
         &end.effects[..],
         [SideEffect::CommandReply {

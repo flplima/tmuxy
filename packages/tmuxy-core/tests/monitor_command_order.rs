@@ -11,7 +11,7 @@
 
 use proptest::prelude::*;
 use tmuxy_core::constants::tmux_formats;
-use tmuxy_core::control_mode::{pane_refresh_commands, window_relist_commands};
+use tmuxy_core::control_mode::{window_relist_commands, StateAggregator};
 use tmuxy_core::PaneId;
 
 fn position(commands: &[String], command: &str) -> usize {
@@ -48,7 +48,7 @@ proptest! {
             0..6,
         ),
     ) {
-        let cmds = pane_refresh_commands(&queued);
+        let cmds = StateAggregator::new().markers().pane_refresh_commands(&queued);
         let list_at = position(&cmds, tmux_formats::LIST_PANES_CMD);
         let captures: Vec<&String> = cmds.iter().filter(|c| c.contains("capture-pane")).collect();
         prop_assert_eq!(captures.len(), queued.len(), "one capture per queued pane: {:?}", cmds);

@@ -75,8 +75,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison
 
       # Same source-built 3.7a and cache key as every other job: the binding
@@ -231,8 +231,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison
 
       # Same tmux the e2e job pins — the binding set and the run-shell cost
@@ -311,8 +311,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev \
@@ -435,8 +435,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison
 
       # The same source-built 3.7a and cache key as every other job: a leak in
