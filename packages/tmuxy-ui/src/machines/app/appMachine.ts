@@ -233,6 +233,10 @@ export const appMachine = setup({
         noticed: {},
       },
       on: {
+        // The adapter reports every failed attempt as a drop of its own. While
+        // already reconnecting it is the same outage: the delay keeps counting
+        // from the first drop and a shown notice stays shown.
+        TMUX_RECONNECTING: {},
         TMUX_RECONNECTED: {
           target: 'idle',
           actions: 'connection_onReconnected',
