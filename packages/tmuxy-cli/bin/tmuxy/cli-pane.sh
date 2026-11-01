@@ -242,20 +242,10 @@ cmd_pane() {
         -t) target=(-t "${2:?-t needs a pane}"); shift 2 ;;
       esac
       [ -n "${1:-}" ] || _die_usage "text required"
-      # The markers that open and close a bracketed paste are the terminal's
-      # to send: one inside the text would end the paste early and run what
-      # follows it. Stripped until none is left, since removing one can join
-      # the halves of another.
-      local text="$*" start=$'\e[200~' end=$'\e[201~' before
-      while :; do
-        before="$text"
-        text="${text//"$start"/}"
-        text="${text//"$end"/}"
-        [ "$text" = "$before" ] && break
-      done
-      # Through `send`, so a paste follows its rules: into the caller's own
-      # pane at once, into any other only once the user allows it there.
-      JSON_OUT="$JSON_OUT" bash "$SCRIPTS_DIR/send" --paste ${target[@]+"${target[@]}"} -- "$text"
+      # Through `send`, so a paste follows its rules: without the controls
+      # that could end a bracketed paste early, into the caller's own pane at
+      # once, into any other only once the user allows it there.
+      JSON_OUT="$JSON_OUT" bash "$SCRIPTS_DIR/send" --paste ${target[@]+"${target[@]}"} -- "$*"
       ;;
 
     float)

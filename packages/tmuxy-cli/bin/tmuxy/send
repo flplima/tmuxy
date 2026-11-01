@@ -125,6 +125,40 @@ if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
   exit 2
 fi
 
+# A paste arrives between the bracketed-paste markers, and a program that
+# parses its input as ECMA-48 ends the paste on any spelling of the end
+# marker: `ESC [ 0201 ~` and the 8-bit CSI `U+009B 201 ~` as well as the
+# literal one. Without ESC and C1 nothing in the text can start an escape
+# sequence, so every control goes but tab, LF and CR: the rest of C0, DEL,
+# and C1 (U+0080..U+009F, the bytes C2 80..C2 9F in UTF-8), the same rule as
+# the client's paste. Byte-wise is safe for UTF-8: no other character's
+# encoding holds a C0 byte or the lead byte C2. A run of C2 bytes before a C1
+# byte goes with it, so a removal cannot join a C2 to the next C1 byte. The
+# trailing `.` keeps `$(…)` from eating the text's trailing newlines.
+without_controls() {
+  local c1="" hi lo lead
+  for hi in 20 21 22 23; do
+    for lo in 0 1 2 3 4 5 6 7; do c1="$c1$(printf "\\$hi$lo")"; done
+  done
+  lead="$(printf '\302')"
+  printf '%s.' "$1" \
+    | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' \
+    | LC_ALL=C sed "s/$lead$lead*[$c1]//g"
+}
+
+if $PASTE; then
+  text="$(without_controls "${KEYS[*]}")"
+  KEYS=("${text%.}")
+  if [ -z "${KEYS[0]}" ]; then
+    if [ "$JSON_OUT" = true ]; then
+      json_ok "sent=false"
+    else
+      echo "nothing to paste: the text held only control characters" >&2
+    fi
+    exit 0
+  fi
+fi
+
 # The pane the caller runs in, as it was before the CLI resolved a default
 # for callers outside any pane (packages/tmuxy-cli/bin/tmuxy-cli exports it),
 # and only if the caller really runs there (`verified_own_pane`).
@@ -220,16 +254,6 @@ fi
 
 # --- Payload ---
 
-# JSON-escape a string for the payload: the characters JSON forbids raw, with
-# every other control character dropped. awk/sed rather than python3 or jq
-# because neither is guaranteed here (the v86 guest ships busybox), and the
-# newline join is the same one `tmuxy pane capture --json` uses.
-json_escape() {
-  printf '%s' "$1" \
-    | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/[[:cntrl:]]//g' \
-    | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }'
-}
-
 # A token unique to this question. Pane ids are never reused within a server
 # and the pid is unique among live processes, so the pair cannot collide with
 # another question on the same pane; the random tail keeps anything else on
@@ -238,9 +262,11 @@ TOKEN="${TARGET#%}-$$-$RANDOM$RANDOM"
 
 KEYS_JSON=""
 for key in "${KEYS[@]}"; do
-  KEYS_JSON="$KEYS_JSON${KEYS_JSON:+,}\"$(json_escape "$key")\""
+  KEYS_JSON="$KEYS_JSON${KEYS_JSON:+,}$(json_string "$key")"
 done
-PAYLOAD="{\"token\":\"$TOKEN\",\"caller\":\"$(json_escape "$CALLER")\",\"keys\":[$KEYS_JSON]}"
+# The keys as they will land: a paste's are already without its controls, so
+# the question shows the very text that would be pasted.
+PAYLOAD="{\"token\":\"$TOKEN\",\"caller\":$(json_string "$CALLER"),\"keys\":[$KEYS_JSON]}"
 ENCODED="$(printf '%s' "$PAYLOAD" | base64 | tr -d '\n')"
 
 # --- Ask ---

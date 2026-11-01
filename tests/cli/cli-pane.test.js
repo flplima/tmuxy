@@ -321,14 +321,51 @@ describe('CLI pane subcommands', () => {
       expect(lines.some((line) => line.includes('pasteb'))).toBe(false);
     });
 
-    /** The terminal's own paste markers would end a bracketed paste early. */
-    test('strips bracketed-paste markers from the text, however they nest', () => {
+    /**
+     * Any spelling of the end marker would end a bracketed paste early and
+     * run what follows it, so the text loses every control but tab, LF and
+     * CR. The buffer gets one trailing newline from `load-buffer`'s input.
+     */
+    test.each([
+      ['markers nested in each other', 'a\x1b[20\x1b[201~1~\nid', 'a[20[201~1~\nid'],
+      ['a zero-padded parameter', 'echo safe\x1b[0201~; id', 'echo safe[0201~; id'],
+      ['the 8-bit C1 CSI', 'echo safe\u009b201~; id', 'echo safe201~; id'],
+      ['C0, DEL and C1 among the kept tab, CR and LF', 'a\x01\x07\t\x7f\r\u0085\nb', 'a\t\r\nb'],
+      // © and NBSP are C2 A9 and C2 A0 in UTF-8: the C1 lead byte, kept.
+      ['CJK, accents and emoji', '中文 é © Â 😀  ok', '中文 é © Â 😀  ok'],
+    ])('pastes %s without its controls', (_name, text, pasted) => {
       const buffer = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-paste-')), 'buffer');
-      const { exitCode } = runCLI(['pane', 'paste', 'a\x1b[20\x1b[201~1~\nid'], {
+      const { exitCode } = runCLI(['pane', 'paste', text], {
         env: { ...IN_PANE_1, MOCK_TMUX_BUFFER_FILE: buffer },
       });
       expect(exitCode).toBe(0);
-      expect(fs.readFileSync(buffer, 'utf8')).toBe('a\nid\n');
+      expect(fs.readFileSync(buffer, 'utf8')).toBe(`${pasted}\n`);
+    });
+
+    test('a text of nothing but controls pastes nothing and asks nothing', () => {
+      const { stderr, exitCode, tmuxCalls } = runCLI(
+        ['pane', 'paste', '-t', '%3', '\x1b\x07\u009b\x7f'],
+        { env: IN_PANE_1 },
+      );
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain('nothing to paste');
+      const lines = tmuxCalls.map((call) => call.args.join(' '));
+      expect(lines.some((line) => /load-buffer|pasteb|@tmuxy-ask /.test(line))).toBe(false);
+    });
+
+    /** The question shows what would land, not the text before the filter. */
+    test('the question into another pane carries the text without its controls', () => {
+      const { exitCode, tmuxCalls } = runCLI(
+        ['pane', 'paste', '-t', '%3', 'echo safe\u009b201~;\tid 中文'],
+        { env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' } },
+      );
+      expect(exitCode).toBe(1);
+      const write = tmuxCalls
+        .map((call) => call.args.join(' '))
+        .find((line) => /@tmuxy-ask '/.test(line));
+      const encoded = write.match(/@tmuxy-ask '([A-Za-z0-9+/=]*)'/)[1];
+      const payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+      expect(payload.keys).toEqual(['echo safe201~;\tid 中文']);
     });
 
     test('errors with no text', () => {
