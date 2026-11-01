@@ -23,7 +23,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::Engine as _;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -125,16 +124,22 @@ fn delay_for_failures(failures: u32) -> Duration {
         .min(MAX_DELAY)
 }
 
-/// Constant-time comparison over fixed-width SHA-256 digests so neither the
-/// password bytes nor its length can be recovered by timing the response.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    let da = Sha256::digest(a);
-    let db = Sha256::digest(b);
-    let mut diff = 0u8;
-    for (x, y) in da.iter().zip(db.iter()) {
-        diff |= x ^ y;
+/// Length-hiding constant-time comparison so neither the secret bytes nor
+/// `expected.len()` can be recovered by timing the response.
+///
+/// The iteration count depends only on `candidate.len()` (chosen by the caller),
+/// while `candidate.len() ^ expected.len()` is folded into the opaque accumulator.
+fn constant_time_eq(candidate: &[u8], expected: &[u8]) -> bool {
+    let mut diff = std::hint::black_box(candidate.len() ^ expected.len());
+    if expected.is_empty() {
+        return std::hint::black_box(diff) == 0;
     }
-    diff == 0
+    let last = expected.len() - 1;
+    for (i, &c) in candidate.iter().enumerate() {
+        let e = expected[i.min(last)];
+        diff |= usize::from(std::hint::black_box(c ^ e));
+    }
+    std::hint::black_box(diff) == 0
 }
 
 /// Extract the password half of a `Basic <base64(user:pass)>` header value.
@@ -367,6 +372,9 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcc", b"abc"));
+        assert!(!constant_time_eq(b"", b"abc"));
+        assert!(!constant_time_eq(b"abc", b""));
         assert!(constant_time_eq(b"", b""));
     }
 }

@@ -25,10 +25,8 @@ tracing-subscriber.workspace = true
 thiserror.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 axum = { version = "0.8" }
-# HTTP Basic auth: decode the `Authorization: Basic <base64>` header and
-# compare SHA-256 digests in constant time without leaking password length.
+# HTTP Basic auth: decode the `Authorization: Basic <base64>` header.
 base64.workspace = true
-sha2 = "0.10"
 clap.workspace = true
 rust-embed = "8"
 dirs.workspace = true
