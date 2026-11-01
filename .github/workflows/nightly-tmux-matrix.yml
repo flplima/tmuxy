@@ -135,8 +135,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison \
             autoconf automake pkg-config \
             fzf neovim

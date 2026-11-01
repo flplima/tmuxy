@@ -280,8 +280,8 @@ jobs:
       # every runner, and only needed when the image's lists have gone stale.
       - name: Install system dependencies
         run: |
-          sudo apt-get install -y --no-install-recommends fzf neovim \
-            || { sudo apt-get update && sudo apt-get install -y --no-install-recommends fzf neovim; }
+          APT_ATTEMPTS=1 bin/ci/apt-get install -y --no-install-recommends fzf neovim \
+            || { bin/ci/apt-get update && bin/ci/apt-get install -y --no-install-recommends fzf neovim; }
 
       # 3.7a, except for the entry that runs the smoke suites on the tmux
       # Ubuntu ships (3.4): two product bugs were 3.4-only and the nightly
@@ -497,7 +497,7 @@ jobs:
       - name: Build v86 guest assets (cache miss)
         if: steps.v86-assets-cache.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd
+          bin/ci/apt-get update && bin/ci/apt-get install -y --no-install-recommends zstd
           npm run fetch:v86-image -w tmuxy-ui
           npm run build:v86-snapshot -w tmuxy-ui
 
@@ -564,8 +564,8 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev \

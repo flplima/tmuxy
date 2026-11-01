@@ -123,8 +123,8 @@ jobs:
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev librsvg2-dev
 
@@ -227,7 +227,7 @@ jobs:
       - name: Install smoke test deps (Linux)
         if: matrix.platform == 'linux'
         run: |
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison webkit2gtk-driver xvfb x11-utils
 
       - name: Cache tauri-driver (Linux)
@@ -463,8 +463,8 @@ jobs:
         if: matrix.platform == 'linux'
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb xdotool
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends xvfb xdotool
           if command -v zenity >/dev/null; then sudo apt-get remove -y zenity; fi
           APPIMAGE=$(ls target/release/bundle/appimage/*.AppImage | head -1)
           chmod +x "$APPIMAGE"
@@ -595,8 +595,8 @@ jobs:
       # `libEGL.so.1: cannot open shared object file` before it binds a port.
       - name: Install tmux and the runtime libraries the AppImage links
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          bin/ci/apt-get update
+          bin/ci/apt-get install -y --no-install-recommends \
             tmux libwebkit2gtk-4.1-0 libgtk-3-0 libsoup-3.0-0 \
             libegl1 libgl1 libgbm1 libasound2t64
           tmux -V
