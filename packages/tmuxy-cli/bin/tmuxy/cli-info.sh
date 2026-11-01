@@ -23,8 +23,8 @@ cmd_info() {
       server_running=true
     fi
     if $json; then
-      printf '{"inside":false,"socket":"%s","serverRunning":%s,"version":"%s","agentSkillHint":"Run '\''%s skill'\'' to view the agent instruction guide"}\n' \
-        "$TMUX_SOCKET" "$server_running" "$TMUXY_VERSION" "tmuxy"
+      printf '{"inside":false,"socket":%s,"serverRunning":%s,"version":%s,"agentSkillHint":"Run '\''%s skill'\'' to view the agent instruction guide"}\n' \
+        "$(json_string "$TMUX_SOCKET")" "$server_running" "$(json_string "$TMUXY_VERSION")" "tmuxy"
     else
       echo "tmuxy $TMUXY_VERSION"
       if $server_running; then
@@ -50,9 +50,14 @@ cmd_info() {
   IFS=$'\t' read -r session_name pane_id window_id pane_width pane_height pane_cmd window_index window_name window_panes <<< "$info_line"
 
   if $json; then
-    printf '{"inside":true,"socket":"%s","session":"%s","activePane":{"id":"%s","width":%s,"height":%s,"command":"%s"},"activeTab":{"id":"%s","index":%s,"name":"%s","panesCount":%s},"version":"%s","agentSkillHint":"Run '\''%s skill'\'' to view the full agent instruction guide and safety rules"}\n' \
-      "$TMUX_SOCKET" "${session_name:-}" "${pane_id:-}" "${pane_width:-0}" "${pane_height:-0}" "${pane_cmd:-}" \
-      "${window_id:-}" "${window_index:-0}" "${window_name:-}" "${window_panes:-0}" "$TMUXY_VERSION" "tmuxy"
+    local pw="${pane_width:-0}" ph="${pane_height:-0}" wi="${window_index:-0}" wp="${window_panes:-0}"
+    [[ "$pw" =~ ^[0-9]+$ ]] || pw=0
+    [[ "$ph" =~ ^[0-9]+$ ]] || ph=0
+    [[ "$wi" =~ ^-?[0-9]+$ ]] || wi=0
+    [[ "$wp" =~ ^[0-9]+$ ]] || wp=0
+    printf '{"inside":true,"socket":%s,"session":%s,"activePane":{"id":%s,"width":%s,"height":%s,"command":%s},"activeTab":{"id":%s,"index":%s,"name":%s,"panesCount":%s},"version":%s,"agentSkillHint":"Run '\''%s skill'\'' to view the full agent instruction guide and safety rules"}\n' \
+      "$(json_string "$TMUX_SOCKET")" "$(json_string "${session_name:-}")" "$(json_string "${pane_id:-}")" "$pw" "$ph" "$(json_string "${pane_cmd:-}")" \
+      "$(json_string "${window_id:-}")" "$wi" "$(json_string "${window_name:-}")" "$wp" "$(json_string "$TMUXY_VERSION")" "tmuxy"
   else
     echo "tmuxy $TMUXY_VERSION (socket: $TMUX_SOCKET, session: ${session_name:-$TMUX_SOCKET})"
     echo "  Status:  attached (control mode active)"

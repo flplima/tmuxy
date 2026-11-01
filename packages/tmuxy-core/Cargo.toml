@@ -38,6 +38,9 @@ dirs = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-time = "1"

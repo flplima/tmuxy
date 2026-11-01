@@ -175,6 +175,10 @@ case "${1:-}" in
     if [ -n "$run_dir" ] && [ -n "${MOCK_TMUX_RUN_STATUS:-}" ]; then
       echo "$MOCK_TMUX_RUN_STATUS" > "$run_dir/status"
     fi
+    # A float running a command splits off a wrapper that writes the
+    # command's stdout where `pane float` reads it: play the float's pane.
+    float_wrapper=$(printf '%s' "$2" | sed -n "s/.*bash \(\/[^ ']*tmuxy-float-cmd\.[^ ']*\).*/\1/p")
+    [ -z "$float_wrapper" ] || bash "$float_wrapper" </dev/null
     if [ -n "$dir" ]; then
       [ -n "$response" ] && echo "$response" > "$dir/out"
       echo "$exit_code" > "$dir/status"

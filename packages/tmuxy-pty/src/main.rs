@@ -18,10 +18,12 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use tmuxy_pty::{common_prefix, osc7_path, translate_output, Action, LineDiscipline};
+use tmuxy_pty::{
+    common_prefix, create_nofollow_marker, ensure_pid_dir, escape_completion_suffix, osc7_path,
+    translate_output, Action, LineDiscipline,
+};
 
 const PRELOAD: &str = "/usr/lib/tmuxy-pty.so";
-const PID_ROOT: &str = "/tmp/tmuxy-pty";
 const PANE: i32 = 0;
 const PANE_OUT: i32 = 1;
 /// What Ctrl+D puts on the program's input (see `preload.c`).
@@ -48,12 +50,13 @@ fn main() {
         eprintln!("usage: tmuxy-pty <file> <argv0> [args...]");
         std::process::exit(2);
     }
-    let pids = Path::new(PID_ROOT).join(std::process::id().to_string());
-    let _ = std::fs::remove_dir_all(&pids);
-    if let Err(e) = std::fs::create_dir_all(&pids) {
-        eprintln!("tmuxy-pty: {}: {e}", pids.display());
-        std::process::exit(1);
-    }
+    let pids = match ensure_pid_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("tmuxy-pty: {e}");
+            std::process::exit(1);
+        }
+    };
     std::env::set_var("TMUXY_PTY_PIDS", &pids);
     // The guest image installs the preload. Anywhere else (a Linux test run)
     // ld.so would print that it cannot load it from every program the pane
@@ -219,7 +222,9 @@ impl Pane {
                 match read(self.output, &mut buf) {
                     Some(n) => {
                         if let Some(path) = osc7_path(&buf[..n]) {
-                            cwd = PathBuf::from(path);
+                            if Path::new(&path).is_dir() {
+                                cwd = PathBuf::from(path);
+                            }
                         }
                         if !write_all(PANE_OUT, &translate_output(&buf[..n])) {
                             self.signal_all(libc::SIGHUP);
@@ -238,7 +243,11 @@ impl Pane {
     /// Carry out one keystroke's action; false once the pane is gone.
     fn apply(&self, action: Action) -> bool {
         match action {
-            Action::Echo(bytes) => return write_all(PANE_OUT, &bytes),
+            Action::Echo(bytes) => {
+                if bytes == b"\r\n" || !self.pids.join("noecho").exists() {
+                    return write_all(PANE_OUT, &bytes);
+                }
+            }
             Action::Send(bytes) => {
                 write_all(self.input, &bytes);
             }
@@ -287,7 +296,7 @@ impl Pane {
         let (word, first) = ld.completion_word();
         let names = completions(&word, first, cwd);
         let common = common_prefix(&names);
-        let mut added = common.get(word.len()..).unwrap_or("").to_string();
+        let mut added = escape_completion_suffix(common.get(word.len()..).unwrap_or(""));
         if names.len() == 1 && !common.ends_with('/') {
             added.push(' ');
         }
@@ -393,7 +402,7 @@ impl Pane {
                 }
                 let marker = self.pids.join(format!("{pid}.int"));
                 if sig == libc::SIGINT {
-                    let _ = std::fs::File::create(&marker);
+                    let _ = create_nofollow_marker(&marker);
                 }
                 // SAFETY: kill only sends a signal.
                 if unsafe { libc::kill(pid, sig) } == -1 {
@@ -461,7 +470,7 @@ fn completions(word: &str, first: bool, cwd: &Path) -> Vec<String> {
         for dir in std::env::var("PATH").unwrap_or_default().split(':') {
             for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with(word) {
+                if name.starts_with(word) && !name.contains(['\n', '\r']) {
                     names.push(name);
                 }
             }
@@ -474,7 +483,10 @@ fn completions(word: &str, first: bool, cwd: &Path) -> Vec<String> {
         };
         for entry in std::fs::read_dir(base).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if !name.starts_with(prefix) || (name.starts_with('.') && !prefix.starts_with('.')) {
+            if !name.starts_with(prefix)
+                || name.contains(['\n', '\r'])
+                || (name.starts_with('.') && !prefix.starts_with('.'))
+            {
                 continue;
             }
             let slash = if entry.path().is_dir() { "/" } else { "" };

@@ -272,6 +272,8 @@ pub fn is_ssh_destination(dest: &str) -> bool {
 pub fn is_safe_socket(socket: &str) -> bool {
     !socket.is_empty()
         && !socket.starts_with('-')
+        && !socket.contains("..")
+        && (!socket.contains('/') || socket.starts_with('/'))
         && socket.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
         })
@@ -299,6 +301,7 @@ impl SessionName {
     /// `name` as a session name, or `None` when it is outside the alphabet.
     pub fn parse(name: &str) -> Option<Self> {
         let safe = !name.is_empty()
+            && !name.starts_with('-')
             && name
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'));

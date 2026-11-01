@@ -92,6 +92,9 @@ pub async fn run(args: SessionArgs) {
             }
         }
         SessionVerb::Restore { name, run } => {
+            if run && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                fail("--run needs a terminal; without it each command is offered in its pane");
+            }
             if !tmuxy_core::session::is_safe_session_name(&name) {
                 fail(&format!("not a usable session name: {name:?}"));
             }

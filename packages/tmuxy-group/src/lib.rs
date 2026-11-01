@@ -257,8 +257,9 @@ fn context() -> Context {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
+    let script = tmuxy_core::groups::quote_script_path(&scripts.join("pane-group"));
     Context {
-        close_command: format!("{} close", scripts.join("pane-group").display()),
+        close_command: format!("{script} close"),
         rev_token: format!(
             "{}.{}.{}",
             now.as_secs(),

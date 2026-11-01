@@ -866,7 +866,12 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
+            exit 1
+          fi
           DMG=$(ls dmg/*.dmg | head -1)
           SHA=$(sha256sum "$DMG" | awk '{print $1}')
           echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
@@ -880,8 +885,17 @@ jobs:
           SHA256: ${{ steps.meta.outputs.sha256 }}
         run: |
           set -euo pipefail
-          git clone --depth 1 \
-            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/flplima/homebrew-tap.git" tap
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid VERSION '$VERSION'" >&2
+            exit 1
+          fi
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid SHA256 '$SHA256'" >&2
+            exit 1
+          fi
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
+            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
           cd tap
           mkdir -p Casks
 
@@ -937,7 +951,7 @@ jobs:
             echo "Cask already at v${VERSION}; nothing to push."
           else
             git commit -m "chore: bump tmuxy to v${VERSION}"
-            git push origin HEAD
+            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
           fi
 
   # --- Bump Homebrew Formula (only on tag push, after the cask is pushed) ---
@@ -977,7 +991,12 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
+            exit 1
+          fi
           AMD=$(ls appimage-amd64/*.AppImage | head -1)
           ARM=$(ls appimage-arm64/*.AppImage | head -1)
           SHA_AMD=$(sha256sum "$AMD" | awk '{print $1}')
@@ -995,8 +1014,17 @@ jobs:
           SHA256_ARM: ${{ steps.meta.outputs.sha256_arm }}
         run: |
           set -euo pipefail
-          git clone --depth 1 \
-            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/flplima/homebrew-tap.git" tap
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid VERSION '$VERSION'" >&2
+            exit 1
+          fi
+          if ! [[ "$SHA256_AMD" =~ ^[0-9a-f]{64}$ && "$SHA256_ARM" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid SHA256 digest" >&2
+            exit 1
+          fi
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
+            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
           cd tap
           mkdir -p Formula
 
@@ -1082,7 +1110,7 @@ jobs:
             echo "Formula already at v${VERSION}; nothing to push."
           else
             git commit -m "chore: bump tmuxy formula to v${VERSION}"
-            git push origin HEAD
+            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
           fi
 
   # --- Verify the published install path (only on tag push, after the bumps) ---

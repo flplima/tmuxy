@@ -5092,6 +5092,7 @@ dependencies = [
  "dirs",
  "flate2",
  "icy_sixel",
+ "libc",
  "png 0.18.1",
  "proptest",
  "pty-process",

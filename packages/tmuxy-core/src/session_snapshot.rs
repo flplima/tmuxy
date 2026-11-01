@@ -250,12 +250,18 @@ impl std::fmt::Display for SnapshotError {
     }
 }
 
-/// Parse a snapshot, refusing one from a newer tmuxy.
+/// Parse a snapshot, refusing one from a newer tmuxy or with an unsafe session name.
 pub fn parse(json: &str) -> Result<Snapshot, SnapshotError> {
     let snapshot: Snapshot =
         serde_json::from_str(json).map_err(|e| SnapshotError::Unreadable(e.to_string()))?;
     if snapshot.version > SNAPSHOT_VERSION {
         return Err(SnapshotError::NewerVersion(snapshot.version));
+    }
+    if crate::session::SessionName::parse(&snapshot.session).is_none() {
+        return Err(SnapshotError::Unreadable(format!(
+            "not a usable session name: {:?}",
+            snapshot.session
+        )));
     }
     Ok(snapshot)
 }
@@ -363,6 +369,9 @@ pub fn prune(dir: &Path, session: &str, now: u64) {
 
 /// The latest snapshot of a session, or why there is none to use.
 pub fn read_latest(dir: &Path, session: &str) -> Result<Option<Snapshot>, SnapshotError> {
+    if crate::session::SessionName::parse(session).is_none() {
+        return Ok(None);
+    }
     let latest = latest_link(dir, session);
     match std::fs::read_to_string(&latest) {
         Ok(json) => parse(&json).map(Some),
@@ -392,6 +401,9 @@ pub fn list(dir: &Path) -> Vec<(String, u64)> {
 
 /// Remove every snapshot of a session. Returns how many files went.
 pub fn forget(dir: &Path, session: &str) -> usize {
+    if crate::session::SessionName::parse(session).is_none() {
+        return 0;
+    }
     let mut removed = 0;
     for file in dated_files(dir, session) {
         if std::fs::remove_file(file).is_ok() {

@@ -162,6 +162,12 @@ where
     F: FnMut(Vec<String>) -> Fut,
     Fut: Future<Output = Result<String, TmuxError>>,
 {
+    if crate::session::SessionName::parse(&snapshot.session).is_none() {
+        return Err(TmuxError::other(format!(
+            "not a usable session name: {:?}",
+            snapshot.session
+        )));
+    }
     run_steps(&plan(snapshot, options), run).await
 }
 

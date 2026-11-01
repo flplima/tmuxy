@@ -74,18 +74,25 @@ pub fn tmux_quote(value: &str) -> String {
 
 /// `value` as one double-quoted tmux argument on one command line: the
 /// characters tmux's parser reads inside double quotes (`"`, `\`, `$`, and
-/// the backtick) escaped, and every control character an octal escape, so a
-/// newline cannot end the command.
+/// the backtick) escaped, leading `~` octal-escaped so tmux does not
+/// tilde-expand it, and every control character (C0, DEL, and C1) encoded as
+/// UTF-8 octal byte escapes so a newline cannot end the command.
 pub fn tmux_double_quoted(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
-    for c in value.chars() {
+    for (idx, c) in value.chars().enumerate() {
         match c {
+            '~' if idx == 0 => out.push_str("\\176"),
             '"' | '\\' | '$' | '`' => {
                 out.push('\\');
                 out.push(c);
             }
-            c if c.is_ascii_control() => out.push_str(&format!("\\{:03o}", c as u32)),
+            c if c.is_control() => {
+                let mut buf = [0u8; 4];
+                for &b in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("\\{:03o}", b));
+                }
+            }
             _ => out.push(c),
         }
     }

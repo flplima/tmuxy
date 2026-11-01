@@ -137,6 +137,17 @@ describe('KeyBatcher', async () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('never intercepts double-quoted control-char literals, flushing pending keys first', async () => {
+    literal('a');
+    await vi.advanceTimersByTimeAsync(5);
+    literal('b'); // pending in the batch window
+    const tabCmd = `send-keys -t s0 -l -- ${quote('c\td')}`;
+    expect(quote('c\td').startsWith('"')).toBe(true);
+    expect(batcher.intercept('run_tmux_command', { command: tabCmd })).toBe(false);
+    // Pending 'b' was flushed before returning false so the caller sends tabCmd in order.
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", "send-keys -t s0 -l -- 'b'"]);
+  });
+
   it('never intercepts non-send-keys commands', async () => {
     expect(batcher.intercept('run_tmux_command', { command: 'selectp -t %1' })).toBe(false);
     expect(batcher.intercept('list_panes', {})).toBe(false);

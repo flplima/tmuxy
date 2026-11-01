@@ -80,8 +80,7 @@ pub fn config_dir() -> PathBuf {
             return xdg.join("tmuxy");
         }
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+    crate::paths::resolved_home_dir()
         .join(".config")
         .join("tmuxy")
 }
@@ -111,7 +110,7 @@ impl Layout {
             config: config_dir(),
             data: crate::paths::data_dir(),
             state: crate::paths::state_dir(),
-            home: dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            home: crate::paths::resolved_home_dir(),
         }
     }
 

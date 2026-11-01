@@ -137,8 +137,8 @@ pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
 
 /// Where a build before the state dir held its pid files, `~/.tmuxy`. Read so
 /// `stop` and `status` still find a server that build started; never written.
-fn legacy_pid_file_path(port: u16) -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|home| pid_file_in(&home.join(".tmuxy"), port))
+fn legacy_pid_file_path(port: u16) -> std::path::PathBuf {
+    pid_file_in(&tmuxy_core::paths::resolved_home_dir().join(".tmuxy"), port)
 }
 
 fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
@@ -153,9 +153,9 @@ pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
     let path = pid_file_path(port);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).ok();
+        let _ = tmuxy_core::private_files::create_dir_all(dir);
     }
-    std::fs::write(path, pid.to_string()).ok();
+    let _ = tmuxy_core::private_files::write(&path, pid.to_string());
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -166,9 +166,7 @@ pub(super) fn write_pid_file(port: u16) {
 /// the new server's file, and `stop` then reported a running server as gone.
 pub(super) fn remove_pid_file(port: u16, pid: u32) {
     remove_pid_file_at(&pid_file_path(port), pid);
-    if let Some(legacy) = legacy_pid_file_path(port) {
-        remove_pid_file_at(&legacy, pid);
-    }
+    remove_pid_file_at(&legacy_pid_file_path(port), pid);
 }
 
 pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
@@ -184,8 +182,8 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
 /// The pid the port's pid file names: the state dir's, else the one an older
 /// build wrote under `~/.tmuxy`.
 fn read_pid_file(port: u16) -> Option<u32> {
-    std::iter::once(pid_file_path(port))
-        .chain(legacy_pid_file_path(port))
+    [pid_file_path(port), legacy_pid_file_path(port)]
+        .into_iter()
         .find_map(|path| {
             std::fs::read_to_string(path)
                 .ok()
@@ -223,10 +221,48 @@ fn is_process_alive(_pid: u32) -> bool {
     false
 }
 
+/// Whether a process name — `comm`, or the file its argv[0] names — is a
+/// tmuxy binary's (`tmuxy`, `tmuxy-server`, the desktop app). The name only,
+/// never the arguments: a pid file can outlive its server and the pid be
+/// reused, and `tail ~/.local/state/tmuxy/server.log` is not a server to stop.
+fn matches_tmuxy_command(text: &str) -> bool {
+    let name = text.trim_end_matches(['\n', '\0']);
+    let base = name.rsplit('/').next().unwrap_or(name);
+    base.to_ascii_lowercase().contains("tmuxy")
+}
+
+/// Whether `pid` runs a tmuxy binary, checked before `stop` signals it.
+#[cfg(target_os = "linux")]
+fn is_tmuxy_process(pid: u32) -> bool {
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"));
+    if comm.is_ok_and(|s| matches_tmuxy_command(&s)) {
+        return true;
+    }
+    std::fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|bytes| {
+        let argv0 = bytes.split(|&b| b == 0).next().unwrap_or_default();
+        matches_tmuxy_command(&String::from_utf8_lossy(argv0))
+    })
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn is_tmuxy_process(pid: u32) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .is_some_and(|out| matches_tmuxy_command(&String::from_utf8_lossy(&out.stdout)))
+}
+
+#[cfg(not(unix))]
+fn is_tmuxy_process(_pid: u32) -> bool {
+    false
+}
+
 pub(super) fn stop_server(port: u16) {
     match read_pid_file(port) {
         Some(pid) => {
-            if !is_process_alive(pid) {
+            if !is_process_alive(pid) || !is_tmuxy_process(pid) {
                 println!("Server is not running (stale PID file for pid {})", pid);
                 remove_pid_file(port, pid);
                 return;
@@ -258,7 +294,7 @@ pub(super) fn stop_server(port: u16) {
 pub(super) fn server_status(port: u16) {
     match read_pid_file(port) {
         Some(pid) => {
-            if is_process_alive(pid) {
+            if is_process_alive(pid) && is_tmuxy_process(pid) {
                 println!("Server is running (pid {})", pid);
             } else {
                 println!("Server is not running (stale PID file for pid {})", pid);
@@ -406,7 +442,7 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pid;
+    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid};
 
     #[test]
     fn a_pid_file_naming_no_single_process_is_ignored() {
@@ -414,5 +450,17 @@ mod tests {
         for broadcast in ["0", "1", "-1", "4294967295", "2147483648", "", "abc"] {
             assert_eq!(parse_pid(broadcast), None, "{broadcast:?}");
         }
+    }
+
+    #[test]
+    fn process_identity_guard_recognizes_tmuxy_and_rejects_unrelated_processes() {
+        assert!(matches_tmuxy_command("tmuxy-server\n"));
+        assert!(matches_tmuxy_command("/usr/local/bin/tmuxy"));
+        assert!(!matches_tmuxy_command("systemd\n"));
+        assert!(!matches_tmuxy_command("/usr/bin/tail"));
+        assert!(!matches_tmuxy_command("/home/u/tmuxy/bin/tail"));
+        // The cargo test binary itself (`tmuxy_server-*`) matches, whereas init (PID 1) does not.
+        assert!(is_tmuxy_process(std::process::id()));
+        assert!(!is_tmuxy_process(1));
     }
 }

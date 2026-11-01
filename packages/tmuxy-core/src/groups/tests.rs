@@ -133,6 +133,16 @@ fn arming_holds_the_pane_open_and_hooks_its_death_to_close() {
             "set-hook -pu -t %4 pane-died"
         ]
     );
+    let quoted_script =
+        quote_script_path(std::path::Path::new("/Users/o'malley/a #1 $dir/pane-group"));
+    let special_ctx = Context {
+        close_command: format!("{quoted_script} close"),
+        rev_token: "T".into(),
+    };
+    assert_eq!(
+        lines(&arm(&pid("%4"), &special_ctx))[1],
+        "set-hook -p -t %4 pane-died run-shell \"bash '/Users/o'\\\\''malley/a ##1 \\$dir/pane-group' close %4\"",
+    );
 }
 
 #[test]

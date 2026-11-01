@@ -33,6 +33,55 @@ pub fn data_dir() -> PathBuf {
     )
 }
 
+/// An absolute home directory even when `$HOME` is unset: `dirs::home_dir()`
+/// (`$HOME`, else the passwd entry's), else a private per-UID
+/// `/tmp/tmuxy-<uid>` that must be a real `0700` directory this user owns.
+/// The CLI resolves the same way (`_tmuxy_home` in
+/// `tmuxy-cli/bin/tmuxy/_lib`). When even that is refused (a symlink or
+/// another user's directory squats the name), the result is `/`, which no
+/// other user can write under, rather than any shared temp path.
+pub fn resolved_home_dir() -> PathBuf {
+    dirs::home_dir()
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(fallback_home)
+}
+
+#[cfg(unix)]
+fn fallback_home() -> PathBuf {
+    // SAFETY: getuid() has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    private_uid_dir(std::path::Path::new("/tmp"), uid).unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+#[cfg(not(unix))]
+fn fallback_home() -> PathBuf {
+    std::env::temp_dir().join("tmuxy-home")
+}
+
+/// `<base>/tmuxy-<uid>`, created `0700` if missing, and refused unless it is
+/// a directory (not a symlink) that `uid` owns. `base` is sticky `/tmp`, so
+/// once checked it cannot be swapped by another user.
+#[cfg(unix)]
+fn private_uid_dir(base: &std::path::Path, uid: u32) -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
+    let dir = base.join(format!("tmuxy-{uid}"));
+    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
+    let meta = std::fs::symlink_metadata(&dir)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "unsafe fallback home directory",
+        ));
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    Ok(dir)
+}
+
 /// The file the action trace is written to (docs/TRACING.md), unless
 /// `--trace <path>` names another.
 pub fn trace_file() -> PathBuf {
@@ -55,8 +104,7 @@ fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {
     }
     dirs::state_dir()
         .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir)
+        .unwrap_or_else(|| resolved_home_dir().join(".local").join("state"))
         .join("tmuxy")
 }
 
@@ -73,7 +121,8 @@ fn data_dir_from(
     if let Some(xdg) = xdg_data_home.map(PathBuf::from).filter(|p| p.is_absolute()) {
         return xdg.join("tmuxy");
     }
-    home.unwrap_or_else(std::env::temp_dir)
+    home.filter(|p| p.is_absolute())
+        .unwrap_or_else(resolved_home_dir)
         .join(".local")
         .join("share")
         .join("tmuxy")
@@ -122,5 +171,56 @@ mod tests {
                 PathBuf::from("/home/u/.local/share/tmuxy")
             );
         }
+        let missing_home = data_dir_from(None, None, None);
+        assert!(missing_home.is_absolute());
+        assert_ne!(
+            missing_home,
+            std::env::temp_dir()
+                .join(".local")
+                .join("share")
+                .join("tmuxy")
+        );
+    }
+
+    #[test]
+    fn the_resolved_home_is_always_absolute() {
+        assert!(resolved_home_dir().is_absolute());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_fallback_home_is_a_private_dir_the_user_owns_and_never_a_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // SAFETY: getuid() has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let base = std::env::temp_dir().join(format!("tmuxy-home-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = base.join(format!("tmuxy-{uid}"));
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        // Created owner-only when missing.
+        assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
+        assert_eq!(mode(&dir), 0o700);
+
+        // An existing one of the user's own is tightened.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
+        assert_eq!(mode(&dir), 0o700);
+
+        // Another user's directory under the name is refused (a test cannot
+        // chown, so it asks for the directory as a uid that does not own it).
+        let other = uid.wrapping_add(1);
+        std::fs::rename(&dir, base.join(format!("tmuxy-{other}"))).unwrap();
+        assert!(private_uid_dir(&base, other).is_err());
+
+        // A symlink under the name is refused, even to a directory the user owns.
+        let decoy = base.join("decoy");
+        std::fs::create_dir(&decoy).unwrap();
+        std::os::unix::fs::symlink(&decoy, &dir).unwrap();
+        assert!(private_uid_dir(&base, uid).is_err());
+
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }

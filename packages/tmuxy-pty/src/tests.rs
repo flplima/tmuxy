@@ -176,7 +176,68 @@ fn the_shell_directory_is_read_off_its_prompt() {
         osc7_path(b"x\x1b]7;/root\x07y\x1b]7;/tmp/a b\x07$ "),
         Some("/tmp/a b".into())
     );
+    assert_eq!(
+        osc7_path(b"\x1b]7;file://guest/var/tmp\x07"),
+        Some("/var/tmp".into())
+    );
+    assert_eq!(osc7_path(b"\x1b]7;relative/path\x07"), None);
+    assert_eq!(osc7_path(b"\x1b]7;/tmp/bad\npath\x07"), None);
     assert_eq!(osc7_path(b"no report"), None);
+}
+
+#[test]
+fn completion_suffix_escapes_shell_metacharacters_but_keeps_slashes() {
+    assert_eq!(
+        escape_completion_suffix("dir/a b;rm -rf $(id)`x`!"),
+        r"dir/a\ b\;rm\ -rf\ \$\(id\)\`x\`\!"
+    );
+}
+
+#[test]
+fn pid_dir_enforces_private_permissions_and_rejects_symlinks() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // SAFETY: getuid() has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let base = std::env::temp_dir().join(format!("tmuxy-pty-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+
+    let pids = ensure_pid_dir_under(&base, uid, 4242).unwrap();
+    let root = base.join(format!("tmuxy-pty-{uid}"));
+    assert_eq!(
+        std::fs::symlink_metadata(&root)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::symlink_metadata(&pids)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+
+    // A symlinked root directory is refused.
+    std::fs::remove_dir_all(&root).unwrap();
+    let decoy = base.join("decoy");
+    std::fs::create_dir_all(&decoy).unwrap();
+    std::os::unix::fs::symlink(&decoy, &root).unwrap();
+    assert!(ensure_pid_dir_under(&base, uid, 4242).is_err());
+
+    // A symlinked marker file is refused.
+    let target = base.join("victim");
+    std::fs::write(&target, "keep").unwrap();
+    let link = base.join("4242.int");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert!(create_nofollow_marker(&link).is_err());
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+
+    let _ = std::fs::remove_dir_all(&base);
 }
 
 #[test]
