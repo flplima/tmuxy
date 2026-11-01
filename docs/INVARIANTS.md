@@ -99,7 +99,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | --- | --- | --- | --- | --- |
 | Q1 | Mutations serialize in issue order so splits never land in a tab a queued `select-window` is leaving. | ordering | `HttpAdapter.ts`, `TauriAdapter.ts` | `HttpAdapter.test.ts › runs run_tmux_command…` (example; Tauri is —); `tests/4-session-connectivity.test.js › 2 panes → reload…` |
 | Q2 | Keystroke batches share the mutation queue and non-`send-keys` flush pending batches first. | ordering | `TauriAdapter.ts`, `HttpAdapter.ts`, `keyBatching.ts` | `keyBatching.test.ts › flushAll drains…` (batcher only; mutation interleaving is —) |
-| Q3 | Lone keystrokes send on leading edge; literal/special order holds; hex-byte sends (`-H`) and double-quoted literals never batch. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› never intercepts…`; `tests/1-input-interaction.test.js › Type → backspace…` |
+| Q3 | Lone keystrokes send on leading edge; literal/special order holds; hex-byte (`-H`) and double-quoted sends never batch. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› never intercepts…`; `tests/1-input-interaction.test.js › Type → backspace…` |
 | Q4 | Client reads (`query_tmux`) run unserialized; order vs. mutations holds in-band on control mode (A6). | ordering | `HttpAdapter.ts`, `docs/DATA-FLOW.md` | — |
 
 ## P — client model
