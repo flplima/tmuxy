@@ -70,6 +70,57 @@ describe('CLI config commands', () => {
     expect(fs.existsSync(configDir)).toBe(false);
   });
 
+  // The file holds every menu choice too: a write that leaves it invalid JSON
+  // loses all of them, since the app reads an unparsable file as empty. With
+  // no `sed` on PATH, so no GNU-only spelling (a `\n` in a replacement, which
+  // BSD sed writes as a literal `n`) can be what makes the write work here.
+  test.each([
+    ['no file', null, { use_tmux_conf: true }],
+    ['an empty object', '{}\n', { use_tmux_conf: true }],
+    ['an empty object over lines', '{\n}\n', { use_tmux_conf: true }],
+    [
+      'an object without the key',
+      '{\n  "theme": "nord",\n  "cursor_blink": false\n}\n',
+      { theme: 'nord', cursor_blink: false, use_tmux_conf: true },
+    ],
+    [
+      'an object with the key',
+      '{\n  "theme": "nord",\n  "use_tmux_conf": false\n}\n',
+      { theme: 'nord', use_tmux_conf: true },
+    ],
+    ['an object with the key compact', '{"use_tmux_conf":false}', { use_tmux_conf: true }],
+  ])('config use-tmux-conf on keeps the state file valid JSON: %s', (_, before, after) => {
+    const shims = path.join(root, 'shims');
+    fs.mkdirSync(shims);
+    fs.writeFileSync(path.join(shims, 'sed'), '#!/bin/sh\necho "sed was used" >&2\nexit 97\n', {
+      mode: 0o755,
+    });
+    const file = path.join(stateDir, 'tmuxy.state.json');
+    if (before !== null) {
+      fs.mkdirSync(stateDir, { recursive: true });
+      fs.writeFileSync(file, before);
+    }
+    const shimmed = {
+      ...env,
+      PATH: `${shims}:${path.join(__dirname, 'mocks')}:${process.env.PATH}`,
+    };
+
+    const on = runCLI(['config', 'use-tmux-conf', 'on'], { env: shimmed });
+    expect(on.stderr).toBe('');
+    expect(on.exitCode).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(after);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(runCLI(['config', 'use-tmux-conf', '--json'], { env: shimmed }).stdout.trim()).toBe(
+      '{"ok":true,"useTmuxConf":true}',
+    );
+
+    expect(runCLI(['config', 'use-tmux-conf', 'off'], { env: shimmed }).exitCode).toBe(0);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...after, use_tmux_conf: false });
+    expect(runCLI(['config', 'use-tmux-conf', '--json'], { env: shimmed }).stdout.trim()).toBe(
+      '{"ok":true,"useTmuxConf":false}',
+    );
+  });
+
   test('config init writes the starter, which pins nothing, and never overwrites', () => {
     const { stdout, exitCode } = runCLI(['config', 'init', '--json'], { env });
     expect(exitCode).toBe(0);

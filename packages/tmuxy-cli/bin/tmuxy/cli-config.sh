@@ -12,7 +12,37 @@ state_bool() {
   local key="$1" file
   file="$(tmuxy_state_dir)/tmuxy.state.json"
   [ -f "$file" ] || return 1
-  grep -q "\"$key\": true" "$file"
+  grep -Eq "\"$key\"[[:space:]]*:[[:space:]]*true" "$file"
+}
+
+# Set one boolean in tmuxy.state.json, keeping every other key: replaced where
+# the key is, else added as the object's first member (with no comma when the
+# object is empty), else the file becomes that one key. node and jq are not
+# dependencies of the CLI, and a `\n` in a sed replacement is GNU-only (BSD
+# sed writes a literal `n`), so this is POSIX awk over the whole file, written
+# beside it and renamed over it.
+set_state_bool() {
+  local key="$1" value="$2" file src tmp
+  file="$(tmuxy_state_dir)/tmuxy.state.json"
+  tmp="$file.tmp.$$"
+  src="$file"
+  [ -f "$src" ] || src=/dev/null
+  (umask 077 && awk -v key="$key" -v val="$value" '
+    { text = text (NR > 1 ? "\n" : "") $0 }
+    END {
+      pair = "\"" key "\": " val
+      if (match(text, "\"" key "\"[[:space:]]*:[[:space:]]*(true|false|null)")) {
+        text = substr(text, 1, RSTART - 1) pair substr(text, RSTART + RLENGTH)
+      } else if (match(text, /^[[:space:]]*\{[[:space:]]*\}/)) {
+        text = "{\n  " pair "\n}" substr(text, RLENGTH + 1)
+      } else if (match(text, /^[[:space:]]*\{/)) {
+        text = substr(text, 1, RLENGTH) "\n  " pair "," substr(text, RLENGTH + 1)
+      } else {
+        text = "{\n  " pair "\n}"
+      }
+      print text
+    }' "$src" > "$tmp") || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$file"
 }
 
 cmd_config() {
@@ -108,23 +138,8 @@ cmd_config_use_tmux_conf() {
     *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
   esac
 
-  mkdir -p "$dir"
-  # Rewrite the one key, preserving everything else in the file. node is not a
-  # dependency of the CLI, so this is done with the tools a shell always has.
-  if [ -f "$state_file" ]; then
-    if grep -q '"use_tmux_conf"' "$state_file"; then
-      # -E: BSD sed has no \| alternation in a basic regex, and silently
-      # matches nothing rather than erroring — which read as "off does not work".
-      sed -i.bak -E "s/(\"use_tmux_conf\": )(true|false)/\1$value/" "$state_file"
-      rm -f "$state_file.bak"
-    else
-      # Insert after the opening brace so the file stays valid JSON.
-      sed -i.bak "1s/^{/{\n  \"use_tmux_conf\": $value,/" "$state_file"
-      rm -f "$state_file.bak"
-    fi
-  else
-    (umask 077 && printf '{\n  "use_tmux_conf": %s\n}\n' "$value" > "$state_file")
-  fi
+  mkdir -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
+  set_state_bool use_tmux_conf "$value" || _fail "$EXIT_FAILED" "cannot write $state_file"
 
   if [ "$JSON_OUT" = true ]; then
     json_ok "useTmuxConf=$value"
