@@ -63,6 +63,27 @@ fn rep_repeats_preceding_character() {
     // a run to a single cell and shifts everything after it leftward.
     assert_eq!(row0("A\x1b[3b"), "AAAA", "REP: repeat glyph");
     assert_eq!(row0("Z \x1b[5bX"), "Z      X", "REP: repeat space");
+
+    // As in tmux (input.c, INPUT_CSI_REP), REP repeats only a graphic
+    // character that comes right before it: a control, an escape or any CSI
+    // — a REP included — in between leaves nothing to repeat.
+    assert_eq!(row0("A\r\x1b[3bB"), "B", "CR clears REP last_char");
+    assert_eq!(row0("A\x1b[1C\x1b[3bB"), "A B", "CSI clears REP last_char");
+    assert_eq!(row0("A\x1b[2b\x1b[2b"), "AAA", "REP clears REP last_char");
+
+    // And it stops at the end of the line, where tmux stops it: a huge count
+    // fills the row and wraps nothing onto the next.
+    assert_eq!(
+        row_at("A\x1b[65535b", 0, 2),
+        "A".repeat(40),
+        "REP fills the row"
+    );
+    assert_eq!(row_at("A\x1b[65535b", 1, 2), "", "REP never wraps");
+    assert_eq!(
+        row0("\x1b[39GA\x1b[5b"),
+        format!("{}AA", " ".repeat(38)),
+        "REP stops at the last column"
+    );
 }
 
 #[test]

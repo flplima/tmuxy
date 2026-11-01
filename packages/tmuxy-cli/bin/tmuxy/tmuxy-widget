@@ -30,6 +30,17 @@ source "$(cd "$(dirname "$0")" && pwd)/_lib"
 # it. The target is explicit — inside `run-shell` the command runs as a client
 # of its own, and "the current pane" there is whichever pane tmux last used,
 # not this one.
+OWN_PANE="${TMUXY_CALLER_PANE-${TMUX_PANE:-}}"
+if [ -z "$OWN_PANE" ]; then
+  echo "Error: run this inside a tmuxy pane" >&2
+  exit 1
+fi
+if [ "$(verified_own_pane "$OWN_PANE")" != "$OWN_PANE" ]; then
+  echo "Error: cannot run a widget on another pane ($OWN_PANE)" >&2
+  exit 1
+fi
+TMUX_PANE="$OWN_PANE"
+export TMUX_PANE
 PANE="$(shquote "$TMUX_PANE")"
 _run_safe "set-option -p -t $PANE @tmuxy-pane-widget $(shquote "$COMPONENT")"
 

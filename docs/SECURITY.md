@@ -131,6 +131,11 @@ An action runs with the job's token and secrets, the release build's Apple signi
 - Be cautious about AI agents that have both tmuxy access and internet access
 - Monitor what commands the AI sends through the tmuxy interface
 
+## Upstream `tmux` Hardening Recommendations
+
+- **Prefer `tmux >= 3.7a` when `enable-sixel` is compiled in** — older `tmux <= 3.6a` builds carry an upstream `image_free` memory-safety bug in Sixel image cleanup. The repository's container image builds `tmux 3.7a`; host installations with Sixel enabled should run `3.7a` or newer.
+- **Keep `allow-passthrough` set to `off` (the default)** — leaving passthrough disabled ensures DCS/OSC sequences emitted by untrusted programs inside a pane are parsed and bounded by tmux and tmuxy rather than forwarded verbatim to an outer terminal.
+
 ## Future Security Improvements
 
 Implemented:

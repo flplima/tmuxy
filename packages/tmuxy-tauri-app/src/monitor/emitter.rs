@@ -100,6 +100,9 @@ impl LogSink for TauriEmitter {
 
 impl StateEmitter for TauriEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        if let Some(pages) = self.app.try_state::<tmuxy_core::preview::PreviewPages>() {
+            pages.sync_update(&self.label, &update);
+        }
         transport::on_state_update(&update, &self.keeper, |state| {
             if let Ok(mut guard) = self.monitor.images.try_write() {
                 guard.retain_live_panes(state);

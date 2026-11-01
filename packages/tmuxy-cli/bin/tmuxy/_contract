@@ -170,17 +170,42 @@ _first_safe_session() {
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
 # the pane whose process is an ancestor of this one. TMUX_PANE is only an
 # environment variable, so anything can claim any pane with it; what the
-# claim buys — typing into that pane without asking — is given only to a
-# process that really runs there. Prints nothing when it is not.
+# claim buys — typing into that pane without asking, or setting its widget
+# tags — is given only to a process that really runs there. Prints nothing
+# when it is not.
+#
+# A system that names no parent even for this process (the CheerpX guest's
+# `/proc` has none, and its `ps` reads that `/proc`) has no ancestry to check
+# and nothing else that tells one pane's processes from another's, so there
+# the claim stands. Linux and macOS always name it.
 verified_own_pane() {
   local claimed="${1:-}" pane_pid
   [ -n "$claimed" ] || return 0
+  [[ "$claimed" =~ ^%[0-9]+$ ]] || return 0
   pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
   [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
-  # One `ps` for the whole tree, walked from this process up.
+  if [ -r "/proc/$$/status" ]; then
+    local p="$$" i=0 ppid
+    while [ "$i" -lt 128 ] && [ "$p" -gt 1 ]; do
+      if [ "$p" = "$pane_pid" ]; then
+        printf '%s' "$claimed"
+        return 0
+      fi
+      ppid="$(awk '/^PPid:/ { print $2; exit }' "/proc/$p/status" 2>/dev/null || true)"
+      if ! [[ "$ppid" =~ ^[1-9][0-9]*$ ]]; then
+        [ "$p" = "$$" ] && printf '%s' "$claimed"
+        return 0
+      fi
+      p="$ppid"
+      i=$((i + 1))
+    done
+    return 0
+  fi
+  # Fallback where `/proc` is absent (macOS): one `ps` for the whole tree.
   if ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" -v want="$pane_pid" '
     { parent[$1] = $2 }
     END {
+      if (!(me in parent) || parent[me] < 1) exit 0
       p = me
       for (i = 0; i < 128 && p > 1; i++) { if (p == want) exit 0; p = parent[p] }
       exit 1

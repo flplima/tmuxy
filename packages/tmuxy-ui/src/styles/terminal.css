@@ -182,6 +182,7 @@
      eliminating sub-pixel gaps between span backgrounds */
   display: flex;
   white-space: pre;
+  unicode-bidi: isolate;
   /* The row is its own stacking context, so a lifted wide glyph (below) rises
      above its neighbours and nothing outside the row. */
   isolation: isolate;
@@ -243,6 +244,7 @@
 .terminal-line > span,
 .terminal-line > a {
   line-height: inherit;
+  unicode-bidi: isolate;
   /* Each span is sized to an exact cell count (width: Nch set inline). Don't let
      flex grow/shrink it, and min-width:0 stops a glyph wider than its cells from
      expanding the box; overflow stays visible so the glyph paints over the

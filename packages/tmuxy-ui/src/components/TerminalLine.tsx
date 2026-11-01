@@ -14,7 +14,7 @@
 import { memo, useMemo, useCallback, useSyncExternalStore, CSSProperties } from 'react';
 import { LogProfiler } from '../utils/renderLog';
 import type { CellLine, TerminalCell, CellStyle } from '../domain/wire';
-import { cellColorToCss, cellsToCss, isWideChar } from './terminalShared';
+import { cellColorToCss, cellsToCss, isWideChar, sanitizeTerminalCell } from './terminalShared';
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls, sameUrls, type DetectedUrl } from '../utils/urlDetect';
@@ -153,7 +153,7 @@ export const TerminalLine = memo(
       let text = '';
       for (let i = 0; i < line.length; i++) {
         offsets[i] = text.length;
-        text += line[i].c;
+        text += sanitizeTerminalCell(line[i].c);
       }
       return { autoUrls: rowUrls ?? detectUrls(text), cellOffsets: offsets };
     }, [line, rowUrls]);
@@ -188,7 +188,7 @@ export const TerminalLine = memo(
       const flushGroup = () => {
         if (!currentGroup || currentGroup.cells.length === 0) return;
 
-        const text = currentGroup.cells.map((c) => c.c).join('');
+        const text = currentGroup.cells.map((c) => sanitizeTerminalCell(c.c)).join('');
         // Pin the span to an exact number of cells (`--cell-w`, the snapped
         // grid width — see utils/cellMetrics.ts), independent of the actual
         // glyphs in the run. A glyph whose advance differs from the cell
@@ -260,10 +260,12 @@ export const TerminalLine = memo(
 
         if (linkUrl && links) {
           const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
+          const href = safeHref(linkUrl);
           spans.push(
             <a
               key={spans.length}
-              href={safeHref(linkUrl)}
+              href={href}
+              title={href}
               target="_blank"
               rel="noopener noreferrer"
               draggable={false}

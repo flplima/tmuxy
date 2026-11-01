@@ -35,6 +35,7 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
     }
 
     fn execute(&mut self, b: u8) {
+        self.last_char = None;
         match b {
             7 => self.callbacks.audible_bell(&mut self.screen),
             8 => self.screen.bs(),
@@ -51,6 +52,7 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, b: u8) {
+        self.last_char = None;
         match intermediates {
             [b'#'] => match b {
                 b'3' => self
@@ -129,10 +131,16 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                         self.screen.back_tab();
                     }
                 }
-                // REP -- repeat the preceding graphic character.
+                // REP -- repeat the preceding graphic character, as tmux does
+                // (input.c, INPUT_CSI_REP): at most to the end of the line, so
+                // the mirror never wraps where tmux did not, and one 8-byte
+                // sequence cannot amplify into 65,535 grid writes.
                 'b' => {
                     if let Some(c) = self.last_char {
-                        for _ in 0..canonicalize_params_1(params, 1) {
+                        let (_, cols) = self.screen.size();
+                        let (_, col) = self.screen.cursor_position();
+                        let count = canonicalize_params_1(params, 1).min(cols.saturating_sub(col));
+                        for _ in 0..count {
                             self.screen.text(c);
                         }
                     }
@@ -219,9 +227,12 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                 );
             }
         }
+        // Any CSI ends the run REP repeats, REP itself included (as in tmux).
+        self.last_char = None;
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bel_terminated: bool) {
+        self.last_char = None;
         match params {
             [b"0", s] => {
                 self.callbacks.set_window_icon_name(&mut self.screen, s);

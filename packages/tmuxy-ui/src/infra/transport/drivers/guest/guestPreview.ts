@@ -49,6 +49,11 @@ function refused(error: string): CommandFailure {
   return { error, kind: 'forbidden' };
 }
 
+/** POSIX `sh -c` single-quoting, distinct from tmux command-line quoting. */
+function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /** A shell command as one run-shell argument; run-shell expands `#` first. */
 function runShell(command: string): string {
   return `run-shell ${quote(command.replace(/#/g, '##'))}`;
@@ -66,7 +71,7 @@ export async function readGuestPreview(
       .join(' ; '),
   );
   const [widget = '', document = '', net = ''] = answer.split('\n').map((line) => line.trim());
-  if (widget !== 'preview' || !document.startsWith('/')) {
+  if (widget !== 'preview' || !document.startsWith('/') || /[\r\n\0]/.test(document)) {
     throw refused('this pane is not showing a preview');
   }
 
@@ -79,7 +84,7 @@ export async function readGuestPreview(
     return {
       kind,
       name: document.slice(document.lastIndexOf('/') + 1),
-      text: await query(runShell(`cat -- ${quote(document)}`)),
+      text: await query(runShell(`cat -- ${shSingleQuote(document)}`)),
       net: net === '1',
     };
   }
@@ -87,7 +92,7 @@ export async function readGuestPreview(
   const relative = previewResourcePath(path);
   if (!relative) throw refused('not a file this preview may read');
   const file = document.slice(0, document.lastIndexOf('/') + 1) + relative;
-  const data = await query(runShell(`base64 -- ${quote(file)}`));
+  const data = await query(runShell(`base64 -- ${shSingleQuote(file)}`));
   return {
     mime:
       MIME[relative.slice(relative.lastIndexOf('.') + 1).toLowerCase()] ??

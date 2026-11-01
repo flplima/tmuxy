@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/lib.ts",
+    "./cheerpx-runtime": "./src/infra/transport/drivers/cheerpx/cheerpxRuntime.ts",
     "./styles.css": "./src/styles.css",
     "./fonts/nerd-font.css": "./src/fonts/nerd-font.css"
   },

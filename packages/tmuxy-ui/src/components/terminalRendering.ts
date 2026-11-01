@@ -14,6 +14,7 @@ import {
   isWideChar,
   sameCellColor,
   sameCellStyle,
+  sanitizeTerminalCell,
 } from './terminalShared';
 import { detectUrls, type DetectedUrl } from '../utils/urlDetect';
 import { safeHref } from '../utils/openUrl';
@@ -68,7 +69,7 @@ function applyStyleToElement(
 
 function lineSliceText(line: CellLine, start: number, end: number): string {
   let s = '';
-  for (let i = start; i < end; i++) s += line[i].c;
+  for (let i = start; i < end; i++) s += sanitizeTerminalCell(line[i].c);
   return s;
 }
 
@@ -157,7 +158,7 @@ export function renderLineToDOM(
   let lineText = '';
   for (let i = 0; i < line.length; i++) {
     cellOffsets[i] = lineText.length;
-    lineText += line[i].c;
+    lineText += sanitizeTerminalCell(line[i].c);
   }
   const autoUrls = rowUrls ?? detectUrls(lineText);
   const urlIdxOf = (i: number): number => {
@@ -186,7 +187,10 @@ export function renderLineToDOM(
       // Copy mode renders its rows as raw DOM, where React's own blocking of a
       // `javascript:` href does not apply — so the allowlist is the only guard.
       const href = safeHref(linkUrl);
-      if (href) a.href = href;
+      if (href) {
+        a.href = href;
+        a.title = href;
+      }
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       a.draggable = false;

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { GoogleAnalytics } from '@next/third-parties/google';
+import { CX_IMPORT_MAP } from 'tmuxy-ui/cheerpx-runtime';
 import './globals.css';
 
 const SITE_URL = 'https://tmuxy.sh';
@@ -44,9 +45,29 @@ export const metadata: Metadata = {
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
+const DEMO_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cxrtnc.leaningtech.com https://*.googletagmanager.com blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com",
+  "font-src 'self' data:",
+  "connect-src 'self' https://cxrtnc.leaningtech.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com blob: data:",
+  "worker-src 'self' blob: https://cxrtnc.leaningtech.com",
+  "frame-src 'self' blob: https://cxrtnc.leaningtech.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark theme-dark">
+      <head>
+        <meta httpEquiv="Content-Security-Policy" content={DEMO_CSP} />
+        {/* Pins CheerpX's runtime modules: in the static HTML, ahead of every
+            script, as an import map must be. */}
+        <script type="importmap" dangerouslySetInnerHTML={{ __html: CX_IMPORT_MAP }} />
+      </head>
       <body className="antialiased">
         {/* Before the demo loads: it waits on this to choose its guest. */}
         <Script src="/coi-register.js" strategy="beforeInteractive" />

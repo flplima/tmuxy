@@ -21,7 +21,7 @@
  */
 
 import { previewResourcePath, type PreviewResource } from '../../../domain/preview';
-import { bridgeScript } from './previewBridge';
+import { bridgeScript, type BridgeChannel } from './previewBridge';
 import type { PreviewTheme } from './previewTheme';
 
 export type ReadResource = (path: string) => Promise<PreviewResource>;
@@ -128,17 +128,32 @@ hr, table, th, td { border-color: var(--tmuxy-border); }`;
 }
 
 /**
+ * Escape inline `<script>` body text so neither `</script` nor an HTML comment
+ * opener `<!--` (which enters HTML5 script-data escaped/double-escaped state)
+ * can desynchronize the parser when the composed document is re-parsed.
+ */
+function scriptText(js: string): string {
+  return js.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\!--');
+}
+
+/**
  * The page at `html` as its frame will load it: local resources inlined, the
  * theme (when one is given) and the bridge, scrolled to `scroll`, added first.
  */
 export async function composePage(
   html: string,
   readResource: ReadResource,
-  options: { theme: PreviewTheme | null; scroll: { x: number; y: number } },
+  options: { theme: PreviewTheme | null; scroll: { x: number; y: number }; channel: BridgeChannel },
 ): Promise<string> {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const read = memoised(readResource);
-  for (const el of Array.from(doc.querySelectorAll('base, meta[http-equiv]'))) el.remove();
+  // `DOMParser` parses with scripting disabled while `<iframe sandbox="allow-scripts">`
+  // parses with scripting enabled, so `<noscript>` markup can hide `<meta http-equiv>`
+  // or `<base>` from the inert tree and activate them in the live frame. Scripts are
+  // always enabled in the preview frame, so `<noscript>` is removed outright.
+  for (const el of Array.from(doc.querySelectorAll('base, meta[http-equiv], noscript'))) {
+    el.remove();
+  }
 
   for (const link of Array.from(doc.querySelectorAll('link[rel~="stylesheet"][href]'))) {
     const path = previewResourcePath(link.getAttribute('href') ?? '');
@@ -151,13 +166,16 @@ export async function composePage(
     link.replaceWith(style);
   }
 
-  for (const script of Array.from(doc.querySelectorAll('script[src]'))) {
-    const path = previewResourcePath(script.getAttribute('src') ?? '');
-    const resource = path ? await read(path) : null;
-    if (!resource) continue;
-    script.removeAttribute('src');
-    // An inline script ends at the first `</script`, wherever it appears.
-    script.textContent = resourceText(resource).replace(/<\/script/gi, '<\\/script');
+  for (const script of Array.from(doc.querySelectorAll('script'))) {
+    if (script.hasAttribute('src')) {
+      const path = previewResourcePath(script.getAttribute('src') ?? '');
+      const resource = path ? await read(path) : null;
+      if (!resource) continue;
+      script.removeAttribute('src');
+      script.textContent = scriptText(resourceText(resource));
+    } else if (script.textContent?.includes('<!--')) {
+      script.textContent = scriptText(script.textContent);
+    }
   }
 
   for (const [selector, attribute] of LOADED_BY) {
@@ -186,7 +204,7 @@ export async function composePage(
 
   const head = doc.head;
   const bridge = doc.createElement('script');
-  bridge.textContent = bridgeScript(options.scroll);
+  bridge.textContent = bridgeScript(options.scroll, options.channel);
   head.prepend(bridge);
   if (options.theme) {
     const theme = doc.createElement('style');

@@ -46,9 +46,8 @@ virtual machine inside your browser tab; that machine has no network.
 | What connects | When | To where | What is sent | How to turn it off |
 | --- | --- | --- | --- | --- |
 | The page and its files | When you open the site | GitHub Pages, which hosts it | Ordinary page requests (IP address, user agent), logged under GitHub's own privacy terms | Do not open the site |
-| Google Analytics | On each visit, when the site was built with an analytics id, as the published site is | Google (`googletagmanager.com`, `google-analytics.com`) | A page view, and these events: using the demo, switching its tab (with the tab's name), copying an install command (with the OS it was for), and clicking the GitHub, releases, DeepWiki or share links | A content blocker, your browser's tracking protection, or Google's opt-out add-on; the demo works the same without it |
+| Google Analytics | On each visit, when the site was built with an analytics id, as the published site is | Google (`googletagmanager.com`, `google-analytics.com`) | A page view, and these events: using the demo, switching its tab (with the tab's name when it is one of the demo's own, `welcome` or `features`, and `custom` otherwise), copying an install command (with the OS it was for), and clicking the GitHub, releases, DeepWiki or share links | A content blocker, your browser's tracking protection, or Google's opt-out add-on; the demo works the same without it |
 | The CheerpX runtime | When your browser can run it (the page is cross-origin isolated) | `cxrtnc.leaningtech.com`, Leaning Technologies' CDN | The script request; what the runtime does after it loads is Leaning Technologies' | A browser that cannot isolate the page runs the demo on v86 instead, from the site itself |
-| The demo's nyan cat | When the demo starts | `gist.githubusercontent.com` | The image request | Block the host; the demo starts without the picture |
 
 The site also serves `/llms-full.txt` and `/search.json`, the docs for
 agents: static files from the same host, fetched only by whoever asks for them.
