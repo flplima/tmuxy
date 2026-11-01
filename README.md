@@ -220,6 +220,8 @@ and is slow cold.
 GitHub Copilot's cloud coding agent uses neither — it bootstraps from
 `.github/workflows/copilot-setup-steps.yml`.
 
+Want to contribute? Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AI_POLICY.md](AI_POLICY.md).
+
 ## license
 
 [MIT](LICENSE)
