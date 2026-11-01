@@ -265,16 +265,24 @@ describe('toTmuxCommand', () => {
     );
   });
 
-  it('strips bracket markers from the text, so a clipboard cannot close the paste early', () => {
-    const text = 'safe\x1b[201~rm -rf ~\x1b[200~';
-    const [stage] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n');
-    expect(stage).toBe('set-buffer -b tmuxy-paste "saferm -rf \\176"');
-    // A marker split around another reassembles once the inner one goes.
-    const nested = 'a\x1b[20\x1b[201~1~b';
-    const [again] = toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text: nested })).split(
-      '\n',
+  it('strips every spelling of the end marker, so a clipboard cannot close the paste early', () => {
+    const stage = (text: string) =>
+      toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')[0];
+    expect(stage('safe\x1b[201~rm -rf ~\x1b[200~')).toBe(
+      'set-buffer -b tmuxy-paste "safe[201\\176rm -rf \\176[200\\176"',
     );
-    expect(again).toBe('set-buffer -b tmuxy-paste "ab"');
+    // A parser that reads CSI parameters as numbers ends the
+    // paste at `ESC [ 0201 ~` as well, and at the 8-bit C1 CSI (U+009B).
+    expect(stage('echo safe\x1b[0201~; touch /tmp/pwned')).toBe(
+      'set-buffer -b tmuxy-paste "echo safe[0201\\176\\073 touch /tmp/pwned"',
+    );
+    expect(stage('echo safe\x9b201~; touch /tmp/pwned')).toBe(
+      'set-buffer -b tmuxy-paste "echo safe201\\176\\073 touch /tmp/pwned"',
+    );
+    // NUL, ESC, the rest of C0, DEL and all of C1 go; tab, newline and CR stay.
+    expect(stage('a\x00b\x03c\x7fd\x80e\x9ff\tg\nh\ri')).toBe(
+      'set-buffer -b tmuxy-paste "abcdef\\011g\\012h\\015i"',
+    );
   });
 
   it('pastes into a session target alone: a name never reaches the shell the synced paste runs in', () => {

@@ -55,21 +55,36 @@ export function literalText(to: string, text: string): string {
  */
 const PASTE_BUFFER = 'tmuxy-paste';
 
-/** The bracketed-paste markers. A pasted text must not carry its own. */
-const BRACKET_MARKERS = ['\x1b[200~', '\x1b[201~'];
+/** The control characters a paste keeps: tab, newline and carriage return. */
+const PASTE_CONTROLS = new Set(['\t', '\n', '\r']);
 
 /**
- * `text` with every bracketed-paste marker removed — repeatedly, since taking
- * one out can join the halves of another around it.
+ * Whether `ch` is a control character a paste drops: C0 (NUL and ESC among
+ * them), DEL, and C1 (U+0080–U+009F, where U+009B is CSI).
  */
-function withoutBracketMarkers(text: string): string {
-  let out = text;
-  let previous;
-  do {
-    previous = out;
-    for (const marker of BRACKET_MARKERS) out = out.split(marker).join('');
-  } while (out !== previous);
-  return out;
+function isPasteControl(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return (code < 0x20 || (code >= 0x7f && code <= 0x9f)) && !PASTE_CONTROLS.has(ch);
+}
+
+/**
+ * `text` with every control character but tab, newline and carriage return
+ * removed.
+ *
+ * Removing the two literal markers was not enough: a program that parses its
+ * input as ECMA-48 reads `ESC [ 0201 ~`, or the C1 CSI `U+009B 201 ~`, as the
+ * end of the paste just as well, and runs what follows as typed keys. Without
+ * ESC and C1 nothing in the text can start an escape sequence, so no spelling
+ * of the end marker survives. tmux 3.7 and later make an ESC in a pasted
+ * buffer visible (`^[`) on their own, but pass U+009B through as the UTF-8
+ * character it is, and older tmux passes both. Plain text from a clipboard
+ * has no use for the rest of C0 either, so those go too rather than being
+ * argued one by one.
+ */
+export function withoutControls(text: string): string {
+  return Array.from(text)
+    .filter((ch) => !isPasteControl(ch))
+    .join('');
 }
 
 /** What a double-quoted tmux string may carry as itself; the rest is escaped. */
@@ -110,8 +125,11 @@ export function tmuxDoubleQuoted(text: string): string {
  * (`literalText`), a shell, an editor or an agent's TUI ran the first line the
  * moment its newline arrived and took the rest as fresh input.
  *
- * Markers already in the text are removed, so a clipboard cannot close the
- * paste early and have what follows read as typed keys. The text is staged in
+ * Control characters other than tab, newline and carriage return are removed
+ * (`withoutControls`), so a clipboard cannot close the paste early, in any
+ * spelling of the end marker, and have what follows read as typed keys. A
+ * carriage return is kept: tmux sends each newline as one, so a lone `\r`
+ * reaches the pane as the Return it already was. The text is staged in
  * chunks (`set-buffer -a` after the first) so no command line grows
  * unbounded, and `-d` drops the buffer once pasted.
  *
@@ -121,7 +139,7 @@ export function tmuxDoubleQuoted(text: string): string {
  * paste from the outer terminal would under native tmux.
  */
 export function pastedText(to: string, text: string): string {
-  const chars = Array.from(withoutBracketMarkers(text).replace(/\r\n/g, '\n'));
+  const chars = Array.from(withoutControls(text).replace(/\r\n/g, '\n'));
   const commands: string[] = [];
   for (let i = 0; i < chars.length; i += LITERAL_CHUNK_SIZE) {
     const chunk = chars.slice(i, i + LITERAL_CHUNK_SIZE).join('');

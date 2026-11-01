@@ -87,9 +87,10 @@ impl ImageStore {
 
 /// Whether a clipboard write may be handed to the client.
 ///
-/// SEC-01/SEC-13: the OSC 52 path is bounded at the aggregator, where the
-/// active pane is known; a paste-buffer mirror arrives with no pane at all,
-/// so the size cap is applied for both on the way out.
+/// The aggregator already caps both producers — an OSC 52 write and a
+/// paste-buffer mirror — at `MAX_CLIPBOARD_BYTES`; the server and the desktop
+/// check again here, where the text leaves the process, so a new producer of
+/// `WriteClipboard` cannot slip past the cap.
 pub fn clipboard_write_allowed(text: &str) -> bool {
     text.len() <= MAX_CLIPBOARD_BYTES
 }
