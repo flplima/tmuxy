@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
+import { TmuxOp } from '../../../domain/commands';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
@@ -175,7 +176,25 @@ describe('TmuxStore (integration)', () => {
     }
   });
 
-  // Smoke test: TmuxError class instances are correctly classified.
+  // An empty line detaches the control-mode client: an op whose command is
+  // empty sends nothing and leaves nothing pending behind.
+  it.each([
+    ['a paste of nothing but controls', TmuxOp.PasteText({ target: '%0', text: '\x1b\x07\u009b' })],
+    ['an empty text', TmuxOp.SendText({ target: '%0', text: '' })],
+  ])('%s sends nothing and records no op', async (_name, op) => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    store.reconcile(blankServerState());
+    const before = store.getModel();
+
+    const exit = await fake.runtime.runPromiseExit(store.dispatch(op));
+    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { command: ' \n\t' }));
+
+    expect(exit._tag).toBe('Success');
+    expect(blank._tag).toBe('Success');
+    expect(fake.invocations).toEqual([]);
+    expect(store.getModel()).toBe(before);
+  });
 });
 
 describe('notify granularity', () => {

@@ -149,19 +149,14 @@ export function makeTmuxStore(): TmuxStore {
     }, IDLE_RECONCILE_MS);
   };
 
-  const applyOptimistic = (op: TmuxOp, opts?: DispatchOptions): { opId: OpId; command: string } => {
+  const applyOptimistic = (op: TmuxOp, command: string): OpId => {
     const opId = generateOpId();
-    // Prefer the caller's explicit command string (preserves keyboardActor's
-    // `select-pane -t %N \;` prefix-pin and tmux format strings like
-    // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
-    // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
-    const command = opts?.command ?? toTmuxCommand(op);
     const result = predict(op, model.derived, predictContext, opId);
     const pending = result
       ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
       : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
     commit(addPendingOp(dropSupersededFocusOps(model, op), pending));
-    return { opId, command };
+    return opId;
   };
 
   const dispatchRemote = (
@@ -207,8 +202,17 @@ export function makeTmuxStore(): TmuxStore {
 
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        const { opId, command } = applyOptimistic(op, opts);
-        return dispatchRemote(transport, opId, command);
+        // Prefer the caller's explicit command string (preserves keyboardActor's
+        // `select-pane -t %N \;` prefix-pin and tmux format strings like
+        // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
+        // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
+        const command = opts?.command ?? toTmuxCommand(op);
+        // Nothing to send (a paste that was all controls): an empty line on
+        // the control-mode connection detaches it, and a pending op for it
+        // would only wait out the stale sweep. Done before it starts; its id
+        // is never recorded.
+        if (command.trim() === '') return Effect.succeed(generateOpId());
+        return dispatchRemote(transport, applyOptimistic(op, command), command);
       }),
 
     reconcile: (state) => {
