@@ -1,28 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { CX_INTEGRITY, verifySubresourceIntegrity } from '../CheerpXEngine';
+import { verifySubresourceIntegrity } from '../CheerpXEngine';
+import { CX_IMPORT_MAP, CX_INTEGRITY, CX_URL } from '../cheerpxRuntime';
 
-describe('CheerpX subresource integrity verification', () => {
-  it('accepts bytes matching the pinned SHA-256 digest and rejects tampered bytes', async () => {
-    const payload = new TextEncoder().encode('export const ok = 1;\n');
-    const digestBuf = await crypto.subtle.digest('SHA-256', payload);
-    const expectedHex = Array.from(new Uint8Array(digestBuf), (b) =>
-      b.toString(16).padStart(2, '0'),
-    ).join('');
+const fetchReturning = (body: string) =>
+  (async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
 
-    const okFetch = (async () => new Response(payload, { status: 200 })) as unknown as typeof fetch;
+async function sriOf(body: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-384', new TextEncoder().encode(body));
+  return `sha384-${btoa(String.fromCharCode(...new Uint8Array(digest)))}`;
+}
+
+describe('CheerpX runtime integrity', () => {
+  it('runs a module whose bytes match the pinned digest and refuses one that changed', async () => {
+    const sri = await sriOf('export const ok = 1;\n');
     await expect(
-      verifySubresourceIntegrity('https://example.test/mod.js', expectedHex, okFetch),
+      verifySubresourceIntegrity(CX_URL, sri, fetchReturning('export const ok = 1;\n')),
     ).resolves.toBeUndefined();
-
-    const tamperedFetch = (async () =>
-      new Response('export const ok = 2;\n', { status: 200 })) as unknown as typeof fetch;
     await expect(
-      verifySubresourceIntegrity('https://example.test/mod.js', expectedHex, tamperedFetch),
+      verifySubresourceIntegrity(CX_URL, sri, fetchReturning('export const ok = 2;\n')),
     ).rejects.toThrow(/Integrity check failed/);
+  });
 
-    expect(CX_INTEGRITY).toHaveLength(2);
-    for (const [, sha256] of CX_INTEGRITY) {
-      expect(sha256).toMatch(/^[0-9a-f]{64}$/);
+  it('refuses metadata it cannot check rather than letting the module through', async () => {
+    await expect(
+      verifySubresourceIntegrity(CX_URL, 'sha256-anything', fetchReturning('')),
+    ).rejects.toThrow(/Unsupported integrity metadata/);
+  });
+
+  it('gives the page an import map pinning the module the engine imports', () => {
+    const map = JSON.parse(CX_IMPORT_MAP) as { integrity: Record<string, string> };
+    expect(map.integrity[CX_URL]).toBe(CX_INTEGRITY[CX_URL]);
+    for (const sri of Object.values(map.integrity)) {
+      expect(sri).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     }
   });
 });

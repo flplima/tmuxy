@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
 import { GoogleAnalytics } from '@next/third-parties/google';
+import { CX_IMPORT_MAP } from 'tmuxy-ui/cheerpx-runtime';
 import './globals.css';
 
 const SITE_URL = 'https://tmuxy.sh';
@@ -63,6 +64,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark theme-dark">
       <head>
         <meta httpEquiv="Content-Security-Policy" content={DEMO_CSP} />
+        {/* Pins CheerpX's runtime modules: in the static HTML, ahead of every
+            script, as an import map must be. */}
+        <script type="importmap" dangerouslySetInnerHTML={{ __html: CX_IMPORT_MAP }} />
       </head>
       <body className="antialiased">
         {/* Before the demo loads: it waits on this to choose its guest. */}
