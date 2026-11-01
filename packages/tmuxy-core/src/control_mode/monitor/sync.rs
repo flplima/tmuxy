@@ -265,9 +265,13 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 if *scroll_pos > 0 {
                     let start = -(*scroll_pos as i64) - (*height as i64) + 1;
                     let end = -(*scroll_pos as i64);
-                    cmds.push(capture_command_range(pane_id, start, end));
+                    cmds.push(
+                        self.aggregator
+                            .markers()
+                            .capture_command_range(pane_id, start, end),
+                    );
                 } else {
-                    cmds.push(capture_command(pane_id));
+                    cmds.push(self.aggregator.markers().capture_command(pane_id));
                 }
             }
             if let Err(e) = self.connection.send_commands_batch(&cmds).await {

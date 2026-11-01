@@ -224,7 +224,10 @@ impl<C: ControlLink> TmuxMonitor<C> {
         pane_ids: &[PaneId],
     ) {
         let queued_panes = self.aggregator.queue_captures(pane_ids);
-        let commands = pane_refresh_commands(&queued_panes);
+        let commands = self
+            .aggregator
+            .markers()
+            .pane_refresh_commands(&queued_panes);
         if let Err(e) = self.connection.send_commands_batch(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
         }

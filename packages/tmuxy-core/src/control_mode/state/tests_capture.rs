@@ -32,13 +32,13 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
 
     // %1's capture arrives FIRST (marker-bracketed) — attribution must
     // follow the marker, not the queue order.
-    agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 1\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "1")));
     let r = agg.process_event(response("PANE_ONE_CONTENT\n"));
     assert!(
         matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%1"),
         "marked capture must be attributed to the pane in the marker"
     );
-    agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert_eq!(
         agg.panes.get_mut("%1").unwrap().get_content()[0]
             .iter()
@@ -49,10 +49,10 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     );
 
     // %0's capture follows and lands in %0 — no shifted attribution.
-    agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 0\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0")));
     let r = agg.process_event(response("PANE_ZERO_CONTENT\n"));
     assert!(matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%0"));
-    agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert_eq!(
         agg.panes.get_mut("%0").unwrap().get_content()[0]
             .iter()
@@ -82,14 +82,15 @@ fn capture_marker_survives_strftime_padding() {
         output: output.to_string(),
         success: true,
     };
-    // Real tmux 3.7 output shape for 'TMUXY_CAP_BEGIN 69'-style markers,
-    // with expansion padding thrown in.
+    // Expansion padding around the id, as tmux 3.7 printed it around a
+    // `%<digits>`.
     agg.process_event(response(&format!(
-        "{CAPTURE_BEGIN_MARKER}                    69\n"
+        "{}                    69\n",
+        agg.markers().tag(CAPTURE_BEGIN_MARKER)
     )));
     let r = agg.process_event(response("PADDED_OK\n"));
     assert!(matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%69"));
-    agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert!(agg.pending_captures.is_empty());
 }
 
@@ -107,10 +108,10 @@ fn capture_for_dead_pane_is_discarded_and_released() {
         output: output.to_string(),
         success: true,
     };
-    agg.process_event(response(&format!("{CAPTURE_BEGIN_MARKER} 9\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "9")));
     let r = agg.process_event(response("GHOST\n"));
     assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
-    agg.process_event(response(&format!("{CAPTURE_END_MARKER}\n")));
+    agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert!(agg.pending_captures.is_empty());
 }
 
@@ -131,7 +132,7 @@ fn a_failed_capture_releases_its_pane_without_an_end_marker() {
         output: output.to_string(),
         success,
     };
-    agg.process_event(block(&format!("{CAPTURE_BEGIN_MARKER} 9\n"), true));
+    agg.process_event(block(&marked(&agg, CAPTURE_BEGIN_MARKER, "9"), true));
     agg.process_event(block("can't find pane: %9\n", false));
     assert!(agg.pending_captures.is_empty());
     assert!(agg.capture_armed.is_none());
@@ -218,7 +219,10 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
             _ => None,
         })
         .expect("a pane in copy mode: the buffer is read over the control channel");
-    assert!(read.contains("TMUXY_BUF_BEGIN") && read.contains("show-buffer -b 'buffer0'"));
+    assert!(
+        read.contains(&agg.markers().tag(BUFFER_BEGIN_MARKER))
+            && read.contains("show-buffer -b 'buffer0'")
+    );
 }
 
 /// A buffer is named by whoever ran `set-buffer -b`, so the name is quoted

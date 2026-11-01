@@ -1,4 +1,8 @@
 use super::*;
+use crate::control_mode::state::{
+    Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER,
+    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+};
 
 /// One log of everything that leaves the monitor, in the order it left:
 /// the commands the link sends and what the emitter is handed, so an
@@ -47,6 +51,13 @@ impl StateEmitter for Recording {
 #[tokio::test]
 async fn a_message_reaches_the_emitter_alone() {
     let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (_tx, rx) = mpsc::channel(1);
+    let link = Scripted {
+        events: Default::default(),
+        sent: std::sync::Arc::clone(&log),
+    };
+    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    let markers = monitor.aggregator.markers().clone();
     let events = [
         ControlModeEvent::Message {
             text: "build done".to_string(),
@@ -55,17 +66,12 @@ async fn a_message_reaches_the_emitter_alone() {
             text: String::new(),
         },
         // `display-message 'hi #{session_name}'` sent by the client.
-        response("TMUXY_RPY_BEGIN 4\n"),
+        marked(&markers, REPLY_BEGIN_MARKER, "4"),
         response("%message hi tmuxy"),
-        response("TMUXY_RPY_END 4\n"),
+        marked(&markers, REPLY_END_MARKER, "4"),
     ];
     let count = events.len();
-    let link = Scripted {
-        events: events.into_iter().collect(),
-        sent: std::sync::Arc::clone(&log),
-    };
-    let (_tx, rx) = mpsc::channel(1);
-    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    monitor.connection.events.extend(events);
     monitor
         .pending_replies
         .insert(4, (ReplyWaiter::ReportFailure, tokio::time::Instant::now()));
@@ -134,6 +140,11 @@ fn rank(entry: &str) -> u8 {
     }
 }
 
+/// A marker block of the monitor's own: `name` with its token, then `arg`.
+fn marked(markers: &Markers, name: &str, arg: &str) -> ControlModeEvent {
+    response(format!("{} {arg}", markers.tag(name)).trim_end())
+}
+
 fn response(output: &str) -> ControlModeEvent {
     ControlModeEvent::CommandResponse {
         timestamp: 0,
@@ -156,6 +167,13 @@ fn response(output: &str) -> ControlModeEvent {
 #[tokio::test]
 async fn a_step_sends_its_effects_commands_in_effect_order() {
     let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (_tx, rx) = mpsc::channel(1);
+    let link = Scripted {
+        events: Default::default(),
+        sent: std::sync::Arc::clone(&log),
+    };
+    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    let markers = monitor.aggregator.markers().clone();
     let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
     let events = [
         // Two panes the monitor knows, as the initial sync leaves them,
@@ -173,9 +191,9 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             session_id: "$0".to_string(),
             window_id: "@0".parse().unwrap(),
         },
-        response("TMUXY_CAP_BEGIN 0\n"),
+        marked(&markers, CAPTURE_BEGIN_MARKER, "0"),
         response("$ \n"),
-        response("TMUXY_CAP_END\n"),
+        marked(&markers, CAPTURE_END_MARKER, ""),
         // The user is in %0: a clipboard write from %0 is honoured
         // (`accepted_clipboard_write` takes the active pane's only).
         ControlModeEvent::WindowPaneChanged {
@@ -187,9 +205,9 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             window_id: "@1".parse().unwrap(),
         },
         // A reply block: resolved in the monitor, nothing sent.
-        response("TMUXY_RPY_BEGIN 4\n"),
+        marked(&markers, REPLY_BEGIN_MARKER, "4"),
         response("ok\n"),
-        response("TMUXY_RPY_END 4\n"),
+        marked(&markers, REPLY_END_MARKER, "4"),
         // An inline image: stored, the output's emission deferred.
         ControlModeEvent::Output {
             pane_id: "%0".parse().unwrap(),
@@ -214,20 +232,15 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         ControlModeEvent::PasteBufferChanged {
             buffer_name: "buffer0".to_string(),
         },
-        response("TMUXY_BUF_BEGIN\n"),
+        marked(&markers, BUFFER_BEGIN_MARKER, ""),
         response("yanked\n"),
-        response("TMUXY_BUF_END\n"),
+        marked(&markers, BUFFER_END_MARKER, ""),
         ControlModeEvent::WindowClose {
             window_id: "@1".parse().unwrap(),
         },
     ];
     let count = events.len();
-    let link = Scripted {
-        events: events.into_iter().collect(),
-        sent: std::sync::Arc::clone(&log),
-    };
-    let (_tx, rx) = mpsc::channel(1);
-    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    monitor.connection.events.extend(events);
     let (reply_tx, mut reply_rx) = oneshot::channel();
     monitor.pending_replies.insert(
         4,

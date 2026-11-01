@@ -15,10 +15,7 @@ use super::{parser, state};
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
-use super::state::{
-    capture_command, capture_command_range, pane_refresh_commands, window_relist_commands,
-    ChangeType, SideEffect, StateAggregator,
-};
+use super::state::{window_relist_commands, ChangeType, SideEffect, StateAggregator};
 use crate::constants::tmux_formats;
 use crate::error::TmuxError;
 use crate::{PaneId, StateUpdate, WindowId};

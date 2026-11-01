@@ -167,11 +167,7 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::QueryTmux { command } => {
-            let routed = match transport::route(
-                &command,
-                session,
-                new_window_client_size(state, session).await,
-            ) {
+            let routed = match transport::route_query(&command) {
                 Route::Blocked(reason) => {
                     return Err(CommandError::forbidden(reason));
                 }

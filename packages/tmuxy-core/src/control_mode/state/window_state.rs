@@ -159,7 +159,7 @@ pub(super) fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
 impl StateAggregator {
     /// Register in-flight capture-pane commands and return only pane IDs that
     /// were actually queued (not already pending). The caller must send the
-    /// marker-bracketed `capture_command(..)` form for each returned ID —
+    /// marker-bracketed `markers().capture_command(..)` form for each returned ID —
     /// response routing relies on the markers, not on ordering.
     pub fn queue_captures(&mut self, pane_ids: &[PaneId]) -> Vec<PaneId> {
         let mut queued = Vec::new();

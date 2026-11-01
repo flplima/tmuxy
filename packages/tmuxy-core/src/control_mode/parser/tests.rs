@@ -136,6 +136,39 @@ fn stray_end_without_begin_is_ignored() {
     assert!(parser.parse_line("%error 1234567890 1 0").is_none());
 }
 
+/// A capture of a pane that shows tmux's own guard lines: the block ends at
+/// the `%end` repeating its `%begin`, and nothing in between — another
+/// block's guards, a `%begin`, a notification — is read as anything but body.
+#[test]
+fn a_block_closes_only_on_the_guard_that_repeats_its_begin() {
+    let mut parser = Parser::new();
+    let body = [
+        "%end 1234567890 7 1",
+        "%error 0 0 0",
+        "%begin 1 2 3",
+        "%exit",
+        "%window-close @1",
+    ];
+    assert!(parser.parse_line("%begin 1234567890 8 1").is_none());
+    for line in body {
+        assert!(parser.parse_line(line).is_none(), "{line} is body");
+    }
+    match parser.parse_line("%end 1234567890 8 1") {
+        Some(ControlModeEvent::CommandResponse {
+            output, success, ..
+        }) => {
+            assert!(success);
+            assert_eq!(output, body.join("\n"));
+        }
+        other => panic!("expected the block, got {other:?}"),
+    }
+    // The block is closed: a notification is a notification again.
+    assert!(matches!(
+        parser.parse_line("%exit"),
+        Some(ControlModeEvent::Exit { .. })
+    ));
+}
+
 #[test]
 fn test_parse_exit() {
     let mut parser = Parser::new();

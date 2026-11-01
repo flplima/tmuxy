@@ -37,7 +37,8 @@ pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub use state::{
-    accepted_clipboard_write, capture_command, capture_command_range, normalize_capture_bytes,
-    pane_refresh_commands, reply_wrapped_lines, window_relist_commands, ChangeType, SideEffect,
-    StateAggregator, StepResult, MAX_CLIPBOARD_BYTES,
+    accepted_clipboard_write, control_mode_lines, normalize_capture_bytes, window_relist_commands,
+    ChangeType, Markers, SideEffect, StateAggregator, StepResult, BUFFER_BEGIN_MARKER,
+    BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, MAX_CLIPBOARD_BYTES,
+    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };

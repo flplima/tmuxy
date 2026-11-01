@@ -55,12 +55,19 @@ impl<C: ControlLink> TmuxMonitor<C> {
             (None, None) => (unescaped.clone(), None),
         };
         let sent = match waiter {
-            None => self.connection.send_command(&outgoing).await,
+            // Typed text is one `send-keys` per line (a blank one would
+            // detach this client), and the connection writes a line each.
+            None => {
+                let lines: Vec<String> = super::state::control_mode_lines(&outgoing)
+                    .map(str::to_string)
+                    .collect();
+                self.connection.send_commands_batch(&lines).await
+            }
             Some(waiter) => {
                 // The id `relay_key` was named after.
                 self.next_reply_id += 1;
                 let id = self.next_reply_id;
-                let lines = super::state::reply_wrapped_lines(id, &outgoing);
+                let lines = self.aggregator.markers().reply_wrapped_lines(id, &outgoing);
                 let sent = self.connection.send_commands_batch(&lines).await;
                 match (&sent, waiter) {
                     (Ok(()), waiter) => {
@@ -214,7 +221,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
 pub(super) fn reports_failure(command: &str) -> bool {
     !crate::executor::split_compound(command)
         .iter()
-        .flat_map(|part| part.split(" ; "))
         .any(|part| matches!(crate::executor::command_verb(part), "send-keys" | "send"))
 }
 

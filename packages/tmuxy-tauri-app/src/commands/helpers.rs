@@ -40,13 +40,12 @@ pub(super) async fn query_via_monitor(
     transport::query(&state.connected_tx()?, command).await
 }
 
-/// The shared policy (`tmuxy_core::transport::route`): `None` for a blocked
-/// command (logged, not an error — the web server answers those with null).
-pub(super) fn route(state: &MonitorState, session: &str, command: &str) -> Option<String> {
-    let size = state.last_client_size.read().ok().and_then(|g| *g);
-    match transport::route(command, session, size) {
+/// The shared query policy (`tmuxy_core::transport::route_query`): `None`
+/// for a query that would run anything but a read.
+pub(super) fn route_query(command: &str) -> Option<String> {
+    match transport::route_query(command) {
         Route::Blocked(reason) => {
-            tracing::warn!(target: "tmuxy_tauri_app::commands", reason, "blocked command");
+            tracing::warn!(target: "tmuxy_tauri_app::commands", reason, "blocked query");
             None
         }
         Route::ControlMode(cmd) => Some(cmd),

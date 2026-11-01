@@ -195,8 +195,8 @@ pub struct StateAggregator {
     /// (don't send a second capture while one is pending) and to preserve the
     /// previous content of a resized pane until its capture lands (see
     /// `to_state_update`). Response ROUTING does not use this — every capture
-    /// is bracketed by `TMUXY_CAP_BEGIN <pane>` / `TMUXY_CAP_END` marker
-    /// responses (see `capture_command`), so a capture block is attributed to
+    /// is bracketed by `TMUXY_CAP_BEGIN <token> <pane>` / `TMUXY_CAP_END <token>`
+    /// marker responses (see `Markers`), so a capture block is attributed to
     /// its pane exactly, never by arrival order or output-shape guessing.
     pending_captures: std::collections::VecDeque<PaneId>,
     /// Whether a list-panes / list-windows response has been parsed since
@@ -218,6 +218,9 @@ pub struct StateAggregator {
     /// between its `TMUXY_RPY_BEGIN <id>` and `TMUXY_RPY_END <id>` marker
     /// blocks. See `reply_wrapped_lines`.
     reply_in_flight: Option<ReplyInFlight>,
+    /// The token this aggregator's marker lines carry, and the commands that
+    /// print them (`Markers`): a marker without it is pane output.
+    markers: Markers,
 
     /// Latest value of the session-scoped `@tmuxy-focus-request` option, read
     /// as a column of the `list-windows` poll. A one-shot request from a shell
@@ -300,6 +303,7 @@ impl StateAggregator {
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
             reply_in_flight: None,
+            markers: Markers::fresh(),
 
             focus_request: None,
             even_out_pending: Vec::new(),
@@ -318,6 +322,15 @@ impl StateAggregator {
     }
 }
 
+impl StateAggregator {
+    /// The marker lines this aggregator recognises, and the commands that
+    /// print them: every capture, reply and buffer read sent on its
+    /// connection is built here.
+    pub fn markers(&self) -> &Markers {
+        &self.markers
+    }
+}
+
 impl Default for StateAggregator {
     fn default() -> Self {
         Self::new()
@@ -327,6 +340,7 @@ impl Default for StateAggregator {
 mod command_response;
 mod delta_emit;
 mod events;
+mod markers;
 mod pane_output;
 mod pane_state;
 mod parsing;
@@ -334,13 +348,12 @@ mod stash_and_helpers;
 mod step_and_output;
 mod window_state;
 
+pub use command_response::window_relist_commands;
 use command_response::ReplyInFlight;
-pub use command_response::{
-    capture_command, capture_command_range, pane_refresh_commands, reply_wrapped_lines,
-    window_relist_commands,
+pub use markers::{
+    control_mode_lines, Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
+    CAPTURE_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
-#[cfg(test)]
-pub use command_response::{CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER};
 pub use pane_state::PaneState;
 pub use stash_and_helpers::{
     accepted_clipboard_write, normalize_capture_bytes, MAX_CLIPBOARD_BYTES,

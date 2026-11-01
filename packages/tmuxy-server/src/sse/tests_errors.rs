@@ -334,6 +334,27 @@ async fn a_blocked_query_is_kind_forbidden() {
     );
 }
 
+/// A query only reads (X6): a mutation sent as one is refused before it
+/// reaches the monitor, where it skipped the mutation path's `run-shell`
+/// relay and queue.
+#[tokio::test]
+async fn a_mutation_sent_as_a_query_is_kind_forbidden() {
+    let state = Arc::new(AppState::new());
+    session_where_tmux_refuses(&state, "s").await;
+    for command in ["run-shell 'true'", "display-message -p x ; kill-pane"] {
+        assert_failure(
+            post(
+                &state,
+                Some("s"),
+                serde_json::json!({ "cmd": "query_tmux", "args": { "command": command } }),
+            )
+            .await,
+            StatusCode::BAD_REQUEST,
+            "forbidden",
+        );
+    }
+}
+
 #[tokio::test]
 async fn success_is_still_a_bare_result() {
     let state = Arc::new(AppState::new());

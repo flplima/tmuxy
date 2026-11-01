@@ -22,8 +22,7 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
 }
 
 use tmuxy_core::control_mode::{
-    pane_refresh_commands, window_relist_commands, ControlModeEvent, Parser, SideEffect,
-    StateAggregator,
+    window_relist_commands, ControlModeEvent, Parser, SideEffect, StateAggregator,
 };
 use tmuxy_core::StateUpdate;
 
@@ -77,7 +76,8 @@ impl Session {
                 SideEffect::RefreshPanes { pane_ids } => {
                     let queued = self.agg.queue_captures(&pane_ids);
                     if !queued.is_empty() {
-                        out.commands.extend(pane_refresh_commands(&queued));
+                        out.commands
+                            .extend(self.agg.markers().pane_refresh_commands(&queued));
                     }
                 }
                 SideEffect::ResumePane(id) => {
