@@ -30,10 +30,13 @@ import {
 import { isTauri } from '../../../utils/platform';
 import { applyAppearance } from '../../../utils/appearanceManager';
 import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
+import { PINNABLE } from '../../../domain/pins';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_THEME') return;
+    // tmuxy.conf pins it: the config's theme stays, whatever asked.
+    if (context.pinnedOptions.includes(PINNABLE.theme)) return;
     applyTheme(event.name, context.themeMode);
     saveThemeToStorage(event.name, context.themeMode);
     enqueue(assign({ themeName: event.name }));
@@ -52,6 +55,7 @@ export const uiPrefsActions = {
 
   uiPrefs_applyThemeMode: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_THEME_MODE') return;
+    if (context.pinnedOptions.includes(PINNABLE.themeMode)) return;
     applyThemeMode(event.mode);
     saveThemeToStorage(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
@@ -102,15 +106,19 @@ export const uiPrefsActions = {
           pinchOverview: event.appearance?.gesturePinchOverview ?? true,
         },
         nativeMenus: event.appearance?.nativeMenus ?? true,
+        pinnedOptions: event.pinned ?? [],
       }),
     );
     // localStorage takes precedence — server defaults only apply when
-    // the user hasn't chosen a theme yet (e.g. first visit). Either way the
-    // theme is applied HERE: a page that never ran main.tsx's startup apply
-    // (a story) would otherwise keep a saved choice and no stylesheet.
+    // the user hasn't chosen a theme yet (e.g. first visit) — except over a
+    // theme or mode tmuxy.conf pins: config beats menu state, on every client.
+    // Either way the theme is applied HERE: a page that never ran main.tsx's
+    // startup apply (a story) would otherwise keep a saved choice and no
+    // stylesheet.
+    const pinned = event.pinned ?? [];
     const saved = loadThemeFromStorage();
-    const theme = saved?.theme ?? event.theme;
-    const mode = saved?.mode ?? event.mode;
+    const theme = pinned.includes(PINNABLE.theme) ? event.theme : (saved?.theme ?? event.theme);
+    const mode = pinned.includes(PINNABLE.themeMode) ? event.mode : (saved?.mode ?? event.mode);
     applyTheme(theme, mode);
     if (!saved) saveThemeToStorage(theme, mode);
     enqueue(assign({ themeName: theme, themeMode: mode }));
@@ -121,6 +129,7 @@ export const uiPrefsActions = {
   // backend on every transport and comes back through THEME_SETTINGS_RECEIVED.
   uiPrefs_toggleCursorBlink: act(({ event, context, enqueue }) => {
     if (event.type !== 'TOGGLE_CURSOR_BLINK') return;
+    if (context.pinnedOptions.includes(PINNABLE.cursorBlink)) return;
     const enabled = !context.cursorBlink;
     enqueue(assign({ cursorBlink: enabled }));
     enqueue(
@@ -134,6 +143,7 @@ export const uiPrefsActions = {
 
   uiPrefs_toggleSendAsk: act(({ event, context, enqueue }) => {
     if (event.type !== 'TOGGLE_SEND_ASK') return;
+    if (context.pinnedOptions.includes(PINNABLE.sendAsk)) return;
     const enabled = !context.sendAsk;
     enqueue(assign({ sendAsk: enabled }));
     enqueue(
@@ -149,6 +159,7 @@ export const uiPrefsActions = {
   // surfaces (applyAppearance) as it puts every window's blur on or off.
   uiPrefs_toggleTransparency: act(({ event, context, enqueue }) => {
     if (event.type !== 'TOGGLE_TRANSPARENCY') return;
+    if (context.pinnedOptions.includes(PINNABLE.transparency)) return;
     const enabled = !context.transparency;
     enqueue(assign({ transparency: enabled }));
     enqueue(

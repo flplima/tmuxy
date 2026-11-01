@@ -197,6 +197,14 @@ export interface AppMachineContext {
    */
   transparency: boolean;
   /**
+   * The menu-managed options (`@tmuxy-theme`, `@tmuxy-theme-mode`,
+   * `@tmuxy-transparency`, `@tmuxy-cursor-blink`, `@tmuxy-send-ask`) the
+   * user's `tmuxy.conf` sets. Config beats menu state: the menus show each as
+   * "set in tmuxy.conf" and leave it alone, and a pinned theme wins over the
+   * one this client last picked.
+   */
+  pinnedOptions: readonly string[];
+  /**
    * The config's `@tmuxy-tab-overview-cols`: cards per row in the "all tabs"
    * view. Defaults to 3, also on adapters without a config.
    */

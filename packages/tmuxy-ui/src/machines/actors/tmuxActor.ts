@@ -132,6 +132,7 @@ export function createTmuxActor(runtime: AppRuntime) {
         mode: parseThemeMode(settings.mode),
         appearance: settings.appearance,
         cssVars: settings.cssVars,
+        pinned: settings.pinned,
       });
 
     /** Each pushed event as the parent's event. */

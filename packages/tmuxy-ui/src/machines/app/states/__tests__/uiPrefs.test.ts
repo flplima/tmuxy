@@ -61,6 +61,44 @@ describe('uiPrefs state', () => {
     }
   });
 
+  // Config beats menu state: a theme tmuxy.conf pins wins over the one this
+  // client last picked, and the menu cannot change it; the saved choice is
+  // kept for when the pin goes.
+  it('a theme tmuxy.conf pins wins over the saved one and survives a menu change', () => {
+    localStorage.clear();
+    localStorage.setItem('tmuxy-theme-name', 'dracula');
+    localStorage.setItem('tmuxy-theme-mode', 'dark');
+    try {
+      const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+      let ctx = sendAndGetContext(actor, {
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: 'nord',
+        mode: 'dark',
+        pinned: ['@tmuxy-theme'],
+      });
+      expect(ctx.themeName).toBe('nord');
+      expect(ctx.pinnedOptions).toEqual(['@tmuxy-theme']);
+      expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(
+        /themes\/nord\.css$/,
+      );
+
+      ctx = sendAndGetContext(actor, { type: 'SET_THEME', name: 'gruvbox' });
+      expect(ctx.themeName).toBe('nord');
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('dracula');
+
+      // The pin goes: the client's own choice is back.
+      ctx = sendAndGetContext(actor, {
+        type: 'THEME_SETTINGS_RECEIVED',
+        theme: 'nord',
+        mode: 'dark',
+        pinned: [],
+      });
+      expect(ctx.themeName).toBe('dracula');
+    } finally {
+      localStorage.clear();
+    }
+  });
+
   it('THEME_SETTINGS_RECEIVED applies the appearance as CSS variables', () => {
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
     sendAndGetContext(actor, {

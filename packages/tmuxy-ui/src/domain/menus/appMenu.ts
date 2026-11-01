@@ -8,6 +8,7 @@ import type { AppMachineContext } from '../../machines/types/context';
 import type { TraceLevel } from '../../machines/types/domain';
 import type { WidgetMenuItem } from '../../components/widgets/registry';
 import { TmuxOp } from '../commands';
+import { PINNABLE, pinnedLabel } from '../pins';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
@@ -59,8 +60,12 @@ function themeHasMode(
 }
 
 export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
-  const { themeName, themeMode, availableThemes } = ctx;
+  const { themeName, themeMode, availableThemes, pinnedOptions } = ctx;
   const has = (mode: 'dark' | 'light') => themeHasMode(availableThemes, themeName, mode);
+  // An option tmuxy.conf sets is the config's: every item for it is greyed
+  // out, and the one in effect says where it is set.
+  const modePinned = pinnedOptions.includes(PINNABLE.themeMode);
+  const themePinned = pinnedOptions.includes(PINNABLE.theme);
   return tidy([
     // A mode the current theme declares no palette for is greyed out: picking
     // it would draw the page in the browser's defaults.
@@ -68,9 +73,9 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
       ({ mode, label }): MenuNode => ({
         kind: 'checkbox',
         id: `theme-mode-${mode}`,
-        label,
+        label: pinnedLabel(label, modePinned && themeMode === mode),
         checked: themeMode === mode,
-        disabled: mode === 'auto' ? !has('dark') || !has('light') : !has(mode),
+        disabled: modePinned || (mode === 'auto' ? !has('dark') || !has('light') : !has(mode)),
         action: event({ type: 'SET_THEME_MODE', mode }),
       }),
     ),
@@ -79,8 +84,9 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
       (t): MenuNode => ({
         kind: 'checkbox',
         id: `theme-set-${t.name}`,
-        label: t.displayName,
+        label: pinnedLabel(t.displayName, themePinned && themeName === t.name),
         checked: themeName === t.name,
+        disabled: themePinned,
         action: event({ type: 'SET_THEME', name: t.name }),
       }),
     ),
@@ -126,20 +132,22 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       action: event({ type: 'RESET_FONT_SIZE' }),
     },
     separator,
-    // One switch for the machine, written back to the tmuxy config — not a
-    // per-client preference like the theme.
+    // One switch for the machine, remembered in tmuxy.state.json — not a
+    // per-client preference like the theme — unless tmuxy.conf pins it.
     {
       kind: 'checkbox',
       id: 'view-cursor-blink',
-      label: 'Blinking Cursor',
+      label: pinnedLabel('Blinking Cursor', ctx.pinnedOptions.includes(PINNABLE.cursorBlink)),
       checked: ctx.cursorBlink,
+      disabled: ctx.pinnedOptions.includes(PINNABLE.cursorBlink),
       action: event({ type: 'TOGGLE_CURSOR_BLINK' }),
     },
     {
       kind: 'checkbox',
       id: 'view-send-ask',
-      label: 'Ask Before Sending Keys',
+      label: pinnedLabel('Ask Before Sending Keys', ctx.pinnedOptions.includes(PINNABLE.sendAsk)),
       checked: ctx.sendAsk,
+      disabled: ctx.pinnedOptions.includes(PINNABLE.sendAsk),
       action: event({ type: 'TOGGLE_SEND_ASK' }),
     },
     // The native blur only exists on macOS, and only the desktop app has a
@@ -148,8 +156,12 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       env.isMac && {
         kind: 'checkbox',
         id: 'view-transparency',
-        label: 'Enable Window Transparency',
+        label: pinnedLabel(
+          'Enable Window Transparency',
+          ctx.pinnedOptions.includes(PINNABLE.transparency),
+        ),
         checked: ctx.transparency,
+        disabled: ctx.pinnedOptions.includes(PINNABLE.transparency),
         action: event({ type: 'TOGGLE_TRANSPARENCY' }),
       },
   ]);
