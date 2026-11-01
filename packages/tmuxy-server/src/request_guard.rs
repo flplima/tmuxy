@@ -191,8 +191,7 @@ fn check_parts(
         }
         HostPolicy::Bound { bound, allowed } => {
             let name = host.map(hostname).ok_or("request has no Host header")?;
-            let loopback_ok = allowed.is_empty() && is_loopback_name(name);
-            if !loopback_ok && !names_this_server(name, *bound, allowed) {
+            if !is_loopback_name(name) && !names_this_server(name, *bound, allowed) {
                 return Err("request Host is not this server (see --allowed-host)");
             }
         }

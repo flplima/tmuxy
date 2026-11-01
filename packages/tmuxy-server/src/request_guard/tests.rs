@@ -261,17 +261,24 @@ fn non_ascii_or_duplicate_security_headers_fail_closed() {
     assert!(check(&dup, &loopback()).is_err());
 }
 
+/// Listing a public name adds it; it does not take loopback away. A wildcard
+/// bind with `--allowed-host` is how Codespaces runs, and its editor also
+/// forwards the port to the user's own `localhost` — a name no other site can
+/// make a browser send, so refusing it stops nothing.
 #[test]
-fn routable_bind_with_allowed_hosts_refuses_unlisted_localhost_and_checks_h2_authority() {
+fn a_routable_bind_with_allowed_hosts_still_answers_loopback_and_checks_h2_authority() {
     let policy = HostPolicy::Bound {
         bound: Some("192.168.1.20".parse().unwrap()),
         allowed: vec!["demo.example".into()],
     };
-    assert!(check(&headers(&[("host", "localhost:9000")]), &policy).is_err());
-    assert_eq!(
-        check(&headers(&[("host", "demo.example")]), &policy),
-        Ok(())
-    );
+    for host in ["localhost:9000", "127.0.0.1:9000", "demo.example"] {
+        assert_eq!(
+            check(&headers(&[("host", host)]), &policy),
+            Ok(()),
+            "{host}"
+        );
+    }
+    assert!(check(&headers(&[("host", "attacker.example")]), &policy).is_err());
 
     let h2_ok = Request::get("https://demo.example/events")
         .body(Body::empty())
