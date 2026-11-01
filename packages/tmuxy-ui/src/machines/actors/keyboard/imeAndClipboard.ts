@@ -25,6 +25,7 @@ import { getLatches, pressKey } from '../../../utils/keyLatch';
 import { noteFocus, PANE_SURFACE } from '../../../utils/chromeTab';
 import { isModelPaneId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
+import { withoutControls } from '../../../domain/commandHelpers';
 import { isRealFormControl, realPaneId } from './keyFormatting';
 
 export interface ImeClipboardDeps {
@@ -132,7 +133,9 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (!deps.isEnabled()) return;
     if (isRealFormControl(event.target)) return;
     event.preventDefault();
-    const text = event.clipboardData?.getData('text/plain');
+    // Filtered here as well as in the command: a clipboard of nothing but
+    // controls is no paste at all, rather than an empty command.
+    const text = withoutControls(event.clipboardData?.getData('text/plain') ?? '');
     if (!text) return;
 
     deps.parent.send({

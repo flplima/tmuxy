@@ -77,7 +77,7 @@ function isPasteControl(ch: string): boolean {
  * has no use for the rest of C0 either, so those go too rather than being
  * argued one by one.
  */
-function withoutControls(text: string): string {
+export function withoutControls(text: string): string {
   return Array.from(text)
     .filter((ch) => !isPasteControl(ch))
     .join('');
