@@ -30,7 +30,10 @@ export const CX_INTEGRITY: ReadonlyArray<readonly [url: string, sha256Hex: strin
 
 /**
  * Fetch a remote module and verify its SHA-256 digest before dynamic `import()`
- * executes it, giving dynamic ES module loads the same guarantee as `<script integrity>`.
+ * executes it. Weaker than `<script integrity>`: the import fetches the module
+ * again (normally from the HTTP cache), and what the runtime loads after it —
+ * its core worker and WebAssembly — is not covered. It refuses a runtime the
+ * CDN changed under the pinned version, which is what it is for.
  */
 export async function verifySubresourceIntegrity(
   url: string,
