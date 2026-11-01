@@ -54,8 +54,10 @@ pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// (`OpenSidebar` in domain/commands.ts). A sidebar is tmuxy's own window, so a
 /// restore runs it rather than offering it. The bundled script by its installed
 /// path, not a bare `tmuxy`: that is whatever PATH holds, and a stale one exits
-/// at once and takes the column's window with it.
-pub const LEFT_SIDEBAR_WIDGET: &str = "$HOME/.local/share/tmuxy/bin/tmuxy/tmuxy-widget-tree";
+/// at once and takes the column's window with it. The data dir is the one the
+/// entry file publishes (`session::DATA_DIR_ENV`), which the pane's shell
+/// expands.
+pub const LEFT_SIDEBAR_WIDGET: &str = "$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree";
 /// What a left sidebar ran before: a bare `tmuxy widget tree`, then the
 /// bundled script under the config dir, before the scripts moved to the data
 /// dir. A snapshot saved then still says so, and restores as the sidebar all

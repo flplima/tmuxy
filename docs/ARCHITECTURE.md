@@ -69,7 +69,7 @@ tmuxy's files live in three directories, split by owner so each has one rule (`L
 | `custom.css`, `themes/<name>.css` | config | user | left alone; a theme named like a built-in shadows it |
 | `tmuxy.defaults.conf`, `tmuxy.essentials.conf`, `tmuxy.conf.example`, `README.md` | data | app | rewritten to this build's copy, headed as generated |
 | `themes/<built-in>.css`, `bin/` | data | app | rewritten, headed as generated; a retired built-in is removed |
-| `tmuxy.entry.conf` (and `tmuxy.compat.conf`, when needed) | data | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
+| `tmuxy.entry.conf` (and `tmuxy.compat.conf`, when needed) | state | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
 | `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them |
 | `launcher`, `tmuxy.pid`, `config-reload` | state | app | the desktop app's path for the `~/.local/bin/tmuxy` shorthand; the web server's pid; the marker `tmuxy config reload` touches |
 

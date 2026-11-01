@@ -290,11 +290,12 @@ pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), Command
 /// A client's mutation, the way both hosts run one: routed by the shared
 /// policy (a blocked command is logged and dropped — both answer it with
 /// nothing), written to the monitor, and, when it was a `source-file`,
-/// followed by the menu choices the user's `tmuxy.conf` does not pin (a
-/// sourced defaults file resets them) and by `after_source_file` once tmux
-/// has had [`SOURCE_FILE_SETTLE`] to apply it: the prefix, the bindings, the
-/// theme and the appearance may all have changed, and the host pushes fresh
-/// copies.
+/// preceded by a rebuild of the entry file (so no chain it sources is stale;
+/// see [`source_with_entry`]) and followed by the menu choices the user's
+/// `tmuxy.conf` does not pin (a sourced defaults file resets them) and by
+/// `after_source_file` once tmux has had [`SOURCE_FILE_SETTLE`] to apply it:
+/// the prefix, the bindings, the theme and the appearance may all have
+/// changed, and the host pushes fresh copies.
 pub async fn run_client_command<F>(
     tx: &MonitorCommandSender,
     command: &str,
@@ -313,6 +314,11 @@ where
         Route::ControlMode(cmd) => cmd,
     };
     let sourced = is_source_file(&routed);
+    let routed = if sourced {
+        source_with_entry(routed, crate::session::get_config_path().as_deref())
+    } else {
+        routed
+    };
     run(tx, &routed).await?;
     if sourced {
         for cmd in crate::session::current_managed_state_commands() {

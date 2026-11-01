@@ -205,12 +205,12 @@ config|custom.css|user|yes|yes|Your CSS, loaded last.
 config|themes/|user|yes|yes|Your themes; a built-in's name replaces that built-in.
 data|tmuxy.defaults.conf|tmuxy|no|no|tmuxy's taste: prefix, status line, bindings, the @tmuxy-* defaults.
 data|tmuxy.essentials.conf|tmuxy|no|no|The settings tmuxy cannot work without, sourced first and last.
-data|tmuxy.entry.conf|tmuxy|no|no|The chain tmux starts with, built from the files around it.
-data|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the old defaults: a copy without that line.
 data|tmuxy.conf.example|tmuxy|no|no|The starter tmuxy.conf; `tmuxy config init` copies it.
 data|themes/|tmuxy|no|no|The built-in themes, to read or copy.
 data|bin/|tmuxy|no|no|The tmuxy CLI and its helper scripts.
 data|README.md|tmuxy|no|no|The guide to these files.
+state|tmuxy.entry.conf|tmuxy|no|no|The chain tmux starts with, built from your files and this machine's choices.
+state|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the old defaults: a copy without that line.
 state|tmuxy.state.json|tmuxy|no|no|Choices made in the app's menus.
 state|servers.json|tmuxy|yes|no|The servers `tmuxy session connect` saved.
 state|trace.json|tmuxy|yes|no|The Debug menu's trace switch.

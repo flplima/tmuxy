@@ -24,12 +24,12 @@ machine (`--json` for a script).
 | `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme. |
 | `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                 |
 | `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                        |
-| `tmuxy.entry.conf`      | data   | tmuxy | no           | no              | The chain tmux starts with, built from the files around it.                            |
-| `tmuxy.compat.conf`     | data   | tmuxy | no           | no              | Only while your `tmuxy.conf` still sources the old defaults: a copy without that line. |
 | `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.           |
 | `themes/<built-in>.css` | data   | tmuxy | no           | no              | The bundled themes, to read or copy.                                                   |
 | `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                |
 | `README.md`             | data   | tmuxy | no           | no              | This file.                                                                             |
+| `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.          |
+| `tmuxy.compat.conf`     | state  | tmuxy | no           | no              | Only while your `tmuxy.conf` still sources the old defaults: a copy without that line. |
 | `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).          |
 | `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.     |
 | `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                         |

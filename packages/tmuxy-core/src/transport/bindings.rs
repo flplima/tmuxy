@@ -287,6 +287,27 @@ pub fn is_source_file(command: &str) -> bool {
     command.starts_with("source-file") || command.starts_with("source ")
 }
 
+/// What a client sends to reload the config chain (Reload Config): the entry
+/// file by the variable the file itself publishes
+/// ([`crate::session::ENTRY_CONF_ENV`]), which tmux expands where nothing
+/// stands between the client and tmux (the in-browser guests).
+pub const SOURCE_ENTRY_CONF: &str = "source-file $TMUXY_ENTRY_CONF";
+
+/// A client's `source-file` as a tmuxy process runs it, given the entry file
+/// it has just rebuilt: [`SOURCE_ENTRY_CONF`] names that file by this
+/// process's own path, since the variable is whichever process last sourced
+/// a chain on the socket — another tmuxy with other config and state dirs (a
+/// test's server beside the app) may have published its own. Any other
+/// `source-file` is the client's to name, and runs as it came.
+pub fn source_with_entry(command: String, entry: Option<&std::path::Path>) -> String {
+    match entry {
+        Some(entry) if command.trim() == SOURCE_ENTRY_CONF => {
+            format!("source-file {}", tmux_quote(&entry.to_string_lossy()))
+        }
+        _ => command,
+    }
+}
+
 /// How long to wait after a `source-file` before re-reading what it changed.
 ///
 /// The reads ride the same connection as the `source-file`, so tmux answers

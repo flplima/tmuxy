@@ -50,11 +50,14 @@ function tmuxEnv() {
     ...process.env,
     TMUX_SOCKET: tmuxSocket(),
     TMUXY_STATE_DIR: stateDir(),
-    // The developer's own ~/.config/tmuxy, never: the suite runs this branch's
-    // build, which would migrate that dir (and write its starter) under the
+    // The developer's own ~/.config/tmuxy and ~/.local/share/tmuxy, never:
+    // the suite runs this branch's build, which would migrate the one (and
+    // write its starter) and re-mirror the other's scripts and confs under the
     // installed app's feet, and a test would see whatever the developer put
-    // there. The data dir stays the default: the UI names the scripts by it.
+    // there. The UI names the scripts by the data dir the chain publishes to
+    // tmux, so the server under test runs the ones it mirrored here.
     XDG_CONFIG_HOME: configHome(),
+    TMUXY_DATA_DIR: dataDir(),
     // The shared server neither saves nor rebuilds sessions: a suite that
     // kills a session and makes another of the same name must get an empty
     // one, not the last one's tabs. Snapshots are tested on a server of
@@ -88,6 +91,11 @@ function stateDir() {
 /** The suite's own `$XDG_CONFIG_HOME`, beside its state dir. */
 function configHome() {
   return path.join(os.tmpdir(), `tmuxy-e2e-config-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`);
+}
+
+/** The suite's own data dir, beside its state dir. */
+function dataDir() {
+  return path.join(os.tmpdir(), `tmuxy-e2e-data-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`);
 }
 
 /**

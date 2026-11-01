@@ -28,11 +28,11 @@ import {
   tmuxDoubleQuoted,
 } from './commandHelpers';
 
-/** Where the bundled scripts are mirrored (the data dir), as `run-shell` expands it. */
-export const SCRIPTS_DIR = '$HOME/.local/share/tmuxy/bin/tmuxy';
+/** The bundled scripts, in the data dir the config chain publishes to tmux. */
+export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
 
-/** tmuxy's config chain, built in the data dir; never the user's `~/.tmux.conf`. */
-export const CONFIG_FILE = '~/.local/share/tmuxy/tmuxy.entry.conf';
+/** tmuxy's config chain (the server sources its own); never `~/.tmux.conf`. */
+export const CONFIG_FILE = '$TMUXY_ENTRY_CONF';
 
 /** The fixed window name of a sidebar column: unique, so a create can target it by name. */
 export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
