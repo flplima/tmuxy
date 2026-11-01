@@ -55,19 +55,27 @@ See [ARCHITECTURE-WIDGETS.md](ARCHITECTURE-WIDGETS.md) for this section: Widgets
 
 ## The user's config directory
 
-Everything a user can change lives in `~/.config/tmuxy/` (`$XDG_CONFIG_HOME/tmuxy`), materialized by `tmuxy-core/src/session.rs` at every launch of either host. Two kinds of file live there, and the kind decides what an edit means:
+tmuxy's files live in three directories, split by owner so each has one rule (`Layout` in `tmuxy-core/src/session/config.rs`, the directories in `tmuxy-core/src/paths.rs`):
 
-| File | Owner | On launch |
-| --- | --- | --- |
-| `tmuxy.conf` | user | created once from a template, never touched |
-| `custom.css`, `themes/<own name>.css` | user | left alone |
-| `tmuxy.defaults.conf`, `tmuxy.essentials.conf` | app | rewritten to this build's copy |
-| `themes/<built-in>.css` | app | rewritten, with a header saying so |
-| `tmuxy.user.conf` | app | regenerated from the `use-tmux-conf` choice |
-| `tmuxy.state.json` | app | choices made in the menus, re-applied after the conf |
-| `README.md`, `bin/` | app | rewritten |
+| Dir | Default | Owner | Rule |
+| --- | --- | --- | --- |
+| config | `~/.config/tmuxy` (`$XDG_CONFIG_HOME/tmuxy`) | user | written once, on the very first run; safe to edit and to symlink from a dotfiles repo |
+| data | `~/.local/share/tmuxy` (`$XDG_DATA_HOME/tmuxy`, `TMUXY_DATA_DIR`), on every OS | app | mirrored from the bundle on every launch, read-only, never written through a symlink |
+| state | `~/.local/state/tmuxy`, macOS `~/Library/Application Support/tmuxy` (`TMUXY_STATE_DIR`) | app | this machine's state; never shared between machines |
 
-The user never overrides what the app bundles; they copy a built-in theme to a new name, write `custom.css`, or set options in `tmuxy.conf`. CSS applies in that order, most specific first: `custom.css` → the `@tmuxy-css-<variable>` options → the theme file. Every edit is live: both hosts watch the directory and either push `css-changed` or source the conf (see [DATA-FLOW.md](DATA-FLOW.md)). The `README.md` written there is the user-facing guide, and the one the bundled agent skill points at.
+| File | Dir | Owner | On launch |
+| --- | --- | --- | --- |
+| `tmuxy.conf` | config | user | the starter (comments only) on the very first run — the config dir did not exist, not even as a dangling link — and never again |
+| `custom.css`, `themes/<name>.css` | config | user | left alone; a theme named like a built-in shadows it |
+| `tmuxy.defaults.conf`, `tmuxy.essentials.conf`, `tmuxy.conf.example`, `README.md` | data | app | rewritten to this build's copy, headed as generated |
+| `themes/<built-in>.css`, `bin/` | data | app | rewritten, headed as generated; a retired built-in is removed |
+| `tmuxy.entry.conf` (and `tmuxy.compat.conf`, when needed) | data | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
+| `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them |
+| `launcher`, `tmuxy.pid`, `config-reload` | state | app | the desktop app's path for the `~/.local/bin/tmuxy` shorthand; the web server's pid; the marker `tmuxy config reload` touches |
+
+The user never overrides what the app bundles; they copy a built-in theme into the config dir (under a new name to add one, the same name to replace it), write `custom.css`, or set options in `tmuxy.conf`. CSS applies in that order, most specific first: `custom.css` → the `@tmuxy-css-<variable>` options → the theme file. An option `tmuxy.conf` sets beats a menu choice (see [TMUX-CONFIG.md](TMUX-CONFIG.md#menu-choices-and-the-options-tmuxyconf-pins)). Every edit is live: both hosts watch the config dir and either push `css-changed` or source the chain (see [DATA-FLOW.md](DATA-FLOW.md)). The `README.md` in the data dir is the user-facing guide, and the one the bundled agent skill points at; `tmuxy config paths` lists every file with its owner and its real location.
+
+**Migration.** The first launch of a build with this layout (`tmuxy-core/src/session/migrate.rs`) moves an older install's state files out of `~/.config/tmuxy` into the state dir, removes the files it used to mirror there (the confs, the README, `bin/`, the built-in themes it headed), and drops from `tmuxy.conf` the blocks older builds wrote: the template header, the `source-file …/tmuxy.defaults.conf` line, the commented examples, the Ctrl+Tab lines "added by tmuxy upgrade" and a Ctrl+hjkl restore the defaults ship again — keeping the original as `tmuxy.conf.bak`. Only comments, that line, and bindings identical to ones the defaults ship go, and a binding only when no other line binds or unbinds the same key. Nothing is written or deleted through a symlink: a linked config dir is only read (its state files are copied), and a linked `tmuxy.conf` is reported in the log rather than rewritten. A second run finds nothing to do. Pid files an older build left in `~/.tmuxy` are still read by `tmuxy server stop` and `status`.
 
 ## Multi-Client Viewport Sizing
 

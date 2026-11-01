@@ -54,7 +54,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | M8 | Reply ids are monotonic so expired reply blocks never match newer ones. | safety | `monitor.rs` | — |
 | M9 | `%session-changed` for another session is filtered before reaching the aggregator. | safety | `monitor.rs` | — |
 | M10 | Resizes retry <=3 times per size after new tmux reports; new sizes reset count; unmonitored sizes re-request. | liveness | `monitor.rs`, `sse.rs` | `monitor.rs › a_window_tmux_did_not_resize…`, `› …not_asked_again…`, `› a_size_tmux_keeps_refusing…`, `› a_new_size_starts…`, `› a_window_with_no_panes…`; `sse.rs › a_size_that_reached_no_monitor…` |
-| M11 | UI choices re-apply after `source-file` (UI wins), and enforced settings after both. | ordering | `monitor.rs` | `enforced_settings.rs › connecting_enforces_the_settings…` (final values; order is —) |
+| M11 | UI choices re-apply after every `source-file` of the chain (connect, reload, a client's own) and win, except an option the user's `tmuxy.conf` pins, which keeps the config's value; enforced settings after both. | ordering | `monitor.rs`, `session/state.rs`, `transport.rs` | `enforced_settings.rs › connecting_enforces_the_settings…` (final values; order is —); `session/tests.rs › a_pinned_option_is_not_reapplied_from_the_menu_state` (the pin) |
 
 ## X — the tmux connection and the router
 
