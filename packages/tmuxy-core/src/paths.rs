@@ -1,9 +1,13 @@
-//! Where tmuxy keeps per-machine state: the trace file, the desktop app's log
-//! and session snapshots.
+//! Where tmuxy keeps what is not the user's config: per-machine state (the
+//! trace, the desktop app's log, session snapshots, menu choices, pid files)
+//! in [`state_dir`], and the files the app mirrors from its bundle (the
+//! shipped tmux config, the built-in themes, the CLI scripts) in
+//! [`data_dir`]. The user's own files live in `session::config_dir`, which
+//! the app writes only on the very first run.
 //!
 //! One resolution for every host and every verb, so a `tmuxy trace --mark`
-//! stamps the file the server is writing and a test's `TMUXY_STATE_DIR` moves
-//! all of it at once.
+//! stamps the file the server is writing and a test's `TMUXY_STATE_DIR` /
+//! `TMUXY_DATA_DIR` moves all of it at once.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -13,6 +17,20 @@ use std::path::PathBuf;
 /// creates nothing.
 pub fn state_dir() -> PathBuf {
     state_dir_from(std::env::var_os("TMUXY_STATE_DIR"))
+}
+
+/// The data directory: `TMUXY_DATA_DIR`, else `$XDG_DATA_HOME/tmuxy`, else
+/// `~/.local/share/tmuxy` — on every OS, macOS included, as
+/// `session::config_dir` does: tmux's `source-file` and `run-shell` name these
+/// files by path, so the path is the same on every machine (an AppImage's
+/// mount point is not), and an agent or a `grep` finds them where the XDG
+/// layout says. Resolving it creates nothing.
+pub fn data_dir() -> PathBuf {
+    data_dir_from(
+        std::env::var_os("TMUXY_DATA_DIR"),
+        std::env::var_os("XDG_DATA_HOME"),
+        dirs::home_dir(),
+    )
 }
 
 /// The file the action trace is written to (docs/TRACING.md), unless
@@ -42,6 +60,25 @@ fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {
         .join("tmuxy")
 }
 
+/// [`data_dir`] as a function of its inputs. A relative `XDG_DATA_HOME` is
+/// ignored, as the XDG spec says it must be.
+fn data_dir_from(
+    override_dir: Option<OsString>,
+    xdg_data_home: Option<OsString>,
+    home: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(dir) = override_dir.filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    if let Some(xdg) = xdg_data_home.map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return xdg.join("tmuxy");
+    }
+    home.unwrap_or_else(std::env::temp_dir)
+        .join(".local")
+        .join("share")
+        .join("tmuxy")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,6 +102,25 @@ mod tests {
         for unset in [None, Some(OsString::new())] {
             let dir = state_dir_from(unset);
             assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some("tmuxy"));
+        }
+    }
+
+    #[test]
+    fn the_data_dir_is_the_override_then_xdg_then_local_share_on_every_os() {
+        let home = Some(PathBuf::from("/home/u"));
+        assert_eq!(
+            data_dir_from(Some("/tmp/d".into()), Some("/x".into()), home.clone()),
+            PathBuf::from("/tmp/d")
+        );
+        assert_eq!(
+            data_dir_from(None, Some("/x".into()), home.clone()),
+            PathBuf::from("/x/tmuxy")
+        );
+        for ignored in [None, Some(OsString::from("relative/path"))] {
+            assert_eq!(
+                data_dir_from(Some(OsString::new()), ignored, home.clone()),
+                PathBuf::from("/home/u/.local/share/tmuxy")
+            );
         }
     }
 }

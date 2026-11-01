@@ -120,13 +120,20 @@ fn embedded_file(path: &str) -> Response {
 // ============================================
 
 /// One pid file per port, so a second server beside the first neither
-/// overwrites its pid nor gets stopped in its place. The default port keeps
-/// the historical name.
+/// overwrites its pid nor gets stopped in its place. In the state dir, with
+/// the rest of this machine's runtime files; the default port keeps the
+/// historical name.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
-    let dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(".tmuxy");
-    std::fs::create_dir_all(&dir).ok();
+    pid_file_in(&tmuxy_core::paths::state_dir(), port)
+}
+
+/// Where a build before the state dir held its pid files, `~/.tmuxy`. Read so
+/// `stop` and `status` still find a server that build started; never written.
+fn legacy_pid_file_path(port: u16) -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|home| pid_file_in(&home.join(".tmuxy"), port))
+}
+
+fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
     if port == DEFAULT_PORT {
         dir.join("tmuxy.pid")
     } else {
@@ -136,7 +143,11 @@ pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
 
 pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
-    std::fs::write(pid_file_path(port), pid.to_string()).ok();
+    let path = pid_file_path(port);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
+    std::fs::write(path, pid.to_string()).ok();
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -147,6 +158,9 @@ pub(super) fn write_pid_file(port: u16) {
 /// the new server's file, and `stop` then reported a running server as gone.
 pub(super) fn remove_pid_file(port: u16, pid: u32) {
     remove_pid_file_at(&pid_file_path(port), pid);
+    if let Some(legacy) = legacy_pid_file_path(port) {
+        remove_pid_file_at(&legacy, pid);
+    }
 }
 
 pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
@@ -159,10 +173,16 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
     }
 }
 
+/// The pid the port's pid file names: the state dir's, else the one an older
+/// build wrote under `~/.tmuxy`.
 fn read_pid_file(port: u16) -> Option<u32> {
-    std::fs::read_to_string(pid_file_path(port))
-        .ok()
-        .and_then(|s| parse_pid(&s))
+    std::iter::once(pid_file_path(port))
+        .chain(legacy_pid_file_path(port))
+        .find_map(|path| {
+            std::fs::read_to_string(path)
+                .ok()
+                .and_then(|s| parse_pid(&s))
+        })
 }
 
 /// The pid a pid file names, if it names one other process. To kill(2), `0`

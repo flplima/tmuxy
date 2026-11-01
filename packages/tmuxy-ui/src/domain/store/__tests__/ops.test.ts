@@ -114,7 +114,7 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
   // and leaves the user waiting on a shell script plus a round trip.
   it('maps the expanded run-shell form list-keys actually reports', () => {
     const expanded = (dir: string) =>
-      `run-shell "bash /home/u/.config/tmuxy/bin/tmuxy/nav ${dir} #{pane_id}"`;
+      `run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav ${dir} #{pane_id}"`;
     expect(parseCommandToOp(expanded('left'))).toEqual({
       _tag: 'Navigate',
       direction: 'L',
@@ -141,7 +141,7 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
     expect(
       parseCommandToOp(
         'select-window -t @2 \\; select-pane -t %0 \\; ' +
-          'run-shell "bash /home/u/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"',
+          'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav right #{pane_id}"',
       ),
     ).toEqual({ _tag: 'Navigate', direction: 'R', script: true });
   });
@@ -159,7 +159,7 @@ describe('parseCommandToOp — tmuxy-nav aliases', () => {
   // `next`/`prev` are not directions the client can predict geometrically —
   // they must stay RawCommand rather than guess a neighbour.
   it('leaves the non-directional nav verbs unpredicted', () => {
-    const cmd = 'run-shell "bash /home/u/.config/tmuxy/bin/tmuxy/nav prev #{pane_id}"';
+    const cmd = 'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav prev #{pane_id}"';
     expect(parseCommandToOp(cmd)).toEqual({ _tag: 'RawCommand', command: cmd });
   });
 });

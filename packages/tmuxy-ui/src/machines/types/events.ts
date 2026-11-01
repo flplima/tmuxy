@@ -293,6 +293,7 @@ export type AppMachineEvent =
       mode: ThemeMode;
       appearance?: Appearance;
       cssVars?: Readonly<Record<string, string>>;
+      pinned?: readonly string[];
     }
   | { type: 'THEMES_LIST_RECEIVED'; themes: ThemeInfo[] }
   | { type: 'CSS_CHANGED' }

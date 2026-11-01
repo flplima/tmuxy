@@ -1,127 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — config, info, agent and skill commands.
-
-# --- Config ---
-
-# Where tmuxy keeps its config and state. Mirrors tmuxy-core's config_dir().
-tmuxy_config_dir() {
-  echo "${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
-}
-
-# Read one boolean out of tmuxy.state.json without a JSON parser: the file is
-# written by serde_json's pretty printer, so a key sits on its own line.
-state_bool() {
-  local key="$1" file
-  file="$(tmuxy_config_dir)/tmuxy.state.json"
-  [ -f "$file" ] || return 1
-  grep -q "\"$key\": true" "$file"
-}
-
-cmd_config() {
-  local setting="${1:-}"
-  case "$setting" in
-    reload)
-      cmd_config_reload
-      ;;
-    use-tmux-conf)
-      shift
-      cmd_config_use_tmux_conf "$@"
-      ;;
-    ""|--help|-h)
-      cat <<'EOF'
-Usage: tmuxy config <setting> [value]
-
-Settings:
-  reload                   Re-apply ~/.config/tmuxy/tmuxy.conf to the running app:
-                           the bindings and every @tmuxy-* option are re-read.
-  use-tmux-conf [on|off]   Source your own ~/.tmux.conf on tmuxy's socket.
-                           With no value, prints the current setting.
-
-With `use-tmux-conf on`, tmuxy sources ~/.tmux.conf and then re-applies
-tmuxy.essentials.conf on top: your prefix, status line and plugins win over
-tmuxy's defaults, and the settings tmuxy needs to function are restored
-afterwards whatever your config did to them.
-
-Takes effect on the next tmux server start for that socket — the config chain
-is read when the server starts, so restart tmuxy (or `tmuxy server stop`) after
-changing it.
-EOF
-      ;;
-    *)
-      [ "$JSON_OUT" = true ] || echo "Hint: tmuxy config --help" >&2
-      _die_usage "Unknown config setting: $setting"
-      ;;
-  esac
-}
-
-# The app watches tmuxy.conf and sources it on its own control-mode connection
-# when the file changes, then pushes the bindings and settings to every client.
-# Marking the file modified is the whole request: a raw `source-file` from
-# here would apply the config to tmux but tell no client about it.
-cmd_config_reload() {
-  local conf
-  conf="$(tmuxy_config_dir)/tmuxy.conf"
-  [ -f "$conf" ] || _fail "$EXIT_FAILED" "$conf does not exist (start tmuxy once to create it)"
-  touch "$conf"
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "file=$(json_string "$conf")"
-    return 0
-  fi
-  echo "Reloading $conf — the app re-applies it within a second."
-}
-
-cmd_config_use_tmux_conf() {
-  local dir state_file value="${1:-}"
-  dir="$(tmuxy_config_dir)"
-  state_file="$dir/tmuxy.state.json"
-
-  if [ -z "$value" ]; then
-    local on=false
-    state_bool use_tmux_conf && on=true
-    if [ "$JSON_OUT" = true ]; then
-      json_ok "useTmuxConf=$on"
-    elif $on; then
-      echo "use-tmux-conf: on  (~/.tmux.conf is sourced, then tmuxy.essentials.conf on top)"
-    else
-      echo "use-tmux-conf: off (tmuxy uses its own config only)"
-    fi
-    return 0
-  fi
-
-  case "$value" in
-    on|true|1) value=true ;;
-    off|false|0) value=false ;;
-    *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
-  esac
-
-  mkdir -p "$dir"
-  # Rewrite the one key, preserving everything else in the file. node is not a
-  # dependency of the CLI, so this is done with the tools a shell always has.
-  if [ -f "$state_file" ]; then
-    if grep -q '"use_tmux_conf"' "$state_file"; then
-      # -E: BSD sed has no \| alternation in a basic regex, and silently
-      # matches nothing rather than erroring — which read as "off does not work".
-      sed -i.bak -E "s/(\"use_tmux_conf\": )(true|false)/\1$value/" "$state_file"
-      rm -f "$state_file.bak"
-    else
-      # Insert after the opening brace so the file stays valid JSON.
-      sed -i.bak "1s/^{/{\n  \"use_tmux_conf\": $value,/" "$state_file"
-      rm -f "$state_file.bak"
-    fi
-  else
-    printf '{\n  "use_tmux_conf": %s\n}\n' "$value" > "$state_file"
-  fi
-
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "useTmuxConf=$value"
-    return 0
-  elif [ "$value" = true ]; then
-    echo "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."
-  else
-    echo "use-tmux-conf: off — tmuxy will use its own config only."
-  fi
-  echo "Restart tmuxy for this to take effect (the config chain is read at tmux server start)."
-}
+# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — info, agent and skill commands.
 
 # --- Info & Skill ---
 
@@ -295,7 +173,8 @@ tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switc
 tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
-tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
+tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app
+tmuxy config paths --json       # every file tmuxy reads or writes: owner, location, safe to edit/symlink
 ```
 
 ## The contract for scripts
@@ -318,13 +197,17 @@ tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the run
 
 ## Personalizing tmuxy
 
-Everything the user can change lives in `~/.config/tmuxy/`; its `README.md` is the
-guide — read it before changing a theme, a colour or the tmux config. In short:
+Everything the user can change lives in `~/.config/tmuxy/`. `tmuxy config paths`
+lists every file with its owner and location; the guide is `README.md` in tmuxy's
+data dir (`~/.local/share/tmuxy/`) — read it before changing a theme, a colour or
+the tmux config. In short:
 
-- Never edit an app-owned file (the built-in `themes/*.css`, `tmuxy.defaults.conf`):
-  it is rewritten on every launch. Copy a theme to a new name instead.
+- Never edit an app-owned file (anything in the data dir: the built-in `themes/*.css`,
+  `tmuxy.defaults.conf`): it is read-only and rewritten on every launch. Copy a theme
+  into `~/.config/tmuxy/themes/` instead.
 - Small tweaks: `custom.css` (any CSS), or `set -g @tmuxy-css-<variable> <value>` in
   `tmuxy.conf`. Options are `@tmuxy-*` in `tmuxy.conf`; `tmuxy config reload` applies it.
+- An option set in `tmuxy.conf` is pinned: the menus cannot change it.
 - A saved theme or `custom.css` repaints every open window by itself.
 EOF
 }

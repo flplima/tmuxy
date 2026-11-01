@@ -13,26 +13,21 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { WORKSPACE_ROOT, waitBudget } = require('./config');
+const { waitBudget } = require('./config');
 const { tmuxRun, tmuxRunAsOperator } = require('./cli');
 const { tmuxCmd, tmuxExec } = require('./tmux-socket');
 const { delay, waitForCondition } = require('./browser');
 const { reapPids } = require('./reap');
 
 /**
- * Get the path to the tmuxy config file: ~/.tmuxy.conf first, then the
- * shipped template the app itself writes for a first launch.
+ * The config chain the server under test built: `tmuxy.entry.conf` in tmuxy's
+ * data dir (the defaults, the suite's own tmuxy.conf, the essentials). The
+ * server rebuilds it before each use, so it is there once the server answers.
  */
 function getTmuxConfigPath() {
-  const homeConfig = path.join(os.homedir(), '.tmuxy.conf');
-  if (fs.existsSync(homeConfig)) {
-    return homeConfig;
-  }
-  const shipped = path.join(WORKSPACE_ROOT, 'packages', 'tmuxy-core', 'assets', 'tmuxy.conf');
-  if (fs.existsSync(shipped)) {
-    return shipped;
-  }
-  return null;
+  const dataDir = process.env.TMUXY_DATA_DIR || path.join(os.homedir(), '.local', 'share', 'tmuxy');
+  const entry = path.join(dataDir, 'tmuxy.entry.conf');
+  return fs.existsSync(entry) ? entry : null;
 }
 
 class TmuxTestSession {

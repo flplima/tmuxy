@@ -108,15 +108,17 @@ pub fn run() {
                 "tmuxy starting"
             );
 
-            // Materialize the per-user config layout on first run:
-            //   ~/.config/tmuxy/tmuxy.conf   — main tmux config (prefix bindings, etc.)
-            //   ~/.config/tmuxy/themes/*.css — bundled themes mirrored to disk
-            // The CC connection's `tmux -f <conf> -CC new-session -A` picks up
-            // the tmuxy.conf for create paths; existing sessions keep their
-            // running settings (an attach sources the conf via source-file in
-            // sync_initial_state). Without this call the prefix never gets
-            // re-bound to C-a, the status bar's prefix indicator looks wrong,
-            // and prefix-key sequences silently no-op for new users.
+            // Lay out the config dirs (session::Layout): migrate an older
+            // install's ~/.config/tmuxy, mirror the shipped config, built-in
+            // themes and scripts into the data dir, write the starter
+            // tmuxy.conf on the very first run, and build the config chain
+            // (tmuxy.entry.conf). The CC connection's
+            // `tmux -f <entry> -CC new-session -A` picks up the chain for
+            // create paths; existing sessions keep their running settings (an
+            // attach sources the chain via source-file in sync_initial_state).
+            // Without this call the prefix never gets re-bound to C-a, the
+            // status bar's prefix indicator looks wrong, and prefix-key
+            // sequences silently no-op for new users.
             let config_path = tmuxy_core::session::ensure_config();
             let themes_dir = tmuxy_core::session::ensure_themes();
             // Mirror the bundled CLI dispatcher and helper scripts so the

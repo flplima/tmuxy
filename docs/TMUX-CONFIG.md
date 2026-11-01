@@ -33,7 +33,7 @@ The **web server** binds its socket once at process launch (from the env), so it
 
 ### Remote servers over SSH (desktop app)
 
-A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `~/.config/tmuxy/servers.json` (`tmuxy-core/src/servers.rs`); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
+A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `servers.json` in the state dir (`tmuxy-core/src/servers.rs`; machine state, not config: an ssh host is saved as this machine reaches it); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
 
 `TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
 
@@ -73,23 +73,31 @@ OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/
 
 ### The config chain, and where a user's own `~/.tmux.conf` fits
 
-tmux starts with `-f tmuxy.conf`, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
+tmux starts with `-f tmuxy.entry.conf`, a file the app generates in its data dir, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
 
-The chain, in order:
+The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.rs`), so the user's `tmuxy.conf` holds overrides only and needs no `source-file` line. In order:
 
-| # | File | Owner | Refreshed |
-| --- | --- | --- | --- |
-| 1 | `tmuxy.conf` | user | written once, never again |
-| 2 | ↳ `tmuxy.defaults.conf` | app | every launch |
-| 3 | &nbsp;&nbsp;↳ `tmuxy.essentials.conf` | app | every launch |
-| 4 | &nbsp;&nbsp;↳ _(tmuxy's defaults: prefix, status line, bindings)_ | app | every launch |
-| 5 | &nbsp;&nbsp;↳ `tmuxy.user.conf` | app, generated | every launch |
-| 6 | &nbsp;&nbsp;&nbsp;&nbsp;↳ `~/.tmux.conf`, then `tmuxy.essentials.conf` again | user | opt-in only |
-| 7 | ↳ _(the user's own edits in `tmuxy.conf`)_ | user | — |
+| # | File | Dir | Owner | Refreshed |
+| --- | --- | --- | --- | --- |
+| 1 | `tmuxy.essentials.conf` | data | app | every launch |
+| 2 | `tmuxy.defaults.conf` (prefix, status line, bindings) | data | app | every launch |
+| 3 | `~/.tmux.conf` | — | user | opt-in only |
+| 4 | `tmuxy.conf` | config | user | written on the first run only, never again |
+| 5 | `tmuxy.essentials.conf` again | data | app | every launch |
 
-`tmuxy config use-tmux-conf on` fills in step 6. The order is the whole design: the user's config comes after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.essentials.conf` is then sourced **again** on top, so the settings tmuxy cannot work without are restored whatever their config did to them.
+`tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
 
-The generated bridge is a separate file, sourced from the end of `tmuxy.defaults.conf`, because `tmuxy.conf` is written once and never again — anything that has to reach people who already installed tmuxy must live in a file the app refreshes.
+The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect and reload — from the `use-tmux-conf` choice in the state dir and the user's file, so it never goes stale. It is the one generated file whose content depends on the machine's state, and a second tmuxy process with another config dir that shares the data dir (a test server, say) rewrites it for itself before it sources it.
+
+A `tmuxy.conf` written by an older build sources `~/.config/tmuxy/tmuxy.defaults.conf` itself. The first launch of this build drops that line (see [the config directory](ARCHITECTURE.md#the-users-config-directory)); when the file is a symlink the app may not rewrite, the chain sources a generated copy with the line commented out (`tmuxy.compat.conf` in the data dir) instead, until the user removes it.
+
+### Menu choices, and the options `tmuxy.conf` pins
+
+The menus change five options — `@tmuxy-theme`, `@tmuxy-theme-mode`, `@tmuxy-transparency`, `@tmuxy-cursor-blink`, `@tmuxy-send-ask` — and remember each choice in `tmuxy.state.json` in the state dir, which the monitor puts back after the chain on every connect, every reload and after a client's own `source-file` (a sourced defaults file would reset them).
+
+Config beats menu state. An option the user's `tmuxy.conf` sets is **pinned**: the remembered choice is not put back over it, the menu cannot change it (the backend refuses a change made only of pinned options, and leaves a pinned one out of a mixed one), and the theme settings every client receives list it under `pinned`, so the menu greys it out and labels the item in effect "set in tmuxy.conf". A pinned theme also beats the theme a web client keeps in its own local storage.
+
+The backend learns the pins by reading the user's file, not tmux: tmux cannot say which layer of the chain set an option. Any `set` or `set-option` line (any flags but `-u`) naming one of the five options outside a comment pins it, whatever its value (`pinned_options_in` in `tmuxy-core/src/session/config.rs`). The file is read each time the settings are, so adding or removing a pin takes effect with the reload that saving the file triggers.
 
 ### What a user's config can break, and what protects it
 
@@ -98,7 +106,7 @@ Three layers protect the app, and they cover different things:
 | Layer | Where | Covers |
 | --- | --- | --- |
 | `enforce_settings()` | `control_mode/monitor.rs`, every connect, per-session | `pane-border-status`/`-format`, `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `window-size manual`, `aggressive-resize off` |
-| `tmuxy.essentials.conf` | sourced after the user's config | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
+| `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
 
 The ones that actually bite, and why each is in the essentials file rather than left to chance:
@@ -110,6 +118,8 @@ The ones that actually bite, and why each is in the essentials file rather than 
 - **`escape-time`** — a non-zero value makes Escape feel broken in vim.
 
 What is deliberately NOT protected, because protecting it would defeat the point: the prefix, the status line, `mode-keys`, `base-index`, key bindings, colours, and anything a plugin does. A user who opts in gets their own.
+
+Because the essentials come last, the user's `tmuxy.conf` cannot change them either — a larger `history-limit` set there is put back to the essentials' value. That is the price of no config being able to take the app apart; a setting that belongs to taste does not belong in the essentials.
 
 Two hazards that remain the user's to judge, and are called out in `tmuxy config use-tmux-conf --help` rather than silently handled:
 

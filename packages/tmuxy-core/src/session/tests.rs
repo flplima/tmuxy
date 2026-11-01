@@ -4,7 +4,7 @@ use super::*;
 
 /// Every helper under `packages/tmuxy-cli/bin/tmuxy/` must be in the bundled list, or the
 /// packaged app ships a `tmuxy-cli` that dispatches to a file that was
-/// never mirrored to `~/.config/tmuxy/bin/` (the tree sidebar shipped that
+/// never mirrored to the data dir's `bin/` (the tree sidebar shipped that
 /// way once: `tmuxy widget tree` died with "No such file or directory").
 #[test]
 fn every_helper_script_is_bundled() {
@@ -206,7 +206,7 @@ fn managed_state_skips_unset_fields_on_serialize() {
 
 #[test]
 fn managed_state_commands_set_only_the_chosen_options() {
-    assert!(managed_state_commands(&ManagedState::default()).is_empty());
+    assert!(managed_state_commands(&ManagedState::default(), &[]).is_empty());
 
     let state = ManagedState {
         theme: Some("tokyo night".into()),
@@ -217,7 +217,7 @@ fn managed_state_commands_set_only_the_chosen_options() {
         use_tmux_conf: Some(true),
     };
     assert_eq!(
-        managed_state_commands(&state),
+        managed_state_commands(&state, &[]),
         vec![
             "set-option -g @tmuxy-theme 'tokyo night'".to_string(),
             "set-option -g @tmuxy-cursor-blink 'off'".to_string(),
@@ -227,15 +227,40 @@ fn managed_state_commands_set_only_the_chosen_options() {
     );
 }
 
+/// Config beats menu state: an option the user's tmuxy.conf sets is not put
+/// back over it from tmuxy.state.json, on a connect or a reload.
 #[test]
-fn user_conf_template_points_at_a_relocated_config_dir() {
-    let relocated = std::path::Path::new("/tmp/xdg/tmuxy");
-    let conf = user_conf_template(relocated);
-    assert!(conf.contains("source-file /tmp/xdg/tmuxy/tmuxy.defaults.conf"));
-    assert!(!conf.contains("~/.config/tmuxy"));
+fn a_pinned_option_is_not_reapplied_from_the_menu_state() {
+    let state = ManagedState {
+        theme: Some("dracula".into()),
+        theme_mode: Some("light".into()),
+        cursor_blink: Some(false),
+        ..Default::default()
+    };
+    let pinned = pinned_options_in("set -g @tmuxy-theme nord\nset -g @tmuxy-cursor-blink on\n");
+    assert_eq!(
+        managed_state_commands(&state, &pinned),
+        vec!["set-option -g @tmuxy-theme-mode 'light'".to_string()]
+    );
+}
 
-    let default_dir = dirs::home_dir().unwrap().join(".config").join("tmuxy");
-    assert_eq!(user_conf_template(&default_dir), DEFAULT_USER_CONF);
+#[test]
+fn a_pin_is_a_set_line_outside_a_comment_and_not_an_unset() {
+    let conf = "\
+# set -g @tmuxy-theme-mode light
+#   set -g @tmuxy-transparency off
+set-option -g @tmuxy-send-ask off
+set -gq '@tmuxy-theme' \"nord\"
+set -gu @tmuxy-cursor-blink
+set -g @tmuxy-opacity 0.5 ; set -g @tmuxy-transparency off
+bind x set -g @tmuxy-theme-mode dark
+";
+    assert_eq!(
+        pinned_options_in(conf),
+        vec!["@tmuxy-theme", "@tmuxy-send-ask", "@tmuxy-transparency"]
+    );
+    assert!(pinned_options_in(DEFAULT_USER_CONF).is_empty());
+    assert_eq!(MANAGED_OPTIONS.len(), 5);
 }
 
 /// What reaches ssh as its destination is a host, never an option: ssh runs

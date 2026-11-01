@@ -46,8 +46,8 @@ if (!BINARY) {
 
 const BINARY_PATH = path.resolve(BINARY);
 const SANDBOX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-sparse-'));
-// Plant under ~/.config/tmuxy/tmuxy.conf — the desktop app passes that
-// exact file to `tmux -f` and doesn't fall back to ~/.tmux.conf.
+// Plant under ~/.config/tmuxy/tmuxy.conf — the user's layer of the chain the
+// desktop app passes to `tmux -f`, which never falls back to ~/.tmux.conf.
 const TMUXY_CONFIG_DIR = path.join(SANDBOX_HOME, '.config', 'tmuxy');
 const TMUX_CONF = path.join(TMUXY_CONFIG_DIR, 'tmuxy.conf');
 // The app logs into its state dir, which on macOS is under $HOME — the sandbox.

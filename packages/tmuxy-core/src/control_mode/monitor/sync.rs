@@ -18,16 +18,21 @@ impl<C: ControlLink> TmuxMonitor<C> {
             .send_command(&initial_resize_command(&self.config.session))
             .await?;
 
-        // Source tmuxy config to ensure pane-border-status and other settings are applied
+        // Source the config chain (defaults, the user's tmuxy.conf, the
+        // essentials) so pane-border-status and other settings are applied.
         if let Some(config_path) = crate::session::get_config_path() {
-            let cmd = format!("source-file {}", config_path.to_string_lossy());
+            let cmd = format!(
+                "source-file {}",
+                crate::executor::tmux_quote(&config_path.to_string_lossy())
+            );
             self.connection.send_command(&cmd).await?;
         }
 
         // Re-apply the choices made through the UI (theme, mode, cursor blink).
         // tmux forgets them when its server exits; tmuxy.state.json does not.
-        // After the config so a UI choice wins over a hand-set value there.
-        for cmd in crate::session::managed_state_commands(&crate::session::read_managed_state()) {
+        // After the config, and only for what the user's tmuxy.conf leaves
+        // unset: an option it sets is pinned, and config beats menu state.
+        for cmd in crate::session::current_managed_state_commands() {
             self.connection.send_command(&cmd).await?;
         }
 

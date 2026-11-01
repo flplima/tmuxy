@@ -491,7 +491,8 @@ fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
                 // tmuxy's own sidebar widget runs without asking; any other
                 // command a snapshot names, in a sidebar or not, is offered.
                 let chrome = w.window_type.as_deref() == Some("sidebar-left")
-                    && (cmd == LEFT_SIDEBAR_WIDGET || cmd == LEGACY_LEFT_SIDEBAR_WIDGET);
+                    && (cmd == LEFT_SIDEBAR_WIDGET
+                        || LEGACY_LEFT_SIDEBAR_WIDGETS.contains(&cmd.as_str()));
                 // An older snapshot's bare `tmuxy widget tree` runs as the
                 // bundled script, which no stale PATH can break.
                 let cmd = if chrome {

@@ -916,6 +916,7 @@ jobs:
 
             zap trash: [
               "~/.config/tmuxy",
+              "~/.local/share/tmuxy",
               "~/.local/bin/tmuxy",
               "~/Library/Application Support/com.tmuxy.app",
               "~/Library/Application Support/tmuxy",
@@ -1091,7 +1092,7 @@ jobs:
   # the tap the job above just pushed, and then running it. It is the only step
   # that exercises the whole chain — release assets reachable, cask sha256
   # matching the published DMG, Homebrew's `binary` symlink landing on PATH,
-  # and CLI subcommands working without `~/.config/tmuxy/launcher`.
+  # and CLI subcommands working without the `launcher` file the app records.
   #
   # It runs AFTER the tap is bumped, so it cannot prevent a bad cask from being
   # published — it tells you within minutes that the published one is bad,
@@ -1135,7 +1136,7 @@ jobs:
           EXPECTED="tmuxy ${TAG#v}"
           [ "$VERSION_LINE" = "$EXPECTED" ] || {
             echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
-          test ! -f "$HOME/.config/tmuxy/launcher"
+          test ! -f "$HOME/Library/Application Support/tmuxy/launcher"
           tmuxy agent status
           tmuxy session snapshots
 
@@ -1181,6 +1182,7 @@ jobs:
             /Applications/tmuxy.app \
             "$(brew --prefix)/bin/tmuxy" \
             "$HOME/.config/tmuxy" \
+            "$HOME/.local/share/tmuxy" \
             "$HOME/.local/bin/tmuxy" \
             "$HOME/Library/Application Support/com.tmuxy.app" \
             "$HOME/Library/Application Support/tmuxy" \

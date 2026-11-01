@@ -5,9 +5,12 @@ use crate::error::TmuxError;
 
 mod assets;
 mod config;
+mod migrate;
+mod state;
 
 pub use assets::*;
 pub use config::*;
+pub use state::*;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
@@ -361,3 +364,7 @@ pub fn on_users_own_server() -> bool {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests_layout;

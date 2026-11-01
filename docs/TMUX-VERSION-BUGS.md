@@ -120,7 +120,7 @@ The frontend joins compound commands with a shell-escaped `\;` (correct for comm
 A `command-alias` is a config-time convenience, not something the client ever
 sees. `bind -n C-l tmuxy-nav-right` reads back through `list-keys` — the source
 the frontend builds its binding table from — as the alias's **expansion**:
-`run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav right #{pane_id}"`.
+`run-shell "bash $HOME/.local/share/tmuxy/bin/tmuxy/nav right #{pane_id}"`.
 
 This matters because the client classifies each binding's command to decide
 whether it can predict the result optimistically

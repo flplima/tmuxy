@@ -50,6 +50,11 @@ function tmuxEnv() {
     ...process.env,
     TMUX_SOCKET: tmuxSocket(),
     TMUXY_STATE_DIR: stateDir(),
+    // The developer's own ~/.config/tmuxy, never: the suite runs this branch's
+    // build, which would migrate that dir (and write its starter) under the
+    // installed app's feet, and a test would see whatever the developer put
+    // there. The data dir stays the default: the UI names the scripts by it.
+    XDG_CONFIG_HOME: configHome(),
     // The shared server neither saves nor rebuilds sessions: a suite that
     // kills a session and makes another of the same name must get an empty
     // one, not the last one's tabs. Snapshots are tested on a server of
@@ -78,6 +83,11 @@ function stateDir() {
     process.env.TMUXY_STATE_DIR ||
     path.join(os.tmpdir(), `tmuxy-e2e-state-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`)
   );
+}
+
+/** The suite's own `$XDG_CONFIG_HOME`, beside its state dir. */
+function configHome() {
+  return path.join(os.tmpdir(), `tmuxy-e2e-config-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`);
 }
 
 /**

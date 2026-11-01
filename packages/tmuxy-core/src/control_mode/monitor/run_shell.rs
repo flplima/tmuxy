@@ -246,14 +246,14 @@ mod tests {
 
     #[test]
     fn the_shell_word_and_the_pin_ahead_of_it_go_out_as_written() {
-        let pinned = r#"select-window -t @2 ; select-pane -t %5 ; run-shell "bash $HOME/.config/tmuxy/bin/tmuxy/nav left #{pane_id}""#;
+        let pinned = r#"select-window -t @2 ; select-pane -t %5 ; run-shell "bash $HOME/.local/share/tmuxy/bin/tmuxy/nav left #{pane_id}""#;
         let out = relay_run_shell(pinned, "@tmuxy-run-1", TMUX).unwrap();
         assert!(
             out.starts_with("select-window -t @2 ; select-pane -t %5 ; run-shell "),
             "{out}"
         );
         assert!(
-            out.contains(r#""bash $HOME/.config/tmuxy/bin/tmuxy/nav left #{pane_id}""#),
+            out.contains(r#""bash $HOME/.local/share/tmuxy/bin/tmuxy/nav left #{pane_id}""#),
             "{out}"
         );
     }

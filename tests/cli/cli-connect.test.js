@@ -36,7 +36,7 @@ describe('CLI connect subcommand', () => {
     try {
       const { exitCode, stdout } = runCLI(['connect'], {
         input: 'felipe@prod\n',
-        env: { XDG_CONFIG_HOME: tmpCfg, MOCK_SSH_SESSIONS: 'dev\n' },
+        env: { TMUXY_STATE_DIR: tmpCfg, MOCK_SSH_SESSIONS: 'dev\n' },
       });
       expect(exitCode).toBe(0);
       expect(stdout).toContain('✓ ssh felipe@prod');
@@ -59,7 +59,7 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
         ['session', 'connect', 'felipe@prod', '--socket', 'work'],
         {
           env: {
-            XDG_CONFIG_HOME: tmpCfg,
+            TMUXY_STATE_DIR: tmpCfg,
             MOCK_SSH_SESSIONS: 'dev\n',
           },
         },
@@ -83,9 +83,7 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
         },
       ]);
 
-      const servers = JSON.parse(
-        fs.readFileSync(path.join(tmpCfg, 'tmuxy', 'servers.json'), 'utf8'),
-      );
+      const servers = JSON.parse(fs.readFileSync(path.join(tmpCfg, 'servers.json'), 'utf8'));
       expect(servers).toHaveLength(1);
       expect(servers[0]).toMatchObject({
         id: 'ssh-felipe-prod-work',

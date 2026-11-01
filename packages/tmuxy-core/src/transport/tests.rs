@@ -171,7 +171,9 @@ async fn key_bindings_fall_back_to_the_default_prefix_when_tmux_cannot_answer() 
 
 #[test]
 fn source_file_is_recognised_in_both_spellings() {
-    assert!(is_source_file("source-file ~/.config/tmuxy/tmuxy.conf"));
+    assert!(is_source_file(
+        "source-file ~/.local/share/tmuxy/tmuxy.entry.conf"
+    ));
     assert!(is_source_file("  source ~/.tmux.conf"));
     assert!(!is_source_file("sourcery"));
     assert!(!is_source_file("send-keys source-file"));

@@ -15,7 +15,7 @@ pub mod executor;
 
 pub mod layout;
 pub mod mime;
-#[cfg(feature = "native")]
+#[cfg(feature = "cli")]
 pub mod paths;
 #[cfg(feature = "native")]
 pub mod preview;

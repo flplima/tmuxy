@@ -166,3 +166,28 @@ fn parse_count_accepts_whole_numbers_and_caps_them() {
     assert_eq!(parse_count("2.5", 3, 12), 3);
     assert_eq!(parse_count("", 3, 12), 3);
 }
+
+/// Config beats menu state: a menu change leaves an option the user's
+/// tmuxy.conf pins as the file has it, and one made only of pinned options is
+/// refused with the reason, not dropped without a word.
+#[test]
+fn a_menu_change_skips_what_tmuxy_conf_pins() {
+    let pinned = [tmux_options::THEME];
+    assert_eq!(
+        unpinned(
+            &[
+                (tmux_options::THEME, "dracula"),
+                (tmux_options::THEME_MODE, "light")
+            ],
+            &pinned
+        )
+        .unwrap(),
+        vec![(tmux_options::THEME_MODE, "light")]
+    );
+    let refused = unpinned(&[(tmux_options::THEME, "dracula")], &pinned).unwrap_err();
+    assert!(refused.error.contains("@tmuxy-theme is set in tmuxy.conf"));
+    assert_eq!(
+        unpinned(&[(tmux_options::CURSOR_BLINK, "off")], &pinned).unwrap(),
+        vec![(tmux_options::CURSOR_BLINK, "off")]
+    );
+}

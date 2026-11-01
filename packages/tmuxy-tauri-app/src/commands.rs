@@ -252,7 +252,7 @@ pub fn get_keybindings_snapshot(
 }
 
 /// List the saved servers (localhost plus any added via `tmuxy connect`), read
-/// fresh from `~/.config/tmuxy/servers.json`, along with the id of the server
+/// fresh from `servers.json` in the state dir, along with the id of the server
 /// the app is currently attached to. Powers the sidebar server picker — a
 /// desktop-only surface; the web build always uses its launch socket.
 #[tauri::command]

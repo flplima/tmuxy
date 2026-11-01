@@ -10,7 +10,7 @@ The web version uses two HTTP endpoints on the Axum server:
 
 - `connection-info` — Connection ID, default shell, and whether the server is tracing (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
-- `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag) and the `@tmuxy-css-*` variables from tmux config; re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
+- `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag), the `@tmuxy-css-*` variables from tmux config, and the options the user's `tmuxy.conf` pins (`pinned`); re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
@@ -168,7 +168,7 @@ Forwarding one of these as a tmux key name is not rejected — tmux accepts `sen
 
 ## Servers, Sessions and the 4-Step Connect Flow
 
-A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or remote over SSH — and holds zero or more sessions. Saved entries live in `~/.config/tmuxy/servers.json` (`packages/tmuxy-core/src/servers.rs`), enriched on list with live local sockets from `packages/tmuxy-core/src/servers/discovery.rs`. Switching among them is the session switcher (`components/SessionMenu.tsx`, and `components/SessionList.tsx` on the detached overlay), both drawing `components/SessionPicker.tsx`: a filter-as-you-type box over `sessionSwitcherSpec`'s list, which scrolls inside a capped box. Reaching a new one is one flow, `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`), which `tmuxy connect` with no arguments and the switcher's "Connect over SSH…" float both run. It asks for the destination, then takes 4 stages:
+A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or remote over SSH — and holds zero or more sessions. Saved entries live in `servers.json` in the state dir (`packages/tmuxy-core/src/servers.rs`), enriched on list with live local sockets from `packages/tmuxy-core/src/servers/discovery.rs`. Switching among them is the session switcher (`components/SessionMenu.tsx`, and `components/SessionList.tsx` on the detached overlay), both drawing `components/SessionPicker.tsx`: a filter-as-you-type box over `sessionSwitcherSpec`'s list, which scrolls inside a capped box. Reaching a new one is one flow, `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`), which `tmuxy connect` with no arguments and the switcher's "Connect over SSH…" float both run. It asks for the destination, then takes 4 stages:
 
 ```
 [1. ssh / localhost] ──► [2. tmux -V] ──► [3. listing sessions] ──► [4. attach]

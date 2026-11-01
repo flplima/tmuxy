@@ -64,8 +64,8 @@ of the plan are implemented; see [§ Using it](#using-it).
 trace` and the snapshots, so a `--mark` lands in the
   file the server is writing. Mode `0600`, rotated at 64 MiB with one `.1`
   backup. The
-  remembered switch/level sit next to the other config, in
-  `~/.config/tmuxy/trace.json`.
+  remembered switch/level sit beside it in the state directory, in
+  `trace.json`: this machine's choice, not config.
 
 ## Goals
 

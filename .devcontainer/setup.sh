@@ -16,15 +16,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "[setup] Workspace: $ROOT_DIR"
 
-mkdir -p "$HOME/.config/tmuxy" "$HOME/.local/bin"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/tmuxy"
+mkdir -p "$DATA_DIR" "$HOME/.local/bin"
 
-# Symlink both conf files into the XDG path so edits in the repo take effect
-# immediately. The Rust ensure_config skips overwriting when the target is a
-# symlink, so it leaves these alone.
+# Symlink the shipped confs into tmuxy's data dir, where the app mirrors them,
+# so edits in the repo take effect immediately. The app never writes a
+# generated file through a symlink, so it leaves these alone. The config dir
+# (~/.config/tmuxy) is the user's: the app writes the starter tmuxy.conf there
+# on its first run.
 CONF_DIR="$ROOT_DIR/packages/tmuxy-core/assets"
-ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.tmuxy.conf"
-ln -sf "$CONF_DIR/tmuxy.conf" "$HOME/.config/tmuxy/tmuxy.conf"
-ln -sf "$CONF_DIR/tmuxy.defaults.conf" "$HOME/.config/tmuxy/tmuxy.defaults.conf"
+ln -sf "$CONF_DIR/tmuxy.defaults.conf" "$DATA_DIR/tmuxy.defaults.conf"
+ln -sf "$CONF_DIR/tmuxy.essentials.conf" "$DATA_DIR/tmuxy.essentials.conf"
 ln -sf "$ROOT_DIR/packages/tmuxy-cli/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
 
 # Codespaces manages git credentials, identity and the remote itself; the local

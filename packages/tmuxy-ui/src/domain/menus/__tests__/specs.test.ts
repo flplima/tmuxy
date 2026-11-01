@@ -10,7 +10,7 @@ import { createInitialContext } from '../../../machines/app/context';
 import { pid, wid } from '../../../test/wire';
 import type { AppMachineContext } from '../../../machines/types/context';
 import type { TmuxPane, TmuxWindow } from '../../client';
-import { appMenuSpec, appItemsSpec, debugMenuSpec, themeMenuSpec } from '../appMenu';
+import { appMenuSpec, appItemsSpec, debugMenuSpec, themeMenuSpec, viewMenuSpec } from '../appMenu';
 import { paneMenuSpec } from '../paneMenu';
 import { tabMenuSpec } from '../tabMenu';
 import { selectionMenuSpec } from '../selectionMenu';
@@ -233,6 +233,36 @@ describe('themeMenuSpec and debugMenuSpec', () => {
     expect(checked('theme-mode-dark')).toBe(true);
     expect(disabled(spec, 'theme-mode-light')).toBe(true);
     expect(disabled(spec, 'theme-mode-auto')).toBe(true);
+  });
+
+  // Config beats menu state: an option tmuxy.conf sets is the config's, so
+  // every item for it is greyed out and the one in effect says where it is set.
+  it('greys out what tmuxy.conf pins and says where it is set', () => {
+    const themes = [
+      { name: 'default', displayName: 'Default', modes: ['dark', 'light'] },
+      { name: 'nord', displayName: 'Nord', modes: ['dark', 'light'] },
+    ];
+    const pinned = themeMenuSpec(
+      ctx({
+        themeName: 'nord',
+        themeMode: 'dark',
+        availableThemes: themes,
+        pinnedOptions: ['@tmuxy-theme'],
+      }),
+    );
+    expect(disabled(pinned, 'theme-set-nord')).toBe(true);
+    expect(disabled(pinned, 'theme-set-default')).toBe(true);
+    expect(find(pinned, 'theme-set-nord')).toMatchObject({ label: 'Nord (set in tmuxy.conf)' });
+    expect(find(pinned, 'theme-set-default')).toMatchObject({ label: 'Default' });
+    // The mode is not pinned, so it stays the menu's.
+    expect(disabled(pinned, 'theme-mode-light')).toBe(false);
+
+    const view = viewMenuSpec(ctx({ pinnedOptions: ['@tmuxy-cursor-blink'] }), WEB);
+    expect(disabled(view, 'view-cursor-blink')).toBe(true);
+    expect(find(view, 'view-cursor-blink')).toMatchObject({
+      label: 'Blinking Cursor (set in tmuxy.conf)',
+    });
+    expect(disabled(view, 'view-send-ask')).toBe(false);
   });
 
   it('a locked trace switch is disabled and the levels wait for it', () => {

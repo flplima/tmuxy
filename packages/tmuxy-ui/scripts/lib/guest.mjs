@@ -10,17 +10,37 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
-/** The config files the app ships, copied next to the guest's `tmuxy.conf`. */
+/**
+ * The guest's tmuxy layout, as the app lays it out on a real machine (tmuxy-core
+ * `session::Layout`): the shipped config and the scripts in the data dir, the
+ * user's `tmuxy.conf` in the config dir, and tmux started with the chain.
+ */
+export const GUEST_DATA_DIR = '/root/.local/share/tmuxy';
+export const GUEST_CONFIG_DIR = '/root/.config/tmuxy';
+export const GUEST_ENTRY_CONF = `${GUEST_DATA_DIR}/tmuxy.entry.conf`;
+
+/** The config files the app ships, copied into the guest's data dir. */
 export const GUEST_CONF_ASSETS = ['tmuxy.defaults.conf', 'tmuxy.essentials.conf'];
 export const GUEST_CONF_ASSETS_DIR = join(REPO, 'packages', 'tmuxy-core', 'assets');
 
-/** The guest user's `tmuxy.conf`: the shipped defaults, and `defaultCommand`
- *  (bash as a non-login shell by default, so it skips /etc/profile, and any
- *  banner or PS1 override there, and reads ~/.bashrc) as the pane command. */
+/** The chain tmux starts with, in the order tmuxy-core's `entry_conf` builds it. */
+export function guestEntryConf() {
+  return [
+    '# The config chain, as tmuxy builds it on a real machine.',
+    `source-file ${GUEST_DATA_DIR}/tmuxy.essentials.conf`,
+    `source-file ${GUEST_DATA_DIR}/tmuxy.defaults.conf`,
+    `source-file -q ${GUEST_CONFIG_DIR}/tmuxy.conf`,
+    `source-file ${GUEST_DATA_DIR}/tmuxy.essentials.conf`,
+    '',
+  ].join('\n');
+}
+
+/** The guest user's `tmuxy.conf`, overrides only: `defaultCommand` (bash as a
+ *  non-login shell by default, so it skips /etc/profile, and any banner or PS1
+ *  override there, and reads ~/.bashrc) as the pane command. */
 export function guestTmuxyConf(defaultCommand = '/bin/bash') {
   return [
-    '# Guest user config — defaults shipped by tmuxy, edit freely.',
-    'source-file ~/.config/tmuxy/tmuxy.defaults.conf',
+    "# Guest user config — overrides on top of tmuxy's defaults, edit freely.",
     `set -g default-command '${defaultCommand}'`,
     '',
   ].join('\n');
