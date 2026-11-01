@@ -88,6 +88,18 @@ describe('CLI pane float', () => {
       expect(kills[0].args[1]).toContain('kill-window -t @98');
     });
 
+    // `tmuxy pane float [cmd args...]` runs the program with the arguments it
+    // was given, as `pane run` does: a word with a space, a quote, a `$` or a
+    // `;` reaches it as that word, and is never read as shell syntax.
+    test('a float running a command hands it its arguments as they were given', () => {
+      const { exitCode, stdout } = runCLI(
+        ['pane', 'float', 'printf', '[%s]', 'a b', "it's", '$HOME', '#1;id'],
+        { env: { ...floatEnv, MOCK_TMUX_LIST_PANES: '4242' } },
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout).toBe("[a b][it's][$HOME][#1;id]");
+    });
+
     test('a bare float is 60x15 cells, and never taller than the tab', () => {
       // The default size is in cells, not a share of the window, and the height
       // is capped to the tab it floats over - a float with more rows than the
@@ -134,7 +146,7 @@ describe('CLI pane float', () => {
       expect(list.indexOf('split-window')).toBeLessThan(list.indexOf('break-pane'));
     });
 
-    test('quotes non-plain caller session names and preserves argv boundaries in command mode', () => {
+    test('quotes a caller session name that is not a plain word', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'float'], {
         env: { ...floatEnv, MOCK_TMUX_SESSION: "work #1's" },
       });

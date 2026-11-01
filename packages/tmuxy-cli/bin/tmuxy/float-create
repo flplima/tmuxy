@@ -239,33 +239,22 @@ else
   WRAPPER=$(umask 077 && mktemp /tmp/tmuxy-float-cmd.XXXXXX)
   trap 'rm -f "$TMPFILE" "$WRAPPER"' EXIT
   WAIT_CHAN="float-done-$$"
-  CMD_QUOTED=""
-  sq="'"
-  sq_esc="'\\''"
-  for _arg in "$@"; do
-    CMD_QUOTED="$CMD_QUOTED '${_arg//$sq/$sq_esc}'"
-  done
-  CMD_QUOTED="${CMD_QUOTED# }"
 
   # Do NOT redirect stderr - TUI apps (fzf, vim, etc.) draw their interface to
   # stderr/tty. Only redirect stdout to the capture file. A wrapper script keeps
   # the command out of the tmux command list, where its quoting would have to
-  # survive both the shell and tmux's parser.
-  (
-    umask 077
-    {
-      printf '#!/bin/bash\n'
-      printf '%s > %s\n' "$CMD_QUOTED" "'${TMPFILE//$sq/$sq_esc}'"
-      printf '%s %s %s wait-for -S %s\n' \
-        "'${TMUX_BIN//$sq/$sq_esc}'" \
-        "$TMUX_SOCKET_FLAG" \
-        "'${TMUX_SOCKET//$sq/$sq_esc}'" \
-        "'${WAIT_CHAN//$sq/$sq_esc}'"
-    } > "$WRAPPER"
-  )
+  # survive both the shell and tmux's parser. Each word is quoted for the shell
+  # again, as `pane run`'s wrapper does: the float runs the program with the
+  # arguments it was given, none of them read as shell syntax.
+  {
+    echo '#!/bin/bash'
+    printf '%q ' "$@"
+    printf '> %q\n' "$TMPFILE"
+    printf '%q %s %q wait-for -S %q\n' "$TMUX_BIN" "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$WAIT_CHAN"
+  } > "$WRAPPER"
   chmod 700 "$WRAPPER"
 
-  create_float "$TARGET" "bash '${WRAPPER//$sq/$sq_esc}'"
+  create_float "$TARGET" "bash $(printf '%q' "$WRAPPER")"
 
   # Wait for the command to finish
   _tmux wait-for "$WAIT_CHAN"
