@@ -99,28 +99,61 @@ export function installNetworkHints(onRetry: () => void): (() => void) | null {
   };
 }
 
+export type EstablishProbeOutcome = { kind: 'fatal'; message: string } | { kind: 'created' } | null;
+
 /**
  * Find out why the event stream would not open. `EventSource` hides the
  * response, so a server that refuses every request looks exactly like one
  * that is not there yet, and the app would sit on "Connecting…" forever,
- * retrying something that cannot succeed. A 403 is an answer, not an outage
- * — the request guard's verdict on this page's Host or origin, with the
- * reason in the body (a server behind a proxy started without
- * `--allowed-host` is the usual one). That ends the retrying and is shown.
- * Anything else — no answer, a 5xx, a stream that does open — keeps it going.
+ * retrying something that cannot succeed.
+ *
+ * - A 403 is the request guard's verdict on this page's Host or origin, with
+ *   the reason in the body; that ends retrying and is shown.
+ * - A 404 means `?session=` does not exist yet (`GET /events` never creates
+ *   sessions on its own): ask `POST /commands` (`ensure_session`) to create it
+ *   and tell the caller to reconnect immediately.
  */
 export async function probeRefusalReason(
   eventsUrl: string,
+  session: string,
   signal: AbortSignal,
   isConnected: () => boolean,
-): Promise<string | null> {
+): Promise<EstablishProbeOutcome> {
   const response = await fetch(eventsUrl, {
     headers: { Accept: 'text/event-stream' },
     signal,
   });
-  if (response.status !== 403 || isConnected()) return null;
-  const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
-  return `The server refused this page${reason ? `: ${reason}` : ''}`;
+  if (isConnected()) return null;
+  if (response.status === 403) {
+    const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
+    return { kind: 'fatal', message: `The server refused this page${reason ? `: ${reason}` : ''}` };
+  }
+  if (response.status === 404) {
+    const created = await fetch(buildEndpointUrl('/commands', session), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'ensure_session', args: {} }),
+      signal,
+    });
+    if (isConnected()) return null;
+    if (created.ok) return { kind: 'created' };
+    if (created.status === 403) {
+      const reason = (await created.text()).trim().replace(/^forbidden:\s*/i, '');
+      return {
+        kind: 'fatal',
+        message: `The server refused this page${reason ? `: ${reason}` : ''}`,
+      };
+    }
+    if (created.status === 400) {
+      const body: unknown = await created.json().catch(() => null);
+      const reason = isCommandFailure(body) ? body.error : '';
+      return {
+        kind: 'fatal',
+        message: `The server refused this session${reason ? `: ${reason}` : ''}`,
+      };
+    }
+  }
+  return null;
 }
 
 export async function postCommandJson<T>(

@@ -25,6 +25,7 @@ pub async fn start_monitoring(
     broadcast: Arc<SessionBroadcast>,
     session: String,
     state: Arc<AppState>,
+    create_session: bool,
 ) {
     let keeper = Arc::new(SnapshotKeeper::new());
     let emitter = Arc::new(SseEmitter::new(
@@ -34,7 +35,7 @@ pub async fn start_monitoring(
         keeper.clone(),
     ));
     let host = ServerHost {
-        config: monitor_config(&session),
+        config: monitor_config(&session, create_session),
         broadcast,
         session,
         state,
@@ -89,7 +90,7 @@ impl Host for ServerHost {
             return Attempt::Stop;
         }
 
-        if !self.has_clients().await {
+        if !self.first_connect && !self.has_clients().await {
             info!(%session, "no clients, stopping monitor loop");
             self.forget_session().await;
             return Attempt::Stop;

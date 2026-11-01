@@ -43,8 +43,10 @@ pub const EVENT_BUFFER_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// A broadcast message tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
-/// across reconnects via the `Last-Event-Id` request header.
-type TaggedEvent = (u64, String);
+/// across reconnects via the `Last-Event-Id` request header. Stored as
+/// `Arc<str>` so keeping an event in the replay ring and fanning it out across
+/// Tokio's broadcast slots shares one immutable allocation.
+type TaggedEvent = (u64, Arc<str>);
 
 /// Wraps a `broadcast::Sender` with the monotonic `seq` counter and the
 /// recent-events ring buffer needed for `Last-Event-Id` resync.
@@ -92,6 +94,7 @@ impl SessionBroadcast {
     /// `docs/INVARIANTS.md`). An id taken before the lock could be pushed
     /// after a higher one.
     pub fn broadcast(&self, payload: String) -> u64 {
+        let payload: Arc<str> = Arc::from(payload);
         let Ok(mut buf) = self.recent.lock() else {
             // A poisoned ring is a panicked broadcaster; the stream must go on.
             let id = self.seq.fetch_add(1, Ordering::SeqCst);
@@ -238,6 +241,10 @@ pub struct AppState {
     /// The pages `preview` panes frame, staged by the client and served to
     /// the pane's frame by `/api/preview/{pane}` (`tmuxy_core::preview`).
     pub preview_pages: tmuxy_core::preview::PreviewPages,
+
+    /// Serialises explicit session creation (`ensure_session`) so concurrent
+    /// requests cannot race past `MAX_AUTO_CREATED_SESSIONS`.
+    pub session_create_lock: Mutex<()>,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -261,6 +268,7 @@ impl Default for AppState {
             shutdown: CancellationToken::new(),
             live_streams: AtomicU64::new(0),
             preview_pages: tmuxy_core::preview::PreviewPages::default(),
+            session_create_lock: Mutex::new(()),
         }
     }
 }
@@ -395,9 +403,9 @@ mod broadcast_tests {
         let replay = b.replay_since(3);
         assert_eq!(replay.len(), 2);
         assert_eq!(replay[0].0, 4);
-        assert_eq!(replay[0].1, "m4");
+        assert_eq!(&*replay[0].1, "m4");
         assert_eq!(replay[1].0, 5);
-        assert_eq!(replay[1].1, "m5");
+        assert_eq!(&*replay[1].1, "m5");
     }
 
     #[test]

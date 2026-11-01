@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::client_size::SizePolicy;
@@ -5,7 +6,8 @@ use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig};
 use tmuxy_core::session::SessionName;
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::state::AppState;
+use super::{may_create_session, start_monitoring, SessionRejection, MAX_AUTO_CREATED_SESSIONS};
+use crate::state::{AppState, SessionConnections};
 
 /// `tmuxy_core::session::session_exists` off the async worker threads (it
 /// runs a synchronous `has-session`, which would otherwise block a tokio
@@ -20,22 +22,83 @@ pub(super) async fn session_exists(session: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// `tmuxy_core::session::session_count`, off the worker threads for the same
-/// reason.
-pub(super) async fn session_count() -> usize {
-    tokio::task::spawn_blocking(tmuxy_core::session::session_count)
-        .await
-        .unwrap_or(0)
-}
-
 /// The monitor settings this server watches `session` with.
-pub(super) fn monitor_config(session: &str) -> MonitorConfig {
+pub(super) fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
-        create_session: true,
+        create_session,
         working_dir: Some(crate::state::session_start_dir()),
         ..Default::default()
     }
+}
+
+/// Explicitly ensure `session` exists (and has a running monitor), enforcing
+/// [`MAX_AUTO_CREATED_SESSIONS`] atomically under `state.session_create_lock`.
+pub(super) async fn ensure_session(
+    state: &Arc<AppState>,
+    session: &str,
+) -> Result<(), SessionRejection> {
+    let _guard = state.session_create_lock.lock().await;
+
+    {
+        let sessions = state.sessions.read().await;
+        if sessions
+            .get(session)
+            .and_then(|c| c.monitor_handle.as_ref())
+            .is_some_and(|h| !h.is_finished())
+        {
+            return Ok(());
+        }
+    }
+
+    let exists_in_tmux = session_exists(session).await;
+    if !exists_in_tmux {
+        let mut known: HashSet<String> =
+            tokio::task::spawn_blocking(tmuxy_core::session::session_names)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+        known.extend(state.sessions.read().await.keys().cloned());
+        if !known.contains(session) && !may_create_session(known.len()) {
+            warn!(
+                target: "tmuxy_server::sse",
+                %session,
+                limit = MAX_AUTO_CREATED_SESSIONS,
+                "refused session creation: the server already has as many sessions as it creates"
+            );
+            return Err(SessionRejection::TooMany);
+        }
+    }
+
+    let needs_idle_guard = {
+        let mut sessions = state.sessions.write().await;
+        let session_conns = sessions
+            .entry(session.to_string())
+            .or_insert_with(SessionConnections::new);
+        let needs_monitor = session_conns
+            .monitor_handle
+            .as_ref()
+            .is_none_or(|h| h.is_finished());
+        if needs_monitor {
+            session_conns.monitor_handle = None;
+            session_conns.monitor_command_tx = None;
+            let monitor_session = session.to_string();
+            let monitor_state = Arc::clone(state);
+            let monitor_broadcast = Arc::clone(&session_conns.broadcast);
+            let create = !exists_in_tmux;
+            session_conns.monitor_handle = Some(tokio::spawn(async move {
+                start_monitoring(monitor_broadcast, monitor_session, monitor_state, create).await;
+            }));
+            info!(%session, create, "started monitor from ensure_session");
+        }
+        session_conns.connections.is_empty()
+    };
+
+    if needs_idle_guard {
+        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(5)).await;
+    }
+    Ok(())
 }
 
 /// The viewport size a freshly created window should be resized to, or `None`
@@ -231,67 +294,11 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
         (resize, deferred)
     };
 
-    // Defer monitor cleanup: wait 2 seconds, then check if clients reconnected.
+    // Defer monitor cleanup: wait `grace`, then check if clients connected.
     // Tracked in `AppState::join_set` so the grace-period sleep doesn't survive
-    // server shutdown. The grace period itself is a UX feature (page reload
-    // reconnects within ~1s) — kept for that reason, not as orphan-prevention.
+    // server shutdown.
     if needs_deferred_cleanup {
-        let state_owned = state.clone();
-        let session = session.to_string();
-        let shutdown = state.shutdown.clone();
-        state
-            .spawn(async move {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(2)) => {}
-                    _ = shutdown.cancelled() => {
-                        debug!(%session, "shutdown signalled during grace period, aborting cleanup");
-                        return;
-                    }
-                }
-                let state = state_owned;
-
-                let (cmd_tx, monitor_handle) = {
-                    let mut sessions = state.sessions.write().await;
-                    if let Some(session_conns) = sessions.get_mut(&session) {
-                        if session_conns.connections.is_empty() {
-                            // Still no clients after grace period — clean up for real
-                            info!(%session, "no clients reconnected after grace period, stopping monitor");
-                            let handle = session_conns.monitor_handle.take();
-                            let tx = session_conns.monitor_command_tx.take();
-                            sessions.remove(&session);
-                            (tx, handle)
-                        } else {
-                            debug!(%session, "client reconnected during grace period, keeping monitor alive");
-                            (None, None)
-                        }
-                    } else {
-                        (None, None)
-                    }
-                };
-
-                // Stop the monitor if cleanup proceeded
-                if let Some(handle) = monitor_handle {
-                    if handle.is_finished() {
-                        debug!("monitor task already finished (session was killed)");
-                    } else if let Some(ref tx) = cmd_tx {
-                        info!("sending graceful shutdown to monitor");
-                        let _ = tx.send(MonitorCommand::Shutdown).await;
-                        // Poll for completion instead of fixed sleep
-                        for _ in 0..20 {
-                            if handle.is_finished() {
-                                break;
-                            }
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                        if !handle.is_finished() {
-                            warn!("monitor task still running after graceful shutdown (not aborting)");
-                        } else {
-                            debug!("monitor task finished gracefully");
-                        }
-                    }
-                }
-            })
-            .await;
+        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(2)).await;
         return;
     }
 
@@ -299,4 +306,66 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
     if resize {
         apply_session_size(state, session).await;
     }
+}
+
+/// Wait `grace`, and if `session` still has no attached SSE connections, shut
+/// down its monitor and remove its map entry.
+pub(super) async fn schedule_idle_monitor_cleanup(
+    state: &Arc<AppState>,
+    session: &str,
+    grace: Duration,
+) {
+    let state_owned = state.clone();
+    let session = session.to_string();
+    let shutdown = state.shutdown.clone();
+    state
+        .spawn(async move {
+            tokio::select! {
+                _ = tokio::time::sleep(grace) => {}
+                _ = shutdown.cancelled() => {
+                    debug!(%session, "shutdown signalled during grace period, aborting cleanup");
+                    return;
+                }
+            }
+            let state = state_owned;
+
+            let (cmd_tx, monitor_handle) = {
+                let mut sessions = state.sessions.write().await;
+                if let Some(session_conns) = sessions.get_mut(&session) {
+                    if session_conns.connections.is_empty() {
+                        info!(%session, "no clients connected after grace period, stopping monitor");
+                        let handle = session_conns.monitor_handle.take();
+                        let tx = session_conns.monitor_command_tx.take();
+                        sessions.remove(&session);
+                        (tx, handle)
+                    } else {
+                        debug!(%session, "client connected during grace period, keeping monitor alive");
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                }
+            };
+
+            if let Some(handle) = monitor_handle {
+                if handle.is_finished() {
+                    debug!("monitor task already finished (session was killed)");
+                } else if let Some(ref tx) = cmd_tx {
+                    info!("sending graceful shutdown to monitor");
+                    let _ = tx.send(MonitorCommand::Shutdown).await;
+                    for _ in 0..20 {
+                        if handle.is_finished() {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    }
+                    if !handle.is_finished() {
+                        warn!("monitor task still running after graceful shutdown (not aborting)");
+                    } else {
+                        debug!("monitor task finished gracefully");
+                    }
+                }
+            }
+        })
+        .await;
 }

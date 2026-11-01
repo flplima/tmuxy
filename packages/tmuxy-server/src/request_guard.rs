@@ -23,7 +23,7 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, HeaderMap, Request, StatusCode},
+    http::{header, HeaderMap, Method, Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -78,35 +78,103 @@ fn is_loopback_name(host: &str) -> bool {
         || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
-/// An authority with the port a scheme implies by default dropped, lowercased,
-/// so `Origin: https://example.com` matches `Host: example.com:443`.
-fn normalized_authority(authority: &str) -> String {
+/// Strip only the default port implied by `scheme`, lowercased, so
+/// `Origin: https://example.com` matches `Host: example.com:443` while
+/// `Origin: http://example.com` does not match `Host: example.com:443`.
+fn normalized_authority_for_scheme(authority: &str, scheme: &str) -> Option<String> {
+    let default_port = match scheme {
+        "http" => ":80",
+        "https" => ":443",
+        _ => return None,
+    };
     let authority = authority.to_ascii_lowercase();
-    for default_port in [":80", ":443"] {
-        if let Some(bare) = authority.strip_suffix(default_port) {
-            return bare.to_string();
-        }
+    Some(
+        authority
+            .strip_suffix(default_port)
+            .unwrap_or(&authority)
+            .to_string(),
+    )
+}
+
+/// Read at most one ASCII header value; fail closed when a header is repeated
+/// or carries non-ASCII bytes so malformed security headers cannot look absent.
+fn single_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, &'static str> {
+    let mut values = headers.get_all(name).iter();
+    let Some(first) = values.next() else {
+        return Ok(None);
+    };
+    if values.next().is_some() {
+        return Err("request carries duplicate security headers");
     }
-    authority
+    first
+        .to_str()
+        .map(Some)
+        .map_err(|_| "request carries malformed security headers")
 }
 
 /// Decide whether a request may reach the API. The error names the rule it
 /// broke, for the log and the 403 body.
-pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static str> {
-    let header_str = |name| headers.get(name).and_then(|v| v.to_str().ok());
+#[cfg(test)]
+fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static str> {
+    check_parts(&Method::GET, headers, None, policy)
+}
 
-    if let Some(site) = header_str("sec-fetch-site") {
+/// Check a full HTTP request — including its method and HTTP/2 `:authority`
+/// pseudo-header (`req.uri().authority()`) — against `policy`.
+pub fn check_request<B>(req: &Request<B>, policy: &HostPolicy) -> Result<(), &'static str> {
+    check_parts(
+        req.method(),
+        req.headers(),
+        req.uri().authority().map(|a| a.as_str()),
+        policy,
+    )
+}
+
+fn check_parts(
+    method: &Method,
+    headers: &HeaderMap,
+    uri_authority: Option<&str>,
+    policy: &HostPolicy,
+) -> Result<(), &'static str> {
+    let site = single_header(headers, "sec-fetch-site")?;
+    let mode = single_header(headers, "sec-fetch-mode")?;
+
+    if let Some(site) = site {
         if site != "same-origin" && site != "none" {
             return Err("request sent by a page on another origin");
         }
+        // Navigating to a URL or submitting from `Sec-Fetch-Site: none` never
+        // legitimately POSTs to the app's JSON/preview APIs; only the app's own
+        // `same-origin` scripts (or non-browser CLI tools with no Fetch
+        // Metadata) do.
+        if method != Method::GET && method != Method::HEAD && site == "none" {
+            return Err("mutating request was not sent by the app itself");
+        }
+    }
+    if method != Method::GET && method != Method::HEAD && mode == Some("navigate") {
+        return Err("mutating request was sent as a navigation");
     }
 
-    let host = header_str(header::HOST.as_str());
+    let host_header = single_header(headers, header::HOST.as_str())?;
+    if let (Some(h), Some(a)) = (host_header, uri_authority) {
+        if !h.eq_ignore_ascii_case(a) {
+            return Err("request Host and :authority disagree");
+        }
+    }
+    let host = host_header.or(uri_authority);
 
-    if let Some(origin) = header_str(header::ORIGIN.as_str()) {
-        let origin_authority = origin.split_once("://").map(|(_, rest)| rest);
-        let same = match (origin_authority, host) {
-            (Some(from), Some(to)) => normalized_authority(from) == normalized_authority(to),
+    if let Some(origin) = single_header(headers, header::ORIGIN.as_str())? {
+        let same = match (origin.split_once("://"), host) {
+            (Some((scheme, from)), Some(to)) => {
+                let scheme = scheme.to_ascii_lowercase();
+                match (
+                    normalized_authority_for_scheme(from, &scheme),
+                    normalized_authority_for_scheme(to, &scheme),
+                ) {
+                    (Some(from), Some(to)) => from == to,
+                    _ => false,
+                }
+            }
             _ => false,
         };
         if !same {
@@ -123,7 +191,8 @@ pub fn check(headers: &HeaderMap, policy: &HostPolicy) -> Result<(), &'static st
         }
         HostPolicy::Bound { bound, allowed } => {
             let name = host.map(hostname).ok_or("request has no Host header")?;
-            if !is_loopback_name(name) && !names_this_server(name, *bound, allowed) {
+            let loopback_ok = allowed.is_empty() && is_loopback_name(name);
+            if !loopback_ok && !names_this_server(name, *bound, allowed) {
                 return Err("request Host is not this server (see --allowed-host)");
             }
         }
@@ -163,18 +232,22 @@ fn allowed_hostname(entry: &str) -> &str {
 /// link, a bookmark), rather than a page fetching from it or framing it.
 /// Such a request may come from another site and still be the user's.
 pub fn is_top_level_navigation(headers: &HeaderMap) -> bool {
-    let header_str = |name| headers.get(name).and_then(|v| v.to_str().ok());
-    header_str("sec-fetch-mode") == Some("navigate")
-        && header_str("sec-fetch-dest") == Some("document")
+    matches!(
+        single_header(headers, "sec-fetch-mode"),
+        Ok(Some("navigate"))
+    ) && matches!(
+        single_header(headers, "sec-fetch-dest"),
+        Ok(Some("document"))
+    )
 }
 
-/// Axum middleware applying [`check`] to every API route.
+/// Axum middleware applying [`check_request`] to every API route.
 pub async fn require_same_origin(
     State(policy): State<Arc<HostPolicy>>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    match check(req.headers(), &policy) {
+    match check_request(&req, &policy) {
         Ok(()) => next.run(req).await,
         Err(reason) => {
             warn!(target: "tmuxy_server::request_guard", path = %req.uri().path(), reason, "refused API request");
@@ -185,246 +258,4 @@ pub async fn require_same_origin(
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-    use axum::http::HeaderValue;
-
-    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
-        let mut map = HeaderMap::new();
-        for (name, value) in pairs {
-            map.insert(*name, HeaderValue::from_static(value));
-        }
-        map
-    }
-
-    fn loopback() -> HostPolicy {
-        HostPolicy::Loopback { allowed: vec![] }
-    }
-
-    /// A wildcard bind with no allowed list — `bin/dev-server` in a container.
-    fn wildcard_bind() -> HostPolicy {
-        HostPolicy::Bound {
-            bound: None,
-            allowed: vec![],
-        }
-    }
-
-    #[test]
-    fn the_app_itself_gets_through() {
-        let app = headers(&[
-            ("host", "localhost:9000"),
-            ("origin", "http://localhost:9000"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert_eq!(check(&app, &loopback()), Ok(()));
-    }
-
-    #[test]
-    fn a_client_that_is_not_a_browser_gets_through() {
-        assert_eq!(
-            check(&headers(&[("host", "127.0.0.1:9000")]), &loopback()),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn a_page_on_another_origin_is_refused_however_it_sends() {
-        // The no-preflight POST a hostile page makes: text/plain, no-cors.
-        let cross_site = headers(&[
-            ("host", "localhost:9000"),
-            ("origin", "https://evil.example"),
-            ("sec-fetch-site", "cross-site"),
-        ]);
-        assert!(check(&cross_site, &loopback()).is_err());
-        // Another port on localhost is a different origin but the same site.
-        let other_port = headers(&[
-            ("host", "localhost:9000"),
-            ("origin", "http://localhost:3000"),
-            ("sec-fetch-site", "same-site"),
-        ]);
-        assert!(check(&other_port, &loopback()).is_err());
-        // A browser without Fetch Metadata still sends Origin on a POST.
-        let origin_only = headers(&[
-            ("host", "localhost:9000"),
-            ("origin", "http://evil.example"),
-        ]);
-        assert!(check(&origin_only, &loopback()).is_err());
-    }
-
-    #[test]
-    fn a_sandboxed_page_is_refused() {
-        let sandboxed = headers(&[("host", "localhost:9000"), ("origin", "null")]);
-        assert!(check(&sandboxed, &loopback()).is_err());
-    }
-
-    #[test]
-    fn a_rebound_domain_is_refused_on_a_loopback_bind() {
-        // DNS rebinding: the page and the server look same-origin to the browser.
-        let rebound = headers(&[
-            ("host", "attacker.example:9000"),
-            ("origin", "http://attacker.example:9000"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert!(check(&rebound, &loopback()).is_err());
-    }
-
-    /// SEC-CRIT-01. A wildcard bind with no allowed list let any `Host`
-    /// through, on the theory that a container's published port was the
-    /// boundary. Docker publishes on every host interface, and the dev server
-    /// runs `--no-auth` there, so a rebound name was a shell for any page the
-    /// developer opened.
-    #[test]
-    fn a_rebound_domain_is_refused_on_a_wildcard_bind() {
-        let rebound = headers(&[
-            ("host", "attacker.example:9000"),
-            ("origin", "http://attacker.example:9000"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert!(check(&rebound, &wildcard_bind()).is_err());
-
-        // Loopback, a published port's forwarded `localhost`, and any address
-        // of the machine still reach it.
-        for host in [
-            "localhost:14089",
-            "127.0.0.1:9000",
-            "192.168.1.20:9000",
-            "[fd00::1]:9000",
-        ] {
-            assert_eq!(
-                check(&headers(&[("host", host)]), &wildcard_bind()),
-                Ok(()),
-                "{host}"
-            );
-        }
-        assert!(check(&HeaderMap::new(), &wildcard_bind()).is_err());
-    }
-
-    #[test]
-    fn every_loopback_spelling_and_an_allowed_host_pass() {
-        for host in [
-            "localhost:9000",
-            "LOCALHOST",
-            "127.0.0.1:9000",
-            "[::1]:9000",
-            "tmuxy.localhost:9000",
-        ] {
-            assert_eq!(
-                check(&headers(&[("host", host)]), &loopback()),
-                Ok(()),
-                "{host}"
-            );
-        }
-        let proxied = headers(&[
-            ("host", "tmux.example.com"),
-            ("origin", "https://tmux.example.com"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        let policy = HostPolicy::Loopback {
-            allowed: vec!["tmux.example.com".into()],
-        };
-        assert_eq!(check(&proxied, &policy), Ok(()));
-    }
-
-    #[test]
-    fn a_missing_host_is_refused_on_a_loopback_bind() {
-        assert!(check(&HeaderMap::new(), &loopback()).is_err());
-    }
-
-    /// SEC-10. The `Host` rule used to run only under `Loopback`, and every
-    /// routable bind got `Any` — so with `--no-auth` on a LAN address, a
-    /// hostile page pointing a name it owns at that address had a shell. A
-    /// browser holds no credentials for an IP literal, but it will happily
-    /// send them to a name.
-    #[test]
-    fn a_rebound_domain_is_refused_on_a_routable_bind_too() {
-        let bound = HostPolicy::Bound {
-            bound: Some("192.168.1.20".parse().unwrap()),
-            allowed: vec![],
-        };
-        let rebound = headers(&[
-            ("host", "attacker.example:9000"),
-            ("origin", "http://attacker.example:9000"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert!(check(&rebound, &bound).is_err());
-
-        // The address it actually bound, and loopback, still reach it.
-        for host in ["192.168.1.20:9000", "localhost:9000", "127.0.0.1"] {
-            assert_eq!(check(&headers(&[("host", host)]), &bound), Ok(()), "{host}");
-        }
-    }
-
-    /// SEC-15. A name the operator listed reaches the server on a routable
-    /// bind, and one they did not does not — which is what the public demo's
-    /// README already claimed.
-    #[test]
-    fn an_allowed_host_reaches_a_routable_bind_and_nothing_else_does() {
-        let policy = HostPolicy::Bound {
-            bound: None,
-            allowed: vec!["demo.example".into()],
-        };
-        let allowed = headers(&[
-            ("host", "demo.example"),
-            ("origin", "https://demo.example"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert_eq!(check(&allowed, &policy), Ok(()));
-
-        let other = headers(&[
-            ("host", "attacker.example"),
-            ("origin", "https://attacker.example"),
-            ("sec-fetch-site", "same-origin"),
-        ]);
-        assert!(check(&other, &policy).is_err());
-    }
-
-    #[test]
-    fn an_allowed_host_written_with_a_port_or_brackets_still_matches() {
-        let policy = HostPolicy::Loopback {
-            allowed: vec![
-                "example.com:8443".into(),
-                "[fd00::1]".into(),
-                "fd00::2".into(),
-            ],
-        };
-        for host in [
-            "example.com:8443",
-            "example.com",
-            "[fd00::1]:9000",
-            "[fd00::2]:9000",
-        ] {
-            assert_eq!(
-                check(&headers(&[("host", host)]), &policy),
-                Ok(()),
-                "{host}"
-            );
-        }
-        assert!(check(&headers(&[("host", "other.com:8443")]), &policy).is_err());
-    }
-
-    #[test]
-    fn only_a_page_load_is_a_top_level_navigation() {
-        let page = headers(&[
-            ("sec-fetch-mode", "navigate"),
-            ("sec-fetch-dest", "document"),
-        ]);
-        assert!(is_top_level_navigation(&page));
-        let frame = headers(&[("sec-fetch-mode", "navigate"), ("sec-fetch-dest", "iframe")]);
-        assert!(!is_top_level_navigation(&frame));
-        let image = headers(&[("sec-fetch-mode", "no-cors"), ("sec-fetch-dest", "image")]);
-        assert!(!is_top_level_navigation(&image));
-        assert!(!is_top_level_navigation(&HeaderMap::new()));
-    }
-
-    #[test]
-    fn a_default_port_matches_its_absence() {
-        let tls = headers(&[
-            ("host", "example.com:443"),
-            ("origin", "https://example.com"),
-        ]);
-        let policy = HostPolicy::Loopback {
-            allowed: vec!["example.com".into()],
-        };
-        assert_eq!(check(&tls, &policy), Ok(()));
-    }
-}
+mod tests;

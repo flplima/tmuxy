@@ -19,10 +19,12 @@ fn iterm2_inline_image_strips_and_stores() {
 #[test]
 fn iterm2_preserve_aspect_ratio_zero_fills_its_cells() {
     let mut parser = ImageParser::new();
-    parser.process(b"\x1b]1337;File=inline=1;width=10;height=5;preserveAspectRatio=0:AAAA\x07");
+    parser.process(
+        b"\x1b]1337;File=inline=1;width=10;height=5;preserveAspectRatio=0:iVBORw0KGgo=\x07",
+    );
     assert!(parser.placements[0].stretch);
     let mut parser = ImageParser::new();
-    parser.process(b"\x1b]1337;File=inline=1;width=10;height=5:AAAA\x07");
+    parser.process(b"\x1b]1337;File=inline=1;width=10;height=5:iVBORw0KGgo=\x07");
     assert!(
         !parser.placements[0].stretch,
         "fitting is the protocol's default"
@@ -35,22 +37,22 @@ fn iterm2_preserve_aspect_ratio_zero_fills_its_cells() {
 fn a_picture_drawn_over_another_replaces_it() {
     let mut parser = ImageParser::new();
     parser.update_cursor(1, 30);
-    parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:AAAA\x07");
+    parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:iVBORw0KGgo=\x07");
     parser.update_cursor(1, 25);
-    parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:AAAA\x07");
+    parser.process(b"\x1b]1337;File=inline=1;width=20;height=10:iVBORw0KGgo=\x07");
     assert_eq!(parser.placements.len(), 1, "the covered picture is retired");
     assert_eq!(parser.placements[0].col, 25);
 
     // One beside it, sharing no cell, stays.
     parser.update_cursor(1, 60);
-    parser.process(b"\x1b]1337;File=inline=1;width=5;height=5:AAAA\x07");
+    parser.process(b"\x1b]1337;File=inline=1;width=5;height=5:iVBORw0KGgo=\x07");
     assert_eq!(parser.placements.len(), 2);
 }
 
 #[test]
 fn iterm2_non_inline_consumed_but_not_stored() {
     let mut parser = ImageParser::new();
-    let input = b"\x1b]1337;File=name=dGVzdA==:AAAA\x07";
+    let input = b"\x1b]1337;File=name=dGVzdA==:iVBORw0KGgo=\x07";
     let result = parser.process(input);
     assert!(result.clean_bytes.is_empty());
     assert!(parser.placements.is_empty());
@@ -60,7 +62,7 @@ fn iterm2_non_inline_consumed_but_not_stored() {
 #[test]
 fn iterm2_mixed_with_text() {
     let mut parser = ImageParser::new();
-    let input = b"Hello \x1b]1337;File=inline=1;width=5;height=3:AAAA\x07 World";
+    let input = b"Hello \x1b]1337;File=inline=1;width=5;height=3:iVBORw0KGgo=\x07 World";
     let result = parser.process(input);
     assert_eq!(result.clean_bytes, b"Hello  World");
     assert_eq!(parser.placements.len(), 1);
@@ -71,14 +73,35 @@ fn iterm2_image_split_across_chunks_is_buffered_not_torn() {
     // Regression: a payload larger than one %output read used to have its
     // header leaked into vt100 as garbage and the image dropped.
     let mut parser = ImageParser::new();
-    let out1 = parser.process(b"\x1b]1337;File=inline=1;width=5;height=3:AA");
+    let out1 = parser.process(b"\x1b]1337;File=inline=1;width=5;height=3:iVBORw");
     // Incomplete — buffered, nothing leaked to vt100 yet.
     assert!(out1.clean_bytes.is_empty());
     assert!(parser.placements.is_empty());
-    let out2 = parser.process(b"AA\x07done");
+    let out2 = parser.process(b"0KGgo=\x07done");
     assert_eq!(out2.clean_bytes, b"done");
     assert_eq!(parser.placements.len(), 1);
     assert_eq!(out2.new_images.len(), 1);
+}
+
+#[test]
+fn non_image_and_oversized_single_chunk_uploads_are_dropped() {
+    let mut parser = ImageParser::new();
+    for payload in [
+        &b"<html><script>alert(1)</script></html>"[..],
+        &b"<svg xmlns='http://www.w3.org/2000/svg'/>"[..],
+        &b"\x00\x00\x00"[..],
+    ] {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(payload);
+        let iterm = format!("\x1b]1337;File=inline=1:{b64}\x07");
+        assert!(parser.process(iterm.as_bytes()).new_images.is_empty());
+        let kitty = format!("\x1b_Ga=T,f=100;{b64}\x1b\\");
+        assert!(parser.process(kitty.as_bytes()).new_images.is_empty());
+    }
+    assert!(parser.placements.is_empty());
+
+    let oversized = "A".repeat(MAX_CHUNKED_IMAGE + 4);
+    let kitty = format!("\x1b_Ga=T,f=100;{oversized}\x1b\\");
+    assert!(parser.process(kitty.as_bytes()).new_images.is_empty());
 }
 
 #[test]

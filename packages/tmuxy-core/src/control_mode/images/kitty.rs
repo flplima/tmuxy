@@ -175,6 +175,9 @@ impl ImageParser {
             self.kitty_chunk_order.retain(|id| *id != image_id);
             self.kitty_chunks.remove(&image_id)?
         } else {
+            if payload_str.len() > MAX_CHUNKED_IMAGE {
+                return Some((consumed, None));
+            }
             KittyChunked {
                 opened_at: Instant::now(),
                 payload: payload_str.to_string(),
@@ -203,9 +206,12 @@ impl ImageParser {
 
         // Convert RGB/RGBA -> PNG so the frontend can render via <img>.
         let stored = match entry.format {
-            100 => StoredImage {
-                mime_type: detect_mime_type(&raw),
-                data: raw,
+            100 => match detect_mime_type(&raw) {
+                Some(mime) => StoredImage {
+                    mime_type: mime.to_string(),
+                    data: raw,
+                },
+                None => return Some((consumed, None)),
             },
             24 | 32 => match rgba_to_png(&raw, entry.format, entry.src_width, entry.src_height) {
                 Some(png) => StoredImage {
@@ -268,4 +274,32 @@ fn zlib_decompress_bounded(compressed: &[u8]) -> Option<Vec<u8>> {
         .read_to_end(&mut decoded)
         .ok()?;
     (decoded.len() <= MAX_DECODED_IMAGE_BYTES).then_some(decoded)
+}
+
+/// Encode raw RGB(format=24) or RGBA(format=32) pixel data as a PNG byte
+/// buffer. Returns `None` if the dimensions don't match the payload length.
+pub(super) fn rgba_to_png(pixels: &[u8], format: u32, width: u32, height: u32) -> Option<Vec<u8>> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let (channels, color) = match format {
+        24 => (3usize, png::ColorType::Rgb),
+        32 => (4usize, png::ColorType::Rgba),
+        _ => return None,
+    };
+    let expected = (width as usize)
+        .checked_mul(height as usize)?
+        .checked_mul(channels)?;
+    if pixels.len() < expected {
+        return None;
+    }
+    let mut out = Vec::with_capacity(pixels.len() / 2);
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().ok()?;
+        writer.write_image_data(&pixels[..expected]).ok()?;
+    }
+    Some(out)
 }

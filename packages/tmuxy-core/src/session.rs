@@ -336,17 +336,27 @@ pub fn session_exists(name: &SessionName) -> Result<bool> {
     Ok(output.status.success())
 }
 
-/// How many sessions the server has, from a read-only `list-sessions`; zero
-/// when there is no server to ask.
-pub fn session_count() -> usize {
+/// Names of every session the tmux server currently holds, from a read-only
+/// `list-sessions`; empty when there is no server to ask.
+pub fn session_names() -> Vec<String> {
     tmux_command()
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()
         .filter(|output| output.status.success())
-        .map_or(0, |output| {
-            String::from_utf8_lossy(&output.stdout).lines().count()
+        .map_or_else(Vec::new, |output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()
         })
+}
+
+/// How many sessions the server has, from a read-only `list-sessions`; zero
+/// when there is no server to ask.
+pub fn session_count() -> usize {
+    session_names().len()
 }
 
 /// The socket name tmux itself uses when nobody says otherwise — the server a

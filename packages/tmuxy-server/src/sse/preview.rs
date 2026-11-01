@@ -18,7 +18,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
-use tmuxy_core::preview::stage_page;
+use tmuxy_core::preview::{html_authorisation, MAX_STAGED_BYTES};
 use tmuxy_core::{CommandError, PaneId};
 
 use super::commands::command_failure;
@@ -31,11 +31,15 @@ fn pane_from_path(number: &str) -> Result<PaneId, CommandError> {
 }
 
 /// `POST /api/preview/{pane}`: stage the pane's page.
+///
+/// Authorises `pane` with tmux *before* reading the up-to-48 MiB body so a
+/// request for a non-preview pane or an inactive session cannot force the
+/// server to buffer megabytes of HTML first.
 pub async fn stage_preview_handler(
     State(state): State<Arc<AppState>>,
     Path(number): Path<String>,
     Query(query): Query<SessionQuery>,
-    html: String,
+    body: Body,
 ) -> Response {
     let session = match query.session() {
         Ok(session) => session,
@@ -45,12 +49,28 @@ pub async fn stage_preview_handler(
         Ok(pane) => pane,
         Err(error) => return command_failure(StatusCode::BAD_REQUEST, error),
     };
-    let staged = async {
-        let tx = state.monitor_tx(&session).await?;
-        stage_page(&tx, &state.preview_pages, pane, html).await
-    }
-    .await;
-    match staged {
+    let net = match state.monitor_tx(&session).await {
+        Ok(tx) => match html_authorisation(&tx, &pane).await {
+            Ok(net) => net,
+            Err(error) => return command_failure(StatusCode::FORBIDDEN, error),
+        },
+        Err(error) => return command_failure(StatusCode::FORBIDDEN, error),
+    };
+    let Ok(bytes) = axum::body::to_bytes(body, MAX_STAGED_BYTES).await else {
+        return command_failure(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            CommandError::invalid(format!(
+                "a staged page is limited to {MAX_STAGED_BYTES} bytes"
+            )),
+        );
+    };
+    let Ok(html) = String::from_utf8(bytes.to_vec()) else {
+        return command_failure(
+            StatusCode::BAD_REQUEST,
+            CommandError::invalid("staged preview HTML must be valid UTF-8"),
+        );
+    };
+    match state.preview_pages.stage(pane, html, net) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => command_failure(StatusCode::FORBIDDEN, error),
     }

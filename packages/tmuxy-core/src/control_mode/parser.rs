@@ -109,7 +109,7 @@ pub enum ControlModeEvent {
 /// The most a `%begin` … `%end` reply may hold. A whole capture of a long
 /// history fits many times over; past it the reply is answered as an error
 /// rather than grown without bound.
-const MAX_RESPONSE_BYTES: usize = 256 * 1024 * 1024;
+pub(super) const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Parser for control mode notifications
 pub struct Parser {
