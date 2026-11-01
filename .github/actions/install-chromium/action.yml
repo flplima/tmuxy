@@ -31,5 +31,5 @@ runs:
       shell: bash
       run: |
         fonts="$(cat bin/chromium-fonts.txt)"
-        sudo apt-get install -y --no-install-recommends $fonts \
+        APT_ATTEMPTS=1 "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts \
           || { "$GITHUB_WORKSPACE/bin/ci/apt-get" update && "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts; }
