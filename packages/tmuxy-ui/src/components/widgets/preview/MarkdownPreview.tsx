@@ -4,11 +4,12 @@
  *
  * It renders in the APP's origin, so nothing in it may execute: raw HTML in
  * the document is not rendered at all (react-markdown without rehype-raw), a
- * mermaid diagram is sanitized twice (`MermaidBlock`), and a link opens in the
- * system browser only when it is http(s) or mailto — never by navigating the
- * app. An image beside the document is read through `read_preview`; a remote
- * one is loaded only when the preview was opened with `--net`, since loading it
- * tells its host the document was opened.
+ * mermaid diagram is drawn in a frame of its own and sanitized before the app
+ * adopts it (`MermaidBlock`), and a link opens in the system browser only when
+ * it is http(s) or mailto — never by navigating the app. An image beside the
+ * document is read through `read_preview`; a remote one is loaded only when
+ * the preview was opened with `--net`, since loading it tells its host the
+ * document was opened, and without a referrer.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -62,7 +63,9 @@ function components(source: PreviewSource, theme: PreviewTheme, net: boolean): C
       const ref = typeof src === 'string' ? src : '';
       const path = previewResourcePath(ref);
       if (path) return <LocalImage path={path} alt={alt ?? ''} source={source} />;
-      if (net && /^https?:\/\//i.test(ref)) return <img src={ref} alt={alt ?? ''} />;
+      if (net && /^https?:\/\//i.test(ref)) {
+        return <img src={ref} alt={alt ?? ''} referrerPolicy="no-referrer" />;
+      }
       return (
         <span className="preview-image-blocked" title={ref}>
           {alt || ref}

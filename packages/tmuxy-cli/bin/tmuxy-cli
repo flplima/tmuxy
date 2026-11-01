@@ -273,23 +273,42 @@ usage_run() {
   cat <<'EOF'
 Usage: tmuxy run <tmux-command> [args...]
 
-Run any tmux command safely through run-shell.
+Run a tmux command that reads, arranges or closes panes and windows,
+safely through run-shell.
 
-Safety features:
-  - new-window is intercepted → split-window + break-pane
-  - resize-window is blocked (crashes control mode)
-  - Input into a pane other than your own (send-keys, paste-buffer,
-    pipe-pane) is refused: use `tmuxy pane send -t`, which asks the user
-  - Commands that run a shell or change what one runs (run-shell, if-shell,
-    respawn-pane, set-environment, set-hook, source-file), and writes to the
-    send question's own options (@tmuxy-ask*, @tmuxy-send-*,
-    @tmuxy-pane-restore), are refused
-  - All other commands route through run-shell
+It runs these, by full name or alias (never a prefix):
+EOF
+  # The list is RUN_COMMANDS (bin/tmuxy/cli-commands.sh), without the
+  # aliases and the two names it only intercepts.
+  local name names=()
+  for name in "${RUN_COMMANDS[@]}"; do
+    case "$name" in new-window | resize-window) ;; *-*) names+=("$name") ;; esac
+  done
+  printf '%s \n' "$(printf '%s ' "${names[@]}" | fold -s -w 74)" | sed 's/^/  /; s/ *$//'
+  cat <<'EOF'
+
+And refuses everything else:
+  - keys into any pane, your own too (send-keys, paste-buffer, pipe-pane):
+    use `tmuxy pane send`, which asks the user before typing into another
+  - commands that run a shell or keep a command for later (run-shell,
+    if-shell, split-window, new-session, respawn-pane, bind-key,
+    command-prompt, display-popup, …): use `tmuxy pane split`, `pane run`,
+    `tab create`
+  - writes to an option, hook or the environment (set-option, set-hook,
+    set-environment, source-file)
+  - an argument ending in `;` (tmux starts another command there), and a
+    format that runs a shell: `#(…)`, or the `E:` and `T:` modifiers
+  - new-window is intercepted → `tmuxy tab create`
+  - resize-window is blocked (unreliable with control mode attached)
+
+Every argument reaches tmux quoted: `#{…}` formats are expanded by the
+command they are given to, never by run-shell.
 
 Examples:
   tmuxy run swap-pane -s %0 -t %1
+  tmuxy run list-panes -F '#{pane_id} #{pane_current_command}'
+  tmuxy run copy-mode -q            # leave copy mode
   tmuxy run new-window              # intercepted → safe alternative
-  tmuxy run send-keys -X cancel     # your own pane
 EOF
 }
 

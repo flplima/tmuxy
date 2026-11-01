@@ -252,10 +252,23 @@
   white-space: pre-wrap;
 }
 
+/* A diagram paints inside its own block and nowhere else: `contain: paint`
+   is also the containing block of anything in it that is `position: fixed`,
+   so no markup in a diagram can lay itself over the app. */
 .preview-mermaid {
   display: flex;
   justify-content: center;
   margin: 16px 0;
+  contain: paint;
+}
+
+/* Where mermaid draws a diagram to measure it (`drawMermaid.ts`): laid out,
+   never seen. */
+.preview-mermaid-drawing {
+  position: fixed;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .preview-mermaid svg {

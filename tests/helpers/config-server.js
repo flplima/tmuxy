@@ -13,7 +13,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { TMUXY_PORT } = require('./config');
 const { startExtraServer } = require('./extra-server');
-const { TMUXY_CLI, tmuxRun } = require('./cli');
+const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
 
 // Clear of the suite's port.
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
@@ -46,8 +46,9 @@ function reloadConfig() {
  * Unset the one `@tmuxy-css-*` option the suite sets from its config. It is a
  * GLOBAL tmux option, and the suite's tmux server outlives a run: left set,
  * it would win over the next run's theme before that run has set anything.
+ * An option is the user's to set (`tmuxy run` sets none), so as the operator.
  */
-const unsetConfigVariable = () => tmuxRun('set-option -gu @tmuxy-css-term-background');
+const unsetConfigVariable = () => tmuxRunAsOperator('set-option -gu @tmuxy-css-term-background');
 
 module.exports = {
   CONFIG_URL,
