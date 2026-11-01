@@ -55,39 +55,107 @@ pub const MANAGED_OPTIONS: [&str; 5] = [
 /// machine that shares the file, so the app neither re-applies a remembered
 /// menu choice over it nor lets the menu change it. Read from the file
 /// rather than asked of tmux, because tmux cannot say which layer set an
-/// option: a `set` line (`set`, `set-option`, any flags but `-u`) naming the
-/// option outside a comment is a pin, whatever its value.
+/// option. The file is read as tmux reads it — comments out, continued lines
+/// joined, split into commands where tmux splits a list (`;`, `\;`, newline)
+/// — and in order: a `set`/`set-option` of the global option the app reads
+/// (`-g`, and no `-w`, `-p` or `-s`, which name another table) pins it,
+/// whatever its value, and a later `-u` of it lets it go. A command inside a
+/// `{ … }` block (a binding's, say) runs later, if at all, and pins nothing.
 pub fn pinned_options_in(conf: &str) -> Vec<&'static str> {
-    let mut set = Vec::new();
-    for command in conf
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with('#'))
-        .flat_map(|line| line.split(" ; "))
-    {
-        let mut words = command.split_whitespace();
-        if !matches!(words.next(), Some("set" | "set-option")) {
-            continue;
-        }
-        let mut unset = false;
-        let name = words.find(|word| {
-            if word.starts_with('-') {
-                unset |= word.contains('u');
-                return false;
-            }
-            true
-        });
-        let Some(name) = name.map(|n| n.trim_matches(['\'', '"'])) else {
+    let text = without_comments(conf);
+    let mut pinned = Vec::new();
+    for command in crate::executor::split_compound(&text) {
+        let Some((name, unset)) = global_option_set(command) else {
             continue;
         };
-        if !unset && !set.contains(&name) {
-            set.push(name);
+        let Some(option) = MANAGED_OPTIONS.into_iter().find(|o| *o == name) else {
+            continue;
+        };
+        pinned.retain(|o| *o != option);
+        if !unset {
+            pinned.push(option);
         }
     }
     MANAGED_OPTIONS
         .into_iter()
-        .filter(|option| set.contains(option))
+        .filter(|option| pinned.contains(option))
         .collect()
+}
+
+/// `conf` without its comments — a `#` that starts a word outside quotes runs
+/// to the end of the line — and with each continued line (a `\` before the
+/// newline) joined to the next.
+fn without_comments(conf: &str) -> String {
+    let mut out = String::with_capacity(conf.len());
+    let mut quote = None;
+    let mut word_start = true;
+    let mut chars = conf.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (_, '\n') => quote = None,
+            (None, '#') if word_start => {
+                while chars.next_if(|&next| next != '\n').is_some() {}
+                continue;
+            }
+            (None | Some('"'), '\\') => {
+                match chars.next() {
+                    Some('\n') => {
+                        out.push(' ');
+                        word_start = true;
+                    }
+                    Some(next) => {
+                        out.push(c);
+                        out.push(next);
+                        word_start = false;
+                    }
+                    None => out.push(c),
+                }
+                continue;
+            }
+            (None, '\'' | '"') => quote = Some(c),
+            (Some(open), _) if open == c => quote = None,
+            _ => {}
+        }
+        word_start = quote.is_none() && matches!(c, ' ' | '\t' | '\n' | ';');
+        out.push(c);
+    }
+    out
+}
+
+/// The option a `set`/`set-option` command sets or unsets (`true`) in the
+/// global session table, read the way tmux's getopt reads its flags: `-t`
+/// takes the rest of its cluster or the next word as a target. `None` for
+/// any other command, and for one aimed at a window, pane or server table.
+fn global_option_set(command: &str) -> Option<(&str, bool)> {
+    let mut words = command.split_whitespace();
+    if !matches!(words.next(), Some("set" | "set-option")) {
+        return None;
+    }
+    let (mut global, mut unset, mut other_table) = (false, false, false);
+    let name = loop {
+        let word = words.next()?;
+        let Some(flags) = word.strip_prefix('-').filter(|flags| !flags.is_empty()) else {
+            break word;
+        };
+        if flags == "-" {
+            break words.next()?;
+        }
+        for (i, flag) in flags.char_indices() {
+            match flag {
+                'g' => global = true,
+                'u' => unset = true,
+                'w' | 'p' | 's' => other_table = true,
+                't' => {
+                    if flags[i + 1..].is_empty() {
+                        words.next();
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+    };
+    (global && !other_table).then(|| (name.trim_matches(['\'', '"']), unset))
 }
 
 /// The managed options the user's `tmuxy.conf` pins ([`pinned_options_in`]).

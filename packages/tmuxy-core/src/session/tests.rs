@@ -263,6 +263,85 @@ bind x set -g @tmuxy-theme-mode dark
     assert_eq!(MANAGED_OPTIONS.len(), 5);
 }
 
+/// `-t` takes an argument, which is a target and not the option's name,
+/// whether it stands alone, ends a cluster or is glued to its flag.
+#[test]
+fn a_pin_reads_past_a_target_flag_and_its_argument() {
+    for conf in [
+        "set -g -t main @tmuxy-theme nord",
+        "set -gt main @tmuxy-theme nord",
+        "set -t main -g @tmuxy-theme nord",
+        "set-option -tmain -gq @tmuxy-theme nord",
+        "set -g -- @tmuxy-theme nord",
+    ] {
+        assert_eq!(pinned_options_in(conf), ["@tmuxy-theme"], "{conf}");
+    }
+}
+
+/// The file runs top to bottom: a later `-u` lets an earlier pin go, and a
+/// set after that pins it again.
+#[test]
+fn a_later_unset_lets_a_pin_go() {
+    let conf = "\
+set -g @tmuxy-theme nord
+set -g @tmuxy-theme-mode dark
+set -gu @tmuxy-theme
+set -g -u @tmuxy-theme-mode
+set -g @tmuxy-cursor-blink on
+set -gu @tmuxy-cursor-blink
+set -g @tmuxy-cursor-blink off
+";
+    assert_eq!(pinned_options_in(conf), ["@tmuxy-cursor-blink"]);
+}
+
+/// Commands split where tmux splits a list — `\;`, a glued `;`, a bare one —
+/// and a comment runs from a `#` that starts a word to the end of its line,
+/// `;` and all; a `#` inside quotes or a word is text.
+#[test]
+fn a_pin_splits_commands_and_drops_comments_as_tmux_does() {
+    let conf = "\
+set -g @tmuxy-theme nord \\; set -g @tmuxy-theme-mode dark
+set -g @tmuxy-send-ask off;set -g @tmuxy-transparency off
+set -g @tmuxy-opacity 1 # note ; set -g @tmuxy-cursor-blink on
+";
+    assert_eq!(
+        pinned_options_in(conf),
+        [
+            "@tmuxy-theme",
+            "@tmuxy-theme-mode",
+            "@tmuxy-send-ask",
+            "@tmuxy-transparency"
+        ]
+    );
+    assert_eq!(
+        pinned_options_in("set -g @tmuxy-cursor-blink \"on # kept\" ; set -g @x a#b"),
+        ["@tmuxy-cursor-blink"]
+    );
+    assert_eq!(
+        pinned_options_in("set -g \\\n  @tmuxy-theme nord"),
+        ["@tmuxy-theme"],
+        "a continued line"
+    );
+}
+
+/// What the app reads is the global session option: a session's own, a
+/// window's, a pane's or the server's table does not reach it, and a binding's
+/// block runs on a key press, not when the file is read.
+#[test]
+fn only_a_global_session_option_set_when_the_file_is_read_pins() {
+    for conf in [
+        "set @tmuxy-theme nord",
+        "set -t main @tmuxy-theme nord",
+        "set -gw @tmuxy-theme nord",
+        "set -p @tmuxy-theme nord",
+        "set -s @tmuxy-theme nord",
+        "bind x { set -g @tmuxy-theme nord }",
+        "bind x set -g @tmuxy-theme nord",
+    ] {
+        assert!(pinned_options_in(conf).is_empty(), "{conf}");
+    }
+}
+
 /// What reaches ssh as its destination is a host, never an option: ssh runs
 /// a `-oProxyCommand=…` as a local command.
 #[test]
