@@ -35,9 +35,64 @@ pub(super) fn serve_user_css(path: &str) -> Option<Response> {
     })
 }
 
-/// Serve files from embedded frontend assets (SPA with index.html fallback)
+/// The policy the built app is served under. Everything the app loads comes
+/// from its own origin: the bundle, its fonts, the user's stylesheets,
+/// `/events`, `/commands` and `/api/images`. Remote images are
+/// the one exception, for a markdown preview opened with `--net`. `frame-src`
+/// is what keeps a preview's page inside its frame: the page is served from
+/// `/api/preview/{pane}`, and the embedder's `frame-src` is checked on every
+/// navigation of the frame, so a page that sets its own `location` to another
+/// host is refused instead of carrying the files inlined into it there.
+/// `frame-ancestors` stops another site from framing the app to steer its
+/// clicks.
+pub(super) const APP_CSP: &str = "default-src 'self'; script-src 'self'; \
+     style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; \
+     font-src 'self' data:; connect-src 'self'; frame-src 'self'; \
+     frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
+
+/// `--dev`: the framing rules of [`APP_CSP`] only. Vite's page carries an inline
+/// script (React's refresh preamble) and its HMR socket goes straight to the
+/// Vite port, neither of which the full policy allows.
+pub(super) const DEV_CSP: &str =
+    "frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
+
+/// Put the app's security headers on a response for one of its own files.
+/// Not for `/api/preview/{pane}`, which is framed by the app and carries a
+/// policy of its own.
+pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Response {
+    use axum::http::{header, HeaderValue};
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(csp),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+}
+
+/// Serve files from embedded frontend assets (SPA with index.html fallback),
+/// under [`APP_CSP`].
 pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
-    let path = uri.path().trim_start_matches('/');
+    with_app_headers(embedded_file(uri.path()), APP_CSP)
+}
+
+/// `--dev`: the app from Vite, under [`DEV_CSP`]. The user's stylesheets are
+/// the server's to serve in dev mode too: Vite only knows the bundled copies
+/// under `public/`.
+pub(super) async fn serve_dev(req: axum::extract::Request) -> Response {
+    let response = match serve_user_css(req.uri().path()) {
+        Some(response) => response,
+        None => dev::proxy_to_vite(req).await,
+    };
+    with_app_headers(response, DEV_CSP)
+}
+
+fn embedded_file(path: &str) -> Response {
+    let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
     // Response::builder().body() returns Err only for invalid header values, which
