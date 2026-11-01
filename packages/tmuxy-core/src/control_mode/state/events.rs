@@ -1,5 +1,10 @@
 use super::*;
 
+/// The buffers tmuxy stages a paste in: the client's (`PASTE_BUFFER` in
+/// `tmuxy-ui/src/domain/commandHelpers.ts`) and the CLI's (`tmuxy pane paste`,
+/// in `tmuxy-cli/bin/tmuxy/send`). Never a yank, so never mirrored.
+const PASTE_STAGING_BUFFERS: [&str; 2] = ["tmuxy-paste", "tmuxy-cli-paste"];
+
 impl StateAggregator {
     /// Process a control mode event.
     /// Returns information about state changes and any panes that need content refresh.
@@ -176,6 +181,12 @@ impl StateAggregator {
                         buffer = %buffer_name,
                         "paste buffer changed with no pane of this session in copy mode; not mirrored"
                     );
+                    return ProcessEventResult::default();
+                }
+                // tmuxy's own paste is staged in a buffer too, a chunk at a
+                // time: mirrored, each chunk of a paste into one pane while
+                // another sits in copy mode would overwrite the clipboard.
+                if PASTE_STAGING_BUFFERS.contains(&buffer_name.as_str()) {
                     return ProcessEventResult::default();
                 }
                 self.pending_buffer_reads.push_back(buffer_name.clone());
