@@ -32,15 +32,19 @@ export function list(commands: ReadonlyArray<string>): string {
  * `--` ends the options: without it, text starting with a dash (`-la`, or the
  * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
  * rejects the command, and the text is lost.
+ *
+ * `to` is a pane id, or — before the client knows one — the session name,
+ * which goes through `target` like every other name on a command line.
  */
 export function literalText(to: string, text: string): string {
+  const at = target(to);
   const lines = text.split(/\r?\n/);
   const commands: string[] = [];
   lines.forEach((line, i) => {
     for (let j = 0; j < line.length; j += LITERAL_CHUNK_SIZE) {
-      commands.push(`send-keys -t ${to} -l -- ${quote(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
+      commands.push(`send-keys -t ${at} -l -- ${quote(line.slice(j, j + LITERAL_CHUNK_SIZE))}`);
     }
-    if (i < lines.length - 1) commands.push(`send-keys -t ${to} Enter`);
+    if (i < lines.length - 1) commands.push(`send-keys -t ${at} Enter`);
   });
   return commands.join('\n');
 }
@@ -135,7 +139,7 @@ export function pastedText(to: string, text: string): string {
  * reads: the fallback target, a session name, could be anything at all.
  */
 export function pasteBufferInto(to: string): string {
-  const single = `paste-buffer -p -d -b ${PASTE_BUFFER} -t ${to}`;
+  const single = `paste-buffer -p -d -b ${PASTE_BUFFER} -t ${target(to)}`;
   if (!/^%\d+$/.test(to)) return single;
   const synced = script('paste-synced', to, PASTE_BUFFER);
   return `if-shell -F -t ${to} '#{pane_synchronized}' '${synced}' '${single}'`;

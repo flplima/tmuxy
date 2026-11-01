@@ -42,6 +42,17 @@ describe('KeyBatcher', async () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('leaves a quoted target alone rather than cutting it at its first space', async () => {
+    // A session name with a space is the one target that arrives quoted; read
+    // as `\S+` it became the target `'my` and the keys `work' Enter`.
+    const keys = "send-keys -t 'my work' Enter";
+    const text = "send-keys -t 'my work' -l -- 'a'";
+    expect(batcher.intercept('run_tmux_command', { command: keys })).toBe(false);
+    expect(batcher.intercept('run_tmux_command', { command: text })).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sent).toEqual([]);
+  });
+
   it('coalesces a rapid literal burst after the leading send', async () => {
     literal('a');
     await vi.advanceTimersByTimeAsync(5);

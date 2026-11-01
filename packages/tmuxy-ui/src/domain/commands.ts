@@ -314,7 +314,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'PasteBuffer':
       return 'paste-buffer -p';
     case 'SendKeys':
-      return `send-keys -t ${op.target} ${op.keys}`;
+      return `send-keys -t ${target(op.target)} ${op.keys}`;
     case 'SendText':
       return literalText(op.target, op.text);
     case 'PasteText':
