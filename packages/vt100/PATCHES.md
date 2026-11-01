@@ -40,6 +40,12 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or
   panic (`tests/degenerate_size.rs`).
+- **The widest grid**: `col_tab` adds its 8 with saturation, so a tab from
+  the last stop of a 65,535-column grid stops at the edge instead of
+  overflowing `u16`. `insert_cells`, `insert_lines` and `scroll_down` stop
+  their loops at the row or region, as `delete_cells`, `delete_lines` and
+  `scroll_up` already did: a count past that changes nothing more, and
+  `CSI 65535 @`/`L`/`T` no longer makes 65,535 passes (`tests/degenerate_size.rs`).
 
 ## `perform.rs`
 

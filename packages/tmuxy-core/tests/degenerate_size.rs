@@ -112,3 +112,23 @@ fn capture_taller_or_wider_than_a_u16_grid_does_not_panic() {
     assert_eq!(cells.len(), 1);
     assert_eq!(cells[0][0].char, "x");
 }
+
+#[test]
+fn a_tab_at_the_widest_grid_stops_at_the_edge() {
+    // 65,535 columns is the widest grid a capture can ask for; a tab from the
+    // last tab stop used to add past `u16::MAX`.
+    let cells = tmuxy_core::parse_ansi_to_cells("\x1b[65530G\tx", 65_536, 1);
+    assert_eq!(cells[0][usize::from(u16::MAX) - 1].char, "x");
+}
+
+#[test]
+fn huge_insert_and_scroll_counts_end_at_the_region() {
+    // `CSI 65535 @`, `CSI 65535 L` and `CSI 65535 T` do what a count the size
+    // of the region does, without 65,535 passes over the row or the grid.
+    let mut parser = vt100::Parser::new(4, 10, 0);
+    parser.process(b"abcdefghij\r\n2\r\n3\r\n4\x1b[1;3H");
+    parser.process(b"\x1b[65535@");
+    assert_eq!(first_row(&parser), "ab");
+    parser.process(b"\x1b[2;1H\x1b[65535L\x1b[1;1H\x1b[65535T");
+    assert_eq!(parser.screen().contents(), "");
+}
