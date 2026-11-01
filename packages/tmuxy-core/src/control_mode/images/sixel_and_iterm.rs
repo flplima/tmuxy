@@ -372,11 +372,15 @@ pub(super) fn undouble_escapes(body: &[u8]) -> Option<(Vec<u8>, usize)> {
 /// The largest canvas a Sixel payload can make the decoder allocate, in
 /// pixels: the raster attributes' `Ph;Pv`, or the furthest column a sixel
 /// (with its `!n` repeat) reaches and six rows per band, whichever is larger.
+///
+/// A repeat is held the way icy_sixel holds it: `!n` sets it, and the next
+/// sixel byte spends it, however many other bytes come between.
 pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
     let mut width = 0usize;
     let mut bands = 1usize;
     let mut declared_height = 0usize;
     let mut x = 0usize;
+    let mut repeat = 1usize;
     let mut i = 0;
     let number = |i: &mut usize| {
         let mut n = 0usize;
@@ -404,12 +408,7 @@ pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
             }
             b'!' => {
                 i += 1;
-                let repeat = number(&mut i);
-                if payload.get(i).is_some_and(|b| (0x3F..=0x7E).contains(b)) {
-                    x = x.saturating_add(repeat.max(1));
-                    width = width.max(x);
-                    i += 1;
-                }
+                repeat = number(&mut i).max(1);
             }
             b'$' => {
                 x = 0;
@@ -421,7 +420,7 @@ pub(super) fn sixel_extent(payload: &[u8]) -> (usize, usize) {
                 i += 1;
             }
             0x3F..=0x7E => {
-                x = x.saturating_add(1);
+                x = x.saturating_add(std::mem::replace(&mut repeat, 1));
                 width = width.max(x);
                 i += 1;
             }
