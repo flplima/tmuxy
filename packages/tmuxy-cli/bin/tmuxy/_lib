@@ -12,6 +12,42 @@
 # picker/tree (matches tmuxy-core `STASH_SESSION`).
 STASH_SESSION="__tmuxy_stash"
 
+# Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
+# (session::config_dir, paths::data_dir, paths::state_dir):
+#   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
+#   data   — what the app mirrors from its bundle: defaults, themes, bin/.
+#   state  — this machine's: menu choices, launcher, servers.json, pid files.
+tmuxy_config_dir() {
+  case "${XDG_CONFIG_HOME:-}" in
+    /*) echo "$XDG_CONFIG_HOME/tmuxy" ;;
+    *) echo "$HOME/.config/tmuxy" ;;
+  esac
+}
+
+tmuxy_data_dir() {
+  if [ -n "${TMUXY_DATA_DIR:-}" ]; then
+    echo "$TMUXY_DATA_DIR"
+    return
+  fi
+  case "${XDG_DATA_HOME:-}" in
+    /*) echo "$XDG_DATA_HOME/tmuxy" ;;
+    *) echo "$HOME/.local/share/tmuxy" ;;
+  esac
+}
+
+tmuxy_state_dir() {
+  if [ -n "${TMUXY_STATE_DIR:-}" ]; then
+    echo "$TMUXY_STATE_DIR"
+  elif [ "$(uname -s)" = Darwin ]; then
+    echo "$HOME/Library/Application Support/tmuxy"
+  else
+    case "${XDG_STATE_HOME:-}" in
+      /*) echo "$XDG_STATE_HOME/tmuxy" ;;
+      *) echo "$HOME/.local/state/tmuxy" ;;
+    esac
+  fi
+}
+
 # Resolved with parameter expansion, not `dirname`. These scripts run from
 # `run-shell` on a keypress, and every external binary is another process
 # spawn — tens of milliseconds on macOS, felt latency for something the shell
@@ -178,7 +214,7 @@ source "${BASH_SOURCE[0]%/*}/_contract"
 #   1. TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND): what the running tmuxy
 #      published to its tmux server's global environment, which run-shell
 #      hands every script — the build actually serving this socket. Without
-#      it the bundled copies under ~/.config/tmuxy/bin, which sit nowhere near
+#      it the bundled copies under the data dir's bin/, which sit nowhere near
 #      a build tree, could only guess.
 #   2. tmuxy-server on PATH.
 #   3. A cargo build beside these scripts (a checkout's bin/tmuxy).
@@ -187,7 +223,7 @@ source "${BASH_SOURCE[0]%/*}/_contract"
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
   local root="${SCRIPTS_DIR%/*}/../../.." launcher
-  launcher="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy/launcher"
+  launcher="$(tmuxy_state_dir)/launcher"
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
   elif command -v tmuxy-server &>/dev/null; then

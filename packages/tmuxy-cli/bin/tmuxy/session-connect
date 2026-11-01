@@ -5,7 +5,7 @@
 #
 # Runs the 4-stage connect sequence (ssh -> tmux <ver> on socket -> listing
 # sessions -> attach), printing each stage's status to stdout/stderr, saves
-# the server to ~/.config/tmuxy/servers.json with `last_used`, and publishes
+# the server to servers.json in the state dir with `last_used`, and publishes
 # TMUXY_CONNECT_SSH / TMUXY_CONNECT_SESSION / TMUXY_CONNECT_TO through
 # run-shell for the monitor to attach.
 set -euo pipefail
@@ -182,11 +182,12 @@ slugify() {
 }
 
 save_server_entry() {
-  local cfg_dir="${XDG_CONFIG_HOME:-$HOME/.config}/tmuxy"
-  local file="$cfg_dir/servers.json"
+  local state_dir
+  state_dir="$(tmuxy_state_dir)"
+  local file="$state_dir/servers.json"
   local now
   now=$(date +%s)
-  mkdir -p "$cfg_dir"
+  mkdir -p "$state_dir"
   local id label kind host user
   if $is_remote; then
     id="ssh-$(slugify "$dest")-$(slugify "$target_socket")"

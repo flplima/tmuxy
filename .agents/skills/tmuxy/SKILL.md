@@ -53,7 +53,8 @@ tmuxy pane group join %id %m    # put %id in %m's group; also move, leave, switc
 tmuxy pane send -t <target> <keys...> # type into another pane; the user allows it there first (blocks until answered)
 tmuxy session save [name]       # snapshot a session; also restore <name>, snapshots, forget <name>
 tmuxy run <tmux cmd>            # a read/arrange/close tmux command, through run-shell
-tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the running app
+tmuxy config reload             # re-apply tmuxy.conf (and the whole config chain) to the running app
+tmuxy config paths --json       # every file tmuxy reads or writes: owner, location, safe to edit/symlink
 ```
 
 ## The contract for scripts
@@ -76,11 +77,15 @@ tmuxy config reload             # re-apply ~/.config/tmuxy/tmuxy.conf to the run
 
 ## Personalizing tmuxy
 
-Everything the user can change lives in `~/.config/tmuxy/`; its `README.md` is the
-guide — read it before changing a theme, a colour or the tmux config. In short:
+Everything the user can change lives in `~/.config/tmuxy/`. `tmuxy config paths`
+lists every file with its owner and location; the guide is `README.md` in tmuxy's
+data dir (`~/.local/share/tmuxy/`) — read it before changing a theme, a colour or
+the tmux config. In short:
 
-- Never edit an app-owned file (the built-in `themes/*.css`, `tmuxy.defaults.conf`):
-  it is rewritten on every launch. Copy a theme to a new name instead.
+- Never edit an app-owned file (anything in the data dir: the built-in `themes/*.css`,
+  `tmuxy.defaults.conf`): it is read-only and rewritten on every launch. Copy a theme
+  into `~/.config/tmuxy/themes/` instead.
 - Small tweaks: `custom.css` (any CSS), or `set -g @tmuxy-css-<variable> <value>` in
   `tmuxy.conf`. Options are `@tmuxy-*` in `tmuxy.conf`; `tmuxy config reload` applies it.
+- An option set in `tmuxy.conf` is pinned: the menus cannot change it.
 - A saved theme or `custom.css` repaints every open window by itself.

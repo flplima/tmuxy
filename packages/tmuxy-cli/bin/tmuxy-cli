@@ -319,7 +319,8 @@ Usage: tmuxy connect [socket] [session]
 With no arguments, runs `tmuxy session connect`: it asks which machine to
 connect to — this one, or [user@]host over SSH — checks it can reach tmux
 there, saves the server to the desktop app's server list
-(~/.config/tmuxy/servers.json) and attaches to it.
+(servers.json in tmuxy's state dir; `tmuxy config paths` shows where) and
+attaches to it.
 
 With a socket, reconnects the tmuxy DESKTOP APP to a different tmux server
 without relaunching. `socket` is a socket name (in tmux's default dir, e.g.
@@ -339,6 +340,7 @@ EOF
 }
 
 source "$SCRIPTS_DIR/cli-info.sh"
+source "$SCRIPTS_DIR/cli-config.sh"
 source "$SCRIPTS_DIR/cli-pane.sh"
 source "$SCRIPTS_DIR/cli-pane-run.sh"
 source "$SCRIPTS_DIR/cli-commands.sh"

@@ -70,6 +70,10 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
         include_str!("../../../tmuxy-cli/bin/tmuxy/cli-commands.sh"),
     ),
     (
+        "tmuxy/cli-config.sh",
+        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-config.sh"),
+    ),
+    (
         "tmuxy/cli-info.sh",
         include_str!("../../../tmuxy-cli/bin/tmuxy/cli-info.sh"),
     ),
