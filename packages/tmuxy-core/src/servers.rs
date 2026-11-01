@@ -2,7 +2,8 @@
 //!
 //! A "server" is a tmux server tmuxy drives in control mode: the local machine
 //! (the default) or a remote host reached over SSH. Entries are persisted to
-//! `~/.config/tmuxy/servers.json` by the `tmuxy connect` TUI and read by the
+//! `servers.json` in the state dir (this machine's list, not portable config)
+//! by the `tmuxy connect` TUI and read by the
 //! desktop app's sidebar server picker. This is a desktop-only concept — the
 //! web server always uses whatever socket/host it was launched against.
 //!
@@ -16,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::session::{config_dir, DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
+use crate::session::{DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
 pub mod discovery;
 pub use discovery::{
@@ -181,9 +182,10 @@ fn slug(value: &str) -> String {
         .to_lowercase()
 }
 
-/// Path to the servers file inside the user's config dir.
+/// Path to the servers file in the state dir: saved servers are machine
+/// state (an ssh host reachable from here, a socket on this machine).
 pub fn servers_path() -> PathBuf {
-    config_dir().join("servers.json")
+    crate::paths::state_dir().join("servers.json")
 }
 
 /// Read and parse the servers file, distinguishing an absent file (`Ok(None)`)
@@ -270,7 +272,7 @@ pub fn read_servers() -> Vec<Server> {
 /// Overwrite the servers file with the given list (excluding transient runtime
 /// fields `reachable` and `session_count`).
 pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
-    let dir = config_dir();
+    let dir = crate::paths::state_dir();
     std::fs::create_dir_all(&dir)?;
     let path = servers_path();
     let persisted: Vec<Server> = servers

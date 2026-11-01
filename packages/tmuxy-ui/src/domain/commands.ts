@@ -28,11 +28,11 @@ import {
   tmuxDoubleQuoted,
 } from './commandHelpers';
 
-/** Where the bundled scripts are installed, as tmux's `run-shell` expands it. */
-export const SCRIPTS_DIR = '$HOME/.config/tmuxy/bin/tmuxy';
+/** Where the bundled scripts are mirrored (the data dir), as `run-shell` expands it. */
+export const SCRIPTS_DIR = '$HOME/.local/share/tmuxy/bin/tmuxy';
 
-/** tmuxy's own config: never `~/.tmux.conf`, which belongs to the user's default server. */
-export const CONFIG_FILE = '~/.config/tmuxy/tmuxy.conf';
+/** tmuxy's config chain, built in the data dir; never the user's `~/.tmux.conf`. */
+export const CONFIG_FILE = '~/.local/share/tmuxy/tmuxy.entry.conf';
 
 /** The fixed window name of a sidebar column: unique, so a create can target it by name. */
 export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
@@ -45,7 +45,7 @@ export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-r
  * went with it, and the column sat on "starting…" for good.
  */
 const SIDEBAR_RUN = {
-  left: '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree',
+  left: `${SCRIPTS_DIR}/tmuxy-widget-tree`,
   right: null,
 } as const;
 

@@ -314,15 +314,16 @@ pub fn set_level_persisted(level: TraceLevel) {
 
 // --- Saved preference -------------------------------------------------------
 
-/// The user's Debug-menu choice, next to the other tmuxy config
-/// (`~/.config/tmuxy/trace.json`). Deliberately tiny and hand-editable.
+/// The user's Debug-menu choice, in the state dir beside the trace itself
+/// (`trace.json`): this machine's choice, not config. Deliberately tiny and
+/// hand-editable.
 struct TracePrefs {
     enabled: bool,
     level: TraceLevel,
 }
 
 fn prefs_path() -> PathBuf {
-    crate::session::config_dir().join("trace.json")
+    crate::paths::state_dir().join("trace.json")
 }
 
 fn load_prefs() -> Option<TracePrefs> {

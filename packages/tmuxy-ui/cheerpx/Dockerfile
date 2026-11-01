@@ -31,7 +31,7 @@ RUN set -e \
 COPY guest/ /
 # A pane is not a terminal: full-screen programs are tmuxy-no-tui instead.
 RUN for app in vi less more top; do ln -sf /usr/local/bin/tmuxy-no-tui "$(command -v $app)"; done
-# The essentials' command-aliases run scripts under $HOME/.config/tmuxy/bin.
+# The essentials' command-aliases run scripts under $HOME/.local/share/tmuxy/bin.
 RUN ln -sf /opt/tmuxy/bin/tmuxy-cli /usr/bin/tmuxy \
- && mkdir -p /root/.config/tmuxy/bin \
- && ln -sfn /opt/tmuxy/bin/tmuxy /root/.config/tmuxy/bin/tmuxy
+ && mkdir -p /root/.local/share/tmuxy/bin \
+ && ln -sfn /opt/tmuxy/bin/tmuxy /root/.local/share/tmuxy/bin/tmuxy

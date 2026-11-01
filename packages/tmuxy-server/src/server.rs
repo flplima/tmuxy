@@ -303,12 +303,14 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     if frontend == Frontend::Embedded {
         write_pid_file(port);
     }
+    // Migrate an older install's config dir, mirror the shipped config and
+    // the built-in themes into the data dir, and build the config chain.
     tmuxy_core::session::ensure_config();
     tmuxy_core::session::ensure_themes();
     // Materialize bundled CLI dispatcher and helper scripts so the in-config
     // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
     // direct "Add Pane to Group" menu commands resolve at the absolute
-    // `$HOME/.config/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
+    // `$HOME/.local/share/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
 
     let state = Arc::new(AppState::new());

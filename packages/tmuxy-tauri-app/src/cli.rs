@@ -6,7 +6,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Search order:
 /// 1. $TMUXY_SCRIPTS env var
-/// 2. ~/.config/tmuxy/bin/tmuxy-cli (materialized by ensure_bin_scripts;
+/// 2. ~/.local/share/tmuxy/bin/tmuxy-cli (materialized by ensure_bin_scripts;
 ///    the canonical location whenever the .app has been launched at least
 ///    once on this machine)
 /// 3. Relative to binary: ../../../packages/tmuxy-cli/bin/tmuxy-cli (dev layout)
@@ -21,7 +21,7 @@ fn find_cli_script() -> Option<PathBuf> {
         }
     }
 
-    // Materialized location (~/.config/tmuxy/bin/tmuxy-cli). Materialize
+    // Materialized location (the data dir's bin/tmuxy-cli). Materialize
     // first if the GUI has never run — gives `tmuxy pane list` from a fresh
     // shell something to dispatch into.
     let user_bin = tmuxy_core::session::ensure_bin_scripts().join("tmuxy-cli");

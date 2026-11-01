@@ -275,15 +275,19 @@ fn parse_settings(output: &str) -> serde_json::Value {
 }
 
 /// Read the active theme name + mode and the appearance from tmux in one
-/// round trip, applying the defaults. Returns `{ "theme", "mode",
-/// "appearance" }` — the wire shape the `get_theme_settings` Tauri command,
-/// the `GetThemeSettings` SSE command and the `theme-settings` push (after the
-/// config is sourced) all share.
+/// round trip, applying the defaults, plus the options the user's
+/// `tmuxy.conf` pins. Returns `{ "theme", "mode", "appearance", "cssVars",
+/// "pinned" }` — the wire shape the `get_theme_settings` Tauri command, the
+/// `GetThemeSettings` SSE command and the `theme-settings` push (after the
+/// config is sourced) all share. `pinned` lists `@tmuxy-*` option names; the
+/// menu shows those as set in tmuxy.conf rather than offering to change them.
 pub async fn get_theme_settings(
     tx: &MonitorCommandSender,
 ) -> Result<serde_json::Value, CommandError> {
     let output = query(tx, &settings_query()).await?;
-    Ok(parse_settings(&output))
+    let mut settings = parse_settings(&output);
+    settings["pinned"] = serde_json::json!(session::pinned_options());
+    Ok(settings)
 }
 
 /// A value written into a control-mode command line. Quoting keeps `;` and
@@ -314,25 +318,65 @@ async fn set_options(
         .map_err(|e| e.context(&format!("Failed to set {what}")))
 }
 
+/// The options a menu may change: those of `options` the user's `tmuxy.conf`
+/// does not pin. Config beats menu state, so a pinned option keeps the value
+/// the file gives it; a change made of nothing but pinned options is refused,
+/// naming them, rather than silently dropped.
+fn unpinned<'a>(
+    options: &[(&'a str, &'a str)],
+    pinned: &[&str],
+) -> Result<Vec<(&'a str, &'a str)>, CommandError> {
+    let free: Vec<_> = options
+        .iter()
+        .copied()
+        .filter(|(option, _)| !pinned.contains(option))
+        .collect();
+    if free.is_empty() {
+        let names: Vec<&str> = options.iter().map(|(option, _)| *option).collect();
+        return Err(CommandError::invalid(format!(
+            "{} is set in tmuxy.conf",
+            names.join(", ")
+        )));
+    }
+    Ok(free)
+}
+
+/// Set the [`unpinned`] options among `options`, and return which they were.
+async fn set_unpinned<'a>(
+    tx: &MonitorCommandSender,
+    options: &[(&'a str, &'a str)],
+    what: &str,
+) -> Result<Vec<&'a str>, CommandError> {
+    let free = unpinned(options, &session::pinned_options())?;
+    set_options(tx, &free, what).await?;
+    Ok(free.into_iter().map(|(option, _)| option).collect())
+}
+
+/// Remember a menu choice in `tmuxy.state.json`, so it survives a tmux server
+/// restart. A failure is non-fatal — the live option is already set — and is
+/// logged, not returned.
+fn remember(changes: session::ManagedState, what: &str) {
+    if let Err(e) = session::write_managed_state(changes) {
+        tracing::warn!(error = %e, "could not persist the {what} to tmuxy.state.json");
+    }
+}
+
 /// Turn the cursor's blink on or off, and remember the choice.
 ///
 /// The live tmux option is what the clients read; the state file is what
 /// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
-/// the user's own `tmuxy.conf` is the default this starts from — set it
-/// there and the app never has to be told.
+/// the user's own `tmuxy.conf` pins it: the menu cannot change it then.
 pub async fn set_cursor_blink(
     tx: &MonitorCommandSender,
     enabled: bool,
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
-    set_options(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
+    set_unpinned(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
     let changes = session::ManagedState {
         cursor_blink: Some(enabled),
         ..Default::default()
     };
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist the cursor blink to tmuxy.state.json");
-    }
+    remember(changes, "cursor blink");
     Ok(())
 }
 
@@ -340,14 +384,12 @@ pub async fn set_cursor_blink(
 /// the choice, the way [`set_cursor_blink`] does.
 pub async fn set_send_ask(tx: &MonitorCommandSender, enabled: bool) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
-    set_options(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
+    set_unpinned(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
     let changes = session::ManagedState {
         send_ask: Some(enabled),
         ..Default::default()
     };
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist the send ask to tmuxy.state.json");
-    }
+    remember(changes, "send ask");
     Ok(())
 }
 
@@ -358,20 +400,18 @@ pub async fn set_transparency(
     enabled: bool,
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
-    set_options(tx, &[(tmux_options::TRANSPARENCY, value)], "transparency").await?;
+    set_unpinned(tx, &[(tmux_options::TRANSPARENCY, value)], "transparency").await?;
     let changes = session::ManagedState {
         transparency: Some(enabled),
         ..Default::default()
     };
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist the transparency to tmuxy.state.json");
-    }
+    remember(changes, "transparency");
     Ok(())
 }
 
-/// Set the theme (and optionally the mode) in tmux and persist the choice so
-/// it survives a tmux server restart. Persistence failure is non-fatal — the
-/// live option is already set — and is logged, not returned.
+/// Set the theme (and optionally the mode) in tmux and remember the choice so
+/// it survives a tmux server restart. Whichever of the two the user's
+/// `tmuxy.conf` pins is left as the file has it.
 pub async fn set_theme(
     tx: &MonitorCommandSender,
     name: &str,
@@ -381,28 +421,28 @@ pub async fn set_theme(
     if let Some(m) = mode {
         options.push((tmux_options::THEME_MODE, m));
     }
-    set_options(tx, &options, "theme").await?;
+    let applied = set_unpinned(tx, &options, "theme").await?;
     let changes = session::ManagedState {
-        theme: Some(name.to_string()),
-        theme_mode: mode.map(str::to_string),
+        theme: applied
+            .contains(&tmux_options::THEME)
+            .then(|| name.to_string()),
+        theme_mode: mode
+            .filter(|_| applied.contains(&tmux_options::THEME_MODE))
+            .map(str::to_string),
         ..Default::default()
     };
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist theme to tmuxy.state.json");
-    }
+    remember(changes, "theme");
     Ok(())
 }
 
-/// Set only the mode (dark/light) and persist it.
+/// Set only the mode (dark/light) and remember it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
-    set_options(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
+    set_unpinned(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
     let changes = session::ManagedState {
         theme_mode: Some(mode.to_string()),
         ..Default::default()
     };
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist theme mode to tmuxy.state.json");
-    }
+    remember(changes, "theme mode");
     Ok(())
 }
 

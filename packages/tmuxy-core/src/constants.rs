@@ -135,7 +135,8 @@ pub mod tmux_options {
     /// the network.
     pub const PANE_PREVIEW_NET: &str = "@tmuxy-pane-preview-net";
 
-    /// Active CSS theme name (file stem under `~/.config/tmuxy/themes/`).
+    /// Active CSS theme name: a file stem under `~/.config/tmuxy/themes/` (the
+    /// user's) or a built-in one.
     pub const THEME: &str = "@tmuxy-theme";
     /// Theme mode: `dark` / `light` / `auto` (follow the OS).
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";

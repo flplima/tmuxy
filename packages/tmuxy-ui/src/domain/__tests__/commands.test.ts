@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 
 /** The paste's last line: `to` alone, or every synchronized pane of its window. */
 const pasteInto = (to: string) =>
-  `if-shell -F -t ${to} '#{pane_synchronized}' 'run-shell "$HOME/.config/tmuxy/bin/tmuxy/paste-synced ${to} tmuxy-paste"' 'paste-buffer -p -d -b tmuxy-paste -t ${to}'`;
+  `if-shell -F -t ${to} '#{pane_synchronized}' 'run-shell "$HOME/.local/share/tmuxy/bin/tmuxy/paste-synced ${to} tmuxy-paste"' 'paste-buffer -p -d -b tmuxy-paste -t ${to}'`;
 import {
   isLayoutChange,
   isMultiStep,
@@ -23,7 +23,7 @@ import {
 import { parseCommandToOp } from '../store/parseCommand';
 import { pid, wid } from '../../test/wire';
 
-const S = '$HOME/.config/tmuxy/bin/tmuxy';
+const S = '$HOME/.local/share/tmuxy/bin/tmuxy';
 
 const cases: Array<[TmuxOp, string]> = [
   // Panes
@@ -193,7 +193,7 @@ const cases: Array<[TmuxOp, string]> = [
   ],
   [
     TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%1') }),
-    "split-window -t %1 '$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree' \\; break-pane -d -n __sidebar-left \\; " +
+    "split-window -t %1 '$HOME/.local/share/tmuxy/bin/tmuxy/tmuxy-widget-tree' \\; break-pane -d -n __sidebar-left \\; " +
       'set-option -w -t :__sidebar-left @tmuxy-window-type sidebar-left',
   ],
   [
@@ -208,7 +208,7 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.KillSession({ name: 'my work' }), "kill-session -t 'my work'"],
   [TmuxOp.SwitchClient({ session: 'my work' }), "switch-client -t 'my work'"],
   [TmuxOp.RenameSession({ session: 'work', name: 'play' }), "rename-session -t work -- 'play'"],
-  [TmuxOp.SourceConfig(), 'source-file ~/.config/tmuxy/tmuxy.conf'],
+  [TmuxOp.SourceConfig(), 'source-file ~/.local/share/tmuxy/tmuxy.entry.conf'],
   [TmuxOp.ClearFocusRequest({ session: 'tmuxy' }), 'set-option -u -t tmuxy @tmuxy-focus-request'],
   [TmuxOp.ClearSwitchRequest(), 'set-environment -g -u TMUXY_SWITCH_TO'],
 

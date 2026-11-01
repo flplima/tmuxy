@@ -23,6 +23,9 @@ import {
   GUEST_CONF_ASSETS_DIR,
   guestBashrc,
   guestTmuxyConf,
+  guestEntryConf,
+  GUEST_CONFIG_DIR,
+  GUEST_DATA_DIR,
   stageTmuxyScripts,
 } from './lib/guest.mjs';
 
@@ -46,11 +49,14 @@ await cp(join(CHEERPX, 'patches'), join(CONTEXT, 'patches'), { recursive: true }
 await cp(join(CHEERPX, 'rootfs'), GUEST, { recursive: true });
 await crossCompileGuestBinaries(['tmuxy-group', 'tmuxy-pty'], join(GUEST, 'usr', 'bin'));
 await stageTmuxyScripts(join(GUEST, 'opt', 'tmuxy', 'bin'));
-const config = join(GUEST, 'root', '.config', 'tmuxy');
+const config = join(GUEST, GUEST_CONFIG_DIR);
+const data = join(GUEST, GUEST_DATA_DIR);
 await mkdir(config, { recursive: true });
+await mkdir(data, { recursive: true });
 for (const conf of GUEST_CONF_ASSETS) {
-  await cp(join(GUEST_CONF_ASSETS_DIR, conf), join(config, conf));
+  await cp(join(GUEST_CONF_ASSETS_DIR, conf), join(data, conf));
 }
+await writeFile(join(data, 'tmuxy.entry.conf'), guestEntryConf());
 // A pane runs on a socket pair (patches/pane-socketpair.patch), so bash is
 // asked to be interactive and leaves line editing to tmuxy-pty.
 await writeFile(join(config, 'tmuxy.conf'), guestTmuxyConf('exec /bin/bash --noediting -i'));

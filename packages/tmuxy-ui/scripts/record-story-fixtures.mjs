@@ -63,11 +63,8 @@ async function makeHome(root) {
   const home = join(root, 'home', SESSION);
   await mkdir(join(home, '.config', 'tmuxy'), { recursive: true });
   // Written before the server starts, so it keeps it: the shipped defaults
-  // and nothing of the user's.
-  await writeFile(
-    join(home, '.config', 'tmuxy', 'tmuxy.conf'),
-    'source-file ~/.config/tmuxy/tmuxy.defaults.conf\n',
-  );
+  // (the server sources them itself) and nothing of the user's.
+  await writeFile(join(home, '.config', 'tmuxy', 'tmuxy.conf'), "# nothing of the user's\n");
   // The repo's CLI as `tmuxy`, for the widgets a pane runs (the tree column).
   const bin = join(root, 'bin');
   await mkdir(bin);

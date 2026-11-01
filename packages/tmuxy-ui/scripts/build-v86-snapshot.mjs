@@ -7,7 +7,8 @@
  *      with the CURRENT repo `bin/tmuxy*` scripts, tmux config (defaults incl.
  *      command-aliases + bindings), and a standard bash prompt.
  *   2. tmux-state.bin — a pre-booted machine snapshot: kernel booted, bundle
- *      installed at /tmp/tb with system symlinks, config at ~/.config/tmuxy,
+ *      installed at /tmp/tb with system symlinks, the shipped config and
+ *      scripts in ~/.local/share/tmuxy, the user's in ~/.config/tmuxy,
  *      and a live `m` session (2 panes, window "root") ready for
  *      `tmux -CC attach`. Boot in the browser restores this in ~1s.
  *
@@ -31,6 +32,10 @@ import {
   GUEST_CONF_ASSETS_DIR,
   guestBashrc,
   guestTmuxyConf,
+  guestEntryConf,
+  GUEST_CONFIG_DIR,
+  GUEST_DATA_DIR,
+  GUEST_ENTRY_CONF,
   stageTmuxyScripts,
 } from './lib/guest.mjs';
 
@@ -138,6 +143,7 @@ async function buildBundle({ fetchBinaries }) {
     await cp(join(GUEST_CONF_ASSETS_DIR, conf), join(WORK, conf));
   }
   await writeFile(join(WORK, 'tmuxy.conf'), guestTmuxyConf());
+  await writeFile(join(WORK, 'tmuxy.entry.conf'), guestEntryConf());
   await writeFile(join(WORK, 'bashrc'), guestBashrc());
 
   await rm(BUNDLE_TAR, { force: true });
@@ -162,17 +168,18 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/tmux /usr/bin/tmux',
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
   'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
-  'mkdir -p /root/.config/tmuxy/bin',
+  `mkdir -p ${GUEST_CONFIG_DIR} ${GUEST_DATA_DIR}/bin`,
   // busybox's ln has no -n; with it the link was never made, and the
-  // essentials' `$HOME/.config/tmuxy/bin/tmuxy/...` scripts did not exist.
-  'ln -sf /tmp/tb/bin/tmuxy /root/.config/tmuxy/bin/tmuxy',
-  'cp /tmp/tb/tmuxy.conf /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf /root/.config/tmuxy/',
+  // essentials' `$HOME/.local/share/tmuxy/bin/tmuxy/...` scripts did not exist.
+  `ln -sf /tmp/tb/bin/tmuxy ${GUEST_DATA_DIR}/bin/tmuxy`,
+  `cp /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf /tmp/tb/tmuxy.entry.conf ${GUEST_DATA_DIR}/`,
+  `cp /tmp/tb/tmuxy.conf ${GUEST_CONFIG_DIR}/`,
   'cp /tmp/tb/bashrc /root/.bashrc',
   'hostname tmuxy',
   // LANG reaches every pane's shell through the tmux server's environment.
   'export HOME=/root SHELL=/bin/bash TERM=xterm-256color TERMINFO=/tmp/tb/terminfo LANG=C.UTF-8 LC_ALL=C.UTF-8',
   'cd /root',
-  '/usr/bin/tmux -f /root/.config/tmuxy/tmuxy.conf new-session -d -s m -x 80 -y 24',
+  `/usr/bin/tmux -f ${GUEST_ENTRY_CONF} new-session -d -s m -x 80 -y 24`,
   '/usr/bin/tmux rename-window -t m: root',
   '/usr/bin/tmux split-window -h -t m:',
   'echo SNAPSHOT_IS_READY',

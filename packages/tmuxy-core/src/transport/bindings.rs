@@ -293,19 +293,26 @@ pub fn is_source_file(command: &str) -> bool {
 /// starts in the background (`run-shell -b`, hooks).
 pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
-/// Source the user's `tmuxy.conf` over the control-mode connection and wait
-/// for it to settle, as a client's own `source-file` would. The caller then
+/// Source the config chain — the defaults, the user's `tmuxy.conf`, the
+/// essentials — over the control-mode connection, put the menu choices the
+/// file does not pin back on top (the defaults just reset them), and wait for
+/// it to settle, as a client's own `source-file` would. The caller then
 /// pushes what a config can change — the bindings, the theme and appearance
 /// settings — exactly as it does after that client command.
 pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError> {
     let Some(path) = crate::session::get_config_path() else {
-        return Err(CommandError::unavailable("tmuxy.conf does not exist"));
+        return Err(CommandError::unavailable(
+            "the tmuxy config chain could not be written",
+        ));
     };
     run(
         tx,
         &format!("source-file {}", tmux_quote(&path.to_string_lossy())),
     )
     .await?;
+    for cmd in crate::session::current_managed_state_commands() {
+        run(tx, &cmd).await?;
+    }
     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
     Ok(())
 }

@@ -15,7 +15,8 @@ pub(super) fn build_tmux_args(
     // `ssh -tt <dest> tmux` when tunneled to a remote host. `-tt` is required
     // for `-CC` control mode's remote pty.
     let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
-    // Apply the user's tmuxy config at server-startup time. tmux only reads
+    // Apply the tmuxy config chain (session::get_config_path: the defaults,
+    // the user's tmuxy.conf, the essentials) at server-startup time. tmux only reads
     // `-f` when it forks a new server, so this only affects the create path;
     // the monitor's `sync_initial_state()` source-files the same config after
     // attach to cover the attach path. Skipped over SSH — the local config
