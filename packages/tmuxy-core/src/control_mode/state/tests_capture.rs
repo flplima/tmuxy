@@ -226,7 +226,7 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
 }
 
 /// tmuxy stages its own pastes in `tmuxy-paste` (the client, a chunk at a
-/// time) and `tmuxy-cli-paste` (`tmuxy pane paste`): a paste into one pane
+/// time) and `tmuxy-cli-paste-<pid>` (`tmuxy pane paste`): a paste into one pane
 /// while another is in copy mode is not a yank, and is never read back into
 /// the clipboard.
 #[test]
@@ -234,12 +234,7 @@ fn tmuxys_own_paste_buffers_are_never_read_back() {
     let mut agg = StateAggregator::new();
     seed_active_pane(&mut agg, "%0", "@0");
     agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
-    for name in [
-        "tmuxy-paste",
-        "tmuxy-cli-paste",
-        "tmuxy-paste-42",
-        "tmuxy-cli-paste-4242",
-    ] {
+    for name in ["tmuxy-paste", "tmuxy-cli-paste-4242"] {
         let step = agg.step(ControlModeEvent::PasteBufferChanged {
             buffer_name: name.to_string(),
         });

@@ -5,10 +5,7 @@ use super::*;
 /// (`tmuxy pane paste`, per-PID `tmuxy-cli-paste-<pid>` in
 /// `tmuxy-cli/bin/tmuxy/send`). Never a yank, so never mirrored.
 fn is_paste_staging_buffer(name: &str) -> bool {
-    name == "tmuxy-paste"
-        || name == "tmuxy-cli-paste"
-        || name.starts_with("tmuxy-paste-")
-        || name.starts_with("tmuxy-cli-paste-")
+    name == "tmuxy-paste" || name.starts_with("tmuxy-cli-paste-")
 }
 
 impl StateAggregator {
