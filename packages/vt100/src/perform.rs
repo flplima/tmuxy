@@ -131,14 +131,15 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                         self.screen.back_tab();
                     }
                 }
-                // REP -- repeat the preceding graphic character, capped to the
-                // screen area (at most 4096 cells) so one 8-byte sequence
-                // cannot amplify into 65,535 grid writes.
+                // REP -- repeat the preceding graphic character, as tmux does
+                // (input.c, INPUT_CSI_REP): at most to the end of the line, so
+                // the mirror never wraps where tmux did not, and one 8-byte
+                // sequence cannot amplify into 65,535 grid writes.
                 'b' => {
                     if let Some(c) = self.last_char {
-                        let (rows, cols) = self.screen.size();
-                        let cap = (u32::from(rows) * u32::from(cols)).clamp(1, 4096);
-                        let count = u32::from(canonicalize_params_1(params, 1)).min(cap);
+                        let (_, cols) = self.screen.size();
+                        let (_, col) = self.screen.cursor_position();
+                        let count = canonicalize_params_1(params, 1).min(cols.saturating_sub(col));
                         for _ in 0..count {
                             self.screen.text(c);
                         }
@@ -226,9 +227,8 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                 );
             }
         }
-        if !(intermediates.is_empty() && c == 'b') {
-            self.last_char = None;
-        }
+        // Any CSI ends the run REP repeats, REP itself included (as in tmux).
+        self.last_char = None;
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bel_terminated: bool) {

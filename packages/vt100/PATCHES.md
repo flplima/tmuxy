@@ -52,6 +52,10 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
 - Extra CSI dispatches: **HPA** (`` ` ``, as CHA), **HPR** (`a`, as CUF),
   **CHT** (`I`), **CBT** (`Z`), **REP** (`b`, repeats the last printed graphic
   character, tracked in a new `last_char` field) and **HVP** (`f`, as CUP).
+  REP follows tmux's `INPUT_CSI_REP`: it repeats only a character printed
+  right before it (any control, escape, CSI — REP included — or OSC clears
+  `last_char`), and no further than the end of the line, so a huge count
+  neither wraps where tmux did not nor costs 65,535 writes.
 
 ## `screen.rs`
 
