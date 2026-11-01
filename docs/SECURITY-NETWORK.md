@@ -26,7 +26,7 @@ tmuxy server --host 0.0.0.0 --password 'your-secret'      # or on the command li
 
 When a password is set, **every** route — the frontend, `/events` (SSE), `/commands`, and all `/api/*` endpoints — requires HTTP Basic auth. The browser shows a native login prompt on first load; enter **any username** and the configured password (only the password is checked). Once entered, the browser caches the credentials and attaches them automatically to the SSE stream and every request. The password is compared in constant time, and unauthenticated requests get a `401` with a `WWW-Authenticate` challenge.
 
-A wrong password costs the peer time. The first few failures are free — someone at a browser prompt mistypes — and after that the refusal is held, doubling from one second to a cap of thirty, forgotten ten minutes after that peer stops trying; a correct password clears the count immediately. Every refusal is logged with the address it came from. The count is per peer IP, so **behind a reverse proxy the peer is the proxy** and the delay is shared by everyone behind it: the proxy is expected to do its own limiting, and `X-Forwarded-For` is deliberately not trusted here because anyone can send one.
+A wrong password costs the peer time. The first few failures are free — someone at a browser prompt mistypes — and after that the refusal is held, doubling from one second to a cap of thirty, forgotten ten minutes after that peer stops trying; a correct password clears the count immediately. Only a request that carries an `Authorization` header counts: the bare first request that gets the prompt tests no password, and counting it would let any page open popups at the server until the user's own prompt was held back. Every refusal is logged with the address it came from. The count is per peer IP (per `/64` for IPv6, where one host holds a whole prefix), so **behind a reverse proxy the peer is the proxy** and the delay is shared by everyone behind it: the proxy is expected to do its own limiting, and `X-Forwarded-For` is deliberately not trusted here because anyone can send one.
 
 Basic auth is **not** a substitute for TLS (#2) — over plain HTTP the credentials are base64, not encrypted; combine it with an SSH tunnel, VPN, or a TLS-terminating reverse proxy.
 
@@ -46,9 +46,11 @@ The API is a remote shell, and a browser sends requests on behalf of whatever pa
 
 | Header | Rule | Stops |
 | --- | --- | --- |
-| `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar) | Any other origin, including another port on localhost and a sandboxed page |
-| `Origin` | Must name the host the request was sent to | The same, in a browser without Fetch Metadata |
-| `Host` | Must be a loopback name, the address the server bound (any IP literal, for a wildcard bind), or an `--allowed-host` | DNS rebinding |
+| `Sec-Fetch-Site` | Must be `same-origin` (the app) or `none` (typed in the address bar); `none`, or a `Sec-Fetch-Mode: navigate`, only on a `GET` | Any other origin, including another port on localhost and a sandboxed page |
+| `Origin` | Must name the scheme and host the request was sent to (a default port matches its absence only for its own scheme) | The same, in a browser without Fetch Metadata |
+| `Host` | Must be a loopback name, the address the server bound (any IP literal, for a wildcard bind), or an `--allowed-host`; an HTTP/2 `:authority` stands in for a missing `Host` and must agree with one that is sent | DNS rebinding |
+
+Any of these sent twice, or with bytes that are not ASCII, is refused rather than read as absent. `POST /commands` and `POST /trace` also take only a `Content-Type: application/json` body, which no form and no preflight-free `fetch` can send.
 
 The API sends **no CORS headers**, so no other origin can read a response even when a request is let through. A request with none of these headers is not a browser acting for a page (`curl`, a script) and is allowed. Cached Basic-auth credentials do not help a hostile page: its requests are refused by origin before the password matters.
 

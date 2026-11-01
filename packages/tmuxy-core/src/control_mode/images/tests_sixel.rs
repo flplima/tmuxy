@@ -101,11 +101,16 @@ fn a_full_reset_leaves_no_pictures_on_either_screen() {
 
 #[test]
 fn mime_type_detection() {
-    assert_eq!(detect_mime_type(b"\x89PNG\r\n\x1a\n"), "image/png");
-    assert_eq!(detect_mime_type(b"\xFF\xD8\xFF\xE0"), "image/jpeg");
-    assert_eq!(detect_mime_type(b"GIF89a"), "image/gif");
-    assert_eq!(detect_mime_type(b"RIFF....WEBP"), "image/webp");
-    assert_eq!(detect_mime_type(b"unknown"), "application/octet-stream");
+    assert_eq!(detect_mime_type(b"\x89PNG\r\n\x1a\n"), Some("image/png"));
+    assert_eq!(detect_mime_type(b"\xFF\xD8\xFF\xE0"), Some("image/jpeg"));
+    assert_eq!(detect_mime_type(b"GIF89a"), Some("image/gif"));
+    assert_eq!(detect_mime_type(b"RIFF....WEBP"), Some("image/webp"));
+    assert_eq!(detect_mime_type(b"unknown"), None);
+    assert_eq!(detect_mime_type(b"<html><script>alert(1)</script>"), None);
+    assert_eq!(
+        detect_mime_type(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+        None
+    );
 }
 
 /// A raster attribute is a size the decoder allocates up front: icy_sixel's

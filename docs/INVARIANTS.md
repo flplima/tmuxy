@@ -123,7 +123,7 @@ In [INVARIANTS-UI-LIFECYCLE.md](INVARIANTS-UI-LIFECYCLE.md), the ledger's compan
 ## What the ledger says today
 
 - **Uncovered (`—`)**: A3, A9, M5, M8, M9, X3, S5, C6, C8, Q4, P3, P5.
-- **Partial**: M7 (timeout), M11 (order), X4 (lock), S3 (connect), C7 (frame hold), Q1 (Tauri), Q2 (interleaving), P4 (`dropSupersededFocusOps`), P7 (first-state order), U2 (2-update hold).
+- **Partial**: M7 (timeout), M11 (order), X4 (lock), S3 (connect), C7 (frame hold), Q1 (Tauri), Q2 (interleaving), P4 (`dropSupersededFocusOps`), P7 (first-state order), U2 (2-update hold), L6 (lock).
 - **Example only**: M1, M4, Q1, U1.
 - **Property**: C3–C5 (`stateFeed.props.test.ts`) and S2 (`sse.rs`).
 

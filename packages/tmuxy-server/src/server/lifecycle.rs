@@ -29,6 +29,10 @@ pub(super) fn serve_user_css(path: &str) -> Option<Response> {
                 axum::http::header::CACHE_CONTROL,
                 axum::http::HeaderValue::from_static("no-store"),
             );
+            response.headers_mut().insert(
+                axum::http::HeaderName::from_static("cross-origin-resource-policy"),
+                axum::http::HeaderValue::from_static("same-origin"),
+            );
             response
         }
         None => StatusCode::NOT_FOUND.into_response(),
@@ -70,6 +74,10 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
     );
     response
 }

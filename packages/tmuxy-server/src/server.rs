@@ -65,11 +65,16 @@ pub struct ServerArgs {
     pub trace: Option<Option<String>>,
 }
 
-/// Resolve the auth password: `--password` wins, else the `TMUXY_PASSWORD` env
-/// var; an empty value counts as unset (no auth).
+/// Resolve the auth password: a non-empty `--password` wins, else a non-empty
+/// `TMUXY_PASSWORD` env var; an empty `--password ""` falls back to
+/// `TMUXY_PASSWORD` instead of silently disabling it.
 fn resolve_password(flag: Option<String>) -> Option<String> {
-    flag.or_else(|| std::env::var("TMUXY_PASSWORD").ok())
-        .filter(|s| !s.is_empty())
+    resolve_password_from(flag, std::env::var("TMUXY_PASSWORD").ok())
+}
+
+fn resolve_password_from(flag: Option<String>, env_password: Option<String>) -> Option<String> {
+    flag.filter(|s| !s.is_empty())
+        .or_else(|| env_password.filter(|s| !s.is_empty()))
 }
 
 /// The port `tmuxy server` listens on unless told otherwise.

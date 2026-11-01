@@ -1,5 +1,26 @@
 use super::OscOutput;
 
+/// Upper bound on an OSC 0 / OSC 2 pane title accepted from terminal output.
+pub(super) const MAX_TITLE_BYTES: usize = 1024;
+/// Upper bound on raw base64 bytes decoded for a single OSC 52 clipboard write.
+pub(super) const MAX_CLIPBOARD_BASE64_BYTES: usize = 2 * 1024 * 1024;
+
+pub(super) fn truncate_title(title: &str) -> String {
+    let mut end = title.len().min(MAX_TITLE_BYTES);
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    title[..end].to_string()
+}
+
+pub(super) fn decode_osc52(content: &str) -> Option<String> {
+    let (_, base64_data) = content.split_once(';')?;
+    if base64_data.len() > MAX_CLIPBOARD_BASE64_BYTES {
+        return None;
+    }
+    String::from_utf8(base64_decode(base64_data).ok()?).ok()
+}
+
 /// Parse Kitty OSC 66 text-sizing sequence (`66 ; metadata ; text`) and append
 /// its text payload to `out.bytes`, recording any scaled cell range in `out.sized`.
 pub(super) fn emit_osc66(rest: &[u8], out: &mut OscOutput) {

@@ -125,6 +125,7 @@ class Recording {
     this.serverLog = '';
     this.server.stderr.on('data', (d) => (this.serverLog += d));
     await this.waitForServer();
+    await this.invoke('ensure_session');
     this.openStream();
   }
 
@@ -183,7 +184,12 @@ class Recording {
   async invoke(cmd, args = {}) {
     const res = await fetch(this.url('/commands'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Connection-Id': String(this.connectionId) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.connectionId !== undefined
+          ? { 'X-Connection-Id': String(this.connectionId) }
+          : {}),
+      },
       body: JSON.stringify({ cmd, args }),
     });
     const body = await res.json().catch(() => null);

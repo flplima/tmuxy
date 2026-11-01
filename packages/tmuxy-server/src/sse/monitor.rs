@@ -25,6 +25,7 @@ pub async fn start_monitoring(
     broadcast: Arc<SessionBroadcast>,
     session: String,
     state: Arc<AppState>,
+    create_session: bool,
 ) {
     let keeper = Arc::new(SnapshotKeeper::new());
     let emitter = Arc::new(SseEmitter::new(
@@ -34,7 +35,7 @@ pub async fn start_monitoring(
         keeper.clone(),
     ));
     let host = ServerHost {
-        config: monitor_config(&session),
+        config: monitor_config(&session, create_session),
         broadcast,
         session,
         state,
@@ -89,7 +90,7 @@ impl Host for ServerHost {
             return Attempt::Stop;
         }
 
-        if !self.has_clients().await {
+        if !self.first_connect && !self.has_clients().await {
             info!(%session, "no clients, stopping monitor loop");
             self.forget_session().await;
             return Attempt::Stop;
@@ -98,13 +99,16 @@ impl Host for ServerHost {
         // On reconnect (not first connect), check if the tmux session still
         // exists. If it was intentionally destroyed (by test cleanup or user)
         // AND we had a successful run before, stop the monitor loop. If the
-        // session died before ever running successfully (crash on startup),
-        // retry with create_session=true to recreate it.
+        // session died before ever running successfully (crash on startup)
+        // and this monitor was started to create it, retry with
+        // create_session=true to recreate it.
         let mut config = self.config.clone();
         if !self.first_connect {
             if session_exists(session).await {
                 config.create_session = false;
-            } else if ever_ran {
+            } else if ever_ran || !self.config.create_session {
+                // A monitor started for a session that existed (`GET /events`)
+                // never creates it: only `ensure_session` does, under its cap.
                 info!(%session, "tmux session no longer exists, stopping monitor loop");
                 return Attempt::Stop;
             } else {

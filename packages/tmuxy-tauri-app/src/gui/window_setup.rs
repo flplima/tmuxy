@@ -186,6 +186,9 @@ pub(super) fn handle_tmuxyimg(
         Some(img) => tauri::http::Response::builder()
             .status(tauri::http::StatusCode::OK)
             .header("Content-Type", img.mime_type)
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Security-Policy", "default-src 'none'; sandbox")
+            .header("Cross-Origin-Resource-Policy", "same-origin")
             // Placement ids restart with the process, so a cached
             // response would be the previous run's picture.
             .header("Cache-Control", "no-store")

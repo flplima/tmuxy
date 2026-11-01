@@ -24,7 +24,7 @@ use axum::{
 };
 use base64::Engine as _;
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::warn;
@@ -64,6 +64,15 @@ pub struct AuthThrottle {
     peers: Mutex<HashMap<IpAddr, (u32, Instant)>>,
 }
 
+/// Bucket IPv6 addresses by `/64` network prefix so rotating interface IDs
+/// within one subnet cannot evict other peers or bypass `FREE_ATTEMPTS`.
+fn throttle_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & (!0u128 << 64))),
+    }
+}
+
 impl AuthThrottle {
     pub fn new() -> Self {
         Self::default()
@@ -71,6 +80,7 @@ impl AuthThrottle {
 
     /// Record a failure for `peer` and return how long to hold the refusal.
     fn penalise(&self, peer: IpAddr, now: Instant) -> Duration {
+        let peer = throttle_key(peer);
         let Ok(mut peers) = self.peers.lock() else {
             // A poisoned lock means another thread panicked holding it. Refuse
             // without a delay rather than propagate the panic.
@@ -94,6 +104,7 @@ impl AuthThrottle {
 
     /// Forget `peer`: it got the password right.
     fn forgive(&self, peer: IpAddr) {
+        let peer = throttle_key(peer);
         if let Ok(mut peers) = self.peers.lock() {
             peers.remove(&peer);
         }
@@ -113,18 +124,22 @@ fn delay_for_failures(failures: u32) -> Duration {
         .min(MAX_DELAY)
 }
 
-/// Constant-time comparison so a wrong password can't be recovered by timing
-/// the response. The length check leaks only the password's length, which is
-/// not sensitive.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
+/// Length-hiding constant-time comparison so neither the secret bytes nor
+/// `expected.len()` can be recovered by timing the response.
+///
+/// The iteration count depends only on `candidate.len()` (chosen by the caller),
+/// while `candidate.len() ^ expected.len()` is folded into the opaque accumulator.
+fn constant_time_eq(candidate: &[u8], expected: &[u8]) -> bool {
+    let mut diff = std::hint::black_box(candidate.len() ^ expected.len());
+    if expected.is_empty() {
+        return std::hint::black_box(diff) == 0;
     }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
+    let last = expected.len() - 1;
+    for (i, &c) in candidate.iter().enumerate() {
+        let e = expected[i.min(last)];
+        diff |= usize::from(std::hint::black_box(c ^ e));
     }
-    diff == 0
+    std::hint::black_box(diff) == 0
 }
 
 /// Extract the password half of a `Basic <base64(user:pass)>` header value.
@@ -166,13 +181,14 @@ pub async fn require_basic_auth(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    if let Err(reason) = crate::request_guard::check(req.headers(), &state.policy) {
+    if let Err(reason) = crate::request_guard::check_request(&req, &state.policy) {
         if !crate::request_guard::is_top_level_navigation(req.headers()) {
             warn!(target: "tmuxy_server::auth", path = %req.uri().path(), reason, "refused request");
             return (StatusCode::FORBIDDEN, format!("forbidden: {reason}\n")).into_response();
         }
     }
 
+    let attempted_auth = req.headers().contains_key(header::AUTHORIZATION);
     let ok = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -185,11 +201,20 @@ pub async fn require_basic_auth(
         return next.run(req).await;
     }
 
-    let delay = state.throttle.penalise(peer.ip(), Instant::now());
+    // Only failed credential submissions spend the peer's allowance: an
+    // anonymous initial challenge tests no password, and penalising it would
+    // let another page navigate a popup here repeatedly to lock out localhost
+    // or everyone sharing a reverse proxy's address.
+    let delay = if attempted_auth {
+        state.throttle.penalise(peer.ip(), Instant::now())
+    } else {
+        Duration::ZERO
+    };
     warn!(
         target: "tmuxy_server::auth",
         peer = %peer.ip(),
         path = %req.uri().path(),
+        attempted_auth,
         delay_ms = delay.as_millis() as u64,
         "refused a request with no or wrong password"
     );
@@ -285,7 +310,7 @@ mod tests {
         let throttle = AuthThrottle::new();
         let now = Instant::now();
         for i in 0..(MAX_TRACKED_PEERS + 50) {
-            let ip = IpAddr::from(std::net::Ipv6Addr::from(i as u128));
+            let ip = IpAddr::from(Ipv6Addr::from((i as u128) << 64));
             throttle.penalise(ip, now);
         }
         let tracked = throttle.peers.lock().unwrap().len();
@@ -293,6 +318,24 @@ mod tests {
             tracked <= MAX_TRACKED_PEERS,
             "tracking {tracked} peers, over the {MAX_TRACKED_PEERS} cap"
         );
+    }
+
+    #[test]
+    fn ipv6_addresses_in_one_slash_64_share_a_single_allowance() {
+        let throttle = AuthThrottle::new();
+        let now = Instant::now();
+        for i in 1..=FREE_ATTEMPTS {
+            let rotated: IpAddr = format!("2001:db8:abcd:0012::{i:x}").parse().unwrap();
+            assert_eq!(throttle.penalise(rotated, now), Duration::ZERO);
+        }
+        let next_in_subnet: IpAddr = "2001:db8:abcd:0012:dead:beef:cafe:1".parse().unwrap();
+        assert_eq!(throttle.penalise(next_in_subnet, now), BASE_DELAY);
+
+        let other_subnet: IpAddr = "2001:db8:abcd:0013::1".parse().unwrap();
+        assert_eq!(throttle.penalise(other_subnet, now), Duration::ZERO);
+
+        throttle.forgive("2001:db8:abcd:0012::99".parse().unwrap());
+        assert_eq!(throttle.penalise(next_in_subnet, now), Duration::ZERO);
     }
 
     #[test]
@@ -329,6 +372,9 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
+        assert!(!constant_time_eq(b"abcc", b"abc"));
+        assert!(!constant_time_eq(b"", b"abc"));
+        assert!(!constant_time_eq(b"abc", b""));
         assert!(constant_time_eq(b"", b""));
     }
 }

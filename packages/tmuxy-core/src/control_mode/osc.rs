@@ -59,6 +59,8 @@ pub struct SizedMark {
 /// drawn plain: the URL comes from pane output, and a link the size of the
 /// screen is not one anybody follows.
 pub const MAX_HYPERLINK_URL_BYTES: usize = 8 * 1024;
+#[cfg(test)]
+use helpers::{MAX_CLIPBOARD_BASE64_BYTES, MAX_TITLE_BYTES};
 
 /// OSC parser state for a single pane
 #[derive(Debug, Default)]
@@ -430,7 +432,7 @@ impl OscParser {
         // and is deliberately ignored — it is not what a window is called.
         for prefix in ["0;", "2;"] {
             if let Some(title) = content_str.strip_prefix(prefix) {
-                self.pending_title = Some(title.to_string());
+                self.pending_title = Some(helpers::truncate_title(title));
                 return;
             }
         }
@@ -463,20 +465,8 @@ impl OscParser {
     /// Parse OSC 52 clipboard sequence
     /// Format: Pc ; Pd where Pd is base64-encoded
     fn parse_osc52(&mut self, content: &str) {
-        let parts: Vec<&str> = content.splitn(2, ';').collect();
-        if parts.len() < 2 {
-            return;
-        }
-
-        // Pc is clipboard selection (c = primary, p = clipboard, etc.)
-        // We treat all selections the same
-        let base64_data = parts[1];
-
-        // Decode base64
-        if let Ok(decoded) = helpers::base64_decode(base64_data) {
-            if let Ok(text) = String::from_utf8(decoded) {
-                self.pending_clipboard = Some(text);
-            }
+        if let Some(text) = helpers::decode_osc52(content) {
+            self.pending_clipboard = Some(text);
         }
     }
 
