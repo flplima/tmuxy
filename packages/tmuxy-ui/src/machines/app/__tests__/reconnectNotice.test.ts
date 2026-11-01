@@ -36,6 +36,21 @@ describe('reconnecting: quiet, then noticed', () => {
     expect(actor.getSnapshot().matches({ reconnecting: 'noticed' })).toBe(true);
   });
 
+  it('a failed retry inside the delay does not restart it', () => {
+    const { actor, clock } = droppedActor();
+    clock.increment(RECONNECT_NOTICE_DELAY_MS / 2);
+    actor.send({ type: 'TMUX_RECONNECTING' });
+    clock.increment(RECONNECT_NOTICE_DELAY_MS / 2);
+    expect(actor.getSnapshot().matches({ reconnecting: 'noticed' })).toBe(true);
+  });
+
+  it('a failed retry while noticed keeps the notice', () => {
+    const { actor, clock } = droppedActor();
+    clock.increment(RECONNECT_NOTICE_DELAY_MS);
+    actor.send({ type: 'TMUX_RECONNECTING' });
+    expect(actor.getSnapshot().matches({ reconnecting: 'noticed' })).toBe(true);
+  });
+
   it('a drop that heals inside the delay is never noticed', () => {
     const { actor, clock } = droppedActor();
     clock.increment(RECONNECT_NOTICE_DELAY_MS / 2);
