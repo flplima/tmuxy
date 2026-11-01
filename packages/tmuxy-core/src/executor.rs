@@ -61,16 +61,14 @@ impl TmuxCommand {
 /// command is the pin. Any interception written as
 /// `command.starts_with("<verb>")` silently stops matching the moment a
 /// binding is pinned — the guard is still there, it just never fires again.
-/// Ask about the whole list instead.
+/// Ask about the whole list instead, the commands inside its `{ … }` blocks
+/// included: `if-shell -F 1 { resizew }` runs a `resizew` too.
 pub fn compound_runs(list: &str, command: &TmuxCommand) -> bool {
-    split_compound(list)
-        .iter()
-        .any(|part| command.named_by(command_verb(part)))
+    every_command(list).any(|part| command.named_by(command_verb(part)))
 }
 
-/// Rewrite a `new-window` sitting anywhere in a (possibly pinned) command list,
-/// leaving the commands around it — the keyboard actor's window/pane pin — in
-/// place.
+/// Rewrite every `new-window` in a (possibly pinned) command list, leaving the
+/// commands around it — the keyboard actor's window/pane pin — in place.
 ///
 /// Without this, `prefix c` (`select-window … \; select-pane … \; new-window`)
 /// misses the `starts_with("new-window")` intercept and the raw `new-window`
@@ -82,32 +80,55 @@ pub fn compound_runs(list: &str, command: &TmuxCommand) -> bool {
 /// come from the window the user is actually looking at rather than whichever
 /// one tmux last considered current.
 ///
+/// A `new-window` inside a `{ … }` block (a conditional binding, a menu item)
+/// crashes tmux just the same when it runs, so it is rewritten in place and
+/// the block keeps its shape: the binding still opens a window.
+///
 /// Returns `None` when the list contains no `new-window`.
 pub fn rewrite_new_window_in_compound(
     command: &str,
     session: &str,
     size: Option<(u32, u32)>,
 ) -> Option<String> {
-    let mut found = false;
-    let parts: Vec<String> = split_compound(command)
+    let commands = scan_commands(command);
+    let is_new_window =
+        |found: &Scanned| NEW_WINDOW.named_by(command_verb(&command[found.span.clone()]));
+    if !commands.iter().any(is_new_window) {
+        return None;
+    }
+    let rewrite = new_window_rewrite(session, size);
+    let parts: Vec<String> = commands
         .iter()
-        .filter_map(|part| {
-            let trimmed = part.trim();
-            if trimmed.is_empty() {
+        .filter(|found| found.depth == 0)
+        .filter_map(|top| {
+            if command[top.span.clone()].trim().is_empty() {
                 return None;
             }
-            if !found && NEW_WINDOW.named_by(command_verb(trimmed)) {
-                found = true;
-                return Some(new_window_rewrite(session, size));
+            if is_new_window(top) {
+                return Some(rewrite.clone());
             }
-            Some(trimmed.to_string())
+            let mut out = String::new();
+            let mut copied = top.span.start;
+            for inner in &commands {
+                // Sorted by start: a command inside one already rewritten
+                // starts before `copied`, and goes with it.
+                let inside =
+                    inner.depth > 0 && inner.span.start >= copied && inner.span.end <= top.span.end;
+                if inside && is_new_window(inner) {
+                    out.push_str(&command[copied..inner.span.start]);
+                    out.push_str(&format!(" {rewrite} "));
+                    copied = inner.span.end;
+                }
+            }
+            out.push_str(&command[copied..top.span.end]);
+            Some(out.trim().to_string())
         })
         .collect();
 
     // Bare `;` on purpose: control mode's line parser rejects the shell-escaped
     // `\;` the frontend joins with, and the monitor's unescape only rewrites
     // the form it already knows.
-    found.then(|| parts.join(" ; "))
+    Some(parts.join(" ; "))
 }
 
 /// Rewrite long-form mutating verbs (`split-window`, `kill-pane`, `kill-window`, `break-pane`)
@@ -154,7 +175,33 @@ pub fn rewrite_mutating_verbs(command: &str) -> String {
     parts.join(" ; ")
 }
 
-/// Split a command list into its commands, where tmux would.
+/// Split a command list into its top-level commands, where tmux would. A
+/// `{ … }` block stays whole inside the command it belongs to, so a rewrite
+/// that rejoins the commands with ` ; ` leaves every block as it came.
+pub(crate) fn split_compound(cmd: &str) -> Vec<&str> {
+    scan_commands(cmd)
+        .into_iter()
+        .filter(|found| found.depth == 0)
+        .map(|found| &cmd[found.span])
+        .collect()
+}
+
+/// Every command of a list, the ones inside `{ … }` blocks included at any
+/// depth: what a policy has to look at.
+pub(crate) fn every_command(cmd: &str) -> impl Iterator<Item = &str> {
+    scan_commands(cmd)
+        .into_iter()
+        .map(move |found| &cmd[found.span])
+}
+
+/// One command of a list as [`scan_commands`] reads it: the bytes of the list
+/// it spans (its blocks included), and how many `{ … }` blocks it sits in.
+struct Scanned {
+    span: std::ops::Range<usize>,
+    depth: usize,
+}
+
+/// Read a command list into its commands, the way tmux's parser does.
 ///
 /// The separators are the ones tmux acts on outside quotes — a bare `;`, the
 /// frontend's `\;` (the monitor turns it into `;`) and a newline, which ends
@@ -167,223 +214,113 @@ pub fn rewrite_mutating_verbs(command: &str) -> String {
 /// quoted payloads, so `send-keys -l 'a\;b'` was torn into two bogus
 /// commands.
 ///
-/// Where tmux's reading is in doubt (a `;` glued to a word, a `{ … }` block)
-/// this splits: a policy that sees a command too many refuses a command too
-/// many, never runs one it did not see.
-pub(crate) fn split_compound(cmd: &str) -> Vec<String> {
+/// An unquoted `{` that starts a word opens a block, a command list of its
+/// own, which the matching `}` closes. A `{` glued to a word (`#{pane_id}`)
+/// is text to tmux, and so is the `}` that matches it.
+///
+/// Where tmux's reading is in doubt (a `;` glued to a word or inside a glued
+/// brace) this splits: a policy that sees a command too many refuses a
+/// command too many, never runs one it did not see.
+fn scan_commands(cmd: &str) -> Vec<Scanned> {
     #[derive(PartialEq)]
     enum Quote {
         None,
         Single,
         Double,
     }
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut quote = Quote::None;
-    let mut chars = cmd.chars().peekable();
+    /// A block being read (the list itself is the outermost): where its
+    /// current command starts, and how many glued braces are open in it.
+    struct Block {
+        start: usize,
+        glued: usize,
+    }
+    fn end_command(blocks: &[Block], found: &mut Vec<Scanned>, end: usize) {
+        if let Some(block) = blocks.last() {
+            found.push(Scanned {
+                span: block.start..end,
+                depth: blocks.len() - 1,
+            });
+        }
+    }
 
-    while let Some(c) = chars.next() {
+    let mut found = Vec::new();
+    let mut blocks = vec![Block { start: 0, glued: 0 }];
+    let mut quote = Quote::None;
+    let mut word_start = true;
+    let mut chars = cmd.char_indices().peekable();
+
+    while let Some((i, c)) = chars.next() {
+        let mut next_starts_word = false;
         match (&quote, c) {
             (_, '\n') => {
                 quote = Quote::None;
-                parts.push(std::mem::take(&mut current));
+                while !blocks.is_empty() {
+                    end_command(&blocks, &mut found, i);
+                    blocks.pop();
+                }
+                blocks.push(Block {
+                    start: i + 1,
+                    glued: 0,
+                });
+                next_starts_word = true;
             }
-            (Quote::None, ';') => parts.push(std::mem::take(&mut current)),
-            (Quote::None, '\\') if chars.peek() == Some(&';') => {
+            (Quote::None, ';') => {
+                end_command(&blocks, &mut found, i);
+                if let Some(block) = blocks.last_mut() {
+                    block.start = i + 1;
+                }
+                next_starts_word = true;
+            }
+            (Quote::None, '\\') if chars.peek().map(|&(_, next)| next) == Some(';') => {
                 chars.next();
-                parts.push(std::mem::take(&mut current));
+                end_command(&blocks, &mut found, i);
+                if let Some(block) = blocks.last_mut() {
+                    block.start = i + 2;
+                }
+                next_starts_word = true;
             }
             (Quote::None | Quote::Double, '\\') => {
-                current.push(c);
-                if let Some(&next) = chars.peek() {
-                    if next != '\n' {
-                        current.push(next);
-                        chars.next();
-                    }
+                if chars.peek().is_some_and(|&(_, next)| next != '\n') {
+                    chars.next();
                 }
             }
-            (Quote::None, '\'') => {
-                quote = Quote::Single;
-                current.push(c);
+            (Quote::None, '{') if word_start => {
+                blocks.push(Block {
+                    start: i + 1,
+                    glued: 0,
+                });
+                next_starts_word = true;
             }
-            (Quote::None, '"') => {
-                quote = Quote::Double;
-                current.push(c);
+            (Quote::None, '{') => {
+                if let Some(block) = blocks.last_mut() {
+                    block.glued += 1;
+                }
             }
-            (Quote::Single, '\'') | (Quote::Double, '"') => {
-                quote = Quote::None;
-                current.push(c);
+            (Quote::None, '}') => {
+                if let Some(block) = blocks.last_mut().filter(|block| block.glued > 0) {
+                    block.glued -= 1;
+                } else if blocks.len() > 1 {
+                    end_command(&blocks, &mut found, i);
+                    blocks.pop();
+                    next_starts_word = true;
+                }
             }
-            _ => current.push(c),
+            (Quote::None, '\'') => quote = Quote::Single,
+            (Quote::None, '"') => quote = Quote::Double,
+            (Quote::Single, '\'') | (Quote::Double, '"') => quote = Quote::None,
+            (Quote::None, ' ' | '\t') => next_starts_word = true,
+            _ => {}
         }
+        word_start = next_starts_word;
     }
-    parts.push(current);
-    parts
+    while !blocks.is_empty() {
+        end_command(&blocks, &mut found, cmd.len());
+        blocks.pop();
+    }
+    found.sort_by_key(|found| found.span.start);
+    found
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_window_rewrite_quotes_the_session() {
-        // Session names come from servers.json / `tmuxy session connect`, so they can
-        // contain whitespace (which truncated the target) or `;` (which
-        // appended extra commands to the list).
-        let out = new_window_rewrite("my session", None);
-        assert!(out.contains("splitw -t 'my session' ;"), "{out}");
-
-        let out = new_window_rewrite("evil ; kill-server", None);
-        assert!(out.contains("-t 'evil ; kill-server'"), "{out}");
-
-        let out = new_window_rewrite("it's", None);
-        assert!(out.contains(r"-t 'it'\''s'"), "{out}");
-    }
-
-    #[test]
-    fn new_window_rewrite_includes_resize_only_with_a_size() {
-        let sized = new_window_rewrite("tmuxy", Some((120, 40)));
-        assert!(sized.contains("resizew -x 120 -y 40"), "{sized}");
-        // Tabs carry no marker — the rewrite must not tag the window.
-        assert!(!sized.contains("@tmuxy-window-type"), "{sized}");
-
-        let plain = new_window_rewrite("tmuxy", None);
-        assert!(!plain.contains("resizew"), "{plain}");
-        assert!(!plain.contains("@tmuxy-window-type"), "{plain}");
-    }
-
-    /// The regression this pair of helpers exists for: the keyboard actor pins
-    /// every bound command, so `prefix c` never looked like a `new-window` to a
-    /// head-anchored check, and the raw command escaped to an external
-    /// subprocess against an attached control-mode client.
-    /// The regression this pair of helpers exists for: the keyboard actor pins
-    /// every bound command, so `prefix c` never looked like a `new-window` to a
-    /// head-anchored check, and the raw command escaped to an external
-    /// subprocess against an attached control-mode client.
-    #[test]
-    fn compound_runs_sees_past_the_binding_pin() {
-        let pinned =
-            "select-window -t @2 \\; select-pane -t %5 \\; new-window -c \"#{pane_current_path}\"";
-        assert!(compound_runs(pinned, &NEW_WINDOW));
-        assert!(compound_runs("neww", &NEW_WINDOW));
-        // A pane pin alone (an overlay binding) is still seen through.
-        assert!(compound_runs("select-pane -t %5 \\; neww", &NEW_WINDOW));
-        // No false positives: `new-window` as an argument is not a verb, and a
-        // different command with the same prefix does not count.
-        assert!(!compound_runs(
-            "select-pane -t %5 \\; split-window -h",
-            &NEW_WINDOW
-        ));
-        assert!(!compound_runs("send-keys -l 'new-window'", &NEW_WINDOW));
-        assert!(!compound_runs("new-session -d", &NEW_WINDOW));
-    }
-
-    /// tmux runs any prefix of a command's name no other command shares, so
-    /// a policy that knew only the name and the alias missed `resize-w`.
-    #[test]
-    fn a_command_is_seen_under_every_name_tmux_runs_it_by() {
-        for verb in ["resize-window", "resizew", "resize-w", "resize-win"] {
-            assert!(RESIZE_WINDOW.named_by(verb), "{verb}");
-        }
-        for verb in ["resize-", "resize-pane", "resizep", "resize-windows"] {
-            assert!(!RESIZE_WINDOW.named_by(verb), "{verb}");
-        }
-        for verb in ["new-window", "neww", "new-w", "new-wi"] {
-            assert!(NEW_WINDOW.named_by(verb), "{verb}");
-        }
-        for verb in ["new", "new-", "new-session", "news"] {
-            assert!(!NEW_WINDOW.named_by(verb), "{verb}");
-        }
-    }
-
-    #[test]
-    fn rewrite_new_window_in_compound_keeps_the_pin_around_the_rewrite() {
-        let pinned = "select-window -t @2 \\; select-pane -t %5 \\; new-window";
-        let out = rewrite_new_window_in_compound(pinned, "tmuxy", Some((120, 40)))
-            .expect("a new-window in the list");
-
-        // The pin survives, ahead of the rewrite — `splitw -t <session>` targets
-        // the session's CURRENT window, so the pin is what aims it at the tab
-        // the user is looking at.
-        assert!(
-            out.starts_with("select-window -t @2 ; select-pane -t %5 ;"),
-            "{out}"
-        );
-        assert!(out.contains("splitw -t 'tmuxy'"), "{out}");
-        assert!(out.contains("breakp"), "{out}");
-        assert!(out.contains("resizew -x 120 -y 40"), "{out}");
-        // Control mode's line parser rejects the shell-escaped separator.
-        assert!(!out.contains("\\;"), "{out}");
-    }
-
-    #[test]
-    fn rewrite_new_window_in_compound_passes_through_unpinned_and_unrelated() {
-        let bare = rewrite_new_window_in_compound("new-window", "tmuxy", None)
-            .expect("a bare new-window still rewrites");
-        assert_eq!(bare, new_window_rewrite("tmuxy", None));
-
-        assert!(rewrite_new_window_in_compound(
-            "select-pane -t %5 \\; split-window -h",
-            "tmuxy",
-            None
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn split_compound_respects_quotes() {
-        // Unquoted separators split.
-        assert_eq!(
-            split_compound("splitw \\; breakp"),
-            vec!["splitw ".to_string(), " breakp".to_string()]
-        );
-        // A separator inside single quotes is payload, not a separator.
-        assert_eq!(
-            split_compound("send-keys -l 'a\\;b'"),
-            vec!["send-keys -l 'a\\;b'".to_string()]
-        );
-        // Same for double quotes.
-        assert_eq!(
-            split_compound("send-keys -l \"a\\;b\""),
-            vec!["send-keys -l \"a\\;b\"".to_string()]
-        );
-        // Mixed: quoted payload preserved, real separator still splits.
-        assert_eq!(
-            split_compound("send-keys -l 'a\\;b' \\; selectp -t %1"),
-            vec![
-                "send-keys -l 'a\\;b' ".to_string(),
-                " selectp -t %1".to_string()
-            ]
-        );
-    }
-
-    /// Every separator tmux acts on splits, read with tmux's quoting: a bare
-    /// `;`, a newline, and a quote a backslash escaped does not open or close
-    /// anything. Each of these hid a `resizew` from the router.
-    #[test]
-    fn split_compound_splits_where_tmux_does() {
-        let verbs = |cmd: &str| -> Vec<String> {
-            split_compound(cmd)
-                .iter()
-                .map(|part| command_verb(part).to_string())
-                .filter(|verb| !verb.is_empty())
-                .collect()
-        };
-        assert_eq!(verbs("display x ; resizew -x 1"), ["display", "resizew"]);
-        assert_eq!(verbs("display x\nresizew -x 1"), ["display", "resizew"]);
-        assert_eq!(
-            verbs("display \"\\\"\" \\; resizew"),
-            ["display", "resizew"]
-        );
-        assert_eq!(verbs("display \\' \\; resizew"), ["display", "resizew"]);
-        assert_eq!(
-            verbs("display 'it'\\''s' ; resizew"),
-            ["display", "resizew"]
-        );
-        // An open quote does not survive the end of the line.
-        assert_eq!(verbs("display 'x\nresizew"), ["display", "resizew"]);
-        // Quoted separators stay payload.
-        assert_eq!(verbs("display 'a ; b' \"c ; d\" \"e\\\";f\""), ["display"]);
-    }
-}
+mod tests;

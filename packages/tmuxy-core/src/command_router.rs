@@ -11,13 +11,14 @@
 //! cannot diverge.
 //!
 //! What the policy says, of every command a client sends — each control-mode
-//! line of it, and each command of each line, wherever tmux would split them
-//! (X5 in `docs/INVARIANTS.md`):
+//! line of it, and each command of each line, wherever tmux would split them,
+//! inside `{ … }` blocks too (X5 in `docs/INVARIANTS.md`):
 //! - `resize-window` is refused: sizing goes through `set_client_size`, which
 //!   reconciles every client's viewport; a raw resize from one client would
 //!   override the others (and a stale connection's).
 //! - `new-window` is rewritten to `splitw ; breakp`, keeping any pin around
-//!   it: `new-window` crashes tmux 3.5a with a control-mode client attached.
+//!   it (and in place, inside a block): `new-window` crashes tmux 3.5a with a
+//!   control-mode client attached.
 //! - a blank line is left out: an empty line detaches the control-mode
 //!   client, which is the monitor's own connection.
 //! - everything else goes to control mode **byte-identical**. No target is
@@ -35,8 +36,8 @@
 
 use crate::control_mode::control_mode_lines;
 use crate::executor::{
-    command_verb, compound_runs, rewrite_mutating_verbs, rewrite_new_window_in_compound,
-    split_compound, NEW_WINDOW, RESIZE_WINDOW,
+    command_verb, compound_runs, every_command, rewrite_mutating_verbs,
+    rewrite_new_window_in_compound, NEW_WINDOW, RESIZE_WINDOW,
 };
 
 /// Where a client's command goes.
@@ -110,9 +111,9 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
 /// refused otherwise.
 pub fn route_query(command: &str) -> Route {
     let verbs: Vec<String> = control_mode_lines(command)
-        .flat_map(split_compound)
+        .flat_map(every_command)
         .filter_map(|part| {
-            Some(command_verb(&part))
+            Some(command_verb(part))
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
         })
@@ -222,6 +223,8 @@ mod tests {
             "display \"\\\"\" \\; resizew -x 1 -y 1",
             "display \\' \\; resizew -x 1 -y 1",
             "resize-w -x 1 -y 1",
+            "if-shell -F 1 { resizew -x 10 -y 10 }",
+            "select-pane -t %1 \\; if -F 1 { display x } { if -F 1 { resize-w -x 1 } }",
         ] {
             assert!(
                 matches!(route_command(cmd, "tmuxy", None), Route::Blocked(_)),
@@ -249,6 +252,30 @@ mod tests {
                 "{routed:?}"
             );
         }
+    }
+
+    /// X5: a `new-window` inside a `{ … }` block — a conditional binding, a
+    /// menu item — is rewritten in place, and the block keeps its shape. A
+    /// binding with blocks and nothing to rewrite reaches tmux untouched.
+    #[test]
+    fn brace_blocks_are_routed_whole() {
+        assert_eq!(
+            route_command(
+                "select-pane -t %5 \\; if-shell -F 1 { new-window }",
+                "tmuxy",
+                None
+            ),
+            Route::ControlMode(
+                "select-pane -t %5 ; if-shell -F 1 { splitw -t 'tmuxy' ; breakp }".to_string()
+            )
+        );
+        let binding = "select-window -t @1 \\; select-pane -t %1 \\; if-shell -F -t = \
+                       \"#{||:#{mouse_any_flag},#{pane_in_mode}}\" { select-pane -t = ; send-keys -M } \
+                       { display-menu -x M Kill X { kill-pane } Float f { break-pane -W } }";
+        assert_eq!(
+            route_command(binding, "tmuxy", None),
+            Route::ControlMode(binding.to_string())
+        );
     }
 
     /// Typed text is one `send-keys` per line, and reaches tmux line for line;
@@ -313,6 +340,7 @@ mod tests {
             "display-message -p x \\; run-shell true",
             "display-message -p x\nsend-keys -t %1 y",
             "display-m -p x",
+            "display-message -p x { kill-pane }",
             "",
             "\n",
         ] {

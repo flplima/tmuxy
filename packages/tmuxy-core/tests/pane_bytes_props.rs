@@ -48,7 +48,7 @@ proptest! {
     /// pane silently renders bytes the program never wrote.
     #[test]
     fn octal_unescape_inverts_tmux_escaping(bytes in escapable_bytes()) {
-        prop_assert_eq!(decode_octal(&tmux_escape(&bytes)), bytes);
+        prop_assert_eq!(decode_octal(tmux_escape(&bytes)), bytes);
     }
 
     /// A backslash run that is not a valid escape must be copied through, not
@@ -84,7 +84,7 @@ proptest! {
         tail in ".{0,120}",
     ) {
         let mut parser = Parser::new();
-        let _ = parser.parse_line(&format!("{verb} {tail}"));
+        let _ = parser.parse_line(format!("{verb} {tail}"));
         // A second line exercises the in-response accumulation path.
         let _ = parser.parse_line(&tail);
     }
