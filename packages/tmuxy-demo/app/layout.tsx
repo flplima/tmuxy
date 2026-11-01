@@ -46,11 +46,11 @@ const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
 const DEMO_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cxrtnc.leaningtech.com https://www.googletagmanager.com blob:",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cxrtnc.leaningtech.com https://*.googletagmanager.com blob:",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://www.google-analytics.com https://www.googletagmanager.com",
+  "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://cxrtnc.leaningtech.com https://www.google-analytics.com https://region1.google-analytics.com https://analytics.google.com https://www.googletagmanager.com blob: data:",
+  "connect-src 'self' https://cxrtnc.leaningtech.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com blob: data:",
   "worker-src 'self' blob: https://cxrtnc.leaningtech.com",
   "frame-src 'self' blob: https://cxrtnc.leaningtech.com",
   "object-src 'none'",
