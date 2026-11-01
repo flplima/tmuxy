@@ -17,19 +17,29 @@ STASH_SESSION="__tmuxy_stash"
 #   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
 #   data   — what the app mirrors from its bundle: defaults, themes, bin/.
 #   state  — this machine's: menu choices, launcher, servers.json, pid files.
+#
+# The home they sit under is resolved as tmuxy-core's `paths::resolved_home_dir`:
+# $HOME, else (unset or empty) the passwd entry's, else /tmp/tmuxy-<uid> — but
+# only once it is a real directory (not a symlink) this user owns, made
+# owner-only, since another user can create a predictable /tmp name first.
+# When it is not, nothing is printed, so the dirs land under `/`, where no
+# other user can write.
 _tmuxy_home() {
-  if [ -n "${HOME:-}" ] && [[ "$HOME" == /* ]]; then
-    printf '%s' "$HOME"
-    return
+  local home="${HOME:-}"
+  [ -n "$home" ] || home="$(unset HOME; printf '%s' ~)"
+  if [[ "$home" == /* ]]; then
+    printf '%s' "$home"
+    return 0
   fi
-  local pw_home=~
-  if [ -n "$pw_home" ] && [[ "$pw_home" == /* ]]; then
-    printf '%s' "$pw_home"
-    return
+  local fb
+  fb="/tmp/tmuxy-$(id -u)"
+  mkdir -m 700 "$fb" 2>/dev/null || true
+  if [ -d "$fb" ] && [ ! -L "$fb" ] && [ -O "$fb" ] && chmod 700 "$fb" 2>/dev/null; then
+    printf '%s' "$fb"
+    return 0
   fi
-  local fb="/tmp/tmuxy-$(id -u)"
-  mkdir -m 700 -p "$fb" 2>/dev/null || true
-  printf '%s' "$fb"
+  echo "tmuxy: no home directory, and $fb is not a private directory of this user's" >&2
+  return 1
 }
 
 tmuxy_config_dir() {

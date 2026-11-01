@@ -33,65 +33,44 @@ pub fn data_dir() -> PathBuf {
     )
 }
 
-/// Resolve an absolute home directory even when `$HOME` is unset:
-/// `dirs::home_dir()`, else `getpwuid_r(getuid())` on Unix, else a verified
-/// private `0700` `/tmp/tmuxy-<uid>` directory owned by the current UID.
+/// An absolute home directory even when `$HOME` is unset: `dirs::home_dir()`
+/// (`$HOME`, else the passwd entry's), else a private per-UID
+/// `/tmp/tmuxy-<uid>` that must be a real `0700` directory this user owns.
+/// The CLI resolves the same way (`_tmuxy_home` in
+/// `tmuxy-cli/bin/tmuxy/_lib`). When even that is refused (a symlink or
+/// another user's directory squats the name), the result is `/`, which no
+/// other user can write under, rather than any shared temp path.
 pub fn resolved_home_dir() -> PathBuf {
-    if let Some(home) = dirs::home_dir().filter(|p| p.is_absolute()) {
-        return home;
-    }
-    #[cfg(unix)]
-    {
-        if let Some(pw_home) = unix_passwd_home() {
-            return pw_home;
-        }
-        if let Ok(fallback) = unix_uid_temp_home() {
-            return fallback;
-        }
-    }
+    dirs::home_dir()
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(fallback_home)
+}
+
+#[cfg(unix)]
+fn fallback_home() -> PathBuf {
+    // SAFETY: getuid() has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    private_uid_dir(std::path::Path::new("/tmp"), uid).unwrap_or_else(|_| PathBuf::from("/"))
+}
+
+#[cfg(not(unix))]
+fn fallback_home() -> PathBuf {
     std::env::temp_dir().join("tmuxy-home")
 }
 
+/// `<base>/tmuxy-<uid>`, created `0700` if missing, and refused unless it is
+/// a directory (not a symlink) that `uid` owns. `base` is sticky `/tmp`, so
+/// once checked it cannot be swapped by another user.
 #[cfg(unix)]
-fn unix_passwd_home() -> Option<PathBuf> {
-    use std::ffi::CStr;
-    use std::os::unix::ffi::OsStrExt;
-
-    // SAFETY: getuid() has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
-    let mut result: *mut libc::passwd = std::ptr::null_mut();
-    let mut buf = vec![0u8; 4096];
-    // SAFETY: `pwd`, `buf`, and `result` are valid writable pointers owned here.
-    let rc = unsafe {
-        libc::getpwuid_r(
-            uid,
-            &mut pwd,
-            buf.as_mut_ptr().cast(),
-            buf.len(),
-            &mut result,
-        )
-    };
-    if rc != 0 || result.is_null() || pwd.pw_dir.is_null() {
-        return None;
-    }
-    // SAFETY: `pwd.pw_dir` points into `buf` and is NUL-terminated on success.
-    let bytes = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_bytes();
-    let path = PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
-    path.is_absolute().then_some(path)
-}
-
-#[cfg(unix)]
-fn unix_uid_temp_home() -> std::io::Result<PathBuf> {
+fn private_uid_dir(base: &std::path::Path, uid: u32) -> std::io::Result<PathBuf> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 
-    // SAFETY: getuid() has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    let dir = std::env::temp_dir().join(format!("tmuxy-{uid}"));
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .recursive(true)
-        .create(&dir)?;
+    let dir = base.join(format!("tmuxy-{uid}"));
+    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e),
+    }
     let meta = std::fs::symlink_metadata(&dir)?;
     if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
         return Err(std::io::Error::new(
@@ -204,20 +183,44 @@ mod tests {
     }
 
     #[test]
-    fn resolved_home_dir_is_always_absolute_and_never_shared_tmp() {
-        let home = resolved_home_dir();
-        assert!(home.is_absolute());
-        assert_ne!(home, PathBuf::from("/tmp/tmuxy"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let fallback = unix_uid_temp_home().unwrap();
-            let mode = std::fs::symlink_metadata(&fallback)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777;
-            assert_eq!(mode, 0o700);
-        }
+    fn the_resolved_home_is_always_absolute() {
+        assert!(resolved_home_dir().is_absolute());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_fallback_home_is_a_private_dir_the_user_owns_and_never_a_symlink() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // SAFETY: getuid() has no preconditions.
+        let uid = unsafe { libc::getuid() };
+        let base = std::env::temp_dir().join(format!("tmuxy-home-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let dir = base.join(format!("tmuxy-{uid}"));
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        // Created owner-only when missing.
+        assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
+        assert_eq!(mode(&dir), 0o700);
+
+        // An existing one of the user's own is tightened.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
+        assert_eq!(mode(&dir), 0o700);
+
+        // Another user's directory under the name is refused (a test cannot
+        // chown, so it asks for the directory as a uid that does not own it).
+        let other = uid.wrapping_add(1);
+        std::fs::rename(&dir, base.join(format!("tmuxy-{other}"))).unwrap();
+        assert!(private_uid_dir(&base, other).is_err());
+
+        // A symlink under the name is refused, even to a directory the user owns.
+        let decoy = base.join("decoy");
+        std::fs::create_dir(&decoy).unwrap();
+        std::os::unix::fs::symlink(&decoy, &dir).unwrap();
+        assert!(private_uid_dir(&base, uid).is_err());
+
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }
