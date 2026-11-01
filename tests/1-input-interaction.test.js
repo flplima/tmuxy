@@ -327,8 +327,12 @@ describe('Scenario 2b: Browser Paste', () => {
     // and handed `; touch …` to the program as typed keys. tmux 3.7 and later
     // turn an ESC in a pasted buffer into a visible `^[` themselves, but pass
     // U+009B through as the UTF-8 character it is. Each run takes one paste
-    // and exits.
-    for (const marker of ['\x1b[0201~', '\x9b201~']) {
+    // and exits. The whole line is the text without its controls, so an ESC
+    // that got through as tmux's `^[` fails it as surely as a cut paste.
+    for (const [marker, kept] of [
+      ['\x1b[0201~', '[0201~'],
+      ['\x9b201~', '201~'],
+    ]) {
       await typeInTerminal(ctx.page, `clear; python3 ${BRACKETED_PASTE_SCRIPT}`);
       await pressEnter(ctx.page);
       // The last run's READY stays on screen until `clear` has run.
@@ -347,7 +351,7 @@ describe('Scenario 2b: Browser Paste', () => {
       const pasted = (await getTerminalText(ctx.page))
         .split('\n')
         .find((line) => line.startsWith('PASTED:'));
-      expect(pasted?.trimEnd()).toMatch(/^PASTED:echo safe.*; touch \/tmp\/never$/);
+      expect(pasted?.trimEnd()).toBe(`PASTED:echo safe${kept}; touch /tmp/never`);
     }
   }, 60000);
 });
