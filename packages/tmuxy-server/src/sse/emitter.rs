@@ -95,6 +95,9 @@ impl LogSink for SseEmitter {
 
 impl StateEmitter for SseEmitter {
     fn emit_state(&self, update: StateUpdate) {
+        self.app_state
+            .preview_pages
+            .sync_update(&self.session, &update);
         transport::on_state_update(&update, &self.keeper, |state| {
             if let Ok(mut guard) = self.app_state.image_store.try_write() {
                 guard.retain_live_panes(state);

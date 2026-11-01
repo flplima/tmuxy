@@ -40,6 +40,7 @@ async function runWidgetWithPaneGone(pane) {
           ...process.env,
           PATH: `${MOCKS_DIR}:${process.env.PATH}`,
           MOCK_TMUX_LOG: log,
+          MOCK_TMUX_PANE_PID: String(process.pid),
           TMUX_SOCKET: 'tmuxy',
           TMUX_PANE: pane,
           TMUX: '',

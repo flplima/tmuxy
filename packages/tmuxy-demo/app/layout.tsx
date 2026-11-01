@@ -44,9 +44,26 @@ export const metadata: Metadata = {
 
 const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
 
+const DEMO_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cxrtnc.leaningtech.com https://www.googletagmanager.com blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://www.google-analytics.com https://www.googletagmanager.com",
+  "font-src 'self' data:",
+  "connect-src 'self' https://cxrtnc.leaningtech.com https://www.google-analytics.com https://region1.google-analytics.com https://analytics.google.com https://www.googletagmanager.com blob: data:",
+  "worker-src 'self' blob: https://cxrtnc.leaningtech.com",
+  "frame-src 'self' blob: https://cxrtnc.leaningtech.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark theme-dark">
+      <head>
+        <meta httpEquiv="Content-Security-Policy" content={DEMO_CSP} />
+      </head>
       <body className="antialiased">
         {/* Before the demo loads: it waits on this to choose its guest. */}
         <Script src="/coi-register.js" strategy="beforeInteractive" />

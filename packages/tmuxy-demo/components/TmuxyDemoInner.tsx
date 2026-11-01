@@ -66,9 +66,7 @@ const PANE_GROUP_THEN_WELCOME = [
 const guestFiles = () => ({
   icat: new URL('/guest/icat', window.location.href),
   'tmuxy.md': new URL('/guest/tmuxy.md', window.location.href),
-  'nyan-cat.gif': new URL(
-    'https://gist.githubusercontent.com/brudnak/aba00c9a1c92d226f68e8ad8ba1e0a40/raw/nyan-cat.gif',
-  ),
+  'nyan-cat.gif': new URL('/guest/nyan-cat.gif', window.location.href),
 });
 const typeLine = (line: string) => [`send-keys -l "${line}"`, 'send-keys Enter'];
 
@@ -137,7 +135,8 @@ export default function TmuxyDemoInner() {
       if (lastWindowId.current !== null && activeId !== lastWindowId.current) {
         const win = state.windows.find((w) => w.id === activeId);
         if (win && win.window_type === 'tab') {
-          trackEvent({ name: 'demo_tab_switch', params: { tab_name: win.name } });
+          const tabBucket = win.name === 'welcome' || win.name === 'features' ? win.name : 'custom';
+          trackEvent({ name: 'demo_tab_switch', params: { tab_name: tabBucket } });
         }
       }
       lastWindowId.current = activeId;

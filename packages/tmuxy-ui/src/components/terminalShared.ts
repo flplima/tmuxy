@@ -174,6 +174,22 @@ export function sameCellStyle(a: CellStyle | undefined, b: CellStyle | undefined
   );
 }
 
+const BIDI_CONTROL_TEST = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+const BIDI_CONTROL_RE = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Neutralize Unicode BiDi override, isolate, and directional-mark code points
+ * inside a terminal cell so untrusted output cannot visually reorder commands
+ * or filenames across cells. A cell carrying a base glyph plus combining BiDi
+ * controls keeps its base glyph; a cell holding only BiDi controls renders a
+ * replacement character so column alignment stays 1:1.
+ */
+export function sanitizeTerminalCell(c: string): string {
+  if (!BIDI_CONTROL_TEST.test(c)) return c;
+  const stripped = c.replace(BIDI_CONTROL_RE, '');
+  return stripped.length > 0 ? stripped : '\uFFFD';
+}
+
 /**
  * CSS length for `n` cells on the terminal grid.
  *

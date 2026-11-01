@@ -20,8 +20,36 @@ import {
 } from '../guest/GuestEngine';
 
 /** CheerpX's runtime, from Leaning Technologies' CDN (its license allows the
- *  CDN build for open-source use). */
+ *  CDN build for open-source use), pinned by SHA-256 digest before execution. */
 const CX_URL = 'https://cxrtnc.leaningtech.com/1.4.0/cx.esm.js';
+const CX_CORE_URL = 'https://cxrtnc.leaningtech.com/1.4.0/cx_esm.js';
+export const CX_INTEGRITY: ReadonlyArray<readonly [url: string, sha256Hex: string]> = [
+  [CX_URL, '87b0809f469286a11efdec01dc5873205d50fd0dea710dd6eaa72434de760899'],
+  [CX_CORE_URL, '36fe17b84972929d7660eb3caa2ab0d82e7aa3e369b46418c719f9c63c09bba7'],
+];
+
+/**
+ * Fetch a remote module and verify its SHA-256 digest before dynamic `import()`
+ * executes it, giving dynamic ES module loads the same guarantee as `<script integrity>`.
+ */
+export async function verifySubresourceIntegrity(
+  url: string,
+  expectedSha256Hex: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetchImpl(url, { mode: 'cors', credentials: 'omit' });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${url} (HTTP ${response.status})`);
+  }
+  const buffer = await response.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+  const actualHex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join(
+    '',
+  );
+  if (actualHex !== expectedSha256Hex.toLowerCase()) {
+    throw new Error(`Integrity check failed for ${url}`);
+  }
+}
 const IMAGE_URL = '/cheerpx-img/tmuxy.ext2';
 /** Starts tmux if it is not running and attaches a control client to the console. */
 const RELAY = '/usr/local/bin/tmuxy-console';
@@ -88,6 +116,7 @@ export class CheerpXEngine extends GuestEngine {
       throw new Error('CheerpX needs a cross-origin isolated page (COOP and COEP headers)');
     }
     await this.freshCore();
+    await Promise.all(CX_INTEGRITY.map(([url, sha256]) => verifySubresourceIntegrity(url, sha256)));
     const CheerpX = (await import(
       /* @vite-ignore */ /* webpackIgnore: true */ CX_URL
     )) as CheerpXModule;

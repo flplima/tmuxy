@@ -33,17 +33,51 @@ export type BridgeMessage =
     }
   | { type: 'open'; url: string };
 
+/** Generate a per-page capability token so page scripts cannot spoof bridge messages. */
+export function newBridgeToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+const replayedPreviewKeys = new WeakSet<KeyboardEvent>();
+
+/** Tag a synthetic KeyboardEvent replayed out of an `HtmlPreview` frame. */
+export function markReplayedPreviewKey<T extends KeyboardEvent>(event: T): T {
+  replayedPreviewKeys.add(event);
+  return event;
+}
+
+/** True when `event` was synthesized by `HtmlPreview` rather than pressed in the app. */
+export function isReplayedPreviewKey(event: KeyboardEvent): boolean {
+  return replayedPreviewKeys.has(event);
+}
+
 /** The script's body: a function of where to scroll to once the page loads. */
-function bridge(start: { x: number; y: number }) {
-  const post = (message: unknown) => parent.postMessage({ tmuxyPreview: message }, '*');
+function bridge(start: { x: number; y: number }, token?: string) {
+  // Remove our own <script> element and capture intrinsics before any page
+  // script runs so untrusted scripts cannot read `token` from the DOM or forge
+  // untrusted key/click events.
+  document.currentScript?.remove();
+  const postToParent = parent.postMessage.bind(parent);
+  const getIsTrusted = Object.getOwnPropertyDescriptor(Event.prototype, 'isTrusted')?.get;
+  const isTrustedEvent = (e: Event): boolean =>
+    getIsTrusted ? Boolean(getIsTrusted.call(e)) : e.isTrusted === true;
+  const addWin = window.addEventListener.bind(window);
+  const addDoc = document.addEventListener.bind(document);
+  const post = (message: unknown) =>
+    postToParent(
+      token !== undefined ? { tmuxyPreview: message, token } : { tmuxyPreview: message },
+      '*',
+    );
   const restore = () => window.scrollTo(start.x, start.y);
-  document.addEventListener('DOMContentLoaded', restore);
-  window.addEventListener('load', () => {
+  addDoc('DOMContentLoaded', restore);
+  addWin('load', () => {
     restore();
     post({ type: 'title', title: document.title });
   });
   let pending = false;
-  window.addEventListener(
+  addWin(
     'scroll',
     () => {
       if (pending) return;
@@ -55,9 +89,10 @@ function bridge(start: { x: number; y: number }) {
     },
     { passive: true },
   );
-  window.addEventListener(
+  addWin(
     'keydown',
     (e) => {
+      if (!isTrustedEvent(e)) return;
       if (!(e.ctrlKey || e.altKey) || e.metaKey) return;
       // Ctrl held on its own is the start of a chord, not one.
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
@@ -74,9 +109,10 @@ function bridge(start: { x: number; y: number }) {
     },
     true,
   );
-  document.addEventListener(
+  addDoc(
     'click',
     (e) => {
+      if (!isTrustedEvent(e)) return;
       const target = e.target as Element | null;
       const link = target?.closest ? target.closest('a[href]') : null;
       if (!link || (link.getAttribute('href') ?? '').startsWith('#')) return;
@@ -88,8 +124,10 @@ function bridge(start: { x: number; y: number }) {
 }
 
 /** The `<script>` that runs `bridge`, first in the page, scrolled to `start`. */
-export function bridgeScript(start: { x: number; y: number }): string {
-  return `(${bridge.toString()})(${JSON.stringify(start)});`;
+export function bridgeScript(start: { x: number; y: number }, token?: string): string {
+  return token === undefined
+    ? `(${bridge.toString()})(${JSON.stringify(start)});`
+    : `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(token)});`;
 }
 
 const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta']);
@@ -98,8 +136,11 @@ const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Num
 const short = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 
 /** A message the page posted, if it is one of the bridge's; null otherwise. */
-export function readBridgeMessage(data: unknown): BridgeMessage | null {
+export function readBridgeMessage(data: unknown, expectedToken?: string): BridgeMessage | null {
   if (typeof data !== 'object' || data === null || !('tmuxyPreview' in data)) return null;
+  if (expectedToken !== undefined && (data as { token?: unknown }).token !== expectedToken) {
+    return null;
+  }
   const m = (data as { tmuxyPreview: unknown }).tmuxyPreview;
   if (typeof m !== 'object' || m === null) return null;
   const message = m as Record<string, unknown>;

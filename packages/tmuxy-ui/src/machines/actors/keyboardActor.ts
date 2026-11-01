@@ -25,6 +25,17 @@ import {
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
+import { isReplayedPreviewKey } from '../../components/widgets/preview/previewBridge';
+
+const PREVIEW_SAFE_ROOT_COMMAND =
+  /^(?:tmuxy-nav-(?:left|right|up|down)|select-pane|selectp|select-window|selectw|previous-window|prev|next-window|next)(?:\s|$)/;
+
+function isSafePreviewRootCommand(command: string): boolean {
+  const trimmed = command.trim();
+  return (
+    !trimmed.includes(';') && !trimmed.includes('\n') && PREVIEW_SAFE_ROOT_COMMAND.test(trimmed)
+  );
+}
 
 export type KeyboardActorEvent =
   | { type: 'UPDATE_SESSION'; sessionName: string }
@@ -198,12 +209,24 @@ export function createKeyboardActor() {
         return;
       }
 
+      const replayed = isReplayedPreviewKey(event);
+
       // Ctrl+Shift+C copies the page's selection, as in a terminal emulator.
       // After the copy keys above, which copy a client selection (select-all,
       // the scroll view) with the same key.
-      if (windowShortcut(event) && !event.metaKey && event.code === 'KeyC') {
+      if (!replayed && windowShortcut(event) && !event.metaKey && event.code === 'KeyC') {
         event.preventDefault();
         document.execCommand('copy');
+        return;
+      }
+
+      // A replayed chord from an HtmlPreview frame already moved focus back to
+      // the pane on the first key, so a second replayed chord while prefix or
+      // a sticky key table is armed can only come from the frame reclaiming
+      // focus to chain a multi-chord shortcut. Cancel the armed state and drop it.
+      if (replayed && (prefixMode.active || keyTable !== null)) {
+        prefixMode.exit();
+        setKeyTable(null);
         return;
       }
 
@@ -319,7 +342,13 @@ export function createKeyboardActor() {
         return;
       }
 
-      if (event.ctrlKey && !event.altKey && !event.metaKey && /^[0-9]$/.test(event.key)) {
+      if (
+        !replayed &&
+        event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
         if (event.key === '0') {
           input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
         } else {
@@ -331,13 +360,15 @@ export function createKeyboardActor() {
 
       const rootCommand = formattedKey ? rootBindings.get(formattedKey) : undefined;
       if (rootCommand) {
+        if (replayed && !isSafePreviewRootCommand(rootCommand)) return;
         event.preventDefault();
         const table = runBinding(rootCommand);
-        if (table) setKeyTable(table);
+        if (table && !replayed) setKeyTable(table);
         notifyKeyPress(event);
         return;
       }
 
+      if (replayed) return;
       if (leftSidebarFocused) return;
       if (hiddenInputText) return;
 

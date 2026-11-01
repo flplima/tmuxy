@@ -129,9 +129,24 @@ pub async fn authorisation(
 }
 
 /// A regular file's bytes, refused before the read when it is anything else
-/// (a FIFO blocks forever, `/dev/zero` never ends) or larger than `cap`.
+/// (a symlink, a FIFO that would block, `/dev/zero` that never ends) or larger
+/// than `cap`. Opened once and checked on the descriptor so the path cannot be
+/// swapped between the check and the read.
 fn read_capped(path: &Path, cap: u64) -> Result<Vec<u8>, CommandError> {
-    let meta = std::fs::metadata(path)
+    use std::io::Read;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = opts
+        .open(path)
+        .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
+    let meta = file
+        .metadata()
         .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
     if !meta.is_file() {
         return Err(CommandError::invalid(format!(
@@ -145,7 +160,40 @@ fn read_capped(path: &Path, cap: u64) -> Result<Vec<u8>, CommandError> {
             path.display()
         )));
     }
-    std::fs::read(path).map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))
+    let mut bytes = Vec::with_capacity((meta.len() as usize).min(cap as usize));
+    file.take(cap + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
+    if bytes.len() as u64 > cap {
+        return Err(CommandError::invalid(format!(
+            "{} is larger than {cap} bytes",
+            path.display()
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Resolve and validate the previewed document itself: it must carry an `.html`
+/// or `.md` extension, must not be a symlink, and must still carry that same
+/// kind once canonicalized.
+fn resolve_document(document: &Path) -> Result<(PathBuf, DocumentKind), CommandError> {
+    let kind = DocumentKind::of(document).ok_or_else(|| {
+        CommandError::forbidden("a preview shows an .html or .md file, nothing else")
+    })?;
+    let meta = std::fs::symlink_metadata(document)
+        .map_err(|e| CommandError::invalid(format!("{}: {e}", document.display())))?;
+    if meta.file_type().is_symlink() {
+        return Err(CommandError::forbidden("a symlink cannot be previewed"));
+    }
+    let resolved = document
+        .canonicalize()
+        .map_err(|e| CommandError::invalid(format!("{}: {e}", document.display())))?;
+    if DocumentKind::of(&resolved) != Some(kind) {
+        return Err(CommandError::forbidden(
+            "a preview shows an .html or .md file, nothing else",
+        ));
+    }
+    Ok((resolved, kind))
 }
 
 /// Whether a path component is one a resource may pass through: not hidden,
@@ -201,10 +249,8 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
 
 /// The document itself: `{ kind, name, text, net }`.
 pub fn read_document(auth: &Authorisation) -> Result<serde_json::Value, CommandError> {
-    let kind = DocumentKind::of(&auth.document).ok_or_else(|| {
-        CommandError::forbidden("a preview shows an .html or .md file, nothing else")
-    })?;
-    let bytes = read_capped(&auth.document, MAX_DOCUMENT_BYTES)?;
+    let (resolved, kind) = resolve_document(&auth.document)?;
+    let bytes = read_capped(&resolved, MAX_DOCUMENT_BYTES)?;
     let name = auth
         .document
         .file_name()
@@ -223,7 +269,8 @@ pub fn read_resource(
     auth: &Authorisation,
     relative: &str,
 ) -> Result<serde_json::Value, CommandError> {
-    let path = resolve_resource(&auth.document, relative)?;
+    let (resolved_doc, _) = resolve_document(&auth.document)?;
+    let path = resolve_resource(&resolved_doc, relative)?;
     let bytes = read_capped(&path, MAX_RESOURCE_BYTES)?;
     Ok(serde_json::json!({
         "mime": content_type_for_path(&path.to_string_lossy()),
@@ -257,7 +304,13 @@ pub async fn stage_page(
     html: String,
 ) -> Result<(), CommandError> {
     let auth = authorisation(tx, &pane).await?;
-    if DocumentKind::of(&auth.document) != Some(DocumentKind::Html) {
+    let (_, kind) = tokio::task::spawn_blocking({
+        let doc = auth.document.clone();
+        move || resolve_document(&doc)
+    })
+    .await
+    .map_err(|e| CommandError::unavailable(format!("preview check task failed: {e}")))??;
+    if kind != DocumentKind::Html {
         return Err(CommandError::forbidden("this pane's preview is not a page"));
     }
     pages.stage(pane, html, auth.net)
@@ -297,8 +350,14 @@ pub fn page_csp(net: bool) -> String {
 /// run — and a header is the stronger place for a policy anyway: a meta tag
 /// is the document's to precede.
 #[derive(Debug, Default)]
+struct PreviewStore {
+    pages: std::collections::VecDeque<(PaneId, StagedPage)>,
+    live_by_scope: std::collections::HashMap<String, std::collections::HashSet<PaneId>>,
+}
+
+#[derive(Debug, Default)]
 pub struct PreviewPages {
-    pages: std::sync::Mutex<std::collections::VecDeque<(PaneId, StagedPage)>>,
+    store: std::sync::Mutex<PreviewStore>,
 }
 
 /// A staged page and the policy it is served under.
@@ -338,22 +397,93 @@ impl PreviewPages {
             html,
             csp: page_csp(net),
         };
-        let mut pages = self.pages.lock().unwrap_or_else(|e| e.into_inner());
-        pages.retain(|(id, _)| *id != pane);
-        if pages.len() >= STAGED_PAGES {
-            pages.pop_front();
+        let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        store.pages.retain(|(id, _)| *id != pane);
+        if store.pages.len() >= STAGED_PAGES {
+            store.pages.pop_front();
         }
-        pages.push_back((pane, page));
+        store.pages.push_back((pane, page));
         Ok(())
     }
 
     /// `pane`'s page, if one is staged.
     pub fn page(&self, pane: &PaneId) -> Option<StagedPage> {
-        let pages = self.pages.lock().unwrap_or_else(|e| e.into_inner());
-        pages
+        let store = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        store
+            .pages
             .iter()
             .find(|(id, _)| id == pane)
             .map(|(_, page)| page.clone())
+    }
+
+    /// Drop `pane`'s staged page.
+    pub fn evict(&self, pane: &PaneId) {
+        let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
+        store.pages.retain(|(id, _)| id != pane);
+    }
+
+    /// Evict staged pages for panes in `scope` (a session name or GUI window
+    /// label) whose `@tmuxy-pane-widget` left `preview` or whose pane closed.
+    pub fn sync_update(&self, scope: &str, update: &crate::StateUpdate) {
+        match update {
+            crate::StateUpdate::Full { state } => {
+                let live: std::collections::HashSet<PaneId> =
+                    state.panes.iter().map(|p| p.tmux_id.clone()).collect();
+                let non_preview: std::collections::HashSet<PaneId> = state
+                    .panes
+                    .iter()
+                    .filter(|p| p.pane_widget.as_deref() != Some(WIDGET))
+                    .map(|p| p.tmux_id.clone())
+                    .collect();
+                let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
+                let prev = store.live_by_scope.insert(scope.to_string(), live.clone());
+                store.pages.retain(|(id, _)| {
+                    if non_preview.contains(id) {
+                        return false;
+                    }
+                    if let Some(ref prev_live) = prev {
+                        if prev_live.contains(id) && !live.contains(id) {
+                            return false;
+                        }
+                    }
+                    true
+                });
+            }
+            crate::StateUpdate::Delta { delta } => {
+                let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(new_panes) = &delta.new_panes {
+                    for pane in new_panes {
+                        store
+                            .live_by_scope
+                            .entry(scope.to_string())
+                            .or_default()
+                            .insert(pane.tmux_id.clone());
+                        if pane.pane_widget.as_deref() != Some(WIDGET) {
+                            store.pages.retain(|(id, _)| *id != pane.tmux_id);
+                        }
+                    }
+                }
+                if let Some(panes) = &delta.panes {
+                    for (pane_id, change) in panes {
+                        match change {
+                            None => {
+                                if let Some(live) = store.live_by_scope.get_mut(scope) {
+                                    live.remove(pane_id);
+                                }
+                                store.pages.retain(|(id, _)| id != pane_id);
+                            }
+                            Some(pane_delta) => {
+                                if let Some(ref widget) = pane_delta.pane_widget {
+                                    if widget.as_deref() != Some(WIDGET) {
+                                        store.pages.retain(|(id, _)| id != pane_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

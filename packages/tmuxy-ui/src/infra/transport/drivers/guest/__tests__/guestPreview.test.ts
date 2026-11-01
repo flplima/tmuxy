@@ -43,6 +43,19 @@ describe('readGuestPreview', () => {
     });
   });
 
+  it('single-quotes shell arguments even when a path contains tabs and backticks', async () => {
+    const tricky = "/root/notes/tab\t`id`$(whoami)'s.md";
+    const { query, asked } = tmux(`preview\n${tricky}\n`, {
+      [tricky]: 'safe',
+    });
+    await readGuestPreview(query, '%3', undefined);
+    // Inside tmux's double-quoted run-shell argument, `/bin/sh` must still see
+    // single quotes around the path so backticks and `$()` are inert.
+    expect(asked[1]).toBe(
+      "run-shell \"cat -- '/root/notes/tab\\011`id`\\044(whoami)'\\134''s.md'\"",
+    );
+  });
+
   it.each([
     ['a pane that is not previewing', '\n\n', undefined],
     ['a relative document path', 'preview\nnotes/a.md\n', undefined],

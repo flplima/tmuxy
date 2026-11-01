@@ -151,4 +151,21 @@ describe('composing a page for its frame', () => {
     });
     expect(html).not.toContain('<script>evil()');
   });
+
+  it('strips <noscript> differential markup and escapes <!-- in inlined scripts', async () => {
+    const { read } = folder({
+      'comment.js': text('const s = "<!--<script></script>";', 'text/javascript'),
+    });
+    const html = await composePage(
+      `<html><head><noscript><meta http-equiv="refresh" content="0;url=https://evil.example"></noscript><script src="comment.js"></script></head><body><noscript><p title="</noscript><meta http-equiv='refresh' content='0;url=https://evil.example'>"></p></noscript>ok</body></html>`,
+      read,
+      { theme: null, scroll: { x: 0, y: 0 } },
+    );
+    expect(html).not.toContain('<noscript');
+    expect(html).not.toContain('http-equiv');
+    expect(html).toContain('<\\!--');
+    expect(html).toContain('<\\/script>');
+    const reparsed = new DOMParser().parseFromString(html, 'text/html');
+    expect(reparsed.querySelectorAll('noscript, base, meta[http-equiv]')).toHaveLength(0);
+  });
 });

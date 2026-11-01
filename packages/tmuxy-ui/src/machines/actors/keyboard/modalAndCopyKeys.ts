@@ -10,6 +10,7 @@ import { decodePaneAsk, type AskAnswer } from '../../../utils/paneAsk';
 import { extractSelectedText } from '../../../utils/copyMode';
 import { focusGuiWindow, newGuiWindow } from '../../../utils/guiWindows';
 import { isTauri } from '../../../utils/platform';
+import { isReplayedPreviewKey } from '../../../components/widgets/preview/previewBridge';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
 
 /**
@@ -93,8 +94,10 @@ export function handleModalOrCopyKeyDown(
 ): boolean {
   const { snap, overlayPaneId, leftSidebarFocused, prefixActive, setPendingCopyText } = state;
 
+  const replayed = isReplayedPreviewKey(event);
+
   // Font size shortcuts (CmdOrCtrl + = / + / - / 0)
-  if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+  if (!replayed && (event.ctrlKey || event.metaKey) && !event.altKey) {
     if (event.key === '=' || event.key === '+') {
       event.preventDefault();
       parent.send({ type: 'INCREASE_FONT_SIZE' });
@@ -112,8 +115,9 @@ export function handleModalOrCopyKeyDown(
     }
   }
 
-  // Desktop app OS windows: Cmd+N and Cmd+1…9 on Mac, Ctrl+Shift+N and Ctrl+Shift+1…9 elsewhere
-  if (isTauri() && windowShortcut(event)) {
+  // Desktop app OS windows: Cmd+N and Cmd+1…9 on Mac, Ctrl+Shift+N and Ctrl+Shift+1…9 elsewhere.
+  // Only from the user's real keyboard — never a synthetic or preview-replayed event.
+  if (isTauri() && event.isTrusted !== false && !replayed && windowShortcut(event)) {
     const digit = /^Digit([1-9])$/.exec(event.code);
     if (digit) {
       event.preventDefault();
@@ -219,7 +223,7 @@ export function handleModalOrCopyKeyDown(
   const nativeSelection = () => window.getSelection()?.toString() ?? '';
 
   // Cmd+A / Ctrl+Shift+A: select whole scrollback
-  if (scrollbackPane && windowShortcut(event) && event.code === 'KeyA') {
+  if (!replayed && scrollbackPane && windowShortcut(event) && event.code === 'KeyA') {
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
     parent.send({ type: 'SELECT_ALL_SCROLLBACK', paneId: scrollbackPane });
@@ -228,6 +232,7 @@ export function handleModalOrCopyKeyDown(
 
   // Copy scroll-view selection via Cmd+C / Ctrl+Shift+C
   if (
+    !replayed &&
     windowShortcut(event) &&
     event.code === 'KeyC' &&
     !copyModeActive &&

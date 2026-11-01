@@ -63,6 +63,28 @@ fn rep_repeats_preceding_character() {
     // a run to a single cell and shifts everything after it leftward.
     assert_eq!(row0("A\x1b[3b"), "AAAA", "REP: repeat glyph");
     assert_eq!(row0("Z \x1b[5bX"), "Z      X", "REP: repeat space");
+
+    // Control and CSI transitions clear `last_char` so REP only repeats an
+    // immediately preceding printable character, and huge counts are bounded
+    // to the screen area (capped at 4096).
+    assert_eq!(row0("A\r\x1b[3bB"), "B", "CR clears REP last_char");
+    assert_eq!(row0("A\x1b[1C\x1b[3bB"), "A B", "CSI clears REP last_char");
+
+    // On a 40x2 grid, REP is capped to rows*cols = 80 (1 initial + 80 = 81 'A's,
+    // wrapping once so row 1 holds 1 'A' rather than 65536 % 40 = 16).
+    assert_eq!(
+        row_at("A\x1b[65535b", 1, 2),
+        "A",
+        "REP count is capped to grid area without amplification"
+    );
+
+    // On a 100x100 grid (area 10_000), REP is further clamped to 4096 (1 + 4096 = 4097 'A's:
+    // rows 0..40 full, row 40 has 97 'A's, row 41 empty).
+    let large = parse_ansi_to_cells("A\x1b[65535b", 100, 100);
+    let row40: String = large[40].iter().map(|c| c.char.as_str()).collect();
+    let row41: String = large[41].iter().map(|c| c.char.as_str()).collect();
+    assert_eq!(row40.trim_end().len(), 97);
+    assert_eq!(row41.trim_end(), "");
 }
 
 #[test]

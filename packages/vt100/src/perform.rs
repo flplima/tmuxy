@@ -35,6 +35,7 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
     }
 
     fn execute(&mut self, b: u8) {
+        self.last_char = None;
         match b {
             7 => self.callbacks.audible_bell(&mut self.screen),
             8 => self.screen.bs(),
@@ -51,6 +52,7 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, b: u8) {
+        self.last_char = None;
         match intermediates {
             [b'#'] => match b {
                 b'3' => self
@@ -129,10 +131,15 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                         self.screen.back_tab();
                     }
                 }
-                // REP -- repeat the preceding graphic character.
+                // REP -- repeat the preceding graphic character, capped to the
+                // screen area (at most 4096 cells) so one 8-byte sequence
+                // cannot amplify into 65,535 grid writes.
                 'b' => {
                     if let Some(c) = self.last_char {
-                        for _ in 0..canonicalize_params_1(params, 1) {
+                        let (rows, cols) = self.screen.size();
+                        let cap = (u32::from(rows) * u32::from(cols)).clamp(1, 4096);
+                        let count = u32::from(canonicalize_params_1(params, 1)).min(cap);
+                        for _ in 0..count {
                             self.screen.text(c);
                         }
                     }
@@ -219,9 +226,13 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                 );
             }
         }
+        if !(intermediates.is_empty() && c == 'b') {
+            self.last_char = None;
+        }
     }
 
     fn osc_dispatch(&mut self, params: &[&[u8]], _bel_terminated: bool) {
+        self.last_char = None;
         match params {
             [b"0", s] => {
                 self.callbacks.set_window_icon_name(&mut self.screen, s);

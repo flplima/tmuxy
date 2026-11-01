@@ -177,6 +177,37 @@ fn a_symlink_cannot_carry_a_resource_out_of_the_folder_or_onto_a_hidden_file() {
     assert!(resolve_resource(&doc, "in.css").is_err());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_symlinked_document_is_refused_and_a_fifo_never_blocks_the_read() {
+    let folder = Folder::new("doc-symlink");
+    let secret = folder.write("id_rsa", b"PRIVATE KEY");
+    let target_md = folder.write("real.md", b"# Real");
+    let link_to_secret = folder.0.join("README.md");
+    let link_to_md = folder.0.join("alias.md");
+    std::os::unix::fs::symlink(&secret, &link_to_secret).unwrap();
+    std::os::unix::fs::symlink(&target_md, &link_to_md).unwrap();
+
+    for doc in [link_to_secret, link_to_md] {
+        let err = read_document(&Authorisation {
+            document: doc,
+            net: false,
+        })
+        .unwrap_err();
+        assert_eq!(err.kind, crate::ErrorKind::Forbidden, "{err:?}");
+    }
+
+    let fifo = folder.0.join("pipe.md");
+    let c_path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+    let err = read_document(&Authorisation {
+        document: fifo,
+        net: false,
+    })
+    .unwrap_err();
+    assert!(err.error.contains("not a regular file"), "{err}");
+}
+
 #[test]
 fn a_page_is_sandboxed_and_offline_unless_opened_with_net() {
     let offline = page_csp(false);
@@ -210,4 +241,127 @@ fn a_staged_page_replaces_the_panes_last_and_the_store_is_bounded() {
     assert!(pages
         .stage(pane(1), "x".repeat(MAX_STAGED_BYTES + 1), false)
         .is_err());
+}
+
+#[test]
+fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
+    let pages = PreviewPages::default();
+    let p1 = PaneId::parse("%1").unwrap();
+    let p2 = PaneId::parse("%2").unwrap();
+    let p3 = PaneId::parse("%3").unwrap();
+    let mk_pane = |id: &PaneId, widget: Option<&str>| crate::TmuxPane {
+        id: 0,
+        tmux_id: id.clone(),
+        window_id: crate::WindowId::parse("@0").unwrap(),
+        content: std::sync::Arc::new(Vec::new()),
+        cursor_x: 0,
+        cursor_y: 0,
+        width: 80,
+        height: 24,
+        x: 0,
+        y: 0,
+        active: true,
+        command: "bash".into(),
+        title: String::new(),
+        border_title: String::new(),
+        group_id: None,
+        group_pos: None,
+        in_mode: false,
+        copy_cursor_x: 0,
+        copy_cursor_y: 0,
+        alternate_on: false,
+        mouse_any_flag: false,
+        marked: false,
+        paused: false,
+        history_size: 0,
+        selection_present: false,
+        selection_start_x: 0,
+        selection_start_y: 0,
+        images: Vec::new(),
+        cursor_shape: 0,
+        cursor_hidden: false,
+        pane_state: None,
+        pane_ask: None,
+        pane_widget: widget.map(str::to_string),
+        pane_restore: None,
+    };
+
+    pages
+        .stage(p1.clone(), "<h1>one</h1>".into(), false)
+        .unwrap();
+    pages
+        .stage(p2.clone(), "<h1>two</h1>".into(), false)
+        .unwrap();
+    pages
+        .stage(p3.clone(), "<h1>three</h1>".into(), false)
+        .unwrap();
+
+    // Seed session A with %1 and %2, and session B with %3.
+    let full = |session: &str, panes: Vec<crate::TmuxPane>| crate::StateUpdate::Full {
+        state: crate::TmuxState {
+            session_name: session.into(),
+            active_window_id: None,
+            active_pane_id: None,
+            panes,
+            windows: Vec::new(),
+            total_width: 80,
+            total_height: 24,
+            focus_request: None,
+            seq: 1,
+        },
+    };
+    pages.sync_update(
+        "a",
+        &full(
+            "a",
+            vec![mk_pane(&p1, Some("preview")), mk_pane(&p2, Some("preview"))],
+        ),
+    );
+    pages.sync_update("b", &full("b", vec![mk_pane(&p3, Some("preview"))]));
+    assert!(pages.page(&p1).is_some());
+    assert!(pages.page(&p2).is_some());
+    assert!(pages.page(&p3).is_some());
+
+    // Widget cleared on %1 via delta -> %1 evicted, %2 and %3 preserved.
+    let mut delta_panes = std::collections::HashMap::new();
+    delta_panes.insert(
+        p1.clone(),
+        Some(crate::PaneDelta {
+            pane_widget: Some(None),
+            ..Default::default()
+        }),
+    );
+    pages.sync_update(
+        "a",
+        &crate::StateUpdate::Delta {
+            delta: crate::TmuxDelta {
+                seq: 2,
+                panes: Some(delta_panes),
+                ..Default::default()
+            },
+        },
+    );
+    assert!(pages.page(&p1).is_none());
+    assert!(pages.page(&p2).is_some());
+    assert!(pages.page(&p3).is_some());
+
+    // Full sync on session A where %2 closed -> %2 evicted, session B's %3 preserved!
+    pages.sync_update("a", &full("a", Vec::new()));
+    assert!(pages.page(&p2).is_none());
+    assert!(pages.page(&p3).is_some());
+
+    // Pane %3 removed via delta -> %3 evicted.
+    let mut removed = std::collections::HashMap::new();
+    removed.insert(p3.clone(), None);
+    pages.sync_update(
+        "b",
+        &crate::StateUpdate::Delta {
+            delta: crate::TmuxDelta {
+                seq: 3,
+                panes: Some(removed),
+                ..Default::default()
+            },
+        },
+    );
+    assert!(pages.page(&p3).is_none());
 }

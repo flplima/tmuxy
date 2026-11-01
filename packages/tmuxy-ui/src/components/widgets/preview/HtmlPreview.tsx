@@ -14,7 +14,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { composePage } from './previewPage';
-import { readBridgeMessage, type BridgeMessage } from './previewBridge';
+import {
+  markReplayedPreviewKey,
+  newBridgeToken,
+  readBridgeMessage,
+  type BridgeMessage,
+} from './previewBridge';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { PreviewSource } from './previewSource';
 import type { PreviewTheme } from './previewTheme';
@@ -53,15 +58,17 @@ function replayKey(frame: HTMLIFrameElement, key: Extract<BridgeMessage, { type:
   if (!pane) return;
   pane.focus({ preventScroll: true });
   pane.dispatchEvent(
-    new KeyboardEvent('keydown', {
-      key: key.key,
-      code: key.code,
-      ctrlKey: key.ctrlKey,
-      altKey: key.altKey,
-      shiftKey: key.shiftKey,
-      bubbles: true,
-      cancelable: true,
-    }),
+    markReplayedPreviewKey(
+      new KeyboardEvent('keydown', {
+        key: key.key,
+        code: key.code,
+        ctrlKey: key.ctrlKey,
+        altKey: key.altKey,
+        shiftKey: key.shiftKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
   );
 }
 
@@ -89,18 +96,27 @@ export function HtmlPreview({
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const scrollRef = useRef({ x: 0, y: 0 });
+  const tokenRef = useRef<string | null>(null);
   const [title, setTitle] = useState('');
-  const page = useKeyedRequest(`${keyOf(doc)}:${theme ? keyOf(theme) : 0}`, async () =>
-    source.stagePage(
-      await composePage(doc.text, source.readResource, { theme, scroll: scrollRef.current }),
-    ),
-  );
+  const page = useKeyedRequest(`${keyOf(doc)}:${theme ? keyOf(theme) : 0}`, async () => {
+    const token = newBridgeToken();
+    const url = await source.stagePage(
+      await composePage(doc.text, source.readResource, {
+        theme,
+        scroll: scrollRef.current,
+        token,
+      }),
+    );
+    return { url, token };
+  });
+  tokenRef.current = page.value?.token ?? null;
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const frame = frameRef.current;
-      if (!frame || e.source !== frame.contentWindow) return;
-      const message = readBridgeMessage(e.data);
+      const expectedToken = tokenRef.current;
+      if (!frame?.contentWindow || e.source !== frame.contentWindow || !expectedToken) return;
+      const message = readBridgeMessage(e.data, expectedToken);
       if (!message) return;
       switch (message.type) {
         case 'scroll':
@@ -132,7 +148,7 @@ export function HtmlPreview({
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       title={title || doc.name}
-      src={page.value}
+      src={page.value.url}
     />
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bridgeScript, readBridgeMessage } from '../previewBridge';
+import { bridgeScript, newBridgeToken, readBridgeMessage } from '../previewBridge';
 
 const wrap = (m: unknown) => ({ tmuxyPreview: m });
 
@@ -63,5 +63,17 @@ describe('the preview bridge', () => {
 
   it('scrolls the page to where it was', () => {
     expect(bridgeScript({ x: 0, y: 340 })).toContain('({"x":0,"y":340})');
+  });
+
+  it('requires a matching capability token when one is expected', () => {
+    const token = newBridgeToken();
+    expect(token).toMatch(/^[0-9a-f]{32}$/);
+    const msg = { type: 'key', key: 'c', code: 'KeyC', ctrlKey: true, altKey: false };
+    expect(readBridgeMessage({ tmuxyPreview: msg }, token)).toBeNull();
+    expect(readBridgeMessage({ tmuxyPreview: msg, token: 'wrong' }, token)).toBeNull();
+    expect(readBridgeMessage({ tmuxyPreview: msg, token }, token)).toEqual({
+      ...msg,
+      shiftKey: false,
+    });
   });
 });

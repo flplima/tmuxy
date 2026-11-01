@@ -1,3 +1,5 @@
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { runWidgetWithPaneGone } = require('./helpers/run-widget');
@@ -65,6 +67,39 @@ describe('CLI widget subcommands', () => {
       const { stderr, exitCode } = runCLI(['open', '--bogus', 'notes.md']);
       expect(exitCode).toBe(2);
       expect(stderr).toContain('Unknown option: --bogus');
+    });
+
+    test('refuses a symlinked markdown or html document', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-open-symlink-'));
+      try {
+        const target = path.join(dir, 'secret');
+        const link = path.join(dir, 'README.md');
+        fs.writeFileSync(target, 'secret');
+        fs.symlinkSync(target, link);
+        const { stderr, exitCode, tmuxCalls } = runCLI(['open', link], {
+          env: {
+            TMUX_SOCKET: 'tmuxy',
+            TMUX_PANE: '%1',
+            MOCK_TMUX_PANE_PID: String(process.pid),
+          },
+        });
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain('a symlink cannot be previewed');
+        expect(tmuxCalls).toEqual([]);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test('refuses a spoofed TMUX_PANE whose process is not an ancestor of the caller', () => {
+      const doc = path.resolve(__dirname, '../../README.md');
+      const { stderr, exitCode, tmuxCalls } = runCLI(['open', '--net', doc], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: '999999' },
+      });
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('cannot open a preview on another pane (%1)');
+      // Only the read-only pane_pid lookup runs; no set-option mutation is issued.
+      expect(tmuxCalls).toEqual([{ args: ['display-message', '-p', '-t', '%1', '#{pane_pid}'] }]);
     });
   });
 });
