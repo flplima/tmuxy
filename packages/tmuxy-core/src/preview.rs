@@ -130,40 +130,42 @@ pub async fn authorisation(
 
 /// A regular file's bytes, refused before the read when it is anything else
 /// (a symlink, a FIFO that would block, `/dev/zero` that never ends) or larger
-/// than `cap`. Opened once and checked on the descriptor so the path cannot be
-/// swapped between the check and the read.
+/// than `cap`. Checked on the path before the open, because opening a device
+/// can act on it (a terminal becomes the server's controlling one, a watchdog
+/// starts), and again on the descriptor, so a path swapped in between is
+/// caught before the read.
 fn read_capped(path: &Path, cap: u64) -> Result<Vec<u8>, CommandError> {
     use std::io::Read;
 
+    let failed = |e: std::io::Error| CommandError::invalid(format!("{}: {e}", path.display()));
+    let check = |meta: std::fs::Metadata| {
+        if !meta.is_file() {
+            return Err(CommandError::invalid(format!(
+                "{} is not a regular file",
+                path.display()
+            )));
+        }
+        if meta.len() > cap {
+            return Err(CommandError::invalid(format!(
+                "{} is larger than {cap} bytes",
+                path.display()
+            )));
+        }
+        Ok(meta.len())
+    };
+
+    check(std::fs::symlink_metadata(path).map_err(failed)?)?;
     let mut opts = std::fs::OpenOptions::new();
     opts.read(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY);
     }
-    let file = opts
-        .open(path)
-        .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
-    if !meta.is_file() {
-        return Err(CommandError::invalid(format!(
-            "{} is not a regular file",
-            path.display()
-        )));
-    }
-    if meta.len() > cap {
-        return Err(CommandError::invalid(format!(
-            "{} is larger than {cap} bytes",
-            path.display()
-        )));
-    }
-    let mut bytes = Vec::with_capacity((meta.len() as usize).min(cap as usize));
-    file.take(cap + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| CommandError::invalid(format!("{}: {e}", path.display())))?;
+    let file = opts.open(path).map_err(failed)?;
+    let len = check(file.metadata().map_err(failed)?)?;
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(cap + 1).read_to_end(&mut bytes).map_err(failed)?;
     if bytes.len() as u64 > cap {
         return Err(CommandError::invalid(format!(
             "{} is larger than {cap} bytes",
