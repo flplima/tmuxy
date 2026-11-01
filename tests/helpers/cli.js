@@ -17,7 +17,8 @@ const { tmuxEnv } = require('./tmux-socket');
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
  * The command runs inside the server via `tmux run-shell`: the same command
  * sent from an external client while control mode is attached crashes tmux
- * 3.5a. Use for every mutating command (send-keys, split-window, kill-session…).
+ * 3.5a. Use for the mutations `tmuxy run` passes on (select-pane,
+ * move-window, kill-session…); `tmuxRunAsOperator` for the rest.
  *
  * @param {string} command - Full tmux command (e.g. 'send-keys -t mysession -l "echo hi"')
  * @returns {string} Trimmed stdout
@@ -51,8 +52,8 @@ const shellQuote = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
 /**
  * A tmux command as the person running the suite would run it: through
  * run-shell, like `tmuxRun`, but not through `tmuxy run`, which refuses what
- * would get around the send question — input into another pane, a shell, a
- * config file, the question's own options. Those are the harness setting up
+ * would get around the send question — keys into a pane, a shell, a config
+ * file, any option. Those are the harness setting up
  * what a user puts in their tmux.conf or types themselves, not a test of the
  * CLI. `#` is doubled as `tmuxy run` doubles it, so run-shell expands nothing.
  *

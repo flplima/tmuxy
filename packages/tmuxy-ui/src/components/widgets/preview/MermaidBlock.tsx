@@ -1,70 +1,27 @@
 /**
  * A ```mermaid fence, drawn as a diagram in the theme's colours.
  *
- * Mermaid renders into the APP's own origin, where anything that executes can
- * drive the API, so its output is sanitized twice: by mermaid itself
- * (`securityLevel: 'strict'`) and again at the sink (`sanitizeSvg`), the pass
- * a bypass would also have to get past.
+ * What a diagram holds comes from the file, and anything that executes in the
+ * APP's origin can drive the API. So mermaid never draws in the app's
+ * document: it draws in a frame that can run and fetch nothing
+ * (`drawMermaid`), sanitizing each label as it goes, and what comes back is
+ * sanitized again at the sink (`sanitizeSvg`) before any of it is adopted.
  */
 
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
-import mermaid from 'mermaid';
+import { drawMermaid } from './drawMermaid';
 import { sanitizeSvg } from './sanitizeSvg';
 import type { PreviewTheme } from './previewTheme';
 import { openExternalUrl, safeHref } from '../../../utils/openUrl';
 
-let renderCounter = 0;
-
-/** Mermaid is configured globally, so each render sets the theme it draws in. */
-function configure(theme: PreviewTheme) {
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    // A diagram's `%%{init}%%` directive may not change these: `themeCSS`
-    // would put the document's own CSS into the app.
-    secure: [
-      'secure',
-      'securityLevel',
-      'startOnLoad',
-      'maxTextSize',
-      'suppressErrorRendering',
-      'maxEdges',
-      'theme',
-      'themeCSS',
-      'themeVariables',
-      'darkMode',
-      'fontFamily',
-      'altFontFamily',
-    ],
-    theme: 'base',
-    darkMode: theme.mode === 'dark',
-    fontFamily: 'inherit',
-    themeVariables: {
-      background: theme.background,
-      primaryColor: theme.surface,
-      primaryTextColor: theme.foreground,
-      primaryBorderColor: theme.accent,
-      secondaryColor: theme.surface,
-      tertiaryColor: theme.background,
-      lineColor: theme.muted,
-      textColor: theme.foreground,
-      mainBkg: theme.surface,
-      nodeBorder: theme.accent,
-      clusterBkg: theme.background,
-      clusterBorder: theme.border,
-      titleColor: theme.foreground,
-      edgeLabelBackground: theme.background,
-    },
-  });
-}
-
 /**
- * A click on a link in the diagram: a web link opens in the browser, the way
- * the markdown's own links do, and nothing ever navigates the app itself.
+ * A click on a link in the diagram, left or middle: a web link opens in the
+ * browser, the way the markdown's own links do, and nothing ever navigates
+ * the app itself — nor opens a tab of its own on a middle click.
  */
 function onDiagramClick(event: MouseEvent<HTMLDivElement>) {
   const link = (event.target as Element).closest('a');
-  if (!link) return;
+  if (!link || event.button > 1) return;
   event.preventDefault();
   const href = link.getAttribute('href') ?? link.getAttribute('xlink:href') ?? '';
   const safe = href.startsWith('#') ? undefined : safeHref(href);
@@ -85,11 +42,10 @@ export function MermaidBlock({
 
   useEffect(() => {
     let cancelled = false;
-    configure(theme);
-    mermaid.render(`preview-mermaid-${++renderCounter}`, chart).then(
-      ({ svg }) => {
+    drawMermaid(chart, theme, net).then(
+      ({ id, markup }) => {
         if (cancelled || !containerRef.current) return;
-        const safe = sanitizeSvg(svg, { net });
+        const safe = sanitizeSvg(markup, { id, net });
         if (!safe) {
           setError('the diagram did not render as valid SVG');
           return;
@@ -109,5 +65,12 @@ export function MermaidBlock({
   }, [chart, theme, net]);
 
   if (error) return <pre className="preview-markdown-error">{error}</pre>;
-  return <div ref={containerRef} className="preview-mermaid" onClick={onDiagramClick} />;
+  return (
+    <div
+      ref={containerRef}
+      className="preview-mermaid"
+      onClick={onDiagramClick}
+      onAuxClick={onDiagramClick}
+    />
+  );
 }

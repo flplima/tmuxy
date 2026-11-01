@@ -16,11 +16,11 @@ describe('CLI run escape hatch', () => {
     // every key. The inner tmux therefore writes its output and status to
     // files, and run-shell itself has nothing to show.
     test('brings the inner command output and exit status back through files', () => {
-      const ok = runCLI(['run', 'splitw', '-P']);
+      const ok = runCLI(['run', 'breakp', '-P']);
       expect(ok.exitCode).toBe(0);
-      expect(ok.stdout.trim()).toBe('%99');
+      expect(ok.stdout.trim()).toBe('@99');
       expect(ok.rawRunShells[0].args[1]).toMatch(
-        /^\{ tmux -L tmuxy splitw '-P' ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/,
+        /^\{ tmux -L tmuxy breakp '-P' ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/,
       );
 
       const failed = runCLI(['run', 'move-window', '-s', ':0', '-t', ':1'], {
@@ -73,7 +73,9 @@ describe('CLI run escape hatch', () => {
   /**
    * `tmuxy pane send -t` asks the user before typing into another pane;
    * `tmuxy run` is the CLI's other door to tmux, and must not be a way past
-   * that question.
+   * that question — neither by typing itself nor by running a shell, which
+   * can run any tmux it likes. It passes on a list of commands, by exact
+   * name, and quotes every argument.
    */
   describe('the send question cannot be gone around', () => {
     const IN_PANE_1 = {
@@ -87,6 +89,11 @@ describe('CLI run escape hatch', () => {
       expect(result.stderr).toContain('refused');
       expect(result.tmuxCalls.some((call) => call.args[0] === 'run-shell')).toBe(false);
     };
+    const runShellLine = (args) => {
+      const { exitCode, tmuxCalls } = runCLI(['run', ...args], { env: IN_PANE_1 });
+      expect(exitCode).toBe(0);
+      return tmuxCalls.find((call) => call.args[0] === 'run-shell').args[1];
+    };
 
     test.each([
       [['send-keys', '-t', '%3', 'rm -rf ~', 'Enter']],
@@ -95,14 +102,14 @@ describe('CLI run escape hatch', () => {
       [['paste-buffer', '-t', '%3']],
       [['pasteb', '-p', '-t', '%3']],
       [['pipe-pane', '-t', '%3', '-I', 'echo id']],
-    ])('refuses input into another pane: %p', (args) => refused(args));
-
-    test('refuses input from a caller that only claims to be in the pane', () => {
-      refused(['send-keys', '-t', '%1', 'id', 'Enter'], {
-        ...IN_PANE_1,
-        MOCK_TMUX_PANE_PID: '999999',
-      });
-    });
+      // tmux takes the LAST -t, so naming the caller's own pane first is no
+      // proof of where the keys go.
+      [['send-keys', '-t', '%1', '-t', '%3', 'id', 'Enter']],
+      // Its own pane too: synchronize-panes, or a -F format, takes keys
+      // typed there further.
+      [['send-keys', '-t', '%1', '-X', 'cancel']],
+      [['send-keys', 'id', 'Enter']],
+    ])('refuses input into a pane: %p', (args) => refused(args));
 
     test.each([
       [['run-shell', 'tmux send-keys -t %3 id Enter']],
@@ -111,7 +118,26 @@ describe('CLI run escape hatch', () => {
       [['set-environment', '-g', 'TMUXY_SERVER_BIN', '/tmp/evil']],
       [['set-hook', '-g', 'pane-focus-in', 'send-keys id']],
       [['source-file', '/tmp/evil.conf']],
-    ])('refuses what runs a shell: %p', (args) => refused(args));
+      // A unique prefix is a name to tmux: `i` is if-shell.
+      [['i', 'true', 'run-shell id']],
+      [['run-s', 'id']],
+      // Commands that take a shell command or a command to run later.
+      [['split-window', '-d', 'id']],
+      [['splitw', 'id']],
+      [['new-session', '-d', 'id']],
+      [['display-popup', '-E', 'id']],
+      [['bind-key', '-n', 'F12', 'run-shell id']],
+      [['command-prompt', '-I', 'x', 'run-shell %%']],
+      [['confirm-before', 'run-shell id']],
+      [['choose-tree', 'run-shell id']],
+      [['detach-client', '-E', 'id']],
+      [['lock-server']],
+      // An option can run a shell, alias a command, or mirror keys.
+      [['set', '-s', 'command-alias[100]', 'zz=run-shell id']],
+      [['set-option', '-g', 'status-right', '#(id)']],
+      [['set', '-g', 'default-command', 'id']],
+      [['setw', 'synchronize-panes', 'on']],
+    ])('refuses what runs a shell or sets an option: %p', (args) => refused(args));
 
     test.each([
       [['set-option', '-p', '-t', '%3', '@tmuxy-ask-answer', '3-1:yes']],
@@ -120,26 +146,48 @@ describe('CLI run escape hatch', () => {
       [['set-option', '-p', '-t', '%3', '@tmuxy-pane-restore', 'id']],
     ])('refuses writes to the question’s own options: %p', (args) => refused(args));
 
-    test('refuses a command name that is not one word', () => {
-      const { exitCode, tmuxCalls } = runCLI(['run', 'list-panes; touch /tmp/owned']);
-      expect(exitCode).not.toBe(0);
-      expect(tmuxCalls).toHaveLength(0);
-    });
+    // An argument ending in `;` ends one tmux command and starts the next.
+    test.each([
+      [['display-message', 'x', ';', 'run-shell', 'id']],
+      [['display-message', 'x;', 'run-shell', 'id']],
+      [['display-message x ; run-shell id']],
+      [['list-panes; touch /tmp/owned']],
+    ])('refuses a second command chained with ;: %p', (args) => refused(args));
 
-    test('a whole command in one argument is checked word by word', () => {
-      refused(['send-keys -t %3 "rm -rf ~" Enter']);
-      refused(['list-panes; touch /tmp/owned']);
-      refused(['list-panes $(touch /tmp/owned)']);
-      const { exitCode, tmuxCalls } = runCLI(['run', 'list-sessions -F "#{session_name}"']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls[tmuxCalls.length - 1].args[1]).toContain(
-        'tmux -L tmuxy list-sessions -F "#{session_name}"',
+    // A format that runs a shell, or that expands a value (a pane title, a
+    // path) as a format again.
+    test.each([
+      [['display-message', '-p', '#(id)']],
+      [['list-panes', '-F', '#{?pane_active,#(id),}']],
+      [['display-message', '-p', '#{E:pane_title}']],
+      [['display-message', '-p', '#{T;=10:pane_current_path}']],
+    ])('refuses a format that can run a shell: %p', (args) => refused(args));
+
+    // run-shell format-expands its line before its shell reads it: a format
+    // left bare there can spell `;` (`#{a:59}`) and end the tmux command.
+    test('a whole command in one argument reaches tmux quoted, word by word', () => {
+      expect(runShellLine(['list-panes #{a:59}id'])).toBe(
+        "TMUX_PANE=%1 tmux -L tmuxy list-panes '##{a:59}id'",
       );
+      expect(runShellLine(['list-panes $(touch /tmp/owned)'])).toBe(
+        "TMUX_PANE=%1 tmux -L tmuxy list-panes '$(touch' '/tmp/owned)'",
+      );
+      expect(runShellLine(['list-sessions -F "#{session_name} #{session_attached}"'])).toBe(
+        "TMUX_PANE=%1 tmux -L tmuxy list-sessions '-F' '##{session_name} ##{session_attached}'",
+      );
+      refused(['send-keys -t %3 "rm -rf ~" Enter']);
     });
 
-    test('still runs an ordinary set', () => {
-      const { exitCode } = runCLI(['run', 'set', '-g', 'status', 'off']);
-      expect(exitCode).toBe(0);
+    test.each([
+      [['list-panes', '-F', '#{pane_id} #{?pane_active,active,}']],
+      [['display-message', '-p', '#{session_name}']],
+      [['select-pane', '-t', '%3', '-T', 'build']],
+      [['swap-pane', '-s', '%0', '-t', '%1']],
+      [['move-window', '-s', 'work:0', '-t', 'work:1']],
+      [['copy-mode', '-q', '-t', '%3']],
+      [['kill-session', '-t', 'scratch']],
+    ])('still runs what reads, arranges or closes: %p', (args) => {
+      expect(runShellLine(args)).toContain(`tmux -L tmuxy ${args[0]} `);
     });
   });
 
@@ -216,17 +264,6 @@ describe('CLI run escape hatch', () => {
   });
 
   describe('pass-through commands', () => {
-    test('passes send-keys into the caller’s own pane through', () => {
-      const { exitCode, tmuxCalls } = runCLI(['run', 'send-keys', '-t', '%3', '-X', 'cancel'], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%3', MOCK_TMUX_PANE_PID: String(process.pid) },
-      });
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls.find((call) => call.args[0] === 'run-shell').args).toEqual([
-        'run-shell',
-        "TMUX_PANE=%3 tmux -L tmuxy send-keys '-t' '%3' '-X' 'cancel'",
-      ]);
-    });
-
     test('passes list-panes through', () => {
       const { exitCode, tmuxCalls } = runCLI(['run', 'list-panes']);
       expect(exitCode).toBe(0);
