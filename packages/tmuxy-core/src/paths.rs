@@ -96,7 +96,7 @@ fn unix_uid_temp_home() -> std::io::Result<PathBuf> {
     if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
         return Err(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
-            format!("unsafe fallback home directory: {}", dir.display()),
+            "unsafe fallback home directory",
         ));
     }
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
@@ -193,7 +193,7 @@ mod tests {
             );
         }
         let missing_home = data_dir_from(None, None, None);
-        assert!(missing_home.is_absolute(), "{missing_home:?}");
+        assert!(missing_home.is_absolute());
         assert_ne!(
             missing_home,
             std::env::temp_dir()
@@ -206,7 +206,7 @@ mod tests {
     #[test]
     fn resolved_home_dir_is_always_absolute_and_never_shared_tmp() {
         let home = resolved_home_dir();
-        assert!(home.is_absolute(), "{home:?}");
+        assert!(home.is_absolute());
         assert_ne!(home, PathBuf::from("/tmp/tmuxy"));
         #[cfg(unix)]
         {
