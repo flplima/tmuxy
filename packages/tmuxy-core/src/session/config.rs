@@ -25,13 +25,33 @@ pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../assets/tmuxy.conf
 const CONFIG_README: &str = include_str!("../../assets/config-README.md");
 
 /// The file tmux is started with (`-f`) and that every reload re-sources: the
-/// chain of layers, built by [`entry_conf`].
+/// chain of layers, built by [`entry_conf`]. In the state dir, not the data
+/// dir: it is built from this machine's `use-tmux-conf` choice and this
+/// process's config dir, so two processes sharing a data dir (a test server
+/// beside the app) would otherwise rewrite it for each other.
 const ENTRY_CONF: &str = "tmuxy.entry.conf";
 
 /// A copy of the user's `tmuxy.conf` with an old `source-file …/tmuxy.defaults.conf`
 /// line commented out, sourced in its place while the user's file still has
-/// one (see [`legacy_defaults_source`]).
+/// one (see [`legacy_defaults_source`]). In the state dir, like the entry
+/// file: it is built from the user's file.
 const COMPAT_CONF: &str = "tmuxy.compat.conf";
+
+/// The tmux global environment variable naming the data dir, which the entry
+/// file sets before it sources anything. The bundled scripts are named by it
+/// everywhere tmux runs one — the essentials' command-aliases, the client's
+/// script commands, a restored sidebar — as `$TMUXY_DATA_DIR/bin/tmuxy/…`,
+/// expanded by tmux's parser (or a pane's shell) from that environment, so a
+/// data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves them all. The
+/// same name `paths::data_dir` reads, so a process started in a pane finds
+/// the data dir of the server it runs under.
+pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
+
+/// The tmux global environment variable naming the entry file, set beside
+/// [`DATA_DIR_ENV`]: what a client's Reload Config sources
+/// (`transport::SOURCE_ENTRY_CONF`) where no tmuxy process stands between it
+/// and tmux (the in-browser guests). A tmuxy process sources its own path.
+pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 
 /// The starter, mirrored for `tmuxy config init`.
 const EXAMPLE_CONF: &str = "tmuxy.conf.example";
@@ -60,8 +80,7 @@ pub fn config_dir() -> PathBuf {
             return xdg.join("tmuxy");
         }
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+    crate::paths::resolved_home_dir()
         .join(".config")
         .join("tmuxy")
 }
@@ -72,7 +91,7 @@ pub fn config_dir() -> PathBuf {
 /// | --- | --- | --- |
 /// | `config` (`~/.config/tmuxy`) | the user | written once, on the first run; safe to symlink |
 /// | `data` (`~/.local/share/tmuxy`) | the app | mirrored from the bundle on every launch, never edited |
-/// | `state` ([`crate::paths::state_dir`]) | the app | this machine's state: menu choices, launcher, pid files |
+/// | `state` ([`crate::paths::state_dir`]) | the app | this machine's state: menu choices, the chain built from them, launcher, pid files |
 ///
 /// Everything that reads or writes one of them takes a `Layout`, so a test
 /// can point all three at a scratch dir without touching the environment.
@@ -91,7 +110,7 @@ impl Layout {
             config: config_dir(),
             data: crate::paths::data_dir(),
             state: crate::paths::state_dir(),
-            home: dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            home: crate::paths::resolved_home_dir(),
         }
     }
 
@@ -102,7 +121,7 @@ impl Layout {
 
     /// The generated chain tmux is started with.
     pub fn entry_conf(&self) -> PathBuf {
-        self.data.join(ENTRY_CONF)
+        self.state.join(ENTRY_CONF)
     }
 
     /// The menu choices ([`ManagedState`]).
@@ -123,19 +142,6 @@ impl Layout {
     /// The user's own themes, which shadow a built-in of the same name.
     pub fn user_themes(&self) -> PathBuf {
         self.config.join("themes")
-    }
-
-    /// Where the shipped config expects the data dir: `~/.local/share/tmuxy`.
-    fn default_data(&self) -> PathBuf {
-        self.home.join(".local").join("share").join("tmuxy")
-    }
-
-    /// `text` with the shipped data-dir path pointed at this layout's.
-    fn relocate(&self, text: &str) -> String {
-        if self.data == self.default_data() {
-            return text.to_string();
-        }
-        text.replace("$HOME/.local/share/tmuxy", &self.data.to_string_lossy())
     }
 }
 
@@ -216,7 +222,7 @@ pub(super) fn ensure_config_in(layout: &Layout) -> PathBuf {
     );
     write_generated(
         &layout.data.join("tmuxy.essentials.conf"),
-        &format!("{header}{}", layout.relocate(DEFAULT_ESSENTIALS_CONF)),
+        &format!("{header}{DEFAULT_ESSENTIALS_CONF}"),
         false,
     );
     write_generated(
@@ -275,7 +281,7 @@ pub(super) fn legacy_defaults_source(line: &str) -> bool {
 /// line commented out.
 fn user_layer(layout: &Layout) -> PathBuf {
     let user = layout.user_conf();
-    let compat = layout.data.join(COMPAT_CONF);
+    let compat = layout.state.join(COMPAT_CONF);
     let text = std::fs::read_to_string(&user).unwrap_or_default();
     if !text.lines().any(legacy_defaults_source) {
         if std::fs::symlink_metadata(&compat).is_ok_and(|m| m.is_file()) {
@@ -306,7 +312,9 @@ fn user_layer(layout: &Layout) -> PathBuf {
     compat
 }
 
-/// The chain, in order:
+/// The chain, in order, after the two paths it publishes ([`DATA_DIR_ENV`],
+/// [`ENTRY_CONF_ENV`]) — first, because tmux expands `$TMUXY_DATA_DIR` in an
+/// alias when a binding names it, and a file is parsed when it is sourced:
 ///
 /// 1. `tmuxy.essentials.conf` — the command-aliases every binding resolves
 ///    through, so they exist before anything binds to them.
@@ -328,6 +336,9 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
     };
     format!(
         "{header}\
+         # Where the scripts and this file are, for the commands that name them.\n\
+         set-environment -g {DATA_DIR_ENV} {data}\n\
+         set-environment -g {ENTRY_CONF_ENV} {entry}\n\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
@@ -335,6 +346,8 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
          source-file -q {user}\n\
          source-file {essentials}\n",
         header = CONF_HEADER,
+        data = quote(&layout.data),
+        entry = quote(&layout.entry_conf()),
         defaults = quote(&layout.data.join("tmuxy.defaults.conf")),
         user = quote(user),
     )
@@ -343,6 +356,9 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
 /// Regenerate the entry file from the current `use-tmux-conf` choice and the
 /// state of the user's file; returns its path.
 fn write_entry(layout: &Layout) -> PathBuf {
+    if let Err(e) = std::fs::create_dir_all(&layout.state) {
+        warn!(dir = ?layout.state, error = %e, "could not create the state dir");
+    }
     let use_tmux_conf = super::state::read_managed_state_in(layout)
         .use_tmux_conf
         .unwrap_or(false);

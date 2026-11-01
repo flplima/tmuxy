@@ -394,4 +394,8 @@ fn a_quoted_value_never_spans_two_command_lines() {
     let quoted = crate::tmux_quote("a\nkill-server\r$HOME \"x\"");
     assert!(!quoted.contains(['\n', '\r']), "{quoted}");
     assert_eq!(quoted, r#""a\012kill-server\015\$HOME \"x\"""#);
+    assert_eq!(
+        crate::tmux_double_quoted("~root/dir\u{009b}201~"),
+        r#""\176root/dir\302\233201~""#
+    );
 }

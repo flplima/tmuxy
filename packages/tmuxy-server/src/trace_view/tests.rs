@@ -251,3 +251,32 @@ fn health_check_detects_reconnects_and_rejections() {
     assert!(h.contains("main"));
     assert!(h.contains("test_sess"));
 }
+
+#[test]
+fn github_workflow_annotations_percent_escape_newlines_and_carriage_returns() {
+    assert_eq!(
+        health::escape_github_workflow_data("a%b\rc\n::error::x"),
+        "a%25b%0Dc%0A::error::x"
+    );
+    let events = vec![
+        ev(serde_json::json!({
+            "layer": "marker",
+            "name": "mark",
+            "label": "line1\r\n::error::injected",
+            "ts_wall": 0
+        })),
+        lifecycle(
+            "pane appeared",
+            "%1",
+            1_000,
+            serde_json::json!({"shell": true, "bytes": 0}),
+        ),
+        lifecycle("pane gone", "%1", 46_000, serde_json::json!({})),
+    ];
+    let annotation = github_annotations(&events);
+    assert_eq!(annotation.lines().count(), 2, "{annotation}");
+    assert!(
+        annotation.contains("%0D%0A::error::injected"),
+        "{annotation}"
+    );
+}

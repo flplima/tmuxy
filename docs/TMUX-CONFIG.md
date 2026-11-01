@@ -73,7 +73,7 @@ OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/
 
 ### The config chain, and where a user's own `~/.tmux.conf` fits
 
-tmux starts with `-f tmuxy.entry.conf`, a file the app generates in its data dir, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
+tmux starts with `-f tmuxy.entry.conf`, a file the app generates in its state dir, so a user's `~/.tmux.conf` is NOT read by default. That is deliberate — it is also the single loudest first-hour complaint from a tmux user, because their prefix, their status line and their plugins all vanish on tmuxy's socket with nothing saying why.
 
 The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.rs`), so the user's `tmuxy.conf` holds overrides only and needs no `source-file` line. In order:
 
@@ -87,9 +87,11 @@ The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.
 
 `tmuxy config use-tmux-conf on` fills in step 3. The order is the whole design: the user's configs come after tmuxy's taste, so **their** prefix, status line and plugins win; `tmuxy.conf` comes after `~/.tmux.conf`, so the tmuxy-specific file has the last word on taste; and `tmuxy.essentials.conf` is sourced **again** on top, so the settings tmuxy cannot work without are restored whatever any config did to them. The essentials also come first because every binding in the defaults (and in a user's file) resolves through their command-aliases, which must exist before anything binds to them.
 
-The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect and reload — from the `use-tmux-conf` choice in the state dir and the user's file, so it never goes stale. It is the one generated file whose content depends on the machine's state, and a second tmuxy process with another config dir that shares the data dir (a test server, say) rewrites it for itself before it sources it.
+The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect, reload and Reload Config — from the `use-tmux-conf` choice and the user's file, so it never goes stale. Being built from this machine's state and this process's config dir, it lives in the state dir: two tmuxy processes with their own dirs (a test server beside the app) never rewrite each other's. Reload Config sends `source-file $TMUXY_ENTRY_CONF`, which a tmuxy process swaps for its own path.
 
-A `tmuxy.conf` written by an older build sources `~/.config/tmuxy/tmuxy.defaults.conf` itself. The first launch of this build drops that line (see [the config directory](ARCHITECTURE.md#the-users-config-directory)); when the file is a symlink the app may not rewrite, the chain sources a generated copy with the line commented out (`tmuxy.compat.conf` in the data dir) instead, until the user removes it.
+Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
+
+A `tmuxy.conf` written by an older build sources `~/.config/tmuxy/tmuxy.defaults.conf` itself. The first launch of this build drops that line (see [the config directory](ARCHITECTURE.md#the-users-config-directory)); when the file is a symlink the app may not rewrite, the chain sources a generated copy with the line commented out (`tmuxy.compat.conf` in the state dir) instead, until the user removes it.
 
 ### Menu choices, and the options `tmuxy.conf` pins
 

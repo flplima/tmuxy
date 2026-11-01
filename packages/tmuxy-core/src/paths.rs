@@ -33,6 +33,76 @@ pub fn data_dir() -> PathBuf {
     )
 }
 
+/// Resolve an absolute home directory even when `$HOME` is unset:
+/// `dirs::home_dir()`, else `getpwuid_r(getuid())` on Unix, else a verified
+/// private `0700` `/tmp/tmuxy-<uid>` directory owned by the current UID.
+pub fn resolved_home_dir() -> PathBuf {
+    if let Some(home) = dirs::home_dir().filter(|p| p.is_absolute()) {
+        return home;
+    }
+    #[cfg(unix)]
+    {
+        if let Some(pw_home) = unix_passwd_home() {
+            return pw_home;
+        }
+        if let Ok(fallback) = unix_uid_temp_home() {
+            return fallback;
+        }
+    }
+    std::env::temp_dir().join("tmuxy-home")
+}
+
+#[cfg(unix)]
+fn unix_passwd_home() -> Option<PathBuf> {
+    use std::ffi::CStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    // SAFETY: getuid() has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut result: *mut libc::passwd = std::ptr::null_mut();
+    let mut buf = vec![0u8; 4096];
+    // SAFETY: `pwd`, `buf`, and `result` are valid writable pointers owned here.
+    let rc = unsafe {
+        libc::getpwuid_r(
+            uid,
+            &mut pwd,
+            buf.as_mut_ptr().cast(),
+            buf.len(),
+            &mut result,
+        )
+    };
+    if rc != 0 || result.is_null() || pwd.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: `pwd.pw_dir` points into `buf` and is NUL-terminated on success.
+    let bytes = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_bytes();
+    let path = PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
+    path.is_absolute().then_some(path)
+}
+
+#[cfg(unix)]
+fn unix_uid_temp_home() -> std::io::Result<PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
+    // SAFETY: getuid() has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let dir = std::env::temp_dir().join(format!("tmuxy-{uid}"));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&dir)?;
+    let meta = std::fs::symlink_metadata(&dir)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("unsafe fallback home directory: {}", dir.display()),
+        ));
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    Ok(dir)
+}
+
 /// The file the action trace is written to (docs/TRACING.md), unless
 /// `--trace <path>` names another.
 pub fn trace_file() -> PathBuf {
@@ -55,8 +125,7 @@ fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {
     }
     dirs::state_dir()
         .or_else(dirs::data_local_dir)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("state")))
-        .unwrap_or_else(std::env::temp_dir)
+        .unwrap_or_else(|| resolved_home_dir().join(".local").join("state"))
         .join("tmuxy")
 }
 
@@ -73,7 +142,8 @@ fn data_dir_from(
     if let Some(xdg) = xdg_data_home.map(PathBuf::from).filter(|p| p.is_absolute()) {
         return xdg.join("tmuxy");
     }
-    home.unwrap_or_else(std::env::temp_dir)
+    home.filter(|p| p.is_absolute())
+        .unwrap_or_else(resolved_home_dir)
         .join(".local")
         .join("share")
         .join("tmuxy")
@@ -121,6 +191,33 @@ mod tests {
                 data_dir_from(Some(OsString::new()), ignored, home.clone()),
                 PathBuf::from("/home/u/.local/share/tmuxy")
             );
+        }
+        let missing_home = data_dir_from(None, None, None);
+        assert!(missing_home.is_absolute(), "{missing_home:?}");
+        assert_ne!(
+            missing_home,
+            std::env::temp_dir()
+                .join(".local")
+                .join("share")
+                .join("tmuxy")
+        );
+    }
+
+    #[test]
+    fn resolved_home_dir_is_always_absolute_and_never_shared_tmp() {
+        let home = resolved_home_dir();
+        assert!(home.is_absolute(), "{home:?}");
+        assert_ne!(home, PathBuf::from("/tmp/tmuxy"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let fallback = unix_uid_temp_home().unwrap();
+            let mode = std::fs::symlink_metadata(&fallback)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o700);
         }
     }
 }

@@ -55,7 +55,7 @@ record(void)
 
 	if (pid_path(path, sizeof path, getpid(), "") != 0)
 		return;
-	fd = open(path, O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
+	fd = open(path, O_CREAT | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
 	if (fd != -1)
 		close(fd);
 }
@@ -185,14 +185,30 @@ int
 tcsetattr(int fd, int actions, const struct termios *t)
 {
 	static int	(*real)(int, int, const struct termios *);
-	int		  r;
+	const char	*dir;
+	char		 path[256];
+	int		 r, ne;
 
 	if (real == NULL)
 		real = (int (*)(int, int, const struct termios *))dlsym(
 		    RTLD_NEXT, "tcsetattr");
 	r = real(fd, actions, t);
-	if (r == -1 && pane_pipe(fd))
+	if (r == -1 && pane_pipe(fd)) {
+		dir = getenv("TMUXY_PTY_PIDS");
+		if (dir != NULL && t != NULL) {
+			snprintf(path, sizeof path, "%s/noecho", dir);
+			if (!(t->c_lflag & ECHO)) {
+				ne = open(path,
+				    O_CREAT | O_WRONLY | O_NOFOLLOW | O_CLOEXEC,
+				    0600);
+				if (ne != -1)
+					close(ne);
+			} else {
+				unlink(path);
+			}
+		}
 		return (0);
+	}
 	return (r);
 }
 

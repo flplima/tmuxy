@@ -135,3 +135,43 @@ _resolve_target() {
   fi
   printf '%s' "${matches%%$'\t'*}"
 }
+
+# Whether $1 is a safe tmux socket name or absolute path (no leading '-',
+# no '..' traversal, no relative path with '/', and no shell syntax).
+_is_safe_socket() {
+  local sock="${1:-}"
+  [ -n "$sock" ] || return 1
+  [[ "$sock" != -* && "$sock" != *..* ]] || return 1
+  [[ "$sock" != */* || "$sock" == /* ]] || return 1
+  [[ "$sock" =~ ^[A-Za-z0-9._/@+-]+$ ]]
+}
+
+# Whether $1 is a safe tmux session name (matches tmuxy_core::SessionName).
+_is_safe_session_name() {
+  local name="${1:-}"
+  [ -n "$name" ] || return 1
+  [[ "$name" != -* ]] || return 1
+  [[ "$name" =~ ^[A-Za-z0-9_@+-]+$ ]]
+}
+
+# The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
+# the pane whose process is an ancestor of this one. TMUX_PANE is only an
+# environment variable, so anything can claim any pane with it; what the
+# claim buys — typing into that pane without asking — is given only to a
+# process that really runs there. Prints nothing when it is not.
+verified_own_pane() {
+  local claimed="${1:-}" pane_pid
+  [ -n "$claimed" ] || return 0
+  pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
+  [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
+  # One `ps` for the whole tree, walked from this process up.
+  if ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" -v want="$pane_pid" '
+    { parent[$1] = $2 }
+    END {
+      p = me
+      for (i = 0; i < 128 && p > 1; i++) { if (p == want) exit 0; p = parent[p] }
+      exit 1
+    }'; then
+    printf '%s' "$claimed"
+  fi
+}

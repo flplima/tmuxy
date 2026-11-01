@@ -51,7 +51,8 @@ pub(super) const BUNDLED_THEMES: &[(&str, &str)] = &[
 /// `command-alias` entries that drive Ctrl+hjkl pane navigation, pane
 /// groups, etc. The .app bundle's working directory at launch is `/`, and an
 /// AppImage's mount point changes on every launch, so the config and the UI
-/// name them by a stable absolute path, `$HOME/.local/share/tmuxy/bin/…`.
+/// name them by the data dir the chain publishes, `$TMUXY_DATA_DIR/bin/…`
+/// (`DATA_DIR_ENV`).
 pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
     (
         "tmuxy-cli",
@@ -307,7 +308,7 @@ pub(super) fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Ve
 }
 
 /// The mirrored scripts' directory: the data dir's `bin/`. The in-config
-/// `run-shell "$HOME/.local/share/tmuxy/bin/tmuxy/nav …"` calls and the
+/// `run-shell "bash $TMUXY_DATA_DIR/bin/tmuxy/nav …"` calls and the
 /// `tmuxy <subcommand>` shell wrapper reach them there, independent of the
 /// .app bundle's working directory.
 pub fn bin_dir() -> PathBuf {

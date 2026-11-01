@@ -106,6 +106,12 @@ function buildEnv(logFile, opts = {}) {
     delete env.TMUXY_SERVER_BIN;
     delete env.TMUXY_SERVER_SUBCOMMAND;
   }
+  // And the data dir that build's config chain published: the CLI resolves
+  // the one a test names, or the default.
+  if (!opts.env?.TMUXY_DATA_DIR) {
+    delete env.TMUXY_DATA_DIR;
+    delete env.TMUXY_ENTRY_CONF;
+  }
   return env;
 }
 

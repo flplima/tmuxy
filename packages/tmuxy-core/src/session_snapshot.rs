@@ -54,8 +54,10 @@ pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// (`OpenSidebar` in domain/commands.ts). A sidebar is tmuxy's own window, so a
 /// restore runs it rather than offering it. The bundled script by its installed
 /// path, not a bare `tmuxy`: that is whatever PATH holds, and a stale one exits
-/// at once and takes the column's window with it.
-pub const LEFT_SIDEBAR_WIDGET: &str = "$HOME/.local/share/tmuxy/bin/tmuxy/tmuxy-widget-tree";
+/// at once and takes the column's window with it. The data dir is the one the
+/// entry file publishes (`session::DATA_DIR_ENV`), which the pane's shell
+/// expands.
+pub const LEFT_SIDEBAR_WIDGET: &str = "$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree";
 /// What a left sidebar ran before: a bare `tmuxy widget tree`, then the
 /// bundled script under the config dir, before the scripts moved to the data
 /// dir. A snapshot saved then still says so, and restores as the sidebar all
@@ -248,12 +250,18 @@ impl std::fmt::Display for SnapshotError {
     }
 }
 
-/// Parse a snapshot, refusing one from a newer tmuxy.
+/// Parse a snapshot, refusing one from a newer tmuxy or with an unsafe session name.
 pub fn parse(json: &str) -> Result<Snapshot, SnapshotError> {
     let snapshot: Snapshot =
         serde_json::from_str(json).map_err(|e| SnapshotError::Unreadable(e.to_string()))?;
     if snapshot.version > SNAPSHOT_VERSION {
         return Err(SnapshotError::NewerVersion(snapshot.version));
+    }
+    if crate::session::SessionName::parse(&snapshot.session).is_none() {
+        return Err(SnapshotError::Unreadable(format!(
+            "not a usable session name: {:?}",
+            snapshot.session
+        )));
     }
     Ok(snapshot)
 }
@@ -361,6 +369,9 @@ pub fn prune(dir: &Path, session: &str, now: u64) {
 
 /// The latest snapshot of a session, or why there is none to use.
 pub fn read_latest(dir: &Path, session: &str) -> Result<Option<Snapshot>, SnapshotError> {
+    if crate::session::SessionName::parse(session).is_none() {
+        return Ok(None);
+    }
     let latest = latest_link(dir, session);
     match std::fs::read_to_string(&latest) {
         Ok(json) => parse(&json).map(Some),
@@ -390,6 +401,9 @@ pub fn list(dir: &Path) -> Vec<(String, u64)> {
 
 /// Remove every snapshot of a session. Returns how many files went.
 pub fn forget(dir: &Path, session: &str) -> usize {
+    if crate::session::SessionName::parse(session).is_none() {
+        return 0;
+    }
     let mut removed = 0;
     for file in dated_files(dir, session) {
         if std::fs::remove_file(file).is_ok() {

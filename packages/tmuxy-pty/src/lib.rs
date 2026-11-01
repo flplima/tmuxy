@@ -365,7 +365,113 @@ pub fn osc7_path(output: &[u8]) -> Option<String> {
     const START: &[u8] = b"\x1b]7;";
     let at = output.windows(START.len()).rposition(|w| w == START)? + START.len();
     let end = output[at..].iter().position(|&b| b == 0x07)?;
-    Some(String::from_utf8_lossy(&output[at..at + end]).into_owned())
+    let raw = std::str::from_utf8(&output[at..at + end]).ok()?;
+    if raw.contains(['\0', '\n', '\r']) {
+        return None;
+    }
+    let path = if let Some(rest) = raw.strip_prefix("file://") {
+        let slash = rest.find('/')?;
+        &rest[slash..]
+    } else {
+        raw
+    };
+    if !path.starts_with('/') {
+        return None;
+    }
+    Some(path.to_string())
+}
+
+/// Escape shell metacharacters in a Tab-completed filename suffix while keeping
+/// `/` unescaped so directory traversal continues smoothly.
+pub fn escape_completion_suffix(suffix: &str) -> String {
+    let mut out = String::with_capacity(suffix.len());
+    for ch in suffix.chars() {
+        if matches!(
+            ch,
+            ';' | '&'
+                | '|'
+                | '$'
+                | '`'
+                | '\''
+                | '"'
+                | '\\'
+                | '('
+                | ')'
+                | '<'
+                | '>'
+                | ' '
+                | '\t'
+                | '#'
+                | '*'
+                | '?'
+                | '['
+                | ']'
+                | '!'
+                | '~'
+                | '{'
+                | '}'
+        ) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Create and verify a private `0700` per-UID runtime directory for this pane's
+/// PID tracking files, rejecting symlinks and directories owned by other users.
+pub fn ensure_pid_dir() -> std::io::Result<std::path::PathBuf> {
+    // SAFETY: getuid() has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    ensure_pid_dir_under(std::path::Path::new("/tmp"), uid, std::process::id())
+}
+
+/// Testable implementation of [`ensure_pid_dir`] rooted under `base`.
+pub fn ensure_pid_dir_under(
+    base: &std::path::Path,
+    uid: u32,
+    pid: u32,
+) -> std::io::Result<std::path::PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
+    let root = base.join(format!("tmuxy-pty-{uid}"));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&root)?;
+    let meta = std::fs::symlink_metadata(&root)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() || meta.uid() != uid {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("unsafe tmuxy-pty runtime directory: {}", root.display()),
+        ));
+    }
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))?;
+
+    let pids = root.join(pid.to_string());
+    if let Ok(existing) = std::fs::symlink_metadata(&pids) {
+        if existing.file_type().is_symlink() {
+            std::fs::remove_file(&pids)?;
+        } else {
+            let _ = std::fs::remove_dir_all(&pids);
+        }
+    }
+    std::fs::DirBuilder::new().mode(0o700).create(&pids)?;
+    Ok(pids)
+}
+
+/// Create an empty `0600` marker file without following a final-component symlink.
+pub fn create_nofollow_marker(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map(|_| ())
 }
 
 /// The columns `bytes` take on screen.

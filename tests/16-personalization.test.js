@@ -21,10 +21,14 @@ const {
   CONFIG_URL,
   CONFIG_DIR,
   DATA_DIR,
+  STATE_DIR,
+  HOME_DIR,
   startConfigServer,
   reloadConfig,
+  useTmuxConf,
   unsetConfigVariable,
 } = require('./helpers/config-server');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** The `--term-background` the page resolves, and the colour the active pane is painted. */
 const painted = (page) =>
@@ -242,6 +246,35 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
       async () => (await themeHref()).includes('/themes/nord.css'),
       10000,
       async () => `the pinned theme after a reload; the page loads ${await themeHref()}`,
+    );
+  });
+
+  // The chain is built from this machine's choices, so Reload Config rebuilds
+  // it before tmux sources it: `use-tmux-conf on`, made after the server
+  // connected, takes effect with the click, and the chain sourced is this
+  // server's own, in its state dir rather than a data dir another server
+  // could share.
+  test('Reload Config sources the chain rebuilt from a use-tmux-conf choice made since the connect', async () => {
+    if (ctx.skipIfNotReady()) return;
+    unsetConfigVariable();
+    stopServer = await startConfigServer();
+    const page = ctx.page;
+    await navigateToSession(page, ctx.session.name, CONFIG_URL);
+    await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+    expect(fs.existsSync(path.join(STATE_DIR, 'tmuxy.entry.conf'))).toBe(true);
+    expect(fs.existsSync(path.join(DATA_DIR, 'tmuxy.entry.conf'))).toBe(false);
+
+    const fromTmuxConf = () => tmuxExec('show-options -gqv @tmuxy-e2e-tmux-conf');
+    fs.writeFileSync(path.join(HOME_DIR, '.tmux.conf'), 'set -g @tmuxy-e2e-tmux-conf read\n');
+    useTmuxConf('on');
+    expect(fromTmuxConf()).toBe('');
+
+    await clickMenuItem(page, ['Reload Config']);
+    await waitForCondition(
+      page,
+      async () => fromTmuxConf() === 'read',
+      10000,
+      async () => `Reload Config to source ~/.tmux.conf; tmux has "${fromTmuxConf()}"`,
     );
   });
 });

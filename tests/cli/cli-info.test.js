@@ -49,6 +49,21 @@ describe('CLI info and skill commands', () => {
       expect(parsed.agentSkillHint).toContain('tmuxy skill');
     });
 
+    test('tmuxy info --json escapes quotes and backslashes in session and tab names', () => {
+      const { stdout, exitCode } = runCLI(['info', '--json'], {
+        env: {
+          TMUX_SOCKET: 'tmuxy',
+          TMUX: '/tmp/tmuxy,123,0',
+          MOCK_TMUX_INFO: 'sess"a\\\\b\t%42\t@3\t100\t30\tba"sh\t1\twork"tab\\\\1\t2\n',
+        },
+      });
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.session).toBe('sess"a\\b');
+      expect(parsed.activePane.command).toBe('ba"sh');
+      expect(parsed.activeTab.name).toBe('work"tab\\1');
+    });
+
     test('tmuxy --json outputs structured JSON at root', () => {
       const { stdout, exitCode } = runCLI(['--json'], {
         env: {

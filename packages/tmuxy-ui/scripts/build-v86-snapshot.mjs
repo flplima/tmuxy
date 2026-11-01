@@ -36,6 +36,7 @@ import {
   GUEST_CONFIG_DIR,
   GUEST_DATA_DIR,
   GUEST_ENTRY_CONF,
+  GUEST_STATE_DIR,
   stageTmuxyScripts,
 } from './lib/guest.mjs';
 
@@ -168,11 +169,12 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/tmux /usr/bin/tmux',
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
   'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
-  `mkdir -p ${GUEST_CONFIG_DIR} ${GUEST_DATA_DIR}/bin`,
+  `mkdir -p ${GUEST_CONFIG_DIR} ${GUEST_DATA_DIR}/bin ${GUEST_STATE_DIR}`,
   // busybox's ln has no -n; with it the link was never made, and the
-  // essentials' `$HOME/.local/share/tmuxy/bin/tmuxy/...` scripts did not exist.
+  // essentials' `$TMUXY_DATA_DIR/bin/tmuxy/...` scripts did not exist.
   `ln -sf /tmp/tb/bin/tmuxy ${GUEST_DATA_DIR}/bin/tmuxy`,
-  `cp /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf /tmp/tb/tmuxy.entry.conf ${GUEST_DATA_DIR}/`,
+  `cp /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf ${GUEST_DATA_DIR}/`,
+  `cp /tmp/tb/tmuxy.entry.conf ${GUEST_STATE_DIR}/`,
   `cp /tmp/tb/tmuxy.conf ${GUEST_CONFIG_DIR}/`,
   'cp /tmp/tb/bashrc /root/.bashrc',
   'hostname tmuxy',

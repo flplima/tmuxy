@@ -133,5 +133,14 @@ describe('CLI pane float', () => {
       expect(list).toContain('@tmuxy-float-noheader 1');
       expect(list.indexOf('split-window')).toBeLessThan(list.indexOf('break-pane'));
     });
+
+    test('quotes non-plain caller session names and preserves argv boundaries in command mode', () => {
+      const { exitCode, tmuxCalls } = runCLI(['pane', 'float'], {
+        env: { ...floatEnv, MOCK_TMUX_SESSION: "work #1's" },
+      });
+      expect(exitCode).toBe(0);
+      const list = tmuxCalls.find((c) => c.args[0] === 'run-shell').args[1];
+      expect(list).toContain("break-pane -d -n float -t 'work ##1'\\''s:2'");
+    });
   });
 });

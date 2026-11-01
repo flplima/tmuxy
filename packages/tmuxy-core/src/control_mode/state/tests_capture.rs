@@ -234,7 +234,12 @@ fn tmuxys_own_paste_buffers_are_never_read_back() {
     let mut agg = StateAggregator::new();
     seed_active_pane(&mut agg, "%0", "@0");
     agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
-    for name in ["tmuxy-paste", "tmuxy-cli-paste"] {
+    for name in [
+        "tmuxy-paste",
+        "tmuxy-cli-paste",
+        "tmuxy-paste-42",
+        "tmuxy-cli-paste-4242",
+    ] {
         let step = agg.step(ControlModeEvent::PasteBufferChanged {
             buffer_name: name.to_string(),
         });

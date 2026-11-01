@@ -309,8 +309,9 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     tmuxy_core::session::ensure_themes();
     // Materialize bundled CLI dispatcher and helper scripts so the in-config
     // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
-    // direct "Add Pane to Group" menu commands resolve at the absolute
-    // `$HOME/.local/share/tmuxy/bin/tmuxy/…` path. Mirrors gui.rs setup().
+    // direct "Add Pane to Group" menu commands resolve at
+    // `$TMUXY_DATA_DIR/bin/tmuxy/…`, the data dir the config chain publishes
+    // to tmux. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
 
     let state = Arc::new(AppState::new());

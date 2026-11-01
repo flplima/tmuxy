@@ -39,14 +39,13 @@ function isolatedEnv({ socket, stateDir }) {
   // the CI job's env); this server exists to do exactly those two things.
   delete env.TMUXY_NO_SNAPSHOT;
   delete env.TMUXY_NO_RESTORE;
-  // A config dir of its own, beside the state dir (`start` fills it). The
-  // server mirrors its bundled scripts into `<config>/tmuxy/bin`; in the
-  // developer's own config dir the installed app rewrites them with ITS
-  // build's copies on every `tmuxy` it answers (an agent hook, say), and a
-  // pane's `tmuxy` (the ~/.local/bin shorthand, which runs whatever
-  // `<config>/tmuxy/launcher` names) was that app too — so the panes ran an
-  // older build's scripts, not the ones under test.
+  // A config dir and a data dir of its own, beside the state dir (`start`
+  // fills the one; the server mirrors its bundled scripts into the other).
+  // In the developer's own data dir the installed app rewrites the scripts
+  // with ITS build's copies on every `tmuxy` it answers (an agent hook, say),
+  // so the panes would run an older build's scripts, not the ones under test.
   env.XDG_CONFIG_HOME = configHome(stateDir);
+  env.TMUXY_DATA_DIR = path.join(path.dirname(stateDir), 'data');
   return env;
 }
 

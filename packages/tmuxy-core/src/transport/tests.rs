@@ -171,12 +171,52 @@ async fn key_bindings_fall_back_to_the_default_prefix_when_tmux_cannot_answer() 
 
 #[test]
 fn source_file_is_recognised_in_both_spellings() {
-    assert!(is_source_file(
-        "source-file ~/.local/share/tmuxy/tmuxy.entry.conf"
-    ));
+    assert!(is_source_file(SOURCE_ENTRY_CONF));
     assert!(is_source_file("  source ~/.tmux.conf"));
     assert!(!is_source_file("sourcery"));
     assert!(!is_source_file("send-keys source-file"));
+}
+
+/// The client spells its Reload Config and its script paths with the two
+/// variables the chain publishes; a rename on one side would leave the
+/// server sourcing nothing it recognises, and every script command naming a
+/// directory that is not there.
+#[test]
+fn the_client_names_the_chain_and_the_scripts_by_the_published_variables() {
+    let commands = include_str!("../../../tmuxy-ui/src/domain/commands.ts");
+    let entry_var = SOURCE_ENTRY_CONF.strip_prefix("source-file ").unwrap();
+    assert_eq!(entry_var, format!("${}", crate::session::ENTRY_CONF_ENV));
+    assert!(commands.contains(&format!("CONFIG_FILE = '{entry_var}'")));
+    assert!(commands.contains("return `source-file ${CONFIG_FILE}`"));
+    let scripts = format!("${}/bin/tmuxy", crate::session::DATA_DIR_ENV);
+    assert!(commands.contains(&format!("SCRIPTS_DIR = '{scripts}'")));
+    assert!(crate::session_snapshot::LEFT_SIDEBAR_WIDGET.starts_with(&scripts));
+}
+
+/// A client's Reload Config sources the entry file this process just
+/// rebuilt, by its own path: the variable tmux would expand is whichever
+/// process on the socket sourced a chain last.
+#[test]
+fn a_client_reload_sources_this_processs_own_entry_file() {
+    let entry = std::path::Path::new("/st ate/tmuxy.entry.conf");
+    assert_eq!(
+        source_with_entry(SOURCE_ENTRY_CONF.to_string(), Some(entry)),
+        "source-file '/st ate/tmuxy.entry.conf'"
+    );
+    assert_eq!(
+        source_with_entry(format!("  {SOURCE_ENTRY_CONF} "), Some(entry)),
+        "source-file '/st ate/tmuxy.entry.conf'"
+    );
+    // Any other file is the client's to name; with no entry file written,
+    // the command goes as it came.
+    assert_eq!(
+        source_with_entry("source-file ~/.tmux.conf".to_string(), Some(entry)),
+        "source-file ~/.tmux.conf"
+    );
+    assert_eq!(
+        source_with_entry(SOURCE_ENTRY_CONF.to_string(), None),
+        SOURCE_ENTRY_CONF
+    );
 }
 
 #[tokio::test]

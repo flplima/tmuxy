@@ -232,7 +232,7 @@ cmd_pane() {
 
     send)
       [ -n "${1:-}" ] || _die_usage "keys required"
-      JSON_OUT="$JSON_OUT" bash "$SCRIPTS_DIR/send" "$@"
+      JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" "$@"
       ;;
 
     paste)
@@ -245,7 +245,7 @@ cmd_pane() {
       # Through `send`, so a paste follows its rules: without the controls
       # that could end a bracketed paste early, into the caller's own pane at
       # once, into any other only once the user allows it there.
-      JSON_OUT="$JSON_OUT" bash "$SCRIPTS_DIR/send" --paste ${target[@]+"${target[@]}"} -- "$*"
+      JSON_OUT="$JSON_OUT" exec bash "$SCRIPTS_DIR/send" --paste ${target[@]+"${target[@]}"} -- "$*"
       ;;
 
     float)

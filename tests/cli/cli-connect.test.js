@@ -123,4 +123,21 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
     expect(stderr).toContain('Permission denied (publickey).');
     expect(tmuxCalls).toHaveLength(0);
   });
+
+  test.each(['../escape', 'rel/socket', '/tmp/../bad', 'sock;id', '-L'])(
+    'refuses unsafe --socket %p in both local and remote connect flows',
+    (badSocket) => {
+      const local = runCLI(['session', 'connect', 'localhost', '--socket', badSocket]);
+      expect(local.exitCode).not.toBe(0);
+      expect(local.tmuxCalls).toHaveLength(0);
+
+      const remote = runCLI(['session', 'connect', 'felipe@prod', '--socket', badSocket]);
+      expect(remote.exitCode).not.toBe(0);
+      expect(remote.tmuxCalls).toHaveLength(0);
+
+      const direct = runCLI(['connect', badSocket]);
+      expect(direct.exitCode).not.toBe(0);
+      expect(direct.tmuxCalls).toHaveLength(0);
+    },
+  );
 });

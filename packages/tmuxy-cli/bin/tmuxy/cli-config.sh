@@ -105,8 +105,8 @@ EOF
 cmd_config_reload() {
   local marker
   marker="$(tmuxy_state_dir)/config-reload"
-  mkdir -p "${marker%/*}" || _fail "$EXIT_FAILED" "cannot create ${marker%/*}"
-  touch "$marker" || _fail "$EXIT_FAILED" "cannot touch $marker"
+  mkdir -m 700 -p "${marker%/*}" || _fail "$EXIT_FAILED" "cannot create ${marker%/*}"
+  (umask 077 && touch "$marker") || _fail "$EXIT_FAILED" "cannot touch $marker"
   if [ "$JSON_OUT" = true ]; then
     json_ok "file=$(json_string "$(tmuxy_config_dir)/tmuxy.conf")"
     return 0
@@ -138,7 +138,7 @@ cmd_config_use_tmux_conf() {
     *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
   esac
 
-  mkdir -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
+  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
   set_state_bool use_tmux_conf "$value" || _fail "$EXIT_FAILED" "cannot write $state_file"
 
   if [ "$JSON_OUT" = true ]; then
@@ -186,8 +186,8 @@ cmd_config_init() {
     _fail "$EXIT_FAILED" "$conf already exists; not overwriting it"
   fi
   starter="$(starter_conf)" || _fail "$EXIT_FAILED" "no starter config found (start tmuxy once to install it)"
-  mkdir -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
-  printf '%s\n' "$starter" > "$conf" || _fail "$EXIT_FAILED" "cannot write $conf"
+  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
+  (umask 077 && printf '%s\n' "$starter" > "$conf") || _fail "$EXIT_FAILED" "cannot write $conf"
   if [ "$JSON_OUT" = true ]; then
     json_ok "file=$(json_string "$conf")"
     return 0
@@ -205,12 +205,12 @@ config|custom.css|user|yes|yes|Your CSS, loaded last.
 config|themes/|user|yes|yes|Your themes; a built-in's name replaces that built-in.
 data|tmuxy.defaults.conf|tmuxy|no|no|tmuxy's taste: prefix, status line, bindings, the @tmuxy-* defaults.
 data|tmuxy.essentials.conf|tmuxy|no|no|The settings tmuxy cannot work without, sourced first and last.
-data|tmuxy.entry.conf|tmuxy|no|no|The chain tmux starts with, built from the files around it.
-data|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the old defaults: a copy without that line.
 data|tmuxy.conf.example|tmuxy|no|no|The starter tmuxy.conf; `tmuxy config init` copies it.
 data|themes/|tmuxy|no|no|The built-in themes, to read or copy.
 data|bin/|tmuxy|no|no|The tmuxy CLI and its helper scripts.
 data|README.md|tmuxy|no|no|The guide to these files.
+state|tmuxy.entry.conf|tmuxy|no|no|The chain tmux starts with, built from your files and this machine's choices.
+state|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the old defaults: a copy without that line.
 state|tmuxy.state.json|tmuxy|no|no|Choices made in the app's menus.
 state|servers.json|tmuxy|yes|no|The servers `tmuxy session connect` saved.
 state|trace.json|tmuxy|yes|no|The Debug menu's trace switch.

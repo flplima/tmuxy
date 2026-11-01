@@ -17,10 +17,25 @@ STASH_SESSION="__tmuxy_stash"
 #   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
 #   data   — what the app mirrors from its bundle: defaults, themes, bin/.
 #   state  — this machine's: menu choices, launcher, servers.json, pid files.
+_tmuxy_home() {
+  if [ -n "${HOME:-}" ] && [[ "$HOME" == /* ]]; then
+    printf '%s' "$HOME"
+    return
+  fi
+  local pw_home=~
+  if [ -n "$pw_home" ] && [[ "$pw_home" == /* ]]; then
+    printf '%s' "$pw_home"
+    return
+  fi
+  local fb="/tmp/tmuxy-$(id -u)"
+  mkdir -m 700 -p "$fb" 2>/dev/null || true
+  printf '%s' "$fb"
+}
+
 tmuxy_config_dir() {
   case "${XDG_CONFIG_HOME:-}" in
     /*) echo "$XDG_CONFIG_HOME/tmuxy" ;;
-    *) echo "$HOME/.config/tmuxy" ;;
+    *) echo "$(_tmuxy_home)/.config/tmuxy" ;;
   esac
 }
 
@@ -31,7 +46,7 @@ tmuxy_data_dir() {
   fi
   case "${XDG_DATA_HOME:-}" in
     /*) echo "$XDG_DATA_HOME/tmuxy" ;;
-    *) echo "$HOME/.local/share/tmuxy" ;;
+    *) echo "$(_tmuxy_home)/.local/share/tmuxy" ;;
   esac
 }
 
@@ -39,11 +54,11 @@ tmuxy_state_dir() {
   if [ -n "${TMUXY_STATE_DIR:-}" ]; then
     echo "$TMUXY_STATE_DIR"
   elif [ "$(uname -s)" = Darwin ]; then
-    echo "$HOME/Library/Application Support/tmuxy"
+    echo "$(_tmuxy_home)/Library/Application Support/tmuxy"
   else
     case "${XDG_STATE_HOME:-}" in
       /*) echo "$XDG_STATE_HOME/tmuxy" ;;
-      *) echo "$HOME/.local/state/tmuxy" ;;
+      *) echo "$(_tmuxy_home)/.local/state/tmuxy" ;;
     esac
   fi
 }
@@ -158,28 +173,6 @@ _run_safe() {
   local socket="$TMUX_SOCKET"
   [[ "$socket" =~ ^[A-Za-z0-9._/@+-]+$ ]] || socket="$(shquote "$socket")"
   _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
-}
-
-# The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
-# the pane whose process is an ancestor of this one. TMUX_PANE is only an
-# environment variable, so anything can claim any pane with it; what the
-# claim buys — typing into that pane without asking — is given only to a
-# process that really runs there. Prints nothing when it is not.
-verified_own_pane() {
-  local claimed="${1:-}" pane_pid
-  [ -n "$claimed" ] || return 0
-  pane_pid="$(_tmux display-message -p -t "$claimed" '#{pane_pid}' 2>/dev/null)" || return 0
-  [[ "$pane_pid" =~ ^[0-9]+$ ]] || return 0
-  # One `ps` for the whole tree, walked from this process up.
-  if ps -A -o pid=,ppid= 2>/dev/null | awk -v me="$$" -v want="$pane_pid" '
-    { parent[$1] = $2 }
-    END {
-      p = me
-      for (i = 0; i < 128 && p > 1; i++) { if (p == want) exit 0; p = parent[p] }
-      exit 1
-    }'; then
-    printf '%s' "$claimed"
-  fi
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each

@@ -130,7 +130,10 @@ pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
 /// Where a build before the state dir held its pid files, `~/.tmuxy`. Read so
 /// `stop` and `status` still find a server that build started; never written.
 fn legacy_pid_file_path(port: u16) -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|home| pid_file_in(&home.join(".tmuxy"), port))
+    Some(pid_file_in(
+        &tmuxy_core::paths::resolved_home_dir().join(".tmuxy"),
+        port,
+    ))
 }
 
 fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
@@ -145,9 +148,9 @@ pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
     let path = pid_file_path(port);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).ok();
+        let _ = tmuxy_core::private_files::create_dir_all(dir);
     }
-    std::fs::write(path, pid.to_string()).ok();
+    let _ = tmuxy_core::private_files::write(&path, pid.to_string());
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -215,10 +218,45 @@ fn is_process_alive(_pid: u32) -> bool {
     false
 }
 
+fn matches_tmuxy_command(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("tmuxy")
+}
+
+#[cfg(target_os = "linux")]
+fn is_tmuxy_process(pid: u32) -> bool {
+    let comm_matches = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|s| matches_tmuxy_command(&s))
+        .unwrap_or(false);
+    if comm_matches {
+        return true;
+    }
+    std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map(|bytes| {
+            let text = String::from_utf8_lossy(&bytes);
+            matches_tmuxy_command(&text)
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn is_tmuxy_process(pid: u32) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .is_some_and(|out| matches_tmuxy_command(&String::from_utf8_lossy(&out.stdout)))
+}
+
+#[cfg(not(unix))]
+fn is_tmuxy_process(_pid: u32) -> bool {
+    false
+}
+
 pub(super) fn stop_server(port: u16) {
     match read_pid_file(port) {
         Some(pid) => {
-            if !is_process_alive(pid) {
+            if !is_process_alive(pid) || !is_tmuxy_process(pid) {
                 println!("Server is not running (stale PID file for pid {})", pid);
                 remove_pid_file(port, pid);
                 return;
@@ -250,7 +288,7 @@ pub(super) fn stop_server(port: u16) {
 pub(super) fn server_status(port: u16) {
     match read_pid_file(port) {
         Some(pid) => {
-            if is_process_alive(pid) {
+            if is_process_alive(pid) && is_tmuxy_process(pid) {
                 println!("Server is running (pid {})", pid);
             } else {
                 println!("Server is not running (stale PID file for pid {})", pid);
@@ -398,7 +436,7 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pid;
+    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid};
 
     #[test]
     fn a_pid_file_naming_no_single_process_is_ignored() {
@@ -406,5 +444,16 @@ mod tests {
         for broadcast in ["0", "1", "-1", "4294967295", "2147483648", "", "abc"] {
             assert_eq!(parse_pid(broadcast), None, "{broadcast:?}");
         }
+    }
+
+    #[test]
+    fn process_identity_guard_recognizes_tmuxy_and_rejects_unrelated_processes() {
+        assert!(matches_tmuxy_command("tmuxy-server\n"));
+        assert!(matches_tmuxy_command("/usr/local/bin/tmuxy\0--port\09000"));
+        assert!(!matches_tmuxy_command("systemd\n"));
+        assert!(!matches_tmuxy_command("postgres\n"));
+        // The cargo test binary itself (`tmuxy_server-*`) matches, whereas init (PID 1) does not.
+        assert!(is_tmuxy_process(std::process::id()));
+        assert!(!is_tmuxy_process(1));
     }
 }

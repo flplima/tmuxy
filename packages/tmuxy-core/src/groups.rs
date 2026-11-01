@@ -261,6 +261,21 @@ pub fn gc(panes: &Panes) -> Vec<Invocation> {
         .collect()
 }
 
+/// Format a filesystem path as one POSIX shell word for `Context::close_command`:
+/// bare when it holds only plain path characters, single-quoted otherwise.
+pub fn quote_script_path(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy();
+    if !s.is_empty()
+        && s.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'-' | b'@' | b'+')
+        })
+    {
+        s.into_owned()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 /// Make a member's pane outlive the program in it, and route its death back
 /// through `pane-group close`.
 ///
@@ -271,6 +286,8 @@ pub fn gc(panes: &Panes) -> Vec<Invocation> {
 /// the pane-scoped `pane-died` hook runs the same promotion the close button
 /// does. Both are per pane and travel with it across the stash swap.
 pub fn arm(pane: &PaneId, ctx: &Context) -> Vec<Invocation> {
+    let shell_cmd = format!("bash {} {pane}", ctx.close_command).replace('#', "##");
+    let hook = format!("run-shell {}", crate::tmux_double_quoted(&shell_cmd));
     vec![
         Invocation::tolerant(cmd(&[
             "set-option",
@@ -286,7 +303,7 @@ pub fn arm(pane: &PaneId, ctx: &Context) -> Vec<Invocation> {
             "-t",
             pane.as_str(),
             "pane-died",
-            &format!("run-shell \"bash {} {pane}\"", ctx.close_command),
+            &hook,
         ])),
     ]
 }

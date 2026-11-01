@@ -20,32 +20,47 @@ const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
 const CONFIG_URL = `http://localhost:${CONFIG_PORT}`;
 
-/** The scratch root: `$XDG_CONFIG_HOME`, the data dir and the state dir under it. */
+/**
+ * The scratch root: `$XDG_CONFIG_HOME`, the data dir, the state dir and a
+ * `$HOME` (whose `.tmux.conf` is the one `use-tmux-conf` reads) under it.
+ */
 const ROOT = path.join(os.tmpdir(), `tmuxy-e2e-config-${CONFIG_PORT}`);
 const CONFIG_HOME = path.join(ROOT, 'config');
 const CONFIG_DIR = path.join(CONFIG_HOME, 'tmuxy');
 const DATA_DIR = path.join(ROOT, 'data');
 const STATE_DIR = path.join(ROOT, 'state');
-const DIRS = { XDG_CONFIG_HOME: CONFIG_HOME, TMUXY_DATA_DIR: DATA_DIR, TMUXY_STATE_DIR: STATE_DIR };
+const HOME_DIR = path.join(ROOT, 'home');
+const DIRS = {
+  XDG_CONFIG_HOME: CONFIG_HOME,
+  TMUXY_DATA_DIR: DATA_DIR,
+  TMUXY_STATE_DIR: STATE_DIR,
+  HOME: HOME_DIR,
+};
 
 /**
  * Start the server with no config dir at all, a first run; resolves to a
  * function that stops it. By the time it answers, `CONFIG_DIR` holds the
- * starter `tmuxy.conf` and `DATA_DIR` the built-in themes and the chain.
+ * starter `tmuxy.conf`, `DATA_DIR` the built-in themes and `STATE_DIR` the
+ * chain.
  */
 async function startConfigServer() {
   fs.rmSync(ROOT, { recursive: true, force: true });
-  fs.mkdirSync(ROOT, { recursive: true });
+  fs.mkdirSync(HOME_DIR, { recursive: true });
   return startExtraServer(CONFIG_PORT, [], DIRS);
 }
 
-/** `tmuxy config reload` against the scratch dirs; returns what it printed. */
-function reloadConfig() {
-  return execFileSync(TMUXY_CLI, ['config', 'reload'], {
+/** The tmuxy CLI against the scratch dirs; returns what it printed. */
+const configCli = (...args) =>
+  execFileSync(TMUXY_CLI, ['config', ...args], {
     env: { ...process.env, ...DIRS },
     encoding: 'utf8',
   });
-}
+
+/** `tmuxy config reload` against the scratch dirs; returns what it printed. */
+const reloadConfig = () => configCli('reload');
+
+/** `tmuxy config use-tmux-conf <value>` against the scratch dirs. */
+const useTmuxConf = (value) => configCli('use-tmux-conf', value);
 
 /**
  * Unset the options the suite sets from its config: a `@tmuxy-css-*` one and
@@ -57,6 +72,7 @@ function reloadConfig() {
 const unsetConfigVariable = () => {
   tmuxRunAsOperator('set-option -gu @tmuxy-css-term-background');
   tmuxRunAsOperator('set-option -gu @tmuxy-theme');
+  tmuxRunAsOperator('set-option -gu @tmuxy-e2e-tmux-conf');
 };
 
 module.exports = {
@@ -64,7 +80,10 @@ module.exports = {
   CONFIG_HOME,
   CONFIG_DIR,
   DATA_DIR,
+  STATE_DIR,
+  HOME_DIR,
   startConfigServer,
   reloadConfig,
+  useTmuxConf,
   unsetConfigVariable,
 };

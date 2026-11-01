@@ -60,6 +60,8 @@ fn session_names_are_held_to_the_alphabet() {
     }
     for bad in [
         "",
+        "-bad",
+        "--help",
         "a b",
         "a'b",
         "a;b",
@@ -368,7 +370,17 @@ fn a_socket_is_a_name_or_a_path_without_shell_syntax() {
     for ok in ["tmuxy", "tmuxy-dev", "/tmp/tmux-501/tmuxy"] {
         assert!(is_safe_socket(ok), "{ok}");
     }
-    for bad in ["", "-L", "a b", "x;id", "$(id)", "x'y"] {
+    for bad in [
+        "",
+        "-L",
+        "../tmuxy",
+        "rel/socket",
+        "/tmp/../tmuxy",
+        "a b",
+        "x;id",
+        "$(id)",
+        "x'y",
+    ] {
         assert!(!is_safe_socket(bad), "{bad}");
     }
 }
