@@ -89,6 +89,54 @@ proptest! {
         let _ = parser.parse_line(&tail);
     }
 
+    /// A block's body is every line between its `%begin` and the `%end` or
+    /// `%error` that repeats its guard, whatever those lines look like — a
+    /// pane's capture can show tmux's own guards and notifications, and none
+    /// of them may close the block or reach the notification parser
+    /// (A13 in docs/INVARIANTS.md).
+    #[test]
+    fn a_blocks_body_is_whatever_lies_between_its_guards(
+        time in 0u64..2_000_000_000,
+        number in 0u32..100_000,
+        flags in 0u8..2,
+        body in prop::collection::vec(
+            prop_oneof![
+                ".{0,40}",
+                "%(begin|end|error) [0-9]{1,10} [0-9]{1,6} [01]",
+                prop::sample::select(vec![
+                    "%exit", "%window-close @1", "%window-add @9", "%session-changed $1 x",
+                    "%layout-change @1 abcd,80x24,0,0,1 abcd,80x24,0,0,1 *",
+                    "%output %1 hi", "%pause %1",
+                ]).prop_map(str::to_string),
+            ],
+            0..12,
+        ),
+        closes_with_error in any::<bool>(),
+    ) {
+        let guard = format!("{time} {number} {flags}");
+        let closing = if closes_with_error { format!("%error {guard}") } else { format!("%end {guard}") };
+        // The one line that is not body by construction.
+        let body: Vec<String> = body
+            .into_iter()
+            .filter(|line| *line != format!("%end {guard}") && *line != format!("%error {guard}"))
+            .collect();
+
+        let mut parser = Parser::new();
+        let opened = parser.parse_line(format!("%begin {guard}"));
+        prop_assert!(opened.is_none());
+        for line in &body {
+            let event = parser.parse_line(line);
+            prop_assert!(event.is_none(), "{:?} came out of a block's body as {:?}", line, event);
+        }
+        match parser.parse_line(&closing) {
+            Some(tmuxy_core::control_mode::ControlModeEvent::CommandResponse { output, success, .. }) => {
+                prop_assert_eq!(output, body.join("\n"));
+                prop_assert_eq!(success, !closes_with_error);
+            }
+            other => prop_assert!(false, "the closing guard closes the block, got {:?}", other),
+        }
+    }
+
     /// `%output` is the hot path: the pane id and the escaped payload must
     /// round-trip through the parser byte for byte.
     #[test]

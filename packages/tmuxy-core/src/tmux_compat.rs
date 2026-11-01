@@ -149,10 +149,7 @@ pub struct Relists {
 /// the list counts — anywhere else it is an argument, a key sent to a shell.
 pub fn relists_after(command: &str) -> Relists {
     let mut relists = Relists::default();
-    for part in split_compound(command)
-        .iter()
-        .flat_map(|part| part.split(" ; "))
-    {
+    for part in &split_compound(command) {
         let verb = command_verb(part);
         for silent in SILENT_COMMANDS {
             if (silent.verbs.is_empty() || silent.verbs.contains(&verb)) && (silent.when)(part) {

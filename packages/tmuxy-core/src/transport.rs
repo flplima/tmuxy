@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::command_router::{route_command, Route};
+use crate::command_router::{route_command, route_query as route_query_policy, Route};
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, MonitorConfig};
 use crate::executor::tmux_quote;
 use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, SnapshotKeeper};
@@ -208,6 +208,17 @@ pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
         "run command"
     );
     route_command(command, session, size)
+}
+
+/// Decide a client query's route (`command_router::route_query`): a query
+/// only reads, logged by verb like a mutation.
+pub fn route_query(command: &str) -> Route {
+    tracing::debug!(
+        target: "tmuxy_core::transport",
+        verb = command.split_whitespace().next().unwrap_or(""),
+        "run query"
+    );
+    route_query_policy(command)
 }
 
 /// Git worktree context for the sidebar tree, discovered from the cwd of

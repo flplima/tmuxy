@@ -59,12 +59,29 @@ Use short command forms when sending through control mode.
 Every command a client sends — mutations through `run_tmux_command`, reads through
 `query_tmux` — rides the monitor's control-mode connection. Reads are answered in-band:
 the monitor brackets the command with marker lines and hands back the `%begin…%end`
-blocks between them (`MonitorCommand::RunCommandWithReply`, `reply_wrapped_lines` in
-`tmuxy-core/src/control_mode/state.rs`). Mutations other than keystrokes are bracketed
+blocks between them (`MonitorCommand::RunCommandWithReply`, `Markers::reply_wrapped_lines`
+in `tmuxy-core/src/control_mode/state/markers.rs`). Each marker carries a token
+drawn at random when the connection's aggregator is made: a capture or a query prints
+whatever a pane shows, so a fixed marker word could be printed by any program, and one
+that closed a capture early once left every new client waiting for a first state that
+never came. A `display-message -p` prints to the control client alone, so no pane's
+output carries the token (tmux's message log keeps it, but only a program with the tmux
+socket can read that, and such a program can run any command anyway). It is hex, which
+neither tmux's parser nor `display-message`'s format and time expansion reads anything
+into. For the same reason the parser closes a block
+only on the `%end`/`%error` that repeats its `%begin`'s time, number and flags (A13 in
+[INVARIANTS.md](INVARIANTS.md)). Mutations other than keystrokes are bracketed
 too, so an `%error` can be attributed to the command that caused it and reported to the
 user instead of being lost in the stream. Nothing a client sends reaches a shell, and no
 per-command `tmux` process is spawned on either transport. The policy for what goes
-where lives once, in `tmuxy-core/src/command_router.rs`, and both transports call it.
+where lives once, in `tmuxy-core/src/command_router.rs`, and both transports call it. It
+reads a client's command the way control mode will: line by line (control mode runs one
+command per line, and an empty line detaches the client, so a blank one is dropped), and
+each line split wherever tmux would split it — a bare `;` as well as `\;`, quotes and
+backslash escapes read as tmux reads them — with a command recognised by its name, its
+alias, and any prefix of its name no other command shares (`resize-w` is
+`resize-window`). A query (`query_tmux`) runs only tmux's reads; anything else goes
+through `run_tmux_command`.
 
 The subprocess calls that remain are in `tmuxy-core/src/session.rs` and
 `control_mode/connection.rs`, and each is needed before any control-mode client exists

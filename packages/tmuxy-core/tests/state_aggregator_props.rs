@@ -55,7 +55,7 @@ fn the_seam_events_reach_every_effect_of_a1() {
     ];
     let mut seen = HashSet::new();
     for ev in script {
-        for effect in agg.step(ev).effects {
+        for effect in agg.step(signed(&agg, ev)).effects {
             seen.insert(effect_kind(&effect));
         }
     }
@@ -198,7 +198,7 @@ proptest! {
     ) {
         let mut agg = seeded_aggregator();
         for ev in runs.into_iter().flatten() {
-            let result = agg.step(ev);
+            let result = agg.step(signed(&agg, ev));
             let ranks: Vec<u8> = result.effects.iter().map(effect_rank).collect();
             prop_assert!(ranks.windows(2).all(|pair| pair[0] <= pair[1]),
                 "effects out of their documented order: {:?}", result.effects);
@@ -318,5 +318,83 @@ proptest! {
         prop_assert!(emit_count <= 1,
             "at most one consolidated EmitState per settling window; got {}",
             emit_count);
+    }
+}
+
+/// What a pane can make a block say: anything, and in particular every
+/// marker's words — bare, with a made-up token, with an id — and tmux-shaped
+/// rows. Pane output reaches the aggregator inside capture and query blocks.
+fn hostile_block() -> impl Strategy<Value = String> {
+    let marker = || {
+        prop::sample::select(vec![
+            "TMUXY_CAP_BEGIN",
+            "TMUXY_CAP_END",
+            "TMUXY_RPY_BEGIN",
+            "TMUXY_RPY_END",
+            "TMUXY_BUF_BEGIN",
+            "TMUXY_BUF_END",
+        ])
+    };
+    prop_oneof![
+        ".{0,40}",
+        (marker(), 0u64..4).prop_map(|(m, id)| format!("{m} {id}")),
+        marker().prop_map(str::to_string),
+        (marker(), "[0-9a-f]{32}", 0u64..4).prop_map(|(m, token, id)| format!("{m} {token} {id}")),
+        Just("%7,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@7,,0,0,0,0,0,10".to_string()),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(128))]
+
+    /// A13: the block after a capture's BEGIN is that pane's capture whatever
+    /// the pane shows, and the capture is no longer pending once it lands —
+    /// a pane showing `TMUXY_CAP_END` once left its capture pending forever,
+    /// and every client's first state waited on it.
+    #[test]
+    fn a_capture_lands_on_its_pane_whatever_the_pane_shows(content in hostile_block()) {
+        let mut agg = seeded_aggregator();
+        let pane: PaneId = "%1".parse().unwrap();
+        prop_assert_eq!(agg.queue_captures(std::slice::from_ref(&pane)), vec![pane.clone()]);
+        agg.step(signed(&agg, response("TMUXY_CAP_BEGIN 1")));
+        let landed = agg.step(response(&content));
+        prop_assert!(
+            matches!(landed.change_type, ChangeType::PaneOutput { ref pane_id } if *pane_id == pane),
+            "the block is %1's capture: {:?}", landed.change_type
+        );
+        agg.step(signed(&agg, response("TMUXY_CAP_END")));
+        prop_assert_eq!(
+            agg.queue_captures(std::slice::from_ref(&pane)), vec![pane],
+            "the capture is no longer pending, so the pane can be captured again"
+        );
+    }
+
+    /// A13: a reply is everything between its own markers. No block a pane
+    /// prints into a query — marker words included — opens another reply,
+    /// closes this one early, or hands it to another caller.
+    #[test]
+    fn a_reply_is_what_lies_between_its_own_markers(
+        id in 1u64..4,
+        body in prop::collection::vec(hostile_block(), 0..6),
+    ) {
+        let mut agg = seeded_aggregator();
+        let mut blocks = vec![signed(&agg, response(&format!("TMUXY_RPY_BEGIN {id}")))];
+        blocks.extend(body.iter().map(|b| response(b)));
+        blocks.push(signed(&agg, response(&format!("TMUXY_RPY_END {id}"))));
+        let mut replies = Vec::new();
+        for block in blocks {
+            for effect in agg.step(block).effects {
+                if let SideEffect::CommandReply { id, output, error } = effect {
+                    replies.push((id, output, error));
+                }
+            }
+        }
+        let expected = body
+            .iter()
+            .filter(|b| !b.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        prop_assert_eq!(replies, vec![(id, expected, None)]);
     }
 }

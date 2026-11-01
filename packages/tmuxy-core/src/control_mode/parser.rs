@@ -126,6 +126,9 @@ pub struct Parser {
     max_response_bytes: usize,
     response_timestamp: u64,
     response_command_num: u32,
+    /// The open block's guard — `%begin`'s time, command number and flags —
+    /// which tmux repeats on the `%end`/`%error` that closes it.
+    response_guard: String,
 }
 
 impl Parser {
@@ -138,6 +141,7 @@ impl Parser {
             max_response_bytes: MAX_RESPONSE_BYTES,
             response_timestamp: 0,
             response_command_num: 0,
+            response_guard: String::new(),
         }
     }
 
@@ -179,21 +183,15 @@ impl Parser {
     fn parse_text(&mut self, line: &str) -> Option<ControlModeEvent> {
         use crate::constants::control_events as ev;
 
-        // Handle command response blocks
-        if line.starts_with(ev::BEGIN) {
-            return self.handle_begin(line);
-        }
-
-        if line.starts_with(ev::END) {
-            return self.handle_end(line, true);
-        }
-
-        if line.starts_with(ev::ERROR) {
-            return self.handle_end(line, false);
-        }
-
-        // If we're in a response block, accumulate the line
+        // Inside a block, every line is the block's body except the `%end` or
+        // `%error` that repeats its `%begin`'s guard. What a command prints —
+        // a `capture-pane` of a pane showing `%end …` or `%exit` — is body:
+        // read as a guard it closed the block early and its remaining lines
+        // reached the notification parser as tmux's own.
         if self.in_response {
+            if let Some(success) = self.closing_guard(line) {
+                return self.handle_end(success);
+            }
             if self.response_overflowed {
                 return None;
             }
@@ -210,53 +208,24 @@ impl Parser {
             return None;
         }
 
+        if line.starts_with(ev::BEGIN) {
+            return self.handle_begin(line);
+        }
+
+        // A stray %end/%error with no matching %begin would otherwise emit a
+        // CommandResponse carrying the previous block's stale timestamp/
+        // command_num and an empty body, which downstream treats as a real
+        // (state-changing) response.
+        if line.starts_with(ev::END) || line.starts_with(ev::ERROR) {
+            return None;
+        }
+
         // Parse notifications (all start with %)
         if !line.starts_with('%') {
             return None;
         }
 
         self.parse_notification(line)
-    }
-
-    fn handle_begin(&mut self, line: &str) -> Option<ControlModeEvent> {
-        // Format: %begin timestamp command-number flags
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 3 {
-            self.in_response = true;
-            self.response_timestamp = parts[1].parse().unwrap_or(0);
-            self.response_command_num = parts[2].parse().unwrap_or(0);
-            self.response_buffer.clear();
-            self.response_has_lines = false;
-            self.response_overflowed = false;
-        }
-        None
-    }
-
-    fn handle_end(&mut self, _line: &str, success: bool) -> Option<ControlModeEvent> {
-        // A stray %end/%error with no matching %begin would otherwise emit a
-        // CommandResponse carrying the previous block's stale timestamp/
-        // command_num and an empty body, which downstream treats as a real
-        // (state-changing) response.
-        if !self.in_response {
-            return None;
-        }
-        let event = if self.response_overflowed {
-            ControlModeEvent::CommandResponse {
-                timestamp: self.response_timestamp,
-                command_num: self.response_command_num,
-                output: format!("reply larger than {} bytes", self.max_response_bytes),
-                success: false,
-            }
-        } else {
-            ControlModeEvent::CommandResponse {
-                timestamp: self.response_timestamp,
-                command_num: self.response_command_num,
-                output: std::mem::take(&mut self.response_buffer),
-                success,
-            }
-        };
-        self.in_response = false;
-        Some(event)
     }
 
     fn parse_notification(&self, line: &str) -> Option<ControlModeEvent> {
@@ -537,6 +506,8 @@ fn clean_message(raw: &str) -> String {
     }
     text
 }
+
+mod block;
 
 #[cfg(test)]
 mod tests;

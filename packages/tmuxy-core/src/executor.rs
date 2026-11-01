@@ -25,7 +25,36 @@ pub(crate) fn command_verb(command: &str) -> &str {
     command.split_whitespace().next().unwrap_or("")
 }
 
-/// Does any command in a (possibly compound) command list use one of `verbs`?
+/// A tmux command the router has a policy for, with every verb tmux runs it
+/// by: its name, its alias, and any prefix of the name no other command
+/// shares — tmux runs `resize-w` as `resize-window`.
+pub struct TmuxCommand {
+    pub name: &'static str,
+    pub alias: &'static str,
+    /// The shortest prefix of `name` that names no other tmux command.
+    pub unique_prefix: &'static str,
+}
+
+pub const RESIZE_WINDOW: TmuxCommand = TmuxCommand {
+    name: "resize-window",
+    alias: "resizew",
+    unique_prefix: "resize-w",
+};
+
+pub const NEW_WINDOW: TmuxCommand = TmuxCommand {
+    name: "new-window",
+    alias: "neww",
+    unique_prefix: "new-w",
+};
+
+impl TmuxCommand {
+    /// Whether tmux runs this command for `verb`.
+    pub fn named_by(&self, verb: &str) -> bool {
+        verb == self.alias || (verb.starts_with(self.unique_prefix) && self.name.starts_with(verb))
+    }
+}
+
+/// Does any command in a (possibly compound) command list run `command`?
 ///
 /// The keyboard actor prepends `select-window -t @N \; select-pane -t %N \;`
 /// to every bound command, so a binding arrives as a compound whose FIRST
@@ -33,10 +62,10 @@ pub(crate) fn command_verb(command: &str) -> &str {
 /// `command.starts_with("<verb>")` silently stops matching the moment a
 /// binding is pinned — the guard is still there, it just never fires again.
 /// Ask about the whole list instead.
-pub fn compound_has_verb(command: &str, verbs: &[&str]) -> bool {
-    split_compound(command)
+pub fn compound_runs(list: &str, command: &TmuxCommand) -> bool {
+    split_compound(list)
         .iter()
-        .any(|part| verbs.contains(&command_verb(part)))
+        .any(|part| command.named_by(command_verb(part)))
 }
 
 /// Rewrite a `new-window` sitting anywhere in a (possibly pinned) command list,
@@ -67,7 +96,7 @@ pub fn rewrite_new_window_in_compound(
             if trimmed.is_empty() {
                 return None;
             }
-            if !found && matches!(command_verb(trimmed), "new-window" | "neww") {
+            if !found && NEW_WINDOW.named_by(command_verb(trimmed)) {
                 found = true;
                 return Some(new_window_rewrite(session, size));
             }
@@ -87,10 +116,11 @@ pub fn rewrite_new_window_in_compound(
 /// This protects control mode from triggering server-level `command-alias` safety traps
 /// configured to block external mutating commands on the tmuxy socket.
 pub fn rewrite_mutating_verbs(command: &str) -> String {
-    if !compound_has_verb(
-        command,
-        &["split-window", "kill-pane", "kill-window", "break-pane"],
-    ) {
+    const LONG_FORMS: [&str; 4] = ["split-window", "kill-pane", "kill-window", "break-pane"];
+    if !split_compound(command)
+        .iter()
+        .any(|part| LONG_FORMS.contains(&command_verb(part)))
+    {
         return command.to_string();
     }
     let parts: Vec<String> = split_compound(command)
@@ -124,31 +154,65 @@ pub fn rewrite_mutating_verbs(command: &str) -> String {
     parts.join(" ; ")
 }
 
-/// Split a compound tmux command on the `\;` separators that are *outside*
-/// quotes.
+/// Split a command list into its commands, where tmux would.
 ///
-/// A plain `cmd.split("\\;")` also splits inside quoted payloads, so
-/// `send-keys -l 'a\;b'` was torn into two bogus commands.
+/// The separators are the ones tmux acts on outside quotes — a bare `;`, the
+/// frontend's `\;` (the monitor turns it into `;`) and a newline, which ends
+/// the control-mode line whatever is open — read the way tmux's parser reads
+/// quotes: nothing escapes inside single quotes, and a backslash escapes the
+/// next character anywhere else. Splitting only on `\;`, and toggling on
+/// every quote, let a policy miss a command tmux then ran:
+/// `display x ; resizew` and `display "\"" \; resizew` both hid the
+/// `resizew` from the router. A plain `cmd.split("\\;")` also splits inside
+/// quoted payloads, so `send-keys -l 'a\;b'` was torn into two bogus
+/// commands.
+///
+/// Where tmux's reading is in doubt (a `;` glued to a word, a `{ … }` block)
+/// this splits: a policy that sees a command too many refuses a command too
+/// many, never runs one it did not see.
 pub(crate) fn split_compound(cmd: &str) -> Vec<String> {
+    #[derive(PartialEq)]
+    enum Quote {
+        None,
+        Single,
+        Double,
+    }
     let mut parts = Vec::new();
     let mut current = String::new();
-    let mut in_single = false;
-    let mut in_double = false;
+    let mut quote = Quote::None;
     let mut chars = cmd.chars().peekable();
 
     while let Some(c) = chars.next() {
-        match c {
-            '\'' if !in_double => {
-                in_single = !in_single;
-                current.push(c);
+        match (&quote, c) {
+            (_, '\n') => {
+                quote = Quote::None;
+                parts.push(std::mem::take(&mut current));
             }
-            '"' if !in_single => {
-                in_double = !in_double;
-                current.push(c);
-            }
-            '\\' if !in_single && !in_double && chars.peek() == Some(&';') => {
+            (Quote::None, ';') => parts.push(std::mem::take(&mut current)),
+            (Quote::None, '\\') if chars.peek() == Some(&';') => {
                 chars.next();
                 parts.push(std::mem::take(&mut current));
+            }
+            (Quote::None | Quote::Double, '\\') => {
+                current.push(c);
+                if let Some(&next) = chars.peek() {
+                    if next != '\n' {
+                        current.push(next);
+                        chars.next();
+                    }
+                }
+            }
+            (Quote::None, '\'') => {
+                quote = Quote::Single;
+                current.push(c);
+            }
+            (Quote::None, '"') => {
+                quote = Quote::Double;
+                current.push(c);
+            }
+            (Quote::Single, '\'') | (Quote::Double, '"') => {
+                quote = Quote::None;
+                current.push(c);
             }
             _ => current.push(c),
         }
@@ -193,27 +257,44 @@ mod tests {
     /// every bound command, so `prefix c` never looked like a `new-window` to a
     /// head-anchored check, and the raw command escaped to an external
     /// subprocess against an attached control-mode client.
+    /// The regression this pair of helpers exists for: the keyboard actor pins
+    /// every bound command, so `prefix c` never looked like a `new-window` to a
+    /// head-anchored check, and the raw command escaped to an external
+    /// subprocess against an attached control-mode client.
     #[test]
-    fn compound_has_verb_sees_past_the_binding_pin() {
+    fn compound_runs_sees_past_the_binding_pin() {
         let pinned =
             "select-window -t @2 \\; select-pane -t %5 \\; new-window -c \"#{pane_current_path}\"";
-        assert!(compound_has_verb(pinned, &["new-window", "neww"]));
-        assert!(compound_has_verb("neww", &["new-window", "neww"]));
+        assert!(compound_runs(pinned, &NEW_WINDOW));
+        assert!(compound_runs("neww", &NEW_WINDOW));
         // A pane pin alone (an overlay binding) is still seen through.
-        assert!(compound_has_verb(
-            "select-pane -t %5 \\; neww",
-            &["new-window", "neww"]
-        ));
+        assert!(compound_runs("select-pane -t %5 \\; neww", &NEW_WINDOW));
         // No false positives: `new-window` as an argument is not a verb, and a
         // different command with the same prefix does not count.
-        assert!(!compound_has_verb(
+        assert!(!compound_runs(
             "select-pane -t %5 \\; split-window -h",
-            &["new-window", "neww"]
+            &NEW_WINDOW
         ));
-        assert!(!compound_has_verb(
-            "send-keys -l 'new-window'",
-            &["new-window", "neww"]
-        ));
+        assert!(!compound_runs("send-keys -l 'new-window'", &NEW_WINDOW));
+        assert!(!compound_runs("new-session -d", &NEW_WINDOW));
+    }
+
+    /// tmux runs any prefix of a command's name no other command shares, so
+    /// a policy that knew only the name and the alias missed `resize-w`.
+    #[test]
+    fn a_command_is_seen_under_every_name_tmux_runs_it_by() {
+        for verb in ["resize-window", "resizew", "resize-w", "resize-win"] {
+            assert!(RESIZE_WINDOW.named_by(verb), "{verb}");
+        }
+        for verb in ["resize-", "resize-pane", "resizep", "resize-windows"] {
+            assert!(!RESIZE_WINDOW.named_by(verb), "{verb}");
+        }
+        for verb in ["new-window", "neww", "new-w", "new-wi"] {
+            assert!(NEW_WINDOW.named_by(verb), "{verb}");
+        }
+        for verb in ["new", "new-", "new-session", "news"] {
+            assert!(!NEW_WINDOW.named_by(verb), "{verb}");
+        }
     }
 
     #[test]
@@ -275,5 +356,34 @@ mod tests {
                 " selectp -t %1".to_string()
             ]
         );
+    }
+
+    /// Every separator tmux acts on splits, read with tmux's quoting: a bare
+    /// `;`, a newline, and a quote a backslash escaped does not open or close
+    /// anything. Each of these hid a `resizew` from the router.
+    #[test]
+    fn split_compound_splits_where_tmux_does() {
+        let verbs = |cmd: &str| -> Vec<String> {
+            split_compound(cmd)
+                .iter()
+                .map(|part| command_verb(part).to_string())
+                .filter(|verb| !verb.is_empty())
+                .collect()
+        };
+        assert_eq!(verbs("display x ; resizew -x 1"), ["display", "resizew"]);
+        assert_eq!(verbs("display x\nresizew -x 1"), ["display", "resizew"]);
+        assert_eq!(
+            verbs("display \"\\\"\" \\; resizew"),
+            ["display", "resizew"]
+        );
+        assert_eq!(verbs("display \\' \\; resizew"), ["display", "resizew"]);
+        assert_eq!(
+            verbs("display 'it'\\''s' ; resizew"),
+            ["display", "resizew"]
+        );
+        // An open quote does not survive the end of the line.
+        assert_eq!(verbs("display 'x\nresizew"), ["display", "resizew"]);
+        // Quoted separators stay payload.
+        assert_eq!(verbs("display 'a ; b' \"c ; d\" \"e\\\";f\""), ["display"]);
     }
 }

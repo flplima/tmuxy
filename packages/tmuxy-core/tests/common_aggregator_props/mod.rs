@@ -1,5 +1,8 @@
 use proptest::prelude::*;
-use tmuxy_core::control_mode::{ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{
+    ControlModeEvent, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER,
+    CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+};
 
 /// Generate a synthetic `Output` event with a small randomised payload.
 /// Pane id values are biased to a small pool so the aggregator actually has
@@ -58,6 +61,43 @@ pub fn response(output: &str) -> ControlModeEvent {
     }
 }
 
+/// `event` as `agg`'s connection would carry it: a block that starts with a
+/// marker's name (what the strategies here generate, unsigned) gets `agg`'s
+/// token after the name, as the aggregator's own marker commands print it.
+pub fn signed(agg: &StateAggregator, event: ControlModeEvent) -> ControlModeEvent {
+    let ControlModeEvent::CommandResponse {
+        timestamp,
+        command_num,
+        output,
+        success,
+    } = event
+    else {
+        return event;
+    };
+    let markers = [
+        REPLY_BEGIN_MARKER,
+        REPLY_END_MARKER,
+        CAPTURE_BEGIN_MARKER,
+        CAPTURE_END_MARKER,
+        BUFFER_BEGIN_MARKER,
+        BUFFER_END_MARKER,
+    ];
+    let output = markers
+        .iter()
+        .find_map(|marker| {
+            let rest = output.strip_prefix(marker)?;
+            (rest.is_empty() || rest.starts_with([' ', '\n']))
+                .then(|| format!("{}{rest}", agg.markers().tag(marker)))
+        })
+        .unwrap_or(output);
+    ControlModeEvent::CommandResponse {
+        timestamp,
+        command_num,
+        output,
+        success,
+    }
+}
+
 /// A pane the aggregator knows (`%0`, `%1`, `%2` in window `@0`, `%2` in copy
 /// mode), the window active with `%0` focused — what an attached monitor has
 /// after its initial sync, and what the output, clipboard, image, paste
@@ -84,7 +124,7 @@ pub fn seeded_aggregator() -> StateAggregator {
 }
 
 /// Events that reach every effect of A1, as short runs (a reply is its three
-/// blocks): plain and clipboard-writing output, window adds and closes (the
+/// blocks, its markers unsigned — feed them through `signed`): plain and clipboard-writing output, window adds and closes (the
 /// adopt and the re-list), focus changes, reply markers, the pane-title
 /// subscription (a pane refresh) and flow control (a resume).
 pub fn seam_event_strategy() -> impl Strategy<Value = Vec<ControlModeEvent>> {
