@@ -154,6 +154,19 @@ _is_safe_session_name() {
   [[ "$name" =~ ^[A-Za-z0-9_@+-]+$ ]]
 }
 
+# The first name in $1 (one per line, as `list-sessions -F '#{session_name}'`
+# prints them) that is a safe session name and not the stash of parked group
+# members, which sorts before real sessions. Prints nothing when none is.
+_first_safe_session() {
+  local name
+  while IFS= read -r name; do
+    if [ "$name" != "$STASH_SESSION" ] && _is_safe_session_name "$name"; then
+      printf '%s' "$name"
+      return 0
+    fi
+  done <<<"$1"
+}
+
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
 # the pane whose process is an ancestor of this one. TMUX_PANE is only an
 # environment variable, so anything can claim any pane with it; what the

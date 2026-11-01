@@ -468,15 +468,14 @@ cmd_connect() {
   case "$socket" in */*) target_flag="-S" ;; esac
 
   # Resolve the session when the caller didn't name one: prefer the target
-  # server's first existing session, otherwise fall back to `tmuxy` (which the
-  # app creates on attach). Querying the target socket directly is read-only
-  # and safe even though it's a different server.
+  # server's first existing session with a safe name (`_first_safe_session`),
+  # otherwise fall back to `tmuxy` (which the app creates on attach). Querying
+  # the target socket directly is read-only and safe even though it's a
+  # different server.
   if [ -z "$session" ]; then
     # `|| true` so a missing/empty target server (list-sessions exits non-zero)
-    # doesn't trip `set -e`/pipefail; fall back to `tmuxy`.
-    # Skip the hidden __tmuxy_stash session (it parks group members and sorts
-    # before real sessions, so a naive `head -1` would attach to it).
-    session="$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null | grep -vFx '__tmuxy_stash' | head -1 || true)"
+    # doesn't trip `set -e`; fall back to `tmuxy`.
+    session="$(_first_safe_session "$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
     [ -z "$session" ] && session="tmuxy"
   fi
 

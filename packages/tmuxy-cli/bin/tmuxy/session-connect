@@ -181,8 +181,7 @@ fi
 rm -f "$sess_err_file"
 
 if [ -z "$session_name" ] && [ -n "$sessions_out" ]; then
-  session_name=$(printf '%s\n' "$sessions_out" | awk -v stash="$STASH_SESSION" '$0 != "" && $0 != stash { print $0; exit }')
-  _is_safe_session_name "$session_name" || session_name=""
+  session_name="$(_first_safe_session "$sessions_out")"
 fi
 echo "✓ listing sessions"
 
