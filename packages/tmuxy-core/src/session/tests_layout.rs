@@ -426,6 +426,40 @@ fn the_mirror_is_marked_generated_and_skips_a_link() {
     assert_eq!(tree(&s.layout.data), before);
 }
 
+/// The old header goes line for line; a comment the user wrote right under
+/// it, or one in a file that has nothing but comments past the template, is
+/// theirs and stays.
+#[test]
+fn the_old_header_goes_and_the_users_comments_under_it_stay() {
+    let notes = "# C-Space is for tmux, C-a for the shell\n# set -g @tmuxy-theme nord\n";
+    let conf = V014_CONF.replacen("via the UI).\n", &format!("via the UI).\n{notes}"), 1);
+    assert_ne!(conf, V014_CONF);
+    let (cleaned, blocks) = clean_user_conf(&conf);
+    assert_eq!(
+        blocks,
+        [
+            StaleBlock::OldHeader,
+            StaleBlock::DefaultsSourceLine,
+            StaleBlock::ExamplesBlock
+        ]
+    );
+    assert_eq!(cleaned, format!("{DEFAULT_USER_CONF}\n{notes}"));
+    assert!(!cleaned.contains("Tmuxy User Configuration"));
+
+    let header = V014_CONF.split("\n\n").next().unwrap();
+    let (cleaned, blocks) = clean_user_conf(&format!("{header}\n\n{notes}"));
+    assert_eq!(blocks, [StaleBlock::OldHeader]);
+    assert_eq!(cleaned, format!("{DEFAULT_USER_CONF}\n{notes}"));
+
+    let edited = conf.replacen("# Tmuxy never overwrites", "# I overwrite", 1);
+    let (cleaned, blocks) = clean_user_conf(&edited);
+    assert!(
+        !blocks.contains(&StaleBlock::OldHeader),
+        "an edited header is the user's"
+    );
+    assert!(cleaned.contains("# I overwrite") && cleaned.contains(notes));
+}
+
 #[test]
 fn a_conf_with_nothing_stale_is_left_as_it_is() {
     let conf = "set -g prefix C-Space\nbind -n C-Tab next-window\n";

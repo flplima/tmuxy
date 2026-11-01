@@ -40,8 +40,43 @@ const OLD_README_FIRST_LINE: &str = "# Personalizing tmuxy";
 pub(super) const OLD_BUILT_IN_THEME_HEADER: &str =
     "/* Shipped by tmuxy and rewritten on every launch — copy this file to a new name to customize it. */\n";
 
-/// The first line of the `tmuxy.conf` template every older build wrote.
-const OLD_HEADER_FIRST_LINE: &str = "# Tmuxy User Configuration";
+/// The header of the `tmuxy.conf` template older builds wrote, line for line:
+/// 0.1.x's, whose advice (edit `tmuxy.state.json` to pin a theme) no longer
+/// holds, and the earlier one that named `tmuxy.state.conf`. Only these exact
+/// lines go: a comment the user wrote, under the header or in place of a line
+/// of it, is theirs.
+const OLD_HEADERS: [&[&str]; 2] = [
+    &[
+        "# Tmuxy User Configuration",
+        "#",
+        "# This file is yours. Edit it to override defaults, add custom bindings, etc.",
+        "# Tmuxy never overwrites this file once it's been created.",
+        "#",
+        "# Layout:",
+        "#   1. tmuxy.defaults.conf is sourced first (shipped with the app, refreshed",
+        "#      on every launch — never edit it directly).",
+        "#   2. Your customizations below this block override the defaults.",
+        "#",
+        "# Note: UI selections (theme, theme mode) are stored in tmuxy.state.json",
+        "# next to this file and re-applied to tmux by the app on every startup —",
+        "# not via source-file. The state is applied AFTER this conf is sourced,",
+        "# so a UI choice always wins over a hand-set `set -g @tmuxy-theme` here.",
+        "# If you want to permanently hard-pin a value, edit tmuxy.state.json",
+        "# directly (or never change it via the UI).",
+    ],
+    &[
+        "# Tmuxy User Configuration",
+        "#",
+        "# This file is yours. Edit it to override defaults, add custom bindings, etc.",
+        "# Tmuxy never overwrites this file once it's been created.",
+        "#",
+        "# Layout:",
+        "#   1. tmuxy.defaults.conf is sourced first (shipped with the app, refreshed",
+        "#      on every launch — never edit it directly).",
+        "#   2. Your customizations below this block override the defaults.",
+        "#   3. tmuxy.state.conf is sourced last (app-managed; theme selection, etc.).",
+    ],
+];
 
 /// The comment the 0.0.x upgrade wrote above the Ctrl+Tab bindings it
 /// appended to an existing `tmuxy.conf`.
@@ -292,13 +327,15 @@ pub fn clean_user_conf(text: &str) -> (String, Vec<StaleBlock>) {
     let mut keep = vec![true; lines.len()];
     let mut found = Vec::new();
 
-    if lines.first().map(|l| l.trim()) == Some(OLD_HEADER_FIRST_LINE) {
-        for (i, line) in lines.iter().enumerate() {
-            if !is_comment_or_blank(line) {
-                break;
-            }
-            keep[i] = false;
-        }
+    let header = OLD_HEADERS.iter().find(|header| {
+        lines.len() >= header.len()
+            && lines
+                .iter()
+                .zip(header.iter())
+                .all(|(line, h)| line.trim_end() == *h)
+    });
+    if let Some(header) = header {
+        keep[..header.len()].iter_mut().for_each(|k| *k = false);
         found.push(StaleBlock::OldHeader);
     }
 
