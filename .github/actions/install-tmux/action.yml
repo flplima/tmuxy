@@ -34,8 +34,8 @@ runs:
         TMUX_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends libevent-dev libncurses-dev bison
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" update
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends libevent-dev libncurses-dev bison
         v="$TMUX_VERSION"
         curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
         cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install
