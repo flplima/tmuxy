@@ -42,7 +42,7 @@ impl ImageParser {
                 stretch = true;
             }
         }
-        if !inline {
+        if !inline || base64_data.len() > MAX_CHUNKED_IMAGE {
             return Some((end, None));
         }
 
@@ -50,7 +50,9 @@ impl ImageParser {
         if decoded.is_empty() {
             return Some((end, None));
         }
-        let mime_type = detect_mime_type(&decoded);
+        let Some(mime_type) = detect_mime_type(&decoded) else {
+            return Some((end, None));
+        };
 
         if width_cells == 0 {
             width_cells = 40;
@@ -76,7 +78,7 @@ impl ImageParser {
                 id,
                 StoredImage {
                     data: decoded,
-                    mime_type,
+                    mime_type: mime_type.to_string(),
                 },
             )),
         ))
@@ -483,45 +485,19 @@ pub(super) fn base64_decode(input: &str) -> Vec<u8> {
     Vec::new()
 }
 
-/// Detect MIME type from the magic bytes of a buffer.
-pub(super) fn detect_mime_type(data: &[u8]) -> String {
+/// Detect a raster image MIME type from known magic bytes. Non-image payloads
+/// (HTML, SVG, arbitrary octet streams) are rejected so they can never be
+/// served back from the app's image endpoints.
+pub(super) fn detect_mime_type(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(b"\x89PNG") {
-        "image/png".to_string()
+        Some("image/png")
     } else if data.starts_with(b"\xFF\xD8\xFF") {
-        "image/jpeg".to_string()
+        Some("image/jpeg")
     } else if data.starts_with(b"GIF8") {
-        "image/gif".to_string()
+        Some("image/gif")
     } else if data.starts_with(b"RIFF") && data.len() >= 12 && &data[8..12] == b"WEBP" {
-        "image/webp".to_string()
+        Some("image/webp")
     } else {
-        "application/octet-stream".to_string()
+        None
     }
-}
-
-/// Encode raw RGB(format=24) or RGBA(format=32) pixel data as a PNG byte
-/// buffer. Returns `None` if the dimensions don't match the payload length.
-pub(super) fn rgba_to_png(pixels: &[u8], format: u32, width: u32, height: u32) -> Option<Vec<u8>> {
-    if width == 0 || height == 0 {
-        return None;
-    }
-    let (channels, color) = match format {
-        24 => (3usize, png::ColorType::Rgb),
-        32 => (4usize, png::ColorType::Rgba),
-        _ => return None,
-    };
-    let expected = (width as usize)
-        .checked_mul(height as usize)?
-        .checked_mul(channels)?;
-    if pixels.len() < expected {
-        return None;
-    }
-    let mut out = Vec::with_capacity(pixels.len() / 2);
-    {
-        let mut encoder = png::Encoder::new(&mut out, width, height);
-        encoder.set_color(color);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().ok()?;
-        writer.write_image_data(&pixels[..expected]).ok()?;
-    }
-    Some(out)
 }

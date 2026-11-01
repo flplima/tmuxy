@@ -45,6 +45,13 @@ const { TMUXY_PORT, TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
 async function serverSocketPath() {
   const stream = new AbortController();
   try {
+    // Explicitly ensure the default session exists before opening `/events`
+    // (`GET /events` attaches only to an existing session).
+    await fetch(`${TMUXY_URL}/commands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'ensure_session', args: {} }),
+    }).catch(() => {});
     // Deliberately not awaited to completion: an SSE stream never ends. The
     // response resolving is the connection being accepted; the monitor comes up
     // a moment later, which is what the retry below waits for.

@@ -1,6 +1,7 @@
 use axum::{
+    body::Body,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -37,6 +38,26 @@ pub(super) fn command_failure(status: StatusCode, error: CommandError) -> Respon
     (status, Json(error)).into_response()
 }
 
+/// Maximum request body accepted on `POST /commands` (2 MiB).
+const COMMANDS_MAX_BYTES: usize = 2 * 1024 * 1024;
+/// Maximum request body accepted on `POST /trace` (256 KiB).
+const TRACE_MAX_BYTES: usize = 256 * 1024;
+
+/// Require a single `Content-Type: application/json` header (with optional
+/// parameters such as `; charset=utf-8`) so HTML `<form>` submissions and
+/// no-preflight `text/plain` fetches are refused even without Fetch Metadata.
+fn has_json_content_type(headers: &HeaderMap) -> bool {
+    let mut values = headers.get_all(header::CONTENT_TYPE).iter();
+    match (values.next(), values.next()) {
+        (Some(only), None) => only
+            .to_str()
+            .ok()
+            .and_then(|ct| ct.split(';').next())
+            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json")),
+        _ => false,
+    }
+}
+
 // ============================================
 // Commands Handler (POST /commands)
 // ============================================
@@ -45,11 +66,23 @@ pub async fn commands_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<SessionQuery>,
     headers: HeaderMap,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Response {
     let session = match query.session() {
         Ok(session) => session,
         Err(rejection) => return rejection.into_command_failure(),
+    };
+    if !has_json_content_type(&headers) {
+        return command_failure(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            CommandError::invalid("Content-Type must be application/json"),
+        );
+    }
+    let Ok(body) = axum::body::to_bytes(body, COMMANDS_MAX_BYTES).await else {
+        return command_failure(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            CommandError::invalid("command payload too large"),
+        );
     };
 
     // Connection ID from the header. Every SSE client is handed its own id in
@@ -81,6 +114,19 @@ pub async fn commands_handler(
         }
     };
 
+    if matches!(cmd, ClientCommand::EnsureSession) {
+        return match super::clients::ensure_session(&state, &session).await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(CommandResponse {
+                    result: serde_json::json!(null),
+                }),
+            )
+                .into_response(),
+            Err(rejection) => rejection.into_command_failure(),
+        };
+    }
+
     match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
@@ -100,7 +146,13 @@ const TRACE_MAX_EVENTS: usize = 1000;
 /// body is dropped regardless of what the client believes, so a stale client
 /// flag can never reopen the sink. Every event is re-sanitized server-side
 /// (`trace::record_client_event`) before it touches the file.
-pub async fn trace_handler(body: axum::body::Bytes) -> StatusCode {
+pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
+    if !has_json_content_type(&headers) {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE;
+    }
+    let Ok(body) = axum::body::to_bytes(body, TRACE_MAX_BYTES).await else {
+        return StatusCode::PAYLOAD_TOO_LARGE;
+    };
     if !tmuxy_core::trace::is_enabled() {
         return StatusCode::NO_CONTENT;
     }
@@ -238,5 +290,11 @@ pub(super) async fn handle_command(
             session: session_override,
         } => handle_connect_server(id, session_override).await,
         ClientCommand::DetachClient => Ok(serde_json::json!(null)),
+        ClientCommand::EnsureSession => {
+            match super::clients::ensure_session(state, session).await {
+                Ok(()) => Ok(serde_json::json!(null)),
+                Err(rejection) => Err(CommandError::invalid(rejection.message())),
+            }
+        }
     }
 }

@@ -247,15 +247,19 @@ cmd_session() {
       # `--run` starts every pane's saved command without offering it first.
       # A person at a terminal can say so; a script or an agent, with no
       # terminal, gets the restore with each command offered instead.
-      local quoted="" arg
+      local quoted="" arg stdin_tty="" tty_redir=""
       for arg in "$@"; do
-        if [ "$arg" = "--run" ] && ! [ -t 0 ]; then
-          _fail "$EXIT_USAGE" "--run needs a terminal; without it each command is offered in its pane"
+        if [ "$arg" = "--run" ]; then
+          if ! [ -t 0 ]; then
+            _fail "$EXIT_USAGE" "--run needs a terminal; without it each command is offered in its pane"
+          fi
+          stdin_tty="$(tty 2>/dev/null || true)"
         fi
         quoted="$quoted $(shquote "$arg")"
       done
+      [ -z "$stdin_tty" ] || [ ! -c "$stdin_tty" ] || tty_redir=" < $(shquote "$stdin_tty")"
       find_server_cmd
-      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted"
+      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted$tty_redir"
       _done
       ;;
 
@@ -452,20 +456,26 @@ cmd_connect() {
   local socket="$1"
   local session="${2:-}"
 
+  if ! _is_safe_socket "$socket"; then
+    _fail "$EXIT_USAGE" "'$socket' is not a valid tmux socket name or absolute path"
+  fi
+  if [ -n "$session" ] && ! _is_safe_session_name "$session"; then
+    _fail "$EXIT_USAGE" "'$session' is not a valid tmux session name"
+  fi
+
   # Target socket flag: a slash means a full socket path (-S), else a name (-L).
   local target_flag="-L"
   case "$socket" in */*) target_flag="-S" ;; esac
 
   # Resolve the session when the caller didn't name one: prefer the target
-  # server's first existing session, otherwise fall back to `tmuxy` (which the
-  # app creates on attach). Querying the target socket directly is read-only
-  # and safe even though it's a different server.
+  # server's first existing session with a safe name (`_first_safe_session`),
+  # otherwise fall back to `tmuxy` (which the app creates on attach). Querying
+  # the target socket directly is read-only and safe even though it's a
+  # different server.
   if [ -z "$session" ]; then
     # `|| true` so a missing/empty target server (list-sessions exits non-zero)
-    # doesn't trip `set -e`/pipefail; fall back to `tmuxy`.
-    # Skip the hidden __tmuxy_stash session (it parks group members and sorts
-    # before real sessions, so a naive `head -1` would attach to it).
-    session="$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null | grep -vFx '__tmuxy_stash' | head -1 || true)"
+    # doesn't trip `set -e`; fall back to `tmuxy`.
+    session="$(_first_safe_session "$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
     [ -z "$session" ] && session="tmuxy"
   fi
 

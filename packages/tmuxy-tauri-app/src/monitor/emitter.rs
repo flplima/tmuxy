@@ -208,10 +208,21 @@ impl StateEmitter for TauriEmitter {
 /// The reads and the clears ride the first window's control-mode connection,
 /// so the watch only looks while that connection is live — during startup or
 /// a reconnect there is nothing to read from, and nothing it could clear.
+/// Ignore `TMUXY_CONNECT_*` global environment polling while attached to a
+/// remote SSH tmux server so an untrusted process on that remote machine cannot
+/// redirect the local desktop app onto a local socket or spawn an outbound SSH
+/// connection from the user's workstation.
+fn may_poll_connect_env(on_remote_ssh: bool) -> bool {
+    !on_remote_ssh
+}
+
 pub async fn poll_connect_requests(monitor_state: MonitorState) {
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         tick.tick().await;
+        if !may_poll_connect_env(tmuxy_core::session::ssh_target().is_some()) {
+            continue;
+        }
         let Some(tx) = monitor_state.tx() else {
             continue;
         };
@@ -417,5 +428,11 @@ mod tests {
                 "{path} must not resolve"
             );
         }
+    }
+
+    #[test]
+    fn remote_ssh_server_cannot_drive_local_connect_polling() {
+        assert!(super::may_poll_connect_env(false));
+        assert!(!super::may_poll_connect_env(true));
     }
 }

@@ -296,16 +296,13 @@ pub async fn read_preview(
     .map_err(|e| CommandError::unavailable(format!("preview read task failed: {e}")))?
 }
 
-/// Stage `html` as `pane`'s page, as both transports do it: only for a pane
-/// tmux says is previewing an HTML document, and with that preview's network
-/// permission, never one the client claims.
-pub async fn stage_page(
+/// Whether `pane` previews an HTML document that still resolves as `read_preview`
+/// accepts it; returns its `--net` permission.
+pub async fn html_authorisation(
     tx: &MonitorCommandSender,
-    pages: &PreviewPages,
-    pane: PaneId,
-    html: String,
-) -> Result<(), CommandError> {
-    let auth = authorisation(tx, &pane).await?;
+    pane: &PaneId,
+) -> Result<bool, CommandError> {
+    let auth = authorisation(tx, pane).await?;
     let (_, kind) = tokio::task::spawn_blocking({
         let doc = auth.document.clone();
         move || resolve_document(&doc)
@@ -315,7 +312,20 @@ pub async fn stage_page(
     if kind != DocumentKind::Html {
         return Err(CommandError::forbidden("this pane's preview is not a page"));
     }
-    pages.stage(pane, html, auth.net)
+    Ok(auth.net)
+}
+
+/// Stage `html` as `pane`'s page, as both transports do it: only for a pane
+/// tmux says is previewing an HTML document, and with that preview's network
+/// permission, never one the client claims.
+pub async fn stage_page(
+    tx: &MonitorCommandSender,
+    pages: &PreviewPages,
+    pane: PaneId,
+    html: String,
+) -> Result<(), CommandError> {
+    let net = html_authorisation(tx, &pane).await?;
+    pages.stage(pane, html, net)
 }
 
 /// The headers a staged page is served with, wherever it is served from.

@@ -94,7 +94,7 @@ pub fn run(args: TraceViewArgs) {
         Some(out) => {
             let trace = to_chrome_trace(&events);
             let bytes = serde_json::to_vec_pretty(&trace).unwrap_or_default();
-            match std::fs::write(&out, bytes) {
+            match tmuxy_core::private_files::write(Path::new(&out), bytes) {
                 Ok(()) => println!(
                     "wrote {} events → {} (open at ui.perfetto.dev)",
                     events.len(),
@@ -133,7 +133,7 @@ fn resolve_path(file: Option<String>) -> Option<PathBuf> {
 fn default_trace_path() -> PathBuf {
     let path = tmuxy_core::paths::trace_file();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        let _ = tmuxy_core::private_files::create_dir_all(dir);
     }
     path
 }
@@ -153,10 +153,7 @@ fn append_marker(path: &Path, label: &str) -> Result<(), String> {
         "label": safe, "ts_wall": now
     })
     .to_string();
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
+    let mut file = tmuxy_core::private_files::open_append(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     writeln!(file, "{line}").map_err(|e| e.to_string())
 }

@@ -52,10 +52,10 @@ The frontend reaches tmux through one Effect service, `TmuxTransport` (`tmuxy-ui
 
 ## Connection Lifecycle (Web)
 
-1. Client opens SSE connection: `GET /events?session=<name>`
+1. Client opens SSE connection: `GET /events?session=<name>`. The stream only attaches: for a session tmux does not have it answers `404`, and the client asks for it with `ensure_session` (`POST /commands`), which creates it under the server's session cap, then opens the stream again (`probeRefusalReason` in `tmuxy-ui/src/infra/transport/drivers/httpStream.ts`)
 2. Server assigns a unique `connection_id`
 3. Server checks if a `TmuxMonitor` exists for the session:
-   - **No monitor:** Spawns a new monitor (connects `tmux -CC`), stores handle in `SessionConnections`
+   - **No monitor:** Spawns a new monitor (connects `tmux -CC` to the existing session), stores handle in `SessionConnections`
    - **Has monitor:** Subscribes to the existing broadcast channel and replays from the ring buffer if the client supplied a `Last-Event-Id`
 4. Client receives `connection-info` event with connection ID and default shell
 5. Client sends `get_initial_state` (via HTTP POST) with its viewport size (cols, rows)

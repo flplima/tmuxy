@@ -129,6 +129,27 @@ async fn apply_stops_at_the_first_failure() {
     assert_eq!(result.unwrap_err().to_string(), "tmux error: no");
 }
 
+#[tokio::test]
+async fn parse_and_apply_refuse_unsafe_session_names() {
+    for bad in ["-bad", "a:b", "a\nb", "../escape"] {
+        let json = format!(
+            "{{\"version\":{SNAPSHOT_VERSION},\"session\":{},\"saved_at\":1,\"windows\":[]}}",
+            serde_json::to_string(bad).unwrap()
+        );
+        assert!(
+            matches!(parse(&json), Err(SnapshotError::Unreadable(_))),
+            "{bad:?} should fail parse"
+        );
+        let mut snap = fixture();
+        snap.session = bad.to_string();
+        let res = apply(&snap, &RestoreOptions::default(), |_| {
+            std::future::ready(Ok(String::new()))
+        })
+        .await;
+        assert!(res.is_err(), "{bad:?} should fail apply");
+    }
+}
+
 #[test]
 fn assemble_ties_panes_to_windows_and_parents_to_indices() {
     let windows = parse_windows(

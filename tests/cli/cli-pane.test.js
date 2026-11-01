@@ -301,12 +301,16 @@ describe('CLI pane subcommands', () => {
     test('pastes text into the caller’s own pane', () => {
       const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world'], { env: IN_PANE_1 });
       expect(exitCode).toBe(0);
-      // load-buffer first, then run-shell pasteb, bracketed if the pane asked
+      // load-buffer first (per-PID buffer name), then run-shell pasteb
       const load = tmuxCalls.findIndex((call) => call.args[0] === 'load-buffer');
-      expect(tmuxCalls[load].args).toEqual(['load-buffer', '-b', 'tmuxy-cli-paste', '-']);
+      expect(tmuxCalls[load].args[0]).toBe('load-buffer');
+      expect(tmuxCalls[load].args[1]).toBe('-b');
+      expect(tmuxCalls[load].args[2]).toMatch(/^tmuxy-cli-paste-\d+$/);
+      expect(tmuxCalls[load].args[3]).toBe('-');
+      const bufName = tmuxCalls[load].args[2];
       expect(tmuxCalls[load + 1].args).toEqual([
         'run-shell',
-        "TMUX_PANE=%1 tmux -L tmuxy pasteb -p -d -b tmuxy-cli-paste -t '%1'",
+        `TMUX_PANE=%1 tmux -L tmuxy pasteb -p -d -b ${bufName} -t '%1'`,
       ]);
     });
 
@@ -324,7 +328,7 @@ describe('CLI pane subcommands', () => {
     /**
      * Any spelling of the end marker would end a bracketed paste early and
      * run what follows it, so the text loses every control but tab, LF and
-     * CR. The buffer gets one trailing newline from `load-buffer`'s input.
+     * CR, without appending an extra trailing newline.
      */
     test.each([
       ['markers nested in each other', 'a\x1b[20\x1b[201~1~\nid', 'a[20[201~1~\nid'],
@@ -339,7 +343,7 @@ describe('CLI pane subcommands', () => {
         env: { ...IN_PANE_1, MOCK_TMUX_BUFFER_FILE: buffer },
       });
       expect(exitCode).toBe(0);
-      expect(fs.readFileSync(buffer, 'utf8')).toBe(`${pasted}\n`);
+      expect(fs.readFileSync(buffer, 'utf8')).toBe(pasted);
     });
 
     test('a text of nothing but controls pastes nothing and asks nothing', () => {

@@ -114,6 +114,15 @@ if [ -z "$target_socket" ]; then
   fi
 fi
 
+if ! _is_safe_socket "$target_socket"; then
+  echo "Error: '$target_socket' is not a valid tmux socket name or absolute path" >&2
+  exit 1
+fi
+if [ -n "$session_name" ] && ! _is_safe_session_name "$session_name"; then
+  echo "Error: '$session_name' is not a valid tmux session name" >&2
+  exit 1
+fi
+
 case "$target_socket" in
   */*) target_sock_flag="-S" ;;
   *) target_sock_flag="-L" ;;
@@ -172,7 +181,7 @@ fi
 rm -f "$sess_err_file"
 
 if [ -z "$session_name" ] && [ -n "$sessions_out" ]; then
-  session_name=$(printf '%s\n' "$sessions_out" | awk -v stash="$STASH_SESSION" '$0 != "" && $0 != stash { print $0; exit }')
+  session_name="$(_first_safe_session "$sessions_out")"
 fi
 echo "✓ listing sessions"
 
@@ -187,7 +196,7 @@ save_server_entry() {
   local file="$state_dir/servers.json"
   local now
   now=$(date +%s)
-  mkdir -p "$state_dir"
+  mkdir -m 700 -p "$state_dir"
   local id label kind host user
   if $is_remote; then
     id="ssh-$(slugify "$dest")-$(slugify "$target_socket")"
@@ -226,7 +235,7 @@ save_server_entry() {
         else
           {id: $id, label: $label, kind: $kind, socket: $socket, last_used: $last_used}
         end
-      ]' > "$file.tmp" 2>/dev/null && mv "$file.tmp" "$file" || rm -f "$file.tmp"
+      ]' | (umask 077 && cat > "$file.tmp") 2>/dev/null && mv "$file.tmp" "$file" || rm -f "$file.tmp"
   fi
 }
 

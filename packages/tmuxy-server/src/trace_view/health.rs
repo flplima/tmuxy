@@ -287,10 +287,11 @@ pub(super) fn github_annotations(events: &[Map<String, Value>]) -> String {
         .filter(|ev| ev.get("layer").and_then(Value::as_str) == Some("marker"))
         .count();
     for pane in &silent {
-        // Annotation text is one line; `%` must be escaped as `%25`.
+        // Annotation text is one line; `%`, `\r`, and `\n` must be percent-escaped
+        // so marker/pane labels cannot inject GitHub Actions workflow commands.
         out.push_str(&format!(
             "::warning title=Silent shell pane::{}\n",
-            pane.describe().replace('%', "%25")
+            escape_github_workflow_data(&pane.describe())
         ));
     }
     out.push_str(&format!(
@@ -300,4 +301,10 @@ pub(super) fn github_annotations(events: &[Map<String, Value>]) -> String {
         silent.len()
     ));
     out
+}
+
+pub(super) fn escape_github_workflow_data(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
 }

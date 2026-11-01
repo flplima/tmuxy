@@ -141,16 +141,62 @@ async fn a_page_on_another_origin_cannot_post_a_command() {
 
 #[tokio::test]
 async fn the_app_itself_reaches_the_handler() {
-    // An empty body gets past the guard and is refused by the handler's
-    // decoder — a 400, not the guard's 403.
+    // An empty JSON body gets past the guard and content-type check, then is
+    // refused by the handler's decoder — a 400, not the guard's 403 or 415.
     let request = Request::post("/commands")
         .header("host", "localhost:9000")
         .header("origin", "http://localhost:9000")
         .header("sec-fetch-site", "same-origin")
+        .header("content-type", "application/json")
         .body(Body::empty())
         .unwrap();
     let response = app().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn commands_and_trace_reject_non_json_content_types() {
+    for target in ["/commands", "/trace"] {
+        let missing_ct = Request::post(target)
+            .header("host", "localhost:9000")
+            .header("origin", "http://localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .body(Body::from("{}"))
+            .unwrap();
+        let response = app().oneshot(missing_ct).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "{target} accepted missing Content-Type"
+        );
+
+        let form_ct = Request::post(target)
+            .header("host", "localhost:9000")
+            .header("origin", "http://localhost:9000")
+            .header("sec-fetch-site", "same-origin")
+            .header("content-type", "text/plain")
+            .body(Body::from("{}"))
+            .unwrap();
+        let response = app().oneshot(form_ct).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "{target} accepted text/plain"
+        );
+    }
+}
+
+#[tokio::test]
+async fn events_route_does_not_auto_create_missing_sessions() {
+    let state = Arc::new(AppState::new());
+    let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
+    let request = Request::get("/events?session=tmuxy-missing-session-unit-probe")
+        .header("host", "localhost:9000")
+        .body(Body::empty())
+        .unwrap();
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(state.sessions.read().await.is_empty());
 }
 
 #[tokio::test]
@@ -323,6 +369,42 @@ async fn the_image_route_never_reads_from_disk() {
     }
 }
 
+#[tokio::test]
+async fn image_route_serves_nosniff_sandbox_csp_and_same_origin_corp() {
+    let state = Arc::new(AppState::new());
+    state.image_store.write().await.insert(
+        &tmuxy_core::PaneId::parse("%1").unwrap(),
+        vec![(
+            7,
+            tmuxy_core::control_mode::StoredImage {
+                data: b"\x89PNG\r\n\x1a\n".to_vec(),
+                mime_type: "image/png".to_string(),
+            },
+        )],
+    );
+    let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
+    let request = Request::get("/api/images/1/7")
+        .header("host", "localhost:9000")
+        .body(Body::empty())
+        .unwrap();
+    let response = router.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(header("x-content-type-options"), "nosniff");
+    assert_eq!(
+        header("content-security-policy"),
+        "default-src 'none'; sandbox"
+    );
+    assert_eq!(header("cross-origin-resource-policy"), "same-origin");
+}
+
 /// The trace ingest writes to a file on this machine, so its body is
 /// capped. Without the cap one request fills the disk.
 #[tokio::test]
@@ -332,6 +414,7 @@ async fn an_oversized_trace_body_is_refused_before_it_is_read() {
         .header("host", "localhost:9000")
         .header("origin", "http://localhost:9000")
         .header("sec-fetch-site", "same-origin")
+        .header("content-type", "application/json")
         .body(Body::from(oversized))
         .unwrap();
     let response = app().oneshot(request).await.unwrap();

@@ -113,6 +113,9 @@ pub enum ClientCommand {
         session: Option<String>,
     },
     DetachClient,
+    /// Explicitly create (or attach to) `?session=` before opening `/events`,
+    /// so `GET /events` itself remains side-effect-free.
+    EnsureSession,
 }
 
 impl ClientCommand {
@@ -178,6 +181,7 @@ mod tests {
             "get_theme_settings",
             "get_themes_list",
             "list_git_worktrees",
+            "ensure_session",
         ] {
             let body = serde_json::to_vec(&json!({ "cmd": cmd_name, "args": {} })).unwrap();
             ClientCommand::decode(&body)

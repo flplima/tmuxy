@@ -52,7 +52,7 @@ pub struct SessionQuery {
 
 /// A `?session=` the server will not serve.
 #[derive(Debug)]
-enum SessionRejection {
+pub(super) enum SessionRejection {
     /// A name the server will not write into a command line; a 400.
     Invalid,
     /// A session that does not exist, when the server already has as many as
@@ -68,7 +68,7 @@ impl SessionRejection {
         }
     }
 
-    fn message(&self) -> &'static str {
+    pub(super) fn message(&self) -> &'static str {
         match self {
             Self::Invalid => "invalid session name",
             Self::TooMany => "too many sessions to create another",
@@ -76,7 +76,7 @@ impl SessionRejection {
     }
 
     /// The same refusal for `POST /commands`, in its error shape.
-    fn into_command_failure(self) -> Response {
+    pub(super) fn into_command_failure(self) -> Response {
         let error = match self {
             Self::Invalid | Self::TooMany => CommandError::invalid(self.message()),
         };
@@ -84,18 +84,15 @@ impl SessionRejection {
     }
 }
 
-/// How many tmux sessions may exist before `GET /events` stops creating the
-/// one it names. A stream for a session that does not exist has its monitor
-/// create it, and that session and its shell outlive the stream — so a client
-/// cycling through names, one open stream at a time, could fill the machine
-/// with sessions nothing watches. A person switching sessions makes them one
-/// at a time and never nears this; a script that needs more creates them
-/// itself with `new-session` through `POST /commands`.
+/// How many tmux sessions may exist before `ensure_session` stops creating new
+/// ones automatically. A newly created session and its shell outlive any single
+/// request, so cycling through names could otherwise fill the machine with
+/// unwatched sessions.
 pub const MAX_AUTO_CREATED_SESSIONS: usize = 32;
 
-/// Whether a stream may have a session created for it, given how many the
+/// Whether a new session may be created automatically, given how many the
 /// server already has.
-fn may_create_session(existing: usize) -> bool {
+pub(super) fn may_create_session(existing: usize) -> bool {
     existing < MAX_AUTO_CREATED_SESSIONS
 }
 
@@ -172,21 +169,11 @@ pub async fn sse_handler(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
-    // A session the server is not already serving may be one the monitor
-    // would have to create; see `MAX_AUTO_CREATED_SESSIONS`. Read-only tmux
-    // calls, and only on that path: a stream for a known session pays nothing.
+    // `GET /events` attaches only to an existing session; creating a missing
+    // session requires an explicit `POST /commands` (`ensure_session`).
     let unknown_here = !state.sessions.read().await.contains_key(session.as_str());
-    if unknown_here
-        && !clients::session_exists(&session).await
-        && !may_create_session(clients::session_count().await)
-    {
-        tracing::warn!(
-            target: "tmuxy_server::sse",
-            %session,
-            limit = MAX_AUTO_CREATED_SESSIONS,
-            "refused an /events stream: the server already has as many sessions as it creates"
-        );
-        return SessionRejection::TooMany.into_response();
+    if unknown_here && !clients::session_exists(&session).await {
+        return (StatusCode::NOT_FOUND, "session not found\n").into_response();
     }
     let session = session.into_string();
 
@@ -239,7 +226,7 @@ pub async fn sse_handler(
             // `start_monitoring`'s own `shutdown.is_cancelled()` checks break
             // its loop promptly.
             let handle = tokio::spawn(async move {
-                start_monitoring(monitor_broadcast, monitor_session, monitor_state).await;
+                start_monitoring(monitor_broadcast, monitor_session, monitor_state, false).await;
             });
             session_conns.monitor_handle = Some(handle);
             info!(%session, "started monitor");
@@ -343,7 +330,7 @@ pub async fn sse_handler(
                 yield Ok(Event::default()
                     .event(event_type)
                     .id(seq.to_string())
-                    .data(msg));
+                    .data(&*msg));
             }
         }
 
@@ -372,7 +359,7 @@ pub async fn sse_handler(
                             yield Ok(Event::default()
                                 .event(event_type)
                                 .id(seq.to_string())
-                                .data(msg));
+                                .data(&*msg));
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             // The subscriber fell behind and the channel dropped
@@ -394,7 +381,7 @@ pub async fn sse_handler(
                                 yield Ok(Event::default()
                                     .event(event_type)
                                     .id(seq.to_string())
-                                    .data(msg));
+                                    .data(&*msg));
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => {

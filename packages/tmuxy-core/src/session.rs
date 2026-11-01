@@ -272,6 +272,8 @@ pub fn is_ssh_destination(dest: &str) -> bool {
 pub fn is_safe_socket(socket: &str) -> bool {
     !socket.is_empty()
         && !socket.starts_with('-')
+        && !socket.contains("..")
+        && (!socket.contains('/') || socket.starts_with('/'))
         && socket.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
         })
@@ -299,6 +301,7 @@ impl SessionName {
     /// `name` as a session name, or `None` when it is outside the alphabet.
     pub fn parse(name: &str) -> Option<Self> {
         let safe = !name.is_empty()
+            && !name.starts_with('-')
             && name
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'+'));
@@ -336,16 +339,20 @@ pub fn session_exists(name: &SessionName) -> Result<bool> {
     Ok(output.status.success())
 }
 
-/// How many sessions the server has, from a read-only `list-sessions`; zero
-/// when there is no server to ask.
-pub fn session_count() -> usize {
+/// Names of every session the tmux server currently holds, from a read-only
+/// `list-sessions`; empty when there is no server to ask.
+pub fn session_names() -> Vec<String> {
     tmux_command()
         .args(["list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()
         .filter(|output| output.status.success())
-        .map_or(0, |output| {
-            String::from_utf8_lossy(&output.stdout).lines().count()
+        .map_or_else(Vec::new, |output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect()
         })
 }
 

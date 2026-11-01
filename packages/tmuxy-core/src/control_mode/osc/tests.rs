@@ -168,6 +168,24 @@ fn test_osc52_clipboard() {
 }
 
 #[test]
+fn osc_title_and_clipboard_enforce_size_caps() {
+    let mut parser = OscParser::new();
+
+    let huge_title = format!("\x1b]2;{}é\x07", "a".repeat(MAX_TITLE_BYTES - 1));
+    let _ = parser.process(huge_title.as_bytes());
+    let title = parser.take_title().expect("title recorded");
+    assert!(title.len() <= MAX_TITLE_BYTES);
+    assert_eq!(title.len(), MAX_TITLE_BYTES - 1);
+
+    let huge_clip = format!(
+        "\x1b]52;c;{}\x07",
+        "A".repeat(MAX_CLIPBOARD_BASE64_BYTES + 4)
+    );
+    let _ = parser.process(huge_clip.as_bytes());
+    assert_eq!(parser.take_clipboard(), None);
+}
+
+#[test]
 fn test_base64_decode() {
     assert_eq!(helpers::base64_decode("aGVsbG8=").unwrap(), b"hello");
     assert_eq!(helpers::base64_decode("dGVzdA==").unwrap(), b"test");

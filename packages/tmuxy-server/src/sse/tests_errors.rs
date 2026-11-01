@@ -201,13 +201,18 @@ async fn post(
     session: Option<&str>,
     body: serde_json::Value,
 ) -> (StatusCode, serde_json::Value) {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/json"),
+    );
     let response = commands_handler(
         State(Arc::clone(state)),
         Query(SessionQuery {
             session: session.map(str::to_string),
         }),
-        HeaderMap::new(),
-        axum::body::Bytes::from(body.to_string()),
+        headers,
+        axum::body::Body::from(body.to_string()),
     )
     .await;
     let status = response.status();

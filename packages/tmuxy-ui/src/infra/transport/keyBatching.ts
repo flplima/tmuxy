@@ -96,6 +96,15 @@ export class KeyBatcher {
     const literalMatch = command.match(/^send-keys -t ([\w.@%:-]+) -l (?:-- )?(.+)$/);
     if (literalMatch) {
       const [, session, escapedText] = literalMatch;
+      // Double-quoted strings (`tmuxDoubleQuoted` octal escapes for control
+      // characters) cannot be unescaped as single-quoted literals; flush any
+      // pending batch for this target to keep keystroke order, and let the
+      // caller send the command verbatim.
+      if (!escapedText.startsWith("'")) {
+        this.flushKeyBatchForSession(session);
+        this.flushLiteralBatchForSession(session);
+        return false;
+      }
       const rawText = unescapeLiteralText(escapedText);
 
       // Cross-batch ordering: flush pending special keys for this session first

@@ -103,28 +103,12 @@ fn rotate(path: &Path) -> Option<(File, u64)> {
 }
 
 fn open_append(path: &Path) -> Option<File> {
-    use std::fs::OpenOptions;
     // The state dir is created here rather than when the path is resolved, so
     // resolving a path for the UI leaves nothing behind while tracing is off.
     if let Some(dir) = path.parent() {
         crate::private_files::create_dir_all(dir).ok()?;
     }
-    let mut opts = OpenOptions::new();
-    opts.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    let file = opts.open(path).ok()?;
-    // Tighten perms even if the file pre-existed with a looser mode — the trace
-    // is sensitive activity metadata even though it carries no content.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Some(file)
+    crate::private_files::open_append(path).ok()
 }
 
 // =============================================================================

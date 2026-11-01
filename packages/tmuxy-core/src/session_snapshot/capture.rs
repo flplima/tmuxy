@@ -311,6 +311,7 @@ pub fn is_shell(argv: &[String]) -> bool {
 pub fn ps_args(tty: &str) -> Vec<String> {
     let tty = tty.strip_prefix("/dev/").unwrap_or(tty);
     vec![
+        "-ww".to_string(),
         "-t".to_string(),
         tty.to_string(),
         "-o".to_string(),

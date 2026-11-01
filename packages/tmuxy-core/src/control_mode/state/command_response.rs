@@ -94,6 +94,14 @@ impl StateAggregator {
         }
         if let Some(reply) = self.reply_in_flight.as_mut() {
             if success {
+                let cap = crate::control_mode::parser::MAX_RESPONSE_BYTES;
+                if reply.output.len().saturating_add(output.len()) > cap {
+                    if reply.error.is_none() {
+                        reply.error = Some(format!("reply larger than {cap} bytes"));
+                    }
+                    reply.output.clear();
+                    return ProcessEventResult::default();
+                }
                 // The parser hands a block over without its last
                 // newline, so a command list's blocks would run
                 // together: the line between them is put back.

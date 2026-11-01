@@ -192,6 +192,62 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('creates a missing session via POST /commands when /events answers 404, then reconnects immediately', async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body });
+        if (url.includes('/events')) {
+          return Promise.resolve({ status: 404, ok: false, text: async () => 'session not found' });
+        }
+        return Promise.resolve({ status: 200, ok: true, json: async () => ({ result: null }) });
+      }),
+    );
+    // Long backoff so only reconnectNow() after ensure_session can open the second stream promptly.
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('30 seconds') });
+    const connected = adapter.connect();
+    (await stream(0)).onerror?.(new Event('error'));
+
+    const second = await stream(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].method).toBe('POST');
+    expect(calls[1].url).toContain('/commands?session=tmuxy');
+    expect(JSON.parse(calls[1].body ?? '{}')).toEqual({ cmd: 'ensure_session', args: {} });
+
+    second.emit('connection-info', { data: { connection_id: 2, default_shell: 'bash' } });
+    await connected;
+    expect(adapter.isConnected()).toBe(true);
+    adapter.disconnect();
+  });
+
+  it('a session the server will not create is shown as the reason, not retried behind "Connecting…"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/events')) {
+          return Promise.resolve({ status: 404, ok: false, text: async () => 'session not found' });
+        }
+        return Promise.resolve({
+          status: 503,
+          ok: false,
+          json: async () => ({ error: 'too many sessions to create another', kind: 'invalid' }),
+        });
+      }),
+    );
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const fatals: string[] = [];
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'Fatal') fatals.push(e.message);
+    });
+    adapter.connect().catch(() => {});
+
+    (await stream(0)).onerror?.(new Event('error'));
+    await vi.waitFor(() => expect(fatals).toHaveLength(1));
+    expect(fatals[0]).toBe('The server refused this session: too many sessions to create another');
+    adapter.disconnect();
+  });
+
   it('runs run_tmux_command through the serial queue in issue order', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();

@@ -302,14 +302,48 @@ async fn cross_site_requests_are_refused_without_costing_the_user_their_allowanc
     .unwrap();
     assert_eq!(prompt.status(), StatusCode::UNAUTHORIZED);
 
-    // Following a link to the server from another site still gets the prompt.
-    let mut link = probe("/", None);
-    let headers = link.headers_mut();
-    headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
-    headers.insert("sec-fetch-mode", "navigate".parse().unwrap());
-    headers.insert("sec-fetch-dest", "document".parse().unwrap());
-    let response = app.oneshot(link).await.unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    // Following a link or popup navigation from another site still gets the
+    // prompt without spending the local peer's password allowance.
+    for _ in 0..10 {
+        let mut link = probe("/", None);
+        let headers = link.headers_mut();
+        headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        headers.insert("sec-fetch-mode", "navigate".parse().unwrap());
+        headers.insert("sec-fetch-dest", "document".parse().unwrap());
+        let response = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            app.clone().oneshot(link),
+        )
+        .await
+        .expect("unauthenticated navigation challenge must not incur lockout delay")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    let prompt = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        app.oneshot(probe("/", None)),
+    )
+    .await
+    .expect("the user's own prompt is still not held back after cross-site navigations")
+    .unwrap();
+    assert_eq!(prompt.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+fn empty_password_flag_falls_back_to_env_password() {
+    assert_eq!(
+        resolve_password_from(Some(String::new()), Some("from-env".into())),
+        Some("from-env".into())
+    );
+    assert_eq!(
+        resolve_password_from(Some("from-flag".into()), Some("from-env".into())),
+        Some("from-flag".into())
+    );
+    assert_eq!(
+        resolve_password_from(Some(String::new()), Some(String::new())),
+        None
+    );
 }
 
 #[tokio::test]
@@ -367,6 +401,13 @@ fn assert_app_headers(response: &axum::response::Response, csp: &str, what: &str
     assert_eq!(
         header(axum::http::header::X_CONTENT_TYPE_OPTIONS),
         "nosniff",
+        "{what}"
+    );
+    assert_eq!(
+        header(axum::http::HeaderName::from_static(
+            "cross-origin-resource-policy"
+        )),
+        "same-origin",
         "{what}"
     );
 }

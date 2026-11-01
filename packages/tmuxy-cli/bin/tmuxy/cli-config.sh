@@ -105,8 +105,8 @@ EOF
 cmd_config_reload() {
   local marker
   marker="$(tmuxy_state_dir)/config-reload"
-  mkdir -p "${marker%/*}" || _fail "$EXIT_FAILED" "cannot create ${marker%/*}"
-  touch "$marker" || _fail "$EXIT_FAILED" "cannot touch $marker"
+  mkdir -m 700 -p "${marker%/*}" || _fail "$EXIT_FAILED" "cannot create ${marker%/*}"
+  (umask 077 && touch "$marker") || _fail "$EXIT_FAILED" "cannot touch $marker"
   if [ "$JSON_OUT" = true ]; then
     json_ok "file=$(json_string "$(tmuxy_config_dir)/tmuxy.conf")"
     return 0
@@ -138,7 +138,7 @@ cmd_config_use_tmux_conf() {
     *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
   esac
 
-  mkdir -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
+  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
   set_state_bool use_tmux_conf "$value" || _fail "$EXIT_FAILED" "cannot write $state_file"
 
   if [ "$JSON_OUT" = true ]; then
@@ -186,8 +186,8 @@ cmd_config_init() {
     _fail "$EXIT_FAILED" "$conf already exists; not overwriting it"
   fi
   starter="$(starter_conf)" || _fail "$EXIT_FAILED" "no starter config found (start tmuxy once to install it)"
-  mkdir -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
-  printf '%s\n' "$starter" > "$conf" || _fail "$EXIT_FAILED" "cannot write $conf"
+  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
+  (umask 077 && printf '%s\n' "$starter" > "$conf") || _fail "$EXIT_FAILED" "cannot write $conf"
   if [ "$JSON_OUT" = true ]; then
     json_ok "file=$(json_string "$conf")"
     return 0

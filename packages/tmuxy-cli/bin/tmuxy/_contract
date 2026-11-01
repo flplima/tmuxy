@@ -136,6 +136,37 @@ _resolve_target() {
   printf '%s' "${matches%%$'\t'*}"
 }
 
+# Whether $1 is a safe tmux socket name or absolute path (no leading '-',
+# no '..' traversal, no relative path with '/', and no shell syntax).
+_is_safe_socket() {
+  local sock="${1:-}"
+  [ -n "$sock" ] || return 1
+  [[ "$sock" != -* && "$sock" != *..* ]] || return 1
+  [[ "$sock" != */* || "$sock" == /* ]] || return 1
+  [[ "$sock" =~ ^[A-Za-z0-9._/@+-]+$ ]]
+}
+
+# Whether $1 is a safe tmux session name (matches tmuxy_core::SessionName).
+_is_safe_session_name() {
+  local name="${1:-}"
+  [ -n "$name" ] || return 1
+  [[ "$name" != -* ]] || return 1
+  [[ "$name" =~ ^[A-Za-z0-9_@+-]+$ ]]
+}
+
+# The first name in $1 (one per line, as `list-sessions -F '#{session_name}'`
+# prints them) that is a safe session name and not the stash of parked group
+# members, which sorts before real sessions. Prints nothing when none is.
+_first_safe_session() {
+  local name
+  while IFS= read -r name; do
+    if [ "$name" != "$STASH_SESSION" ] && _is_safe_session_name "$name"; then
+      printf '%s' "$name"
+      return 0
+    fi
+  done <<<"$1"
+}
+
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:
 # the pane whose process is an ancestor of this one. TMUX_PANE is only an
 # environment variable, so anything can claim any pane with it; what the

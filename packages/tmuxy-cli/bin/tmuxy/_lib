@@ -17,10 +17,35 @@ STASH_SESSION="__tmuxy_stash"
 #   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
 #   data   — what the app mirrors from its bundle: defaults, themes, bin/.
 #   state  — this machine's: menu choices, launcher, servers.json, pid files.
+#
+# The home they sit under is resolved as tmuxy-core's `paths::resolved_home_dir`:
+# $HOME, else (unset or empty) the passwd entry's, else /tmp/tmuxy-<uid> — but
+# only once it is a real directory (not a symlink) this user owns, made
+# owner-only, since another user can create a predictable /tmp name first.
+# When it is not, nothing is printed, so the dirs land under `/`, where no
+# other user can write.
+_tmuxy_home() {
+  local home="${HOME:-}"
+  [ -n "$home" ] || home="$(unset HOME; printf '%s' ~)"
+  if [[ "$home" == /* ]]; then
+    printf '%s' "$home"
+    return 0
+  fi
+  local fb
+  fb="/tmp/tmuxy-$(id -u)"
+  mkdir -m 700 "$fb" 2>/dev/null || true
+  if [ -d "$fb" ] && [ ! -L "$fb" ] && [ -O "$fb" ] && chmod 700 "$fb" 2>/dev/null; then
+    printf '%s' "$fb"
+    return 0
+  fi
+  echo "tmuxy: no home directory, and $fb is not a private directory of this user's" >&2
+  return 1
+}
+
 tmuxy_config_dir() {
   case "${XDG_CONFIG_HOME:-}" in
     /*) echo "$XDG_CONFIG_HOME/tmuxy" ;;
-    *) echo "$HOME/.config/tmuxy" ;;
+    *) echo "$(_tmuxy_home)/.config/tmuxy" ;;
   esac
 }
 
@@ -31,7 +56,7 @@ tmuxy_data_dir() {
   fi
   case "${XDG_DATA_HOME:-}" in
     /*) echo "$XDG_DATA_HOME/tmuxy" ;;
-    *) echo "$HOME/.local/share/tmuxy" ;;
+    *) echo "$(_tmuxy_home)/.local/share/tmuxy" ;;
   esac
 }
 
@@ -39,11 +64,11 @@ tmuxy_state_dir() {
   if [ -n "${TMUXY_STATE_DIR:-}" ]; then
     echo "$TMUXY_STATE_DIR"
   elif [ "$(uname -s)" = Darwin ]; then
-    echo "$HOME/Library/Application Support/tmuxy"
+    echo "$(_tmuxy_home)/Library/Application Support/tmuxy"
   else
     case "${XDG_STATE_HOME:-}" in
       /*) echo "$XDG_STATE_HOME/tmuxy" ;;
-      *) echo "$HOME/.local/state/tmuxy" ;;
+      *) echo "$(_tmuxy_home)/.local/state/tmuxy" ;;
     esac
   fi
 }

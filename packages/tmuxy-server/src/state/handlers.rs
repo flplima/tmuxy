@@ -48,6 +48,9 @@ pub(super) async fn image_handler(
         Some(img) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", &img.mime_type)
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Security-Policy", "default-src 'none'; sandbox")
+            .header("Cross-Origin-Resource-Policy", "same-origin")
             // Never cached. The id is a per-pane counter that starts again at
             // zero every time the server does, so an hour-long cache serves the
             // PREVIOUS run's picture at the same URL — a restarted tmuxy shows

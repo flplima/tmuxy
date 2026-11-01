@@ -262,12 +262,21 @@ export class HttpAdapter implements SequencedAdapter {
     if (this.refusalProbe || this.fatal) return;
     const probe = new AbortController();
     this.refusalProbe = probe;
+    let created = false;
     try {
-      const message = await probeRefusalReason(eventsUrl, probe.signal, () => this.connected);
-      if (!message) return;
-      // The attempt that asked has already ended; this stops the next one.
-      this.fatal = true;
-      this.events.emit(TransportEvent.Fatal({ message }));
+      const outcome = await probeRefusalReason(
+        eventsUrl,
+        this.getEffectiveSession(),
+        probe.signal,
+        () => this.connected,
+      );
+      if (outcome?.kind === 'created') {
+        created = true;
+      } else if (outcome) {
+        // The attempt that asked has already ended; this stops the next one.
+        this.fatal = true;
+        this.events.emit(TransportEvent.Fatal({ message: outcome.message }));
+      }
     } catch {
       // Unreachable, or aborted below: an outage, which the retry loop owns.
     } finally {
@@ -275,6 +284,7 @@ export class HttpAdapter implements SequencedAdapter {
       probe.abort();
       this.refusalProbe = null;
     }
+    if (created) this.reconnectNow();
   }
 
   /** Resolve everyone awaiting connect() — a connection-info arrived. */

@@ -95,6 +95,7 @@ fn the_queries_name_the_session_and_escape_what_can_hold_a_comma() {
 /// The foreground job is the group `tpgid` names; the shell is not it.
 #[test]
 fn the_foreground_program_is_the_leader_of_the_terminals_foreground_group() {
+    assert_eq!(ps_args("/dev/pts/3")[0], "-ww");
     let ps = "\
   4242  4242  5100 01:02:03 -zsh\n\
   5100  5100  5100    12:30 vim notes.md\n\

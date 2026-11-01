@@ -123,4 +123,42 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
     expect(stderr).toContain('Permission denied (publickey).');
     expect(tmuxCalls).toHaveLength(0);
   });
+
+  // The session the server lists first is attached when none is named. A name
+  // tmuxy will not put on a command line is passed over for the next one,
+  // never turned into no session at all.
+  test('attaches the first listed session with a safe name, skipping the stash', () => {
+    const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-connect-cfg-'));
+    try {
+      const { exitCode, tmuxCalls } = runCLI(['session', 'connect', 'felipe@prod'], {
+        env: {
+          TMUXY_STATE_DIR: tmpCfg,
+          MOCK_SSH_SESSIONS: '__tmuxy_stash\n-x\nmy work\ndev\nother\n',
+        },
+      });
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls).toContainEqual({
+        args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'dev'"],
+      });
+    } finally {
+      fs.rmSync(tmpCfg, { recursive: true, force: true });
+    }
+  });
+
+  test.each(['../escape', 'rel/socket', '/tmp/../bad', 'sock;id', '-L'])(
+    'refuses unsafe --socket %p in both local and remote connect flows',
+    (badSocket) => {
+      const local = runCLI(['session', 'connect', 'localhost', '--socket', badSocket]);
+      expect(local.exitCode).not.toBe(0);
+      expect(local.tmuxCalls).toHaveLength(0);
+
+      const remote = runCLI(['session', 'connect', 'felipe@prod', '--socket', badSocket]);
+      expect(remote.exitCode).not.toBe(0);
+      expect(remote.tmuxCalls).toHaveLength(0);
+
+      const direct = runCLI(['connect', badSocket]);
+      expect(direct.exitCode).not.toBe(0);
+      expect(direct.tmuxCalls).toHaveLength(0);
+    },
+  );
 });
