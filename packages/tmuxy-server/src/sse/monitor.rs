@@ -99,13 +99,16 @@ impl Host for ServerHost {
         // On reconnect (not first connect), check if the tmux session still
         // exists. If it was intentionally destroyed (by test cleanup or user)
         // AND we had a successful run before, stop the monitor loop. If the
-        // session died before ever running successfully (crash on startup),
-        // retry with create_session=true to recreate it.
+        // session died before ever running successfully (crash on startup)
+        // and this monitor was started to create it, retry with
+        // create_session=true to recreate it.
         let mut config = self.config.clone();
         if !self.first_connect {
             if session_exists(session).await {
                 config.create_session = false;
-            } else if ever_ran {
+            } else if ever_ran || !self.config.create_session {
+                // A monitor started for a session that existed (`GET /events`)
+                // never creates it: only `ensure_session` does, under its cap.
                 info!(%session, "tmux session no longer exists, stopping monitor loop");
                 return Attempt::Stop;
             } else {

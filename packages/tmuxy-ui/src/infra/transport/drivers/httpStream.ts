@@ -111,8 +111,15 @@ export type EstablishProbeOutcome = { kind: 'fatal'; message: string } | { kind:
  *   the reason in the body; that ends retrying and is shown.
  * - A 404 means `?session=` does not exist yet (`GET /events` never creates
  *   sessions on its own): ask `POST /commands` (`ensure_session`) to create it
- *   and tell the caller to reconnect immediately.
+ *   and tell the caller to reconnect immediately. Its refusal (too many
+ *   sessions) ends retrying and is shown, like a 403.
  */
+/** The request guard's 403, with its reason, as the message the app shows. */
+async function pageRefusal(response: Response): Promise<EstablishProbeOutcome> {
+  const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
+  return { kind: 'fatal', message: `The server refused this page${reason ? `: ${reason}` : ''}` };
+}
+
 export async function probeRefusalReason(
   eventsUrl: string,
   session: string,
@@ -124,10 +131,7 @@ export async function probeRefusalReason(
     signal,
   });
   if (isConnected()) return null;
-  if (response.status === 403) {
-    const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
-    return { kind: 'fatal', message: `The server refused this page${reason ? `: ${reason}` : ''}` };
-  }
+  if (response.status === 403) return pageRefusal(response);
   if (response.status === 404) {
     const created = await fetch(buildEndpointUrl('/commands', session), {
       method: 'POST',
@@ -137,20 +141,12 @@ export async function probeRefusalReason(
     });
     if (isConnected()) return null;
     if (created.ok) return { kind: 'created' };
-    if (created.status === 403) {
-      const reason = (await created.text()).trim().replace(/^forbidden:\s*/i, '');
-      return {
-        kind: 'fatal',
-        message: `The server refused this page${reason ? `: ${reason}` : ''}`,
-      };
-    }
-    if (created.status === 400) {
-      const body: unknown = await created.json().catch(() => null);
-      const reason = isCommandFailure(body) ? body.error : '';
-      return {
-        kind: 'fatal',
-        message: `The server refused this session${reason ? `: ${reason}` : ''}`,
-      };
+    if (created.status === 403) return pageRefusal(created);
+    // The server's own refusal — a bad name, or as many sessions as it will
+    // create (a 503) — is an answer; any other failure is an outage.
+    const body: unknown = await created.json().catch(() => null);
+    if (isCommandFailure(body)) {
+      return { kind: 'fatal', message: `The server refused this session: ${body.error}` };
     }
   }
   return null;

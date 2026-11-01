@@ -221,6 +221,33 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
+  it('a session the server will not create is shown as the reason, not retried behind "Connecting…"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/events')) {
+          return Promise.resolve({ status: 404, ok: false, text: async () => 'session not found' });
+        }
+        return Promise.resolve({
+          status: 503,
+          ok: false,
+          json: async () => ({ error: 'too many sessions to create another', kind: 'invalid' }),
+        });
+      }),
+    );
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const fatals: string[] = [];
+    adapter.events.subscribe((e) => {
+      if (e._tag === 'Fatal') fatals.push(e.message);
+    });
+    adapter.connect().catch(() => {});
+
+    (await stream(0)).onerror?.(new Event('error'));
+    await vi.waitFor(() => expect(fatals).toHaveLength(1));
+    expect(fatals[0]).toBe('The server refused this session: too many sessions to create another');
+    adapter.disconnect();
+  });
+
   it('runs run_tmux_command through the serial queue in issue order', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();
