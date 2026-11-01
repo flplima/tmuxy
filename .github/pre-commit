@@ -17,9 +17,9 @@ set -e
 # unstaged changes, after which every file would look partially staged.
 HOOK_TMP=$(mktemp -d)
 trap 'rm -rf "$HOOK_TMP"' EXIT
-git diff --cached --name-only --diff-filter=ACM | sort > "$HOOK_TMP/staged"
-git diff --name-only | sort > "$HOOK_TMP/unstaged"
-comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/unstaged" > "$HOOK_TMP/partial"
+git diff --cached --name-only --diff-filter=ACM | LC_ALL=C sort > "$HOOK_TMP/staged"
+git diff --name-only | LC_ALL=C sort > "$HOOK_TMP/unstaged"
+LC_ALL=C comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/unstaged" > "$HOOK_TMP/partial"
 
 # restage <path-prefix>...
 # Re-add the staged files under those prefixes. A partially staged file is
