@@ -16,7 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import { composePage } from './previewPage';
 import {
   markReplayedPreviewKey,
-  newBridgeToken,
+  newBridgeChannel,
   readBridgeMessage,
   type BridgeMessage,
 } from './previewBridge';
@@ -99,15 +99,15 @@ export function HtmlPreview({
   const tokenRef = useRef<string | null>(null);
   const [title, setTitle] = useState('');
   const page = useKeyedRequest(`${keyOf(doc)}:${theme ? keyOf(theme) : 0}`, async () => {
-    const token = newBridgeToken();
+    const channel = newBridgeChannel();
     const url = await source.stagePage(
       await composePage(doc.text, source.readResource, {
         theme,
         scroll: scrollRef.current,
-        token,
+        channel,
       }),
     );
-    return { url, token };
+    return { url, token: channel.token };
   });
   tokenRef.current = page.value?.token ?? null;
 

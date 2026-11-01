@@ -33,11 +33,31 @@ export type BridgeMessage =
     }
   | { type: 'open'; url: string };
 
-/** Generate a per-page capability token so page scripts cannot spoof bridge messages. */
-export function newBridgeToken(): string {
+/**
+ * What one composed page's bridge signs its messages with, and where it sends
+ * them.
+ *
+ * `token` is fresh per composition, so a page's own scripts (which run after
+ * the bridge has removed its `<script>`) cannot sign a message of their own.
+ * `targetOrigin` is the app's origin: a page opened with `--net` may frame
+ * its own URL, and the bridge in that inner copy posts to its parent — the
+ * outer page — so it is told to deliver only to the app, never to the page
+ * (whose sandboxed origin is opaque). It is `*` only where the app's origin
+ * is not an http(s) one (the desktop app's own scheme), which a page's
+ * `frame-src` cannot name, so no inner copy can be framed there.
+ */
+export interface BridgeChannel {
+  token: string;
+  targetOrigin: string;
+}
+
+export function newBridgeChannel(): BridgeChannel {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  const { protocol, origin } = window.location;
+  const targetOrigin = protocol === 'http:' || protocol === 'https:' ? origin : '*';
+  return { token, targetOrigin };
 }
 
 const replayedPreviewKeys = new WeakSet<KeyboardEvent>();
@@ -54,22 +74,17 @@ export function isReplayedPreviewKey(event: KeyboardEvent): boolean {
 }
 
 /** The script's body: a function of where to scroll to once the page loads. */
-function bridge(start: { x: number; y: number }, token?: string) {
-  // Remove our own <script> element and capture intrinsics before any page
-  // script runs so untrusted scripts cannot read `token` from the DOM or forge
-  // untrusted key/click events.
+function bridge(start: { x: number; y: number }, channel: BridgeChannel) {
+  // Remove our own <script> element and take what we call before any page
+  // script runs, so the page can neither read the token from the DOM nor
+  // replace the functions we post and listen with. `isTrusted` needs no
+  // capture: it is an unforgeable own property of every event.
   document.currentScript?.remove();
+  const { token, targetOrigin } = channel;
   const postToParent = parent.postMessage.bind(parent);
-  const getIsTrusted = Object.getOwnPropertyDescriptor(Event.prototype, 'isTrusted')?.get;
-  const isTrustedEvent = (e: Event): boolean =>
-    getIsTrusted ? Boolean(getIsTrusted.call(e)) : e.isTrusted === true;
   const addWin = window.addEventListener.bind(window);
   const addDoc = document.addEventListener.bind(document);
-  const post = (message: unknown) =>
-    postToParent(
-      token !== undefined ? { tmuxyPreview: message, token } : { tmuxyPreview: message },
-      '*',
-    );
+  const post = (message: unknown) => postToParent({ tmuxyPreview: message, token }, targetOrigin);
   const restore = () => window.scrollTo(start.x, start.y);
   addDoc('DOMContentLoaded', restore);
   addWin('load', () => {
@@ -92,7 +107,7 @@ function bridge(start: { x: number; y: number }, token?: string) {
   addWin(
     'keydown',
     (e) => {
-      if (!isTrustedEvent(e)) return;
+      if (!e.isTrusted) return;
       if (!(e.ctrlKey || e.altKey) || e.metaKey) return;
       // Ctrl held on its own is the start of a chord, not one.
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
@@ -112,7 +127,7 @@ function bridge(start: { x: number; y: number }, token?: string) {
   addDoc(
     'click',
     (e) => {
-      if (!isTrustedEvent(e)) return;
+      if (!e.isTrusted) return;
       const target = e.target as Element | null;
       const link = target?.closest ? target.closest('a[href]') : null;
       if (!link || (link.getAttribute('href') ?? '').startsWith('#')) return;
@@ -124,10 +139,8 @@ function bridge(start: { x: number; y: number }, token?: string) {
 }
 
 /** The `<script>` that runs `bridge`, first in the page, scrolled to `start`. */
-export function bridgeScript(start: { x: number; y: number }, token?: string): string {
-  return token === undefined
-    ? `(${bridge.toString()})(${JSON.stringify(start)});`
-    : `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(token)});`;
+export function bridgeScript(start: { x: number; y: number }, channel: BridgeChannel): string {
+  return `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(channel)});`;
 }
 
 const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta']);
@@ -135,12 +148,10 @@ const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta']);
 const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const short = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 
-/** A message the page posted, if it is one of the bridge's; null otherwise. */
-export function readBridgeMessage(data: unknown, expectedToken?: string): BridgeMessage | null {
+/** A message the page's bridge signed with `token`, if it is one; null otherwise. */
+export function readBridgeMessage(data: unknown, token: string): BridgeMessage | null {
   if (typeof data !== 'object' || data === null || !('tmuxyPreview' in data)) return null;
-  if (expectedToken !== undefined && (data as { token?: unknown }).token !== expectedToken) {
-    return null;
-  }
+  if ((data as { token?: unknown }).token !== token) return null;
   const m = (data as { tmuxyPreview: unknown }).tmuxyPreview;
   if (typeof m !== 'object' || m === null) return null;
   const message = m as Record<string, unknown>;

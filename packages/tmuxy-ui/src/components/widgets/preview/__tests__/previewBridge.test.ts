@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { bridgeScript, newBridgeToken, readBridgeMessage } from '../previewBridge';
+import { bridgeScript, newBridgeChannel, readBridgeMessage } from '../previewBridge';
 
-const wrap = (m: unknown) => ({ tmuxyPreview: m });
+const TOKEN = 'a1b2c3';
+const wrap = (m: unknown) => ({ tmuxyPreview: m, token: TOKEN });
+const read = (data: unknown) => readBridgeMessage(data, TOKEN);
 
 describe('the preview bridge', () => {
   it('reads the four messages it sends', () => {
-    expect(readBridgeMessage(wrap({ type: 'scroll', x: 0, y: 120.5 }))).toEqual({
+    expect(read(wrap({ type: 'scroll', x: 0, y: 120.5 }))).toEqual({
       type: 'scroll',
       x: 0,
       y: 120.5,
     });
-    expect(readBridgeMessage(wrap({ type: 'title', title: 'Report' }))).toEqual({
+    expect(read(wrap({ type: 'title', title: 'Report' }))).toEqual({
       type: 'title',
       title: 'Report',
     });
     expect(
-      readBridgeMessage(
+      read(
         wrap({
           type: 'key',
           key: 'c',
@@ -33,7 +35,7 @@ describe('the preview bridge', () => {
       altKey: false,
       shiftKey: false,
     });
-    expect(readBridgeMessage(wrap({ type: 'open', url: 'https://example.com/' }))).toEqual({
+    expect(read(wrap({ type: 'open', url: 'https://example.com/' }))).toEqual({
       type: 'open',
       url: 'https://example.com/',
     });
@@ -57,17 +59,21 @@ describe('the preview bridge', () => {
       wrap({ type: 'title', title: 'x'.repeat(1000) }),
       wrap({ type: 'run', command: 'rm -rf ~' }),
     ]) {
-      expect(readBridgeMessage(data)).toBeNull();
+      expect(read(data)).toBeNull();
     }
   });
 
-  it('scrolls the page to where it was', () => {
-    expect(bridgeScript({ x: 0, y: 340 })).toContain('({"x":0,"y":340})');
+  it('scrolls the page to where it was, signing for and posting to the app alone', () => {
+    const script = bridgeScript({ x: 0, y: 340 }, { token: TOKEN, targetOrigin: 'http://app' });
+    expect(script).toContain('({"x":0,"y":340},{"token":"a1b2c3","targetOrigin":"http://app"})');
   });
 
-  it('requires a matching capability token when one is expected', () => {
-    const token = newBridgeToken();
+  it('takes a message only with the token of the page it composed', () => {
+    const { token, targetOrigin } = newBridgeChannel();
     expect(token).toMatch(/^[0-9a-f]{32}$/);
+    expect(newBridgeChannel().token).not.toBe(token);
+    // The test document is served over http(s): the bridge posts to it alone.
+    expect(targetOrigin).toBe(window.location.origin);
     const msg = { type: 'key', key: 'c', code: 'KeyC', ctrlKey: true, altKey: false };
     expect(readBridgeMessage({ tmuxyPreview: msg }, token)).toBeNull();
     expect(readBridgeMessage({ tmuxyPreview: msg, token: 'wrong' }, token)).toBeNull();

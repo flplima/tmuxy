@@ -14,6 +14,8 @@ const THEME: PreviewTheme = {
   fontMono: 'monospace',
 };
 
+const CHANNEL = { token: 'test-token', targetOrigin: '*' };
+
 const text = (s: string, mime = 'text/plain'): PreviewResource => ({
   mime,
   data: btoa(s),
@@ -50,7 +52,7 @@ describe('composing a page for its frame', () => {
         `<html><head><link rel="stylesheet" href="css/site.css"><script src="app.js"></script></head>
          <body><img src="./img/logo.png"><div style="background:url('img/bg.png')"></div></body></html>`,
         read,
-        { theme: null, scroll: { x: 0, y: 0 } },
+        { theme: null, scroll: { x: 0, y: 0 }, channel: CHANNEL },
       ),
     );
     const css = Array.from(page.querySelectorAll('style'))
@@ -76,7 +78,7 @@ describe('composing a page for its frame', () => {
       `<link rel="stylesheet" href="../../.ssh/id_rsa.css"><img src="/etc/passwd.png">
        <script src=".env.js"></script><img src="notes.txt"><link rel="stylesheet" href="https://cdn.example/x.css">`,
       read,
-      { theme: null, scroll: { x: 0, y: 0 } },
+      { theme: null, scroll: { x: 0, y: 0 }, channel: CHANNEL },
     );
     expect(asked).toEqual([]);
   });
@@ -88,7 +90,7 @@ describe('composing a page for its frame', () => {
         `<head><base href="https://evil.example/"><meta http-equiv="refresh" content="0;url=https://evil.example">
          <meta http-equiv="Content-Security-Policy" content="script-src 'none'"></head>`,
         read,
-        { theme: null, scroll: { x: 0, y: 0 } },
+        { theme: null, scroll: { x: 0, y: 0 }, channel: CHANNEL },
       ),
     );
     expect(page.querySelector('base')).toBeNull();
@@ -108,7 +110,7 @@ describe('composing a page for its frame', () => {
       await composePage(
         '<head><link rel="stylesheet" href="evil.css"><link rel="stylesheet" href="dollar.css"></head>',
         read,
-        { theme: null, scroll: { x: 0, y: 0 } },
+        { theme: null, scroll: { x: 0, y: 0 }, channel: CHANNEL },
       ),
     );
     expect(page.querySelector('base')).toBeNull();
@@ -125,6 +127,7 @@ describe('composing a page for its frame', () => {
       await composePage(`<head><style>h1{}</style><script>page()</script></head>`, read, {
         theme: THEME,
         scroll: { x: 0, y: 200 },
+        channel: CHANNEL,
       }),
     );
     const first = page.head.children;
@@ -138,7 +141,11 @@ describe('composing a page for its frame', () => {
   it('draws the page in its own colours when opened with --no-theme', async () => {
     const { read } = folder({});
     const page = parse(
-      await composePage('<p>x</p>', read, { theme: null, scroll: { x: 0, y: 0 } }),
+      await composePage('<p>x</p>', read, {
+        theme: null,
+        scroll: { x: 0, y: 0 },
+        channel: CHANNEL,
+      }),
     );
     expect(page.querySelector('style[data-tmuxy-theme]')).toBeNull();
   });
@@ -148,6 +155,7 @@ describe('composing a page for its frame', () => {
     const html = await composePage('<p>x</p>', read, {
       theme: { ...THEME, accent: 'red</style><script>evil()</script>' },
       scroll: { x: 0, y: 0 },
+      channel: CHANNEL,
     });
     expect(html).not.toContain('<script>evil()');
   });
@@ -159,7 +167,7 @@ describe('composing a page for its frame', () => {
     const html = await composePage(
       `<html><head><noscript><meta http-equiv="refresh" content="0;url=https://evil.example"></noscript><script src="comment.js"></script></head><body><noscript><p title="</noscript><meta http-equiv='refresh' content='0;url=https://evil.example'>"></p></noscript>ok</body></html>`,
       read,
-      { theme: null, scroll: { x: 0, y: 0 } },
+      { theme: null, scroll: { x: 0, y: 0 }, channel: CHANNEL },
     );
     expect(html).not.toContain('<noscript');
     expect(html).not.toContain('http-equiv');

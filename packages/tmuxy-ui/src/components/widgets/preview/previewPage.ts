@@ -21,7 +21,7 @@
  */
 
 import { previewResourcePath, type PreviewResource } from '../../../domain/preview';
-import { bridgeScript } from './previewBridge';
+import { bridgeScript, type BridgeChannel } from './previewBridge';
 import type { PreviewTheme } from './previewTheme';
 
 export type ReadResource = (path: string) => Promise<PreviewResource>;
@@ -143,7 +143,7 @@ function scriptText(js: string): string {
 export async function composePage(
   html: string,
   readResource: ReadResource,
-  options: { theme: PreviewTheme | null; scroll: { x: number; y: number }; token?: string },
+  options: { theme: PreviewTheme | null; scroll: { x: number; y: number }; channel: BridgeChannel },
 ): Promise<string> {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const read = memoised(readResource);
@@ -204,7 +204,7 @@ export async function composePage(
 
   const head = doc.head;
   const bridge = doc.createElement('script');
-  bridge.textContent = bridgeScript(options.scroll, options.token);
+  bridge.textContent = bridgeScript(options.scroll, options.channel);
   head.prepend(bridge);
   if (options.theme) {
     const theme = doc.createElement('style');
