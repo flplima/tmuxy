@@ -321,3 +321,121 @@ async fn with_no_password_the_layer_is_not_installed() {
         .unwrap();
     assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+/// The value of one directive in a policy, `None` when it is absent.
+fn directive<'a>(policy: &'a str, name: &str) -> Option<&'a str> {
+    policy.split(';').map(str::trim).find_map(|d| {
+        d.strip_prefix(name)
+            .filter(|rest| rest.is_empty() || rest.starts_with(' '))
+            .map(str::trim)
+    })
+}
+
+/// What keeps a preview inside its frame and the app out of another site's.
+/// A preview's page is served from this origin, so `'self'` is every frame
+/// the app needs; anything else in `frame-src` is a host a page could carry
+/// the files inlined into it to.
+fn assert_framing_rules(policy: &str, what: &str) {
+    assert_eq!(directive(policy, "frame-src"), Some("'self'"), "{what}");
+    assert_eq!(
+        directive(policy, "frame-ancestors"),
+        Some("'none'"),
+        "{what}"
+    );
+    assert_eq!(directive(policy, "object-src"), Some("'none'"), "{what}");
+}
+
+fn assert_app_headers(response: &axum::response::Response, csp: &str, what: &str) {
+    let header = |name: axum::http::HeaderName| {
+        response
+            .headers()
+            .get(&name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_else(|| panic!("{what} has no {name}"))
+            .to_string()
+    };
+    assert_eq!(
+        header(axum::http::header::CONTENT_SECURITY_POLICY),
+        csp,
+        "{what}"
+    );
+    assert_eq!(
+        header(axum::http::header::X_FRAME_OPTIONS),
+        "DENY",
+        "{what}"
+    );
+    assert_eq!(
+        header(axum::http::header::X_CONTENT_TYPE_OPTIONS),
+        "nosniff",
+        "{what}"
+    );
+}
+
+#[test]
+fn the_app_policy_frames_only_its_own_origin_and_runs_only_its_own_scripts() {
+    assert_framing_rules(APP_CSP, "APP_CSP");
+    assert_eq!(directive(APP_CSP, "default-src"), Some("'self'"));
+    assert_eq!(directive(APP_CSP, "script-src"), Some("'self'"));
+    assert_eq!(directive(APP_CSP, "connect-src"), Some("'self'"));
+    // The dev policy gives up the script rules for Vite, never the framing.
+    assert_framing_rules(DEV_CSP, "DEV_CSP");
+}
+
+/// Every file of the built app — the page, an SPA route, an asset, the
+/// user's stylesheet, a miss — carries the policy, so no URL of the app can be
+/// framed by another site or frame a page that left for another host.
+#[tokio::test]
+async fn every_file_of_the_app_is_served_under_its_policy() {
+    use tower::ServiceExt;
+    for target in [
+        "/",
+        "/index.html",
+        "/a/route/only/the/app/knows",
+        "/favicon.svg",
+        "/themes/no-such-theme-for-this-test.css",
+    ] {
+        let response = served_app(None).oneshot(probe(target, None)).await.unwrap();
+        assert_app_headers(&response, APP_CSP, target);
+    }
+}
+
+#[tokio::test]
+async fn the_dev_frontend_is_served_under_the_framing_rules() {
+    let request = axum::http::Request::get("/themes/no-such-theme-for-this-test.css")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = serve_dev(request).await;
+    assert_app_headers(&response, DEV_CSP, "dev");
+}
+
+/// The preview's page is the one thing the app frames: it keeps its own
+/// sandboxing policy, and nothing forbids the app from framing it.
+#[tokio::test]
+async fn a_preview_page_keeps_its_own_policy_and_can_be_framed_by_the_app() {
+    use tower::ServiceExt;
+    let state = Arc::new(AppState::new());
+    state
+        .preview_pages
+        .stage(
+            tmuxy_core::PaneId::parse("%1").unwrap(),
+            "<p>page</p>".to_string(),
+            false,
+        )
+        .unwrap();
+    let app = crate::state::api_routes(loopback(vec![]))
+        .fallback(serve_embedded)
+        .with_state(state);
+    let response = app.oneshot(probe("/api/preview/1", None)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let csp = response
+        .headers()
+        .get(axum::http::header::CONTENT_SECURITY_POLICY)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(csp, tmuxy_core::preview::page_csp(false));
+    assert!(response
+        .headers()
+        .get(axum::http::header::X_FRAME_OPTIONS)
+        .is_none());
+}

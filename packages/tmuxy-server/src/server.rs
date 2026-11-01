@@ -330,13 +330,8 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
-        // The user's stylesheets are the server's to serve in dev mode too:
-        // Vite only knows the bundled copies under `public/`.
         Frontend::Dev => routes.fallback_service(tower::service_fn(|req: Request| async move {
-            Ok::<_, std::convert::Infallible>(match serve_user_css(req.uri().path()) {
-                Some(response) => response,
-                None => dev::proxy_to_vite(req).await,
-            })
+            Ok::<_, std::convert::Infallible>(serve_dev(req).await)
         })),
     }
     .with_state(state.clone());
