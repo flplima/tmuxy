@@ -99,7 +99,24 @@ fn non_image_and_oversized_single_chunk_uploads_are_dropped() {
     }
     assert!(parser.placements.is_empty());
 
-    let oversized = "A".repeat(MAX_CHUNKED_IMAGE + 4);
+    // A PNG-headed payload is a picture the parser keeps, so only the size cap
+    // can refuse the oversized one below (zeros alone would already be
+    // dropped as "not an image").
+    let picture = |len: usize| {
+        let mut raw = b"\x89PNG\r\n\x1a\n".to_vec();
+        raw.resize(len, 0);
+        base64::engine::general_purpose::STANDARD.encode(raw)
+    };
+    let small = picture(64);
+    let iterm = format!("\x1b]1337;File=inline=1:{small}\x07");
+    assert_eq!(parser.process(iterm.as_bytes()).new_images.len(), 1);
+    let kitty = format!("\x1b_Ga=T,f=100;{small}\x1b\\");
+    assert_eq!(parser.process(kitty.as_bytes()).new_images.len(), 1);
+
+    let oversized = picture(MAX_CHUNKED_IMAGE);
+    assert!(oversized.len() > MAX_CHUNKED_IMAGE);
+    let iterm = format!("\x1b]1337;File=inline=1:{oversized}\x07");
+    assert!(parser.process(iterm.as_bytes()).new_images.is_empty());
     let kitty = format!("\x1b_Ga=T,f=100;{oversized}\x1b\\");
     assert!(parser.process(kitty.as_bytes()).new_images.is_empty());
 }

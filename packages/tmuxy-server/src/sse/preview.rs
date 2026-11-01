@@ -9,7 +9,7 @@
 //!
 //! Staging re-asks tmux whether the pane is a preview of an HTML document, and
 //! takes the page's network permission from tmux too, so a client cannot stage
-//! an online page for an offline preview (`tmuxy_core::preview::stage_page`).
+//! an online page for an offline preview (`tmuxy_core::preview::html_authorisation`).
 
 use axum::{
     body::Body,

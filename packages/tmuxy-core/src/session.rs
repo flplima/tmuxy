@@ -353,12 +353,6 @@ pub fn session_names() -> Vec<String> {
         })
 }
 
-/// How many sessions the server has, from a read-only `list-sessions`; zero
-/// when there is no server to ask.
-pub fn session_count() -> usize {
-    session_names().len()
-}
-
 /// The socket name tmux itself uses when nobody says otherwise — the server a
 /// person's own `tmux` command talks to.
 ///

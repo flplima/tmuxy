@@ -352,22 +352,16 @@ pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
         .route("/events", get(crate::sse::sse_handler))
         .route("/commands", post(crate::sse::commands_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
-        // Client trace ingest (docs/TRACING.md). Capped at 256 KiB/request so a
-        // hostile client can't exhaust the disk in one call; the handler also
-        // fails closed when tracing is off.
-        .route(
-            "/trace",
-            post(crate::sse::trace_handler).layer(axum::extract::DefaultBodyLimit::max(256 * 1024)),
-        )
+        // Client trace ingest (docs/TRACING.md). The handler reads at most
+        // 256 KiB of a request so a hostile client can't exhaust the disk in
+        // one call, and fails closed when tracing is off.
+        .route("/trace", post(crate::sse::trace_handler))
         // A `preview` pane's page: POSTed by the client once it has composed
-        // it, then loaded by the pane's frame (`tmuxy_core::preview`).
+        // it, then loaded by the pane's frame (`tmuxy_core::preview`). The
+        // handler reads at most `MAX_STAGED_BYTES`, after tmux authorises it.
         .route(
             "/api/preview/{pane_id}",
-            get(crate::sse::preview_page_handler)
-                .post(crate::sse::stage_preview_handler)
-                .layer(axum::extract::DefaultBodyLimit::max(
-                    tmuxy_core::preview::MAX_STAGED_BYTES,
-                )),
+            get(crate::sse::preview_page_handler).post(crate::sse::stage_preview_handler),
         )
         .layer(axum::middleware::from_fn_with_state(
             Arc::new(host_policy),
