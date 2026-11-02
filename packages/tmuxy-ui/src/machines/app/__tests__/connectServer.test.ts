@@ -41,10 +41,12 @@ describe('connecting to a server', () => {
   // is the address it was opened at (`localhost`, an IP). The server says it
   // in its greeting, and the label uses it for a local server.
   it('names the machine the server greeted from, not localhost', () => {
+    document.title = 'tmuxy';
     const actor = createActor(appMachine).start();
     actor.send({ type: 'CONNECTION_INFO', defaultShell: 'zsh', hostname: 'ab350m' });
     const { serverHostname, currentServerId } = actor.getSnapshot().context;
     expect(serverHostname).toBe('ab350m');
+    expect(document.title).toBe('tmuxy on ab350m');
     expect(serverHostLabel([], currentServerId, false, serverHostname)).toBe('ab350m');
     // An SSH server's host wins over the local machine's name.
     expect(serverHostLabel(servers, 'ssh-workstation-tmuxy', false, serverHostname)).toBe(

@@ -12,6 +12,7 @@ import { fixedGridSize } from '../../utils/gridFit';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 import { TmuxOp } from '../../domain/commands';
 import { memorableSessionName } from '../../domain/sessionNames';
+import { isTauri } from '../../utils/platform';
 
 export const connectionGlobalEvents = {
   LOG_APPEND: { actions: 'connection_logAppend' },
@@ -211,11 +212,15 @@ export const connectionActions = {
     enqueue(sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: false }));
   }),
 
-  connection_connectionInfo: assignCtx(({ event }) =>
-    event.type === 'CONNECTION_INFO'
-      ? { defaultShell: event.defaultShell, serverHostname: event.hostname }
-      : {},
-  ),
+  connection_connectionInfo: act(({ event, enqueue }) => {
+    if (event.type !== 'CONNECTION_INFO') return;
+    enqueue(assign({ defaultShell: event.defaultShell, serverHostname: event.hostname }));
+    enqueue(() => {
+      if (typeof document !== 'undefined' && !isTauri() && event.hostname) {
+        document.title = `tmuxy on ${event.hostname}`;
+      }
+    });
+  }),
 
   connection_createTab: act(({ enqueue }) => {
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.NewWindow() });

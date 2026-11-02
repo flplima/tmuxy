@@ -99,6 +99,23 @@ pub(super) async fn serve_dev(req: axum::extract::Request) -> Response {
     with_app_headers(response, DEV_CSP)
 }
 
+fn titled_index_html(html: &[u8], host: &str) -> Vec<u8> {
+    let safe_host = !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+    match (safe_host, std::str::from_utf8(html)) {
+        (true, Ok(text)) => text
+            .replacen(
+                "<title>tmuxy</title>",
+                &format!("<title>tmuxy on {host}</title>"),
+                1,
+            )
+            .into_bytes(),
+        _ => html.to_vec(),
+    }
+}
+
 fn embedded_file(path: &str) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
@@ -108,6 +125,15 @@ fn embedded_file(path: &str) -> Response {
     // off-chance the embedded asset's mime string somehow becomes invalid.
     if let Some(response) = serve_user_css(path) {
         response
+    } else if path == "index.html" {
+        match FrontendAssets::get("index.html") {
+            Some(index) => build_response(
+                StatusCode::OK,
+                "text/html; charset=utf-8",
+                titled_index_html(&index.data, &crate::host_name()),
+            ),
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
     } else if let Some(file) = FrontendAssets::get(path) {
         let mime = tmuxy_core::mime::content_type_for_path(path);
         build_response(StatusCode::OK, mime, file.data.into_owned())
@@ -116,7 +142,7 @@ fn embedded_file(path: &str) -> Response {
         build_response(
             StatusCode::OK,
             "text/html; charset=utf-8",
-            index.data.into_owned(),
+            titled_index_html(&index.data, &crate::host_name()),
         )
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -442,7 +468,18 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
 #[cfg(test)]
 mod tests {
-    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid};
+    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid, titled_index_html};
+
+    #[test]
+    fn titled_index_html_names_the_machine_when_the_host_is_plain() {
+        let html = b"<!doctype html><head><title>tmuxy</title></head>";
+        assert_eq!(
+            titled_index_html(html, "ab350m"),
+            b"<!doctype html><head><title>tmuxy on ab350m</title></head>"
+        );
+        assert_eq!(titled_index_html(html, ""), html);
+        assert_eq!(titled_index_html(html, "a<b"), html);
+    }
 
     #[test]
     fn a_pid_file_naming_no_single_process_is_ignored() {
