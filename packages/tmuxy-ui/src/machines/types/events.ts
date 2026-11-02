@@ -202,6 +202,7 @@ export type AppMachineEvent =
       historySize: number;
       width: number;
     }
+  | { type: 'COPY_MODE_CHUNK_FAILED'; paneId: PaneId }
   | {
       type: 'COPY_MODE_CURSOR_MOVE';
       paneId: PaneId;

@@ -166,6 +166,23 @@ export const copyModeActions = {
     enqueue(assign({ copyModeStates: { ...context.copyModeStates, [event.paneId]: updated } }));
   }),
 
+  /**
+   * A chunk that never arrived: the record stops waiting for it, so the next
+   * scroll asks again (`fetchNeededChunk`) instead of showing placeholders
+   * until copy mode is left and re-entered.
+   */
+  copyMode_chunkFailed: assignCtx(({ event, context }) => {
+    if (event.type !== 'COPY_MODE_CHUNK_FAILED') return {};
+    const existing = context.copyModeStates[event.paneId];
+    if (!existing || !existing.loading) return {};
+    return {
+      copyModeStates: {
+        ...context.copyModeStates,
+        [event.paneId]: { ...existing, loading: false },
+      },
+    };
+  }),
+
   copyMode_cursorMove: assignCtx(({ event, context }) => {
     if (event.type !== 'COPY_MODE_CURSOR_MOVE') return {};
     const existing = context.copyModeStates[event.paneId];

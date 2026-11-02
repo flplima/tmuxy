@@ -268,7 +268,8 @@ export function createTmuxActor(runtime: AppRuntime) {
             }),
           ),
           // Soft-fail: log the error, never crash the parent. A failed
-          // scrollback fetch shouldn't surface as a UI-level TMUX_ERROR.
+          // scrollback fetch shouldn't surface as a UI-level TMUX_ERROR; the
+          // copy-mode record is told so it stops waiting for the chunk.
           Effect.catchAll((e) =>
             Effect.sync(() => {
               console.error(
@@ -276,6 +277,7 @@ export function createTmuxActor(runtime: AppRuntime) {
                 e._tag,
                 formatAdapterError(e),
               );
+              parent.send({ type: 'COPY_MODE_CHUNK_FAILED', paneId: event.paneId });
             }),
           ),
         );

@@ -171,7 +171,7 @@ describe('tmuxActor — cancellable scrollback', () => {
     actor.stop();
   });
 
-  it('fetch failure is silent (no TMUX_ERROR tunneled to parent)', async () => {
+  it('fetch failure tells the parent the chunk failed, never a TMUX_ERROR', async () => {
     // `%1` is gone; `%2` answers. The failure is sent first, and what it did
     // or did not send the parent is read once the second fetch — which it
     // does not interrupt, being another pane's — has landed behind it.
@@ -193,8 +193,10 @@ describe('tmuxActor — cancellable scrollback', () => {
 
     const tmuxErrors = events.filter((e) => e.type === 'TMUX_ERROR');
     const chunks = events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED');
+    const failed = events.filter((e) => e.type === 'COPY_MODE_CHUNK_FAILED');
     expect(tmuxErrors).toHaveLength(0);
     expect(chunks.map((e) => e.paneId)).toEqual(['%2']);
+    expect(failed.map((e) => e.paneId)).toEqual(['%1']);
     actor.stop();
   });
 });
