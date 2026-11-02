@@ -8,7 +8,7 @@ import { act, assignCtx } from './actionTypes';
 import type { Ctx, EnqueueAction } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
-import { fittedGridCell, gridExtent } from './helpers';
+import { fittedGridCell, gridExtent, releaseKeyboard } from './helpers';
 import { fixedGridSize } from '../../utils/gridFit';
 import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
 import { TmuxOp } from '../../domain/commands';
@@ -293,14 +293,19 @@ export const connectionActions = {
     enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
   }),
 
-  connection_switchSession: act(({ event, enqueue }) => {
+  connection_switchSession: act(({ event, context, enqueue }) => {
     if (event.type !== 'SWITCH_SESSION') return;
+    // Pane ids are server-global: a float or column of the old session that
+    // still held the keyboard would keep taking the keystrokes typed into the
+    // new one, so every surface lets go here, in the keyboard actor too.
+    releaseKeyboard(context, enqueue, 'float');
+    releaseKeyboard(context, enqueue, 'left');
+    releaseKeyboard(context, enqueue, 'right');
     enqueue(
       assign({
         panes: [],
         windows: [],
         floatPanes: {},
-        focusedFloatPaneId: null,
         paneGroups: {},
         activeWindowId: null,
         activePaneId: null,

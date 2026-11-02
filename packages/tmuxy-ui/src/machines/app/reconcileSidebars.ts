@@ -61,6 +61,10 @@ export function reconcileFloatAndSidebarLifecycle(
         paneId: newFocusedFloat,
       }),
     );
+    if (newFocusedFloat) {
+      releaseKeyboard(context, enqueue, 'left');
+      releaseKeyboard(context, enqueue, 'right');
+    }
   }
 
   const nextSidebarCtx = {

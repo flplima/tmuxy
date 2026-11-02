@@ -12,6 +12,7 @@ import { act } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import type { TmuxWindow } from '../../../domain/client';
 import { visibleFloats } from '../../selectors/panesAndSidebars';
+import { releaseKeyboard } from '../helpers';
 
 /**
  * The lowest window index the session isn't using, scanning up from its lowest
@@ -57,6 +58,10 @@ export const groupsAndFloatsActions = {
     if (next === context.focusedFloatPaneId) return;
     enqueue(assign({ focusedFloatPaneId: next }));
     enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: next }));
+    if (next) {
+      releaseKeyboard(context, enqueue, 'left');
+      releaseKeyboard(context, enqueue, 'right');
+    }
   }),
 
   groupsAndFloats_closeFloat: act(({ event, context, enqueue }) => {
