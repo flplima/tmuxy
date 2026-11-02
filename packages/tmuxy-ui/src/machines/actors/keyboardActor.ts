@@ -20,7 +20,6 @@ import {
   isRealFormControl,
   isTextKey,
   realPaneId,
-  STICKY_CLIENT_KEYS,
   windowShortcut,
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
@@ -333,7 +332,7 @@ export function createKeyboardActor() {
           setKeyTable(null);
         } else if (clientKey) {
           runClientKey(clientKey);
-          if (!STICKY_CLIENT_KEYS.has(clientKey)) setKeyTable(null);
+          setKeyTable(null);
         } else {
           const binding = tableBindings.get(keyTable)?.get(bindingKey);
           setKeyTable(binding ? (runBinding(binding) ?? null) : null);

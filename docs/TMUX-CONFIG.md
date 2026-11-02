@@ -141,11 +141,12 @@ copy mode's tables stay out, copy mode being the client's too).
 A binding enters a table the tmux way, with `switch-client -T <table>`
 (`bind p switch-client -T pane` in `tmuxy.defaults.conf`). The client reads the
 switch out of the binding and keeps the table as its own state; only the rest
-of the binding goes to tmux (`tmuxy-ui/src/domain/keyTables.ts`). A table is
-**sticky** for as long as each key's binding enters it again
-(`bind -T pane x kill-pane \; switch-client -T pane`) — again exactly how tmux
-does it — and `Esc`, a key the table does not bind, or a binding that names no
-table leaves it. So the same config drives a raw `tmux attach` the same way.
+of the binding goes to tmux (`tmuxy-ui/src/domain/keyTables.ts`). By default,
+each binding in `PANE` and `TAB` runs once and returns to normal mode (just as
+in tmux when a binding does not re-enter the table); a custom binding that
+appends `\; switch-client -T <table>` stays in that table, and `Esc` or an
+unbound key leaves it. So the same config drives a raw `tmux attach` the same
+way.
 
 The defaults:
 
@@ -154,7 +155,7 @@ The defaults:
     -  |   split           c   new tab        s / S   the left / right sidebar
     p      PANE mode       t   TAB mode       ?       every key, table by table
 
-  PANE (sticky)                             TAB (sticky)
+  PANE                                      TAB
     h j k l   focus          H J K L  resize    h l   prev / next     c   new
     - |       split          x        close     ,     rename          x   close
     z         zoom           s / S    stack     1-9   go              < > move (client)

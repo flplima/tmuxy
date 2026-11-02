@@ -59,11 +59,7 @@ export function KeysView() {
       <div className="keys-view-panel">
         <Section title={`PREFIX · ${prefix}, then`} bindings={keybindings.prefix_bindings} />
         {Object.entries(keybindings.tables).map(([name, bindings]) => (
-          <Section
-            key={name}
-            title={`${name.toUpperCase()} · sticky until esc`}
-            bindings={bindings}
-          />
+          <Section key={name} title={name.toUpperCase()} bindings={bindings} />
         ))}
         <Section title="Without the prefix" bindings={keybindings.root_bindings} />
       </div>

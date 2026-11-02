@@ -77,8 +77,6 @@ export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
   tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
 };
 
-export const STICKY_CLIENT_KEYS: ReadonlySet<ClientKey> = new Set(['tab-left', 'tab-right']);
-
 /**
  * macOS Option+key produces special Unicode characters instead of altKey=true.
  * This maps those characters back to their base keys for tmux M- notation.

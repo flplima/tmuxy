@@ -43,14 +43,10 @@ function confBindings(): Bind[] {
 
 /**
  * A command as the two spell it in common: the guest has no `pane_current_path`
- * to split at, and a sticky binding's re-entry into its table is the table's
- * business, not the key's.
+ * to split at.
  */
 function normal(command: string): string {
-  return command
-    .replace(/ -c "#\{pane_current_path\}"/g, '')
-    .replace(/ \\; switch-client -T \w+$/, '')
-    .trim();
+  return command.replace(/ -c "#\{pane_current_path\}"/g, '').trim();
 }
 
 const byKey = (binds: Bind[], table: string) =>
@@ -95,7 +91,8 @@ describe('the guest key table against the shipped tmuxy.defaults.conf', () => {
         expect([name, key, normal(command)]).toEqual([name, key, confTable.get(key)]);
       }
       const tableKeys = new Set(bindings.map((b) => b.key));
-      for (const key of confTable.keys()) {
+      for (const [key, command] of confTable.entries()) {
+        expect(command, `${name} ${key}`).not.toContain('switch-client -T');
         expect(tableKeys.has(key) || omitted[name].includes(key), `${name} ${key}`).toBe(true);
       }
     }

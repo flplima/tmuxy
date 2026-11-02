@@ -28,7 +28,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('prefix p: the PANE chip, x closes panes until esc → prefix t: the TAB chip, c opens a tab → prefix s docks the tree → prefix S docks the terminal → prefix ? lists PANE', async () => {
+  test('prefix p: the PANE chip, x closes a pane and returns to normal → prefix t: the TAB chip, c opens a tab and returns to normal → prefix s docks the tree → prefix S docks the terminal → prefix ? lists PANE', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
@@ -49,10 +49,9 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
         };
       });
 
-    // PANE mode: sticky, so x twice closes two panes without the prefix again.
+    // PANE mode: one-shot, so x closes the pane and returns to normal mode.
     await splitPaneKeyboard(page, 'vertical');
-    await splitPaneKeyboard(page, 'horizontal');
-    await waitForPaneCount(page, 3);
+    await waitForPaneCount(page, 2);
     await sendPrefixCommand(page, 'p');
     await waitForCondition(
       page,
@@ -62,11 +61,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     );
     expect(await statusLine()).toMatchObject({ chipVisible: true, hostShown: false });
     await page.keyboard.press('x');
-    await waitForPaneCount(page, 2);
-    await page.keyboard.press('x');
     await waitForPaneCount(page, 1);
-    expect((await statusLine()).chip).toBe('PANE');
-    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => {
@@ -77,7 +72,7 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
       'the normal line, host and session back',
     );
 
-    // TAB mode: c opens a tab and the mode stays.
+    // TAB mode: c opens a tab and returns to normal mode.
     await sendPrefixCommand(page, 't');
     await waitForCondition(
       page,
@@ -87,8 +82,6 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     );
     await page.keyboard.press('c');
     await waitForWindowCount(page, 2);
-    expect((await statusLine()).chip).toBe('TAB');
-    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => (await statusLine()).mode === 'normal',
