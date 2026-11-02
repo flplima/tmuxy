@@ -250,7 +250,11 @@ function MenuSurface({
   // Focus lands on the first item when the menu opens: a menu you have to
   // reach for with the mouse before the keyboard will move through it is not
   // keyboard-operable at all (WAI-ARIA's menu pattern asks for exactly this).
-  useEffect(() => {
+  // In the commit that draws it, not after: a passive effect runs in a later
+  // task, and a key that lands in between closes the column first — then the
+  // late focus pulls the cursor into a menu that is on its way out, and the
+  // next Escape is spent closing it again.
+  useLayoutEffect(() => {
     const panel = surfaceRef.current;
     if (!panel) return;
     const first = navigableItems(panel)[0];
