@@ -85,4 +85,4 @@ We use [gitmoji](https://gitmoji.dev/) in commit subjects (`✨` feature, `🐛`
 
 ## 5. Coding with AI agents
 
-Using AI coding agents is welcome and encouraged. That is how tmuxy is built too, and [AGENTS.md](AGENTS.md) ships in the repo so your agent has full context. Read [AI_POLICY.md](AI_POLICY.md) before opening an AI-assisted PR.
+Using AI coding agents is welcome and encouraged. That is how tmuxy is built too, and [AGENTS.md](AGENTS.md) ships in the repo so your agent has full context.

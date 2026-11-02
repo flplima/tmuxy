@@ -164,7 +164,6 @@ function checkDocsToScriptsConsistency() {
   const commandDocs = [
     'AGENTS.md',
     'CONTRIBUTING.md',
-    'AI_POLICY.md',
     '.github/copilot-instructions.md',
     ...fs
       .readdirSync(path.join(root, 'docs'))
