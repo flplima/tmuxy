@@ -70,6 +70,36 @@ function mount(el: HTMLDivElement, copyState: CopyModeState | undefined) {
 
 const resized = () => observers.forEach((notify) => notify());
 
+/** Like `mount`, with a row height the test changes afterwards. */
+function mountWithRowHeight(el: HTMLDivElement, copyState: CopyModeState, charHeight: number) {
+  return renderHook(
+    ({ charHeight }: { charHeight: number }) =>
+      useTerminalPaneScroll({
+        paneId: pid('%1'),
+        charHeight,
+        copyState,
+        scrollRef: { current: el },
+        send: () => {},
+      }),
+    { initialProps: { charHeight } },
+  );
+}
+
+describe('useTerminalPaneScroll when the rows change height under a view', () => {
+  it('keeps the view on the same row', () => {
+    // A phone turned sideways gives the grid another cell: the row did not
+    // move, but its pixel offset did, and the DOM used to show other rows
+    // until the next wheel event.
+    const { el } = container();
+    const { rerender } = mountWithRowHeight(el, scrollView(500), ROW);
+    expect(el.scrollTop).toBe(500 * ROW);
+
+    rerender({ charHeight: ROW + 4 });
+
+    expect(el.scrollTop).toBe(500 * (ROW + 4));
+  });
+});
+
 describe('useTerminalPaneScroll on a pane whose tab is hidden and shown again', () => {
   it('puts a scrollback view back at its row when the pane comes back on screen', () => {
     const { el, box } = container();

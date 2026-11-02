@@ -47,6 +47,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { usePendingMove } from './sidebarTreePendingMove';
 import { TmuxOp } from '../domain/commands';
 import {
   useAppSend,
@@ -108,15 +109,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // A pane dropped on another tab is shown under that tab from the drop on,
   // not from tmux's answer on: `join-pane` has no geometry the client could
   // predict for the grid, so the move is held here, for the tree alone, until
-  // the pane's window agrees or the pane is gone.
-  const [pendingMove, setPendingMove] = useState<{ paneId: PaneId; windowId: WindowId } | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!pendingMove) return;
-    const pane = panes.find((p) => p.tmuxId === pendingMove.paneId);
-    if (!pane || pane.windowId === pendingMove.windowId) setPendingMove(null);
-  }, [panes, pendingMove]);
+  // the pane's window agrees, the pane is gone, or the hold runs out.
+  const { pendingMove, startMove } = usePendingMove(panes);
 
   // In the order they sit in the grid, so the list follows the layout as it
   // changes (a split, a swap, a move) rather than tmux's creation order; a
@@ -185,11 +179,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // moves the source there (the source window closes if it was its last pane).
   const movePaneToTab = useCallback(
     (paneId: PaneId, targetWindowId: WindowId) => {
-      setPendingMove({ paneId, windowId: targetWindowId });
+      startMove(paneId, targetWindowId);
       send({ type: 'DISPATCH_OP', op: TmuxOp.JoinPane({ paneId, windowId: targetWindowId }) });
       send({ type: 'SELECT_TAB', windowId: targetWindowId });
     },
-    [send],
+    [send, startMove],
   );
 
   // Capture-phase keyboard nav while the sidebar is focused (fires before the

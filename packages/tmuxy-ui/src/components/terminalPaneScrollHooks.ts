@@ -27,6 +27,11 @@ export function useTerminalPaneScroll({
   // (e.g. re-renders from chunk loads that don't alter scrollTop).
   const prevCopyScrollTopRef = useRef<number | null>(null);
 
+  // The row height the DOM offset was last written for: a phone turned
+  // sideways changes it under a view whose row did not move, and the offset
+  // must follow.
+  const prevCharHeightRef = useRef(charHeight);
+
   // Scroll indicator (direct DOM manipulation to avoid re-renders)
   const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
   const scrollIndicatorTimer = useRef<number | null>(null);
@@ -83,12 +88,21 @@ export function useTerminalPaneScroll({
       const newScrollTop = copyState.scrollTop;
       const prevScrollTop = prevCopyScrollTopRef.current;
       prevCopyScrollTopRef.current = newScrollTop;
+      const rowHeightChanged = charHeight !== prevCharHeightRef.current;
+      prevCharHeightRef.current = charHeight;
 
-      // scrollTop didn't change — skip (chunk load, selection update, etc.)
-      if (newScrollTop === prevScrollTop) return;
+      // scrollTop didn't change — skip (chunk load, selection update, etc.),
+      // unless the rows themselves changed height: the same row is then at
+      // another pixel offset, and the DOM would show other rows until the
+      // next wheel event.
+      if (newScrollTop === prevScrollTop && !rowHeightChanged) return;
 
       // scrollTop changed but matches DOM-originated value — skip
-      if (lastDomScrollTopRef.current !== null && newScrollTop === lastDomScrollTopRef.current) {
+      if (
+        !rowHeightChanged &&
+        lastDomScrollTopRef.current !== null &&
+        newScrollTop === lastDomScrollTopRef.current
+      ) {
         lastDomScrollTopRef.current = null;
         return;
       }
@@ -105,6 +119,7 @@ export function useTerminalPaneScroll({
     } else {
       prevCopyScrollTopRef.current = null;
       lastDomScrollTopRef.current = null;
+      prevCharHeightRef.current = charHeight;
     }
   });
 

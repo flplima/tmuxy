@@ -222,6 +222,10 @@ export function detectPaneLifecycle({
       if (!zoomingIn) {
         const keys = new Set<string>();
         for (const key of currBoxes.keys()) if (key !== changedKey) keys.add(key);
+        // A second zoom-out within the first's window: its timer would end
+        // this tag early.
+        const previous = zoomExpandRef.current;
+        if (previous?.timer !== undefined) clearTimeout(previous.timer);
         zoomExpandRef.current = keys.size > 0 ? { keys } : null;
       }
     }
@@ -432,6 +436,8 @@ export function usePaneMorphCommit({
         s.unlisten?.();
       }
       for (const l of leaves.values()) if (l.timer !== undefined) clearTimeout(l.timer);
+      const ze = zoomExpandRef.current;
+      if (ze?.timer !== undefined) clearTimeout(ze.timer);
     };
-  }, [enterAnimsRef, shiftAnimsRef, leavingRef]);
+  }, [enterAnimsRef, shiftAnimsRef, leavingRef, zoomExpandRef]);
 }
