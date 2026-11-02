@@ -97,6 +97,26 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       parent.send({ type: 'TMUX_MODEL_UPDATE', model });
     });
 
+    // Whether a snapshot or the store's idle sweep rolled the op back, the
+    // user sees the same thing: their split/kill/tab just disappeared.
+    const unsubscribeRollbacks = store.subscribeRollbacks((rolledBack) => {
+      for (const entry of rolledBack) {
+        console.warn(`[TmuxStore] rolled back ${entry.op._tag} op ${entry.opId}: ${entry.reason}`);
+        // A structural op rolling back is a user-visible revert — surface it
+        // like a rejection so the status line explains WHY instead of the UI
+        // silently snapping back. Focus-op rollbacks are cosmetic
+        // supersession noise; keep those console-only.
+        // 'previously failed' entries already surfaced their error when
+        // dispatchRemote rejected — re-sending here would double-report.
+        if (STRUCTURAL_OPS.has(entry.op._tag) && entry.reason !== 'previously failed') {
+          parent.send({
+            type: 'TMUX_ERROR',
+            error: `${entry.op._tag} was not confirmed by tmux (${entry.reason})`,
+          });
+        }
+      }
+    });
+
     const dispatchWithErrorSurface = (
       program: ReturnType<TmuxStore['dispatch']>,
       command: string,
@@ -132,26 +152,8 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       }
 
       if (event.type === 'RECONCILE_SERVER') {
-        // Synchronous — the listener fires inline.
-        const rolledBack = store.reconcile(event.state);
-        for (const entry of rolledBack) {
-          console.warn(
-            `[TmuxStore] rolled back ${entry.op._tag} op ${entry.opId}: ${entry.reason}`,
-          );
-          // A structural op rolling back is a user-visible revert (their split/
-          // kill/tab just disappeared) — surface it like a rejection so the
-          // status line explains WHY instead of the UI silently snapping back.
-          // Focus-op rollbacks are cosmetic supersession noise; keep those
-          // console-only.
-          // 'previously failed' entries already surfaced their error when
-          // dispatchRemote rejected — re-sending here would double-report.
-          if (STRUCTURAL_OPS.has(entry.op._tag) && entry.reason !== 'previously failed') {
-            parent.send({
-              type: 'TMUX_ERROR',
-              error: `${entry.op._tag} was not confirmed by tmux (${entry.reason})`,
-            });
-          }
-        }
+        // Synchronous — the listeners fire inline.
+        store.reconcile(event.state);
         return;
       }
 
@@ -171,6 +173,7 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
 
     return () => {
       unsubscribe();
+      unsubscribeRollbacks();
     };
   });
 }

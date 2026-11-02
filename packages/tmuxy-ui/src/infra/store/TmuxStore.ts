@@ -10,7 +10,8 @@
  *    `reconcile`.
  *  - `reconcile(snapshot)` is the entry point for fresh server state. Runs
  *    every pending op's reconciler, drops matched/failed ones, recomputes
- *    `derived`, surfaces rollback warnings to the caller.
+ *    `derived`. Rollbacks — from a snapshot or from the idle sweep that
+ *    stands in for one — reach `subscribeRollbacks` listeners.
  *
  * The store does NOT own React subscriptions directly — it exposes a plain
  * subscribe API; the appMachine bridges them so XState `context` stays the
@@ -50,6 +51,7 @@ export interface DispatchOptions {
 }
 
 export type StoreListener = (model: TmuxClientModel) => void;
+export type RollbackListener = (entries: ReadonlyArray<RollbackEntry>) => void;
 
 export interface TmuxStore {
   /** Current model snapshot. */
@@ -77,11 +79,10 @@ export interface TmuxStore {
 
   /**
    * Apply a fresh server snapshot. Reconciles every pending op, drops
-   * matched/stale ones, recomputes `derived`, and returns any rollback
-   * entries the caller wants to log. This is the single entry point from
-   * the SSE/Tauri state stream.
+   * matched/stale ones, recomputes `derived`. This is the single entry
+   * point from the SSE/Tauri state stream.
    */
-  readonly reconcile: (state: ServerState) => ReadonlyArray<RollbackEntry>;
+  readonly reconcile: (state: ServerState) => void;
 
   /**
    * Drop everything (committed, ops, paneKeyOverrides). Used on session
@@ -100,12 +101,21 @@ export interface TmuxStore {
 
   /** Update the default PredictContext (called when defaultShell / MRU change). */
   readonly setPredictContext: (ctx: PredictContext) => void;
+
+  /**
+   * Hear every op a reconcile pass rolled back, whether the pass was driven
+   * by a server snapshot or by the idle sweep. Fires after the subscribers
+   * have seen the model it rolled back from; never with an empty list.
+   * Returns an unsubscribe function.
+   */
+  readonly subscribeRollbacks: (listener: RollbackListener) => () => void;
 }
 
 export function makeTmuxStore(): TmuxStore {
   let model: TmuxClientModel = EMPTY_MODEL;
   let predictContext: PredictContext = { defaultShell: 'bash', paneActivationOrder: [] };
   const listeners = new Set<StoreListener>();
+  const rollbackListeners = new Set<RollbackListener>();
 
   /** Replace the model and tell every subscriber. */
   const commit = (next: TmuxClientModel): void => {
@@ -118,6 +128,19 @@ export function makeTmuxStore(): TmuxStore {
       }
     }
     scheduleIdleReconcile(next);
+  };
+
+  /** Commit a reconcile pass and report what it rolled back. */
+  const commitReconciled = (result: ReturnType<typeof applyServerSnapshot>): void => {
+    commit(result.model);
+    if (result.rolledBack.length === 0) return;
+    for (const l of rollbackListeners) {
+      try {
+        l(result.rolledBack);
+      } catch (err) {
+        console.error('[TmuxStore] rollback listener threw:', err);
+      }
+    }
   };
 
   /** Change an op's status only: derived is unaffected, so nobody is told. */
@@ -141,11 +164,7 @@ export function makeTmuxStore(): TmuxStore {
     idleTimer = setTimeout(() => {
       idleTimer = null;
       if (model.ops.length === 0) return;
-      const result = applyServerSnapshot(model, model.committed, Date.now());
-      for (const entry of result.rolledBack) {
-        console.warn(`[TmuxStore] idle-swept ${entry.op._tag} op ${entry.opId}: ${entry.reason}`);
-      }
-      commit(result.model);
+      commitReconciled(applyServerSnapshot(model, model.committed, Date.now()));
     }, IDLE_RECONCILE_MS);
   };
 
@@ -222,8 +241,7 @@ export function makeTmuxStore(): TmuxStore {
       const snapshot = preserveSnapshotIdentity(model.committed, transformServerState(state));
       const result = applyServerSnapshot(model, snapshot, Date.now());
       appliedSeq = state.seq ?? null;
-      commit(result.model);
-      return result.rolledBack;
+      commitReconciled(result);
     },
 
     clear: () => {
@@ -246,6 +264,13 @@ export function makeTmuxStore(): TmuxStore {
 
     setPredictContext: (ctx) => {
       predictContext = ctx;
+    },
+
+    subscribeRollbacks: (listener) => {
+      rollbackListeners.add(listener);
+      return () => {
+        rollbackListeners.delete(listener);
+      };
     },
   };
 }

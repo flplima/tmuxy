@@ -8,8 +8,9 @@
  *  - reconcile → committed advances, matched ops drop
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
+import { OP_ACKED_STALE_TIMEOUT_MS } from '../../../domain/store/types';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import { TmuxOp } from '../../../domain/commands';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
@@ -194,6 +195,41 @@ describe('TmuxStore (integration)', () => {
     expect(blank._tag).toBe('Success');
     expect(fake.invocations).toEqual([]);
     expect(store.getModel()).toBe(before);
+  });
+});
+
+describe('rollback reporting', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a stale op is reported whether a snapshot or the idle sweep rolls it back', async () => {
+    // tmux acked the split but never sent a delta for it, and nothing else
+    // is on the wire: no snapshot arrives to run the stale sweep, so the
+    // store's idle timer runs it. The user sees the split vanish either way
+    // and must be told why either way.
+    vi.useFakeTimers();
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    const reported: string[] = [];
+    store.subscribeRollbacks((entries) => {
+      for (const e of entries) reported.push(`${e.op._tag}:${e.reason}`);
+    });
+    store.reconcile(blankServerState());
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    const exit = await fake.runtime.runPromiseExit(
+      store.dispatch(parseCommandToOp('split-window -h')),
+    );
+    expect(exit._tag).toBe('Success');
+    expect(store.getModel().ops.map((o) => o.status)).toEqual(['awaiting-confirm']);
+
+    await vi.advanceTimersByTimeAsync(OP_ACKED_STALE_TIMEOUT_MS + 1000);
+
+    expect(store.getModel().ops).toHaveLength(0);
+    expect(store.getModel().derived.panes).toHaveLength(1);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatch(/^Split:op stale after \d+ms \(awaiting-confirm\)$/);
   });
 });
 
