@@ -18,6 +18,9 @@
  *   bin/ci/test-cost.mjs              the last 6 months
  *   bin/ci/test-cost.mjs --months 12  further back (run history permitting)
  *   bin/ci/test-cost.mjs --summary    markdown, for $GITHUB_STEP_SUMMARY
+ *   bin/ci/test-cost.mjs --complete   only months that have ended: the N
+ *                                     before this one (a report made on the 1st
+ *                                     would otherwise end on one day's data)
  *
  * Needs `gh` with access to the repository and the git history.
  */
@@ -25,18 +28,24 @@ import { execFileSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
 const markdown = args.includes('--summary');
+const complete = args.includes('--complete');
 const monthsArg = args.indexOf('--months');
 const months = monthsArg === -1 ? 6 : Number(args[monthsArg + 1]);
 if (!Number.isInteger(months) || months < 1) {
-  console.error('usage: bin/ci/test-cost.mjs [--months N] [--summary]');
+  console.error('usage: bin/ci/test-cost.mjs [--months N] [--summary] [--complete]');
   process.exit(2);
 }
 
-const since = new Date();
-since.setUTCDate(1);
-since.setUTCMonth(since.getUTCMonth() - (months - 1));
-since.setUTCHours(0, 0, 0, 0);
-const monthOf = (iso) => iso.slice(0, 7);
+const thisMonth = new Date();
+thisMonth.setUTCDate(1);
+thisMonth.setUTCHours(0, 0, 0, 0);
+const since = new Date(thisMonth);
+since.setUTCMonth(since.getUTCMonth() - (complete ? months : months - 1));
+// In UTC, the zone `since` is in: a date carries its author's offset, and a
+// commit made late on the last day of a month west of UTC is already in the
+// next one there, where `git log --since` counted it.
+const monthOf = (date) => new Date(date).toISOString().slice(0, 7);
+const reportedMonths = (month) => !complete || month < monthOf(thisMonth);
 
 const run = (cmd, argv) =>
   execFileSync(cmd, argv, { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
@@ -68,7 +77,7 @@ for (let i = 0; i < runs.length; i++) {
   // Main has not been green since: this push's wait has not ended yet.
   if (!green) continue;
   const minutes = Math.max(0, (green.ended - runs[i].started) / 60000);
-  const month = monthOf(runs[i].started.toISOString());
+  const month = monthOf(runs[i].started);
   if (!toGreen.has(month)) toGreen.set(month, { minutes: [], red: 0 });
   toGreen.get(month).minutes.push(minutes);
   if (runs[i].conclusion !== 'success') toGreen.get(month).red++;
@@ -105,7 +114,11 @@ for (const line of log.split('\n').filter(Boolean)) {
 
 // ---- report -------------------------------------------------------------------
 
-const monthKeys = [...new Set([...toGreen.keys(), ...commits.keys()])].sort();
+// The runs and commits after the last reported month still count: a push near
+// its end waits for the next green, which may come after it.
+const monthKeys = [...new Set([...toGreen.keys(), ...commits.keys()])]
+  .filter(reportedMonths)
+  .sort();
 const row = (cells) => console.log(markdown ? `| ${cells.join(' | ')} |` : cells.join('  '));
 const head = [
   'month',

@@ -5,8 +5,10 @@ name: monthly test cost
 # went to the tests themselves (bin/ci/test-cost.mjs). De-flaking work is paying
 # off when to-green p90 falls and the ✅ share falls with it.
 #
-# Each run comments the last three months on one tracking issue, so the
+# Each run comments the last three complete months on one issue, so the
 # history accumulates in one place instead of in run summaries that expire.
+# The issue is a record, not a task: closed, it is still the one commented on,
+# and a new one is opened only if there is none at all.
 
 on:
   schedule:
@@ -43,7 +45,7 @@ jobs:
       - name: Report
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node bin/ci/test-cost.mjs --months 3 --summary | tee report.md >> "$GITHUB_STEP_SUMMARY"
+        run: node bin/ci/test-cost.mjs --months 3 --complete --summary | tee report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record it on the tracking issue
         env:
@@ -52,8 +54,10 @@ jobs:
         run: |
           set -euo pipefail
           TITLE="Test cost by month"
-          EXISTING=$(gh issue list --state open --label ci-metrics \
-            --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          # `--search` is fuzzy, so the title is matched exactly; newest first.
+          EXISTING=$(TITLE=$TITLE gh issue list --state all --label ci-metrics \
+            --search "$TITLE in:title sort:created-desc" --json number,title \
+            --jq 'map(select(.title == env.TITLE)) | .[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --body-file report.md
           else
