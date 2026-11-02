@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { PaneContent } from '../../domain/wire';
+import type { PaneContent } from '../../domain/wireCells';
 import type { AppMachineContext } from '../../machines/types/context';
 import type { AppMachineEvent } from '../../machines/types/events';
 import type { PaneId } from '../../domain/ids';

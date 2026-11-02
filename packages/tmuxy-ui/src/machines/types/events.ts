@@ -1,9 +1,11 @@
-import type { ServerState, KeyBindings, Appearance, PaneContent } from '../../domain/wire';
+import type { ServerState, KeyBindings, Appearance } from '../../domain/wire';
+import type { PaneContent } from '../../domain/wireCells';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import type { TabStripGeometry } from '../../utils/tabStripDrop';
 import type { AskAnswer } from '../../utils/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { TmuxOp } from '../../domain/commands';
+import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
 import type {
   ChildMachineEvent,
@@ -307,7 +309,21 @@ export type AppMachineEvent =
   | { type: 'TRACE_SETTINGS_RECEIVED'; settings: TraceSettings }
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
   | { type: 'SET_TRACE_LEVEL'; level: TraceLevel }
-  | { type: 'OPEN_TRACE_FILE' };
+  | { type: 'OPEN_TRACE_FILE' }
+  /** The state stream carried a new `@tmuxy-plugins-rev` (`''`: none). */
+  | { type: 'PLUGINS_REV_CHANGED'; rev: string }
+  | { type: 'PLUGINS_RECEIVED'; plugins: PluginInfo[] }
+  /**
+   * Run a plugin's action from a menu: on `paneId` (`null`: the active pane),
+   * with the selected text when it came from the selection menu.
+   */
+  | {
+      type: 'PLUGIN_ACTION';
+      plugin: string;
+      action: string;
+      paneId: PaneId | null;
+      selection?: string;
+    };
 
 /** All events the app machine handles (external + child machine events) */
 export type AllAppMachineEvents = AppMachineEvent | ChildMachineEvent;

@@ -335,6 +335,14 @@ pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError
     for cmd in crate::session::current_managed_state_commands() {
         run(tx, &cmd).await?;
     }
+    // The user's own plugin is `<config_dir>/tmuxy-plugin.toml`, re-read on
+    // a reload like the rest of the config.
+    if crate::session::ssh_target().is_none() {
+        let dirs = crate::plugins::Dirs::current();
+        for cmd in crate::plugins::inventory::commands(&dirs) {
+            run(tx, &cmd).await?;
+        }
+    }
     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
     Ok(())
 }

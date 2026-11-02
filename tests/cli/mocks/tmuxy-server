@@ -12,4 +12,11 @@ if [ "${1:-} ${2:-}" = "session snapshots" ] && [ -n "${MOCK_SERVER_SNAPSHOTS:-}
   printf '%b\n' "$MOCK_SERVER_SNAPSHOTS"
   exit 0
 fi
+# Whether a word is a plugin's verb: only the ones a test names.
+if [ "${1:-} ${2:-}" = "plugin resolve-verb" ]; then
+  case " ${MOCK_PLUGIN_VERBS:-} " in
+    *" ${3:-} "*) exit 0 ;;
+  esac
+  exit 1
+fi
 echo "mock-server-started $*"

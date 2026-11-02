@@ -6,7 +6,7 @@ import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
 import { RowEdges } from './RowEdges';
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 import { channels } from '../stories/colorChannels';
 
 function styled(str: string, style: Record<string, unknown>): CellLine {

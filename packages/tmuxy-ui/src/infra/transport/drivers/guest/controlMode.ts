@@ -4,7 +4,8 @@
  * the per-attach tmux settings, and the bookkeeping that picks tracked
  * command outcomes and scrollback captures out of the control-mode stream.
  */
-import type { PaneContent, ServerStateEncoded, StateUpdateEncoded } from '../../../../domain/wire';
+import type { ServerStateEncoded, StateUpdateEncoded } from '../../../../domain/wire';
+import type { PaneContent } from '../../../../domain/wireCells';
 
 const WASM_JS = '/wasm/tmuxy_wasm.js';
 const WASM_BG = '/wasm/tmuxy_wasm_bg.wasm';

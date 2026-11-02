@@ -36,6 +36,7 @@ export type StateName =
   | 'uiPrefs'
   | 'gestures'
   | 'ask'
+  | 'plugins'
   | 'parent';
 
 /**
@@ -161,6 +162,10 @@ export const FIELD_OWNERS = {
   gestureFlags: 'uiPrefs',
   nativeMenus: 'uiPrefs',
   sizePolicy: 'uiPrefs',
+
+  // ---- plugins ----
+  plugins: 'plugins',
+  pluginsRev: 'plugins',
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
@@ -261,6 +266,8 @@ export function createInitialContext(): AppMachineContext {
     themeMode: loadThemeFromStorage()?.mode ?? 'dark',
     availableThemes: [],
     traceSettings: null,
+    plugins: [],
+    pluginsRev: '',
     appFocused: true,
     prefixActive: false,
     prefixRepeatOnly: null,

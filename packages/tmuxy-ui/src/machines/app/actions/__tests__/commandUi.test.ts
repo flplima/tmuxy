@@ -70,6 +70,7 @@ describe('fillTemplate & command prompt expansion', () => {
       totalHeight: 24,
       sessionName: 'sess-$&-$$',
       focusRequest: '',
+      pluginsRev: '',
     };
     const model: TmuxClientModel = {
       committed: snapshot,

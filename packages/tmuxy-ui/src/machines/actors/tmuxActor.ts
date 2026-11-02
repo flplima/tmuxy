@@ -10,6 +10,7 @@ import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
 import { TransportEvent } from '../../infra/transport/events';
 import { parseThemeMode, type ThemeInfo } from '../../utils/themeManager';
+import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -35,6 +36,16 @@ export type TmuxActorEvent =
   | { type: 'SWITCH_SESSION'; sessionName: string }
   | { type: 'RESTORE_SESSION'; sessionName: string }
   | { type: 'RECONNECT_NOW' }
+  /** Read the plugin inventory (`@tmuxy-plugins`) and send PLUGINS_RECEIVED. */
+  | { type: 'FETCH_PLUGINS' }
+  /** Run a plugin's action, preparing a token for the selection first. */
+  | {
+      type: 'RUN_PLUGIN_ACTION';
+      plugin: string;
+      action: string;
+      paneId: PaneId;
+      selection: string | null;
+    }
   | { type: 'CHECK_SESSION_SWITCH' };
 
 export interface TmuxActorInput {
@@ -310,6 +321,56 @@ export function createTmuxActor(runtime: AppRuntime) {
           logPrefix: 'trace settings',
           silentFail: true,
         });
+      } else if (event.type === 'FETCH_PLUGINS') {
+        // A transport that answers no queries (a recorded fixture) has no
+        // plugins: the menus stay as they are.
+        run(
+          withTransport((t) => t.query(READ_PLUGINS_COMMAND)),
+          {
+            onSuccess: (raw) =>
+              parent.send({ type: 'PLUGINS_RECEIVED', plugins: parseInventory(raw ?? '') }),
+            logPrefix: 'plugins',
+            silentFail: true,
+          },
+        );
+      } else if (event.type === 'RUN_PLUGIN_ACTION') {
+        const launch = (token: string | null) => {
+          const command = toTmuxCommand(
+            TmuxOp.PluginAction({
+              plugin: event.plugin,
+              action: event.action,
+              paneId: event.paneId,
+              token,
+            }),
+          );
+          logCommand(command);
+          run(
+            withTransport((t) => t.invoke('run_tmux_command', { command })),
+            { logPrefix: command },
+          );
+        };
+        if (event.selection === null) {
+          launch(null);
+        } else {
+          // The selected text goes to the server, which writes it into the
+          // invocation token; only the token's id rides the command.
+          run(
+            withTransport((t) =>
+              t.invoke<{ token: string } | null>('prepare_plugin_action', {
+                plugin: event.plugin,
+                action: event.action,
+                paneId: event.paneId,
+                selection: event.selection,
+              }),
+            ),
+            {
+              onSuccess: (prepared) => {
+                if (prepared?.token) launch(prepared.token);
+              },
+              logPrefix: 'prepare_plugin_action',
+            },
+          );
+        }
       } else if (event.type === 'OPEN_TRACE_FILE') {
         run(
           withTransport((t) => t.invoke('open_trace_file', {})),

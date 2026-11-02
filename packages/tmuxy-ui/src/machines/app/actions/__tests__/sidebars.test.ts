@@ -71,6 +71,7 @@ const modelUpdate = (panes: TmuxPane[], windows: TmuxWindow[]) => {
     totalHeight: 24,
     sessionName: 'main',
     focusRequest: '',
+    pluginsRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

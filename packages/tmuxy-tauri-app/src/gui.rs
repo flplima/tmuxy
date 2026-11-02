@@ -126,6 +126,7 @@ pub fn run() {
             // the `tmuxy <subcommand>` shell wrapper can reach them by an
             // absolute path even when launched from Finder/Spotlight.
             let bin_dir = tmuxy_core::session::ensure_bin_scripts();
+            tmuxy_core::plugins::gc::on_start();
             tracing::info!(
                 config = %config_path.display(),
                 themes = %themes_dir.display(),
@@ -291,6 +292,7 @@ pub fn run() {
             // live-reconnect to one (localhost socket switch or remote SSH).
             commands::list_servers,
             commands::list_snapshots,
+            commands::prepare_plugin_action,
             commands::restore_session,
             commands::connect_server,
             commands::detach_client,

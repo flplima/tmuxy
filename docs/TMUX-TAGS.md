@@ -28,6 +28,8 @@ Window options are scoped per window (`set-option -w -t <window-id>`). The pane 
 | `@tmuxy-group-id` | pane | `g<n>`, e.g. `g5` | every member of a pane group |
 | `@tmuxy-group-pos` | pane | integer (0 is first) \| unset | a member's place in its group, once the group was reordered or joined; members without one follow, by pane id |
 | `@tmuxy-group-rev` | global | opaque \| unset | bumped by the group scripts after a change tmux does not announce, so the pane-metadata subscription fires (every pane inherits it) |
+| `@tmuxy-plugins` | global | base64 of a JSON array `[{name, actions: [{id, title, menu?, surface}]}]` \| unset | the installed plugins' actions, for the menus; written by `tmuxy plugin install\|update\|remove`, `tmuxy config reload` and every server as it attaches ([PLUGINS.md](PLUGINS.md)). Read by the client with one query, never subscribed to |
+| `@tmuxy-plugins-rev` | global | 16 hex digits (a hash of the inventory) \| unset | changes exactly when `@tmuxy-plugins` does; rides the pane-metadata subscription and the `list-panes` rows, so a client re-reads the inventory within a second |
 | `@tmuxy-pane-state` | pane | `idle` \| `working` \| `needs-input` \| `error` \| `unread` \| unset | what the pane says it is doing; set by whatever runs in it |
 | `@tmuxy-ask` | pane | base64 of `{token, caller, keys}` or `{token, kind: "offer", command}` \| unset | a send into this pane waiting on the user (`tmuxy pane send -t`), or a command a session restore offers to run again (the client shows it as a one-line banner and runs or drops it itself) |
 | `@tmuxy-ask-answer` | pane | `<token>:yes` \| `<token>:no` \| unset | the answer a client recorded for the pending `@tmuxy-ask` |

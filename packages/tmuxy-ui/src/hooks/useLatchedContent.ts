@@ -15,7 +15,7 @@
  */
 
 import { useRef } from 'react';
-import type { PaneContent } from '../domain/wire';
+import type { PaneContent } from '../domain/wireCells';
 
 const EMPTY: PaneContent = [];
 

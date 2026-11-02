@@ -14,6 +14,7 @@ import {
 } from './appMenu';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
+import { pluginsSubmenu } from './pluginMenu';
 import { tidy, type MenuEnv, type MenuNode, type MenuSpec } from './spec';
 
 export function menuBarSpec(
@@ -33,6 +34,7 @@ export function menuBarSpec(
     top('menu-tab', 'Tab', tabMenuSpec(ctx, { windowId: null })),
     top('menu-session', 'Session', sessionMenuSpec(ctx, env)),
     top('menu-view', 'View', viewMenuSpec(ctx, env)),
+    pluginsSubmenu(ctx.plugins, 'app', null),
     // No Select All: over a terminal grid it selects the whole document,
     // which means nothing.
     top('menu-edit', 'Edit', [

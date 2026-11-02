@@ -9,7 +9,7 @@ const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { CopyModeState } from '../../../../domain/copyMode';
 import type { TmuxPane } from '../../../../domain/client';
-import type { CellLine } from '../../../../domain/wire';
+import type { CellLine } from '../../../../domain/wireCells';
 import type { PaneId } from '../../../../domain/ids';
 import { toTmuxCommand, type TmuxOp } from '../../../../domain/commands';
 

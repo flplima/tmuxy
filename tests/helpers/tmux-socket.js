@@ -67,6 +67,16 @@ function tmuxEnv() {
   };
   delete env.TMUX;
   delete env.TMUX_PANE;
+  // A shell inside tmuxy carries the binary ITS server published; handed to
+  // the suite's tmux server at birth, every script it runs would call that
+  // build's verbs instead of the one under test until something replaced it.
+  delete env.TMUXY_SERVER_BIN;
+  delete env.TMUXY_SERVER_SUBCOMMAND;
+  // An AppImage's runtime exports these into the tmux server it starts, so
+  // every pane of an installed tmuxy has them; a server under test that
+  // inherits `APPIMAGE` takes itself for that install (`invoked_exe`) and
+  // publishes ITS binary to the suite's tmux.
+  for (const name of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD']) delete env[name];
   return env;
 }
 

@@ -1,4 +1,4 @@
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 
 export function text(str: string): CellLine {
   return str.split('').map((c) => ({ c }));

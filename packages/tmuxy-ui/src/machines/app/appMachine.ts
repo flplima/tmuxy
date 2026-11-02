@@ -28,6 +28,8 @@ import type { AllAppMachineEvents } from '../types/events';
 import { createInitialContext } from './context';
 import { uiPrefsState } from './states/uiPrefs';
 import { uiPrefsActions } from './actions/uiPrefs';
+import { pluginsState } from './states/plugins';
+import { pluginsActions } from './actions/plugins';
 import { commandUiState } from './states/commandUi';
 import { commandUiActions } from './actions/commandUi';
 import { notificationsState } from './states/notifications';
@@ -82,6 +84,7 @@ export const appMachine = setup({
   },
   actions: {
     ...uiPrefsActions,
+    ...pluginsActions,
     ...commandUiActions,
     ...notificationsActions,
     ...copyModeActions,
@@ -148,6 +151,7 @@ export const appMachine = setup({
   ],
   on: {
     ...uiPrefsState.on,
+    ...pluginsState.on,
     ...commandUiState.on,
     ...notificationsState.on,
     ...groupsAndFloatsGlobalEvents,

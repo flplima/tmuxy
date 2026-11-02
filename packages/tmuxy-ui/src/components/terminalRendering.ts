@@ -7,7 +7,7 @@
  * Groups consecutive cells by style into <span> elements for efficiency.
  */
 
-import type { CellLine, CellStyle } from '../domain/wire';
+import type { CellLine, CellStyle } from '../domain/wireCells';
 import {
   cellColorToCss,
   cellsToCss,

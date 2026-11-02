@@ -89,3 +89,44 @@ the tmux config. In short:
   `tmuxy.conf`. Options are `@tmuxy-*` in `tmuxy.conf`; `tmuxy config reload` applies it.
 - An option set in `tmuxy.conf` is pinned: the menus cannot change it.
 - A saved theme or `custom.css` repaints every open window by itself.
+
+## Plugins
+
+A plugin adds menu actions and `tmuxy <verb>` commands. Its commands run
+unsandboxed as the user, so never install one the user did not ask for:
+`tmuxy plugin install owner/repo` shows what it can do and asks on the terminal
+(an agent without one passes `--yes --sha <commit>` only after the user saw it).
+
+To write one (or an action of the user's own, in `~/.config/tmuxy/tmuxy-plugin.toml`
+with `name = "user"`):
+
+```sh
+tmuxy plugin new hello                          # tmuxy-hello/: manifest, bin/hello, README
+tmuxy plugin install --path tmuxy-hello --yes   # a live link: edits apply at once
+tmuxy plugin action hello:hello --wait          # run it; exits with its status
+tmuxy plugin check tmuxy-hello                  # every manifest problem, with its line
+tmuxy plugin log hello                          # what ran, and how it exited
+```
+
+```toml
+[plugin]
+api = 1
+name = "hello"                 # lowercase letters, digits, '-'
+version = "0.1.0"
+
+[[actions]]
+id = "hello"
+title = "Say hello"            # the menu label
+menu = "pane"                  # "app" | "pane" | "selection", or leave out
+surface = "popup"              # "split" | "tab" | "float" | "popup" | "zoomed"
+command = ["bin/hello"]        # an argv inside the plugin, never a shell line
+
+[[cli]]
+verb = "hello"                 # `tmuxy hello ...`, in the caller's shell
+command = ["bin/hello"]
+```
+
+A command runs in the plugin's directory with `TMUXY_TARGET_PANE`,
+`TMUXY_PLUGIN_CONFIG_DIR` (credentials go there, never in the plugin) and
+`TMUXY_PLUGIN_CONTEXT_JSON`; a selection action also gets `TMUXY_SELECTION_FILE`.
+docs/PLUGINS.md and docs/PLUGIN-API.md in the tmuxy repository have the rest.

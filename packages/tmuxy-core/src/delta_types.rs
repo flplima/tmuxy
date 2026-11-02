@@ -247,6 +247,10 @@ pub struct TmuxDelta {
     /// (absent) from "no longer pending" (empty string).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub focus_request: Option<String>,
+    /// The plugin inventory's revision changed; `Some("")` when the option
+    /// is gone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugins_rev: Option<String>,
     /// Total dimensions changed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_width: Option<u32>,
@@ -263,6 +267,7 @@ impl TmuxDelta {
             && self.active_window_id.is_none()
             && self.active_pane_id.is_none()
             && self.focus_request.is_none()
+            && self.plugins_rev.is_none()
             && self.total_width.is_none()
             && self.total_height.is_none()
     }

@@ -203,6 +203,9 @@ config_paths_table() {
 config|tmuxy.conf|user|yes|yes|Your overrides; tmuxy sources its defaults before it and its essentials after it.
 config|custom.css|user|yes|yes|Your CSS, loaded last.
 config|themes/|user|yes|yes|Your themes; a built-in's name replaces that built-in.
+config|tmuxy-plugin.toml|user|yes|yes|Your own actions and verbs: the `user` plugin, re-read by `tmuxy config reload`.
+config|plugins.json|user|yes|yes|The plugins installed and their commits; `tmuxy plugin install` writes it and installs what it lists.
+config|plugins/|user|yes|yes|Each plugin's own config (TMUXY_PLUGIN_CONFIG_DIR); kept on update and on remove unless --purge.
 data|tmuxy.defaults.conf|tmuxy|no|no|tmuxy's taste: prefix, status line, bindings, the @tmuxy-* defaults.
 data|tmuxy.essentials.conf|tmuxy|no|no|The settings tmuxy cannot work without, sourced first and last.
 data|tmuxy.conf.example|tmuxy|no|no|The starter tmuxy.conf; `tmuxy config init` copies it.
@@ -217,6 +220,7 @@ state|trace.json|tmuxy|yes|no|The Debug menu's trace switch.
 state|launcher|tmuxy|no|no|The desktop app the ~/.local/bin/tmuxy shorthand runs.
 state|tmuxy.pid|tmuxy|no|no|The running web server's pid (tmuxy-<port>.pid on another port).
 state|config-reload|tmuxy|no|no|Touched by `tmuxy config reload`.
+state|plugins/|tmuxy|no|no|Plugin checkouts (<name>@<commit>), their logs and state, launch tokens.
 EOF
 }
 

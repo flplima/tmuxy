@@ -128,7 +128,10 @@ Commands:
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
   config      Re-apply tmuxy.conf (reload) or change a setting (use-tmux-conf)
+  plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
+
+A plugin's own commands (`tmuxy <verb>`) are listed by 'tmuxy plugin list'.
 
 Options:
   -h, --help    Show this help
@@ -312,6 +315,58 @@ Examples:
 EOF
 }
 
+usage_plugin() {
+  cat <<'EOF'
+Usage: tmuxy plugin <command> [args...]
+
+Commands:
+  install       Install from GitHub <owner/repo[/subdir][@ref]>, or link a
+                local directory (--path DIR); with no argument, install
+                exactly what plugins.json lists [--yes --sha COMMIT]
+  list          The installed plugins [--json]
+  update        Move plugins to the latest commit of their ref [name]
+  remove        Uninstall a plugin <name> [--purge]
+  action        Run an action on a pane <plugin>:<id> [--pane %id] [--wait]
+                [-- args...]
+  log           What a plugin ran, and how it exited <name> [-f]
+  check         Validate a plugin directory [dir]
+  new           Write a plugin to start from, tmuxy-<name>/ <name>
+
+Plugin commands run unsandboxed as your user and can control every pane.
+Install shows what a plugin can do and asks first; without a terminal it
+needs --yes --sha <the commit you reviewed>. docs/PLUGINS.md describes the
+manifest (tmuxy-plugin.toml).
+EOF
+}
+
+# `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`).
+# `action` opens panes, so it runs inside tmux like every mutation, with the
+# caller's pane as its target unless one is named.
+cmd_plugin() {
+  case "${1:-}" in
+    "" | --help | -h | help)
+      usage_plugin
+      return 0
+      ;;
+  esac
+  find_server_cmd || exit "$EXIT_FAILED"
+  if [ "$1" != action ]; then
+    exec "${SERVER_CMD[@]}" plugin "$@" ${server_json[@]+"${server_json[@]}"}
+  fi
+  shift
+  local arg named=false pane=()
+  for arg in "$@"; do
+    case "$arg" in
+      --) break ;;
+      --pane | --pane=*) named=true ;;
+    esac
+  done
+  if [ "$named" = false ] && [ -n "${TMUX_PANE:-}" ]; then
+    pane=(--pane "$TMUX_PANE")
+  fi
+  _run_shell "$(shquote "${SERVER_CMD[@]}" plugin action ${pane[@]+"${pane[@]}"} ${server_json[@]+"${server_json[@]}"} "$@")"
+}
+
 usage_connect() {
   cat <<'EOF'
 Usage: tmuxy connect [socket] [session]
@@ -443,6 +498,10 @@ CEOF
       echo "tmuxy $TMUXY_VERSION"
     fi
     ;;
+  plugin)
+    shift
+    cmd_plugin "$@"
+    ;;
   gui)
     shift
     find_server_cmd
@@ -462,6 +521,12 @@ CEOF
     fi
     ;;
   *)
+    # A plugin's `[[cli]]` verb. Built-in nouns are the arms above, so a
+    # plugin can never shadow one; the binary answers from the lockfile.
+    if [[ "$1" =~ ^[a-z][a-z0-9-]*$ ]] && find_server_cmd 2>/dev/null &&
+      "${SERVER_CMD[@]}" plugin resolve-verb "$1" 2>/dev/null; then
+      exec "${SERVER_CMD[@]}" plugin cli "$@" ${server_json[@]+"${server_json[@]}"}
+    fi
     if [ "$JSON_OUT" != true ]; then
       echo "Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill' for the AI agent guide." >&2
     fi

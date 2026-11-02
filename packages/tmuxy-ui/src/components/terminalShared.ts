@@ -12,7 +12,7 @@
  */
 
 import { paneNumber, type PaneId } from '../domain/ids';
-import type { CellColor, CellStyle } from '../domain/wire';
+import type { CellColor, CellStyle } from '../domain/wireCells';
 import { isTauri, tauriSchemeUrl } from '../utils/platform';
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { detectUrls, detectUrlsAcrossRows } from '../urlDetect';
-import type { CellLine } from '../../domain/wire';
+import type { CellLine } from '../../domain/wireCells';
 
 /** What the detector would underline, as substrings of the input. */
 const covered = (text: string) => detectUrls(text).map((u) => text.slice(u.start, u.end));

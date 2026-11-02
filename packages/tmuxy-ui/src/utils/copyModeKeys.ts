@@ -5,7 +5,7 @@
  */
 
 import type { CopyModeState } from '../domain/copyMode';
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 
 export type CopyModeAction = 'yank' | 'exit' | null;
 

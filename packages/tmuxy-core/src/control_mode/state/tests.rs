@@ -198,8 +198,8 @@ pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String 
 /// 0 for no mode, 1 for copy mode, 2 for view mode.
 pub(super) fn pane_row_in_mode(pane_id: &str, window_id: &str, mode: u8) -> String {
     format!(
-        // id,idx,x,y,w,h,cx,cy,active,command,title,MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
-        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{mode},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,\n",
+        // id,idx,x,y,w,h,cx,cy,active,command,title,MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore,plugins_rev
+        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{mode},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,,\n",
     )
 }
 

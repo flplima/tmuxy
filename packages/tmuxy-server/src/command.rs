@@ -113,6 +113,16 @@ pub enum ClientCommand {
         session: Option<String>,
     },
     DetachClient,
+    /// Write the invocation token a plugin's menu action opens with,
+    /// carrying the selected text (`plugins::invoke::prepare`).
+    PreparePluginAction {
+        plugin: String,
+        action: String,
+        #[serde(rename = "paneId")]
+        pane_id: tmuxy_core::PaneId,
+        #[serde(default)]
+        selection: Option<String>,
+    },
     /// Explicitly create (or attach to) `?session=` before opening `/events`,
     /// so `GET /events` itself remains side-effect-free.
     EnsureSession,

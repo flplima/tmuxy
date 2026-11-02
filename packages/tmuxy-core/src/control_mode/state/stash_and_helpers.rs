@@ -369,6 +369,7 @@ impl StateAggregator {
             total_width,
             total_height,
             focus_request: self.focus_request.clone(),
+            plugins_rev: self.plugins_rev.clone(),
             seq: self.delta_seq,
         }
     }

@@ -195,8 +195,8 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             window_id: "@0".parse().unwrap(),
         },
         response(
-            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
-             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
+            "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
+             %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
         ),
         response("@0,0,1,tab,,,,,,,,,,,0,shell\n"),
         // The session is on @0. The captures this asks for its panes are

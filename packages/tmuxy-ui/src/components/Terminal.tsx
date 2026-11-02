@@ -15,7 +15,7 @@ import { detectUrlsAcrossRows } from '../utils/urlDetect';
 import { setLinkHot } from '../utils/linkHover';
 import type { CursorMode } from './Cursor';
 import type { ImagePlacement } from '../domain/client';
-import type { PaneContent, CellLine } from '../domain/wire';
+import type { PaneContent, CellLine } from '../domain/wireCells';
 import type { PaneId } from '../domain/ids';
 
 interface TerminalProps {

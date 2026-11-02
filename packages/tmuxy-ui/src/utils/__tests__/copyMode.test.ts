@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { extractSelectedText, firstUnloadedGap, isWrappedRow } from '../copyMode';
 import type { CopyModeState } from '../../domain/copyMode';
-import type { CellLine } from '../../domain/wire';
+import type { CellLine } from '../../domain/wireCells';
 
 function makeLine(text: string): CellLine {
   return text.split('').map((c) => ({ c }));

@@ -63,14 +63,16 @@ export function FixtureProvider({
   config,
   height = 200,
   width = '100%',
+  onAdapterReady,
   ...options
 }: FixtureAdapterOptions & {
   children: ReactNode;
   config?: AppConfig;
   height?: number | string;
   width?: number | string;
+  onAdapterReady?: FixtureAppProps['onAdapterReady'];
 }) {
-  const transport = useFixtureTransport(options);
+  const transport = useFixtureTransport(options, onAdapterReady);
   return (
     <div style={{ ...chrome, width, height }}>
       <TmuxyProvider transport={transport} config={config}>

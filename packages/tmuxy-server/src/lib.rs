@@ -9,6 +9,7 @@ mod auth;
 mod command;
 mod dev;
 mod log_file;
+mod plugin_cli;
 mod request_guard;
 pub mod server;
 mod session_cli;

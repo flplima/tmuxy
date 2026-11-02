@@ -14,6 +14,7 @@ import { MENU_OPS } from '../../components/menus/menuActions';
 import { TmuxOp } from '../commands';
 import type { PaneId } from '../ids';
 import { keyHint } from './keyHint';
+import { pluginsSubmenu } from './pluginMenu';
 import type { MenuIconName } from './icons';
 import { action, event, local, separator, tidy, type MenuNode, type MenuSpec } from './spec';
 
@@ -127,6 +128,8 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       icon: 'clear',
       action: action('pane-clear'),
     },
+    separator,
+    pluginsSubmenu(ctx.plugins, 'pane', paneId),
     separator,
     op('view-zoom', 'Zoom Pane', 'zoom'),
     separator,
