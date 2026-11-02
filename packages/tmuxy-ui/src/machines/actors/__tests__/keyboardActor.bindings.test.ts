@@ -353,6 +353,54 @@ describe('keyboardActor — prefix mode', () => {
     expect(lastPrefixActive(events)).toBe(false);
   });
 
+  it('a repeatable binding re-arms only its repeat keys, for repeat-time, and a non-repeat key is typed', () => {
+    vi.useFakeTimers();
+    const { child, events } = spawnKeyboardActor(pid('%3'));
+    child.send({
+      type: 'UPDATE_KEYBINDINGS',
+      keybindings: {
+        prefix_key: 'C-a',
+        tables: {},
+        prefix_bindings: [
+          { key: 'L', command: 'resize-pane -R 5', repeat: true },
+          { key: 'c', command: 'new-window', repeat: false },
+        ],
+        root_bindings: [],
+      },
+    });
+
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'L', shiftKey: true });
+    const resize = 'select-pane -t %3 \\; resize-pane -R 5';
+    expect(lastSendCommand(events)).toBe(resize);
+    const prefixChanges = events.filter((e) => e.type === 'PREFIX_MODE_CHANGE');
+    expect(prefixChanges[prefixChanges.length - 1]).toEqual({
+      type: 'PREFIX_MODE_CHANGE',
+      active: true,
+      repeatOnly: ['L'],
+    });
+
+    // Still inside repeat-time: the repeat key runs the binding again...
+    vi.advanceTimersByTime(100);
+    pressKey({ key: 'L', shiftKey: true });
+    expect(sendCommands(events).filter((c) => c === resize)).toHaveLength(2);
+
+    // ...and a non-repeat key falls through to the pane, as tmux types it,
+    // instead of running its prefix binding.
+    pressKey({ key: 'c' });
+    expect(lastSendCommand(events)).toBe("send-keys -t %3 -l -- 'c'");
+    expect(sendCommands(events)).not.toContain('new-window');
+    expect(lastPrefixActive(events)).toBe(false);
+
+    // Past repeat-time the repeat key itself is typed.
+    pressKey({ key: 'a', ctrlKey: true });
+    pressKey({ key: 'L', shiftKey: true });
+    vi.advanceTimersByTime(300);
+    expect(lastPrefixActive(events)).toBe(false);
+    pressKey({ key: 'L', shiftKey: true });
+    expect(lastSendCommand(events)).toBe("send-keys -t %3 -l -- 'L'");
+  });
+
   it('double prefix exits prefix mode and sends the literal prefix key', () => {
     const { events } = spawnKeyboardActor(pid('%3'));
     pressKey({ key: 'a', ctrlKey: true });

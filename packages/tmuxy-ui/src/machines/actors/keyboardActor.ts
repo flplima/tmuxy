@@ -50,6 +50,11 @@ export interface KeyboardActorInput {
 }
 
 const PREFIX_TIMEOUT_MS = 8000;
+/**
+ * How long a `bind -r` key keeps the prefix armed for the next repeat — tmux's
+ * `repeat-time`, which the server does not export; the shipped config sets 300.
+ */
+const REPEAT_TIMEOUT_MS = 300;
 
 export function createKeyboardActor() {
   return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
@@ -311,7 +316,7 @@ export function createKeyboardActor() {
             prefixMode.exit();
             setKeyTable(table);
           } else if (prefixRepeatKeys.has(bindingKey)) {
-            prefixMode.enter();
+            prefixMode.enter(REPEAT_TIMEOUT_MS, prefixRepeatKeys);
           } else {
             prefixMode.exit();
           }
