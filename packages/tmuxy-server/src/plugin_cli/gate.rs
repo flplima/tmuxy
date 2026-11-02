@@ -97,7 +97,7 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
     for (i, c) in m.cli.iter().enumerate() {
         let label = if i == 0 { "cli verbs" } else { "" };
         line(format!(
-            "  {label:<10}tmuxy {}: {}",
+            "  {label:<10}tmuxy plugin {}: {}",
             c.verb,
             c.command.join(" ")
         ));
@@ -153,16 +153,22 @@ pub fn diff(old: &Manifest, new: &Manifest) -> Vec<String> {
     }
     for c in &new.cli {
         match old.cli.iter().find(|o| o.verb == c.verb) {
-            None => changes.push(format!("+ verb tmuxy {}: {}", c.verb, c.command.join(" "))),
-            Some(was) if was.command != c.command => {
-                changes.push(format!("~ verb tmuxy {}: {}", c.verb, c.command.join(" ")))
-            }
+            None => changes.push(format!(
+                "+ verb tmuxy plugin {}: {}",
+                c.verb,
+                c.command.join(" ")
+            )),
+            Some(was) if was.command != c.command => changes.push(format!(
+                "~ verb tmuxy plugin {}: {}",
+                c.verb,
+                c.command.join(" ")
+            )),
             Some(_) => {}
         }
     }
     for c in &old.cli {
         if !new.cli.iter().any(|n| n.verb == c.verb) {
-            changes.push(format!("- verb tmuxy {}", c.verb));
+            changes.push(format!("- verb tmuxy plugin {}", c.verb));
         }
     }
     for r in &new.requires {

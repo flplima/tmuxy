@@ -76,7 +76,10 @@ pub(super) fn admissible(
     }
     for c in &m.cli {
         if RESERVED_VERBS.contains(&c.verb.as_str()) {
-            return Err(refuse(format!("verb {:?} is tmuxy's own command", c.verb)));
+            return Err(refuse(format!(
+                "verb {:?} is a `tmuxy plugin` command",
+                c.verb
+            )));
         }
         let taken = registry
             .plugins

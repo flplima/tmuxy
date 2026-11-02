@@ -29,7 +29,7 @@ Every action command gets:
 | `TMUXY_PLUGIN_CONTEXT_JSON` | The context, below. |
 | `TMUXY_SELECTION_FILE` | Only for a selection action: a file (owner-only) holding the selected text, byte for byte; removed when the command exits. |
 
-A `[[cli]]` verb's command gets the same variables (no selection), runs in
+A `[[cli]]` verb's command (`tmuxy plugin <verb>`) gets the same variables (no selection), runs in
 the caller's working directory, and has `trigger: "cli"` in its context.
 
 As every process in a tmuxy pane, a command also has `TMUX`, `TMUX_PANE` (the
@@ -52,7 +52,7 @@ pane it runs in) and the `tmuxy` CLI.
 
 | Field | Meaning |
 | --- | --- |
-| `trigger` | `menu` (a menu item), `action` (`tmuxy plugin action`), `cli` (a verb). Later releases add `key` and `link`. |
+| `trigger` | `menu` (a menu item), `action` (`tmuxy plugin action`), `cli` (`tmuxy plugin <verb>`). Later releases add `key` and `link`. |
 | `action` | The action's id; absent for a verb. |
 | `pane` | The target pane, as tmux described it when the action opened. |
 | `selection_file` | Present only when there is a selection. |

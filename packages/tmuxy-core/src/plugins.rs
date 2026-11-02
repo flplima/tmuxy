@@ -51,13 +51,12 @@ pub const API_VERSION: u32 = 1;
 /// This build's version, which a manifest's `min_tmuxy` is compared with.
 pub const TMUXY_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The CLI's own nouns and flags: a plugin's `[[cli]]` verb may not be one of
-/// them. Mirrors the dispatcher's `case` arms in
-/// `packages/tmuxy-cli/bin/tmuxy-cli`; `tests/cli/cli-plugin.test.js` holds the
-/// two lists together. `agent` is a noun already, `plugin` the plugin's own.
+/// `tmuxy plugin`'s own subcommands: a plugin's `[[cli]]` verb, which runs
+/// as `tmuxy plugin <verb>`, may not be one of them. The server crate's
+/// tests hold this list to its clap subcommands.
 pub const RESERVED_VERBS: &[&str] = &[
-    "pane", "tab", "session", "nav", "widget", "open", "cleanup", "run", "connect", "server",
-    "trace", "config", "info", "skill", "agent", "gui", "version", "plugin", "help",
+    "install", "list", "update", "remove", "action", "log", "check", "new", "exec", "publish",
+    "help",
 ];
 
 /// Where plugins live, split as the rest of tmuxy's files are

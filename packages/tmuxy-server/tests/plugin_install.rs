@@ -246,10 +246,12 @@ fn a_hostile_repo_and_gitconfig_run_nothing_and_check_out_no_symlink() {
     );
 
     // The verb resolves, and runs the plugin's command.
-    assert!(s.tmuxy(&["resolve-verb", "hostile"]).status.success());
-    assert!(!s.tmuxy(&["resolve-verb", "pane"]).status.success());
-    let ran = s.tmuxy(&["cli", "hostile"]);
+    // `tmuxy plugin hostile` runs the plugin's command; a word nobody has
+    // is a bad command line.
+    let ran = s.tmuxy(&["hostile"]);
     assert_eq!(String::from_utf8_lossy(&ran.stdout).trim(), "hello");
+    let unknown = s.tmuxy(&["nobody-has-this"]);
+    assert_eq!(unknown.status.code(), Some(2), "{}", stderr(&unknown));
 }
 
 #[test]

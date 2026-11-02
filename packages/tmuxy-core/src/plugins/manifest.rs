@@ -42,7 +42,7 @@ pub struct Action {
     pub platforms: Option<Vec<Platform>>,
 }
 
-/// A `[[cli]]` entry: `tmuxy <verb> …`, run in the caller's shell.
+/// A `[[cli]]` entry: `tmuxy plugin <verb> …`, run in the caller's shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliVerb {
     pub verb: String,

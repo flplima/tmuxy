@@ -2,6 +2,7 @@ use super::gate::{self, Answer, Subject};
 use super::install::admissible;
 use super::*;
 use tmuxy_core::plugins::manifest::Manifest;
+use tmuxy_core::plugins::RESERVED_VERBS;
 
 const MANIFEST: &str = r#"
 [plugin]
@@ -46,7 +47,7 @@ fn the_gate_shows_every_capability_and_the_warning() {
         text.contains("open \"Open DevTools\" (popup, pane menu): bin/open"),
         "{text}"
     );
-    assert!(text.contains("tmuxy devtools: bin/cli"), "{text}");
+    assert!(text.contains("tmuxy plugin devtools: bin/cli"), "{text}");
     assert!(
         text.contains("definitely-not-on-path-xyz (not on PATH)"),
         "{text}"
@@ -69,11 +70,11 @@ fn an_update_lists_what_changes() {
         "{changes:?}"
     );
     assert!(
-        changes.contains(&"+ verb tmuxy dt: bin/cli".to_string()),
+        changes.contains(&"+ verb tmuxy plugin dt: bin/cli".to_string()),
         "{changes:?}"
     );
     assert!(
-        changes.contains(&"- verb tmuxy devtools".to_string()),
+        changes.contains(&"- verb tmuxy plugin devtools".to_string()),
         "{changes:?}"
     );
     assert!(gate::diff(&old, &old).is_empty());
@@ -144,10 +145,10 @@ fn a_built_in_or_taken_verb_and_the_user_name_are_refused() {
     let m = parsed(MANIFEST);
     assert!(admissible(&empty, &m, &root, None).is_ok());
 
-    let builtin = parsed(&MANIFEST.replace("verb = \"devtools\"", "verb = \"pane\""));
+    let builtin = parsed(&MANIFEST.replace("verb = \"devtools\"", "verb = \"install\""));
     let err = admissible(&empty, &builtin, &root, None).err().unwrap();
     assert!(
-        err.message.contains("tmuxy's own command"),
+        err.message.contains("is a `tmuxy plugin` command"),
         "{}",
         err.message
     );
@@ -166,4 +167,43 @@ fn a_built_in_or_taken_verb_and_the_user_name_are_refused() {
     let missing = parsed(&MANIFEST.replace("bin/open", "bin/absent"));
     assert!(admissible(&empty, &missing, &root, None).is_err());
     std::fs::remove_dir_all(base).unwrap();
+}
+
+/// A verb runs as `tmuxy plugin <verb>`, so it may not be one of `plugin`'s
+/// own subcommands: every name clap knows is in `RESERVED_VERBS`.
+#[test]
+fn every_plugin_subcommand_is_reserved_from_verbs() {
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: PluginArgs,
+    }
+    let command = <Wrapper as clap::CommandFactory>::command();
+    let names: Vec<String> = command
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect();
+    assert!(names.len() >= 10, "{names:?}");
+    for name in names {
+        assert!(
+            RESERVED_VERBS.contains(&name.as_str()),
+            "{name} is not reserved"
+        );
+    }
+}
+
+#[test]
+fn any_other_word_is_a_verb_with_its_arguments() {
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: PluginArgs,
+    }
+    let parsed =
+        <Wrapper as clap::Parser>::try_parse_from(["x", "devtools", "attach", "--port", "9"])
+            .unwrap();
+    match parsed.args.verb {
+        PluginCommand::Verb(words) => assert_eq!(words, ["devtools", "attach", "--port", "9"]),
+        other => panic!("parsed as {other:?}"),
+    }
 }

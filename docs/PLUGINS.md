@@ -1,6 +1,6 @@
 # Plugins
 
-A plugin adds **actions** to tmuxy's menus and **verbs** to its CLI. It is a
+A plugin adds **actions** to tmuxy's menus and **verbs** to its CLI (`tmuxy plugin <verb>`). It is a
 directory with a `tmuxy-plugin.toml` manifest and the commands it names,
 usually a GitHub repository.
 
@@ -67,7 +67,7 @@ size = { width = "80%", height = 30 }     # float and popup only; numbers are ce
 command = ["bin/open", "--port", "9222"]  # an argv inside the plugin, never a shell line
 
 [[cli]]
-verb = "devtools"                         # `tmuxy devtools …`, run in the caller's shell
+verb = "devtools"                         # `tmuxy plugin devtools …`, run in the caller's shell
 description = "Attach DevTools to a URL"
 command = ["bin/cli"]
 ```
@@ -90,10 +90,10 @@ unknown field 'surfce'`).
 Every surface's pane closes when its command exits. A command that exits
 with a failure keeps its pane open until Enter, so its error stays readable.
 
-A `[[cli]]` verb may not be one of tmuxy's own nouns (`pane`, `tab`,
-`session`, … `plugin`) or another plugin's. If a later tmuxy adds a noun a
-plugin already uses, the built-in wins and `tmuxy plugin list` says the verb
-is shadowed.
+A `[[cli]]` verb runs as `tmuxy plugin <verb> [args…]`, so it may not be one
+of `tmuxy plugin`'s own commands (`install`, `list`, … `new`) or another
+plugin's. If a later tmuxy adds a `plugin` command a plugin already uses as a
+verb, the built-in wins and `tmuxy plugin list` says the verb is shadowed.
 
 ### Your own plugin
 

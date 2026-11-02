@@ -105,19 +105,12 @@ enum PluginCommand {
         action: String,
         token: String,
     },
-    /// Whether a word is a plugin's CLI verb (exit 0) or not (1). Internal.
-    #[command(hide = true)]
-    ResolveVerb { verb: String },
-    /// Run a plugin's CLI verb. Internal: `tmuxy <verb>` lands here.
-    #[command(hide = true)]
-    Cli {
-        verb: String,
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
     /// Publish the inventory to the tmux server. Internal: `config reload`.
     #[command(hide = true)]
     Publish,
+    /// Any other word: an installed plugin's `[[cli]]` verb and its arguments.
+    #[command(external_subcommand)]
+    Verb(Vec<String>),
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
@@ -179,13 +172,7 @@ pub fn run(args: PluginArgs) {
             action,
             token,
         } => std::process::exit(invoke::exec(&dirs, &name, &action, &token)),
-        PluginCommand::ResolveVerb { verb } => {
-            let found = Registry::load(&dirs)
-                .ok()
-                .is_some_and(|r| r.verb(&verb).is_some());
-            std::process::exit(if found { 0 } else { 1 })
-        }
-        PluginCommand::Cli { verb, args } => run_cli_verb(&dirs, &verb, &args),
+        PluginCommand::Verb(words) => run_cli_verb(&dirs, &words),
         PluginCommand::Publish => {
             inventory::publish(&dirs);
             Ok(serde_json::Value::Null)
@@ -296,19 +283,30 @@ fn action(
     }))
 }
 
-fn run_cli_verb(dirs: &Dirs, verb: &str, args: &[String]) -> Outcome {
+/// `tmuxy plugin <verb> [args…]`: the plugin's command, run in place of this
+/// process so its input, output and exit status are the caller's. A word no
+/// plugin has is a bad command line, like any unknown subcommand.
+fn run_cli_verb(dirs: &Dirs, words: &[String]) -> Outcome {
+    let (verb, args) = words.split_first().ok_or_else(|| usage("no command"))?;
+    let known = Registry::load(dirs).is_ok_and(|r| r.verb(verb).is_some());
+    if !known {
+        return Err(usage(format!(
+            "{verb:?} is neither a `tmuxy plugin` command nor an installed plugin's \
+             (`tmuxy plugin --help`, `tmuxy plugin list`)"
+        )));
+    }
     let mut cmd = invoke::cli_command(dirs, verb, args)?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         let e = cmd.exec();
-        Err(PluginError::io(format!("running tmuxy {verb}"), e).into())
+        Err(PluginError::io(format!("running tmuxy plugin {verb}"), e).into())
     }
     #[cfg(not(unix))]
     {
-        let status = cmd
-            .status()
-            .map_err(|e| Failure::from(PluginError::io(format!("running tmuxy {verb}"), e)))?;
+        let status = cmd.status().map_err(|e| {
+            Failure::from(PluginError::io(format!("running tmuxy plugin {verb}"), e))
+        })?;
         std::process::exit(status.code().unwrap_or(1));
     }
 }

@@ -44,7 +44,7 @@ machine (`--json` for a script).
 
 ## Plugins
 
-A plugin adds actions to the menus and verbs to the CLI. `tmuxy plugin
+A plugin adds actions to the menus and verbs to the CLI (`tmuxy plugin <verb>`). `tmuxy plugin
 install owner/repo` shows what it can do and asks first: plugin commands run
 unsandboxed as you, with every pane in reach, so install only what you trust.
 `plugins.json` here lists what is installed at which commit; synced to another

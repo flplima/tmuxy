@@ -92,7 +92,7 @@ the tmux config. In short:
 
 ## Plugins
 
-A plugin adds menu actions and `tmuxy <verb>` commands. Its commands run
+A plugin adds menu actions and `tmuxy plugin <verb>` commands. Its commands run
 unsandboxed as the user, so never install one the user did not ask for:
 `tmuxy plugin install owner/repo` shows what it can do and asks on the terminal
 (an agent without one passes `--yes --sha <commit>` only after the user saw it).
@@ -122,7 +122,7 @@ surface = "popup"              # "split" | "tab" | "float" | "popup" | "zoomed"
 command = ["bin/hello"]        # an argv inside the plugin, never a shell line
 
 [[cli]]
-verb = "hello"                 # `tmuxy hello ...`, in the caller's shell
+verb = "hello"                 # `tmuxy plugin hello ...`, in your shell
 command = ["bin/hello"]
 ```
 

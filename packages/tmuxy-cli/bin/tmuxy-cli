@@ -131,7 +131,7 @@ Commands:
   plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
 
-A plugin's own commands (`tmuxy <verb>`) are listed by 'tmuxy plugin list'.
+A plugin's own commands run as 'tmuxy plugin <verb>' ('tmuxy plugin list').
 
 Options:
   -h, --help    Show this help
@@ -331,6 +331,7 @@ Commands:
   log           What a plugin ran, and how it exited <name> [-f]
   check         Validate a plugin directory [dir]
   new           Write a plugin to start from, tmuxy-<name>/ <name>
+  <verb>        An installed plugin's own command [args...] (see 'list')
 
 Plugin commands run unsandboxed as your user and can control every pane.
 Install shows what a plugin can do and asks first; without a terminal it
@@ -339,7 +340,8 @@ manifest (tmuxy-plugin.toml).
 EOF
 }
 
-# `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`).
+# `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`),
+# a plugin's own verbs (`tmuxy plugin <verb>`) included.
 # `action` opens panes, so it runs inside tmux like every mutation, with the
 # caller's pane as its target unless one is named.
 cmd_plugin() {
@@ -521,12 +523,6 @@ CEOF
     fi
     ;;
   *)
-    # A plugin's `[[cli]]` verb. Built-in nouns are the arms above, so a
-    # plugin can never shadow one; the binary answers from the lockfile.
-    if [[ "$1" =~ ^[a-z][a-z0-9-]*$ ]] && find_server_cmd 2>/dev/null &&
-      "${SERVER_CMD[@]}" plugin resolve-verb "$1" 2>/dev/null; then
-      exec "${SERVER_CMD[@]}" plugin cli "$@" ${server_json[@]+"${server_json[@]}"}
-    fi
     if [ "$JSON_OUT" != true ]; then
       echo "Hint: run 'tmuxy --help' for available commands, or 'tmuxy skill' for the AI agent guide." >&2
     fi

@@ -49,8 +49,8 @@ impl Installed {
         self.kind == Kind::User
     }
 
-    /// Verbs a built-in noun now shadows: a later tmuxy added it, and the
-    /// built-in wins at dispatch.
+    /// Verbs a `tmuxy plugin` subcommand now shadows: a later tmuxy added
+    /// it, and the subcommand wins at dispatch.
     pub fn shadowed_verbs(&self) -> Vec<&str> {
         self.manifest
             .cli
@@ -180,8 +180,8 @@ impl Registry {
         Ok((p, a))
     }
 
-    /// The plugin a CLI verb belongs to. A built-in noun of the same name
-    /// wins at dispatch, so a shadowed verb names nothing.
+    /// The plugin a CLI verb belongs to. A `tmuxy plugin` subcommand of the
+    /// same name wins at dispatch, so a shadowed verb names nothing.
     pub fn verb(&self, verb: &str) -> Option<(&Installed, &CliVerb)> {
         if RESERVED_VERBS.contains(&verb) {
             return None;

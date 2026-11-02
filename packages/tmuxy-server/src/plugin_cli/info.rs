@@ -52,7 +52,7 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
                 .map(|v| {
                     v.iter()
                         .filter_map(|s| s.as_str())
-                        .map(|s| format!("tmuxy {s}"))
+                        .map(|s| format!("tmuxy plugin {s}"))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -70,7 +70,7 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
             }
             for shadowed in row["shadowed"].as_array().into_iter().flatten() {
                 println!(
-                    "    SHADOWED: `tmuxy {}` is now a built-in command, which wins",
+                    "    SHADOWED: `tmuxy plugin {}` is now a built-in command, which wins",
                     shadowed.as_str().unwrap_or_default()
                 );
             }
@@ -142,7 +142,10 @@ pub(super) fn check(dir: &Path, json: bool) -> Outcome {
     }
     for c in &m.cli {
         if RESERVED_VERBS.contains(&c.verb.as_str()) {
-            problems.push(format!("{shown}: verb {:?} is tmuxy's own command", c.verb));
+            problems.push(format!(
+                "{shown}: verb {:?} is a `tmuxy plugin` command",
+                c.verb
+            ));
         }
     }
     if m.name == USER_PLUGIN
