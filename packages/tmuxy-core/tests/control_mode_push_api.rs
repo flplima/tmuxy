@@ -80,11 +80,30 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
         }
     }
 
-    // A yank happens in copy mode (%pane-mode-changed first) and fires
-    // %paste-buffer-changed: the aggregator must ask for the buffer over the
-    // control channel, wrapped in sentinel lines.
+    // A yank happens in copy mode: %pane-mode-changed has the aggregator
+    // re-list the pane, and the row tmux answers with carries the copy-mode
+    // column. The yank then fires %paste-buffer-changed, and the aggregator
+    // must ask for the buffer over the control channel, wrapped in sentinel
+    // lines.
     let event = parser.parse_line("%pane-mode-changed %0").unwrap();
-    agg.step(event);
+    let relist = agg.step(event).effects;
+    assert!(
+        relist
+            .iter()
+            .any(|e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids.len() == 1)),
+        "a mode change re-lists the pane: {relist:?}"
+    );
+    let in_copy_mode = concat!(
+        "%begin 6 6 1\n",
+        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,\n",
+        "%1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,\n",
+        "%end 6 6 1\n",
+    );
+    for line in in_copy_mode.split('\n') {
+        if let Some(event) = parser.parse_line(line) {
+            agg.step(event);
+        }
+    }
     let event = parser.parse_line("%paste-buffer-changed buffer0").unwrap();
     let effects = agg.step(event).effects;
     let cmd = effects

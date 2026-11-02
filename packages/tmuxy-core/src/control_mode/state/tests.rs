@@ -198,6 +198,13 @@ pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String 
     )
 }
 
+/// Put `pane_id` in copy mode the way tmux reports it: a list-panes reply
+/// with the copy-mode column set.
+pub(super) fn enter_copy_mode(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
+    agg.process_event(response(&pane_row(pane_id, window_id, true), true));
+    assert!(agg.panes[pane_id].in_mode, "{pane_id} is in copy mode");
+}
+
 /// Seed a pane and make it the one a keystroke would reach — what the
 /// clipboard gate asks about.
 pub(super) fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {

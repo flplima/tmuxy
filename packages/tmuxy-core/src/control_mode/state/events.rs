@@ -152,18 +152,19 @@ impl StateAggregator {
             }
             ControlModeEvent::SubscriptionChanged { .. } => ProcessEventResult::default(),
 
-            ControlModeEvent::PaneModeChanged { pane_id } => {
-                // Toggle in_mode for the pane. %pane-mode-changed fires on both
-                // entering and exiting copy mode, so toggling is correct.
-                if let Some(pane) = self.panes.get_mut(&pane_id) {
-                    pane.in_mode = !pane.in_mode;
-                }
-                ProcessEventResult {
-                    state_changed: true,
-                    change_type: ChangeType::PaneFocus,
-                    ..Default::default()
-                }
-            }
+            // %pane-mode-changed says only that a mode came or went, for
+            // any mode (copy-, view-, tree-mode alike), and tmux answers a
+            // control client's queued commands before it delivers its
+            // notifications: a `list-panes` batched with the `copy-mode`
+            // that caused this reports the pane already in copy mode, so a
+            // toggle here flipped it back out. The list-panes poll's
+            // copy-mode column is the one source of `in_mode`; this only
+            // asks for it again. Leaving copy mode already captures the pane
+            // (`exited_copy_mode` in parse_list_panes_line).
+            ControlModeEvent::PaneModeChanged { pane_id } => ProcessEventResult {
+                panes_needing_refresh: vec![pane_id],
+                ..Default::default()
+            },
 
             ControlModeEvent::PasteBufferChanged { buffer_name } => {
                 // tmux does not forward OSC 52 to control-mode clients, so a

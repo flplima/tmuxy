@@ -209,7 +209,7 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
         outside.effects
     );
 
-    agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+    enter_copy_mode(&mut agg, "%0", "@0");
     let inside = agg.step(changed());
     let read = inside
         .effects
@@ -233,7 +233,7 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
 fn tmuxys_own_paste_buffers_are_never_read_back() {
     let mut agg = StateAggregator::new();
     seed_active_pane(&mut agg, "%0", "@0");
-    agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+    enter_copy_mode(&mut agg, "%0", "@0");
     for name in ["tmuxy-paste", "tmuxy-cli-paste-4242"] {
         let step = agg.step(ControlModeEvent::PasteBufferChanged {
             buffer_name: name.to_string(),
@@ -256,7 +256,7 @@ fn tmuxys_own_paste_buffers_are_never_read_back() {
 fn a_paste_buffer_name_is_quoted_into_its_read() {
     let mut agg = StateAggregator::new();
     seed_active_pane(&mut agg, "%0", "@0");
-    agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+    enter_copy_mode(&mut agg, "%0", "@0");
     let read = agg
         .step(ControlModeEvent::PasteBufferChanged {
             buffer_name: "x' ; run-shell 'touch /tmp/pwned".to_string(),
@@ -375,6 +375,53 @@ fn a_clipboard_write_needs_an_active_pane_to_match() {
         accepted_clipboard_write(&pid("%0"), None, "yank".into()),
         None
     );
+}
+
+/// `%pane-mode-changed` is a nudge to re-list, never a toggle. tmux answers a
+/// control client's queued commands before it delivers notifications, so a
+/// `list-panes` batched with the `copy-mode` that caused the notification has
+/// already reported the pane in copy mode when it arrives; a toggle flipped
+/// the pane back out, closing the user's copy mode and the clipboard gate
+/// with it. The notification also fires for view- and tree-mode, which the
+/// poll's copy-mode column rightly reports as not copy mode.
+#[test]
+fn a_mode_change_notification_relists_the_pane_instead_of_toggling_copy_mode() {
+    let mut agg = StateAggregator::new();
+    seed_active_pane(&mut agg, "%0", "@0");
+    // The first step tags the seeded window (A3) and emits for that; drain it.
+    agg.step(ControlModeEvent::SessionsChanged);
+
+    // On its own it flips nothing and asks for the pane's row again.
+    let alone = agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+    assert!(
+        !agg.panes["%0"].in_mode,
+        "a notification alone is not copy mode"
+    );
+    assert!(
+        alone.effects.iter().any(
+            |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
+        ),
+        "the pane is re-listed ({:?})",
+        alone.effects
+    );
+    assert!(
+        !alone
+            .effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+        "the reply emits, not the notification ({:?})",
+        alone.effects
+    );
+
+    // list-panes answered first and says copy mode: the notification that
+    // follows leaves it so.
+    enter_copy_mode(&mut agg, "%0", "@0");
+    agg.step(ControlModeEvent::PaneModeChanged { pane_id: pid("%0") });
+    assert!(
+        agg.panes["%0"].in_mode,
+        "the notification after the row flipped the pane out of copy mode"
+    );
+    assert!(agg.has_pane_in_copy_mode(), "the clipboard gate stays open");
 }
 
 /// A pane that moved windows (break-pane) holds its `%output` until the
