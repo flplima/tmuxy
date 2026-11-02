@@ -179,13 +179,13 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 rs.pending_output_emit = true;
             }
         } else if matches!(change, ChangeType::PaneLayout) {
-            rs.pending_layout_emit = true;
+            rs.schedule_layout_emit(tokio::time::Instant::now());
         } else {
             if let Some(update) = self.aggregator.to_state_update() {
                 emitter.emit_state(update);
             }
             rs.mark_emitted(now);
-            rs.pending_layout_emit = false;
+            rs.layout_emit_at = None;
         }
     }
 
@@ -202,8 +202,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if let Some(update) = self.aggregator.to_state_update() {
             emitter.emit_state(update);
         }
-        rs.last_output_emit = Instant::now();
-        rs.pending_layout_emit = false;
+        // The delta carried whatever output was pending too.
+        rs.mark_emitted(Instant::now());
+        rs.layout_emit_at = None;
     }
 
     /// Settling deadline reached — drain `aggregator.tick(now)`. The aggregator

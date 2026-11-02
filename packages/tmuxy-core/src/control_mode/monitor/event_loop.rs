@@ -47,7 +47,7 @@ pub(super) struct RunState {
     pub(super) metadata_sync_at: Option<tokio::time::Instant>,
 
     // Layout debouncing
-    pub(super) pending_layout_emit: bool,
+    pub(super) layout_emit_at: Option<tokio::time::Instant>,
 }
 
 impl RunState {
@@ -59,6 +59,13 @@ impl RunState {
     pub(super) fn schedule_metadata_sync(&mut self, now: tokio::time::Instant) {
         self.metadata_sync_at
             .get_or_insert(now + METADATA_SYNC_DELAY);
+    }
+
+    /// Emit the coalesced layout `LAYOUT_DEBOUNCE` from now — unless one is
+    /// already due, which stands: a sleep rebuilt on every `select!` turn let
+    /// any event, a busy pane's output included, push the layout back.
+    pub(super) fn schedule_layout_emit(&mut self, now: tokio::time::Instant) {
+        self.layout_emit_at.get_or_insert(now + LAYOUT_DEBOUNCE);
     }
 
     /// `now_std` is the std clock the throttle/debounce deadlines are computed
@@ -80,7 +87,7 @@ impl RunState {
 
             metadata_sync_at: None,
 
-            pending_layout_emit: false,
+            layout_emit_at: None,
         }
     }
 
@@ -171,6 +178,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
             let metadata_deadline = rs
                 .metadata_sync_at
                 .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
+            let layout_deadline = rs
+                .layout_emit_at
+                .unwrap_or_else(|| tokio::time::Instant::now() + LONG_SLEEP);
             let reply_deadline = self
                 .pending_replies
                 .values()
@@ -192,7 +202,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
 
                 // Layout debounce timer - coalesce rapid layout changes (zoom-out)
-                _ = tokio::time::sleep(LAYOUT_DEBOUNCE), if rs.pending_layout_emit => {
+                _ = tokio::time::sleep_until(layout_deadline), if rs.layout_emit_at.is_some() => {
                     self.on_layout_debounce(emitter, &mut rs);
                 }
 

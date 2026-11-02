@@ -203,6 +203,21 @@ fn a_pane_that_keeps_printing_does_not_starve_the_metadata_sync() {
     assert_eq!(rs.metadata_sync_at, Some(start + METADATA_SYNC_DELAY));
 }
 
+/// A divider drag or a zoom-out cascade reports a layout change every few
+/// milliseconds, and a busy pane's output arrives between them: the coalesced
+/// layout still goes out `LAYOUT_DEBOUNCE` after the first change, not after
+/// the last event.
+#[test]
+fn a_stream_of_layout_changes_still_emits_by_the_debounce_after_the_first() {
+    let (_, mut rs) = run_state_with_now(Instant::now());
+    let start = tokio::time::Instant::now();
+    rs.schedule_layout_emit(start);
+    for tick in 1..=10 {
+        rs.schedule_layout_emit(start + Duration::from_millis(5 * tick));
+    }
+    assert_eq!(rs.layout_emit_at, Some(start + LAYOUT_DEBOUNCE));
+}
+
 #[test]
 fn compute_throttle_sleep_returns_long_sleep_when_nothing_pending() {
     let now = Instant::now();
