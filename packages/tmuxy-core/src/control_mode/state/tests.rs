@@ -180,6 +180,24 @@ pub(super) fn seed_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &st
     agg.panes.insert(pid(pane_id), pane);
 }
 
+/// Stand in for the initial sync's list-panes and list-windows replies, so a
+/// hand-seeded aggregator may emit (its first emission waits for them).
+pub(super) fn mark_initial_sync_done(agg: &mut StateAggregator) {
+    agg.panes_synced = true;
+    agg.windows_synced = true;
+}
+
+/// A LIST_PANES_CMD row for `pane_id` in `window_id`, active, 80x24, with
+/// the copy-mode column set from `in_mode` — the one source of a pane's
+/// `in_mode` (see `PaneModeChanged`).
+pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String {
+    format!(
+        // id,idx,x,y,w,h,cx,cy,active,command,title,IN_MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,\n",
+        u8::from(in_mode)
+    )
+}
+
 /// Seed a pane and make it the one a keystroke would reach — what the
 /// clipboard gate asks about.
 pub(super) fn seed_active_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {

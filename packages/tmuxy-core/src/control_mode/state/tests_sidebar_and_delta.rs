@@ -168,6 +168,7 @@ fn metadata_delta_shares_content_and_omits_grids() {
     seed_pane(&mut agg, "%0", "@0");
     agg.windows
         .insert(wid("@0"), WindowState::new(wid("@0"), 0));
+    mark_initial_sync_done(&mut agg);
     agg.step(ControlModeEvent::Output {
         pane_id: pid("%0"),
         content: b"hello world\r\n".to_vec(),
@@ -238,4 +239,65 @@ fn list_windows_still_corrects_a_wrong_provisional_index() {
         5,
         "authoritative list-windows index must overwrite the provisional"
     );
+}
+
+/// The stream opens with the picture `GetState` waits for. Every unmarked ack
+/// of the initial sync (`set window-size manual` is the first) reports a Full
+/// change, and a Full emitted on one of those has no panes, no windows and no
+/// content: a client reconnecting to a restarted monitor had its page blanked
+/// by it until the deltas and captures landed.
+#[test]
+fn the_first_emission_waits_for_the_initial_sync_and_its_captures() {
+    let mut agg = StateAggregator::new();
+
+    // The ack of the first sync command reports a Full change...
+    let ack = agg.step(response("", true));
+    assert!(
+        ack.effects
+            .iter()
+            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+        "an unmarked ack reports a state change ({:?})",
+        ack.effects
+    );
+    // ...and nothing goes out on it.
+    assert!(agg.to_state_update().is_none(), "nothing to show yet");
+
+    // list-panes lists a new pane, which asks for its capture; list-windows
+    // follows. Neither is the whole picture while that capture is in flight.
+    let listed = agg.step(response(&pane_row("%0", "@0", false), true));
+    assert!(
+        listed.effects.iter().any(
+            |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
+        ),
+        "a new pane is captured ({:?})",
+        listed.effects
+    );
+    agg.queue_captures(&[pid("%0")]);
+    assert!(
+        agg.to_state_update().is_none(),
+        "panes listed, capture pending"
+    );
+    agg.step(response("@0,0,1,tab,,,,,,,,,,,0,shell\n", true));
+    assert!(
+        agg.to_state_update().is_none(),
+        "windows listed, capture pending"
+    );
+
+    // The capture lands: the first emission is a Full with the pane's content.
+    agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
+    agg.step(response("hello\n", true));
+    agg.step(response(&marked(&agg, CAPTURE_END_MARKER, ""), true));
+    match agg.to_state_update() {
+        Some(crate::StateUpdate::Full { state }) => {
+            assert_eq!(state.seq, 1);
+            assert_eq!(state.windows.len(), 1);
+            assert_eq!(state.panes.len(), 1);
+            let first_row: String = state.panes[0].content[0]
+                .iter()
+                .map(|c| c.char.clone())
+                .collect();
+            assert_eq!(first_row.trim_end(), "hello");
+        }
+        other => panic!("expected the first emission to be a Full, got {other:?}"),
+    }
 }

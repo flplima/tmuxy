@@ -185,12 +185,21 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,\n\
              %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,",
         ),
-        // The session is on @0. The capture this queues for its active
-        // pane is the one the list already queued, answered below.
+        response("@0,0,1,tab,,,,,,,,,,,0,shell\n"),
+        // The session is on @0. The captures this asks for its panes are
+        // the ones the list already queued: %0's is captured once more when
+        // that lands, %1's (in copy mode, polled) is not. Nothing is emitted
+        // until the last of them has landed.
         ControlModeEvent::SessionWindowChanged {
             session_id: "$0".to_string(),
             window_id: "@0".parse().unwrap(),
         },
+        marked(&markers, CAPTURE_BEGIN_MARKER, "0"),
+        response("$ \n"),
+        marked(&markers, CAPTURE_END_MARKER, ""),
+        marked(&markers, CAPTURE_BEGIN_MARKER, "1"),
+        response("$ \n"),
+        marked(&markers, CAPTURE_END_MARKER, ""),
         marked(&markers, CAPTURE_BEGIN_MARKER, "0"),
         response("$ \n"),
         marked(&markers, CAPTURE_END_MARKER, ""),
@@ -275,12 +284,12 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
     }
     // Each multi-effect step, named, so the check above is not vacuous.
     let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
-    // Steps are numbered by event: the window focus change is the 3rd,
-    // the pane focus change the 7th, the window add the 8th, the reply's three blocks
-    // the 9th to 11th, the image the 12th, the OSC 52 the 13th, the title
-    // change the 14th, the pause the 15th, the yank the 16th and its read
-    // the 17th to 19th, the window close the 20th.
-    let window_add = &steps[8];
+    // Steps are numbered by event: the window focus change is the 4th,
+    // the pane focus change the 14th, the window add the 15th, the reply's
+    // three blocks the 16th to 18th, the image the 19th, the OSC 52 the
+    // 20th, the title change the 21st, the pause the 22nd, the yank the 23rd
+    // and its read the 24th to 26th, the window close the 27th.
+    let window_add = &steps[15];
     let first_list = window_add
         .iter()
         .position(|c| *c == tmux_formats::LIST_PANES_CMD)
@@ -294,7 +303,7 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         Some("<emit>"),
         "the window add should emit after its re-list: {window_add:?}"
     );
-    for reply_step in &steps[9..12] {
+    for reply_step in &steps[16..19] {
         assert!(reply_step.is_empty(), "a reply block sent {reply_step:?}");
     }
     let reply = reply_rx
@@ -302,41 +311,41 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         .expect("the reply block resolved its waiter");
     assert_eq!((reply.output.as_str(), reply.error), ("ok\n", None));
     assert_eq!(
-        steps[12].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[19].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<images>"],
         "an inline image should reach the emitter alone, its emission deferred"
     );
     assert_eq!(
-        steps[13].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[20].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<clipboard %0 hello world>"],
         "an OSC 52 write should reach the emitter with the pane that asked"
     );
-    let refresh = &steps[14];
+    let refresh = &steps[21];
     assert_eq!(
         ranks_of(refresh),
         [3, 3, 4],
         "the pane refresh should re-list before it captures: {refresh:?}"
     );
-    let pause = &steps[15];
+    let pause = &steps[22];
     assert_eq!(
         ranks_of(pause),
         [5, 6],
         "a pause should answer with the resume, then its emission: {pause:?}"
     );
-    let yank = &steps[16];
+    let yank = &steps[23];
     assert!(
         ranks_of(yank) == [2] && yank[0].contains("show-buffer"),
         "a yank should send the buffer read alone: {yank:?}"
     );
     assert_eq!(
-        steps[17..20]
+        steps[24..27]
             .iter()
             .map(|s| s.iter().map(|c| c.as_str()).collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         [vec![], vec!["<clipboard buffer yanked>"], vec![]],
         "the buffer read should hand its content to the clipboard, once"
     );
-    let window_close = &steps[20];
+    let window_close = &steps[27];
     assert_eq!(
         window_close.last().map(|c| c.as_str()),
         Some("<emit>"),

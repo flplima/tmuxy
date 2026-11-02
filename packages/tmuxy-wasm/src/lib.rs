@@ -220,14 +220,42 @@ mod tests {
             "8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
         );
         let out = s.feed(stream);
-        assert!(
-            !out.updates.is_empty(),
-            "should emit at least one StateUpdate"
-        );
         // Every %begin/%end block surfaces as a response for host-side
         // command correlation (two blocks in this stream, both successful).
         assert_eq!(out.responses.len(), 2);
         assert!(out.responses.iter().all(|(ok, _)| *ok));
+        // The listed panes are captured; nothing is shown before the
+        // windows are listed and those captures have landed.
+        let captures = out
+            .commands
+            .iter()
+            .filter(|c| c.contains("capture-pane"))
+            .count();
+        assert_eq!(captures, 2, "one capture per new pane: {:?}", out.commands);
+        assert!(
+            out.updates.is_empty(),
+            "nothing to show before the initial sync is complete: {:?}",
+            out.updates
+        );
+
+        let markers = s.agg.markers().clone();
+        let capture = |pane: &str| {
+            format!(
+                "%begin 4 4 1\n{} {pane}\n%end 4 4 1\n%begin 5 5 1\n$ \n%end 5 5 1\n%begin 6 6 1\n{}\n%end 6 6 1\n",
+                markers.tag(tmuxy_core::control_mode::CAPTURE_BEGIN_MARKER),
+                markers.tag(tmuxy_core::control_mode::CAPTURE_END_MARKER),
+            )
+        };
+        let synced = s.feed(&format!(
+            "%begin 3 3 1\n@0,0,1,tab,,,,,,,,,,,0,shell\n%end 3 3 1\n{}{}",
+            capture("0"),
+            capture("1")
+        ));
+        assert!(
+            matches!(synced.updates.as_slice(), [StateUpdate::Full { state }] if state.panes.len() == 2),
+            "the first emission is the complete picture: {:?}",
+            synced.updates
+        );
 
         // An %error block surfaces as a failed response with its message.
         let err = s.feed("%begin 3 3 1\ncan't find session: nope\n%error 3 3 1\n");

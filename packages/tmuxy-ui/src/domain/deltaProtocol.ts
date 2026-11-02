@@ -99,11 +99,9 @@ export function handleStateUpdate(
 ): ServerState | null {
   if (update.type === 'full') {
     // When replacing existing state with a full update, preserve non-empty pane
-    // content that would be overwritten by empty content. This handles two cases:
-    // 1. Initial sync: get_initial_state captured real content, but the control mode
-    //    aggregator's first full emission has empty panes (captures not yet complete).
-    // 2. Layout changes: after pane resize, the vt100 parser is reset (empty), but
-    //    the capture-pane refill hasn't arrived yet.
+    // content that would be overwritten by empty content: after a pane resize
+    // the vt100 parser is reset (empty) while the capture-pane refill has not
+    // arrived yet.
     //
     // Skip content preservation when the session has changed (kill+recreate):
     // pane IDs are reused across sessions, so old content would leak as ghost lines.

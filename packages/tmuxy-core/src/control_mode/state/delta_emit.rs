@@ -36,8 +36,15 @@ impl StateAggregator {
             }
         }
 
-        // First state or no previous state - send full
+        // First state or no previous state - send full. Not before the
+        // initial sync has landed: every unmarked ack of `sync_initial_state`
+        // (`set window-size manual` first) reports a Full change, and a Full
+        // emitted then has no panes, no windows and no content — a client
+        // reconnecting to a restarted monitor saw its page blanked by it
+        // until the deltas and captures arrived. The stream opens with the
+        // same complete picture `GetState` waits for.
         let prev = match &self.prev_state {
+            None if !self.initial_state_ready() => return None,
             None => {
                 self.delta_seq = 1;
                 current.seq = 1;
