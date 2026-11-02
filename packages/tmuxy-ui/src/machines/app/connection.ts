@@ -60,12 +60,14 @@ export const connectionGlobalEvents = {
   NEW_SESSION: { actions: 'connection_newSession' },
 } as const;
 
-/** What a freshly opened stream asks the server for: themes, and the state
- * at this client's viewport once one has been computed. */
-function fetchOnConnect(context: Ctx, enqueue: EnqueueAction): void {
+/** What every freshly opened stream asks the server for. */
+function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
   enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+}
 
+/** The state at this client's viewport, once one has been computed. */
+function fetchStateAtViewport(context: Ctx, enqueue: EnqueueAction): void {
   const hasComputedSize =
     context.targetCols !== DEFAULT_COLS || context.targetRows !== DEFAULT_ROWS;
   if (hasComputedSize) {
@@ -303,7 +305,6 @@ export const connectionActions = {
         activeWindowId: null,
         activePaneId: null,
         sessionName: event.sessionName,
-        connected: false,
         error: null,
         copyModeStates: {},
         enableAnimations: false,
@@ -325,10 +326,13 @@ export const connectionActions = {
     });
   }),
 
-  connection_onConnected: act(({ context, enqueue }) => {
+  // The size actor answers CONNECTED by sending the target size again, and
+  // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
+  // the client measured).
+  connection_onConnected: act(({ enqueue }) => {
     enqueue(assign({ connected: true, error: null }));
     enqueue(sendTo('size', { type: 'CONNECTED' as const }));
-    fetchOnConnect(context, enqueue);
+    fetchThemes(enqueue);
   }),
 
   // A reconnect fetches the state too: the stream that came back may belong
@@ -338,7 +342,8 @@ export const connectionActions = {
   // so the answer is adopted as the starting state.
   connection_onReconnected: act(({ context, enqueue }) => {
     enqueue(assign({ connected: true, error: null }));
-    fetchOnConnect(context, enqueue);
+    fetchThemes(enqueue);
+    fetchStateAtViewport(context, enqueue);
   }),
 
   connection_keybindingsReceived: act(({ event, enqueue }) => {
