@@ -191,14 +191,13 @@ describe('Scenario 4f: Collapsible panes', () => {
       );
 
     // Step 1: PANE mode's s twice → three first-level rows, only the newest
-    // expanded. The mode is sticky, so the second s needs no prefix; esc
-    // leaves it.
+    // expanded. The mode is one-shot, so each s takes its own prefix p.
     await sendPrefixCommand(page, 'p');
     await page.keyboard.press('s');
     await waitForPaneCount(page, 2);
+    await sendPrefixCommand(page, 'p');
     await page.keyboard.press('s');
     await waitForPaneCount(page, 3);
-    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => {
@@ -262,7 +261,6 @@ describe('Scenario 4f: Collapsible panes', () => {
     // Step 4: PANE mode's S turns the feature off and evens the rows out.
     await sendPrefixCommand(page, 'p');
     await page.keyboard.press('Shift+S');
-    await page.keyboard.press('Escape');
     await waitForCondition(
       page,
       async () => {
