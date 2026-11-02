@@ -383,30 +383,36 @@ export class HttpAdapter implements SequencedAdapter {
   }
 
   /**
-   * Send a command in order (serialized, but caller doesn't await)
+   * Send a command in order (serialized, but caller doesn't await). Every
+   * keystroke takes this path, so like `invokeInternal` it waits for the
+   * stream when it is down: a key typed during a reconnect window is posted,
+   * under the new connection id, once the stream is back — not dropped. The
+   * wait ends with the stream: `disconnect()` and `switchSession()` fail it,
+   * and the key dies with the session it was typed into.
    */
   private sendCommandFireAndForget(cmd: string, args: Record<string, unknown>): void {
-    if (!this.connected) {
-      console.warn('[HttpAdapter] Not connected, cannot send command');
-      return;
-    }
+    if (this.intentionalDisconnect) return;
 
     // Keystrokes are the latency-critical input path — mark the round-trip so
     // the next applied state update closes it (Axis-B, see latencyTracker).
     latencyTracker.markInput();
-    const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
-    tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
 
     // Offer onto the serial queue so requests go one at a time.
     this.inFlight++;
     this.commandQueue.unsafeOffer(
-      postCommandFireAndForgetEffect(
-        this.getEffectiveSession(),
-        this.connectionId,
-        cmd,
-        args,
-        actionId,
-      ).pipe(
+      Effect.tryPromise(() => this.connect()).pipe(
+        Effect.flatMap(() => {
+          const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
+          tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
+          return postCommandFireAndForgetEffect(
+            this.getEffectiveSession(),
+            this.connectionId,
+            cmd,
+            args,
+            actionId,
+          );
+        }),
+        Effect.ignore,
         Effect.ensuring(
           Effect.sync(() => {
             this.inFlight--;

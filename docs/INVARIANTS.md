@@ -1,6 +1,6 @@
 # Invariants
 
-Cross-layer promises, in one place, each with the test that holds it. Doc comments explain _how_ an invariant is kept; this file indexes _what_ is promised across a seam and _whether anything checks it_. Module-local assertions stay in code.
+Cross-layer promises, each with the test that holds it. Doc comments explain _how_ an invariant is kept; this file indexes _what_ is promised across a seam and _whether anything checks it_. Module-local assertions stay in code.
 
 | Column | Meaning |
 | --- | --- |
@@ -101,20 +101,11 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | Q2 | Keystroke batches share the mutation queue and non-`send-keys` flush pending batches first. | ordering | `TauriAdapter.ts`, `HttpAdapter.ts`, `keyBatching.ts` | `keyBatching.test.ts › flushAll drains…` (batcher only; mutation interleaving is —) |
 | Q3 | Lone keystrokes send on leading edge; literal/special order holds; hex-byte (`-H`) and double-quoted sends never batch. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› never intercepts…`; `tests/1-input-interaction.test.js › Type → backspace…` |
 | Q4 | Client reads (`query_tmux`) run unserialized; order vs. mutations holds in-band on control mode (A6). | ordering | `HttpAdapter.ts`, `docs/DATA-FLOW.md` | — |
+| Q5 | A keystroke issued while the stream is down waits for it and posts under the new connection id, still in issue order; `disconnect()` and a session switch end the wait. | liveness | `HttpAdapter.ts` | `HttpAdapter.test.ts › a key typed while the stream is down…` (example) |
 
 ## P — client model
 
-| Id | Invariant | Kind | Stated in | Enforced by |
-| --- | --- | --- | --- | --- |
-| P1 | Placeholder (predicted) pane or window ids are never sent to tmux as targets — not by a dispatched op, a binding's pin, or a tab switch. | safety | `commands.ts`, `dispatch.ts`, `keyboardActor.ts` (`bindingPin`), `layout.ts` (`layout_selectTab`) | `dispatch.test.ts › leaves the target to tmux…`, `› once tmux has confirmed them…`; `keyboardActor.bindings.test.ts › leaves a placeholder window and pane unpinned…`; `selectTab.test.ts › switches the view to a placeholder tab…` |
-| P2 | Ops mark in-flight before send and always settle: unacked sweeps at `OP_STALE_TIMEOUT_MS`, acked at `OP_ACKED_STALE_TIMEOUT_MS`, errors roll back. | liveness | `TmuxStore.ts`, `model.ts`, `types.ts` | `model.test.ts › stale ops…`, `› in-flight ops…`; `TmuxStore.test.ts › dispatch rolls back…`, `› TransportError…` |
-| P3 | Pending ops re-reconcile on a timer so time-based verdicts fire on an idle stream. | liveness | `TmuxStore.ts` | `tests/7-regression-bugs-b.test.js › Creating tabs then switching keeps the rendered tab in sync with tmux` [nightly] (its `waitForSettled` holds while a switch is pending; on an idle terminal only this timer can release it) |
-| P4 | Confirmed focus ops linger (`FOCUS_CONFIRM_LINGER_MS`), yield to a 3rd pane after `FOCUS_SUPERSEDE_GRACE_MS`, drop on newer focus, and skip dead panes. | ordering | `ops.ts`, `model.ts` | `ops.test.ts › holds a confirmed…`, `› holds through stale…`, `› holds briefly…` (examples; `dropSupersededFocusOps` is —); `tests/2-layout-navigation.test.js › Clicking an inactive tab…` [nightly] |
-| P5 | In-flight splits never claim the same pane id within a reconcile pass. | safety | `ops.ts` (`reconcile`) | — |
-| P6 | `NewWindow` placeholders match only tab windows with a pane; the patch hides unmatched newborns. | safety | `windowOps.ts` | `ops.test.ts › stays pending until…`, `› patch hides a tab-typed-but-paneless…` |
-| P7 | Session switch clears pending ops and committed state before the new session's first state. | ordering | `tmuxStoreActor.ts`, `appMachine.ts` | `workflows.test.ts › TmuxStore — clear…` (store only; order vs. first state is —) |
-| P8 | `MoveWindow` predicts dropped strip order immediately and holds until server places the window beside its anchor. | ordering | `windowOps.ts`, `tabOverview.ts` | `ops.test.ts › MoveWindow predict…`; `tests/2-layout-navigation.test.js › a tab dragged along the strip…` |
-| P9 | A focus the client shows is one it asked tmux for: every optimistic active-pane change goes out with an op that makes tmux select that pane, so tmux's next state confirms it rather than taking it back. | safety | `focusAndDrag.ts` (`focusAndDrag_selectPaneGroupTab`, `focusAndDrag_focusPane`) | `AppPaneGroups.stories.tsx › ClickingTheShownMembersTabTakesTheFocus` [v86] (the group tab of the member on screen; other focus paths are —) |
+In [INVARIANTS-CLIENT-MODEL.md](INVARIANTS-CLIENT-MODEL.md), the ledger's companion.
 
 ## U and L — UI-mode records, session lifecycle
 
@@ -124,7 +115,7 @@ In [INVARIANTS-UI-LIFECYCLE.md](INVARIANTS-UI-LIFECYCLE.md), the ledger's compan
 
 - **Uncovered (`—`)**: A3, A9, M5, M8, M9, X3, S5, C6, C8, Q4, P3, P5.
 - **Partial**: M7 (timeout), M11 (order), X4 (lock), S3 (connect), C7 (frame hold), Q1 (Tauri), Q2 (interleaving), P4 (`dropSupersededFocusOps`), P7 (first-state order), U2 (2-update hold), L6 (lock).
-- **Example only**: M1, M4, Q1, U1.
+- **Example only**: M1, M4, Q1, Q5, U1.
 - **Property**: C3–C5 (`stateFeed.props.test.ts`) and S2 (`sse.rs`).
 
 ## Related

@@ -10,57 +10,20 @@ import { Effect, ManagedRuntime, Schedule, Stream } from 'effect';
 import { HttpTransportLive } from '../../layers';
 import { TmuxTransport, type TmuxTransportService } from '../../TmuxTransport';
 import { HttpAdapter } from '../HttpAdapter';
+import { installMockEventSource, MockEventSource, openStreams, stream } from './mockEventSource';
 import type { ServerState } from '../../../../domain/wire';
 
-/**
- * Minimal EventSource stand-in — jsdom ships none. Records every instance so a
- * test can assert how many streams were opened and whether stale ones were
- * closed (the duplicate-stream / orphan-leak bug lives exactly here).
- */
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  closed = false;
-  onerror: ((e: unknown) => void) | null = null;
-  private listeners: Record<string, Array<(e: { data: string }) => void>> = {};
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-  addEventListener(type: string, cb: (e: { data: string }) => void): void {
-    (this.listeners[type] ||= []).push(cb);
-  }
-  emit(type: string, payload: unknown): void {
-    for (const cb of this.listeners[type] ?? []) cb({ data: JSON.stringify(payload) });
-  }
-  close(): void {
-    this.closed = true;
-  }
-}
-
 describe('HttpAdapter connect() lifecycle', () => {
-  let originalES: unknown;
+  let restoreEventSource: () => void;
 
   beforeEach(() => {
-    MockEventSource.instances = [];
-    originalES = (globalThis as Record<string, unknown>).EventSource;
-    (globalThis as Record<string, unknown>).EventSource = MockEventSource;
+    restoreEventSource = installMockEventSource();
   });
 
   afterEach(() => {
-    (globalThis as Record<string, unknown>).EventSource = originalES;
+    restoreEventSource();
     vi.unstubAllGlobals();
   });
-
-  const openStreams = () => MockEventSource.instances.filter((e) => !e.closed);
-
-  // The channel opens its EventSource on a microtask (the Effect fiber), so a
-  // test must await the stream's existence before driving it. The fiber itself
-  // is created synchronously by connect(), so dedupe still holds immediately.
-  const stream = async (i: number): Promise<MockEventSource> => {
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(i));
-    return MockEventSource.instances[i];
-  };
 
   it('dedupes concurrent connect() calls into a single EventSource', async () => {
     const adapter = new HttpAdapter();
@@ -284,19 +247,60 @@ describe('HttpAdapter connect() lifecycle', () => {
     expect(await r2).toBe('second');
     adapter.disconnect();
   });
+
+  it('a key typed while the stream is down is posted once it is back, under the new connection, before later commands', async () => {
+    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
+    const c = adapter.connect();
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await c;
+
+    const posted: Array<{ command: string; connectionId: string }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementation(
+          (_url: string, init: { body: string; headers: Record<string, string> }) => {
+            posted.push({
+              command: JSON.parse(init.body).args.command as string,
+              connectionId: init.headers['X-Connection-Id'],
+            });
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) });
+          },
+        ),
+    );
+
+    // The stream drops; the user keeps typing, then splits the pane.
+    MockEventSource.instances[0].onerror?.(new Event('error'));
+    await vi.waitFor(() => expect(adapter.isConnected()).toBe(false));
+    const key = "send-keys -t %1 -l -- 'x'";
+    void adapter.invoke('run_tmux_command', { command: key });
+    const split = adapter.invoke('run_tmux_command', { command: 'split-window -h' });
+
+    // Nothing leaves the browser while the stream is down...
+    const second = await stream(1);
+    expect(posted).toEqual([]);
+
+    // ...and once it is back, the key goes first, naming the new connection.
+    second.emit('connection-info', { data: { connection_id: 2 } });
+    await split;
+    expect(posted).toEqual([
+      { command: key, connectionId: '2' },
+      { command: 'split-window -h', connectionId: '2' },
+    ]);
+    adapter.disconnect();
+  });
 });
 
 describe('the HTTP transport: initial state against the live stream', () => {
-  let originalES: unknown;
+  let restoreEventSource: () => void;
 
   beforeEach(() => {
-    MockEventSource.instances = [];
-    originalES = (globalThis as Record<string, unknown>).EventSource;
-    (globalThis as Record<string, unknown>).EventSource = MockEventSource;
+    restoreEventSource = installMockEventSource();
   });
 
   afterEach(() => {
-    (globalThis as Record<string, unknown>).EventSource = originalES;
+    restoreEventSource();
     vi.unstubAllGlobals();
   });
 

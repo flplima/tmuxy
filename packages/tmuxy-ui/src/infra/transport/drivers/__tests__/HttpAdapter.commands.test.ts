@@ -10,49 +10,20 @@ import { HttpTransportLive } from '../../layers';
 import { TmuxTransport, type TmuxTransportService } from '../../TmuxTransport';
 import { makeSequencedTransport } from '../../stateFeed';
 import { HttpAdapter } from '../HttpAdapter';
+import { installMockEventSource, MockEventSource, openStreams, stream } from './mockEventSource';
 import type { ServerState } from '../../../../domain/wire';
 
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  closed = false;
-  onerror: ((e: unknown) => void) | null = null;
-  private listeners: Record<string, Array<(e: { data: string }) => void>> = {};
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-  addEventListener(type: string, cb: (e: { data: string }) => void): void {
-    (this.listeners[type] ||= []).push(cb);
-  }
-  emit(type: string, payload: unknown): void {
-    for (const cb of this.listeners[type] ?? []) cb({ data: JSON.stringify(payload) });
-  }
-  close(): void {
-    this.closed = true;
-  }
-}
-
 describe('HttpAdapter commands and recovery', () => {
-  let originalES: unknown;
+  let restoreEventSource: () => void;
 
   beforeEach(() => {
-    MockEventSource.instances = [];
-    originalES = (globalThis as Record<string, unknown>).EventSource;
-    (globalThis as Record<string, unknown>).EventSource = MockEventSource;
+    restoreEventSource = installMockEventSource();
   });
 
   afterEach(() => {
-    (globalThis as Record<string, unknown>).EventSource = originalES;
+    restoreEventSource();
     vi.unstubAllGlobals();
   });
-
-  const openStreams = () => MockEventSource.instances.filter((e) => !e.closed);
-
-  const stream = async (i: number): Promise<MockEventSource> => {
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(i));
-    return MockEventSource.instances[i];
-  };
 
   it('reopens one stream after a drop without orphaning, and dedupes concurrent connect()', async () => {
     // Near-zero backoff so the supervised fiber reopens promptly under vitest.
