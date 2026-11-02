@@ -96,6 +96,9 @@ pub(crate) struct ProcessEventResult {
     /// Completed reply-wrapped commands: (reply id, everything the command
     /// printed, whether every block succeeded). See `reply_wrapped_lines`.
     pub command_replies: Vec<(u64, String, Option<String>)>,
+    /// Notices for the person, about something the aggregator did on their
+    /// behalf (a view mode it closed).
+    pub messages: Vec<String>,
 }
 
 /// Outcome of a single `StateAggregator::step` call.
@@ -160,6 +163,9 @@ pub enum SideEffect {
         output: String,
         error: Option<String>,
     },
+    /// A notice for the person, shown like a `%message`: something the
+    /// aggregator did on their behalf, such as closing a view mode.
+    ShowMessage(String),
 }
 
 /// Aggregates control mode events into coherent state
@@ -217,6 +223,12 @@ pub struct StateAggregator {
     /// response that immediately follows it (each command in a control-mode
     /// command list gets its own %begin/%end block).
     buffer_read_armed: bool,
+    /// Panes whose row just reported view mode: each is asked about
+    /// (`clients_read_command`) on the step that parsed the row.
+    view_mode_opened: Vec<PaneId>,
+    /// The pane whose `list-clients` answer is the next block, between its
+    /// `TMUXY_CLI_BEGIN <pane>` and `TMUXY_CLI_END` markers.
+    clients_read_armed: Option<PaneId>,
     /// The reply-wrapped command whose output is being collected: everything
     /// between its `TMUXY_RPY_BEGIN <id>` and `TMUXY_RPY_END <id>` marker
     /// blocks. See `reply_wrapped_lines`.
@@ -306,6 +318,8 @@ impl StateAggregator {
             capture_armed: None,
             pending_buffer_reads: std::collections::VecDeque::new(),
             buffer_read_armed: false,
+            view_mode_opened: Vec::new(),
+            clients_read_armed: None,
             reply_in_flight: None,
             markers: Markers::fresh(),
 
@@ -356,7 +370,8 @@ pub use command_response::window_relist_commands;
 use command_response::ReplyInFlight;
 pub use markers::{
     control_mode_lines, Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
-    CAPTURE_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    CAPTURE_END_MARKER, CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER, LIST_CLIENTS_FORMAT,
+    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 pub use pane_state::PaneState;
 pub use stash_and_helpers::{
@@ -379,5 +394,7 @@ mod tests_hyperlinks;
 mod tests_panes;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
+#[cfg(test)]
+mod tests_view_mode;
 #[cfg(test)]
 mod tests_windows_and_stash;

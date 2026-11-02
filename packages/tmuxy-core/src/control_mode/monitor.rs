@@ -7,6 +7,7 @@
 
 mod commands;
 mod event_loop;
+mod replies;
 mod resize;
 mod run_shell;
 mod sync;

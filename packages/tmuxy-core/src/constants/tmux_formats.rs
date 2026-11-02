@@ -44,27 +44,33 @@ macro_rules! app_pane_title {
 /// See [`app_pane_title!`].
 pub const APP_PANE_TITLE: &str = app_pane_title!();
 
-/// Is the pane in tmux's COPY mode — as opposed to any of its other modes?
+/// Which of tmux's pane modes the pane is in: `1` for copy mode, `2` for
+/// view mode, `0` for none of them or any other.
 ///
 /// `#{pane_in_mode}` is 1 for every pane mode tmux has: copy-mode, but also
-/// view-mode, tree-mode, buffer-mode and client-mode. The client turns that
-/// flag into its own copy mode, which renders the scrollback and hides the
-/// live terminal — so a pane tmux merely put in view-mode disappeared
-/// behind a scrollback view that nothing would close. tmux 3.4 is where
-/// this showed up (a freshly created pane comes up in `view-mode` there,
-/// and the pane rendered as a 0x0 box forever), but the conflation was
-/// wrong on every version: `prefix s` and friends could do the same.
+/// view-mode, tree-mode, buffer-mode and client-mode. The client turns copy
+/// mode into its own, which renders the scrollback and hides the live
+/// terminal — so a pane tmux merely put in view-mode disappeared behind a
+/// scrollback view that nothing would close. tmux 3.4 is where this showed
+/// up (a freshly created pane comes up in `view-mode` there, and the pane
+/// rendered as a 0x0 box forever), but the conflation was wrong on every
+/// version: `prefix s` and friends could do the same.
+///
+/// View mode is named on its own because the client does not draw it
+/// either, and it takes every key: a `run-shell -b` that prints opens one
+/// on the current pane, on every version. The aggregator closes it
+/// (`parse_list_panes_line`).
 ///
 /// Still expands to exactly one int-like field, so the pane-row parser's
 /// field positions and its `@window` anchor heuristic are unchanged.
-macro_rules! copy_mode_flag {
+macro_rules! pane_mode_flag {
     () => {
-        "#{?#{==:#{pane_mode},copy-mode},1,0}"
+        "#{?#{==:#{pane_mode},copy-mode},1,#{?#{==:#{pane_mode},view-mode},2,0}}"
     };
 }
 
-/// See [`copy_mode_flag!`].
-pub const COPY_MODE_FLAG: &str = copy_mode_flag!();
+/// See [`pane_mode_flag!`].
+pub const PANE_MODE_FLAG: &str = pane_mode_flag!();
 
 /// What a comma inside a field is sent as, so a row always has exactly one
 /// field per column. tmux's `s/,/%2C/` modifier applies it on the way out and
@@ -132,7 +138,7 @@ pane_columns! {
     Active => "#{pane_active}",
     Command => escaped_var!("pane_current_command"),
     Title => escaped_format!(app_pane_title!()),
-    CopyMode => copy_mode_flag!(),
+    Mode => pane_mode_flag!(),
     CopyCursorX => "#{copy_cursor_x}",
     CopyCursorY => "#{copy_cursor_y}",
     ScrollPosition => "#{scroll_position}",

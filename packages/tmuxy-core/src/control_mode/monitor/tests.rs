@@ -47,7 +47,9 @@ impl StateEmitter for Recording {
 /// no state emission — and an empty one (all control characters) is
 /// dropped rather than shown as a blank notice. One this client ran
 /// itself arrives inside the command's reply block, and is shown from
-/// there.
+/// there — as is whatever else a command typed at the prompt printed (a
+/// `show-messages`, a `list-keys`): tmux answers a control client in the
+/// reply and opens no pager for it, so the reply is the only place it is.
 #[tokio::test]
 async fn a_message_reaches_the_emitter_alone() {
     let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -69,12 +71,19 @@ async fn a_message_reaches_the_emitter_alone() {
         marked(&markers, REPLY_BEGIN_MARKER, "4"),
         response("%message hi tmuxy"),
         marked(&markers, REPLY_END_MARKER, "4"),
+        // `show-messages` typed at the prompt.
+        marked(&markers, REPLY_BEGIN_MARKER, "5"),
+        response("Mon Nov  2 12:00:00 2026 client-1 message: hi tmuxy\n\n"),
+        marked(&markers, REPLY_END_MARKER, "5"),
     ];
     let count = events.len();
     monitor.connection.events.extend(events);
-    monitor
-        .pending_replies
-        .insert(4, (ReplyWaiter::ReportFailure, tokio::time::Instant::now()));
+    for id in [4, 5] {
+        monitor.pending_replies.insert(
+            id,
+            (ReplyWaiter::ReportFailure, tokio::time::Instant::now()),
+        );
+    }
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
     for _ in 0..count {
@@ -90,7 +99,11 @@ async fn a_message_reaches_the_emitter_alone() {
             "<step>",
             "<step>",
             "<step>",
-            "<message hi tmuxy>"
+            "<message hi tmuxy>",
+            "<step>",
+            "<step>",
+            "<step>",
+            "<message Mon Nov  2 12:00:00 2026 client-1 message: hi tmuxy>",
         ]
     );
 }

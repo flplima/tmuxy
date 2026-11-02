@@ -37,6 +37,9 @@ impl StateAggregator {
         if let Some(pane_id) = self.capture_armed.take() {
             return self.on_capture(pane_id, &output, success);
         }
+        if let Some(pane_id) = self.clients_read_armed.take() {
+            return self.on_clients_listed(&pane_id, &output, success);
+        }
         if self.buffer_read_armed {
             self.buffer_read_armed = false;
             self.pending_buffer_reads.pop_front();
@@ -127,6 +130,18 @@ impl StateAggregator {
             return ProcessEventResult::default();
         }
 
+        // Marker-wrapped list-clients responses (view-mode close), bracketed
+        // the way a capture is.
+        if let Some(rest) = self.markers.after(marker_line, CLIENTS_BEGIN_MARKER) {
+            if let Ok(number) = rest.trim_start_matches('%').parse() {
+                self.clients_read_armed = Some(PaneId::from_number(number));
+            }
+            return ProcessEventResult::default();
+        }
+        if self.markers.is(marker_line, CLIENTS_END_MARKER) {
+            return ProcessEventResult::default();
+        }
+
         // Marker-routed capture-pane responses: every self-issued
         // capture is bracketed BEGIN(pane)/END (see capture_command),
         // so the block between the markers is attributed to its pane
@@ -162,11 +177,62 @@ impl StateAggregator {
         } else {
             Vec::new()
         };
+        let mut commands = self.collapsible_layout_commands(None);
+        commands.extend(
+            self.view_mode_opened
+                .drain(..)
+                .map(|pane_id| self.markers.clients_read_command(&pane_id)),
+        );
         ProcessEventResult {
             state_changed: true,
             panes_needing_refresh: resized_panes,
             change_type: ChangeType::Full, // Command responses may update many things,
-            commands: self.collapsible_layout_commands(None),
+            commands,
+            ..Default::default()
+        }
+    }
+
+    /// The `list-clients` answer asked for when `pane_id`'s row reported
+    /// view mode (`LIST_CLIENTS_FORMAT`, one client per line). The mode is
+    /// closed unless a terminal client of this session, or of one grouped
+    /// with it, is attached: that person sees the pager and can read and
+    /// close it; this client draws none and would only lose its keys to it.
+    /// `copy-mode -q` resets every mode on the pane without a client of its
+    /// own, so it is safe from control mode on every version.
+    fn on_clients_listed(
+        &mut self,
+        pane_id: &PaneId,
+        output: &str,
+        success: bool,
+    ) -> ProcessEventResult {
+        if !success {
+            return ProcessEventResult::default();
+        }
+        let clients: Vec<(bool, &str, &str)> = output
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.trim_end_matches('\r').splitn(3, ',');
+                let control = fields.next()? == "1";
+                let group = fields.next()?;
+                let name = fields.next()?;
+                Some((control, group, name))
+            })
+            .collect();
+        let own_group = clients
+            .iter()
+            .find(|(_, _, name)| *name == self.session_name)
+            .map(|(_, group, _)| *group)
+            .filter(|group| !group.is_empty());
+        let watched = clients.iter().any(|(control, group, name)| {
+            !control && (*name == self.session_name || own_group == Some(*group))
+        });
+        if watched {
+            debug!(pane = %pane_id, "view mode left open: a terminal client is attached");
+            return ProcessEventResult::default();
+        }
+        ProcessEventResult {
+            commands: vec![format!("copy-mode -q -t {pane_id}")],
+            messages: vec![format!("tmux opened a view in pane {pane_id}; closed it")],
             ..Default::default()
         }
     }

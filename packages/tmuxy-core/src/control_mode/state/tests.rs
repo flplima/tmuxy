@@ -191,10 +191,15 @@ pub(super) fn mark_initial_sync_done(agg: &mut StateAggregator) {
 /// the copy-mode column set from `in_mode` — the one source of a pane's
 /// `in_mode` (see `PaneModeChanged`).
 pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String {
+    pane_row_in_mode(pane_id, window_id, u8::from(in_mode))
+}
+
+/// A list-panes row with the mode column as tmux expands `PANE_MODE_FLAG`:
+/// 0 for no mode, 1 for copy mode, 2 for view mode.
+pub(super) fn pane_row_in_mode(pane_id: &str, window_id: &str, mode: u8) -> String {
     format!(
-        // id,idx,x,y,w,h,cx,cy,active,command,title,IN_MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
-        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,\n",
-        u8::from(in_mode)
+        // id,idx,x,y,w,h,cx,cy,active,command,title,MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{mode},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,\n",
     )
 }
 

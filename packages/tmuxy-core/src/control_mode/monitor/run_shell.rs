@@ -105,11 +105,13 @@ pub(super) fn read_relayed<'a>(output: &'a str, key: &str) -> Relayed<'a> {
     }
 }
 
+/// The most a notice shows of a command's output.
+const MAX_LINES: usize = 20;
+const MAX_CHARS: usize = 2000;
+
 /// What a run-shell printed, cut to what a notice can show: its last lines,
 /// since a failing script says why at the end.
 pub(super) fn clip_output(text: &str) -> String {
-    const MAX_LINES: usize = 20;
-    const MAX_CHARS: usize = 2000;
     let lines: Vec<&str> = text.lines().collect();
     let kept = lines[lines.len().saturating_sub(MAX_LINES)..].join("\n");
     let chars = kept.chars().count();
@@ -118,6 +120,19 @@ pub(super) fn clip_output(text: &str) -> String {
     }
     let tail: String = kept.chars().skip(chars.saturating_sub(MAX_CHARS)).collect();
     format!("…\n{tail}")
+}
+
+/// What a command typed at the prompt printed, cut to what a notice can
+/// show: its first lines, which is where the pager tmux opens for a terminal
+/// client starts — a `list-keys` or a `show-messages` is read from the top.
+pub(super) fn clip_listing(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let kept = lines[..lines.len().min(MAX_LINES)].join("\n");
+    if kept.chars().count() <= MAX_CHARS && lines.len() <= MAX_LINES {
+        return kept;
+    }
+    let head: String = kept.chars().take(MAX_CHARS).collect();
+    format!("{head}\n…")
 }
 
 /// Text placed inside a tmux double-quoted word so that the shell command

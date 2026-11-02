@@ -74,6 +74,12 @@ pub struct PaneState {
     /// In copy mode
     pub in_mode: bool,
 
+    /// In tmux's view mode — the pager a `run-shell -b` that prints, or
+    /// `show-messages` from a terminal client, opens on the pane. The
+    /// client draws no view mode, so the aggregator closes it as soon as a
+    /// pane row reports it (`parse_list_panes_line`).
+    pub view_mode: bool,
+
     /// Copy mode cursor position
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
@@ -188,6 +194,7 @@ impl PaneState {
             group_id: None,
             group_pos: None,
             in_mode: false,
+            view_mode: false,
             copy_cursor_x: 0,
             copy_cursor_y: 0,
             scroll_position: 0,

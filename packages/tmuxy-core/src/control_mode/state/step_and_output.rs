@@ -35,9 +35,9 @@ impl StateAggregator {
             }
         }
 
-        // Image / clipboard side effects fire before list-pane refreshes, so a
-        // consumer has the images and the clipboard by the time the refreshed
-        // panes arrive.
+        // Image / clipboard / notice side effects fire before list-pane
+        // refreshes, so a consumer has the images and the clipboard by the
+        // time the refreshed panes arrive.
         for (pane_id, images) in result.new_images.iter() {
             if !images.is_empty() {
                 effects.push(SideEffect::StoreImages {
@@ -51,6 +51,9 @@ impl StateAggregator {
                 pane_id: pane_id.clone(),
                 text: text.clone(),
             });
+        }
+        for text in result.messages.iter() {
+            effects.push(SideEffect::ShowMessage(text.clone()));
         }
         for cmd in result.commands.iter() {
             effects.push(SideEffect::SendTmuxCommand(cmd.clone()));
@@ -169,8 +172,7 @@ impl StateAggregator {
             },
             new_images,
             clipboard_writes,
-            command_replies: Vec::new(),
-            commands: Vec::new(),
+            ..Default::default()
         }
     }
 

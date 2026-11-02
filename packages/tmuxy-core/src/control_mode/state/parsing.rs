@@ -35,7 +35,9 @@ impl StateAggregator {
         let active = flag(PaneColumn::Active);
         let command = normalize_pane_command(&unescape_commas(field(PaneColumn::Command)));
         let title = text(PaneColumn::Title);
-        let in_mode = flag(PaneColumn::CopyMode);
+        let mode = number(PaneColumn::Mode);
+        let in_mode = mode == 1;
+        let view_mode = mode == 2;
         let window_id = WindowId::parse(field(PaneColumn::WindowId)).ok();
         let restore = unescape_commas(field(PaneColumn::Restore));
 
@@ -79,6 +81,15 @@ impl StateAggregator {
         if was_in_mode && !in_mode {
             pane.copy_mode_content = None;
         }
+        // A view mode nobody draws: tmux opens one on the current pane for
+        // whatever a `run-shell -b` prints, on every version. Every key then
+        // goes to the pager, and `:` opens a prompt on this client that
+        // stalls tmux. It is closed once it is known who is looking
+        // (`on_clients_listed`).
+        if view_mode && !pane.view_mode {
+            self.view_mode_opened.push(pane_id.clone());
+        }
+        pane.view_mode = view_mode;
         pane.copy_cursor_x = number(PaneColumn::CopyCursorX);
         pane.copy_cursor_y = number(PaneColumn::CopyCursorY);
         pane.scroll_position = number(PaneColumn::ScrollPosition);

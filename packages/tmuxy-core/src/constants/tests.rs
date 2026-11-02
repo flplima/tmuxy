@@ -78,19 +78,31 @@ fn free_text_pane_columns_are_comma_escaped() {
     assert_eq!(tmux_formats::unescape_commas("a%2C b%2C c"), "a, b, c");
 }
 
-/// The pane rows must ask whether the pane is in COPY mode, never the
-/// broader `#{pane_in_mode}`. The client turns this field into its own
-/// copy mode, which hides the live terminal — so a pane in any other tmux
-/// mode (view, tree, buffer, client) would vanish behind a scrollback view.
+/// The pane rows must ask WHICH mode the pane is in, never the broader
+/// `#{pane_in_mode}`. The client turns copy mode into its own, which hides
+/// the live terminal — so a pane in any other tmux mode (view, tree, buffer,
+/// client) would vanish behind a scrollback view. View mode is told apart
+/// from the rest because the aggregator closes it.
 #[test]
-fn list_panes_cmd_asks_for_copy_mode_not_any_mode() {
+fn list_panes_cmd_asks_which_mode_not_any_mode() {
+    use tmux_formats::{PaneColumn, PANE_COLUMNS};
+    assert_eq!(
+        PANE_COLUMNS[PaneColumn::Mode.index()],
+        tmux_formats::PANE_MODE_FLAG
+    );
     assert!(
-        tmux_formats::LIST_PANES_CMD.contains(tmux_formats::COPY_MODE_FLAG),
-        "LIST_PANES_CMD must request COPY_MODE_FLAG"
+        tmux_formats::LIST_PANES_CMD.contains(tmux_formats::PANE_MODE_FLAG),
+        "LIST_PANES_CMD must request PANE_MODE_FLAG"
     );
     assert!(
         !tmux_formats::LIST_PANES_CMD.contains("#{pane_in_mode}"),
         "LIST_PANES_CMD must not use #{{pane_in_mode}} — it is 1 for view-mode too"
+    );
+    // The values the parser reads (`parse_list_panes_line`): copy mode is
+    // 1, view mode 2, and the field is one int whatever the mode.
+    assert!(
+        tmux_formats::PANE_MODE_FLAG.contains("#{==:#{pane_mode},copy-mode},1,")
+            && tmux_formats::PANE_MODE_FLAG.contains("#{==:#{pane_mode},view-mode},2,0")
     );
 }
 

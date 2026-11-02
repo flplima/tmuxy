@@ -174,6 +174,7 @@ pub fn effect_kind(effect: &SideEffect) -> &'static str {
         SideEffect::WriteClipboard { .. } => "WriteClipboard",
         SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
         SideEffect::CommandReply { .. } => "CommandReply",
+        SideEffect::ShowMessage(_) => "ShowMessage",
         SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
         SideEffect::RefreshPanes { .. } => "RefreshPanes",
         SideEffect::ResumePane(_) => "ResumePane",
@@ -185,7 +186,9 @@ pub fn effect_kind(effect: &SideEffect) -> &'static str {
 pub fn effect_rank(effect: &SideEffect) -> u8 {
     match effect {
         SideEffect::AdoptUntaggedWindows(_) => 0,
-        SideEffect::StoreImages { .. } | SideEffect::WriteClipboard { .. } => 1,
+        SideEffect::StoreImages { .. }
+        | SideEffect::WriteClipboard { .. }
+        | SideEffect::ShowMessage(_) => 1,
         SideEffect::SendTmuxCommand(_) | SideEffect::CommandReply { .. } => 2,
         SideEffect::RefreshAfterWindowAdd => 3,
         SideEffect::RefreshPanes { .. } => 4,

@@ -21,6 +21,7 @@ fn variant_names(effects: &[SideEffect]) -> Vec<&'static str> {
             SideEffect::StoreImages { .. } => "StoreImages",
             SideEffect::WriteClipboard { .. } => "WriteClipboard",
             SideEffect::CommandReply { .. } => "CommandReply",
+            SideEffect::ShowMessage(_) => "ShowMessage",
         })
         .collect()
 }

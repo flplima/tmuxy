@@ -22,6 +22,16 @@ pub const REPLY_END_MARKER: &str = "TMUXY_RPY_END";
 pub const BUFFER_BEGIN_MARKER: &str = "TMUXY_BUF_BEGIN";
 pub const BUFFER_END_MARKER: &str = "TMUXY_BUF_END";
 
+/// Brackets for the `list-clients` that asks, before a view mode is closed,
+/// whether a terminal client is looking at it. The BEGIN marker carries the
+/// pane's id, as a capture's does.
+pub const CLIENTS_BEGIN_MARKER: &str = "TMUXY_CLI_BEGIN";
+pub const CLIENTS_END_MARKER: &str = "TMUXY_CLI_END";
+
+/// The `list-clients` format of [`Markers::clients_read_command`]: whether
+/// the client is a control client, and the group and name of its session.
+pub const LIST_CLIENTS_FORMAT: &str = "#{client_control_mode},#{session_group},#{session_name}";
+
 /// The marker lines one aggregator asks tmux to print, and recognises.
 ///
 /// A marker block and a `capture-pane` block arrive on the same connection,
@@ -151,6 +161,16 @@ impl Markers {
             self.print(BUFFER_BEGIN_MARKER, None),
             crate::tmux_quote(buffer_name),
             self.print(BUFFER_END_MARKER, None),
+        )
+    }
+
+    /// The marker-wrapped `list-clients` that asks who is attached before
+    /// the view mode on `pane_id` is closed (`on_clients_listed`).
+    pub(super) fn clients_read_command(&self, pane_id: &PaneId) -> String {
+        format!(
+            "{} ; list-clients -F '{LIST_CLIENTS_FORMAT}' ; {}",
+            self.print(CLIENTS_BEGIN_MARKER, Some(pane_id.number().to_string())),
+            self.print(CLIENTS_END_MARKER, None),
         )
     }
 

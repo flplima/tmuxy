@@ -57,16 +57,41 @@ view-mode, tree-mode, buffer-mode and client-mode. The client turns that flag in
 copy mode, which renders the scrollback and **hides the live terminal**, so a pane in any
 other mode disappeared behind a scrollback view that nothing would close.
 
-The pane row therefore asks `#{?#{==:#{pane_mode},copy-mode},1,0}` instead
-(`COPY_MODE_FLAG` in `tmuxy-core/src/constants.rs`). It expands to the same single
-int-like field, so the row parser's positions and its `@window` anchor are unchanged.
+The pane row therefore asks which mode the pane is in — copy mode, view mode, or
+anything else — as one int (`PANE_MODE_FLAG` in `tmuxy-core/src/constants/tmux_formats.rs`).
+It expands to the same single int-like field, so the row parser's positions and its
+`@window` anchor are unchanged. `%pane-mode-changed` only asks for the pane's row again;
+the row is the one source of the mode (see `control_mode/state/events.rs`).
 
 This surfaced on **tmux 3.4**, where a pane landed in `view-mode` as soon as a CLI command
 sent through `run-shell` printed anything or failed (the version table above): the whole
 terminal rendered as a 0×0 box and never recovered. It was not version-specific in
 principle — `prefix s` on any version could do the same — and 3.4 is simply where it was
-guaranteed. A lockstep test in `constants.rs`
+guaranteed. A lockstep test in `constants/tests.rs`
 keeps the format from regressing to the broader field.
+
+### View mode is closed, with a notice
+
+View mode still reaches a tmuxy pane on every version: a `run-shell -b` that prints opens
+one on the current pane (`cmd_run_shell_print` with no command item — the relay in
+`monitor/run_shell.rs` leaves `-b` alone, since nobody waits for it), a plugin or tmux.conf
+binding doing the same, or a terminal client attached to a grouped session. tmuxy draws
+no view mode, and `capture-pane` reads the pane's own grid, never a mode's text, so the
+pager cannot be shown either. Left open, every key goes to it, and `:` opens a prompt on
+the control client that stalls tmux.
+
+When a pane row first reports view mode, the aggregator asks `list-clients` who is
+attached (a marker-wrapped in-band read, like the yank mirror's `show-buffer`). With only
+control clients on the session and its group, it resets the pane's modes with
+`copy-mode -q` — which needs no client terminal and is safe through control mode on every
+version — and shows a notice saying the view was closed. A terminal client of the session
+(or of one grouped with it) sees the pager and can close it, so its listing is kept.
+
+Prompt commands that print (`show-messages`, `list-keys`) never open a view for a control
+client: tmux answers them inside the command's reply. The monitor shows that reply as a
+notice (`monitor/event_loop.rs`, the `ReportFailure` waiter), clipped like a `run-shell`'s
+output, instead of dropping it. `prefix ?` is a client key and never reaches tmux; the
+help modal is native.
 
 ## Flow Control
 

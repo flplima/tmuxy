@@ -27,7 +27,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| A1 | Step effect order: `AdoptUntaggedWindows` → `StoreImages`/`WriteClipboard` → `SendTmuxCommand`/`CommandReply` → `RefreshAfterWindowAdd` → `RefreshPanes` → `ResumePane` → `EmitState`. | ordering | `state.rs` (`step_at`) | `state_aggregator_props.rs › effects_within_a_step…`, `› the_seam_events_reach…` (property) |
+| A1 | Step effect order: `AdoptUntaggedWindows` → `StoreImages`/`WriteClipboard`/`ShowMessage` → `SendTmuxCommand`/`CommandReply` → `RefreshAfterWindowAdd` → `RefreshPanes` → `ResumePane` → `EmitState`. | ordering | `state.rs` (`step_at`) | `state_aggregator_props.rs › effects_within_a_step…`, `› the_seam_events_reach…` (property) |
 | A2 | Window add/close relists before emit: `RefreshAfterWindowAdd` precedes `EmitState`. | ordering | `state.rs` (`step_at`) | `state_aggregator_props.rs › window_add_refresh_precedes_any_emit` (property); A1 |
 | A3 | Tag-only steps promote to `Window` change so untagged windows emit immediately. | liveness | `state.rs` (`step_at`) | — |
 | A4 | Captures route by marker, never arrival order or shape; dead-pane captures are discarded. | safety | `state.rs` (`queue_captures`) | `state.rs › capture_routing…`, `› capture_marker…`, `› capture_for_dead_pane…`, `› a_failed_capture…`; `state_aggregator_props.rs › queue_captures…` (property) |
