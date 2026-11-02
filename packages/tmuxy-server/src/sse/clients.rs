@@ -309,7 +309,10 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
 }
 
 /// Wait `grace`, and if `session` still has no attached SSE connections, shut
-/// down its monitor and remove its map entry.
+/// down its monitor and remove its map entry. A client that registers during
+/// the wait retires the guard (`SessionConnections::register`): the guard
+/// scheduled when that client leaves again is the one that counts, so a
+/// reload inside an older guard's grace is not cut short by it.
 pub(super) async fn schedule_idle_monitor_cleanup(
     state: &Arc<AppState>,
     session: &str,
@@ -318,6 +321,14 @@ pub(super) async fn schedule_idle_monitor_cleanup(
     let state_owned = state.clone();
     let session = session.to_string();
     let shutdown = state.shutdown.clone();
+    let generation = {
+        let mut sessions = state.sessions.write().await;
+        let Some(session_conns) = sessions.get_mut(&session) else {
+            return;
+        };
+        session_conns.idle_guard_gen += 1;
+        session_conns.idle_guard_gen
+    };
     state
         .spawn(async move {
             tokio::select! {
@@ -332,7 +343,10 @@ pub(super) async fn schedule_idle_monitor_cleanup(
             let (cmd_tx, monitor_handle) = {
                 let mut sessions = state.sessions.write().await;
                 if let Some(session_conns) = sessions.get_mut(&session) {
-                    if session_conns.connections.is_empty() {
+                    if session_conns.idle_guard_gen != generation {
+                        debug!(%session, "a client came and went during grace period, leaving it to the newer guard");
+                        (None, None)
+                    } else if session_conns.connections.is_empty() {
                         info!(%session, "no clients connected after grace period, stopping monitor");
                         let handle = session_conns.monitor_handle.take();
                         let tx = session_conns.monitor_command_tx.take();

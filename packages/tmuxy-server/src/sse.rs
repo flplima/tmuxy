@@ -192,7 +192,7 @@ pub async fn sse_handler(
             .entry(session.clone())
             .or_insert_with(SessionConnections::new);
 
-        session_conns.connections.push(conn_id);
+        session_conns.register(conn_id);
 
         // Subscribe to shared session state channel
         let session_rx = session_conns.broadcast.subscribe();
@@ -412,6 +412,9 @@ mod protocol_fixtures;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_errors;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests_lifecycle;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_sessions;

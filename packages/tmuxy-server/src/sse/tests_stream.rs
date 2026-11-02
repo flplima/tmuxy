@@ -1,4 +1,4 @@
-use super::tests_sessions::{initial_state_with_viewport, session_with_fake_monitor};
+use super::tests_sessions::{initial_state_with_viewport, resizes_seen, session_with_fake_monitor};
 use super::*;
 use tmuxy_core::client_size::SizePolicy;
 use tmuxy_core::control_mode::StateEmitter;
@@ -352,18 +352,6 @@ async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
         conns.monitor_command_tx.is_some(),
         "the monitor was torn down before the grace period elapsed"
     );
-}
-
-/// The resizes the fake monitor has seen once there are `n` of them: it reads
-/// the channel in its own task, so `send` returning does not mean it has.
-async fn resizes_seen(resizes: &tokio::sync::Mutex<Vec<(u32, u32)>>, n: usize) -> Vec<(u32, u32)> {
-    for _ in 0..200 {
-        if resizes.lock().await.len() >= n {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    resizes.lock().await.clone()
 }
 
 /// Two clients, a wide one and a narrow one, watching session `s`.

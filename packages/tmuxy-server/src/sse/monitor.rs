@@ -6,7 +6,7 @@ use tmuxy_core::transport::{self, Attempt, Ended, GaveUp, Host, Task};
 use tmuxy_core::{executor, TmuxError};
 use tracing::{debug, error, info, warn};
 
-use super::clients::{monitor_config, session_exists};
+use super::clients::{apply_session_size, monitor_config, session_exists};
 use super::emitter::{encode_event, SseEmitter, SseEvent};
 use crate::state::{AppState, SessionBroadcast};
 
@@ -46,12 +46,12 @@ pub async fn start_monitoring(
 
 /// What the web server does around the monitor loop: a session's monitor
 /// lives while clients watch it.
-struct ServerHost {
-    config: MonitorConfig,
-    broadcast: Arc<SessionBroadcast>,
-    session: String,
-    state: Arc<AppState>,
-    first_connect: bool,
+pub(super) struct ServerHost {
+    pub(super) config: MonitorConfig,
+    pub(super) broadcast: Arc<SessionBroadcast>,
+    pub(super) session: String,
+    pub(super) state: Arc<AppState>,
+    pub(super) first_connect: bool,
 }
 
 impl ServerHost {
@@ -60,11 +60,18 @@ impl ServerHost {
         sessions.remove(&self.session);
     }
 
-    async fn has_clients(&self) -> bool {
-        let sessions = self.state.sessions.read().await;
-        sessions
+    /// Forget the session if no client is watching it, under one lock, so a
+    /// client registering between the check and the removal is not left on
+    /// an orphaned broadcast with no monitor.
+    async fn stop_if_idle(&self) -> bool {
+        let mut sessions = self.state.sessions.write().await;
+        let watched = sessions
             .get(&self.session)
-            .is_some_and(|conns| !conns.connections.is_empty())
+            .is_some_and(|conns| !conns.connections.is_empty());
+        if !watched {
+            sessions.remove(&self.session);
+        }
+        !watched
     }
 
     /// Tell every client the monitor has given up, and forget the session so
@@ -90,9 +97,8 @@ impl Host for ServerHost {
             return Attempt::Stop;
         }
 
-        if !self.first_connect && !self.has_clients().await {
+        if !self.first_connect && self.stop_if_idle().await {
             info!(%session, "no clients, stopping monitor loop");
-            self.forget_session().await;
             return Attempt::Stop;
         }
 
@@ -218,16 +224,23 @@ impl Host for ServerHost {
     }
 
     async fn connected(&mut self, tx: MonitorCommandSender, keeper: Arc<SnapshotKeeper>) -> bool {
-        // Store command_tx so cleanup_connection can send Shutdown.
-        let mut sessions = self.state.sessions.write().await;
-        let Some(conns) = sessions.get_mut(&self.session) else {
-            // Session was cleaned up between connect and now.
-            warn!(session = %self.session, "session gone before storing command_tx, stopping");
-            return false;
-        };
-        debug!(session = %self.session, "storing command_tx");
-        conns.monitor_command_tx = Some(tx);
-        conns.snapshot_keeper = Some(keeper);
+        {
+            // Store command_tx so cleanup_connection can send Shutdown.
+            let mut sessions = self.state.sessions.write().await;
+            let Some(conns) = sessions.get_mut(&self.session) else {
+                // Session was cleaned up between connect and now.
+                warn!(session = %self.session, "session gone before storing command_tx, stopping");
+                return false;
+            };
+            debug!(session = %self.session, "storing command_tx");
+            conns.monitor_command_tx = Some(tx);
+            conns.snapshot_keeper = Some(keeper);
+        }
+        // The clients' size, queued behind the attach's own resize to the
+        // control-mode PTY size (commands run in the monitor's loop, after
+        // `sync_initial_state`). On a reconnect this is what brings a
+        // surviving session back from 200x50 to the viewport it was at.
+        apply_session_size(&self.state, &self.session).await;
         true
     }
 
@@ -235,6 +248,9 @@ impl Host for ServerHost {
         let mut sessions = self.state.sessions.write().await;
         if let Some(conns) = sessions.get_mut(&self.session) {
             conns.monitor_command_tx = None;
+            // The next attach resizes to the PTY size: whatever reached tmux
+            // on this connection is no longer what the session is.
+            conns.last_resize = None;
         }
         Ended::Judge
     }

@@ -293,3 +293,18 @@ async fn a_session_keeps_the_bindings_it_last_broadcast() {
         "C-space"
     );
 }
+
+/// The resizes the fake monitor has seen once there are `n` of them: it reads
+/// the channel in its own task, so `send` returning does not mean it has.
+pub(super) async fn resizes_seen(
+    resizes: &tokio::sync::Mutex<Vec<(u32, u32)>>,
+    n: usize,
+) -> Vec<(u32, u32)> {
+    for _ in 0..200 {
+        if resizes.lock().await.len() >= n {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    resizes.lock().await.clone()
+}
