@@ -199,6 +199,9 @@ pub struct StateAggregator {
     /// marker responses (see `Markers`), so a capture block is attributed to
     /// its pane exactly, never by arrival order or output-shape guessing.
     pending_captures: std::collections::VecDeque<PaneId>,
+    /// Panes asked for a capture while one was already in flight for them:
+    /// a fresh capture is issued when the in-flight one lands.
+    recapture: std::collections::HashSet<PaneId>,
     /// Whether a list-panes / list-windows response has been parsed since
     /// this aggregator was created — the first ones are the initial sync.
     panes_synced: bool,
@@ -297,6 +300,7 @@ impl StateAggregator {
             windows: HashMap::new(),
             active_window_id: None,
             pending_captures: std::collections::VecDeque::new(),
+            recapture: std::collections::HashSet::new(),
             panes_synced: false,
             windows_synced: false,
             capture_armed: None,

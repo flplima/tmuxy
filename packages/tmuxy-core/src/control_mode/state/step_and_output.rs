@@ -370,8 +370,7 @@ impl StateAggregator {
         // Prune in-flight captures for panes that no longer exist — their
         // marker-routed responses are discarded on arrival, and a dead entry
         // would freeze content preservation in to_state_update.
-        self.pending_captures
-            .retain(|id| self.panes.contains_key(id));
+        self.prune_capture_bookkeeping();
 
         resized_panes
     }

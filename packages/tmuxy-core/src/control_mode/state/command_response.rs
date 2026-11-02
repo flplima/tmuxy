@@ -175,15 +175,32 @@ impl StateAggregator {
     fn on_capture(&mut self, pane_id: PaneId, output: &str, success: bool) -> ProcessEventResult {
         // In-flight bookkeeping is done for this pane regardless of
         // the outcome — a wedged entry would freeze the pane's
-        // content preservation in to_state_update forever.
+        // content preservation in to_state_update forever, and a
+        // moved pane left in `panes_moved_window` would drop every
+        // `%output` it prints until some later capture happens to land.
         self.pending_captures.retain(|id| *id != pane_id);
+        self.panes_moved_window.remove(&pane_id);
+        // A capture asked for while this one was in flight (a second resize
+        // of a divider drag) was dropped as a duplicate, yet this reply
+        // shows the pane as it was when the capture was issued: ask again,
+        // now that the pane is free, if it is still here to capture. Not
+        // for a pane in copy mode: the copy-mode poll captures it on its
+        // next tick anyway, and a follow-up per tick that found a capture
+        // in flight would keep one on the wire at all times.
+        let asked_again = self.recapture.remove(&pane_id);
+        let panes_needing_refresh = match self.panes.get(&pane_id) {
+            Some(pane) if asked_again && !pane.in_mode => vec![pane_id.clone()],
+            _ => Vec::new(),
+        };
         if !success {
             warn!(?pane_id, "capture command failed");
-            return ProcessEventResult::default();
+            return ProcessEventResult {
+                panes_needing_refresh,
+                ..Default::default()
+            };
         }
         let Some(pane) = self.panes.get_mut(&pane_id) else {
             // Pane was killed after the capture was sent — discard.
-            self.panes_moved_window.remove(&pane_id);
             return ProcessEventResult::default();
         };
         if pane.in_mode {
@@ -209,11 +226,10 @@ impl StateAggregator {
             );
             pane.terminal.process(cursor_seq.as_bytes());
         }
-        // Capture arrived — clear window-move suppression
-        self.panes_moved_window.remove(&pane_id);
         ProcessEventResult {
             state_changed: true,
             change_type: ChangeType::PaneOutput { pane_id },
+            panes_needing_refresh,
             ..Default::default()
         }
     }
@@ -276,8 +292,7 @@ impl StateAggregator {
                 debug!(pane = %pane_id, "pane gone");
                 false
             });
-            self.pending_captures
-                .retain(|id| self.panes.contains_key(id));
+            self.prune_capture_bookkeeping();
         }
 
         // Try to parse as list-windows output

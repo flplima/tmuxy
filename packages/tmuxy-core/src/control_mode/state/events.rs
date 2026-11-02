@@ -63,8 +63,7 @@ impl StateAggregator {
                 if self.windows.contains_key(&window_id) {
                     self.windows.remove(&window_id);
                     self.panes.retain(|_, p| !p.in_window(&window_id));
-                    self.pending_captures
-                        .retain(|id| self.panes.contains_key(id));
+                    self.prune_capture_bookkeeping();
                     ProcessEventResult {
                         state_changed: !self.suppress_window_emissions,
                         change_type: ChangeType::Window,
@@ -95,8 +94,7 @@ impl StateAggregator {
                 self.border_enforced.remove(&window_id);
                 self.sidebar_border_cleared.remove(&window_id);
                 self.panes.retain(|_, p| !p.in_window(&window_id));
-                self.pending_captures
-                    .retain(|id| self.panes.contains_key(id));
+                self.prune_capture_bookkeeping();
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     change_type: ChangeType::Window,

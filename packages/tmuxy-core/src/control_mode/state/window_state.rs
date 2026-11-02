@@ -164,13 +164,27 @@ impl StateAggregator {
     pub fn queue_captures(&mut self, pane_ids: &[PaneId]) -> Vec<PaneId> {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
-            if !self.pending_captures.contains(pane_id) {
-                debug!(pane = %pane_id, "capture requested");
-                self.pending_captures.push_back(pane_id.clone());
-                queued.push(pane_id.clone());
+            if self.pending_captures.contains(pane_id) {
+                // The capture in flight shows the pane as it was when it was
+                // issued, not as the change behind this request leaves it:
+                // one more follows once it lands (see `on_capture`).
+                self.recapture.insert(pane_id.clone());
+                continue;
             }
+            debug!(pane = %pane_id, "capture requested");
+            self.pending_captures.push_back(pane_id.clone());
+            queued.push(pane_id.clone());
         }
         queued
+    }
+
+    /// Forget the in-flight and follow-up captures of panes that are gone:
+    /// their marker-routed responses are discarded on arrival, and a dead
+    /// entry would freeze content preservation in `to_state_update`.
+    pub(super) fn prune_capture_bookkeeping(&mut self) {
+        self.pending_captures
+            .retain(|id| self.panes.contains_key(id));
+        self.recapture.retain(|id| self.panes.contains_key(id));
     }
 
     /// Get the list of window IDs
