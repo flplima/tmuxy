@@ -33,7 +33,7 @@ import {
 /** Switching to `alpha`, and closing `bravo`, answered as tmux answered them. */
 const TRANSITIONS = [
   { match: /^select-window -t @0$/, to: 'alpha-active' },
-  { match: /^kill-window -t @1$/, to: 'bravo-killed' },
+  { match: /^kill-window -t @1\b/, to: 'bravo-killed' },
 ];
 
 const meta: Meta<typeof FixtureApp> = {
