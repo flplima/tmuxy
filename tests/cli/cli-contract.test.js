@@ -178,7 +178,10 @@ describe('the caller’s pane is the target', () => {
       ['tab', 'create', 'x'],
       "splitw -t %1 \\; breakp -t '#{session_id}:' -n 'x' -P -F '##{window_id}'",
     ],
-    [['tab', 'kill'], 'killw -t %1'],
+    [
+      ['tab', 'kill'],
+      `killw -t %1 \\; run-shell 'bash ${path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy')}/pane-group gc'`,
+    ],
     [['tab', 'next'], 'next-window -t %1'],
     [['tab', 'rename', 'y'], "rename-window -t %1 'y'"],
     [['tab', 'layout', 'tiled'], "select-layout -t %1 'tiled'"],

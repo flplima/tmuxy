@@ -299,6 +299,48 @@ fn a_restore_in_flight_holds_the_autosave_and_its_end_asks_for_one() {
     rx.mark_unchanged();
 }
 
+/// A visible group member is armed as `pane-group park` arms a parked one:
+/// its pane outlives its program and its death runs `pane-group close`, so a
+/// member exiting after a restore hands its slot on instead of taking the
+/// group, and its parked siblings, with it. The hook names the pane by the
+/// id asked of tmux, not by the `session:window.pane` target the plan has.
+#[test]
+fn a_visible_group_member_is_armed_once_tagged() {
+    let lines = joined(&plan(&fixture(), &RestoreOptions::default()));
+    let i_tag = lines
+        .iter()
+        .position(|l| l == "run: set-option -p -t work:0.0 @tmuxy-group-id g1")
+        .unwrap();
+    let i_ask = lines
+        .iter()
+        .position(|l| l == "ask: display-message -p -t work:0.0 #{pane_id}")
+        .expect("the member's id is asked for");
+    assert!(i_tag < i_ask, "{lines:#?}");
+    assert_eq!(
+        lines[i_ask + 1],
+        "run: set-option -p -t #MEMBER0_0# remain-on-exit on"
+    );
+    assert_eq!(
+        lines[i_ask + 2],
+        format!(
+            "run: set-hook -p -t #MEMBER0_0# pane-died run-shell \"bash {} close #MEMBER0_0#\"",
+            group_script()
+        )
+    );
+    // The answer lands in every place the hook names the pane.
+    let answers = BTreeMap::from([("MEMBER0_0".to_string(), "%7".to_string())]);
+    let Step::Run(hook) = &plan(&fixture(), &RestoreOptions::default())[i_ask + 2] else {
+        panic!("a run step");
+    };
+    let filled = fill(hook, &answers);
+    assert_eq!(filled[3], "%7");
+    assert!(filled[5].ends_with("close %7\""), "{filled:?}");
+    // A pane in no group is left as tmux made it.
+    assert!(!lines
+        .iter()
+        .any(|l| l.starts_with("run: set-option -p -t work:0.1 remain-on-exit")));
+}
+
 /// A hidden member is parked beside its group's visible member, after the
 /// group tag is on it, and gets its program offered like any pane.
 #[test]
@@ -330,7 +372,7 @@ fn a_hidden_group_member_is_parked_beside_its_visible_member() {
     // the answer and cleared.
     assert!(
         lines[i_park].contains(&format!(
-            "set-option -g @tmuxy-restore-answer \"$(bash {} park work:0.0 g1 {dir} 2>&1)\"; true",
+            "set-option -g @tmuxy-restore-answer-work \"$(bash {} park work:0.0 g1 {dir} 2>&1)\"; true",
             group_script()
         )),
         "{}",
@@ -338,11 +380,11 @@ fn a_hidden_group_member_is_parked_beside_its_visible_member() {
     );
     assert_eq!(
         lines[i_park + 1],
-        "ask: show-options -gv @tmuxy-restore-answer"
+        "ask: show-options -gv @tmuxy-restore-answer-work"
     );
     assert_eq!(
         lines[i_park + 2],
-        "run: set-option -gu @tmuxy-restore-answer"
+        "run: set-option -gu @tmuxy-restore-answer-work"
     );
     assert_eq!(
         lines[i_park + 3],

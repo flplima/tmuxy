@@ -38,6 +38,10 @@ source "$SCRIPTS_DIR/_lib"
 # `show-options` is cheap and this only runs while a question is on screen.
 POLL_INTERVAL=0.15
 
+# How long a sender with no --timeout waits its turn behind another sender's
+# question on the same pane before taking the question for abandoned.
+PENDING_LIMIT=60
+
 usage() {
   cat <<'EOF'
 Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
@@ -282,10 +286,14 @@ OWN_STATE=""
 
 # Clear the question and the caller's waiting mark on ANY exit: an interrupted
 # or killed sender must not leave a question on screen that nothing is
-# listening to any more.
+# listening to any more. Only this sender's own question comes down: one a
+# later sender asked over it (an abandoned question is taken over, below)
+# stays for that sender's poll to see answered.
 cleanup() {
-  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask" 2>/dev/null || true
-  _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer" 2>/dev/null || true
+  if [ "$(pane_option "$TARGET" @tmuxy-ask)" = "$ENCODED" ]; then
+    _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask" 2>/dev/null || true
+    _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer" 2>/dev/null || true
+  fi
   if [ -n "$OWN_PANE" ]; then
     if [ -n "$OWN_STATE" ]; then
       _run_safe "set-option -p -t $(shquote "$OWN_PANE") @tmuxy-pane-state $(shquote "$OWN_STATE")" 2>/dev/null || true
@@ -294,6 +302,25 @@ cleanup() {
     fi
   fi
 }
+
+deadline=""
+[ -n "$TIMEOUT" ] && deadline=$(($(date +%s) + TIMEOUT))
+
+# One question at a time: asking over another sender's would take its place,
+# so its poll never sees an answer and its cleanup takes down whichever
+# question is up. This sender waits its turn — until its own deadline when
+# it has one, else PENDING_LIMIT, after which a question nothing has cleared
+# is taken for a killed sender's and asked over.
+pending_until=$(($(date +%s) + PENDING_LIMIT))
+while [ -n "$(pane_option "$TARGET" @tmuxy-ask)" ]; do
+  now=$(date +%s)
+  if [ -n "$deadline" ] && [ "$now" -ge "$deadline" ]; then
+    _fail 2 "$TARGET is still asking another sender's question after ${TIMEOUT}s; nothing sent"
+  fi
+  [ "$now" -ge "$pending_until" ] && break
+  sleep "$POLL_INTERVAL" 2>/dev/null || sleep 1
+done
+
 trap cleanup EXIT INT TERM
 
 # Answer first, question second: a stale answer left by a previous question
@@ -310,9 +337,6 @@ fi
 echo "tmuxy: waiting for $TARGET to allow sending: ${KEYS[*]}" >&2
 
 # --- Wait ---
-
-deadline=""
-[ -n "$TIMEOUT" ] && deadline=$(($(date +%s) + TIMEOUT))
 
 answer=""
 while :; do

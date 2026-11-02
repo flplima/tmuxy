@@ -285,26 +285,23 @@ pub fn quote_script_path(path: &std::path::Path) -> String {
 /// `remain-on-exit on` keeps a dead placeholder to swap a sibling into, and
 /// the pane-scoped `pane-died` hook runs the same promotion the close button
 /// does. Both are per pane and travel with it across the stash swap.
-pub fn arm(pane: &PaneId, ctx: &Context) -> Vec<Invocation> {
-    let shell_cmd = format!("bash {} {pane}", ctx.close_command).replace('#', "##");
+///
+/// `pane` is the member's id, or a restore's `#KEY#` placeholder for one; the
+/// `#` doubling run-shell's format expansion asks for is therefore applied
+/// to the script path alone.
+pub fn arm(pane: &str, close_command: &str) -> Vec<Invocation> {
+    let shell_cmd = format!("bash {} {pane}", close_command.replace('#', "##"));
     let hook = format!("run-shell {}", crate::tmux_double_quoted(&shell_cmd));
     vec![
         Invocation::tolerant(cmd(&[
             "set-option",
             "-p",
             "-t",
-            pane.as_str(),
+            pane,
             "remain-on-exit",
             "on",
         ])),
-        Invocation::tolerant(cmd(&[
-            "set-hook",
-            "-p",
-            "-t",
-            pane.as_str(),
-            "pane-died",
-            &hook,
-        ])),
+        Invocation::tolerant(cmd(&["set-hook", "-p", "-t", pane, "pane-died", &hook])),
     ]
 }
 
@@ -402,7 +399,7 @@ fn park(pane: &PaneId, group: &GroupId, size: (u32, u32), ctx: &Context) -> Vec<
             group.as_str(),
         ]),
     ])];
-    out.extend(arm(pane, ctx));
+    out.extend(arm(pane.as_str(), &ctx.close_command));
     out.push(Invocation::strict(vec![resize_window(pane.as_str(), size)]));
     out
 }

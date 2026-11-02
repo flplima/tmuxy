@@ -271,6 +271,56 @@ describe('tmuxy pane send', () => {
     });
   });
 
+  /**
+   * Two senders, one pane: the second must not ask over the first's question,
+   * or the first never sees its answer and, on its way out, takes down
+   * whichever question is up — the second's.
+   */
+  describe('one question at a time', () => {
+    const asked = (commands) => commands.findIndex((cmd) => /@tmuxy-ask '/.test(cmd));
+    const reads = (tmuxCalls) =>
+      tmuxCalls.filter((call) => call.args.join(' ').endsWith('-t %3 @tmuxy-ask'));
+
+    test('waits for the question already on the pane to be cleared before asking', () => {
+      const { exitCode, tmuxCalls } = send(['-t', '%3', 'ls', 'Enter'], {
+        MOCK_TMUX_ANSWER: 'yes',
+        MOCK_TMUX_PENDING_ASK: '3',
+      });
+      expect(exitCode).toBe(0);
+      const commands = runShellCommands(tmuxCalls);
+      expect(asked(commands)).toBeGreaterThan(-1);
+      // Three reads saw the other question before this one was asked.
+      const askedAt = tmuxCalls.findIndex((call) => /@tmuxy-ask '/.test(call.args.join(' ')));
+      expect(reads(tmuxCalls.slice(0, askedAt)).length).toBeGreaterThanOrEqual(3);
+      expect(commands.some((cmd) => cmd.includes("send-keys -t '%3'"))).toBe(true);
+    });
+
+    test('with a timeout, gives up on a pane still busy and leaves its question alone', () => {
+      const { exitCode, stderr, tmuxCalls } = send(['-t', '%3', '--timeout', '1', 'ls'], {
+        MOCK_TMUX_ANSWER: 'yes',
+        MOCK_TMUX_PENDING_ASK: '100000',
+      });
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain('nothing sent');
+      const commands = runShellCommands(tmuxCalls);
+      expect(asked(commands)).toBe(-1);
+      expect(commands.some((cmd) => /set-option -pu -t '%3' @tmuxy-ask$/.test(cmd))).toBe(false);
+      expect(commands.some((cmd) => cmd.includes('send-keys'))).toBe(false);
+    });
+
+    test('on its way out takes down only its own question', () => {
+      const { exitCode, tmuxCalls } = send(['-t', '%3', 'ls', 'Enter'], {
+        MOCK_TMUX_ANSWER: 'yes',
+        MOCK_TMUX_ASK_REPLACED: 'b3RoZXI=',
+      });
+      expect(exitCode).toBe(0);
+      const commands = runShellCommands(tmuxCalls);
+      expect(asked(commands)).toBeGreaterThan(-1);
+      expect(commands.some((cmd) => cmd.includes("send-keys -t '%3'"))).toBe(true);
+      expect(commands.some((cmd) => /set-option -pu -t '%3' @tmuxy-ask$/.test(cmd))).toBe(false);
+    });
+  });
+
   test('--help explains itself without touching tmux', () => {
     const { stdout, exitCode, tmuxCalls } = send(['--help']);
     expect(exitCode).toBe(0);

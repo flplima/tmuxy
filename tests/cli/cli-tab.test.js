@@ -1,3 +1,4 @@
+const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const {
   LIST_WINDOWS_OUTPUT,
@@ -5,6 +6,8 @@ const {
   LIST_WINDOWS_WITH_HIDDEN_OUTPUT,
   LIST_WINDOWS_HOSTILE_OUTPUT,
 } = require('./helpers/fixtures');
+
+const SCRIPTS_DIR = path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy');
 
 describe('CLI tab subcommands', () => {
   describe('tab list', () => {
@@ -83,17 +86,22 @@ describe('CLI tab subcommands', () => {
     });
   });
 
+  // A kill sweeps the stash in the same command list: the killed tab's
+  // parked group members get no `pane-died`, and a `tab kill` of the
+  // caller's own tab ends the CLI with it, so a second command never runs.
   describe('tab kill', () => {
+    const GC = `run-shell 'bash ${SCRIPTS_DIR}/pane-group gc'`;
+
     test('kills current tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', 'tmux -L tmuxy killw']);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L tmuxy killw \\; ${GC}`]);
     });
 
     test('kills specific tab', () => {
       const { exitCode, tmuxCalls } = runCLI(['tab', 'kill', '@2']);
       expect(exitCode).toBe(0);
-      expect(tmuxCalls[0].args).toEqual(['run-shell', "tmux -L tmuxy killw -t '@2'"]);
+      expect(tmuxCalls[0].args).toEqual(['run-shell', `tmux -L tmuxy killw -t '@2' \\; ${GC}`]);
     });
   });
 

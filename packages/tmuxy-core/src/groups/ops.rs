@@ -42,7 +42,7 @@ pub fn add(panes: &Panes, anchor: &PaneId, ctx: &Context) -> Result<SplitPlan, G
                 tmux_options::GROUP_ID,
                 group.as_str(),
             ])]));
-            before.extend(arm(anchor, ctx));
+            before.extend(arm(anchor.as_str(), &ctx.close_command));
             group
         }
     };
@@ -87,7 +87,7 @@ pub fn park_split(
         .row(anchor)
         .ok_or_else(|| GroupError::NoSuchPane(anchor.clone()))?;
     let mut before: Vec<Invocation> = ensure_stash(panes).into_iter().collect();
-    before.extend(arm(anchor, ctx));
+    before.extend(arm(anchor.as_str(), &ctx.close_command));
     Ok(SplitPlan {
         before,
         split: split(anchor, Some(cwd)),
@@ -300,7 +300,7 @@ pub fn join(
                 tmux_options::GROUP_ID,
                 group.as_str(),
             ])]));
-            out.extend(arm(anchor, ctx));
+            out.extend(arm(anchor.as_str(), &ctx.close_command));
             (group, vec![anchor.clone()], anchor_row)
         }
     };

@@ -120,7 +120,7 @@ fn gc_sweeps_only_groups_with_nothing_on_screen() {
 #[test]
 fn arming_holds_the_pane_open_and_hooks_its_death_to_close() {
     assert_eq!(
-        lines(&arm(&pid("%4"), &ctx())),
+        lines(&arm("%4", &ctx().close_command)),
         [
             "set-option -p -t %4 remain-on-exit on",
             "set-hook -p -t %4 pane-died run-shell \"bash /s/pane-group close %4\"",
@@ -140,7 +140,7 @@ fn arming_holds_the_pane_open_and_hooks_its_death_to_close() {
         rev_token: "T".into(),
     };
     assert_eq!(
-        lines(&arm(&pid("%4"), &special_ctx))[1],
+        lines(&arm("%4", &special_ctx.close_command))[1],
         "set-hook -p -t %4 pane-died run-shell \"bash '/Users/o'\\\\''malley/a ##1 \\$dir/pane-group' close %4\"",
     );
 }

@@ -11,8 +11,6 @@ import { describe, it, expect } from 'vitest';
 const pasteInto = (to: string) =>
   `if-shell -F -t ${to} '#{pane_synchronized}' 'run-shell "$TMUXY_DATA_DIR/bin/tmuxy/paste-synced ${to} tmuxy-paste"' 'paste-buffer -p -d -b tmuxy-paste -t ${to}'`;
 import {
-  isLayoutChange,
-  isMultiStep,
   pinPrefix,
   quote,
   renameSessionPrompt,
@@ -20,6 +18,7 @@ import {
   TmuxOp,
   toTmuxCommand,
 } from '../commands';
+import { isLayoutChange, isMultiStep } from '../opTraits';
 import { parseCommandToOp } from '../store/parseCommand';
 import { pid, wid } from '../../test/wire';
 
@@ -110,8 +109,13 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.SelectWindow({ target: 'next' }), 'next-window'],
   [TmuxOp.SelectWindow({ target: 'previous' }), 'previous-window'],
   [TmuxOp.LastWindow(), 'last-window'],
-  [TmuxOp.KillWindow({ windowId: null }), 'kill-window'],
-  [TmuxOp.KillWindow({ windowId: wid('@2') }), 'kill-window -t @2'],
+  // A tab close sweeps the stash: a killed window's parked group members
+  // get no `pane-died`, so nothing else would.
+  [TmuxOp.KillWindow({ windowId: null }), `kill-window \\; run-shell "${S}/pane-group gc"`],
+  [
+    TmuxOp.KillWindow({ windowId: wid('@2') }),
+    `kill-window -t @2 \\; run-shell "${S}/pane-group gc"`,
+  ],
   [TmuxOp.RenameWindow({ target: null, name: 'logs' }), "rename-window -- 'logs'"],
   [TmuxOp.RenameWindow({ target: wid('@2'), name: "a'b" }), "rename-window -t @2 -- 'a'\\''b'"],
   [
@@ -423,8 +427,6 @@ describe('binding strings round-trip through their op', () => {
     'last-window',
     'select-window -t @2',
     'select-window -t 3',
-    'kill-window',
-    'kill-window -t @2',
     "rename-window -- 'logs'",
     "rename-window -t @2 -- 'logs'",
     'select-layout tiled',

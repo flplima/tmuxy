@@ -95,7 +95,7 @@ export const TabContextMenuOps: Story = {
   args: {
     transitions: [
       { match: /^new-window$/, to: 'two-tabs' },
-      { match: /^kill-window -t @1$/, to: 'closed' },
+      { match: /^kill-window -t @1\b/, to: 'closed' },
     ],
   },
   play: async ({ canvasElement }) => {
@@ -142,7 +142,7 @@ export const TabKillOptimistic: Story = {
   args: {
     start: 'two-tabs',
     commandDelayMs: KILL_ANSWER_MS,
-    transitions: [{ match: /^kill-window -t @1$/, to: 'closed' }],
+    transitions: [{ match: /^kill-window -t @1\b/, to: 'closed' }],
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

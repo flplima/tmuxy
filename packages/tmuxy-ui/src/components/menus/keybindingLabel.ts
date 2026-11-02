@@ -65,14 +65,18 @@ export function boundAction(command: string): string {
 /**
  * Look up a keybinding label for a tmux command.
  * Returns formatted string like "ctrl+b %" or undefined if no binding found.
+ * `normalize` puts a bound action into the spelling `command` is in.
  */
 export function getKeybindingLabel(
   keybindings: KeyBindings | null,
   command: string,
+  normalize: (action: string) => string = (action) => action,
 ): string | undefined {
   if (!keybindings) return undefined;
 
-  const binding = keybindings.prefix_bindings.find((b) => boundAction(b.command) === command);
+  const binding = keybindings.prefix_bindings.find(
+    (b) => normalize(boundAction(b.command)) === command,
+  );
   if (!binding) return undefined;
 
   const prefix = formatPrefixKey(keybindings.prefix_key);

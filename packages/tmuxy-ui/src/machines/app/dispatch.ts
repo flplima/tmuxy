@@ -14,7 +14,8 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from './actionTypes';
-import { isLayoutChange, isMultiStep, TmuxOp, type TmuxOpOf } from '../../domain/commands';
+import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
+import { isLayoutChange, isMultiStep } from '../../domain/opTraits';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';

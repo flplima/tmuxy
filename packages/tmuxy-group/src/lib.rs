@@ -37,6 +37,9 @@ pub enum GroupVerb {
     },
     /// Close PANE; a member on screen hands its place to the next first.
     Close { pane: String },
+    /// Kill the stash windows of groups left with no member on screen (the
+    /// parked members of a tab that was killed outright).
+    Gc,
     /// Show PANE in its group's slot.
     Switch { pane: String },
     /// Show the member after the one on screen (wrapping). With `--no-wrap`,
@@ -84,6 +87,7 @@ impl GroupVerb {
             Self::Add { .. } => "add",
             Self::Park { .. } => "park",
             Self::Close { .. } => "close",
+            Self::Gc => "gc",
             Self::Switch { .. } => "switch",
             Self::Next { .. } => "next",
             Self::Prev { .. } => "prev",
@@ -168,6 +172,10 @@ fn execute(verb: GroupVerb) -> Result<Option<String>, Outcome> {
         }
         GroupVerb::Close { pane } => {
             run_all(&groups::close(&read()?, &PaneId::parse(&pane)?)?)?;
+            Ok(None)
+        }
+        GroupVerb::Gc => {
+            run_all(&groups::gc(&read()?))?;
             Ok(None)
         }
         GroupVerb::Switch { pane } => {
@@ -382,6 +390,8 @@ mod tests {
             "leave"
         );
         assert_eq!(parse(&["next", "%1", "--no-wrap"]).unwrap(), "next");
+        assert_eq!(parse(&["gc"]).unwrap(), "gc");
+        assert!(parse(&["gc", "%1"]).is_err());
         assert!(parse(&["switch"]).is_err());
     }
 }

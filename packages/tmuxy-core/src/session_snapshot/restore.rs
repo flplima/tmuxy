@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-use std::future::Future;
 use std::path::Path;
 
 use crate::error::TmuxError;
@@ -7,7 +5,9 @@ use crate::error::TmuxError;
 use super::*;
 
 mod offer;
+mod run;
 pub use offer::*;
+pub use run::*;
 
 // =============================================================================
 // Restore
@@ -22,8 +22,21 @@ pub(super) fn group_script() -> String {
         .into_owned()
 }
 
-/// The server option a restore's shell step leaves its answer in.
-const RESTORE_ANSWER: &str = "@tmuxy-restore-answer";
+/// The `pane-group close` command a restored member's `pane-died` hook runs
+/// (`groups::arm`): the same script `park` is asked of.
+fn group_close_command() -> String {
+    format!(
+        "{} close",
+        crate::groups::quote_script_path(Path::new(&group_script()))
+    )
+}
+
+/// The server option a restore's shell step leaves its answer in. Named for
+/// the session being restored: two restores on one server at the same time
+/// would otherwise read each other's answers.
+fn answer_option(session: &str) -> String {
+    format!("@tmuxy-restore-answer-{session}")
+}
 
 /// Run `shell` through `run-shell` and keep what it printed as `key`.
 ///
@@ -36,18 +49,19 @@ const RESTORE_ANSWER: &str = "@tmuxy-restore-answer";
 /// 1" is view-mode output too); a failure surfaces as an answer the next
 /// steps cannot use as a target. A `run-shell` a client sends is relayed the
 /// same way (`control_mode/monitor/run_shell.rs`).
-fn ask_run_shell(key: &str, shell: &str) -> Vec<Step> {
+fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
+    let option = answer_option(session);
     let relay = format!(
-        "{} set-option -g {RESTORE_ANSWER} \"$({shell} 2>&1)\"; true",
+        "{} set-option -g {option} \"$({shell} 2>&1)\"; true",
         tmux_shell_command()
     );
     vec![
         Step::Run(argv(&["run-shell", &run_shell_literal(&relay)])),
         Step::Ask {
             key: key.to_string(),
-            argv: argv(&["show-options", "-gv", RESTORE_ANSWER]),
+            argv: argv(&["show-options", "-gv", &option]),
         },
-        Step::Run(argv(&["set-option", "-gu", RESTORE_ANSWER])),
+        Step::Run(argv(&["set-option", "-gu", &option])),
     ]
 }
 
@@ -109,66 +123,6 @@ pub enum Step {
     /// Run this and keep the trimmed output under `key`, for later steps to
     /// name as `#<key>#`.
     Ask { key: String, argv: TmuxArgv },
-}
-
-/// Fill `#<key>#` placeholders from the answers so far.
-pub fn fill(argv: &[String], answers: &BTreeMap<String, String>) -> TmuxArgv {
-    argv.iter()
-        .map(|a| {
-            let mut out = a.clone();
-            for (key, value) in answers {
-                out = out.replace(&format!("#{key}#"), value);
-            }
-            out
-        })
-        .collect()
-}
-
-/// Run every step of `steps` through `run`, threading answers into the steps
-/// after them.
-///
-/// `run` is the only thing that touches tmux — a monitor's reply channel
-/// (`via_monitor`), a subprocess from the CLI, or a fake in a test — which is
-/// what lets a plan be tested by reading it back and the executor be tested
-/// without tmux. It takes one tmux command as argv (without `tmux`) and
-/// returns what the command printed.
-pub async fn run_steps<F, Fut>(steps: &[Step], mut run: F) -> Result<(), TmuxError>
-where
-    F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, TmuxError>>,
-{
-    let mut answers = BTreeMap::new();
-    for step in steps {
-        match step {
-            Step::Run(argv) => {
-                run(fill(argv, &answers)).await?;
-            }
-            Step::Ask { key, argv } => {
-                let answer = run(fill(argv, &answers)).await?.trim().to_string();
-                answers.insert(key.clone(), answer);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Plan and run a restore through `run` (see `run_steps`).
-pub async fn apply<F, Fut>(
-    snapshot: &Snapshot,
-    options: &RestoreOptions,
-    run: F,
-) -> Result<(), TmuxError>
-where
-    F: FnMut(Vec<String>) -> Fut,
-    Fut: Future<Output = Result<String, TmuxError>>,
-{
-    if crate::session::SessionName::parse(&snapshot.session).is_none() {
-        return Err(TmuxError::other(format!(
-            "not a usable session name: {:?}",
-            snapshot.session
-        )));
-    }
-    run_steps(&plan(snapshot, options), run).await
 }
 
 fn target(session: &str, window_index: u32) -> String {
@@ -362,6 +316,7 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
             ])));
         }
         for p in &w.panes {
+            let pane = pane_target(s, w.index, p.index);
             for (name, value) in p
                 .options
                 .iter()
@@ -371,10 +326,27 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
                     "set-option",
                     "-p",
                     "-t",
-                    &pane_target(s, w.index, p.index),
+                    &pane,
                     name,
                     value,
                 ])));
+            }
+            // A visible member is armed like a parked one (`park` arms those):
+            // without it the member whose program exits is removed by tmux
+            // outright, its group with it, and the parked siblings are
+            // orphaned. The hook names the pane by id, which is asked for.
+            if p.options.contains_key(tmux_options::GROUP_ID) {
+                let key = format!("MEMBER{}_{}", w.index, p.index);
+                steps.push(Step::Ask {
+                    key: key.clone(),
+                    argv: argv(&["display-message", "-p", "-t", &pane, "#{pane_id}"]),
+                });
+                steps.extend(
+                    crate::groups::arm(&format!("#{key}#"), &group_close_command())
+                        .iter()
+                        .flat_map(|inv| inv.commands.iter().cloned())
+                        .map(Step::Run),
+                );
             }
         }
     }
@@ -413,7 +385,7 @@ fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mu
                 .map(|pos| format!(" {pos}"))
                 .unwrap_or_default(),
         );
-        steps.extend(ask_run_shell(&key, &park));
+        steps.extend(ask_run_shell(s, &key, &park));
         let pane = format!("#{key}#");
         if let Some(word) = &member.restore_command {
             steps.push(Step::Run(argv(&[

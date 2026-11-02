@@ -109,7 +109,10 @@ cmd_tab() {
         --help|-h) echo "Usage: tmuxy tab kill [target]"; return ;;
       esac
       _tab_t "${1:-}"
-      _run_safe "killw$TAB_T"
+      # The killed tab's parked group members are left in the stash, so the
+      # sweep goes in the same command list: a `tab kill` of the caller's own
+      # tab ends this shell with it, and a second command would never run.
+      _run_safe "killw$TAB_T \\; run-shell $(shquote "bash $SCRIPTS_DIR/pane-group gc")"
       _done "tabId=$(json_string "$TAB_ID")"
       ;;
 

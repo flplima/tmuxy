@@ -351,7 +351,13 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'LastWindow':
       return 'last-window';
     case 'KillWindow':
-      return op.windowId ? `kill-window -t ${op.windowId}` : 'kill-window';
+      // A killed window takes its group members with it but not the parked
+      // ones in the stash (`pane-died` does not fire for a kill), so the
+      // sweep every group operation ends with runs here too.
+      return list([
+        op.windowId ? `kill-window -t ${op.windowId}` : 'kill-window',
+        script('pane-group', 'gc'),
+      ]);
     case 'RenameWindow':
       return op.target
         ? `rename-window -t ${op.target} -- ${quote(op.name)}`
@@ -445,35 +451,3 @@ export const renameSessionPrompt = (): TmuxOp =>
     initial: '#S',
     template: `rename-session -- ${PROMPT_RESPONSE}`,
   });
-
-/**
- * Ops that run a multi-step server script or create a window, whose
- * intermediate geometry must not animate. A raw string is classified by the
- * scripts it names.
- */
-export function isMultiStep(op: TmuxOp): boolean {
-  switch (op._tag) {
-    case 'NewWindow':
-    case 'GroupAdd':
-    case 'GroupClose':
-    case 'GroupSwitch':
-    case 'GroupStep':
-      return true;
-    case 'RawCommand':
-      return (
-        /^run-shell\b/.test(op.command) &&
-        /pane-group'? (add|close|switch|next|prev)|float-create/.test(op.command)
-      );
-    default:
-      return false;
-  }
-}
-
-/** Ops that re-tile the window (a preset layout), for transient-focus suppression. */
-export function isLayoutChange(op: TmuxOp): boolean {
-  if (op._tag === 'SelectLayout') return true;
-  return (
-    op._tag === 'RawCommand' &&
-    /^(next-layout|previous-layout|select-layout|selectl)\b/.test(op.command)
-  );
-}

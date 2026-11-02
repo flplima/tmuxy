@@ -2,6 +2,7 @@
 # pane-group <verb> <args...>: a pane-group operation. Rules: tmuxy_core::groups, run by the server binary's `group` verb (packages/tmuxy-group has the arguments).
 #   add <%id> <w> <h>       a new pane in %id's group (a new group when it has none), shown in its place
 #   close <%id>             close the pane; a member on screen hands its place to the next member first
+#   gc                      kill the stash windows of groups left with no member on screen (after a tab is killed)
 #   join <%id> <%m> [i]     make %id a member of %m's group, out of view
 #   leave <%id> <--tab | --beside <target> <side>>  take %id out of its group, to a tab of its own or beside another pane
 #   move <%id> <i>          put %id at index i in its group's order
