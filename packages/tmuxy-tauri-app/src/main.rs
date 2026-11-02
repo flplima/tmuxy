@@ -21,7 +21,8 @@ fn main() {
 
     // Every server verb this binary runs is `tmuxy server <verb>`; the
     // monitor publishes that to tmux for the helper scripts.
-    if let Ok(exe) = std::env::current_exe() {
+    if let Some(exe) = tmuxy_core::session::invoked_exe() {
+        tmuxy_core::session::refresh_launcher_if_installed(&exe);
         tmuxy_core::session::set_server_command(exe, Some("server"));
     }
 

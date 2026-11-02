@@ -310,22 +310,35 @@ impl ControlModeConnection {
         let program = &tmux_args[0];
         let mut cmd = pty_process::Command::new(program);
         cmd = cmd.args(&tmux_args[1..]);
-        // The GTK AppImage plugin exports Python paths for its bundled
-        // helpers. Carrying those into tmux makes user Python tools such as
-        // Kitty's `kitten` load the bundled interpreter paths instead of
-        // their own, which can fail before an image is sent.
-        // Its library path too: every pane would load the bundle's older
-        // libraries before the system's (see appimage_env).
+        // Keep the AppImage's bundled paths, variables, working directory and
+        // mount descriptor out of the tmux server (see appimage_env).
         #[cfg(target_os = "linux")]
         if std::env::var_os("APPIMAGE").is_some() {
-            cmd = cmd.env_remove("PYTHONHOME").env_remove("PYTHONPATH");
-            if let (Some(appdir), Ok(libs)) =
-                (std::env::var_os("APPDIR"), std::env::var("LD_LIBRARY_PATH"))
-            {
-                cmd = match super::appimage_env::without_appdir(&libs, appdir.as_ref()) {
-                    Some(kept) => cmd.env("LD_LIBRARY_PATH", kept),
-                    None => cmd.env_remove("LD_LIBRARY_PATH"),
-                };
+            for var in super::appimage_env::VARS_TO_REMOVE {
+                cmd = cmd.env_remove(var);
+            }
+            if let Some(appdir) = std::env::var_os("APPDIR") {
+                let appdir = std::path::Path::new(&appdir);
+                super::appimage_env::close_appdir_fds_on_exec(appdir);
+                for var in super::appimage_env::PATH_LIST_VARS {
+                    if let Ok(val) = std::env::var(var) {
+                        cmd = match super::appimage_env::clean_path_list(var, &val, appdir) {
+                            Some(kept) => cmd.env(var, kept),
+                            None => cmd.env_remove(var),
+                        };
+                    }
+                }
+                if working_dir.is_none() {
+                    let owd = std::env::var_os("OWD").map(std::path::PathBuf::from);
+                    let home = dirs::home_dir();
+                    if let Some(dir) = super::appimage_env::working_dir_outside_appdir(
+                        appdir,
+                        owd.as_deref(),
+                        home.as_deref(),
+                    ) {
+                        cmd = cmd.current_dir(dir);
+                    }
+                }
             }
         }
         if std::env::var_os("TERM").is_none() {

@@ -179,12 +179,12 @@ pub fn run() {
             // Refresh ~/.local/bin/tmuxy → this binary, async so a slow
             // disk doesn't delay the splash window. Best-effort: failures
             // are logged but don't block startup.
-            if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe) = tmuxy_core::session::invoked_exe() {
                 tauri::async_runtime::spawn(async move {
                     tmuxy_core::session::refresh_launcher(&exe);
                 });
             } else {
-                tracing::warn!("current_exe() failed; tmuxy CLI shorthand not refreshed");
+                tracing::warn!("invoked_exe() failed; tmuxy CLI shorthand not refreshed");
             }
 
             // Verify tmux is available — the monitor will create the session

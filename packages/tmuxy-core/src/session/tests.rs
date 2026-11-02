@@ -44,6 +44,106 @@ fn the_server_command_is_published_quoted_with_its_subcommand() {
 }
 
 #[test]
+fn invoked_exe_prefers_appimage_and_maps_cellar_to_opt() {
+    let prefix = std::env::temp_dir().join(format!("tmuxy-invoked-exe-{}", std::process::id()));
+    std::fs::create_dir_all(prefix.join("opt/tmuxy/bin")).unwrap();
+    let opt_bin = prefix.join("opt/tmuxy/bin/tmuxy");
+    std::fs::write(&opt_bin, "").unwrap();
+
+    let cellar_bin = prefix.join("Cellar/tmuxy/0.1.4/bin/tmuxy");
+    let mount_bin = Path::new("/tmp/.mount_tmuxyBgDPhF/usr/bin/tmuxy");
+
+    // Inside an AppImage installed via Homebrew, $APPIMAGE is in Cellar/ and
+    // current_exe() is inside the ephemeral FUSE mount: the resolved path is
+    // the stable opt/ symlink, never the mount or the versioned Cellar dir.
+    assert_eq!(
+        resolve_invoked_exe(Some(&cellar_bin), Some(mount_bin)),
+        Some(opt_bin)
+    );
+
+    // Standalone AppImage outside Homebrew: $APPIMAGE wins over the FUSE mount.
+    let standalone = Path::new("/home/me/Applications/tmuxy.AppImage");
+    assert_eq!(
+        resolve_invoked_exe(Some(standalone), Some(mount_bin)),
+        Some(standalone.to_path_buf())
+    );
+
+    // Non-AppImage build: current_exe() is used when $APPIMAGE is unset/empty.
+    assert_eq!(
+        resolve_invoked_exe(Some(Path::new("")), Some(standalone)),
+        Some(standalone.to_path_buf())
+    );
+    assert_eq!(
+        resolve_invoked_exe(None, Some(standalone)),
+        Some(standalone.to_path_buf())
+    );
+
+    let _ = std::fs::remove_dir_all(&prefix);
+}
+
+#[test]
+fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one() {
+    let root = std::env::temp_dir().join(format!("tmuxy-launcher-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let layout = config::Layout {
+        config: home.join(".config/tmuxy"),
+        data: root.join("data"),
+        state: root.join("state"),
+        home,
+    };
+    let wrapper = layout.home.join(".local/bin/tmuxy");
+    let launcher = layout.state.join("launcher");
+    let installed_exe = root.join("opt-tmuxy");
+    let debug_exe = root.join("target-debug-tmuxy");
+    std::fs::write(&installed_exe, "").unwrap();
+    std::fs::write(&debug_exe, "").unwrap();
+
+    // On a host that never ran the GUI, no wrapper exists and none is created.
+    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    assert!(!wrapper.exists());
+    assert!(!launcher.exists());
+
+    // Once installed (or left behind by an older build pointing at ~/.config/tmuxy/launcher),
+    // refresh_launcher_if_installed updates both the wrapper and the state dir's launcher.
+    std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    std::fs::write(
+        &wrapper,
+        "#!/bin/sh\nLAUNCHER_FILE=$HOME/.config/tmuxy/launcher\n",
+    )
+    .unwrap();
+
+    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    assert_eq!(
+        std::fs::read_to_string(&launcher).unwrap(),
+        format!("{}\n", installed_exe.display())
+    );
+    assert!(std::fs::read_to_string(&wrapper)
+        .unwrap()
+        .contains("LAUNCHER_FILE=\"$STATE_DIR/launcher\""));
+
+    // When both the wrapper and the recorded target are healthy, running
+    // another binary (such as `target/debug/tmuxy` in a test) leaves the
+    // installed launcher alone; only a missing target or a full GUI launch
+    // (`refresh_launcher_in`) replaces it.
+    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    assert_eq!(
+        std::fs::read_to_string(&launcher).unwrap(),
+        format!("{}\n", installed_exe.display())
+    );
+
+    std::fs::remove_file(&installed_exe).unwrap();
+    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    assert_eq!(
+        std::fs::read_to_string(&launcher).unwrap(),
+        format!("{}\n", debug_exe.display())
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn an_ssh_tail_is_split_into_arguments_and_a_blank_one_means_local() {
     assert_eq!(
         ssh_argv(Some(" -p 2222  user@host ")),

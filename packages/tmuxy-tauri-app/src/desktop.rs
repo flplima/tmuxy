@@ -15,6 +15,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use tmuxy_core::session::cellar_to_opt;
+
 /// Stamped into the entry so an upgrade rewrites it (and refreshes the icons)
 /// even when every other key is unchanged.
 const STAMP_KEY: &str = "X-Tmuxy-Version";
@@ -84,20 +86,6 @@ fn data_home() -> Option<PathBuf> {
 fn exec_path() -> Option<String> {
     let appimage = std::env::var("APPIMAGE").ok()?;
     Some(cellar_to_opt(&appimage).unwrap_or(appimage))
-}
-
-/// `<prefix>/Cellar/<formula>/<version>/<rest>` → `<prefix>/opt/<formula>/<rest>`,
-/// and `None` for any path that is not inside a Cellar or whose `opt` twin
-/// does not exist.
-fn cellar_to_opt(appimage: &str) -> Option<String> {
-    let (prefix, tail) = appimage.split_once("/Cellar/")?;
-    let mut parts = tail.splitn(3, '/');
-    let formula = parts.next()?;
-    parts.next()?; // version
-    let rest = parts.next()?;
-
-    let opt = format!("{prefix}/opt/{formula}/{rest}");
-    Path::new(&opt).exists().then_some(opt)
 }
 
 /// Rebuild the bundled entry with our keys overridden and the rest kept.

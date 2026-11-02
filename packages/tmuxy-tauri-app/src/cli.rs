@@ -81,7 +81,7 @@ pub fn run_cli(args: Vec<String>) {
     };
 
     if std::env::var_os(tmuxy_core::session::SERVER_BIN_ENV).is_none() {
-        if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe) = tmuxy_core::session::invoked_exe() {
             std::env::set_var(tmuxy_core::session::SERVER_BIN_ENV, exe);
             std::env::set_var(tmuxy_core::session::SERVER_SUBCOMMAND_ENV, "server");
         }

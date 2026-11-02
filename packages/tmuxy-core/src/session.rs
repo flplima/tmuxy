@@ -5,11 +5,13 @@ use crate::error::TmuxError;
 
 mod assets;
 mod config;
+mod launcher;
 mod migrate;
 mod state;
 
 pub use assets::*;
 pub use config::*;
+pub use launcher::*;
 pub use state::*;
 
 type Result<T> = std::result::Result<T, TmuxError>;
