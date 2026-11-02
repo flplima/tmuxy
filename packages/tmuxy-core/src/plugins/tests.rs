@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::lockfile::{Entry, Lockfile};
 use super::manifest::{self, Dim, Menu, Size, Surface};
-use super::registry::{resolve_command, Kind, Registry};
+use super::registry::{self, resolve_command, Kind, Registry};
 use super::source::{self, InstallSource};
 use super::*;
 
@@ -290,7 +290,10 @@ fn a_linked_plugin_and_the_users_own_load() {
     lock.save(&dirs).unwrap();
     std::fs::write(
         dirs.user_manifest(),
-        "[plugin]\napi = 1\nname = \"user\"\nversion = \"0\"\n[[actions]]\nid = \"a\"\ntitle = \"A\"\ncommand = [\"x\"]\n",
+        "[plugin]\napi = 1\nname = \"user\"\nversion = \"0\"\n\
+         [[actions]]\nid = \"a\"\ntitle = \"A\"\ncommand = [\"x\"]\n\
+         [[cli]]\nverb = \"list\"\ncommand = [\"x\"]\n\
+         [[cli]]\nverb = \"artifact\"\ncommand = [\"x\"]\n",
     )
     .unwrap();
 
@@ -307,11 +310,25 @@ fn a_linked_plugin_and_the_users_own_load() {
             .exit_code(),
         3
     );
+    // `list` is a `tmuxy plugin` command, which wins; the user's own plugin
+    // comes first, so its `artifact` wins over the linked plugin's.
+    assert!(registry.verb("list").is_none());
+    assert_eq!(registry.verb("artifact").unwrap().0.name, USER_PLUGIN);
+    let shadowed = |name: &str| registry.shadowed(registry.get(name).unwrap());
     assert_eq!(
-        registry.verb("artifact").unwrap().0.name,
-        "claude-artifacts"
+        shadowed(USER_PLUGIN),
+        vec![registry::Shadowed {
+            verb: "list".into(),
+            by: None
+        }]
     );
-    assert!(registry.verb("pane").is_none(), "a built-in noun wins");
+    assert_eq!(
+        shadowed("claude-artifacts"),
+        vec![registry::Shadowed {
+            verb: "artifact".into(),
+            by: Some(USER_PLUGIN.into())
+        }]
+    );
     std::fs::remove_dir_all(base).unwrap();
 }
 
@@ -381,6 +398,45 @@ fn the_inventory_is_compact_and_its_rev_follows_its_content() {
 
 #[test]
 fn a_shell_word_is_quoted_with_its_hashes_doubled() {
-    assert_eq!(inventory::shell_word("/usr/bin/tmux"), "/usr/bin/tmux");
-    assert_eq!(inventory::shell_word("/a b/it's#1"), r"'/a b/it'\''s##1'");
+    assert_eq!(job::shell_word("/usr/bin/tmux"), "/usr/bin/tmux");
+    assert_eq!(job::shell_word("/a b/it's#1"), r"'/a b/it'\''s##1'");
+}
+
+#[test]
+fn a_plugin_that_needs_a_newer_tmuxy_does_not_load() {
+    let base = scratch("min-tmuxy");
+    let dirs = dirs_in(&base);
+    let dir = plugin_dir(
+        &base,
+        &GOOD.replace("min_tmuxy = \"0.1.0\"", "min_tmuxy = \"99.0.0\""),
+        &[],
+    );
+    let mut lock = Lockfile::default();
+    lock.upsert(Entry::from_path("claude-artifacts", &dir));
+    lock.save(&dirs).unwrap();
+    let registry = Registry::load(&dirs).unwrap();
+    assert!(registry.get("claude-artifacts").is_none());
+    assert!(
+        registry.broken[0].reason.contains("needs tmuxy 99.0.0"),
+        "{:?}",
+        registry.broken
+    );
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn a_cli_verb_with_a_control_character_or_no_platform_is_refused() {
+    let escape = GOOD.replace(
+        "verb = \"artifact\"",
+        "verb = \"artifact\"\ndescription = \"a\\u001b[2Jb\"",
+    );
+    assert!(
+        errors(&escape).iter().any(|e| e.contains("description")),
+        "{:?}",
+        errors(&escape)
+    );
+    let nowhere = GOOD.replace("verb = \"artifact\"", "verb = \"artifact\"\nplatforms = []");
+    assert!(errors(&nowhere)
+        .iter()
+        .any(|e| e.contains("platforms is empty")));
 }

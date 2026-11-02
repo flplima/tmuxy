@@ -94,7 +94,7 @@ export const PaneMenuRunsAPluginAction: Story = {
     await waitFor(() => expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed'));
     await waitFor(() =>
       expect(adapter!.commands.slice(sentBefore)).toContain(
-        'run-shell -b "$TMUXY_DATA_DIR/bin/tmuxy-cli plugin action artifacts:open' +
+        'run-shell -b "\\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" plugin action artifacts:open' +
           ' --pane %0 --trigger menu >/dev/null 2>&1"',
       ),
     );

@@ -2,10 +2,10 @@
 //! actions, and help write one (docs/PLUGINS.md). The machinery is
 //! `tmuxy_core::plugins`; this is the command line and the install gate.
 //!
-//! `action` creates panes, so the CLI runs it inside `tmux run-shell`
-//! (docs/TMUX.md); the other verbs only read tmux, or write the inventory
-//! through a `run-shell` of their own (`inventory::publish`), and run as
-//! plain processes so the gate can ask on the terminal.
+//! Every verb runs as a plain process, so the gate can ask on the terminal
+//! and `action --wait` waits in the caller's own process. What changes tmux
+//! (opening a surface, publishing the inventory) goes through a `run-shell`
+//! of its own (`plugins::job`, docs/TMUX.md).
 
 use std::path::PathBuf;
 
@@ -249,6 +249,7 @@ fn action(
         trigger,
         token,
         args,
+        wait,
     };
     let opened = match invoke::open(dirs, &request) {
         Ok(opened) => opened,
@@ -261,7 +262,7 @@ fn action(
                 );
             }
             if trigger == Trigger::Menu {
-                invoke::notify_failure(&pane, &plugin, &e.to_string());
+                invoke::notify_failure(dirs, &pane, &plugin, &e.to_string());
             }
             return Err(e.into());
         }

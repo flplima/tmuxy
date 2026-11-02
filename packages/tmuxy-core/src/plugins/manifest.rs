@@ -512,6 +512,7 @@ fn validate(raw: RawManifest, report: &mut Report<'_>) -> Manifest {
     let mut cli = Vec::new();
     let mut seen_verbs = std::collections::HashSet::new();
     for raw_cli in raw.cli {
+        let cli_span = raw_cli.span();
         let c = raw_cli.into_inner();
         let verb = c.verb.get_ref().clone();
         let starts_with_letter = verb.bytes().next().is_some_and(|b| b.is_ascii_lowercase());
@@ -527,6 +528,18 @@ fn validate(raw: RawManifest, report: &mut Report<'_>) -> Manifest {
         }
         if let Some(problem) = command_problem(c.command.get_ref()) {
             report.at(c.command.span(), problem);
+        }
+        if c.description
+            .as_deref()
+            .is_some_and(|d| d.chars().any(char::is_control))
+        {
+            report.at(cli_span.clone(), "description must be one line of text");
+        }
+        if c.platforms.as_ref().is_some_and(Vec::is_empty) {
+            report.at(
+                cli_span,
+                "platforms is empty; leave it out for every platform",
+            );
         }
         cli.push(CliVerb {
             verb,

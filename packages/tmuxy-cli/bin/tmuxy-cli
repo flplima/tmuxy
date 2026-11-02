@@ -40,19 +40,33 @@ exec 3>&1
 # question); the scripts' own EXIT traps still run.
 trap 'exit 130' INT
 
-# `--json` anywhere on the line is the output mode, not an argument of the
-# command: it is taken off here so every subcommand reads one switch. The
-# verbs that exec the server binary pass it on (`tmuxy trace --json`).
+# `tmuxy plugin`'s own commands. Any other word after `plugin` is a plugin's
+# verb, whose arguments are its own. RESERVED_VERBS in tmuxy-core lists the
+# same words; tests/cli/cli-plugin.test.js holds the two together.
+PLUGIN_COMMANDS=" install list update remove action log check new exec publish help --help -h "
+
+# `--json` on the line is the output mode, not an argument of the command: it
+# is taken off here so every subcommand reads one switch, and the verbs that
+# exec the server binary pass it on (`tmuxy trace --json`). Not past `--`,
+# and not among a plugin verb's arguments (`tmuxy plugin <verb> -j 4`): those
+# belong to the command that receives them.
 _args=()
+_own=true
 for _arg in "$@"; do
-  if [ "$_arg" = --json ] || [ "$_arg" = -j ]; then
+  if [ "$_own" = true ] && { [ "$_arg" = --json ] || [ "$_arg" = -j ]; }; then
     JSON_OUT=true
-  else
-    _args+=("$_arg")
+    continue
+  fi
+  _args+=("$_arg")
+  if [ "$_arg" = -- ]; then
+    _own=false
+  elif [ "${#_args[@]}" -eq 2 ] && [ "${_args[0]}" = plugin ] &&
+    [[ "$PLUGIN_COMMANDS" != *" $_arg "* ]]; then
+    _own=false
   fi
 done
 set -- ${_args[@]+"${_args[@]}"}
-unset _args _arg
+unset _args _arg _own
 
 # Where a target-less command lands. Inside a pane, tmux reads the caller's
 # $TMUX_PANE and every `splitw`, `breakp` and `#{pane_id}` resolves from it.
@@ -341,9 +355,10 @@ EOF
 }
 
 # `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`),
-# a plugin's own verbs (`tmuxy plugin <verb>`) included.
-# `action` opens panes, so it runs inside tmux like every mutation, with the
-# caller's pane as its target unless one is named.
+# a plugin's own verbs (`tmuxy plugin <verb>`) included. `--json` goes before
+# the command, where it is the binary's switch rather than a verb's argument.
+# `action` acts on the caller's pane unless one is named; it runs here, and
+# puts the one command list that opens the pane through run-shell itself.
 cmd_plugin() {
   case "${1:-}" in
     "" | --help | -h | help)
@@ -353,7 +368,7 @@ cmd_plugin() {
   esac
   find_server_cmd || exit "$EXIT_FAILED"
   if [ "$1" != action ]; then
-    exec "${SERVER_CMD[@]}" plugin "$@" ${server_json[@]+"${server_json[@]}"}
+    exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} "$@"
   fi
   shift
   local arg named=false pane=()
@@ -366,7 +381,7 @@ cmd_plugin() {
   if [ "$named" = false ] && [ -n "${TMUX_PANE:-}" ]; then
     pane=(--pane "$TMUX_PANE")
   fi
-  _run_shell "$(shquote "${SERVER_CMD[@]}" plugin action ${pane[@]+"${pane[@]}"} ${server_json[@]+"${server_json[@]}"} "$@")"
+  exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} action ${pane[@]+"${pane[@]}"} "$@"
 }
 
 usage_connect() {

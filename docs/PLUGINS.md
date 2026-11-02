@@ -118,10 +118,10 @@ dir. `tmuxy config reload` puts its actions in the menus.
  menu item / tmuxy plugin action p:a
         │
         ▼
- tmuxy plugin action (inside tmux run-shell)
+ tmuxy plugin action (the caller's process; waits there with --wait)
    reads the manifest, checks the command, describes the pane,
    writes .run/<token>.json (owner-only: pane, cwd, selection),
-   opens the declared surface running:
+   opens the declared surface, one command list through tmux run-shell, running:
         tmuxy plugin exec <plugin> <action> <token>      ← names and a token only
         │
         ▼

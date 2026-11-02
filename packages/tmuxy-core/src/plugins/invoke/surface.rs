@@ -1,5 +1,5 @@
 //! Opening an action's surface: the one tmux command list per surface, run
-//! from inside `tmux run-shell`.
+//! through `tmux run-shell` (`job`).
 
 use std::path::{Path, PathBuf};
 
@@ -18,6 +18,8 @@ pub struct OpenRequest {
     /// A token [`prepare`] already wrote; `None` makes one.
     pub token: Option<String>,
     pub args: Vec<String>,
+    /// `--wait`: the command leaves its exit status for [`wait`].
+    pub wait: bool,
 }
 
 /// What [`open`] did.
@@ -228,9 +230,9 @@ pub fn free_index(listing: &str) -> u32 {
     i
 }
 
-/// Open an action's surface. Runs tmux commands that create panes, so it
-/// must run inside `tmux run-shell`; the CLI wraps `tmuxy plugin action`
-/// that way.
+/// Open an action's surface. The reads run as they are; the command list
+/// that creates the pane runs inside `tmux run-shell` (`job`), so this is
+/// safe to call from a plain process with control mode attached.
 pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
     if !is_pane_id(&request.pane) {
         return Err(PluginError::Invalid(format!(
@@ -272,6 +274,7 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
         }
     };
     token.pane = request.pane.clone();
+    token.wait = request.wait;
     token.info = Some(info);
     token.write(dirs, &id)?;
 
@@ -285,7 +288,7 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
         &run,
         &plugin.name,
     );
-    let out = match tmux(&argv) {
+    let out = match super::super::job::run(dirs, &argv) {
         Ok(out) => out,
         Err(e) => {
             let _ = std::fs::remove_file(token_path(dirs, &id));
@@ -297,6 +300,11 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
         .map(str::trim)
         .find(|l| is_pane_id(l))
         .map(str::to_string);
+    if request.wait && pane.is_none() {
+        return Err(PluginError::Invalid(
+            "tmux did not say which pane it opened, so there is nothing to wait for".into(),
+        ));
+    }
     super::super::log::append(
         dirs,
         &plugin.name,
@@ -318,8 +326,8 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
 }
 
 /// Say on the target pane's status line that a menu launch failed, and where
-/// to look. Runs inside run-shell, like [`open`].
-pub fn notify_failure(pane: &str, plugin: &str, error: &str) {
+/// to look.
+pub fn notify_failure(dirs: &Dirs, pane: &str, plugin: &str, error: &str) {
     if !is_pane_id(pane) {
         return;
     }
@@ -328,7 +336,10 @@ pub fn notify_failure(pane: &str, plugin: &str, error: &str) {
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect::<String>()
         .replace('#', "##");
-    let _ = tmux(&["display-message".into(), "-t".into(), pane.into(), text]);
+    let _ = super::super::job::run(
+        dirs,
+        &["display-message".into(), "-t".into(), pane.into(), text],
+    );
 }
 
 /// Wait for the command a token launched to exit, and return its status

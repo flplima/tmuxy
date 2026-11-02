@@ -145,6 +145,32 @@ fn stage(dirs: &Dirs, source: &RepoSource, sha: &str) -> Result<(PathBuf, PathBu
     Ok((staging, root))
 }
 
+/// Whether a checkout already on disk is still what a fetch makes: no
+/// symlink anywhere, the manifest the lockfile entry names, every command
+/// inside the plugin. Only tmuxy writes there, but an interrupted run or a
+/// hand can leave something else, and the lockfile install would otherwise
+/// trust it unread.
+fn intact_checkout(checkout: &Path, source: &RepoSource, name: &str) -> Result<(), String> {
+    fetch::reject_symlinks(checkout).map_err(|e| e.to_string())?;
+    let root = match &source.subdir {
+        Some(subdir) => checkout.join(subdir),
+        None => checkout.to_path_buf(),
+    };
+    let manifest = load_manifest(&root).map_err(|f| f.message)?;
+    if manifest.name != name {
+        return Err(format!("its manifest names {:?}", manifest.name));
+    }
+    let commands = manifest
+        .actions
+        .iter()
+        .map(|a| &a.command)
+        .chain(manifest.cli.iter().map(|c| &c.command));
+    for command in commands {
+        registry::resolve_command(&root, command).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Move a staged checkout to its permanent place.
 fn commit_checkout(dirs: &Dirs, staging: &Path, name: &str, sha: &str) -> Result<(), Failure> {
     let dest = dirs.checkout(name, sha);
@@ -305,8 +331,26 @@ fn install_lockfile(dirs: &Dirs, answer: &Answer, json: bool) -> Outcome {
                 }
             }
             EntrySource::Repo { source, sha } => {
-                if dirs.checkout(&entry.name, &sha).is_dir() {
-                    continue;
+                let checkout = dirs.checkout(&entry.name, &sha);
+                if checkout.is_dir() {
+                    match intact_checkout(&checkout, &source, &entry.name) {
+                        Ok(()) => continue,
+                        Err(why) => {
+                            say(
+                                json,
+                                format!(
+                                    "{}: the checkout is not as fetched ({why}); fetching it again",
+                                    entry.name
+                                ),
+                            );
+                            std::fs::remove_dir_all(&checkout).map_err(|e| {
+                                Failure::from(PluginError::io(
+                                    format!("removing {}", checkout.display()),
+                                    e,
+                                ))
+                            })?;
+                        }
+                    }
                 }
                 let (staging, root) = stage(dirs, &source, &sha)?;
                 let checked = load_manifest(&root).and_then(|m| {

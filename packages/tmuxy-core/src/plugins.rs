@@ -22,6 +22,7 @@ pub mod fetch;
 pub mod gc;
 pub mod inventory;
 pub mod invoke;
+pub mod job;
 pub mod lockfile;
 pub mod log;
 pub mod manifest;

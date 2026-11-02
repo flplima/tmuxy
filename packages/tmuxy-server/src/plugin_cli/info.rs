@@ -27,7 +27,7 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
             "commit": commit,
             "actions": p.manifest.actions.iter().map(|a| format!("{}:{}", p.name, a.id)).collect::<Vec<_>>(),
             "verbs": p.manifest.cli.iter().map(|c| c.verb.clone()).collect::<Vec<_>>(),
-            "shadowed": p.shadowed_verbs(),
+            "shadowed": registry.shadowed(p),
         }));
     }
     for b in &registry.broken {
@@ -69,10 +69,15 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
                 println!("    verb    {verb}");
             }
             for shadowed in row["shadowed"].as_array().into_iter().flatten() {
-                println!(
-                    "    SHADOWED: `tmuxy plugin {}` is now a built-in command, which wins",
-                    shadowed.as_str().unwrap_or_default()
-                );
+                let verb = shadowed["verb"].as_str().unwrap_or_default();
+                match shadowed["by"].as_str() {
+                    Some(by) => println!(
+                        "    SHADOWED: `tmuxy plugin {verb}` runs plugin {by:?}'s verb, which comes first"
+                    ),
+                    None => println!(
+                        "    SHADOWED: `tmuxy plugin {verb}` is now a built-in command, which wins"
+                    ),
+                }
             }
         }
     }
@@ -140,7 +145,14 @@ pub(super) fn check(dir: &Path, json: bool) -> Outcome {
             problems.push(format!("{shown}: {what}: {e}"));
         }
     }
+    let installed = Registry::load(&Dirs::current()).unwrap_or_default();
     for c in &m.cli {
+        if let Some((other, _)) = installed.verb(&c.verb).filter(|(p, _)| p.name != m.name) {
+            problems.push(format!(
+                "{shown}: verb {:?} is already plugin {:?}'s",
+                c.verb, other.name
+            ));
+        }
         if RESERVED_VERBS.contains(&c.verb.as_str()) {
             problems.push(format!(
                 "{shown}: verb {:?} is a `tmuxy plugin` command",

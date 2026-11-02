@@ -48,17 +48,16 @@ impl Installed {
     pub fn is_user(&self) -> bool {
         self.kind == Kind::User
     }
+}
 
-    /// Verbs a `tmuxy plugin` subcommand now shadows: a later tmuxy added
-    /// it, and the subcommand wins at dispatch.
-    pub fn shadowed_verbs(&self) -> Vec<&str> {
-        self.manifest
-            .cli
-            .iter()
-            .map(|c| c.verb.as_str())
-            .filter(|v| RESERVED_VERBS.contains(v))
-            .collect()
-    }
+/// A plugin verb that never runs, and what runs in its place.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Shadowed {
+    pub verb: String,
+    /// The plugin whose verb wins (it comes first: the user's own, then the
+    /// lockfile's order), or `None` for a `tmuxy plugin` command a later
+    /// tmuxy added.
+    pub by: Option<String>,
 }
 
 /// Where an entry's plugin lives.
@@ -101,6 +100,14 @@ fn load_one(name: &str, root: PathBuf, kind: Kind) -> std::result::Result<Instal
             "its manifest now names it {:?}; reinstall it",
             manifest.name
         ));
+    }
+    if let Some(min) = &manifest.min_tmuxy {
+        if !super::satisfies_min_tmuxy(min) {
+            return Err(format!(
+                "it needs tmuxy {min}; this is {}",
+                super::TMUXY_VERSION
+            ));
+        }
     }
     Ok(Installed {
         name: name.to_string(),
@@ -178,6 +185,32 @@ impl Registry {
                 PluginError::NotFound(format!("plugin {plugin:?} has no action {action:?} here"))
             })?;
         Ok((p, a))
+    }
+
+    /// The verbs of `plugin` that never run: a `tmuxy plugin` command or an
+    /// earlier plugin's verb of the same name wins at dispatch. Install
+    /// refuses both; the user's own plugin and an edited linked one pass no
+    /// install, so this is how `tmuxy plugin list` says so.
+    pub fn shadowed(&self, plugin: &Installed) -> Vec<Shadowed> {
+        plugin
+            .manifest
+            .cli_here()
+            .filter_map(|c| {
+                if RESERVED_VERBS.contains(&c.verb.as_str()) {
+                    return Some(Shadowed {
+                        verb: c.verb.clone(),
+                        by: None,
+                    });
+                }
+                match self.verb(&c.verb) {
+                    Some((owner, _)) if owner.name != plugin.name => Some(Shadowed {
+                        verb: c.verb.clone(),
+                        by: Some(owner.name.clone()),
+                    }),
+                    _ => None,
+                }
+            })
+            .collect()
     }
 
     /// The plugin a CLI verb belongs to. A `tmuxy plugin` subcommand of the

@@ -16,7 +16,7 @@ describe('PluginAction', () => {
         TmuxOp.PluginAction({ plugin: 'devtools', action: 'open', paneId: pid('%4'), token: null }),
       ),
     ).toBe(
-      `run-shell -b "${CLI} plugin action devtools:open --pane %4 --trigger menu >/dev/null 2>&1"`,
+      `run-shell -b "\\"${CLI}\\" plugin action devtools:open --pane %4 --trigger menu >/dev/null 2>&1"`,
     );
   });
 

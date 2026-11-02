@@ -4,10 +4,12 @@
 //! a string tmux hands to `$SHELL -c`, so it carries only names and an
 //! invocation token from a fixed alphabet:
 //!
-//! 1. [`open`] (`tmuxy plugin action`, inside `tmux run-shell`) writes the
+//! 1. [`open`] (`tmuxy plugin action`, in the caller's process) writes the
 //!    token file `.run/<token>.json` (owner-only) with everything the command
 //!    should know — the target pane, its cwd, the selection — and opens the
-//!    action's surface running `tmuxy plugin exec <plugin> <action> <token>`.
+//!    action's surface running `tmuxy plugin exec <plugin> <action> <token>`,
+//!    the one tmux command list that changes anything going through
+//!    `run-shell` (`job`).
 //! 2. [`exec`], the new pane's process, reads the token once (and deletes
 //!    it), puts the selection in a file, sets the plugin's environment and
 //!    runs the declared argv directly (`Command::new`, never a shell), with the
@@ -101,15 +103,19 @@ fn command_for(
 /// return its exit status. Never returns an `Err`: what went wrong is
 /// printed in the pane and logged, so the user sees it there.
 pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
-    let status = match exec_inner(dirs, name, action_id, token_id) {
-        Ok(code) => code,
+    let (status, waited) = match exec_inner(dirs, name, action_id, token_id) {
+        Ok(ran) => ran,
         Err(e) => {
             super::log::append(dirs, name, &format!("exec {name}:{action_id} failed: {e}"));
             eprintln!("tmuxy plugin {name}: {e}");
-            1
+            // The token may be gone with whatever failed: a waiter that gets
+            // no status stops when the pane closes.
+            (1, true)
         }
     };
-    let _ = std::fs::write(status_path(dirs, token_id), status.to_string());
+    if waited {
+        let _ = crate::private_files::write(&status_path(dirs, token_id), status.to_string());
+    }
     if status != 0 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         eprintln!("\n[{name}:{action_id} exited with status {status}; press Enter to close]");
         let mut line = String::new();
@@ -118,7 +124,8 @@ pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
     status
 }
 
-fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Result<i32> {
+/// The command's exit status, and whether someone waits for it.
+fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Result<(i32, bool)> {
     let token = Token::take(dirs, token_id)?;
     if token.plugin != name || token.action != action_id {
         return Err(PluginError::Invalid(
@@ -166,7 +173,7 @@ fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Resul
         name,
         &format!("exit {name}:{action_id} status {code}"),
     );
-    Ok(code)
+    Ok((code, token.wait))
 }
 
 /// Spawn and wait, with this process ignoring the interrupt and quit keys

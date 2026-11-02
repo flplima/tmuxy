@@ -84,35 +84,15 @@ pub fn commands(dirs: &Dirs) -> Vec<String> {
     ]
 }
 
-/// Publish from a CLI verb, through `tmux run-shell` so the write runs
-/// inside the tmux server rather than as a client racing the control-mode
-/// one (docs/TMUX.md). No server on the socket is no error: the next monitor
-/// to attach publishes it.
+/// Publish from a CLI verb, inside `tmux run-shell` (`job`). No server on
+/// the socket is no error: the next monitor to attach publishes it.
 pub fn publish(dirs: &Dirs) {
-    let argv = crate::session::tmux_argv(false);
-    let quoted: Vec<String> = argv.iter().map(|a| shell_word(a)).collect();
-    let tmux = quoted.join(" ");
-    let line = commands(dirs)
-        .iter()
-        .map(|c| format!("{tmux} {c}"))
-        .collect::<Vec<_>>()
-        .join(" && ");
-    let _ = crate::session::tmux_command()
-        .args(["run-shell", &line])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-}
-
-/// One word for a shell line that run-shell format-expands first: single
-/// quoted, `#` doubled.
-pub fn shell_word(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._/@%+-=:,".contains(&b));
-    if plain {
-        return word.to_string();
+    let mut argv: Vec<String> = Vec::new();
+    for command in commands(dirs) {
+        if !argv.is_empty() {
+            argv.push(";".into());
+        }
+        argv.extend(command.split_whitespace().map(str::to_string));
     }
-    format!("'{}'", word.replace('\'', r"'\''")).replace('#', "##")
+    let _ = super::job::run(dirs, &argv);
 }

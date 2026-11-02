@@ -252,6 +252,12 @@ fn a_hostile_repo_and_gitconfig_run_nothing_and_check_out_no_symlink() {
     assert_eq!(String::from_utf8_lossy(&ran.stdout).trim(), "hello");
     let unknown = s.tmuxy(&["nobody-has-this"]);
     assert_eq!(unknown.status.code(), Some(2), "{}", stderr(&unknown));
+    // `--json` before the command is the binary's: the failure is JSON too.
+    let as_json = s.tmuxy(&["--json", "nobody-has-this"]);
+    assert_eq!(as_json.status.code(), Some(2));
+    let answer: serde_json::Value = serde_json::from_slice(&as_json.stdout).unwrap();
+    assert_eq!(answer["ok"], false);
+    assert_eq!(answer["code"], 2);
 }
 
 #[test]
@@ -276,6 +282,23 @@ fn a_synced_lockfile_reproduces_the_same_commits() {
     let out = s.tmuxy(&["install", "--yes"]);
     assert!(out.status.success(), "{}", stderr(&out));
     let checkout = s.path(&format!("state/plugins/hostile@{sha}"));
+
+    // A checkout tampered with on disk is not trusted: fetched again.
+    #[cfg(unix)]
+    {
+        std::fs::remove_file(checkout.join("bin/hello")).unwrap();
+        std::os::unix::fs::symlink("/bin/sh", checkout.join("bin/hello")).unwrap();
+        let again = s.tmuxy(&["install", "--yes"]);
+        assert!(again.status.success(), "{}", stderr(&again));
+        assert!(
+            String::from_utf8_lossy(&again.stdout).contains("fetching it again"),
+            "{}",
+            String::from_utf8_lossy(&again.stdout)
+        );
+        assert!(std::fs::symlink_metadata(checkout.join("bin/hello"))
+            .unwrap()
+            .is_file());
+    }
     assert!(checkout.join("tmuxy-plugin.toml").is_file());
     assert!(
         !checkout.join("NEW").exists(),

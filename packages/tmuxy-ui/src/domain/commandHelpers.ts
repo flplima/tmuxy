@@ -216,7 +216,8 @@ export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;
  * launch that fails says so on the status line itself (`--trigger menu`).
  *
  * Every word is checked against the alphabet the server accepts, since the
- * line is a shell's: an inventory entry that is not one is never sent.
+ * line is a shell's: an inventory entry that is not one is never sent. The
+ * path is quoted for the shell, as a data dir may hold a space.
  */
 export function pluginAction(op: TmuxOpOf<'PluginAction'>): string {
   const valid =
@@ -227,7 +228,7 @@ export function pluginAction(op: TmuxOpOf<'PluginAction'>): string {
   if (!valid) return `display-message ${quote('tmuxy: not a plugin action')}`;
   const token = op.token === null ? '' : ` --token ${op.token}`;
   return (
-    `run-shell -b "${CLI_PATH} plugin action ${op.plugin}:${op.action}` +
+    `run-shell -b "\\"${CLI_PATH}\\" plugin action ${op.plugin}:${op.action}` +
     ` --pane ${op.paneId} --trigger menu${token} >/dev/null 2>&1"`
   );
 }

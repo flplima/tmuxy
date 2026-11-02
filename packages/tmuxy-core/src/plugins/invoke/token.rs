@@ -62,6 +62,10 @@ pub struct Token {
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub info: Option<PaneInfo>,
+    /// Someone waits on the command (`tmuxy plugin action --wait`): it
+    /// leaves its exit status behind for them, and only then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wait: bool,
     pub created: u64,
 }
 
@@ -108,6 +112,7 @@ impl Token {
             selection: None,
             args: Vec::new(),
             info: None,
+            wait: false,
             created: now(),
         }
     }
