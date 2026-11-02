@@ -5,6 +5,7 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from './actionTypes';
+import type { Ctx, EnqueueAction } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
 import { fittedGridCell, gridExtent } from './helpers';
@@ -58,6 +59,25 @@ export const connectionGlobalEvents = {
   SWITCH_SESSION: { actions: 'connection_switchSession' },
   NEW_SESSION: { actions: 'connection_newSession' },
 } as const;
+
+/** What a freshly opened stream asks the server for: themes, and the state
+ * at this client's viewport once one has been computed. */
+function fetchOnConnect(context: Ctx, enqueue: EnqueueAction): void {
+  enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
+  enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+
+  const hasComputedSize =
+    context.targetCols !== DEFAULT_COLS || context.targetRows !== DEFAULT_ROWS;
+  if (hasComputedSize) {
+    enqueue(
+      sendTo('tmux', {
+        type: 'FETCH_INITIAL_STATE' as const,
+        cols: context.targetCols,
+        rows: context.targetRows,
+      }),
+    );
+  }
+}
 
 export const connectionActions = {
   connection_logAppend: assignCtx(({ context, event }) => {
@@ -308,26 +328,17 @@ export const connectionActions = {
   connection_onConnected: act(({ context, enqueue }) => {
     enqueue(assign({ connected: true, error: null }));
     enqueue(sendTo('size', { type: 'CONNECTED' as const }));
-    enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
-    enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
-
-    const hasComputedSize =
-      context.targetCols !== DEFAULT_COLS || context.targetRows !== DEFAULT_ROWS;
-    if (hasComputedSize) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'FETCH_INITIAL_STATE' as const,
-          cols: context.targetCols,
-          rows: context.targetRows,
-        }),
-      );
-    }
+    fetchOnConnect(context, enqueue);
   }),
 
-  connection_onReconnected: act(({ enqueue }) => {
+  // A reconnect fetches the state too: the stream that came back may belong
+  // to a restarted server whose monitor another tab already synced, and an
+  // idle session then sends nothing on its own — this tab would keep its
+  // last frame until a keystroke. The sequencer reopened on the new stream,
+  // so the answer is adopted as the starting state.
+  connection_onReconnected: act(({ context, enqueue }) => {
     enqueue(assign({ connected: true, error: null }));
-    enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
-    enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
+    fetchOnConnect(context, enqueue);
   }),
 
   connection_keybindingsReceived: act(({ event, enqueue }) => {

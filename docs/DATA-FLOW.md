@@ -32,6 +32,7 @@ The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … c
 
 - **The backoff belongs to one outage.** A connection that was established and then dropped starts the next one on a fresh schedule, after a short beat. One schedule for the page's whole life only climbs, and a few drops in every reconnect waited out the cap.
 - **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the overlay's _Retry now_ button (`RECONNECT_NOW` → `adapter.reconnectNow()`) all abandon the current wait and try immediately. None of them does anything while connected.
+- **A stream that comes back asks for the state again.** `TMUX_RECONNECTED` fetches the state at the client's viewport just as the first connection does: the server may have restarted and been synced by another tab, and an idle session sends nothing on its own, so without the fetch the tab keeps its last frame until a keystroke. The sequencer has reopened on the new stream, so the answer is adopted as the starting state.
 - **Silence is a drop.** The server's keepalive is a named `ping` event rather than an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
 
 ### A refused stream is not a dropped one
