@@ -168,16 +168,26 @@ export async function popupNativeMenu(
 }
 
 let appMenu: Menu | null = null;
+/** Counts the calls to `setNativeAppMenu`; only the latest may take the bar. */
+let appMenuGeneration = 0;
 
 /**
  * Make the spec the application's menu bar (macOS). The previous one is
- * released once the new one is in place, so the bar never blinks empty.
+ * released once the new one is in place, so the bar never blinks empty. A
+ * call overtaken by a newer one while building its items throws the menu
+ * away: the newer spec is the current one, and a slower, older build must
+ * not replace it.
  */
 export async function setNativeAppMenu(spec: MenuSpec, dispatch: MenuDispatch): Promise<void> {
+  const generation = ++appMenuGeneration;
   const api = await import('@tauri-apps/api/menu');
   const menu = await api.Menu.new({
     items: await buildItems(api, flattenRadioGroups(spec), dispatch),
   });
+  if (generation !== appMenuGeneration) {
+    void menu.close().catch(() => {});
+    return;
+  }
   await menu.setAsAppMenu();
   const previous = appMenu;
   appMenu = menu;

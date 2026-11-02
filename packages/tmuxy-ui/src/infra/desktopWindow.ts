@@ -63,6 +63,13 @@ export function reportTitlebarHeight(bar: HTMLElement | null): (() => void) | un
 const sidebarGrowth = { left: 0, right: 0 };
 
 /**
+ * The fits in flight, in order. A close or a resize runs only once the open
+ * before it has recorded what the shell gave, so a column toggled within one
+ * round trip takes back exactly what it took.
+ */
+let pendingFit: Promise<void> = Promise.resolve();
+
+/**
  * A sidebar beside a grid `@tmuxy-size` fixes: widen the window by the
  * column as it opens and narrow it back as it closes, so the pane area keeps
  * its size. The shell grows the window only as far as the screen allows (and
@@ -71,10 +78,15 @@ const sidebarGrowth = { left: 0, right: 0 };
  */
 export function fitWindowToSidebar(side: 'left' | 'right', open: boolean, widthPx: number): void {
   if (!isTauri()) return;
-  const dx = open ? widthPx - sidebarGrowth[side] : -sidebarGrowth[side];
-  if (!open) sidebarGrowth[side] = 0;
-  if (dx === 0) return;
-  void invoke<number>('grow_window', { dx }).then((applied) => {
-    if (open) sidebarGrowth[side] += applied;
-  });
+  pendingFit = pendingFit
+    .then(async () => {
+      const dx = open ? widthPx - sidebarGrowth[side] : -sidebarGrowth[side];
+      if (!open) sidebarGrowth[side] = 0;
+      if (dx === 0) return;
+      const applied = await invoke<number>('grow_window', { dx });
+      if (open) sidebarGrowth[side] += applied;
+    })
+    .catch((err: unknown) => {
+      console.error('[desktopWindow] grow_window failed:', err);
+    });
 }
