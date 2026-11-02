@@ -262,3 +262,13 @@ export function buildFloatPanesFromWindows(
 
   return floatPanes;
 }
+
+/**
+ * The id of a side's delayed SIDEBAR_START_TIMEOUT. A fresh start's raise
+ * replaces the previous one under the same id, and the pane landing or the
+ * start failing cancels it, so a timer from an earlier open never judges a
+ * later one.
+ */
+export function sidebarStartTimeoutId(side: 'left' | 'right'): string {
+  return `sidebar-start-timeout-${side}`;
+}

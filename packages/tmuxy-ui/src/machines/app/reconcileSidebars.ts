@@ -13,7 +13,7 @@ import {
   selectRightSidebarPane,
   visibleFloats,
 } from '../selectors/panesAndSidebars';
-import { releaseKeyboard } from './helpers';
+import { releaseKeyboard, sidebarStartTimeoutId } from './helpers';
 
 export function reconcileFloatAndSidebarLifecycle(
   context: Ctx,
@@ -77,6 +77,7 @@ export function reconcileFloatAndSidebarLifecycle(
   const nextTreeHidden = sidebarHidden(nextSidebarCtx, 'left');
   if (!prevTreePane && nextTreePane) {
     const requestedByThisClient = context.leftSidebarOpen;
+    enqueue.cancel(sidebarStartTimeoutId('left'));
     enqueue(assign({ leftSidebarStarting: false, leftSidebarStartFailed: false }));
     if (context.leftSidebarStarting && !requestedByThisClient && !nextTreeHidden) {
       // This client asked for the column, then closed it before it landed:
@@ -100,6 +101,7 @@ export function reconcileFloatAndSidebarLifecycle(
     }
   } else if (prevTreePane && !nextTreePane) {
     const failedStart = context.leftSidebarStarting;
+    enqueue.cancel(sidebarStartTimeoutId('left'));
     enqueue(
       assign({
         leftSidebarOpen: failedStart,
@@ -119,6 +121,7 @@ export function reconcileFloatAndSidebarLifecycle(
   if (!prevDockPane && nextDockPane) {
     // The desktop's column, or the phone's bottom view, asked for it here.
     const requestedByThisClient = context.rightSidebarOpen || context.phoneBottomView === 'dock';
+    enqueue.cancel(sidebarStartTimeoutId('right'));
     enqueue(assign({ rightSidebarStarting: false, rightSidebarStartFailed: false }));
     if (context.rightSidebarStarting && !requestedByThisClient && !nextDockHidden) {
       enqueue(
@@ -140,6 +143,7 @@ export function reconcileFloatAndSidebarLifecycle(
     }
   } else if (prevDockPane && !nextDockPane) {
     const failedStart = context.rightSidebarStarting;
+    enqueue.cancel(sidebarStartTimeoutId('right'));
     enqueue(
       assign({
         rightSidebarOpen: failedStart,

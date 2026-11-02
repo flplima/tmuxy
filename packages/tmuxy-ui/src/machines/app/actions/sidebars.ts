@@ -16,7 +16,7 @@ import {
 } from '../../selectors/panesAndSidebars';
 import { selectDockRows } from '../../selectors/layout';
 import { calculateTargetSize } from '../../../utils/layout';
-import { releaseKeyboard } from '../helpers';
+import { releaseKeyboard, sidebarStartTimeoutId } from '../helpers';
 import { fixedGridSize } from '../../../utils/gridFit';
 import { fitWindowToSidebar } from '../../../infra/desktopWindow';
 
@@ -115,7 +115,7 @@ export const sidebarsActions = {
         enqueue(assign({ leftSidebarStarting: true }));
         enqueue.raise(
           { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'left' as const },
-          { delay: SIDEBAR_START_TIMEOUT_MS },
+          { delay: SIDEBAR_START_TIMEOUT_MS, id: sidebarStartTimeoutId('left') },
         );
       }
       return;
@@ -202,7 +202,7 @@ export const sidebarsActions = {
     enqueue(assign({ rightSidebarStarting: true, rightSidebarStartFailed: false }));
     enqueue.raise(
       { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'right' as const },
-      { delay: SIDEBAR_START_TIMEOUT_MS },
+      { delay: SIDEBAR_START_TIMEOUT_MS, id: sidebarStartTimeoutId('right') },
     );
   }),
 

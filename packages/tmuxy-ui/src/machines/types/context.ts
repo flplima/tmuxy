@@ -109,8 +109,8 @@ export interface AppMachineContext {
   leftSidebarStartFailed: boolean;
   /**
    * This client asked tmux to create the tree column's pane and is waiting
-   * for it. Cleared by SIDEBAR_START_TIMEOUT. While set, a pane that appears
-   * and vanishes within the window is a failed start, not a user closing it.
+   * for it. Cleared when the pane appears, or by SIDEBAR_START_TIMEOUT when
+   * it never does: then the start failed rather than a user closing it.
    */
   leftSidebarStarting: boolean;
   /**
