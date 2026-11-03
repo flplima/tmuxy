@@ -101,11 +101,48 @@ pub(super) async fn ensure_session(
     Ok(())
 }
 
+/// How long an agent on `/mcp` keeps a session's monitor up after its last
+/// call when no browser is watching. Long enough for an agent that thinks
+/// between calls, short enough that one that went away stops holding a
+/// control-mode client open.
+pub(crate) const AGENT_HOLD: Duration = Duration::from_secs(5 * 60);
+
+/// The monitor of a session an agent asked about, attaching one when no
+/// client has, and holding it for [`AGENT_HOLD`] from now. A session that does
+/// not exist is never created for an agent: it drives the session the user
+/// is looking at, and a typo would otherwise leave a stray one behind.
+pub(crate) async fn monitor_for_agent(
+    state: &Arc<AppState>,
+    session: &SessionName,
+) -> Result<tmuxy_core::control_mode::MonitorCommandSender, tmuxy_core::CommandError> {
+    let running = state
+        .sessions
+        .read()
+        .await
+        .get(session.as_str())
+        .and_then(|conns| conns.monitor_handle.as_ref())
+        .is_some_and(|handle| !handle.is_finished());
+    if !running {
+        if !session_exists(session).await {
+            return Err(tmuxy_core::CommandError::invalid(format!(
+                "no tmux session named {session:?} (pass ?session=<name> in the endpoint URL)"
+            )));
+        }
+        ensure_session(state, session)
+            .await
+            .map_err(|rejection| tmuxy_core::CommandError::unavailable(rejection.message()))?;
+    }
+    if let Some(conns) = state.sessions.write().await.get_mut(session.as_str()) {
+        conns.agent_hold_until = Some(tokio::time::Instant::now() + AGENT_HOLD);
+    }
+    super::server_commands::wait_for_monitor(state, session).await
+}
+
 /// The viewport size a freshly created window should be resized to, or `None`
 /// when there is none yet (no client has reported one and the size is not
 /// fixed). Feeds `executor`'s shared rewrite so the Tauri app and this server
 /// can't drift on the rewrite shape.
-pub(super) async fn new_window_client_size(
+pub(crate) async fn new_window_client_size(
     state: &Arc<AppState>,
     session: &str,
 ) -> Option<(u32, u32)> {
@@ -312,7 +349,8 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
 /// down its monitor and remove its map entry. A client that registers during
 /// the wait retires the guard (`SessionConnections::register`): the guard
 /// scheduled when that client leaves again is the one that counts, so a
-/// reload inside an older guard's grace is not cut short by it.
+/// reload inside an older guard's grace is not cut short by it. An agent's
+/// hold (`SessionConnections::agent_hold_until`) is waited out the same way.
 pub(super) async fn schedule_idle_monitor_cleanup(
     state: &Arc<AppState>,
     session: &str,
@@ -331,34 +369,41 @@ pub(super) async fn schedule_idle_monitor_cleanup(
     };
     state
         .spawn(async move {
-            tokio::select! {
-                _ = tokio::time::sleep(grace) => {}
-                _ = shutdown.cancelled() => {
-                    debug!(%session, "shutdown signalled during grace period, aborting cleanup");
-                    return;
-                }
-            }
             let state = state_owned;
-
-            let (cmd_tx, monitor_handle) = {
-                let mut sessions = state.sessions.write().await;
-                if let Some(session_conns) = sessions.get_mut(&session) {
-                    if session_conns.idle_guard_gen != generation {
-                        debug!(%session, "a client came and went during grace period, leaving it to the newer guard");
-                        (None, None)
-                    } else if session_conns.connections.is_empty() {
-                        info!(%session, "no clients connected after grace period, stopping monitor");
-                        let handle = session_conns.monitor_handle.take();
-                        let tx = session_conns.monitor_command_tx.take();
-                        sessions.remove(&session);
-                        (tx, handle)
-                    } else {
-                        debug!(%session, "client connected during grace period, keeping monitor alive");
-                        (None, None)
+            let mut grace = grace;
+            // An agent's hold (`agent_hold_until`) outlasting the grace sends
+            // the guard back to sleep for what is left of it: the hold is
+            // extended by every call, and this guard is the one that ends it.
+            let (cmd_tx, monitor_handle) = loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(grace) => {}
+                    _ = shutdown.cancelled() => {
+                        debug!(%session, "shutdown signalled during grace period, aborting cleanup");
+                        return;
                     }
-                } else {
-                    (None, None)
                 }
+                let mut sessions = state.sessions.write().await;
+                let Some(session_conns) = sessions.get_mut(&session) else {
+                    break (None, None);
+                };
+                if session_conns.idle_guard_gen != generation {
+                    debug!(%session, "a client came and went during grace period, leaving it to the newer guard");
+                    break (None, None);
+                }
+                if !session_conns.connections.is_empty() {
+                    debug!(%session, "client connected during grace period, keeping monitor alive");
+                    break (None, None);
+                }
+                if let Some(left) = session_conns.agent_hold_remaining(tokio::time::Instant::now()) {
+                    debug!(%session, ?left, "an agent still holds the monitor, waiting for it");
+                    grace = left;
+                    continue;
+                }
+                info!(%session, "no clients connected after grace period, stopping monitor");
+                let handle = session_conns.monitor_handle.take();
+                let tx = session_conns.monitor_command_tx.take();
+                sessions.remove(&session);
+                break (tx, handle);
             };
 
             if let Some(handle) = monitor_handle {

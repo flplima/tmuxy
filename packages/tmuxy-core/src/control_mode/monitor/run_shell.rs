@@ -14,6 +14,8 @@
 //! reply. The session restore relays its shell steps the same way
 //! (`session_snapshot/restore.rs`).
 
+use super::CommandReply;
+
 /// The server option a relayed `run-shell` leaves its answer in. One per
 /// command, so two in flight never read each other's.
 pub(super) fn relay_key(id: u64) -> String {
@@ -102,6 +104,34 @@ pub(super) fn read_relayed<'a>(output: &'a str, key: &str) -> Relayed<'a> {
             before: lines,
             answer: None,
         },
+    }
+}
+
+/// A caller's relayed `run-shell`, as the reply it waits for: what the rest
+/// of the list printed, then what the shell command printed; a non-zero exit
+/// is the error, carrying that output, unless tmux already failed the list.
+pub(super) fn caller_reply(output: &str, key: &str, error: Option<String>) -> CommandReply {
+    let relayed = read_relayed(output, key);
+    let mut lines = relayed.before.join("\n");
+    let mut failure = error;
+    if let Some((rc, text)) = relayed.answer {
+        if !text.is_empty() {
+            if !lines.is_empty() {
+                lines.push('\n');
+            }
+            lines.push_str(&text);
+        }
+        if rc != 0 && failure.is_none() {
+            failure = Some(if text.is_empty() {
+                format!("run-shell exited with status {rc}")
+            } else {
+                format!("run-shell exited with status {rc}: {}", clip_output(&text))
+            });
+        }
+    }
+    CommandReply {
+        output: lines,
+        error: failure,
     }
 }
 
@@ -271,6 +301,29 @@ mod tests {
             out.contains(r#""bash $HOME/.local/share/tmuxy/bin/tmuxy/nav left #{pane_id}""#),
             "{out}"
         );
+    }
+
+    /// A caller waiting on a `run-shell` (an MCP tool running a CLI script)
+    /// gets what the script printed, not the relay's bookkeeping, and its
+    /// failure as an error rather than as output to parse.
+    #[test]
+    fn a_callers_run_shell_answers_with_what_the_shell_printed() {
+        let ok = caller_reply("@tmuxy-run-4 0\n%12\n", "@tmuxy-run-4", None);
+        assert_eq!((ok.output.as_str(), ok.error), ("%12", None));
+
+        let failed = caller_reply(
+            "pinned\n@tmuxy-run-4 2\nbad --width\n",
+            "@tmuxy-run-4",
+            None,
+        );
+        assert_eq!(failed.output, "pinned\nbad --width");
+        assert_eq!(
+            failed.error.as_deref(),
+            Some("run-shell exited with status 2: bad --width")
+        );
+
+        let tmux_failed = caller_reply("", "@tmuxy-run-4", Some("no such pane".into()));
+        assert_eq!(tmux_failed.error.as_deref(), Some("no such pane"));
     }
 
     #[test]

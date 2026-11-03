@@ -4,7 +4,7 @@ This document describes how data moves through tmuxy in different deployment sce
 
 ## Transport: SSE/HTTP (Web Version)
 
-The web version uses two HTTP endpoints on the Axum server:
+The web client uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
 
@@ -23,6 +23,8 @@ The web version uses two HTTP endpoints on the Axum server:
 - Request body: `{ "cmd": "command_name", "args": {...} }`
 - Response: `{ "result": ... }` or `{ "error": "message" }`
 - **Loopback by default** — a routable `--host` needs an HTTP Basic password (or an explicit `--no-auth`), and every API route refuses requests from other origins — see [SECURITY.md](SECURITY.md).
+
+**`POST /mcp?session=<name>`** — the MCP endpoint an agent drives the session through: one JSON-RPC message per request, answered with JSON. It is not the client's; see [MCP.md](MCP.md).
 
 SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
 

@@ -46,7 +46,7 @@ const TRACE_MAX_BYTES: usize = 256 * 1024;
 /// Require a single `Content-Type: application/json` header (with optional
 /// parameters such as `; charset=utf-8`) so HTML `<form>` submissions and
 /// no-preflight `text/plain` fetches are refused even without Fetch Metadata.
-fn has_json_content_type(headers: &HeaderMap) -> bool {
+pub(crate) fn has_json_content_type(headers: &HeaderMap) -> bool {
     let mut values = headers.get_all(header::CONTENT_TYPE).iter();
     match (values.next(), values.next()) {
         (Some(only), None) => only

@@ -33,21 +33,20 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // per key — and the only way they fail is a vanished pane, which the
         // layout already shows; they go out bare.
         //
-        // A `run-shell` nobody waits on is relayed (`run_shell`): its output
-        // comes back inside the reply instead of in a tmux 3.4 view-mode the
-        // UI does not draw. A caller that asked for the output gets it as
-        // tmux sends it.
+        // A `run-shell` is relayed (`run_shell`): its output comes back
+        // inside the reply instead of in a tmux 3.4 view-mode the UI does not
+        // draw — to the caller that asked for it, or shown when nobody did.
         let relay_key = run_shell::relay_key(self.next_reply_id + 1);
-        let relayed = match reply {
-            Some(_) => None,
-            None => run_shell::relay_run_shell(
-                &unescaped,
-                &relay_key,
-                &crate::session_snapshot::tmux_shell_command(),
-            ),
-        };
+        let relayed = run_shell::relay_run_shell(
+            &unescaped,
+            &relay_key,
+            &crate::session_snapshot::tmux_shell_command(),
+        );
         let (outgoing, waiter) = match (reply, relayed) {
-            (Some(reply), _) => (unescaped.clone(), Some(ReplyWaiter::Caller(reply))),
+            (Some(reply), Some(relayed)) => {
+                (relayed, Some(ReplyWaiter::CallerRunShell(reply, relay_key)))
+            }
+            (Some(reply), None) => (unescaped.clone(), Some(ReplyWaiter::Caller(reply))),
             (None, Some(relayed)) => (relayed, Some(ReplyWaiter::RunShell(relay_key))),
             (None, None) if reports_failure(&unescaped) => {
                 (unescaped.clone(), Some(ReplyWaiter::ReportFailure))
@@ -76,7 +75,10 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     }
                     // The command never went out: tell the caller now rather
                     // than at the timeout.
-                    (Err(e), ReplyWaiter::Caller(reply)) => {
+                    (
+                        Err(e),
+                        ReplyWaiter::Caller(reply) | ReplyWaiter::CallerRunShell(reply, _),
+                    ) => {
                         let _ = reply.send(CommandReply {
                             output: String::new(),
                             error: Some(e.to_string()),
@@ -144,7 +146,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             .collect();
         for id in expired {
             match self.pending_replies.remove(&id) {
-                Some((ReplyWaiter::Caller(reply), _)) => {
+                Some((ReplyWaiter::Caller(reply) | ReplyWaiter::CallerRunShell(reply, _), _)) => {
                     warn!(id, "command reply timed out");
                     let _ = reply.send(CommandReply {
                         output: String::new(),

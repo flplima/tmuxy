@@ -19,6 +19,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 // A caller that stopped waiting is not an error.
                 let _ = reply.send(CommandReply { output, error });
             }
+            Some((ReplyWaiter::CallerRunShell(reply, key), _)) => {
+                let _ = reply.send(super::run_shell::caller_reply(&output, &key, error));
+            }
             Some((ReplyWaiter::ReportFailure, _)) => {
                 show_messages(emitter, output.lines());
                 // What the command printed besides messages — a

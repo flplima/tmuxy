@@ -17,6 +17,7 @@ See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story swe
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
 See [docs/PLUGINS.md](docs/PLUGINS.md) for plugins: the manifest, the install gate, how an action runs.
+See [docs/MCP.md](docs/MCP.md) for the `/mcp` endpoint (`tmuxy mcp`) and its tools.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TRACING.md](docs/TRACING.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).

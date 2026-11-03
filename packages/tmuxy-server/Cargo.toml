@@ -36,6 +36,8 @@ reqwest = { version = "0.12", default-features = false }
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-group = { path = "../tmuxy-group" }
+# `pane_wait_for` on `/mcp`: wait until a pane's screen matches a pattern.
+regex = "1"
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true, features = ["signal", "hostname"] }

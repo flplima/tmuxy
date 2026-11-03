@@ -187,6 +187,11 @@ pub struct SessionConnections {
     pub broadcast: Arc<SessionBroadcast>,
     /// Handle to the monitor task (so we can stop it when last client leaves)
     pub monitor_handle: Option<JoinHandle<()>>,
+    /// Until when an agent on `/mcp` keeps the monitor up with no stream
+    /// open. An agent holds no connection between calls, so without this an
+    /// idle guard would stop the monitor between two of them and the next
+    /// call would wait for a fresh attach.
+    pub agent_hold_until: Option<tokio::time::Instant>,
 }
 
 impl Default for SessionConnections {
@@ -203,6 +208,7 @@ impl Default for SessionConnections {
             key_bindings: None,
             broadcast: Arc::new(SessionBroadcast::new()),
             monitor_handle: None,
+            agent_hold_until: None,
         }
     }
 }
@@ -217,6 +223,13 @@ impl SessionConnections {
     pub fn register(&mut self, conn_id: u64) {
         self.connections.push(conn_id);
         self.idle_guard_gen += 1;
+    }
+
+    /// How much longer an agent holds the monitor up, if it still does.
+    pub fn agent_hold_remaining(&self, now: tokio::time::Instant) -> Option<std::time::Duration> {
+        self.agent_hold_until
+            .filter(|until| *until > now)
+            .map(|until| until - now)
     }
 
     /// The size the session should be, by its `@tmuxy-size` policy over the
@@ -262,6 +275,9 @@ pub struct AppState {
     /// Serialises explicit session creation (`ensure_session`) so concurrent
     /// requests cannot race past `MAX_AUTO_CREATED_SESSIONS`.
     pub session_create_lock: Mutex<()>,
+
+    /// The names `/mcp` clients introduced themselves with (`crate::mcp`).
+    pub mcp_clients: crate::mcp::Clients,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -286,6 +302,7 @@ impl Default for AppState {
             live_streams: AtomicU64::new(0),
             preview_pages: tmuxy_core::preview::PreviewPages::default(),
             session_create_lock: Mutex::new(()),
+            mcp_clients: crate::mcp::Clients::default(),
         }
     }
 }
@@ -376,6 +393,9 @@ pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
         // A `preview` pane's page: POSTed by the client once it has composed
         // it, then loaded by the pane's frame (`tmuxy_core::preview`). The
         // handler reads at most `MAX_STAGED_BYTES`, after tmux authorises it.
+        // The MCP endpoint (`crate::mcp`, docs/MCP.md): an agent's way to the
+        // session, behind the same guard and auth as the rest of the API.
+        .route("/mcp", post(crate::mcp::mcp_handler))
         .route(
             "/api/preview/{pane_id}",
             get(crate::sse::preview_page_handler).post(crate::sse::stage_preview_handler),

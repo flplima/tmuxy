@@ -289,6 +289,24 @@ pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), Command
     .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
 }
 
+/// A mutation the host builds itself, routed by the shared policy like a
+/// client's, whose output it needs back: the id a `splitw -P` printed, say.
+/// It rides the same command channel as every other mutation, so it stays in
+/// order with them, and a `%error` comes back to the caller instead of going
+/// to the emitter. A blocked command is an error here: the caller is waiting
+/// for an answer that would never come.
+pub async fn run_with_output(
+    tx: &MonitorCommandSender,
+    command: &str,
+    session: &str,
+    size: Option<(u32, u32)>,
+) -> Result<String, CommandError> {
+    match route(command, session, size) {
+        Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
+        Route::ControlMode(cmd) => query(tx, &cmd).await,
+    }
+}
+
 /// A client's mutation, the way both hosts run one: routed by the shared
 /// policy (a blocked command is logged and dropped — both answer it with
 /// nothing), written to the monitor, and, when it was a `source-file`,

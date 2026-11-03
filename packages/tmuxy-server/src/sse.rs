@@ -26,12 +26,14 @@ use tracing::{debug, info, trace, warn};
 use crate::command::ClientCommand;
 use crate::state::{AppState, SessionConnections};
 
+pub(crate) use commands::has_json_content_type;
 pub use commands::{commands_handler, trace_handler};
 pub use emitter::watch_config_dir;
 pub use monitor::start_monitoring;
 pub use preview::{preview_page_handler, stage_preview_handler};
 
 use clients::cleanup_connection;
+pub(crate) use clients::{monitor_for_agent, new_window_client_size, AGENT_HOLD};
 #[cfg(test)]
 use clients::{note_client_activity, set_client_size, set_size_policy};
 use commands::command_failure;

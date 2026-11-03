@@ -71,6 +71,27 @@ describe('CLI pane float', () => {
       );
     });
 
+    /**
+     * `--detach` is what an MCP client's `pane_float` runs inside run-shell:
+     * the command is the float's own program, each word quoted for the shell,
+     * and the pane id comes back at once. Waiting for the command there would
+     * hold the server's control-mode queue until it exited.
+     */
+    test('a detached float runs its command and answers its pane id without waiting', () => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(
+        ['pane', 'float', '--detach', '--', 'bash', '-c', 'echo "a b"; sleep 9'],
+        { env: floatEnv },
+      );
+      expect(exitCode).toBe(0);
+      expect(stdout.trim()).toBe('%99');
+      const lists = tmuxCalls.filter((c) => c.args[0] === 'run-shell');
+      expect(lists).toHaveLength(1);
+      expect(lists[0].args[1]).toContain(
+        'split-window -t %5 \'bash -c echo\\ \\"a\\ b\\"\\;\\ sleep\\ 9 \'',
+      );
+      expect(tmuxCalls.some((c) => c.args[0] === 'wait-for')).toBe(false);
+    });
+
     test('a float running a command closes its own window, never the caller tab', () => {
       // The command's float can close before the script asks tmux about it,
       // and display-message answers for a target that is gone with the

@@ -61,6 +61,9 @@ enum ReplyWaiter {
     /// A fire-and-forget `run-shell`, relayed through the server option it
     /// names (`run_shell`): what it printed is shown, and a failure reported.
     RunShell(String),
+    /// A caller's `run-shell`, relayed the same way: the caller gets what the
+    /// shell command printed, and a non-zero exit as the reply's error.
+    CallerRunShell(oneshot::Sender<CommandReply>, String),
 }
 
 /// Commands that can be sent to the monitor from external code

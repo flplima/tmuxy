@@ -265,6 +265,8 @@ Options:
                   ignores this)
   --bg MODE       Backdrop: dim (default), blur, none
   --hide-header   Hide the title bar
+  --detach        With a command: print the float's pane id at once instead
+                  of waiting for the command and printing its output
 FEOF
           return ;;
       esac

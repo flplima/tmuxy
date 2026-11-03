@@ -7,6 +7,8 @@
 #   --height N                      Height in rows
 #   --bg dim|blur|none              Backdrop style
 #   --hide-header                   Hide the header bar
+#   --detach                        With a command: run it in the float and
+#                                   print the float's pane id, without waiting
 #
 # Float-inside-float mode (called from within a float-typed window):
 #   Runs the command directly in the current float pane (reuses the same slot).
@@ -18,6 +20,8 @@
 #   Creates a float pane running the command, captures its stdout,
 #   waits for completion, auto-closes the float, and outputs the
 #   captured stdout. Enables: FILE=$(tmuxy float fzf) && nvim "$FILE"
+#   With --detach the float just runs the command, as its own program, and
+#   its pane id is output at once (an MCP client's `pane_float`).
 
 set -euo pipefail
 source "${0%/*}/_lib"
@@ -28,6 +32,7 @@ WIDTH=""
 HEIGHT=""
 BG=""
 HIDE_HEADER=""
+DETACH=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --left)         DRAWER="left";   shift ;;
@@ -38,6 +43,7 @@ while [ $# -gt 0 ]; do
     --height)       HEIGHT="$2";     shift 2 ;;
     --bg)           BG="$2";         shift 2 ;;
     --hide-header)  HIDE_HEADER="1"; shift ;;
+    --detach)       DETACH="1";      shift ;;
     --) shift; break ;;
     *) break ;;
   esac
@@ -232,6 +238,11 @@ if [ $# -eq 0 ]; then
   # Route the command list through run-shell to avoid hangs on tmux 3.5a:
   # direct subprocess calls can deadlock with control mode.
   create_float "$TARGET"
+  echo "$NEW_PANE_ID"
+elif [ -n "$DETACH" ]; then
+  # Detached: the command is the float's program, each word quoted for the
+  # shell tmux runs it with, and nothing waits on it.
+  create_float "$TARGET" "$(printf '%q ' "$@")"
   echo "$NEW_PANE_ID"
 else
   # Command mode: run the command in the float, capture its stdout, auto-close.

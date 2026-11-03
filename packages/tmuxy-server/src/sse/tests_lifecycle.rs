@@ -44,6 +44,36 @@ async fn a_reload_inside_an_older_guards_grace_is_not_cut_short_by_it() {
     assert!(conns.monitor_command_tx.is_some());
 }
 
+/// An agent on `/mcp` holds no stream between its calls. The guard a
+/// leaving browser schedules must not stop the monitor under an agent that
+/// called a moment ago — the next call would wait for a fresh attach — and
+/// must still stop it once the agent's hold has run out, so a client that
+/// went away does not keep a control-mode client attached forever.
+#[tokio::test]
+async fn an_agents_hold_outlasts_the_grace_and_then_ends() {
+    let state = Arc::new(AppState::new());
+    session_with_fake_monitor(&state, "s").await;
+    {
+        let mut sessions = state.sessions.write().await;
+        let conns = sessions.get_mut("s").unwrap();
+        conns.connections.clear();
+        conns.agent_hold_until = Some(tokio::time::Instant::now() + Duration::from_millis(400));
+    }
+    schedule_idle_monitor_cleanup(&state, "s", Duration::from_millis(50)).await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        state.sessions.read().await.contains_key("s"),
+        "the grace stopped a monitor an agent still holds"
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !state.sessions.read().await.contains_key("s"),
+        "the monitor outlived the agent's hold"
+    );
+}
+
 /// A monitor whose control link dropped while the session survived (its CC
 /// client killed, a `detach-client`) attaches again, and the attach resizes
 /// the session to the control-mode PTY's 200x50. `last_resize` still said

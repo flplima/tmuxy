@@ -5137,6 +5137,7 @@ dependencies = [
  "futures-util",
  "libc",
  "nix",
+ "regex",
  "reqwest 0.12.28",
  "rust-embed",
  "serde",

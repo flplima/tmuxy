@@ -136,6 +136,7 @@ Commands:
   nav         Navigate across groups, splits, and tabs
   widget      Display widgets (tree, preview)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
+  mcp         Show the MCP endpoint that lets an AI agent drive this session
   run         Run any tmux command safely
   cleanup     Reap shells left hanging by a pane that died while starting up
   connect     Reconnect the desktop app to a different tmux server (socket)
@@ -362,6 +363,7 @@ source "$SCRIPTS_DIR/cli-pane.sh"
 source "$SCRIPTS_DIR/cli-pane-run.sh"
 source "$SCRIPTS_DIR/cli-commands.sh"
 source "$SCRIPTS_DIR/cli-plugin.sh"
+source "$SCRIPTS_DIR/cli-mcp.sh"
 
 # The verbs below that exec the server binary hand `--json` back to it.
 server_json=()
@@ -393,6 +395,10 @@ case "${1:-}" in
   open)
     shift
     cmd_widget preview "$@"
+    ;;
+  mcp)
+    shift
+    cmd_mcp "$@"
     ;;
   cleanup)
     shift
