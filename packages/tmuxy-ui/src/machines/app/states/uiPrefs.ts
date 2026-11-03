@@ -4,7 +4,7 @@
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
  * enableAnimations, animationsAllowed, cursorBlink, sendAsk, tabOverviewCols, gestureFlags,
- * traceSettings, themeRev, notifyAllowed, pushState.
+ * traceSettings, themeRev, notifyAllowed, pushState, processIcons.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *

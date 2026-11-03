@@ -10,7 +10,7 @@ The web client uses two HTTP endpoints on the Axum server:
 
 - `connection-info` — Connection ID, default shell, and whether the server is tracing (sent on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
-- `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag), the `@tmuxy-css-*` variables from tmux config, and the options the user's `tmuxy.conf` pins (`pinned`); re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
+- `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag), the `@tmuxy-css-*` variables and `@tmuxy-icon-*` icons (images inline) from tmux config, and the options the user's `tmuxy.conf` pins (`pinned`); re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
 - `state-update` — Full state snapshots and incremental deltas (serialized JSON)
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications

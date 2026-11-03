@@ -16,6 +16,8 @@ const {
   waitForCondition,
   noMenuOpen,
   clickMenuItem,
+  splitPaneKeyboard,
+  waitForPaneCount,
 } = require('./helpers');
 const {
   CONFIG_URL,
@@ -27,6 +29,7 @@ const {
   reloadConfig,
   useTmuxConf,
   unsetConfigVariable,
+  iconSetFor,
 } = require('./helpers/config-server');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
@@ -332,4 +335,102 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
       async () => `Reload Config to source ~/.tmux.conf; tmux has "${fromTmuxConf()}"`,
     );
   });
+  // An image icon is drawn as the user sees it, so its pixels are read off
+  // the page: every one the theme's, in two colours or more for `palette`,
+  // all one for a colour's name.
+  test('an image in icons/ named by @tmuxy-icon-<process> is the pane icon, drawn in the theme colours', async () => {
+    if (ctx.skipIfNotReady()) return;
+    unsetConfigVariable();
+    stopServer = await startConfigServer();
+    const page = ctx.page;
+    await navigateToSession(page, ctx.session.name, CONFIG_URL);
+    await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+    // Two panes, so each wears its icon in a header.
+    await splitPaneKeyboard(page, 'horizontal');
+    await waitForPaneCount(page, 2);
+    const { paneId, command } = await page.evaluate(() => {
+      const { panes, activePaneId } = window.app.getSnapshot().context;
+      return {
+        paneId: activePaneId,
+        command: panes.find((p) => p.tmuxId === activePaneId).command,
+      };
+    });
+
+    // Orange, blue and black squares: three colours no theme has exactly.
+    fs.mkdirSync(path.join(CONFIG_DIR, 'icons'), { recursive: true });
+    fs.writeFileSync(
+      path.join(CONFIG_DIR, 'icons', 'mark.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3 1" width="48" height="16">' +
+        '<rect width="1" height="1" fill="#ff8800"/><rect x="1" width="1" height="1" fill="#2040ff"/>' +
+        '<rect x="2" width="1" height="1" fill="#000"/></svg>',
+    );
+    iconSetFor(command);
+    const conf = path.join(CONFIG_DIR, 'tmuxy.conf');
+    fs.appendFileSync(conf, `\nset -g @tmuxy-icon-${command} mark.svg\n`);
+    reloadConfig();
+
+    /** The icon's opaque pixels as `#rrggbb`, distinct, and the theme's colours. */
+    const drawn = () =>
+      page.evaluate((id) => {
+        const img = document.querySelector(`[data-pane-tab="${id}"] .process-icon-image img`);
+        const box = img?.getBoundingClientRect();
+        if (!img || !img.complete || !img.naturalWidth || !box?.width) return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const c = canvas.getContext('2d');
+        c.drawImage(img, 0, 0);
+        const data = c.getImageData(0, 0, canvas.width, canvas.height).data;
+        const hex = (i) =>
+          '#' + [0, 1, 2].map((k) => data[i + k].toString(16).padStart(2, '0')).join('');
+        const pixels = new Set();
+        for (let i = 0; i < data.length; i += 4) if (data[i + 3] === 255) pixels.add(hex(i));
+        const probe = document.createElement('canvas').getContext('2d');
+        const root = getComputedStyle(document.documentElement);
+        const theme = {};
+        for (const name of [
+          'foreground',
+          'red',
+          'green',
+          'yellow',
+          'blue',
+          'magenta',
+          'cyan',
+          'white',
+          'black',
+        ]) {
+          for (const v of [name, `bright-${name}`]) {
+            probe.fillStyle = '#000';
+            probe.fillStyle = root.getPropertyValue(`--term-${v}`).trim() || '#000';
+            theme[v] = probe.fillStyle;
+          }
+        }
+        return { pixels: [...pixels], theme };
+      }, paneId);
+
+    let seen = null;
+    await waitForCondition(
+      page,
+      async () => {
+        seen = await drawn();
+        const palette = seen && Object.values(seen.theme);
+        return !!seen && seen.pixels.length >= 2 && seen.pixels.every((p) => palette.includes(p));
+      },
+      15000,
+      () => `the icon in the theme's colours; drawn ${JSON.stringify(seen)}`,
+    );
+
+    // A colour's name paints the whole icon in it.
+    fs.appendFileSync(conf, '\nset -g @tmuxy-icon-filter red\n');
+    reloadConfig();
+    await waitForCondition(
+      page,
+      async () => {
+        seen = await drawn();
+        return !!seen && seen.pixels.length === 1 && seen.pixels[0] === seen.theme.red;
+      },
+      15000,
+      () => `the icon all in the theme's red; drawn ${JSON.stringify(seen)}`,
+    );
+  }, 90000);
 });

@@ -4,7 +4,8 @@
 
 import { memo, type ReactNode } from 'react';
 import { useAppSelector } from '../machines/appHooks';
-import { getTabIcon, getTabLabel } from './paneTabDisplay';
+import { getTabLabel } from './paneTabDisplay';
+import { PaneIcon } from './PaneIcon';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor } from '../utils/paneState';
 import { InlineRename } from './InlineRename';
@@ -49,7 +50,6 @@ export const PaneTab = memo(function PaneTab({
   /** This member is the pane being dragged. */
   dragging: boolean;
 }) {
-  const icon = getTabIcon(pane, widgetName, titleOverride);
   const text = getTabLabel(pane, titleOverride);
   // What the pane is doing takes the icon's place while it is anything but idle.
   const unread = useAppSelector((ctx) => ctx.unreadPaneIds.includes(pane.tmuxId));
@@ -70,7 +70,12 @@ export const PaneTab = memo(function PaneTab({
       {state !== 'idle' ? (
         <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
       ) : (
-        icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>
+        <PaneIcon
+          pane={pane}
+          widgetName={widgetName}
+          titleOverride={titleOverride}
+          className="pane-tab-icon pane-tab-icon-static"
+        />
       )}
       {renaming ? (
         <InlineRename

@@ -4,7 +4,8 @@
  */
 
 import { TmuxOp } from '../domain/commands';
-import { paneRowLines, getTabIcon, tabIcon } from './paneTabDisplay';
+import { paneRowLines, tabIcon } from './paneTabDisplay';
+import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor, type tabPaneStates } from '../utils/paneState';
@@ -225,7 +226,6 @@ export function SidebarTreeRow({
   // The current tab's panes read a step brighter than the dimmed rest.
   const inCurrentTab = row.window.id === activeWindowId;
   const { process, title } = paneRowLines(row.pane);
-  const icon = getTabIcon(row.pane);
   const state = paneStateFor(row.pane, unreadPaneIds.includes(row.pane.tmuxId));
   const cwd = displayCwd(cwdByPane.get(row.pane.tmuxId));
   const branch = branchOf([row.pane.tmuxId]);
@@ -284,11 +284,7 @@ export function SidebarTreeRow({
           {state !== 'idle' ? (
             <PaneStateMark state={state} className="sidebar-tree-icon sidebar-tree-state" />
           ) : (
-            icon && (
-              <span className="sidebar-tree-icon" aria-hidden="true">
-                {icon}
-              </span>
-            )
+            <PaneIcon pane={row.pane} className="sidebar-tree-icon" />
           )}
           <span className="sidebar-tree-name">{process}</span>
           <span className="sidebar-tree-id">{row.pane.tmuxId}</span>

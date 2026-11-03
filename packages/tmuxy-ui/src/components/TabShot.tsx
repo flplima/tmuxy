@@ -13,7 +13,8 @@
  */
 
 import { Terminal } from './Terminal';
-import { getTabIcon, getTabLabel } from './paneTabDisplay';
+import { getTabLabel } from './paneTabDisplay';
+import { PaneIcon } from './PaneIcon';
 import type { SlotBox } from '../utils/tabOverview';
 import type { TmuxPane } from '../domain/client';
 
@@ -37,7 +38,6 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
     <>
       {boxes.map((box) => {
         const pane = panes?.find((p) => p.tmuxId === box.paneId);
-        const icon = pane ? getTabIcon(pane) : null;
         // The pane's screen at its natural cell size, scaled into the box
         // (each axis on its own, so it fills the box the way the pane fills
         // its share of the tab).
@@ -76,7 +76,7 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
               >
                 <div className={`pane-header${box.active ? ' pane-header-active' : ''}`}>
                   <div className={`pane-tab${box.active ? ' pane-tab-active' : ''}`}>
-                    {icon && <span className="pane-tab-icon pane-tab-icon-static">{icon}</span>}
+                    <PaneIcon pane={pane} className="pane-tab-icon pane-tab-icon-static" />
                     <span className="pane-tab-title">{getTabLabel(pane)}</span>
                   </div>
                 </div>

@@ -9,6 +9,7 @@ import type { TmuxPane } from '../domain/client';
 import type { TmuxServer } from '../machines/types/domain';
 import { getWidget } from './widgets/registry';
 import { circledNumber } from '../utils/paneState';
+import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
 
 /**
  * The host portion of `host [session]` shown in both the left sidebar title
@@ -67,6 +68,24 @@ const PROCESS_ICONS: Record<string, string> = {
 
 const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 
+const svgIcon = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+/**
+ * The agents' own marks, as images: drawn in the theme's colours like any
+ * image icon (utils/themedIcon.ts), and replaced by `@tmuxy-icon-<process>`.
+ */
+const BUILTIN_IMAGE_ICONS: Readonly<Record<string, string>> = {
+  claude: svgIcon(CLAUDE_SVG),
+  codex: svgIcon(CODEX_SVG),
+  agy: svgIcon(AGY_SVG),
+  antigravity: svgIcon(AGY_SVG),
+};
+
+/** Whether an icon is an image (a `data:` URL) rather than a glyph. */
+export function isImageIcon(icon: string): boolean {
+  return icon.startsWith('data:image/');
+}
+
 /**
  * Below this, a character is ordinary text: ASCII, Latin, and the punctuation
  * blocks that hold quotation marks, dashes and the like. Above it are the
@@ -77,7 +96,7 @@ const FIRST_SYMBOL_CODEPOINT = 0x2070;
 
 function getProcessIcon(command: string): string {
   const name = command.toLowerCase();
-  if (PROCESS_ICONS[name]) return PROCESS_ICONS[name];
+  if (Object.prototype.hasOwnProperty.call(PROCESS_ICONS, name)) return PROCESS_ICONS[name];
   if (name.includes('docker')) return PROCESS_ICONS.docker;
   return DEFAULT_ICON;
 }
@@ -151,17 +170,26 @@ export function tabIcon(name: string, position: number): { icon: string; label: 
 }
 
 /**
- * Process/widget icon for a pane. A widget's own icon comes from its
- * registered definition (components/widgets), so adding a widget never means
- * editing a table here; an application's own icon comes from its title.
+ * Process/widget icon for a pane: a glyph, or an image as a `data:` URL
+ * ([`isImageIcon`]). A widget's own icon comes from its registered definition
+ * (components/widgets), so adding a widget never means editing a table here.
+ * Then, by process: the icon the config gives it (`@tmuxy-icon-<process>`,
+ * `custom`), an agent's own mark, the icon the application put in front of
+ * its title, the table of executables.
  */
 export function getTabIcon(
   pane: TmuxPane,
   widgetName?: string,
   titleOverride?: string,
+  custom: Readonly<Record<string, string>> = {},
 ): string | null {
   const widgetIcon = widgetName ? getWidget(widgetName)?.icon : undefined;
   if (widgetIcon) return widgetIcon;
+  const command = pane.command.toLowerCase();
+  const ownIcon = (map: Readonly<Record<string, string>>) =>
+    Object.prototype.hasOwnProperty.call(map, command) ? map[command] : undefined;
+  const configured = ownIcon(custom) ?? ownIcon(BUILTIN_IMAGE_ICONS);
+  if (configured) return configured;
   const own = splitTitleIcon(getTabText(pane, titleOverride)).icon;
   if (own) return own;
   if (pane.command) return getProcessIcon(pane.command);

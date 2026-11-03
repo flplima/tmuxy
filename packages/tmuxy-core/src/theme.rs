@@ -15,6 +15,10 @@ use crate::session;
 use crate::transport::query;
 use crate::CommandError;
 
+mod css_vars;
+mod icons;
+use css_vars::parse_css_vars;
+
 /// Fallbacks when the tmux options are unset (fresh server, never themed).
 const DEFAULT_THEME: &str = "default";
 const DEFAULT_MODE: &str = "dark";
@@ -167,53 +171,9 @@ fn settings_query() -> String {
         .join(" ; ")
 }
 
-/// The `--name: value` pairs among `show-options -g` lines, as
-/// `{ "name": "value" }` with the `--` dropped. tmux prints a value in double
-/// quotes when it has to, escaping `"` and `\`. A name that could end a
-/// declaration, or a value that could start another rule, is left out: the
-/// client writes these into one style rule, one declaration each.
-fn parse_css_vars<'a>(
-    lines: impl Iterator<Item = &'a str>,
-) -> serde_json::Map<String, serde_json::Value> {
-    let mut vars = serde_json::Map::new();
-    for line in lines {
-        let Some(rest) = line.strip_prefix(CSS_VAR_PREFIX) else {
-            continue;
-        };
-        let (name, value) = rest.split_once(' ').unwrap_or((rest, ""));
-        let value = value.trim();
-        let value = value
-            .strip_prefix('"')
-            .and_then(|v| v.strip_suffix('"'))
-            .map(|v| v.replace("\\\"", "\"").replace("\\\\", "\\"))
-            .unwrap_or_else(|| value.to_string());
-        let usable = session::is_safe_css_name(name) && is_safe_css_value(&value);
-        if usable {
-            vars.insert(name.to_string(), serde_json::Value::String(value));
-        }
-    }
-    vars
-}
-
-/// A value that is one CSS declaration's value and nothing more: it cannot
-/// end the declaration (`;`, `{`, `}`), comment out the ones after it
-/// (`/*`), or fetch anything (`url(` and its kin, or a backslash escape that
-/// would spell one).
-fn is_safe_css_value(value: &str) -> bool {
-    const FETCHES: [&str; 3] = ["url(", "src(", "image-set("];
-    let lower = value.to_ascii_lowercase();
-    !value.is_empty()
-        && !value
-            .chars()
-            .any(|c| c.is_control() || matches!(c, ';' | '{' | '}' | '\\'))
-        && !lower.contains("/*")
-        && !lower.contains("*/")
-        && !FETCHES.iter().any(|f| lower.contains(f))
-}
-
 /// The settings from what [`settings_query`] printed, with the defaults for
 /// anything unset or malformed. Returns `{ "theme", "mode", "appearance",
-/// "cssVars" }`.
+/// "cssVars", "icons" }`.
 fn parse_settings(output: &str) -> serde_json::Value {
     let lines: Vec<&str> = output.lines().map(str::trim).collect();
     let value = |option: &str| {
@@ -270,6 +230,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
         size: SizePolicy::parse(value(tmux_options::SIZE)),
     };
     let css_vars = parse_css_vars(lines.iter().copied());
+    let icons = icons::parse(lines.iter().copied());
     serde_json::json!({
         // The theme names a stylesheet the client loads by path.
         // A theme that is gone (its plugin removed, its file deleted) falls
@@ -282,13 +243,14 @@ fn parse_settings(output: &str) -> serde_json::Value {
         "mode": if matches!(mode, "dark" | "light" | "auto") { mode } else { DEFAULT_MODE },
         "appearance": appearance,
         "cssVars": css_vars,
+        "icons": icons,
     })
 }
 
 /// Read the active theme name + mode and the appearance from tmux in one
 /// round trip, applying the defaults, plus the options the user's
 /// `tmuxy.conf` pins. Returns `{ "theme", "mode", "appearance", "cssVars",
-/// "pinned" }` — the wire shape the `get_theme_settings` Tauri command, the
+/// "icons", "pinned" }` — the wire shape the `get_theme_settings` Tauri command, the
 /// `GetThemeSettings` SSE command and the `theme-settings` push (after the
 /// config is sourced) all share. `pinned` lists `@tmuxy-*` option names; the
 /// menu shows those as set in tmuxy.conf rather than offering to change them.
@@ -297,6 +259,7 @@ pub async fn get_theme_settings(
 ) -> Result<serde_json::Value, CommandError> {
     let output = query(tx, &settings_query()).await?;
     let mut settings = parse_settings(&output);
+    icons::inline_images(&mut settings["icons"], &session::config_dir().join("icons"));
     settings["pinned"] = serde_json::json!(session::pinned_options());
     Ok(settings)
 }

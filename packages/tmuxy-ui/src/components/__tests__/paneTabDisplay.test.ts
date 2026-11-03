@@ -4,6 +4,7 @@ import {
   getTabText,
   getTabLabel,
   getTabIcon,
+  isImageIcon,
   paneRowLines,
   splitLeadingEmoji,
   splitTitleIcon,
@@ -117,15 +118,35 @@ describe('the icon an application announces', () => {
     expect(getTabLabel(shell)).toBe('zsh');
   });
 
-  it('knows claude by its process name, for a pane that announced no title', () => {
+  it('knows claude by its process name, and wears its mark over its title glyph', () => {
     // The backend normalises the version-pinned launcher's command name, so a
     // freshly started pane is `claude` here even before it announces a title.
-    expect(getTabIcon(pane({ command: 'claude', title: '' }))).toBe('\u273b');
+    const icon = getTabIcon(pane({ command: 'claude', title: '\u273b claude' }));
+    expect(icon && isImageIcon(icon)).toBe(true);
+    expect(decodeURIComponent(icon ?? '')).toContain('#D97757');
     // The row does not say `claude` twice once the title arrives.
     expect(paneRowLines(pane({ command: 'claude', title: '\u273b claude' }))).toEqual({
       process: 'claude',
       title: '',
     });
+  });
+
+  it('gives each agent its own mark', () => {
+    const marks = ['claude', 'codex', 'agy'].map((command) => getTabIcon(pane({ command })));
+    expect(marks.every((icon) => icon && isImageIcon(icon))).toBe(true);
+    expect(new Set(marks).size).toBe(3);
+  });
+
+  it('wears the icon the config gives a process, over every other', () => {
+    const custom = { claude: '\u2605', zsh: 'data:image/png;base64,AAAA' };
+    expect(
+      getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, undefined, custom),
+    ).toBe('\u2605');
+    expect(getTabIcon(pane({ command: 'ZSH' }), undefined, undefined, custom)).toBe(custom.zsh);
+    // A name the map does not hold, even one every object has, is not in it.
+    expect(getTabIcon(pane({ command: 'constructor' }), undefined, undefined, custom)).toBe(
+      '\ue795',
+    );
   });
 
   it('leaves the plain title alone for the places that draw no icon', () => {

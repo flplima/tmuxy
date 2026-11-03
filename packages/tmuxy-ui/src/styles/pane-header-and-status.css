@@ -195,6 +195,14 @@
   cursor: default;
 }
 
+/* An image process icon (components/PaneIcon.tsx), drawn at the size of
+   the glyphs beside it. */
+.process-icon-image img {
+  display: block;
+  width: 1em;
+  height: 1em;
+}
+
 .pane-tab-title {
   overflow: hidden;
   text-overflow: ellipsis;

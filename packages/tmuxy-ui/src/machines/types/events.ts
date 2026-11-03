@@ -1,5 +1,5 @@
 import type { PushState } from '../../utils/pushNotifications';
-import type { ServerState, KeyBindings, Appearance } from '../../domain/wire';
+import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
 import type { TabStripGeometry } from '../../utils/tabStripDrop';
@@ -303,6 +303,7 @@ export type AppMachineEvent =
       mode: ThemeMode;
       appearance?: Appearance;
       cssVars?: Readonly<Record<string, string>>;
+      icons?: ProcessIcons;
       pinned?: readonly string[];
     }
   | { type: 'THEMES_LIST_RECEIVED'; themes: ThemeInfo[] }
