@@ -4,15 +4,51 @@
 use super::CSS_VAR_PREFIX;
 use crate::session;
 
-/// A `show-options -g` line's value as tmux printed it: in double quotes
-/// when it had to, with `"` and `\` escaped.
+/// A `show-options -g` line's value as tmux printed it: single-quoted
+/// (literal), double-quoted, or bare — and in the last two a backslash
+/// escapes the character after it (`\$`, `\#`, `\~`, `\\`, `\"`). Only
+/// `\"` and `\\` were undone, so an icon of `'$'` reached the page as `\$`.
 pub(super) fn unquote(value: &str) -> String {
     let value = value.trim();
-    value
+    if let Some(inner) = value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
+        return inner.to_string();
+    }
+    let inner = value
         .strip_prefix('"')
         .and_then(|v| v.strip_suffix('"'))
-        .map(|v| v.replace("\\\"", "\"").replace("\\\\", "\\"))
-        .unwrap_or_else(|| value.to_string())
+        .unwrap_or(value);
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+#[cfg(test)]
+#[test]
+fn a_value_reads_back_as_set_whichever_way_tmux_printed_it() {
+    // What `show-options -g` printed for each value (tmux 3.5a).
+    for (printed, set) in [
+        (r#"\$"#, "$"),
+        (r#"\#"#, "#"),
+        (r#"\~"#, "~"),
+        (r#"a\\b"#, r#"a\b"#),
+        (r#"'a"b'"#, r#"a"b"#),
+        (r#""a;b""#, "a;b"),
+        (r#""it's""#, "it's"),
+        (r#""{x}""#, "{x}"),
+        (r##""#101010""##, "#101010"),
+        (r#""$ ""#, "$ "),
+    ] {
+        assert_eq!(unquote(printed), set, "{printed}");
+    }
 }
 
 /// The `--name: value` pairs among `show-options -g` lines, as

@@ -10,6 +10,8 @@ fn a_glyph_or_an_image_file_is_a_process_icon_and_anything_else_is_dropped() {
         "@tmuxy-icon-claude \"✻\"",
         "@tmuxy-icon-Codex openai.svg",
         "@tmuxy-icon-nvim \"\u{e62b} \"",
+        // As tmux prints a bare `$`: escaped.
+        "@tmuxy-icon-bash \\$",
         "@tmuxy-css-term-red #ff0000",
         // A path out of icons/, a hidden file, an unknown type, a label
         // rather than an icon, a control character, a smuggled data URL.
@@ -27,7 +29,8 @@ fn a_glyph_or_an_image_file_is_a_process_icon_and_anything_else_is_dropped() {
     // Matched as the client matches a command: lowercased.
     assert_eq!(map["codex"], "openai.svg");
     assert_eq!(map["nvim"], "\u{e62b} ");
-    assert_eq!(map.len(), 3, "{map:?}");
+    assert_eq!(map["bash"], "$");
+    assert_eq!(map.len(), 4, "{map:?}");
 }
 
 #[test]
