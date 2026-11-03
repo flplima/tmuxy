@@ -132,16 +132,33 @@ pub async fn apply_plugin_keys(
         };
         listings.push((table, listing));
     }
-    let (_, cmds) = keys::commands(&registry, |table| {
+    let (planned, cmds) = keys::commands(&registry, |table| {
         listings
             .iter()
             .find(|(t, _)| *t == table)
             .map(|(_, l)| l.clone())
             .unwrap_or_default()
     });
-    for argv in cmds {
-        let line: Vec<String> = argv.iter().map(|w| tmux_word(w)).collect();
-        super::run(tx, &line.join(" ")).await?;
+    let lines: Vec<String> = cmds
+        .iter()
+        .map(|argv| {
+            argv.iter()
+                .map(|w| tmux_word(w))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
+    tracing::debug!(
+        target: "tmuxy_core::plugins",
+        kept = ?planned
+            .iter()
+            .filter_map(|p| p.taken_by.as_ref().map(|by| format!("{} {}: {by}", p.table.as_str(), p.key)))
+            .collect::<Vec<_>>(),
+        commands = ?lines.iter().map(|l| l.split(" run-shell").next().unwrap_or(l)).collect::<Vec<_>>(),
+        "plugin keys"
+    );
+    for line in lines {
+        super::run(tx, &line).await?;
     }
     Ok(())
 }

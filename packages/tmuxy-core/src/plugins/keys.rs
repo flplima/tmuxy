@@ -41,12 +41,12 @@ pub struct Planned {
     pub taken_by: Option<String>,
 }
 
-/// `list-keys -T <table>` as an external read, for a CLI verb (no
-/// control-mode connection of its own). The server reads the same over its
-/// connection (`transport::apply_plugin_keys`).
-fn list_keys(table: KeyTable, key: Option<&str>) -> String {
-    let mut argv = vec!["list-keys".to_string(), "-T".into(), table.as_str().into()];
-    argv.extend(key.map(str::to_string));
+/// `list-keys -T <table>`, the whole table, as an external read for a CLI
+/// verb (no control-mode connection of its own). The server reads the same
+/// over its connection (`transport::apply_plugin_keys`). Always the whole
+/// table: before 3.8, `list-keys -T <table> <key>` answers nothing at all.
+fn list_keys(table: KeyTable) -> String {
+    let argv = ["list-keys".to_string(), "-T".into(), table.as_str().into()];
     crate::session::tmux_output(&argv).unwrap_or_default()
 }
 
@@ -88,7 +88,7 @@ fn user_binding_in(listing: &str, key: &str) -> Option<String> {
 /// What a user binding on `key` is, when there is one that is not a
 /// plugin's: the key a plugin may not take.
 pub fn user_binding(table: KeyTable, key: &str) -> Option<String> {
-    user_binding_in(&list_keys(table, Some(key)), key)
+    user_binding_in(&list_keys(table), key)
 }
 
 /// The keys every plugin asks for, and which of them can be bound: the first
@@ -178,7 +178,7 @@ pub fn commands(
 /// Returns the plan.
 pub fn apply(dirs: &Dirs) -> Result<Vec<Planned>> {
     let registry = Registry::load(dirs)?;
-    let (planned, cmds) = commands(&registry, |table| list_keys(table, None));
+    let (planned, cmds) = commands(&registry, list_keys);
     let argv: Vec<String> = cmds.join(&[";".to_string()][..]);
     if !argv.is_empty() {
         job::run(dirs, &argv)?;

@@ -183,7 +183,12 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
     expect(await pluginBindings(page)).not.toContain('M-u');
     // The user's M-u is still theirs in tmux, and `list` says why the
     // plugin's is not bound. Read until the install's reloads have settled.
-    const userKey = () => tmuxRunAsOperator('list-keys -T prefix M-u');
+    // The whole table: before tmux 3.8, `list-keys -T prefix M-u` prints nothing.
+    const userKey = () =>
+      tmuxRunAsOperator('list-keys -T prefix')
+        .split('\n')
+        .filter((line) => /\sM-u\s/.test(line))
+        .join('\n');
     const keptLine = /key\s+prefix M-u -> record\s+NOT BOUND: kept .*display-message user-key/;
     await waitForCondition(
       page,
