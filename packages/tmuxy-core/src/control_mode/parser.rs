@@ -52,6 +52,11 @@ pub enum ControlModeEvent {
     /// `%subscription-changed <name> $session @window <index> %pane ... : value`.
     SubscriptionChanged { name: String, pane_id: PaneId },
 
+    /// A session-scoped `refresh-client -B` subscription's value changed:
+    /// `%subscription-changed <name> $session - - - : value`, no window or
+    /// pane named, the value whole.
+    SessionSubscriptionChanged { name: String, value: String },
+
     /// A paste buffer was created or updated (e.g. copy-mode yank, set-buffer).
     /// tmux does not forward OSC 52 to a control-mode client, so this is how
     /// tmuxy learns a copy happened and mirrors the buffer to the web clipboard.
@@ -269,11 +274,16 @@ impl Parser {
 
         // %subscription-changed name $session @window index %pane ... : value
         if let Some(rest) = line.strip_prefix(ev::SUBSCRIPTION_CHANGED) {
-            let head = rest.split(" : ").next().unwrap_or(rest);
+            let (head, value) = rest.split_once(" : ").unwrap_or((rest, ""));
             let mut words = head.split_whitespace();
             let name = words.next()?.to_string();
-            let pane_id = words.find_map(|w| PaneId::parse(w).ok())?;
-            return Some(ControlModeEvent::SubscriptionChanged { name, pane_id });
+            return Some(match words.find_map(|w| PaneId::parse(w).ok()) {
+                Some(pane_id) => ControlModeEvent::SubscriptionChanged { name, pane_id },
+                None => ControlModeEvent::SessionSubscriptionChanged {
+                    name,
+                    value: value.to_string(),
+                },
+            });
         }
 
         // %paste-buffer-changed buffer-name

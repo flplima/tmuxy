@@ -286,6 +286,8 @@ export type AppMachineEvent =
       message: string;
     }
   | { type: 'SET_THEME'; name: string }
+  /** tmux's `<theme>:<mode>` changed: some client picked a theme. */
+  | { type: 'THEME_REV_CHANGED'; rev: string }
   | { type: 'SET_THEME_MODE'; mode: ThemeMode }
   | { type: 'TOGGLE_CURSOR_BLINK' }
   | { type: 'TOGGLE_SEND_ASK' }

@@ -241,9 +241,14 @@ pub(super) async fn handle_command(
             tmuxy_core::preview::read_preview(&tx, &pane_id, path).await
         }
         ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
+        // The theme is the session's, not the client's: every client
+        // watching it is sent the new settings at once. Clients of other
+        // monitors (the desktop app, another session) learn it from the
+        // pane-metadata subscription (`ThemeRev`) about a second later.
         ClientCommand::SetTheme { name, mode } => {
             let tx = state.monitor_tx(session).await?;
             tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await?;
+            broadcast_theme_settings(state, session).await;
             Ok(serde_json::json!(null))
         }
         ClientCommand::SetCursorBlink { enabled } => {
@@ -264,6 +269,7 @@ pub(super) async fn handle_command(
         ClientCommand::SetThemeMode { mode } => {
             let tx = state.monitor_tx(session).await?;
             tmuxy_core::theme::set_theme_mode(&tx, &mode).await?;
+            broadcast_theme_settings(state, session).await;
             Ok(serde_json::json!(null))
         }
         ClientCommand::ListSnapshots => transport::list_snapshots_json().await,

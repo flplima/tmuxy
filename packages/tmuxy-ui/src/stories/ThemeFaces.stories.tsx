@@ -72,24 +72,21 @@ function face(theme: Theme, mode: Mode): Story {
         { timeout: 8000 },
       );
 
-      // A link keeps the old face's sheet in force until the new one has
-      // loaded, and every check below would pass against the colours being
-      // replaced: so the new sheet's `load` is what says the face is in.
-      const link = document.getElementById('tmuxy-theme') as HTMLLinkElement;
-      const loaded =
-        link.getAttribute('href') === `/themes/${theme}.css`
-          ? Promise.resolve()
-          : new Promise<void>((resolve) =>
-              link.addEventListener('load', () => resolve(), { once: true }),
-            );
+      // The old face's sheet stays in force until the new one has loaded,
+      // and every check below would pass against the colours being replaced.
+      // The new sheet loads in a link of its own and takes the `tmuxy-theme`
+      // id only once it has (themeManager): that id on the new href is what
+      // says the face is in.
       app().send({ type: 'SET_THEME', name: theme });
       app().send({ type: 'SET_THEME_MODE', mode });
-      await Promise.race([
-        loaded,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`/themes/${theme}.css never loaded`)), 8000),
-        ),
-      ]);
+      await waitFor(
+        () =>
+          expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toBe(
+            `/themes/${theme}.css`,
+          ),
+        { timeout: 8000 },
+      );
+      const link = document.getElementById('tmuxy-theme') as HTMLLinkElement;
       const html = document.documentElement;
       expect(link.getAttribute('href')).toBe(`/themes/${theme}.css`);
       expect(html.classList.contains(`theme-${mode}`)).toBe(true);

@@ -155,6 +155,7 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       totalHeight: 24,
       focusRequest: '',
       pluginsRev: '',
+      themeRev: '',
       sessionName: 'tmuxy',
     };
     const m0 = modelFromSnapshot(baseSnap);
@@ -287,6 +288,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalHeight: 24,
       focusRequest: '',
       pluginsRev: '',
+      themeRev: '',
       sessionName: 'tmuxy',
     });
     const r = predict(
@@ -345,6 +347,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalHeight: 24,
       focusRequest: '',
       pluginsRev: '',
+      themeRev: '',
       sessionName: 'tmuxy',
     });
     const r = predict(
@@ -383,6 +386,7 @@ describe('Op predictions — tmux-output shape', () => {
       totalHeight: 48,
       focusRequest: '',
       pluginsRev: '',
+      themeRev: '',
       sessionName: 'tmuxy',
     });
     const r = predict(

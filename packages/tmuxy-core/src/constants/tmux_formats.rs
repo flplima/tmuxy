@@ -255,6 +255,21 @@ pub const SUBSCRIBE_PANE_TITLES_CMD: &str = concat!(
     ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}|#{@tmuxy-plugins-rev}'"
 );
 
+/// The control-mode subscription that reports the theme and its mode,
+/// `<@tmuxy-theme>:<@tmuxy-theme-mode>`, for the attached session (`::`).
+///
+/// Both are global user options, and tmux announces no change to an option,
+/// so a theme picked on one client — over this monitor or another one, the
+/// desktop app's — reached no other client until it reconnected. tmux checks
+/// a subscription about once a second and answers with
+/// `%subscription-changed` whatever made the change; the value is the whole
+/// news, so nothing has to be listed again. A theme name is a file stem and
+/// a mode is `dark`/`light`/`auto`, so neither holds a ` : `.
+pub const THEME_SUBSCRIPTION_NAME: &str = "tmuxy-theme";
+/// See [`THEME_SUBSCRIPTION_NAME`].
+pub const SUBSCRIBE_THEME_CMD: &str =
+    "refresh-client -B 'tmuxy-theme::#{@tmuxy-theme}:#{@tmuxy-theme-mode}'";
+
 /// Enumerates the HIDDEN pane-group members parked in
 /// [`super::STASH_SESSION`]. Each row is prefixed with the literal
 /// `stashmember,` sentinel so the response parser routes it to the

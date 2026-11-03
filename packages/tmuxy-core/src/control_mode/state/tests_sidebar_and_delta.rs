@@ -301,3 +301,45 @@ fn the_first_emission_waits_for_the_initial_sync_and_its_captures() {
         other => panic!("expected the first emission to be a Full, got {other:?}"),
     }
 }
+
+/// A theme picked on another client reaches this one only through the theme
+/// subscription: tmux announces no option change. Its value is the delta's
+/// `theme_rev`, the same value again sends nothing, and a pane subscription
+/// of the same shape is not mistaken for it.
+#[test]
+fn a_theme_picked_anywhere_rides_the_next_delta() {
+    let mut agg = StateAggregator::new();
+    seed_pane(&mut agg, "%0", "@0");
+    agg.windows
+        .insert(wid("@0"), WindowState::new(wid("@0"), 0));
+    mark_initial_sync_done(&mut agg);
+    assert!(matches!(
+        agg.to_state_update(),
+        Some(crate::StateUpdate::Full { .. })
+    ));
+
+    let theme = |value: &str| ControlModeEvent::SessionSubscriptionChanged {
+        name: crate::constants::tmux_formats::THEME_SUBSCRIPTION_NAME.to_string(),
+        value: value.to_string(),
+    };
+    agg.step(theme("nord:dark"));
+    match agg.to_state_update() {
+        Some(crate::StateUpdate::Delta { delta }) => {
+            assert_eq!(delta.theme_rev.as_deref(), Some("nord:dark"));
+        }
+        other => panic!("expected Delta, got {other:?}"),
+    }
+
+    agg.step(theme("nord:dark"));
+    assert!(
+        agg.to_state_update().is_none(),
+        "an unchanged theme sends nothing"
+    );
+
+    agg.step(ControlModeEvent::SessionSubscriptionChanged {
+        name: "someone-else".to_string(),
+        value: "gruvbox:light".to_string(),
+    });
+    assert!(agg.to_state_update().is_none());
+    assert_eq!(agg.to_tmux_state().theme_rev.as_deref(), Some("nord:dark"));
+}

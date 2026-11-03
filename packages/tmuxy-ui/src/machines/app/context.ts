@@ -162,6 +162,7 @@ export const FIELD_OWNERS = {
   gestureFlags: 'uiPrefs',
   nativeMenus: 'uiPrefs',
   sizePolicy: 'uiPrefs',
+  themeRev: 'uiPrefs',
 
   // ---- plugins ----
   plugins: 'plugins',
@@ -268,6 +269,7 @@ export function createInitialContext(): AppMachineContext {
     traceSettings: null,
     plugins: [],
     pluginsRev: '',
+    themeRev: '',
     appFocused: true,
     prefixActive: false,
     prefixRepeatOnly: null,

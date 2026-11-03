@@ -1,7 +1,14 @@
 import { describe, it, expect } from 'vitest';
+import { fromCallback } from 'xstate';
 import { uiPrefsState } from '../uiPrefs';
 import { uiPrefsActions } from '../../actions/uiPrefs';
 const uiPrefsGuards = {};
+
+/** What the browser does when a pending theme sheet arrives (jsdom fetches none). */
+const loadPendingSheets = () =>
+  document.head
+    .querySelectorAll('link[data-pending-for]')
+    .forEach((link) => link.dispatchEvent(new Event('load')));
 import { mountState, sendAndGetContext } from './testHarness';
 
 describe('uiPrefs state', () => {
@@ -32,10 +39,12 @@ describe('uiPrefs state', () => {
     expect(ctx.themeMode).toBe('dark');
   });
 
-  // Issue #124: a page that never ran main.tsx's startup apply (a story in
-  // a browser an earlier story saved a theme in) kept the saved choice and got
-  // no stylesheet at all.
-  it('THEME_SETTINGS_RECEIVED applies a saved theme, not just the server default', () => {
+  // The theme is the session's: tmux holds it, whichever client picked it,
+  // and a client's own saved choice is only the cache its next load paints
+  // the first frame with — a phone kept the theme it was last opened with
+  // while the desktop beside it had moved on. Issue #124 holds too: the theme
+  // is applied here, for a page that never ran main.tsx's startup apply.
+  it("THEME_SETTINGS_RECEIVED applies the backend's theme over a saved one, and saves it", () => {
     localStorage.clear();
     document.getElementById('tmuxy-theme')?.remove();
     document.documentElement.classList.remove('theme-dark', 'theme-light');
@@ -45,29 +54,60 @@ describe('uiPrefs state', () => {
       const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
       const ctx = sendAndGetContext(actor, {
         type: 'THEME_SETTINGS_RECEIVED',
-        theme: 'default',
+        theme: 'dracula',
         mode: 'dark',
       });
-      expect(ctx.themeName).toBe('nord');
-      expect(ctx.themeMode).toBe('light');
+      expect(ctx.themeName).toBe('dracula');
+      expect(ctx.themeMode).toBe('dark');
       expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(
-        /themes\/nord\.css$/,
+        /themes\/dracula\.css$/,
       );
-      expect(document.documentElement.classList.contains('theme-light')).toBe(true);
-      // The saved choice stays the saved choice.
-      expect(localStorage.getItem('tmuxy-theme-name')).toBe('nord');
+      expect(document.documentElement.classList.contains('theme-dark')).toBe(true);
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('dracula');
+      expect(localStorage.getItem('tmuxy-theme-mode')).toBe('dark');
     } finally {
       localStorage.clear();
     }
   });
 
-  // Config beats menu state: a theme tmuxy.conf pins wins over the one this
-  // client last picked, and the menu cannot change it; the saved choice is
-  // kept for when the pin goes.
-  it('a theme tmuxy.conf pins wins over the saved one and survives a menu change', () => {
+  // A pick is sent to the backend on every transport (it used to stay in a
+  // web client's localStorage), and a pick on another client — tmux's
+  // `<theme>:<mode>` moving — has this one read the settings again. The first
+  // value is the one the connection's own read already answered.
+  it('a theme is picked for the session, and a pick elsewhere is read again', () => {
+    const sent: { type: string; cmd?: string; args?: unknown }[] = [];
+    const tmux = fromCallback<{ type: string }>(({ receive }) => {
+      receive((event) => sent.push(event));
+    });
+    const actor = mountState(
+      uiPrefsState,
+      uiPrefsActions,
+      uiPrefsGuards,
+      {},
+      {
+        extraActors: { tmux },
+      },
+    );
+    sendAndGetContext(actor, { type: 'SET_THEME', name: 'gruvbox' });
+    sendAndGetContext(actor, { type: 'SET_THEME_MODE', mode: 'light' });
+    expect(sent).toEqual([
+      { type: 'INVOKE', cmd: 'set_theme', args: { name: 'gruvbox' } },
+      { type: 'INVOKE', cmd: 'set_theme_mode', args: { mode: 'light' } },
+    ]);
+
+    sent.length = 0;
+    let ctx = sendAndGetContext(actor, { type: 'THEME_REV_CHANGED', rev: 'gruvbox:light' });
+    expect(ctx.themeRev).toBe('gruvbox:light');
+    expect(sent).toEqual([]);
+    ctx = sendAndGetContext(actor, { type: 'THEME_REV_CHANGED', rev: 'nord:dark' });
+    expect(ctx.themeRev).toBe('nord:dark');
+    expect(sent).toEqual([{ type: 'FETCH_THEME_SETTINGS' }]);
+  });
+
+  // Config beats menu state: a theme tmuxy.conf pins is the one, and the
+  // menu cannot change it, on any client.
+  it('a theme tmuxy.conf pins is drawn, and a menu pick does not move it', () => {
     localStorage.clear();
-    localStorage.setItem('tmuxy-theme-name', 'dracula');
-    localStorage.setItem('tmuxy-theme-mode', 'dark');
     try {
       const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
       let ctx = sendAndGetContext(actor, {
@@ -78,22 +118,10 @@ describe('uiPrefs state', () => {
       });
       expect(ctx.themeName).toBe('nord');
       expect(ctx.pinnedOptions).toEqual(['@tmuxy-theme']);
-      expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(
-        /themes\/nord\.css$/,
-      );
 
       ctx = sendAndGetContext(actor, { type: 'SET_THEME', name: 'gruvbox' });
       expect(ctx.themeName).toBe('nord');
-      expect(localStorage.getItem('tmuxy-theme-name')).toBe('dracula');
-
-      // The pin goes: the client's own choice is back.
-      ctx = sendAndGetContext(actor, {
-        type: 'THEME_SETTINGS_RECEIVED',
-        theme: 'nord',
-        mode: 'dark',
-        pinned: [],
-      });
-      expect(ctx.themeName).toBe('dracula');
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('nord');
     } finally {
       localStorage.clear();
     }
@@ -218,11 +246,14 @@ describe('uiPrefs state', () => {
     });
     const declared = () => document.getElementById('tmuxy-css-vars')?.textContent ?? '';
     expect(declared()).toContain('--term-background: #101010;');
+    loadPendingSheets();
 
     const href = () => document.getElementById('tmuxy-theme')?.getAttribute('href');
     const before = href();
     expect(before).toContain('/themes/nord.css');
     const ctx = sendAndGetContext(actor, { type: 'CSS_CHANGED' });
+    // The saved sheet replaces the old one once it has loaded (themeManager).
+    loadPendingSheets();
     expect(href()).not.toBe(before);
     expect(href()).toContain('/themes/nord.css?v=');
     // The name and the inline variables survive the re-fetch.

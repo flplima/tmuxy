@@ -246,6 +246,7 @@ fn canonical_state() -> TmuxState {
         total_height: 50,
         focus_request: Some("left".to_string()),
         plugins_rev: Some("3f2a9c1b7d4e6a08".to_string()),
+        theme_rev: Some("nord:dark".to_string()),
         seq: 41,
     }
 }
@@ -386,6 +387,7 @@ fn canonical_delta() -> TmuxDelta {
         active_pane_id: Some("%4".parse().unwrap()),
         focus_request: Some(String::new()),
         plugins_rev: Some("9b1e0d2c4a6f8e31".to_string()),
+        theme_rev: Some("gruvbox:light".to_string()),
         total_width: Some(100),
         total_height: Some(60),
     }

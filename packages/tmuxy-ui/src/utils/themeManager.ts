@@ -37,20 +37,59 @@ function cssHref(path: string): string {
   return cssVersion === 0 ? base : `${base}?v=${cssVersion}`;
 }
 
+/**
+ * Point the stylesheet link `id` at `href`, creating it before `before` the
+ * first time.
+ *
+ * A link that already exists is not re-pointed in place: changing its href
+ * drops the old sheet at once and applies the new one only when it has
+ * loaded, so for the length of a fetch — long on a phone over the LAN — the
+ * page fell back to styles.css's defaults (the status line flashed green, the
+ * chrome went to the built-in grey) between one theme and the next. The new
+ * sheet loads in a link of its own beside the old one, and the old one goes
+ * when the new one has loaded: one switch, from one theme to the other. A
+ * sheet that fails to load is dropped and the old one stays.
+ */
 function ensureLink(id: string, href: string, before: Element | null): void {
-  let link = document.getElementById(id) as HTMLLinkElement | null;
-  if (link) {
-    if (link.getAttribute('href') !== href) {
-      link.setAttribute('href', href);
-    }
-    return;
-  }
-  link = document.createElement('link');
-  link.id = id;
+  const current = document.getElementById(id) as HTMLLinkElement | null;
+  // A switch still loading is superseded by this one.
+  document.querySelector(`link[data-pending-for="${id}"]`)?.remove();
+  if (current && current.getAttribute('href') === href) return;
+
+  const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = href;
-  if (before) document.head.insertBefore(link, before);
-  else document.head.appendChild(link);
+  if (!current) {
+    link.id = id;
+    link.addEventListener('load', syncThemeColor);
+    if (before) document.head.insertBefore(link, before);
+    else document.head.appendChild(link);
+    return;
+  }
+  link.dataset.pendingFor = id;
+  link.addEventListener('load', () => {
+    if (link.dataset.pendingFor !== id) return;
+    delete link.dataset.pendingFor;
+    current.remove();
+    link.id = id;
+    syncThemeColor();
+  });
+  link.addEventListener('error', () => {
+    if (link.dataset.pendingFor === id) link.remove();
+  });
+  current.after(link);
+}
+
+/**
+ * The browser's own chrome in the theme's window colour: `theme-color` is
+ * what a phone's browser and an installed web app tint their bars with, and
+ * a fixed `#000000` left them black, or white, whatever the theme.
+ */
+function syncThemeColor(): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const rgb = getComputedStyle(document.documentElement).getPropertyValue('--window-bg-rgb').trim();
+  if (rgb) meta.setAttribute('content', `rgb(${rgb})`);
 }
 
 /**
@@ -106,6 +145,7 @@ function setModeClass(mode: ResolvedThemeMode): void {
   const html = document.documentElement;
   html.classList.remove('theme-dark', 'theme-light');
   html.classList.add(`theme-${mode}`);
+  syncThemeColor();
 }
 
 /** Set theme-dark or theme-light class on <html>; `auto` follows the OS from here on. */

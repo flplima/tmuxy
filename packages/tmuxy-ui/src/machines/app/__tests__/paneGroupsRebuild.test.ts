@@ -85,6 +85,7 @@ const modelUpdate = (panes: TmuxPane[]) => {
     sessionName: 'main',
     focusRequest: '',
     pluginsRev: '',
+    themeRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

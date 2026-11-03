@@ -149,6 +149,11 @@ export const ServerState = Schema.Struct({
   /** `@tmuxy-plugins-rev`: a new value has the client re-read the plugins. */
   plugins_rev: Schema.optional(Schema.String),
   /**
+   * `<@tmuxy-theme>:<@tmuxy-theme-mode>`: a new value — a theme picked on any
+   * client — has the client re-read the theme settings.
+   */
+  theme_rev: Schema.optional(Schema.String),
+  /**
    * The stream's counter when this state was taken: the delta that follows
    * it carries `seq + 1`, so a delta lost right after a full state or an
    * adopted answer is a gap like any other. Absent from a state no stream
@@ -244,6 +249,8 @@ export const ServerDelta = Schema.Struct({
   focus_request: Schema.optional(Schema.String),
   /** See `ServerState.plugins_rev`; `''` when gone. */
   plugins_rev: Schema.optional(Schema.String),
+  /** See `ServerState.theme_rev`; `''` when gone. */
+  theme_rev: Schema.optional(Schema.String),
   total_width: Schema.optional(Schema.Number),
   total_height: Schema.optional(Schema.Number),
 });

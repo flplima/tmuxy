@@ -18,7 +18,6 @@ import {
   applyCssVars,
   reloadThemeCss,
   saveThemeToStorage,
-  loadThemeFromStorage,
 } from '../../../utils/themeManager';
 import {
   applyFontSize,
@@ -27,7 +26,6 @@ import {
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
 } from '../../../utils/fontSizeManager';
-import { isTauri } from '../../../utils/platform';
 import { applyAppearance } from '../../../utils/appearanceManager';
 import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
 import { PINNABLE } from '../../../domain/pins';
@@ -40,17 +38,17 @@ export const uiPrefsActions = {
     applyTheme(event.name, context.themeMode);
     saveThemeToStorage(event.name, context.themeMode);
     enqueue(assign({ themeName: event.name }));
-    // Only persist to server in Tauri — web clients use localStorage only
-    // so multiple users on the same session each keep their own theme.
-    if (isTauri()) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_theme',
-          args: { name: event.name },
-        }),
-      );
-    }
+    // The theme is the session's, on every transport: tmux holds it, and
+    // every other client watching — a phone, the desktop app — is sent it
+    // (THEME_REV_CHANGED). localStorage only paints the next load's first
+    // frame before the backend has answered.
+    enqueue(
+      sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'set_theme',
+        args: { name: event.name },
+      }),
+    );
   }),
 
   uiPrefs_applyThemeMode: act(({ event, context, enqueue }) => {
@@ -59,22 +57,24 @@ export const uiPrefsActions = {
     applyThemeMode(event.mode);
     saveThemeToStorage(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
-    // Only persist to server in Tauri — web clients use localStorage only.
-    if (isTauri()) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_theme_mode',
-          args: { mode: event.mode },
-        }),
-      );
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_theme',
-          args: { name: context.themeName, mode: event.mode },
-        }),
-      );
+    // The session's, as the theme is (uiPrefs_applyTheme).
+    enqueue(
+      sendTo('tmux', {
+        type: 'INVOKE' as const,
+        cmd: 'set_theme_mode',
+        args: { mode: event.mode },
+      }),
+    );
+  }),
+
+  // Some client picked a theme or a mode (tmux's `<theme>:<mode>` moved):
+  // read the settings again, which applies them. The first value is the one
+  // the connection's own read already answered.
+  uiPrefs_themeRevChanged: act(({ event, context, enqueue }) => {
+    if (event.type !== 'THEME_REV_CHANGED') return;
+    enqueue(assign({ themeRev: event.rev }));
+    if (context.themeRev !== '') {
+      enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
     }
   }),
 
@@ -109,19 +109,14 @@ export const uiPrefsActions = {
         pinnedOptions: event.pinned ?? [],
       }),
     );
-    // localStorage takes precedence — server defaults only apply when
-    // the user hasn't chosen a theme yet (e.g. first visit) — except over a
-    // theme or mode tmuxy.conf pins: config beats menu state, on every client.
-    // Either way the theme is applied HERE: a page that never ran main.tsx's
-    // startup apply (a story) would otherwise keep a saved choice and no
-    // stylesheet.
-    const pinned = event.pinned ?? [];
-    const saved = loadThemeFromStorage();
-    const theme = pinned.includes(PINNABLE.theme) ? event.theme : (saved?.theme ?? event.theme);
-    const mode = pinned.includes(PINNABLE.themeMode) ? event.mode : (saved?.mode ?? event.mode);
-    applyTheme(theme, mode);
-    if (!saved) saveThemeToStorage(theme, mode);
-    enqueue(assign({ themeName: theme, themeMode: mode }));
+    // The backend's theme is the one: tmux holds the session's, whichever
+    // client picked it, and every client draws it (tmuxy.conf's when it pins
+    // one). localStorage is only the cache the next load paints its first
+    // frame with. The theme is applied HERE: a page that never ran main.tsx's
+    // startup apply (a story) would otherwise have no stylesheet.
+    applyTheme(event.theme, event.mode);
+    saveThemeToStorage(event.theme, event.mode);
+    enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
   }),
 
   // The blinking cursor is one setting for the machine, not one per client:

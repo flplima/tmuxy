@@ -249,6 +249,12 @@ pub struct StateAggregator {
     /// plugin inventory (`tmux_options::PLUGINS`).
     plugins_rev: Option<String>,
 
+    /// Latest `<@tmuxy-theme>:<@tmuxy-theme-mode>`, as the theme subscription
+    /// reports it (`tmux_formats::SUBSCRIBE_THEME_CMD`). A new value tells the
+    /// client to read the theme settings again, so a theme picked on one
+    /// client is drawn by all of them.
+    theme_rev: Option<String>,
+
     // Delta state tracking
     /// Previous state snapshot for delta computation
     prev_state: Option<crate::TmuxState>,
@@ -330,6 +336,7 @@ impl StateAggregator {
 
             focus_request: None,
             plugins_rev: None,
+            theme_rev: None,
             even_out_pending: Vec::new(),
             prev_state: None,
             delta_seq: 0,

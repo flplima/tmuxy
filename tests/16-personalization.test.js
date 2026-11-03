@@ -249,6 +249,61 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     );
   });
 
+  // The theme is the session's, not the window's. A pick in one window is
+  // drawn by every other one: on the same session at once (the server pushes
+  // the settings to its streams), and on another session of the same tmux
+  // server — another monitor, as the desktop app beside a phone is — through
+  // the theme subscription. A web window used to keep its pick to itself.
+  test('a theme picked in one window is drawn by the others, on this session and on another', async () => {
+    if (ctx.skipIfNotReady()) return;
+    stopServer = await startConfigServer();
+    ctx.session.runAsOperator('set-option -gu @tmuxy-theme');
+    const page = ctx.page;
+    const other = `${ctx.session.name}-b`;
+    const twin = await ctx.browser.newPage();
+    const elsewhere = await ctx.browser.newPage();
+    const drawn = (p) =>
+      p.evaluate(() => ({
+        href: document.getElementById('tmuxy-theme')?.getAttribute('href') ?? '',
+        status: getComputedStyle(document.querySelector('.tmux-status-bar')).backgroundColor,
+      }));
+    try {
+      await navigateToSession(page, ctx.session.name, CONFIG_URL);
+      await navigateToSession(twin, ctx.session.name, CONFIG_URL);
+      await navigateToSession(elsewhere, other, CONFIG_URL);
+      for (const p of [page, twin, elsewhere]) {
+        await p.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
+      }
+      const before = await drawn(elsewhere);
+      expect(before.href).not.toContain('/themes/dracula.css');
+
+      await clickMenuItem(page, ['View', 'Theme', 'Dracula']);
+      for (const [p, which] of [
+        [twin, 'the other window on this session'],
+        [elsewhere, 'the window on another session'],
+      ]) {
+        await waitForCondition(
+          p,
+          async () => (await drawn(p)).href.includes('/themes/dracula.css'),
+          10000,
+          async () => `${which} to draw Dracula; it loads ${(await drawn(p)).href}`,
+        );
+      }
+      // Drawn, not only loaded: the status line takes the new theme's colour,
+      // the same in every window.
+      const mine = await drawn(page);
+      expect(mine.status).not.toBe(before.status);
+      expect((await drawn(twin)).status).toBe(mine.status);
+      expect((await drawn(elsewhere)).status).toBe(mine.status);
+    } finally {
+      await twin.close();
+      await elsewhere.close();
+      // Global options outlive the test on the shared server.
+      ctx.session.runAsOperator('set-option -gu @tmuxy-theme');
+      ctx.session.runAsOperator(`kill-session -t ${other}`);
+    }
+  }, 120000);
+
   // The chain is built from this machine's choices, so Reload Config rebuilds
   // it before tmux sources it: `use-tmux-conf on`, made after the server
   // connected, takes effect with the click, and the chain sourced is this

@@ -51,6 +51,12 @@ export interface TmuxSnapshot {
    * value has the machine re-read the inventory.
    */
   readonly pluginsRev: string;
+  /**
+   * The theme and its mode as tmux holds them (`<name>:<mode>`), `''` before
+   * they are known. A signal too: a new value has the machine re-read the
+   * theme settings, so a theme picked on one client reaches every client.
+   */
+  readonly themeRev: string;
 }
 
 export const EMPTY_SNAPSHOT: TmuxSnapshot = {
@@ -63,6 +69,7 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   sessionName: '',
   focusRequest: '',
   pluginsRev: '',
+  themeRev: '',
 };
 
 /** Branded string so a raw string can't be passed where an OpId is expected. */

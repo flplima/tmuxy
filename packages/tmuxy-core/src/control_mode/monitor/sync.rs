@@ -79,6 +79,10 @@ impl<C: ControlLink> TmuxMonitor<C> {
         self.connection
             .send_command(tmux_formats::SUBSCRIBE_PANE_TITLES_CMD)
             .await?;
+        // Nor does a theme change (see SUBSCRIBE_THEME_CMD).
+        self.connection
+            .send_command(tmux_formats::SUBSCRIBE_THEME_CMD)
+            .await?;
 
         // Capture current content of each pane
         // We'll do this after we receive the list-panes response

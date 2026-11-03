@@ -166,6 +166,9 @@ export const reconcileModelActions = {
     if (transformed.pluginsRev !== context.pluginsRev) {
       enqueue.raise({ type: 'PLUGINS_REV_CHANGED', rev: transformed.pluginsRev });
     }
+    if (transformed.themeRev !== context.themeRev) {
+      enqueue.raise({ type: 'THEME_REV_CHANGED', rev: transformed.themeRev });
+    }
 
     let updatedCopyModeStates = context.copyModeStates;
     const now = Date.now();

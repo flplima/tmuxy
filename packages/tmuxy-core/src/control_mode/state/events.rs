@@ -152,6 +152,24 @@ impl StateAggregator {
             }
             ControlModeEvent::SubscriptionChanged { .. } => ProcessEventResult::default(),
 
+            // The theme or its mode changed, whichever client set it: the
+            // value is the new `<theme>:<mode>`, and the delta that carries
+            // it has every client read the theme settings again.
+            ControlModeEvent::SessionSubscriptionChanged { name, value }
+                if name == crate::constants::tmux_formats::THEME_SUBSCRIPTION_NAME =>
+            {
+                if self.theme_rev.as_deref() == Some(value.as_str()) {
+                    return ProcessEventResult::default();
+                }
+                self.theme_rev = Some(value);
+                ProcessEventResult {
+                    state_changed: true,
+                    change_type: ChangeType::Session,
+                    ..Default::default()
+                }
+            }
+            ControlModeEvent::SessionSubscriptionChanged { .. } => ProcessEventResult::default(),
+
             // %pane-mode-changed says only that a mode came or went, for
             // any mode (copy-, view-, tree-mode alike), and tmux answers a
             // control client's queued commands before it delivers its

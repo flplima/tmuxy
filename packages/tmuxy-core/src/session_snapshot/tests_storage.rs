@@ -68,6 +68,7 @@ fn a_delta_is_structural_when_the_shape_moves_not_when_output_arrives() {
         active_pane_id: None,
         focus_request: None,
         plugins_rev: None,
+        theme_rev: None,
         total_width: None,
         total_height: None,
     };

@@ -209,6 +209,8 @@ const ClientSession = Schema.Struct({
   focusRequest: withDefault('focus_request', Schema.String, () => ''),
   /** See `ServerState.plugins_rev`; `''` when no inventory was published. */
   pluginsRev: withDefault('plugins_rev', Schema.String, () => ''),
+  /** See `ServerState.theme_rev`; `''` before the theme is known. */
+  themeRev: withDefault('theme_rev', Schema.String, () => ''),
 });
 
 /** The session as the client holds it, decoded from a wire full state. */

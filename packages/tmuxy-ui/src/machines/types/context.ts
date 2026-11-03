@@ -272,6 +272,8 @@ export interface AppMachineContext {
   plugins: ReadonlyArray<PluginInfo>;
   /** The `@tmuxy-plugins-rev` `plugins` was read at; `''` before any. */
   pluginsRev: string;
+  /** The `<theme>:<mode>` tmux last said, `''` before the first state. */
+  themeRev: string;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */

@@ -76,6 +76,7 @@ const showing = (activeWindowId: WindowId, panes: TmuxPane[]) => {
     sessionName: 'main',
     focusRequest: '',
     pluginsRev: '',
+    themeRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

@@ -209,6 +209,21 @@ fn test_parse_session_changed() {
 
 /// A title subscription names the pane whose title changed; the value
 /// after ` : ` is free text and may hold anything, spaces and `%` included.
+/// A session-scoped subscription (the theme's) names no window or pane:
+/// tmux writes `-` for each, and the value after ` : ` is the whole news.
+#[test]
+fn a_session_subscription_change_carries_its_value() {
+    let mut parser = Parser::new();
+    let event = parser.parse_line("%subscription-changed tmuxy-theme $1 - - - : gruvbox:light");
+    match event {
+        Some(ControlModeEvent::SessionSubscriptionChanged { name, value }) => {
+            assert_eq!(name, "tmuxy-theme");
+            assert_eq!(value, "gruvbox:light");
+        }
+        other => panic!("expected SessionSubscriptionChanged, got {other:?}"),
+    }
+}
+
 #[test]
 fn a_subscription_change_names_its_pane() {
     let mut parser = Parser::new();

@@ -81,6 +81,7 @@ export const modelUpdate = (
     sessionName: 'main',
     focusRequest: '',
     pluginsRev: '',
+    themeRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

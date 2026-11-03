@@ -82,6 +82,9 @@ impl StateAggregator {
         if current.plugins_rev != prev.plugins_rev {
             delta.plugins_rev = Some(current.plugins_rev.clone().unwrap_or_default());
         }
+        if current.theme_rev != prev.theme_rev {
+            delta.theme_rev = Some(current.theme_rev.clone().unwrap_or_default());
+        }
 
         // Build maps for efficient lookup
         let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =

@@ -132,6 +132,7 @@ async fn session_with_resizing_monitor(state: &Arc<AppState>, session: &str) {
                         total_height: size.1,
                         focus_request: None,
                         plugins_rev: None,
+                        theme_rev: None,
                         seq: 0,
                     });
                 }

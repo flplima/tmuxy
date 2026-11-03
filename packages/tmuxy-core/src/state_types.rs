@@ -238,6 +238,10 @@ pub struct TmuxState {
     /// inventory does, which the client then reads with one query.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_rev: Option<String>,
+    /// `<@tmuxy-theme>:<@tmuxy-theme-mode>`: changes exactly when the theme
+    /// or its mode does, on any client, which then reads the theme settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_rev: Option<String>,
     /// The emission counter this state was taken at: the delta that follows
     /// it carries `seq + 1`, so a client can tell a delta lost right after a
     /// full state or an initial-state answer from the next one. 0 for a

@@ -140,6 +140,9 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
         icons,
         capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
         theme: document.querySelector('meta[name="theme-color"]')?.content,
+        windowBg: `rgb(${getComputedStyle(document.documentElement)
+          .getPropertyValue('--window-bg-rgb')
+          .trim()})`,
         appleIcon: appleIcon.status,
       };
     });
@@ -154,7 +157,8 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       expect(icon.type).toBe('image/png');
     }
     expect(install.capable).toBe('yes');
-    expect(install.theme).toBe('#000000');
+    // The phone's own bars in the theme's window colour, not a fixed black.
+    expect(install.theme).toBe(install.windowBg);
     expect(install.appleIcon).toBe(200);
   }, 120000);
 });
