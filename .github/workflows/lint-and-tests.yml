@@ -320,8 +320,12 @@ jobs:
       - name: Link tmuxy CLI onto PATH
         run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
+      # With the environment the helpers resolve (tests/helpers/server-env.js),
+      # as jest.setup.js starts one: the suite's own config, data and state
+      # dirs, so a plugin or theme a test installs is one the server sees.
       - name: Start server
         run: |
+          eval "$(node tests/helpers/server-env.js)"
           TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$TMUXY_PORT" \
             --trace "$TMUXY_E2E_TRACE" 2>/tmp/tmuxy-server.log &
           bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"

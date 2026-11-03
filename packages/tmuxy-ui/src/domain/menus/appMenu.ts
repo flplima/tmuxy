@@ -349,7 +349,7 @@ export function appMenuSpec(
     },
     options.windowMenu,
     { kind: 'submenu', id: 'menu-view', label: 'View', children: viewMenuSpec(ctx, env) },
-    pluginsSubmenu(ctx.plugins, 'app', null),
+    pluginsSubmenu(ctx.plugins, 'app', null, ctx.keybindings),
     // The trace is a developer's tool for their own machine; the demo's
     // visitors have nothing to trace it into.
     !env.isDemo && {

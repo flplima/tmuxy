@@ -55,6 +55,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
             for cmd in crate::plugins::inventory::commands(&dirs) {
                 self.connection.send_command(&cmd).await?;
             }
+            // The plugin keys need the tables read back, which only the
+            // running loop answers: the host binds them once this sync is
+            // done (`transport::apply_plugin_keys`).
         }
 
         // Enable flow control (tmux 3.2+)

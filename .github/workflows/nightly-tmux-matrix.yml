@@ -208,6 +208,7 @@ jobs:
         id: server
         continue-on-error: true
         run: |
+          eval "$(node tests/helpers/server-env.js)"
           ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
           bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"
 

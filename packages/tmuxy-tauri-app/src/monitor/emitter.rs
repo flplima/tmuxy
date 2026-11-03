@@ -194,7 +194,15 @@ impl StateEmitter for TauriEmitter {
     fn on_initial_sync_complete(&self) {
         let app = self.app.clone();
         let monitor = self.monitor.clone();
-        tauri::async_runtime::spawn(async move { emit_config_settings(&app, &monitor).await });
+        tauri::async_runtime::spawn(async move {
+            // The plugin keys first, so the bindings emitted next include them.
+            if let Some(tx) = monitor.tx() {
+                if let Err(e) = transport::apply_plugin_keys(&tx).await {
+                    tracing::warn!(error = %e, "could not bind the plugin keys");
+                }
+            }
+            emit_config_settings(&app, &monitor).await
+        });
     }
 }
 

@@ -310,6 +310,10 @@ export type AppMachineEvent =
   | { type: 'SET_TRACE_ENABLED'; enabled: boolean }
   | { type: 'SET_TRACE_LEVEL'; level: TraceLevel }
   | { type: 'OPEN_TRACE_FILE' }
+  /** A link a plugin's handler may take: the server decides, or the browser opens it. */
+  | { type: 'PLUGIN_OPEN_LINK'; url: string; paneId: PaneId }
+  /** Plain text clicked with the link modifier, for a plugin's text handler. */
+  | { type: 'PLUGIN_OPEN_TEXT'; paneId: PaneId; line: string; column: number }
   /** The state stream carried a new `@tmuxy-plugins-rev` (`''`: none). */
   | { type: 'PLUGINS_REV_CHANGED'; rev: string }
   | { type: 'PLUGINS_RECEIVED'; plugins: PluginInfo[] }

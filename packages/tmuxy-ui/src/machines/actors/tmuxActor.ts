@@ -11,6 +11,7 @@ import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/
 import { TransportEvent } from '../../infra/transport/events';
 import { parseThemeMode, type ThemeInfo } from '../../utils/themeManager';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
+import { openExternalUrl } from '../../utils/openUrl';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -38,6 +39,17 @@ export type TmuxActorEvent =
   | { type: 'RECONNECT_NOW' }
   /** Read the plugin inventory (`@tmuxy-plugins`) and send PLUGINS_RECEIVED. */
   | { type: 'FETCH_PLUGINS' }
+  /**
+   * Ask the server whether a plugin's link handler takes a click; launch its
+   * action, else open `fallbackUrl` (if any) in the browser.
+   */
+  | {
+      type: 'OPEN_PLUGIN_LINK';
+      cmd: 'open_link' | 'open_text';
+      args: Record<string, unknown>;
+      paneId: PaneId;
+      fallbackUrl: string | null;
+    }
   /** Run a plugin's action, preparing a token for the selection first. */
   | {
       type: 'RUN_PLUGIN_ACTION';
@@ -332,6 +344,39 @@ export function createTmuxActor(runtime: AppRuntime) {
             logPrefix: 'plugins',
             silentFail: true,
           },
+        );
+      } else if (event.type === 'OPEN_PLUGIN_LINK') {
+        const fallback = () => {
+          if (event.fallbackUrl) openExternalUrl(event.fallbackUrl);
+        };
+        runtime.runFork(
+          Effect.match(
+            withTransport((t) =>
+              t.invoke<{ plugin: string; action: string; token: string } | null>(
+                event.cmd,
+                event.args,
+              ),
+            ),
+            {
+              onFailure: fallback,
+              onSuccess: (prepared) => {
+                if (!prepared) return fallback();
+                const command = toTmuxCommand(
+                  TmuxOp.PluginAction({
+                    plugin: prepared.plugin,
+                    action: prepared.action,
+                    paneId: event.paneId,
+                    token: prepared.token,
+                  }),
+                );
+                logCommand(command);
+                run(
+                  withTransport((t) => t.invoke('run_tmux_command', { command })),
+                  { logPrefix: command },
+                );
+              },
+            },
+          ),
         );
       } else if (event.type === 'RUN_PLUGIN_ACTION') {
         const launch = (token: string | null) => {

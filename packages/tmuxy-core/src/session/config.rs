@@ -61,6 +61,11 @@ const EXAMPLE_CONF: &str = "tmuxy.conf.example";
 /// config dir and works without a `tmuxy.conf` at all.
 const RELOAD_MARKER: &str = "config-reload";
 
+/// A plugin manifest's file name, at a plugin's root and in the config dir
+/// for the user's own (`plugins::MANIFEST_FILE`). Here so a `cli`-only build
+/// (tmuxy-group) can watch it without the plugin machinery.
+pub const PLUGIN_MANIFEST_FILE: &str = "tmuxy-plugin.toml";
+
 /// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
 /// or $HOME/.config/tmuxy. Does not create the directory.
 ///
@@ -117,6 +122,11 @@ impl Layout {
     /// The user's `tmuxy.conf`.
     pub fn user_conf(&self) -> PathBuf {
         self.config.join("tmuxy.conf")
+    }
+
+    /// The user's own plugin manifest (`plugins::USER_PLUGIN`).
+    pub fn user_plugin_manifest(&self) -> PathBuf {
+        self.config.join(PLUGIN_MANIFEST_FILE)
     }
 
     /// The generated chain tmux is started with.
@@ -413,7 +423,9 @@ pub fn config_stamps() -> ConfigStamps {
     }
     ConfigStamps {
         css,
+        // The user's own plugin is config too: saving it reloads.
         conf: file_stamp(&layout.user_conf())
+            .wrapping_add(file_stamp(&layout.user_plugin_manifest()))
             .wrapping_add(file_stamp(&layout.state.join(RELOAD_MARKER))),
     }
 }

@@ -25,7 +25,7 @@ machine (`--json` for a script).
 | `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme. |
 | `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                     |
 | `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
-| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's own settings and credentials. Kept on update, and on remove unless `--purge`. |
+| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's own settings (`settings.toml`, set with `tmuxy plugin config`) and credentials. Kept on update, and on remove unless `--purge`. |
 | `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                 |
 | `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                        |
 | `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.           |

@@ -43,7 +43,7 @@ trap 'exit 130' INT
 # `tmuxy plugin`'s own commands. Any other word after `plugin` is a plugin's
 # verb, whose arguments are its own. RESERVED_VERBS in tmuxy-core lists the
 # same words; tests/cli/cli-plugin.test.js holds the two together.
-PLUGIN_COMMANDS=" install list update remove action log check new exec publish help --help -h "
+PLUGIN_COMMANDS=" install list update remove action log check new config path search exec publish help --help -h "
 
 # `--json` on the line is the output mode, not an argument of the command: it
 # is taken off here so every subcommand reads one switch, and the verbs that
@@ -329,61 +329,6 @@ Examples:
 EOF
 }
 
-usage_plugin() {
-  cat <<'EOF'
-Usage: tmuxy plugin <command> [args...]
-
-Commands:
-  install       Install from GitHub <owner/repo[/subdir][@ref]>, or link a
-                local directory (--path DIR); with no argument, install
-                exactly what plugins.json lists [--yes --sha COMMIT]
-  list          The installed plugins [--json]
-  update        Move plugins to the latest commit of their ref [name]
-  remove        Uninstall a plugin <name> [--purge]
-  action        Run an action on a pane <plugin>:<id> [--pane %id] [--wait]
-                [-- args...]
-  log           What a plugin ran, and how it exited <name> [-f]
-  check         Validate a plugin directory [dir]
-  new           Write a plugin to start from, tmuxy-<name>/ <name>
-  <verb>        An installed plugin's own command [args...] (see 'list')
-
-Plugin commands run unsandboxed as your user and can control every pane.
-Install shows what a plugin can do and asks first; without a terminal it
-needs --yes --sha <the commit you reviewed>. docs/PLUGINS.md describes the
-manifest (tmuxy-plugin.toml).
-EOF
-}
-
-# `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`),
-# a plugin's own verbs (`tmuxy plugin <verb>`) included. `--json` goes before
-# the command, where it is the binary's switch rather than a verb's argument.
-# `action` acts on the caller's pane unless one is named; it runs here, and
-# puts the one command list that opens the pane through run-shell itself.
-cmd_plugin() {
-  case "${1:-}" in
-    "" | --help | -h | help)
-      usage_plugin
-      return 0
-      ;;
-  esac
-  find_server_cmd || exit "$EXIT_FAILED"
-  if [ "$1" != action ]; then
-    exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} "$@"
-  fi
-  shift
-  local arg named=false pane=()
-  for arg in "$@"; do
-    case "$arg" in
-      --) break ;;
-      --pane | --pane=*) named=true ;;
-    esac
-  done
-  if [ "$named" = false ] && [ -n "${TMUX_PANE:-}" ]; then
-    pane=(--pane "$TMUX_PANE")
-  fi
-  exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} action ${pane[@]+"${pane[@]}"} "$@"
-}
-
 usage_connect() {
   cat <<'EOF'
 Usage: tmuxy connect [socket] [session]
@@ -416,6 +361,7 @@ source "$SCRIPTS_DIR/cli-config.sh"
 source "$SCRIPTS_DIR/cli-pane.sh"
 source "$SCRIPTS_DIR/cli-pane-run.sh"
 source "$SCRIPTS_DIR/cli-commands.sh"
+source "$SCRIPTS_DIR/cli-plugin.sh"
 
 # The verbs below that exec the server binary hand `--json` back to it.
 server_json=()

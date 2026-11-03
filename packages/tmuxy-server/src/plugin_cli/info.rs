@@ -13,6 +13,7 @@ use super::{say, usage, Failure, Outcome};
 
 pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
     let registry = Registry::load(dirs)?;
+    let keys = tmuxy_core::plugins::keys::plan(&registry);
     let mut rows = Vec::new();
     for p in &registry.plugins {
         let (source, commit) = match &p.kind {
@@ -28,6 +29,11 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
             "actions": p.manifest.actions.iter().map(|a| format!("{}:{}", p.name, a.id)).collect::<Vec<_>>(),
             "verbs": p.manifest.cli.iter().map(|c| c.verb.clone()).collect::<Vec<_>>(),
             "shadowed": registry.shadowed(p),
+            "keys": keys.iter().filter(|k| k.plugin == p.name).collect::<Vec<_>>(),
+            "links": p.manifest.link_handlers.iter().map(|h| format!("{} -> {}", h.id, h.action)).collect::<Vec<_>>(),
+            "themes": p.manifest.themes.iter().map(|t| tmuxy_core::plugins::themes::theme_name(&p.name, &t.id)).collect::<Vec<_>>(),
+            "settings": p.manifest.settings.iter().map(|s| s.key.clone()).collect::<Vec<_>>(),
+            "depends": p.manifest.depends.iter().map(|d| d.name.clone()).collect::<Vec<_>>(),
         }));
     }
     for b in &registry.broken {
@@ -67,6 +73,28 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
             }
             for verb in &verbs {
                 println!("    verb    {verb}");
+            }
+            for key in row["keys"].as_array().into_iter().flatten() {
+                let at = format!(
+                    "{} {} -> {}",
+                    key["table"].as_str().unwrap_or_default(),
+                    key["key"].as_str().unwrap_or_default(),
+                    key["action"].as_str().unwrap_or_default()
+                );
+                match key["taken_by"].as_str() {
+                    Some(by) => println!("    key     {at}  NOT BOUND: kept {by}"),
+                    None => println!("    key     {at}"),
+                }
+            }
+            for (label, field) in [
+                ("link", "links"),
+                ("theme", "themes"),
+                ("setting", "settings"),
+                ("needs", "depends"),
+            ] {
+                for item in row[field].as_array().into_iter().flatten() {
+                    println!("    {label:<7} {}", item.as_str().unwrap_or_default());
+                }
             }
             for shadowed in row["shadowed"].as_array().into_iter().flatten() {
                 let verb = shadowed["verb"].as_str().unwrap_or_default();
@@ -191,7 +219,40 @@ pub(super) fn check(dir: &Path, json: bool) -> Outcome {
             m.cli.len()
         ),
     );
-    Ok(serde_json::json!({ "name": m.name, "version": m.version }))
+    Ok(serde_json::json!({
+        "name": m.name,
+        "version": m.version,
+        "description": m.description,
+        "platforms": m.platforms.as_ref().map(|p| p.iter().map(|p| p.as_str()).collect::<Vec<_>>()).unwrap_or_default(),
+        "capabilities": m.capabilities(),
+    }))
+}
+
+/// `tmuxy plugin search [<query>]`: the index's plugins whose name,
+/// description or source contain every word.
+pub(super) fn search(query: &[String], json: bool) -> Outcome {
+    let index = tmuxy_core::plugins::index::load()?;
+    let found = tmuxy_core::plugins::index::search(&index, &query.join(" "));
+    if !json {
+        if found.is_empty() {
+            println!("No plugin in the index matches. The index lists repositories with the GitHub topic `tmuxy-plugin`.");
+        }
+        for e in &found {
+            let install = if e.duplicate {
+                e.source.as_str()
+            } else {
+                e.name.as_str()
+            };
+            println!(
+                "{:<24} {:<40} {}",
+                e.name,
+                e.source,
+                e.description.lines().next().unwrap_or_default()
+            );
+            println!("    tmuxy plugin install {install}");
+        }
+    }
+    Ok(serde_json::json!({ "plugins": found }))
 }
 
 pub(super) fn new(name: &str, json: bool) -> Outcome {
@@ -207,4 +268,12 @@ pub(super) fn new(name: &str, json: bool) -> Outcome {
         ),
     );
     Ok(serde_json::json!({ "path": dir }))
+}
+
+/// `tmuxy plugin path <name>`: the directory a plugin's commands run in.
+pub(super) fn path(dirs: &Dirs, name: &str, json: bool) -> Outcome {
+    let registry = Registry::load(dirs)?;
+    let plugin = registry.require(name)?;
+    say(json, plugin.root.display().to_string());
+    Ok(serde_json::json!({ "name": name, "path": plugin.root }))
 }

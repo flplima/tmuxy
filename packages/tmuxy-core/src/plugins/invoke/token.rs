@@ -25,6 +25,10 @@ pub enum Trigger {
     Action,
     /// A `[[cli]]` verb.
     Cli,
+    /// A `[[keys]]` binding.
+    Key,
+    /// A `[[link_handlers]]` match on a click.
+    Link,
 }
 
 impl Trigger {
@@ -33,6 +37,8 @@ impl Trigger {
             Trigger::Menu => "menu",
             Trigger::Action => "action",
             Trigger::Cli => "cli",
+            Trigger::Key => "key",
+            Trigger::Link => "link",
         }
     }
 }
@@ -62,6 +68,9 @@ pub struct Token {
     pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub info: Option<PaneInfo>,
+    /// The link a click matched (`[[link_handlers]]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<super::super::links::LinkInfo>,
     /// Someone waits on the command (`tmuxy plugin action --wait`): it
     /// leaves its exit status behind for them, and only then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -112,6 +121,7 @@ impl Token {
             selection: None,
             args: Vec::new(),
             info: None,
+            link: None,
             wait: false,
             created: now(),
         }

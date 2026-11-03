@@ -1,0 +1,78 @@
+name: Plugin Index
+
+# The plugin index (docs/PLUGINS.md, "The index"): every public repository
+# with the topic `tmuxy-plugin` whose manifests pass `tmuxy plugin check`,
+# published as plugins.json on the `plugin-index` branch, where
+# `tmuxy plugin search`, `tmuxy plugin install <name>` and tmuxy.sh/plugins
+# read it. Committed only when something but the timestamp changed.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: plugin-index
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+      # The checker is main's: the installer that reads the index is at
+      # least as strict as the one that built it. The server embeds the
+      # frontend, which `plugin check` never serves, so an empty dist does.
+      - name: Build the checker
+        run: |
+          mkdir -p packages/tmuxy-ui/dist
+          cargo build --release -p tmuxy-server
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      - name: Build the index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          node bin/plugin-index.mjs
+          --tmuxy target/release/tmuxy-server
+          --out "$RUNNER_TEMP/plugins.json"
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish on the plugin-index branch
+        run: |
+          set -euo pipefail
+          idx="$RUNNER_TEMP/idx"
+          if git fetch --quiet --depth 1 origin plugin-index; then
+            git worktree add --quiet --detach "$idx" FETCH_HEAD
+            old=$(jq -S 'del(.generated)' "$idx/plugins.json" 2>/dev/null || echo null)
+          else
+            git worktree add --quiet --detach "$idx"
+            git -C "$idx" switch --quiet --orphan plugin-index
+            git -C "$idx" rm -rfq --ignore-unmatch .
+            old=null
+          fi
+          new=$(jq -S 'del(.generated)' "$RUNNER_TEMP/plugins.json")
+          if [ "$old" = "$new" ]; then
+            echo "The index is unchanged."
+            exit 0
+          fi
+          cp "$RUNNER_TEMP/plugins.json" "$idx/plugins.json"
+          git -C "$idx" add plugins.json
+          git -C "$idx" -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --quiet -m 'Update the plugin index'
+          git -C "$idx" push --quiet origin HEAD:refs/heads/plugin-index

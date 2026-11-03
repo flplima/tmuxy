@@ -95,7 +95,8 @@ the tmux config. In short:
 A plugin adds menu actions and `tmuxy plugin <verb>` commands. Its commands run
 unsandboxed as the user, so never install one the user did not ask for:
 `tmuxy plugin install owner/repo` shows what it can do and asks on the terminal
-(an agent without one passes `--yes --sha <commit>` only after the user saw it).
+(an agent without one passes `--yes` and a `--sha <commit>` for each commit it
+shows, only after the user saw it).
 
 To write one (or an action of the user's own, in `~/.config/tmuxy/tmuxy-plugin.toml`
 with `name = "user"`):
@@ -125,6 +126,13 @@ command = ["bin/hello"]        # an argv inside the plugin, never a shell line
 verb = "hello"                 # `tmuxy plugin hello ...`, in your shell
 command = ["bin/hello"]
 ```
+
+A plugin can also take clicked links (`[[link_handlers]]`: a URL host and
+path, or a text pattern like `file:line`), bind keys (`[[keys]]`, never over
+the user's), declare settings (`[[settings]]`, set with `tmuxy plugin config`;
+a `secret = true` one stays out of every listing), depend on other plugins
+(`depends`) and add themes (`[[themes]]`). `tmuxy plugin search <words>` and
+`tmuxy plugin install <name>` use the plugin index.
 
 A command runs in the plugin's directory with `TMUXY_TARGET_PANE`,
 `TMUXY_PLUGIN_CONFIG_DIR` (credentials go there, never in the plugin) and

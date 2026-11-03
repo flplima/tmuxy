@@ -267,7 +267,13 @@ fn parse_settings(output: &str) -> serde_json::Value {
     let css_vars = parse_css_vars(lines.iter().copied());
     serde_json::json!({
         // The theme names a stylesheet the client loads by path.
-        "theme": if session::is_safe_css_name(theme) { theme } else { DEFAULT_THEME },
+        // A theme that is gone (its plugin removed, its file deleted) falls
+        // back to the default rather than leaving the page unstyled.
+        "theme": if session::is_safe_css_name(theme) && crate::plugins::themes::resolve_css(&format!("themes/{theme}.css")).is_some() {
+            theme
+        } else {
+            DEFAULT_THEME
+        },
         "mode": if matches!(mode, "dark" | "light" | "auto") { mode } else { DEFAULT_MODE },
         "appearance": appearance,
         "cssVars": css_vars,
@@ -447,8 +453,12 @@ pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(),
 }
 
 /// Human-readable display name for a theme file stem:
-/// `tokyo-night` → `Tokyo Night`.
+/// `tokyo-night` → `Tokyo Night`, and a plugin's `devtools__dark` →
+/// `Dark (devtools)`.
 pub fn display_theme_name(stem: &str) -> String {
+    if let Some((plugin, id)) = stem.split_once("__") {
+        return format!("{} ({plugin})", display_theme_name(id));
+    }
     stem.split('-')
         .map(|part| {
             let mut chars = part.chars();
@@ -466,11 +476,17 @@ pub fn display_theme_name(stem: &str) -> String {
 /// native menu uses); `modes` is what each file's CSS declares a palette
 /// for, so the menu can grey out a mode the theme has not got.
 pub fn get_themes_list() -> serde_json::Value {
-    let themes: Vec<serde_json::Value> = session::list_themes()
+    let mut names = session::list_themes();
+    for (name, _) in crate::plugins::themes::list(&crate::plugins::Dirs::current()) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    let themes: Vec<serde_json::Value> = names
         .into_iter()
         .map(|name| {
             let display_name = display_theme_name(&name);
-            let modes = session::resolve_user_css(&format!("themes/{name}.css"))
+            let modes = crate::plugins::themes::resolve_css(&format!("themes/{name}.css"))
                 .map(|css| session::theme_modes(&String::from_utf8_lossy(&css)))
                 .unwrap_or_default();
             serde_json::json!({ "name": name, "displayName": display_name, "modes": modes })

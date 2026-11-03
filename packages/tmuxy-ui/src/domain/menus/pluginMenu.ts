@@ -6,6 +6,8 @@
  */
 
 import type { PaneId } from '../ids';
+import type { KeyBindings } from '../wire';
+import { pluginKeyHint } from './keyHint';
 import { pluginItemId, pluginMenuEntries, type PluginInfo, type PluginMenu } from '../plugins';
 import { event, local, type MenuNode, type MenuSpec } from './spec';
 
@@ -18,6 +20,7 @@ export function pluginItems(
   plugins: ReadonlyArray<PluginInfo>,
   menu: PluginMenu,
   paneId: PaneId | null,
+  keybindings: KeyBindings | null = null,
 ): MenuSpec {
   const entries = pluginMenuEntries(plugins, menu);
   const several = new Set(entries.map((e) => e.plugin)).size > 1;
@@ -31,6 +34,7 @@ export function pluginItems(
       kind: 'item',
       id,
       label: action.title,
+      keyHint: pluginKeyHint(keybindings, plugin, action.id),
       data: { 'plugin-action': `${plugin}:${action.id}` },
       action:
         menu === 'selection'
@@ -46,8 +50,9 @@ export function pluginsSubmenu(
   plugins: ReadonlyArray<PluginInfo>,
   menu: 'app' | 'pane',
   paneId: PaneId | null,
+  keybindings: KeyBindings | null = null,
 ): MenuNode | null {
-  const children = pluginItems(plugins, menu, paneId);
+  const children = pluginItems(plugins, menu, paneId, keybindings);
   if (children.length === 0) return null;
   return { kind: 'submenu', id: `${menu}-plugins`, label: 'Plugins', children };
 }

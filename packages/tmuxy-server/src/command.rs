@@ -123,6 +123,20 @@ pub enum ClientCommand {
         #[serde(default)]
         selection: Option<String>,
     },
+    /// A URL clicked in a pane that a plugin's link handler may take
+    /// (`plugins::links`): answers the prepared action, or `null`.
+    OpenLink {
+        url: String,
+        #[serde(rename = "paneId")]
+        pane_id: tmuxy_core::PaneId,
+    },
+    /// Text clicked in a pane: the line and the column (in characters).
+    OpenText {
+        #[serde(rename = "paneId")]
+        pane_id: tmuxy_core::PaneId,
+        line: String,
+        column: usize,
+    },
     /// Explicitly create (or attach to) `?session=` before opening `/events`,
     /// so `GET /events` itself remains side-effect-free.
     EnsureSession,

@@ -26,8 +26,8 @@ const {
   noMenuOpen,
   getCopyModeState,
   tmuxRunAsOperator,
-  tmuxyCli,
 } = require('./helpers');
+const { writePluginDir, pluginCli, pluginStateDir, knownActions } = require('./helpers/plugins');
 const { stateDir, tmuxExec } = require('./helpers/tmux-socket');
 
 const PLUGIN = 'e2e-surfaces';
@@ -103,33 +103,10 @@ printf '%s' "$TMUXY_PLUGIN_CONTEXT_JSON" > "$TMUXY_PLUGIN_STATE_DIR/context.json
 `;
 
 /** The fixture plugin in a scratch dir; returns its path. */
-function writePlugin() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-e2e-plugin-'));
-  fs.mkdirSync(path.join(dir, 'bin'));
-  fs.writeFileSync(path.join(dir, 'tmuxy-plugin.toml'), MANIFEST);
-  for (const [name, text] of [
-    ['surface', SURFACE],
-    ['brief', BRIEF],
-    ['grab', GRAB],
-  ]) {
-    fs.writeFileSync(path.join(dir, 'bin', name), text, { mode: 0o755 });
-  }
-  return dir;
-}
-
-/** `tmuxy plugin …` against the suite's own dirs and socket. */
-const pluginCli = (...args) => tmuxyCli(['plugin', ...args]);
+const writePlugin = () => writePluginDir(MANIFEST, { surface: SURFACE, brief: BRIEF, grab: GRAB });
 
 /** The plugin's state dir: its log and what its commands leave there. */
-const pluginState = () => path.join(stateDir(), 'plugins', `${PLUGIN}.state`);
-
-/** The menu actions the page knows of. */
-const knownActions = (page) =>
-  page.evaluate(() =>
-    window.app
-      .getSnapshot()
-      .context.plugins.flatMap((p) => p.actions.map((a) => `${p.name}:${a.id}`)),
-  );
+const pluginState = () => pluginStateDir(PLUGIN);
 
 /** The plugin's log, for a failure message: what ran, or why it did not. */
 const pluginLog = () => {
@@ -350,6 +327,9 @@ describe('Scenario 32: Plugins', () => {
       'the menus to learn of the plugin',
     );
 
+    // History to scroll into: the scroll view only opens over scrollback,
+    // and a fresh session's pane has none.
+    await runCommand(page, 'seq 1 80', '80');
     // Two lines of text a shell or tmux would read as syntax.
     const first = `it's #1; $(touch ${PWNED})`;
     const second = 'second ; line';

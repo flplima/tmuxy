@@ -13,12 +13,16 @@ use tmuxy_core::plugins::invoke::{self, OpenRequest, Trigger};
 use tmuxy_core::plugins::registry::Registry;
 use tmuxy_core::plugins::{inventory, log, Dirs, PluginError};
 
+mod config;
 mod gate;
+mod graph;
 mod info;
 mod install;
+mod manage;
 use gate::Answer;
-use info::{check, list, new, show_log};
-use install::{install, remove, update};
+use info::{check, list, new, path, search, show_log};
+use install::install;
+use manage::{remove, update};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
@@ -35,20 +39,21 @@ pub struct PluginArgs {
 
 #[derive(clap::Subcommand, Debug)]
 enum PluginCommand {
-    /// Install a plugin from GitHub (owner/repo[/subdir][@ref]) or link a
-    /// local directory (--path). With neither, install exactly what
+    /// Install a plugin by its index name, from GitHub
+    /// (owner/repo[/subdir][@ref]), or link a local directory (--path). With neither, install exactly what
     /// plugins.json lists.
     Install {
         source: Option<String>,
         /// Link a local directory: used in place, edits apply at once.
         #[arg(long, value_name = "DIR", conflicts_with = "source")]
         path: Option<PathBuf>,
-        /// Do not ask (no terminal): needs --sha for a repository.
+        /// Do not ask (no terminal): needs a --sha for every commit fetched.
         #[arg(long)]
         yes: bool,
-        /// The commit you reviewed, for --yes.
-        #[arg(long, value_name = "COMMIT")]
-        sha: Option<String>,
+        /// A commit you reviewed, for --yes: once per commit the gate shows
+        /// (the plugin's and each new dependency's), or comma-separated.
+        #[arg(long, value_name = "COMMIT", value_delimiter = ',')]
+        sha: Vec<String>,
     },
     /// The installed plugins.
     List,
@@ -57,14 +62,17 @@ enum PluginCommand {
         name: Option<String>,
         #[arg(long)]
         yes: bool,
-        #[arg(long, value_name = "COMMIT")]
-        sha: Option<String>,
+        #[arg(long, value_name = "COMMIT", value_delimiter = ',')]
+        sha: Vec<String>,
     },
     /// Uninstall a plugin. Its config dir stays unless --purge.
     Remove {
         name: String,
         #[arg(long)]
         purge: bool,
+        /// Also remove the plugins that depend on it.
+        #[arg(long)]
+        force: bool,
     },
     /// Run an action (<plugin>:<id>) on a pane, in the surface it declares.
     Action {
@@ -98,6 +106,20 @@ enum PluginCommand {
     },
     /// Write a new plugin, tmuxy-<name>/, to start from.
     New { name: String },
+    /// A plugin's settings: list them, read one, or set one (a secret with
+    /// no value is read from the terminal).
+    Config {
+        name: String,
+        key: Option<String>,
+        value: Option<String>,
+        /// Put the setting back to its default.
+        #[arg(long)]
+        unset: bool,
+    },
+    /// Where a plugin is installed (for a plugin that depends on it).
+    Path { name: String },
+    /// Search the plugin index (repositories with the `tmuxy-plugin` topic).
+    Search { query: Vec<String> },
     /// Run an action's command in the pane `action` opened. Internal.
     #[command(hide = true)]
     Exec {
@@ -117,6 +139,8 @@ enum PluginCommand {
 enum TriggerArg {
     Action,
     Menu,
+    /// A plugin's `[[keys]]` binding (`plugins::keys::binding_command`).
+    Key,
 }
 
 /// How a verb ended: what to print, and the exit code.
@@ -155,7 +179,7 @@ pub fn run(args: PluginArgs) {
         } => install(&dirs, source, path, &Answer { yes, sha }, json),
         PluginCommand::List => list(&dirs, json),
         PluginCommand::Update { name, yes, sha } => update(&dirs, name, &Answer { yes, sha }, json),
-        PluginCommand::Remove { name, purge } => remove(&dirs, &name, purge, json),
+        PluginCommand::Remove { name, purge, force } => remove(&dirs, &name, purge, force, json),
         PluginCommand::Action {
             target,
             pane,
@@ -167,6 +191,14 @@ pub fn run(args: PluginArgs) {
         PluginCommand::Log { name, follow } => show_log(&dirs, &name, follow),
         PluginCommand::Check { dir } => check(&dir, json),
         PluginCommand::New { name } => new(&name, json),
+        PluginCommand::Config {
+            name,
+            key,
+            value,
+            unset,
+        } => config::config(&dirs, &name, key, value, unset, json),
+        PluginCommand::Path { name } => path(&dirs, &name, json),
+        PluginCommand::Search { query } => search(&query, json),
         PluginCommand::Exec {
             name,
             action,
@@ -237,6 +269,7 @@ fn action(
     let trigger = match trigger {
         TriggerArg::Action => Trigger::Action,
         TriggerArg::Menu => Trigger::Menu,
+        TriggerArg::Key => Trigger::Key,
     };
     let pane = pane
         .or_else(|| std::env::var("TMUX_PANE").ok())
@@ -261,7 +294,8 @@ fn action(
                     &format!("open {plugin}:{action} failed: {e}"),
                 );
             }
-            if trigger == Trigger::Menu {
+            // A menu item or a key gives no terminal to print to: the status line says.
+            if trigger != Trigger::Action {
                 invoke::notify_failure(dirs, &pane, &plugin, &e.to_string());
             }
             return Err(e.into());

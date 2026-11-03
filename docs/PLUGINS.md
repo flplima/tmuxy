@@ -5,7 +5,8 @@ directory with a `tmuxy-plugin.toml` manifest and the commands it names,
 usually a GitHub repository.
 
 ```sh
-tmuxy plugin install someone/tmuxy-chrome-devtools     # shows what it can do, asks, installs
+tmuxy plugin search chrome                            # the index: repositories with the topic
+tmuxy plugin install chrome-devtools                  # by name, or someone/tmuxy-chrome-devtools
 tmuxy plugin list                                     # what is installed, at which commit
 tmuxy plugin action chrome-devtools:open              # run an action on this pane
 tmuxy plugin update [name]                            # move to the latest commit; asks again
@@ -33,11 +34,14 @@ What tmuxy does guarantee:
   HTTPS only, hooks and LFS filters disabled, no submodules, symlinks checked
   out as plain files. The checkout's `.git` is dropped once its commit is
   verified (`tmuxy_core::plugins::fetch`).
-- **The gate asks a person.** It shows the commit, every action, verb and
-  required command, and the warning above, and reads the answer from
-  `/dev/tty`, never stdin. Without a terminal it fails closed unless given
-  `--yes --sha <commit>`: a script names the commit it reviewed, never
-  "whatever is there now". `update` shows what changed and asks again.
+- **The gate asks a person.** It shows the commit, every action, verb,
+  link handler, key, setting, theme, dependency and required command, and
+  the warning above, and reads the answer from `/dev/tty`, never stdin.
+  Without a terminal it prints the same table on stderr and fails closed
+  unless given `--yes` with a `--sha <commit>` for every commit it shows (the
+  plugin's and each dependency it fetches): a script names the commits it
+  reviewed, never "whatever is there now". `update` shows what changed in
+  every one of those sections and asks again.
 - **Commands stay inside the plugin.** Every `command` is an argv whose
   program is a path inside the plugin, resolved and checked again at every
   launch (a symlink out of the directory is refused), and run directly,
@@ -99,7 +103,92 @@ verb, the built-in wins and `tmuxy plugin list` says the verb is shadowed.
 
 `~/.config/tmuxy/tmuxy-plugin.toml` with `name = "user"` is your own plugin:
 the same schema, no install and no gate, its commands relative to the config
-dir. `tmuxy config reload` puts its actions in the menus.
+dir. Saving it applies it, as saving `tmuxy.conf` does (so do `tmuxy config
+reload` and the app menu's Reload Config): its actions go in the menus and
+its keys are bound.
+
+## Links, keys, settings, dependencies and themes
+
+```toml
+[[link_handlers]]
+id = "artifact"
+match = "url"                              # a URL on one of these hosts…
+hosts = ["claude.ai"]                      # lowercase; punycode for an international name
+path_regex = "/public/artifacts/[A-Za-z0-9-]+"   # …whose whole path matches
+action = "open"
+
+[[link_handlers]]
+id = "file-line"
+match = "text"                             # plain text the pattern covers where it was clicked
+pattern = '(?P<path>[\w./-]+):(?P<line>\d+)'
+action = "open"
+
+[[keys]]
+key = "M-a"                                # C-/M-/S-, then a letter, digit, F1-F12 or a named key
+table = "prefix"                           # "prefix" (default) or "root"
+action = "open"
+
+[[settings]]
+key = "download_dir"
+type = "string"                            # string | bool | int | enum (+ values = […])
+default = "~/Downloads"
+description = "Where artifacts go"
+
+[[settings]]
+key = "token"
+type = "string"
+secret = true                              # never printed, logged or put in the context
+
+[[themes]]
+id = "night"
+file = "themes/night.css"                  # listed as "Night (claude-artifacts)"
+```
+
+And in `[plugin]`: `depends = [{ name = "lib", source = "someone/tmuxy-lib", ref = "v1" }]`.
+
+**Link handlers.** A Cmd/Ctrl+click on a link or on text in a pane opens the
+handler's action instead of the browser; the URL is also the command's
+argument (the argv `tmuxy plugin action <plugin>:<id> -- <url>` gives it),
+and the link is `link` in its context. Pane output is untrusted,
+so the client only pre-selects (a URL whose host a plugin declares, a click on
+plain text when some plugin has text handlers) and the server decides. A URL
+is checked as parsed, never as a string: `https` only (`http` and explicit
+`ports` only for `localhost`), no `user@`, the exact host, the path regex
+matched whole. A text pattern runs in Rust's linear-time `regex` over the one
+line clicked, never as a regex in the page, so a pattern cannot freeze the UI
+whatever a pane prints. Adding **Shift** goes straight to the browser. The
+first handler in install order (your own plugin first) wins.
+
+**Keys.** A plugin key runs its action on the pane it was pressed in. It is
+bound at install, when a server attaches and after every config reload
+(`tmuxy config reload`, the app menu's, a saved `tmuxy.conf`), read and
+bound over the app's own tmux connection after the config, and removed with
+the plugin. **Your bindings always win:** a key already
+bound is skipped, never replaced, and `tmuxy plugin list` says so (unbind
+yours in `tmuxy.conf` to give it to the plugin). The menus show the key beside
+the action.
+
+**Settings.** `tmuxy plugin config <name>` lists them, `config <name> <key>`
+reads one, `config <name> <key> <value>` sets it (checked against its type),
+`--unset` puts the default back. Values live in the plugin's config dir as
+`settings.toml` (owner-only), reach every command as `settings` in its
+context, and replace the `@tmuxy-<plugin>-*` tmux options a plugin might
+otherwise use, which every process with the socket can read. A **secret**
+is set from the terminal with echo off when no value is given, shown only as
+"set" or "empty", and left out of the context, the log and every listing:
+the plugin reads it from `settings.toml` itself.
+
+**Dependencies.** Installing a plugin installs what it `depends` on, every
+commit pinned, all in **one** gate. A dependency already installed must come
+from the source named; cycles are refused. A dependent finds one with
+`tmuxy plugin path <name>`, or calls its verbs and actions. `remove` refuses
+a plugin others need (`--force` removes them too, naming them first).
+
+**Themes.** A plugin theme joins the built-ins and your own in the theme
+menu as `<plugin>__<id>`; your own and the built-ins win a name. Its CSS runs
+in the app's own document and can restyle or hide anything, the install gate
+included, so the gate lists it. When its plugin goes, a page using it falls
+back to the default theme.
 
 ## Where things live
 
@@ -107,7 +196,7 @@ dir. `tmuxy config reload` puts its actions in the menus.
 | --- | --- |
 | What is installed, at which commit | `<config_dir>/plugins.json` (owner-only). Sync it with your dotfiles: `tmuxy plugin install` with no argument installs exactly what it lists. |
 | Checkouts | `<state_dir>/plugins/<name>@<commit>/`, one per commit. `update` installs the new commit beside the old one; a checkout is deleted only once the lockfile no longer names it and no process runs from it (checked after `update` and `remove`, and when a server starts). A running action never loses its files. |
-| A plugin's config and credentials | `<config_dir>/plugins/<name>/` (`TMUXY_PLUGIN_CONFIG_DIR`). Kept on update, and on `remove` unless `--purge`. Credentials belong here, never in the checkout. |
+| A plugin's config and credentials | `<config_dir>/plugins/<name>/` (`TMUXY_PLUGIN_CONFIG_DIR`), `settings.toml` among them. Kept on update, and on `remove` unless `--purge`. Credentials belong here, never in the checkout. |
 | A plugin's caches and log | `<state_dir>/plugins/<name>.state/` (`TMUXY_PLUGIN_STATE_DIR`). `tmuxy plugin log <name> [-f]` prints the log. |
 
 `tmuxy config paths` prints the real locations on this machine.
@@ -159,6 +248,17 @@ tmuxy plugin check tmuxy-hello
 A linked plugin shows as `dev` in `tmuxy plugin list`; installing over it is
 refused until it is removed.
 
+**The index.** Every six hours `.github/workflows/plugin-index.yml` lists
+every public repository with the GitHub topic **`tmuxy-plugin`**, checks each
+manifest in it (at the root or in subdirectories) with `tmuxy plugin check`,
+and publishes the ones that pass as `plugins.json` on the repository's
+`plugin-index` branch, which `tmuxy plugin search`, `install <name>` and
+[tmuxy.sh/plugins](https://tmuxy.sh/plugins) read. Repositories left out are
+named in the run's summary with why. Two plugins with one name are both
+listed and install by their source. The index is a convenience, not a trust
+signal: `install <name>` only finds the repository, and installs the commit
+the gate shows. `TMUXY_PLUGIN_INDEX` points the CLI at another index.
+
 **Naming.** Call the repository `tmuxy-<name>` (`tmuxy-chrome-devtools`, with
 `name = "chrome-devtools"` in the manifest); `tmuxy plugin new` does. The name
 is a convention, not how plugins are found: give the repository the GitHub
@@ -175,7 +275,6 @@ to its latest commit. `owner/repo@<40-hex>` pins a commit.
 
 ## Not yet
 
-Planned, and not in this release: link handlers (a plugin opening matching
-URLs or `file:line` text), key bindings, a settings schema, themes, plugin
-dependencies, a plugin index with install by name and `tmuxy plugin search`,
-reactive plugins (`tmuxy events`, `[[services]]`) and two-way plugin pages.
+Planned: reactive plugins (`tmuxy events`, `[[services]]`), two-way plugin
+pages, a settings UI (settings are set with `tmuxy plugin config` for now),
+and link handlers inside preview pages.

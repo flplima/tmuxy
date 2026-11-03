@@ -309,7 +309,12 @@ export function createKeyboardActor() {
           return;
         }
 
-        const bindingCommand = prefixBindings.get(bindingKey);
+        // `prefix M-y` and `prefix C-o` are bindings of their own (a plugin's
+        // `[[keys]]` among them): with Ctrl or Alt held the key is looked up
+        // with them first, then bare as it always was.
+        const modified =
+          event.ctrlKey || event.altKey ? prefixBindings.get(formattedKey) : undefined;
+        const bindingCommand = modified ?? prefixBindings.get(bindingKey);
         if (bindingCommand) {
           const table = runBinding(bindingCommand);
           if (table) {

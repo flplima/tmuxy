@@ -20,15 +20,20 @@
 
 pub mod fetch;
 pub mod gc;
+pub mod index;
 pub mod inventory;
 pub mod invoke;
 pub mod job;
+pub mod keys;
+pub mod links;
 pub mod lockfile;
 pub mod log;
 pub mod manifest;
 pub mod registry;
 pub mod scaffold;
+pub mod settings;
 pub mod source;
+pub mod themes;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
@@ -36,11 +41,14 @@ mod tests;
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_invoke;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests_links;
 
 use std::path::{Path, PathBuf};
 
 /// The manifest's file name, at a plugin's root.
-pub const MANIFEST_FILE: &str = "tmuxy-plugin.toml";
+pub use crate::session::PLUGIN_MANIFEST_FILE as MANIFEST_FILE;
 
 /// The plugin a user's own `<config_dir>/tmuxy-plugin.toml` is: installed by
 /// nobody, gated by nothing, its commands relative to the config dir.
@@ -56,8 +64,8 @@ pub const TMUXY_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// as `tmuxy plugin <verb>`, may not be one of them. The server crate's
 /// tests hold this list to its clap subcommands.
 pub const RESERVED_VERBS: &[&str] = &[
-    "install", "list", "update", "remove", "action", "log", "check", "new", "exec", "publish",
-    "help",
+    "install", "list", "update", "remove", "action", "log", "check", "new", "config", "path",
+    "search", "exec", "publish", "help",
 ];
 
 /// Where plugins live, split as the rest of tmuxy's files are
@@ -228,4 +236,31 @@ pub(crate) fn random_hex() -> Result<String> {
         .and_then(|mut f| f.read_exact(&mut bytes))
         .map_err(|e| PluginError::io("reading /dev/urandom", e))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// After plugins changed (install, update, remove): publish the inventory,
+/// bind and unbind plugin keys, and ask every running app to reload its
+/// config, which is how its clients get the new key bindings
+/// (`docs/DATA-FLOW.md`: bindings reach a client at connect and on a
+/// reload). With no tmux server there is nothing to do: the next server to
+/// attach does all of it.
+pub fn refresh(dirs: &Dirs) {
+    inventory::publish(dirs);
+    let _ = keys::apply(dirs);
+    request_reload(dirs);
+}
+
+/// What `tmuxy config reload` does: touch the marker every app watches.
+pub fn request_reload(dirs: &Dirs) {
+    let marker = dirs.state.join("config-reload");
+    if private_dir(&dirs.state).is_err() {
+        return;
+    }
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&marker)
+    {
+        let _ = file.set_modified(std::time::SystemTime::now());
+    }
 }

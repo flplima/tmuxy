@@ -18,7 +18,7 @@ import { cellColorToCss, cellsToCss, isWideChar, sanitizeTerminalCell } from './
 import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from '../utils/glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls, sameUrls, type DetectedUrl } from '../utils/urlDetect';
-import { openExternalUrl, safeHref } from '../utils/openUrl';
+import { openLinkFrom, safeHref } from '../utils/openUrl';
 
 /**
  * Compute a numeric key for grouping cells by style.
@@ -274,14 +274,15 @@ export const TerminalLine = memo(
               tabIndex={-1}
               style={style}
               className={cls}
-              // Opened through openExternalUrl rather than the anchor's own
+              // Opened through openLinkFrom rather than the anchor's own
               // navigation: the desktop webview denies new windows, so the
-              // default did nothing there. preventDefault keeps the browser
-              // build from opening it twice.
+              // default did nothing there, and a plugin's link handler gets
+              // its turn first (Shift skips it). preventDefault keeps the
+              // browser build from opening it twice.
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                openExternalUrl(linkUrl);
+                openLinkFrom(e.currentTarget, linkUrl, e.shiftKey);
               }}
             >
               {content}

@@ -12,6 +12,7 @@ import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
 import { isTauri } from './utils/platform';
+import { usePluginLinks } from './hooks/usePluginLinks';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
@@ -97,6 +98,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
   useSelectionRows();
+  usePluginLinks();
 
   // The container being observed. Switching to or from the phone layout
   // mounts it somewhere else, and the new element is observed in its place.

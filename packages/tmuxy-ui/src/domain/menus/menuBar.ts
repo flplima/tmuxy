@@ -34,7 +34,7 @@ export function menuBarSpec(
     top('menu-tab', 'Tab', tabMenuSpec(ctx, { windowId: null })),
     top('menu-session', 'Session', sessionMenuSpec(ctx, env)),
     top('menu-view', 'View', viewMenuSpec(ctx, env)),
-    pluginsSubmenu(ctx.plugins, 'app', null),
+    pluginsSubmenu(ctx.plugins, 'app', null, ctx.keybindings),
     // No Select All: over a terminal grid it selects the whole document,
     // which means nothing.
     top('menu-edit', 'Edit', [

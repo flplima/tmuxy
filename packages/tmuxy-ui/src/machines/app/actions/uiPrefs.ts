@@ -171,9 +171,18 @@ export const uiPrefsActions = {
     );
   }),
 
-  uiPrefs_setAvailableThemes: assignCtx(({ event }) => {
-    if (event.type !== 'THEMES_LIST_RECEIVED') return {};
-    return { availableThemes: event.themes };
+  // The list is also how a theme that went away is noticed: a plugin's theme
+  // goes with its plugin, a user's with its file. The page falls back to the
+  // default rather than keeping a stylesheet nothing serves.
+  uiPrefs_setAvailableThemes: act(({ event, context, enqueue }) => {
+    if (event.type !== 'THEMES_LIST_RECEIVED') return;
+    enqueue(assign({ availableThemes: event.themes }));
+    const gone = event.themes.length > 0 && !event.themes.some((t) => t.name === context.themeName);
+    if (gone) {
+      applyTheme('default', context.themeMode);
+      saveThemeToStorage('default', context.themeMode);
+      enqueue(assign({ themeName: 'default' }));
+    }
   }),
 
   // A stylesheet under the config dir was saved: fetch the CSS again, and the

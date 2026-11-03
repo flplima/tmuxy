@@ -22,6 +22,8 @@ describe('parseInventory', () => {
             { id: 'open', title: 'Öffnen — DevTools', menu: 'pane', surface: 'popup' },
             { id: 'quiet', title: 'Quiet', surface: 'split' },
           ],
+          linkHosts: [],
+          textLinks: false,
         },
       ]),
     );
@@ -32,6 +34,8 @@ describe('parseInventory', () => {
           { id: 'open', title: 'Öffnen — DevTools', menu: 'pane', surface: 'popup' },
           { id: 'quiet', title: 'Quiet', menu: null, surface: 'split' },
         ],
+        linkHosts: [],
+        textLinks: false,
       },
     ]);
   });
@@ -47,12 +51,34 @@ describe('parseInventory', () => {
             { id: 'fine', title: 'Fine', menu: 'toolbar' },
             { id: 'blank', title: '   ', menu: 'pane' },
           ],
+          linkHosts: [],
+          textLinks: false,
         },
       ]),
     );
     expect(plugins).toEqual([
-      { name: 'ok', actions: [{ id: 'fine', title: 'Fine', menu: null, surface: 'split' }] },
+      {
+        name: 'ok',
+        actions: [{ id: 'fine', title: 'Fine', menu: null, surface: 'split' }],
+        linkHosts: [],
+        textLinks: false,
+      },
     ]);
+  });
+
+  it('keeps the link hosts a URL handler takes, and drops any that is not a host', () => {
+    const [plugin] = parseInventory(
+      b64([
+        {
+          name: 'links',
+          actions: [],
+          link_hosts: ['claude.ai', 'xn--80ak6aa92e.com', 'Evil Host', 'a/b', 7],
+          text_links: true,
+        },
+      ]),
+    );
+    expect(plugin.linkHosts).toEqual(['claude.ai', 'xn--80ak6aa92e.com']);
+    expect(plugin.textLinks).toBe(true);
   });
 
   it.each(['', '   ', 'not base64 !!', btoa('{"not":"an array"}'), btoa('[1,')])(
@@ -71,8 +97,15 @@ describe('pluginMenuEntries', () => {
         { id: 'x', title: 'X', menu: 'pane', surface: 'split' },
         { id: 'y', title: 'Y', menu: 'selection', surface: 'tab' },
       ],
+      linkHosts: [],
+      textLinks: false,
     },
-    { name: 'b', actions: [{ id: 'z', title: 'Z', menu: 'pane', surface: 'float' }] },
+    {
+      name: 'b',
+      actions: [{ id: 'z', title: 'Z', menu: 'pane', surface: 'float' }],
+      linkHosts: [],
+      textLinks: false,
+    },
   ];
 
   it('lists a menu’s actions in inventory order', () => {
