@@ -57,7 +57,7 @@ pane it runs in) and the `tmuxy` CLI.
 | `action` | The action's id; absent for a verb. |
 | `pane` | The target pane, as tmux described it when the action opened. |
 | `selection_file` | Present only when there is a selection. |
-| `link` | Present only for `trigger: "link"`: the URL (also after `--` in argv), or the matched text and its named captures. |
+| `link` | Present only for `trigger: "link"`: the URL (also the command's argument), or the matched text and its named captures. |
 | `settings` | Every `[[settings]]` value in force (set, else the default), except secrets, which the command reads from `$TMUXY_PLUGIN_CONFIG_DIR/settings.toml`. |
 
 A plugin must ignore fields it does not know.

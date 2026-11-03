@@ -191,9 +191,17 @@ fn a_link_prepares_a_token_with_the_link_and_the_url_after_double_dash() {
         ("artifacts", "open")
     );
     let token = Token::read(&dirs, &prepared.token).unwrap();
-    assert_eq!(token.args, vec!["--".to_string(), url.to_string()]);
+    // The argv `tmuxy plugin action artifacts:open -- <url>` gives the command.
+    assert_eq!(token.args, vec![url.to_string()]);
     assert_eq!(token.link.unwrap().url.as_deref(), Some(url));
     assert!(links::match_url(&registry, "https://evil.com/").is_none());
+    // Matched as parsed: the host case-folded, the path without its query or
+    // fragment (a `/` in either cannot break the path regex).
+    assert!(links::match_url(
+        &registry,
+        "https://Claude.AI/public/artifacts/abc?next=/x#/y"
+    )
+    .is_some());
 
     let text = links::match_text(&registry, "see src/main.rs:42", 6).unwrap();
     assert_eq!(text.link.captures["line"], "42");
@@ -218,6 +226,48 @@ fn keys_parse_tmux_syntax_and_ours_are_known_by_their_marker() {
         vec![("prefix".to_string(), "M-a".to_string())]
     );
     assert!(keys::binding_command("p", "a").contains("--pane #{pane_id} --trigger key"));
+}
+
+/// The commands that rebind the plugin keys come from the tables as read:
+/// a user's binding keeps its key, every old plugin binding goes first.
+#[test]
+fn key_commands_keep_a_users_binding_and_drop_stale_plugin_ones() {
+    let base = scratch("key-commands");
+    let dirs = dirs_in(&base);
+    let manifest = format!("{LINKS}\n[[keys]]\nkey = \"M-b\"\naction = \"open\"\n");
+    let dir = plugin_dir(&base, &manifest, &["bin/open"]);
+    let mut lock = Lockfile::default();
+    lock.upsert(Entry::from_path("artifacts", &dir));
+    lock.save(&dirs).unwrap();
+    let registry = Registry::load(&dirs).unwrap();
+
+    let prefix = format!(
+        "bind-key    -T prefix       M-a                  kill-pane\n\
+         bind-key -r -T prefix       M-z                  run-shell -b \"{}\"\n",
+        keys::binding_command("gone", "x")
+    );
+    let (planned, cmds) = keys::commands(&registry, |table| match table {
+        manifest::KeyTable::Prefix => prefix.clone(),
+        manifest::KeyTable::Root => String::new(),
+    });
+    let taken: Vec<_> = planned
+        .iter()
+        .map(|p| (p.key.as_str(), p.taken_by.as_deref()))
+        .collect();
+    assert_eq!(
+        taken,
+        vec![
+            ("M-a", Some("bind-key -T prefix M-a kill-pane")),
+            ("M-b", None)
+        ]
+    );
+    let words = |cmd: &Vec<String>| cmd[..4].join(" ");
+    assert_eq!(
+        cmds.iter().map(words).collect::<Vec<_>>(),
+        vec!["unbind-key -T prefix M-z", "bind-key -T prefix M-b"]
+    );
+    assert_eq!(cmds[1][6], keys::binding_command("artifacts", "open"));
+    std::fs::remove_dir_all(base).unwrap();
 }
 
 #[test]

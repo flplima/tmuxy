@@ -229,12 +229,13 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
     expect(text.context.link.captures).toEqual({ path: 'src/main.rs', line: '42' });
     expect(text.context.pane.cwd).not.toBe('');
 
-    // A URL the handler takes: the URL in the context and after `--`.
+    // A URL the handler takes: the URL in the context and as the command's
+    // argument, the argv `tmuxy plugin action p:a -- <url>` gives it.
     seen = runs().length;
     await clickText(page, 'https://example.com/allowed/abc1', ['Control']);
     const url = await nextRun(page, seen, 'the clicked URL');
     expect(url.context.link.url).toBe('https://example.com/allowed/abc1');
-    expect(url.args).toEqual(['--', 'https://example.com/allowed/abc1']);
+    expect(url.args).toEqual(['https://example.com/allowed/abc1']);
     expect(await opened()).toEqual([]);
 
     // Shift goes straight to the browser; so does a URL the server declines.

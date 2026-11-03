@@ -158,9 +158,10 @@ pub struct Prepared {
     pub token: String,
 }
 
-/// Prepare the action a link opens on `pane`: the URL also reaches the
-/// command after `--`. `None` when no handler takes it (the client then
-/// opens a URL in the browser as before).
+/// Prepare the action a link opens on `pane`: the URL is also the command's
+/// last argument, as `tmuxy plugin action <plugin>:<id> -- <url>` passes it.
+/// `None` when no handler takes it (the client then opens a URL in the
+/// browser as before).
 pub fn prepare(dirs: &Dirs, found: Option<Found<'_>>, pane: &str) -> Result<Option<Prepared>> {
     let Some(found) = found else {
         return Ok(None);
@@ -175,7 +176,7 @@ pub fn prepare(dirs: &Dirs, found: Option<Found<'_>>, pane: &str) -> Result<Opti
         pane,
     );
     if let Some(url) = &found.link.url {
-        token.args = vec!["--".into(), url.clone()];
+        token.args = vec![url.clone()];
     }
     token.link = Some(found.link);
     let id = token.create(dirs)?;

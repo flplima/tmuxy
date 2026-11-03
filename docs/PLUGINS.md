@@ -34,11 +34,14 @@ What tmuxy does guarantee:
   HTTPS only, hooks and LFS filters disabled, no submodules, symlinks checked
   out as plain files. The checkout's `.git` is dropped once its commit is
   verified (`tmuxy_core::plugins::fetch`).
-- **The gate asks a person.** It shows the commit, every action, verb and
-  required command, and the warning above, and reads the answer from
-  `/dev/tty`, never stdin. Without a terminal it fails closed unless given
-  `--yes --sha <commit>`: a script names the commit it reviewed, never
-  "whatever is there now". `update` shows what changed and asks again.
+- **The gate asks a person.** It shows the commit, every action, verb,
+  link handler, key, setting, theme, dependency and required command, and
+  the warning above, and reads the answer from `/dev/tty`, never stdin.
+  Without a terminal it prints the same table on stderr and fails closed
+  unless given `--yes` with a `--sha <commit>` for every commit it shows (the
+  plugin's and each dependency it fetches): a script names the commits it
+  reviewed, never "whatever is there now". `update` shows what changed in
+  every one of those sections and asks again.
 - **Commands stay inside the plugin.** Every `command` is an argv whose
   program is a path inside the plugin, resolved and checked again at every
   launch (a symlink out of the directory is refused), and run directly,
@@ -100,7 +103,9 @@ verb, the built-in wins and `tmuxy plugin list` says the verb is shadowed.
 
 `~/.config/tmuxy/tmuxy-plugin.toml` with `name = "user"` is your own plugin:
 the same schema, no install and no gate, its commands relative to the config
-dir. `tmuxy config reload` puts its actions in the menus.
+dir. Saving it applies it, as saving `tmuxy.conf` does (so do `tmuxy config
+reload` and the app menu's Reload Config): its actions go in the menus and
+its keys are bound.
 
 ## Links, keys, settings, dependencies and themes
 
@@ -142,8 +147,9 @@ file = "themes/night.css"                  # listed as "Night (claude-artifacts)
 And in `[plugin]`: `depends = [{ name = "lib", source = "someone/tmuxy-lib", ref = "v1" }]`.
 
 **Link handlers.** A Cmd/Ctrl+click on a link or on text in a pane opens the
-handler's action instead of the browser; the URL also reaches the command
-after `--`, and the link is `link` in its context. Pane output is untrusted,
+handler's action instead of the browser; the URL is also the command's
+argument (the argv `tmuxy plugin action <plugin>:<id> -- <url>` gives it),
+and the link is `link` in its context. Pane output is untrusted,
 so the client only pre-selects (a URL whose host a plugin declares, a click on
 plain text when some plugin has text handlers) and the server decides. A URL
 is checked as parsed, never as a string: `https` only (`http` and explicit
@@ -154,8 +160,10 @@ whatever a pane prints. Adding **Shift** goes straight to the browser. The
 first handler in install order (your own plugin first) wins.
 
 **Keys.** A plugin key runs its action on the pane it was pressed in. It is
-bound at install, when a server attaches and after `tmuxy config reload`,
-and removed with the plugin. **Your bindings always win:** a key already
+bound at install, when a server attaches and after every config reload
+(`tmuxy config reload`, the app menu's, a saved `tmuxy.conf`), read and
+bound over the app's own tmux connection after the config, and removed with
+the plugin. **Your bindings always win:** a key already
 bound is skipped, never replaced, and `tmuxy plugin list` says so (unbind
 yours in `tmuxy.conf` to give it to the plugin). The menus show the key beside
 the action.
