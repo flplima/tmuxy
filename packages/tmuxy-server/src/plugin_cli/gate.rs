@@ -2,14 +2,18 @@
 //! its code runs, and a yes asked of a person.
 //!
 //! The question goes to `/dev/tty`, never stdin, so `curl … | tmuxy plugin
-//! install` cannot answer it. Without a terminal the gate fails closed unless
-//! the caller passes `--yes --sha <commit>`: a script names the exact commit
-//! it reviewed, never "whatever is there now".
+//! install` cannot answer it. Without a terminal the gate prints the table on
+//! stderr and fails closed unless the caller passes `--yes` with a `--sha
+//! <commit>` for every commit fetched (the plugin's and each new
+//! dependency's): a script names the exact commits it reviewed, never
+//! "whatever is there now".
 
 use std::io::{BufRead, IsTerminal, Write};
 
 use tmuxy_core::plugins::keys;
-use tmuxy_core::plugins::manifest::{Action, LinkHandler, LinkMatch, Manifest};
+use tmuxy_core::plugins::manifest::{
+    Action, Dependency, Key, LinkHandler, LinkMatch, Manifest, Setting, Theme,
+};
 use tmuxy_core::plugins::registry::on_path;
 use tmuxy_core::plugins::PluginError;
 
@@ -126,25 +130,15 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
         let taken = keys::user_binding(k.table, &k.key)
             .map(|b| s.yellow(&format!(" (yours is kept: {b})")))
             .unwrap_or_default();
-        line(format!(
-            "  {label:<10}{} {} -> {}{taken}",
-            k.table.as_str(),
-            k.key,
-            k.action
-        ));
+        line(format!("  {label:<10}{}{taken}", describe_key(k)));
     }
     for (i, set) in m.settings.iter().enumerate() {
         let label = if i == 0 { "settings" } else { "" };
-        let secret = if set.secret { ", secret" } else { "" };
-        line(format!(
-            "  {label:<10}{} ({}{secret})",
-            set.key,
-            set.kind.describe()
-        ));
+        line(format!("  {label:<10}{}", describe_setting(set)));
     }
     for (i, t) in m.themes.iter().enumerate() {
         let label = if i == 0 { "themes" } else { "" };
-        line(format!("  {label:<10}{}: {}", t.id, t.file));
+        line(format!("  {label:<10}{}", describe_theme(t)));
     }
     if !m.themes.is_empty() {
         line(s.yellow(
@@ -153,14 +147,9 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
     }
     for (i, d) in m.depends.iter().enumerate() {
         let label = if i == 0 { "depends" } else { "" };
-        line(format!("  {label:<10}{} from {}", d.name, d.source));
+        line(format!("  {label:<10}{}", describe_dependency(d)));
     }
-    let platforms = m
-        .platforms
-        .as_ref()
-        .map(|p| p.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", "))
-        .unwrap_or_else(|| "any".to_string());
-    line(format!("  {:<10}{platforms}", "platforms"));
+    line(format!("  {:<10}{}", "platforms", platforms(m)));
     if let Some((old, _)) = subject.previous {
         let changes = diff(old, m);
         line(String::new());
@@ -173,6 +162,13 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
         }
     }
     out
+}
+
+fn platforms(m: &Manifest) -> String {
+    m.platforms
+        .as_ref()
+        .map(|p| p.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(", "))
+        .unwrap_or_else(|| "any".to_string())
 }
 
 fn describe_link(h: &LinkHandler) -> String {
@@ -192,45 +188,121 @@ fn describe_link(h: &LinkHandler) -> String {
     }
 }
 
-/// What an update changes in what the plugin can do.
+fn describe_key(k: &Key) -> String {
+    format!("{} {} -> {}", k.table.as_str(), k.key, k.action)
+}
+
+fn describe_setting(set: &Setting) -> String {
+    let secret = if set.secret { ", secret" } else { "" };
+    format!("{} ({}{secret})", set.key, set.kind.describe())
+}
+
+fn describe_theme(t: &Theme) -> String {
+    format!("{}: {}", t.id, t.file)
+}
+
+fn describe_dependency(d: &Dependency) -> String {
+    match &d.git_ref {
+        Some(r) => format!("{} from {}@{r}", d.name, d.source),
+        None => format!("{} from {}", d.name, d.source),
+    }
+}
+
+/// One kind of entry an update can add, change or drop, matched across the
+/// two manifests by `key`: `+ <what> <new>`, `~ <what> <new>`, `- <what> <key>`.
+fn diff_entries<T: PartialEq>(
+    changes: &mut Vec<String>,
+    what: &str,
+    old: &[T],
+    new: &[T],
+    key: impl Fn(&T) -> String,
+    describe: impl Fn(&T) -> String,
+) {
+    for n in new {
+        match old.iter().find(|o| key(o) == key(n)) {
+            None => changes.push(format!("+ {what} {}", describe(n))),
+            Some(was) if was != n => changes.push(format!("~ {what} {}", describe(n))),
+            Some(_) => {}
+        }
+    }
+    for o in old {
+        if !new.iter().any(|n| key(n) == key(o)) {
+            changes.push(format!("- {what} {}", key(o)));
+        }
+    }
+}
+
+/// What an update changes in what the plugin can do: every section the
+/// table shows, so a new link handler, key, setting, theme or dependency is
+/// never "none".
 pub fn diff(old: &Manifest, new: &Manifest) -> Vec<String> {
     let mut changes = Vec::new();
-    for a in &new.actions {
-        match old.action(&a.id) {
-            None => changes.push(format!("+ action {}", describe_action(a))),
-            Some(was) if was != a => changes.push(format!("~ action {}", describe_action(a))),
-            Some(_) => {}
-        }
-    }
-    for a in &old.actions {
-        if new.action(&a.id).is_none() {
-            changes.push(format!("- action {}", a.id));
-        }
-    }
-    for c in &new.cli {
-        match old.cli.iter().find(|o| o.verb == c.verb) {
-            None => changes.push(format!(
-                "+ verb tmuxy plugin {}: {}",
-                c.verb,
-                c.command.join(" ")
-            )),
-            Some(was) if was.command != c.command => changes.push(format!(
-                "~ verb tmuxy plugin {}: {}",
-                c.verb,
-                c.command.join(" ")
-            )),
-            Some(_) => {}
-        }
-    }
-    for c in &old.cli {
-        if !new.cli.iter().any(|n| n.verb == c.verb) {
-            changes.push(format!("- verb tmuxy plugin {}", c.verb));
-        }
-    }
-    for r in &new.requires {
-        if !old.requires.contains(r) {
-            changes.push(format!("+ requires {r}"));
-        }
+    diff_entries(
+        &mut changes,
+        "action",
+        &old.actions,
+        &new.actions,
+        |a| a.id.clone(),
+        describe_action,
+    );
+    diff_entries(
+        &mut changes,
+        "verb",
+        &old.cli,
+        &new.cli,
+        |c| format!("tmuxy plugin {}", c.verb),
+        |c| format!("tmuxy plugin {}: {}", c.verb, c.command.join(" ")),
+    );
+    diff_entries(
+        &mut changes,
+        "requires",
+        &old.requires,
+        &new.requires,
+        String::clone,
+        String::clone,
+    );
+    diff_entries(
+        &mut changes,
+        "link",
+        &old.link_handlers,
+        &new.link_handlers,
+        |h| h.id.clone(),
+        |h| format!("{}: {}", h.id, describe_link(h)),
+    );
+    diff_entries(
+        &mut changes,
+        "key",
+        &old.keys,
+        &new.keys,
+        |k| format!("{} {}", k.table.as_str(), k.key),
+        describe_key,
+    );
+    diff_entries(
+        &mut changes,
+        "setting",
+        &old.settings,
+        &new.settings,
+        |set| set.key.clone(),
+        describe_setting,
+    );
+    diff_entries(
+        &mut changes,
+        "theme",
+        &old.themes,
+        &new.themes,
+        |t| t.id.clone(),
+        describe_theme,
+    );
+    diff_entries(
+        &mut changes,
+        "depends",
+        &old.depends,
+        &new.depends,
+        |d| d.name.clone(),
+        describe_dependency,
+    );
+    if old.platforms != new.platforms {
+        changes.push(format!("~ platforms {}", platforms(new)));
     }
     changes
 }
@@ -240,8 +312,8 @@ pub fn diff(old: &Manifest, new: &Manifest) -> Vec<String> {
 pub struct Answer {
     /// `--yes`.
     pub yes: bool,
-    /// `--sha`: the commit a `--yes` was given for.
-    pub sha: Option<String>,
+    /// `--sha`, once per commit: the commits a `--yes` was given for.
+    pub sha: Vec<String>,
 }
 
 /// Show the table and ask. `Ok(false)` is a no.
@@ -249,14 +321,40 @@ pub fn ask(subject: &Subject<'_>, answer: &Answer) -> Result<bool, PluginError> 
     ask_all(std::slice::from_ref(subject), answer)
 }
 
+/// ` --sha <commit>` for every commit, as a `--yes` must name them.
+fn sha_flags(commits: &[&str]) -> String {
+    commits.iter().map(|sha| format!(" --sha {sha}")).collect()
+}
+
+/// A `--yes` stands for a review of exactly these commits: each one fetched
+/// must be named, or a dependency that moved since would go in unseen.
+fn reviewed(commits: &[&str], given: &[String]) -> Result<(), PluginError> {
+    let unnamed: Vec<&str> = commits
+        .iter()
+        .filter(|sha| !given.iter().any(|g| g.eq_ignore_ascii_case(sha)))
+        .copied()
+        .collect();
+    if unnamed.is_empty() {
+        return Ok(());
+    }
+    if given.is_empty() {
+        return Err(PluginError::Invalid(format!(
+            "--yes needs --sha with every commit you reviewed:{}",
+            sha_flags(commits)
+        )));
+    }
+    Err(PluginError::Invalid(format!(
+        "no --sha names {}: the source moved since it was reviewed, or a commit was left out; nothing installed",
+        unnamed.join(", ")
+    )))
+}
+
 /// One question for a plugin and the dependencies it brings: every table,
-/// then one yes or no. `--sha` names the first subject's commit; the
-/// dependencies' are shown with theirs.
+/// then one yes or no. A `--yes` names every commit shown with a `--sha`.
 pub fn ask_all(subjects: &[Subject<'_>], answer: &Answer) -> Result<bool, PluginError> {
-    let Some(subject) = subjects.first() else {
+    if subjects.is_empty() {
         return Ok(true);
-    };
-    let color = std::io::stderr().is_terminal();
+    }
     let render_all = |color: bool| {
         subjects
             .iter()
@@ -264,37 +362,26 @@ pub fn ask_all(subjects: &[Subject<'_>], answer: &Answer) -> Result<bool, Plugin
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let commits: Vec<&str> = subjects.iter().filter_map(|s| s.sha).collect();
+    let on_stderr = || eprint!("{}", render_all(std::io::stderr().is_terminal()));
     if answer.yes {
-        if let Some(sha) = subject.sha {
-            match &answer.sha {
-                Some(want) if want == sha => {}
-                Some(want) => {
-                    return Err(PluginError::Invalid(format!(
-                    "--sha {want} was reviewed, but the source is at {sha} now; nothing installed"
-                )))
-                }
-                None => {
-                    return Err(PluginError::Invalid(format!(
-                        "--yes needs --sha with the commit you reviewed (it is {sha})"
-                    )))
-                }
-            }
-        }
-        eprint!("{}", render_all(color));
+        reviewed(&commits, &answer.sha)?;
+        on_stderr();
         return Ok(true);
     }
-    let tty = std::fs::OpenOptions::new()
+    let Ok(tty) = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open("/dev/tty")
-        .map_err(|_| {
-            PluginError::Invalid(match subject.sha {
-                Some(sha) => format!(
-                    "no terminal to ask on; after reviewing it, run again with --yes --sha {sha}"
-                ),
-                None => "no terminal to ask on; run again with --yes".to_string(),
-            })
-        })?;
+    else {
+        // The table is the review a `--yes` stands for: show it where the
+        // caller can read it before saying how to give one.
+        on_stderr();
+        return Err(PluginError::Invalid(format!(
+            "no terminal to ask on; after reviewing the above, run again with --yes{}",
+            sha_flags(&commits)
+        )));
+    };
     let mut writer = &tty;
     let question = if subjects.len() > 1 {
         "Install them?"

@@ -73,6 +73,12 @@ pub(super) fn resolve(
                 }
             }
         }
+        if let Some(broken) = registry.broken.iter().find(|b| b.name == dep.name) {
+            return Err(refuse(format!(
+                "{} needs {:?}, which plugins.json lists but cannot be loaded ({}); `tmuxy plugin install` with no argument fetches what plugins.json lists",
+                manifest.name, dep.name, broken.reason
+            )));
+        }
         if let Some(staged) = out.iter().find(|s| s.manifest.name == dep.name) {
             if staged.slug != wanted.slug() {
                 return Err(refuse(format!(

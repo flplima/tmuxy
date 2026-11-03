@@ -443,7 +443,7 @@ fn install_lockfile(dirs: &Dirs, answer: &Answer, json: bool) -> Outcome {
                 // The lockfile names the commit: `--yes` alone is its review.
                 let pinned = Answer {
                     yes: answer.yes,
-                    sha: Some(sha.clone()),
+                    sha: vec![sha.clone()],
                 };
                 if !gate::ask(&subject, &pinned)? {
                     let _ = std::fs::remove_dir_all(&staging);

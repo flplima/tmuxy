@@ -9,7 +9,7 @@ Commands:
   install       Install by name from the index, from GitHub
                 <owner/repo[/subdir][@ref]>, or link a local directory
                 (--path DIR); with no argument, install exactly what
-                plugins.json lists [--yes --sha COMMIT]
+                plugins.json lists [--yes --sha COMMIT...]
   search        Search the plugin index [query]
   list          The installed plugins [--json]
   update        Move plugins to the latest commit of their ref [name]
@@ -25,7 +25,8 @@ Commands:
 
 Plugin commands run unsandboxed as your user and can control every pane.
 Install shows what a plugin can do and asks first; without a terminal it
-needs --yes --sha <the commit you reviewed>. docs/PLUGINS.md describes the
+needs --yes and a --sha <commit> for each commit it showed you (the plugin's
+and each dependency's). docs/PLUGINS.md describes the
 manifest (tmuxy-plugin.toml).
 EOF
 }

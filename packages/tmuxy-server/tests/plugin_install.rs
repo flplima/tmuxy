@@ -122,6 +122,14 @@ fn a_hostile_repo_and_gitconfig_run_nothing_and_check_out_no_symlink() {
         "{}",
         stderr(&refused)
     );
+    // ...after showing what it would have asked about: the review a later
+    // --yes stands for.
+    assert!(
+        stderr(&refused).contains("Install plugin hostile")
+            && stderr(&refused).contains(&format!("commit  {sha}")),
+        "{}",
+        stderr(&refused)
+    );
     assert!(!s.path("home/.config/tmuxy/plugins.json").exists());
 
     // --yes names the commit reviewed.

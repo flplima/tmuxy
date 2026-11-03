@@ -39,7 +39,22 @@ fn a_dependency_comes_through_one_gate_pinned_and_is_kept_while_needed() {
         &[("tmuxy-plugin.toml", &app_manifest, false), RUN],
     );
 
-    let out = s.tmuxy(&["install", "someone/tmuxy-app", "--yes", "--sha", &app_sha]);
+    // A --yes names every commit it reviewed: the plugin's alone leaves the
+    // dependency's unreviewed, and installs nothing.
+    let partial = s.tmuxy(&["install", "someone/tmuxy-app", "--yes", "--sha", &app_sha]);
+    assert_eq!(partial.status.code(), Some(1), "{}", stderr(&partial));
+    assert!(stderr(&partial).contains(&lib_sha), "{}", stderr(&partial));
+    assert!(!s.path("home/.config/tmuxy/plugins.json").exists());
+
+    let out = s.tmuxy(&[
+        "install",
+        "someone/tmuxy-app",
+        "--yes",
+        "--sha",
+        &app_sha,
+        "--sha",
+        &lib_sha,
+    ]);
     assert!(out.status.success(), "{}", stderr(&out));
     let gate = stderr(&out);
     assert!(

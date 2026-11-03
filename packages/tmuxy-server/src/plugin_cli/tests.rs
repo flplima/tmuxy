@@ -94,7 +94,7 @@ fn yes_without_the_reviewed_commit_installs_nothing() {
         &subject,
         &Answer {
             yes: true,
-            sha: None,
+            sha: Vec::new(),
         },
     );
     assert!(no_sha.unwrap_err().to_string().contains("--sha"));
@@ -102,7 +102,7 @@ fn yes_without_the_reviewed_commit_installs_nothing() {
         &subject,
         &Answer {
             yes: true,
-            sha: Some("f".repeat(40)),
+            sha: vec!["f".repeat(40)],
         },
     );
     assert!(moved.unwrap_err().to_string().contains("nothing installed"));
@@ -110,10 +110,103 @@ fn yes_without_the_reviewed_commit_installs_nothing() {
         &subject,
         &Answer {
             yes: true,
-            sha: Some(sha.into()),
+            sha: vec![sha.into()],
         },
     );
     assert!(ok.unwrap());
+}
+
+#[test]
+fn yes_names_every_commit_a_dependency_brings() {
+    let app = parsed(MANIFEST);
+    let lib = parsed(&MANIFEST.replace("devtools", "lib"));
+    let (app_sha, lib_sha) = ("a".repeat(40), "b".repeat(40));
+    let subjects = [
+        Subject {
+            manifest: &app,
+            source: "o/app",
+            sha: Some(&app_sha),
+            previous: None,
+        },
+        Subject {
+            manifest: &lib,
+            source: "o/lib",
+            sha: Some(&lib_sha),
+            previous: None,
+        },
+    ];
+    let yes = |sha: Vec<String>| gate::ask_all(&subjects, &Answer { yes: true, sha });
+    let only_app = yes(vec![app_sha.clone()]).unwrap_err().to_string();
+    assert!(only_app.contains(&lib_sha), "{only_app}");
+    let none = yes(Vec::new()).unwrap_err().to_string();
+    assert!(
+        none.contains(&format!("--sha {app_sha} --sha {lib_sha}")),
+        "{none}"
+    );
+    assert!(yes(vec![lib_sha.to_uppercase(), app_sha.clone()]).unwrap());
+
+    // A linked plugin has no commit, but the repository it depends on does.
+    let linked = [
+        Subject {
+            sha: None,
+            ..subjects[0]
+        },
+        Subject { ..subjects[1] },
+    ];
+    let linked_yes = gate::ask_all(
+        &linked,
+        &Answer {
+            yes: true,
+            sha: Vec::new(),
+        },
+    );
+    assert!(linked_yes.unwrap_err().to_string().contains(&lib_sha));
+}
+
+#[test]
+fn an_update_lists_every_section_it_changes() {
+    let old = parsed(&format!(
+        "{MANIFEST}\n[[keys]]\nkey = \"M-d\"\naction = \"open\"\n"
+    ));
+    let new = parsed(
+        &format!(
+            r#"{MANIFEST}
+[[keys]]
+key = "M-e"
+action = "open"
+
+[[link_handlers]]
+id = "gh"
+match = "url"
+hosts = ["github.com"]
+action = "open"
+
+[[settings]]
+key = "token"
+type = "string"
+secret = true
+
+[[themes]]
+id = "dusk"
+file = "dusk.css"
+"#
+        )
+        .replace(
+            "requires = [",
+            "depends = [{ name = \"lib\", source = \"o/lib\" }]\nrequires = [",
+        ),
+    );
+    let changes = gate::diff(&old, &new);
+    for want in [
+        "+ key prefix M-e -> open",
+        "- key prefix M-d",
+        "+ link gh: github.com -> open",
+        "+ setting token (string, secret)",
+        "+ theme dusk: dusk.css",
+        "+ depends lib from o/lib",
+    ] {
+        assert!(changes.iter().any(|c| c == want), "{want}: {changes:?}");
+    }
 }
 
 #[test]

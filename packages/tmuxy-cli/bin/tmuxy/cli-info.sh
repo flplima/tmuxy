@@ -220,7 +220,8 @@ the tmux config. In short:
 A plugin adds menu actions and `tmuxy plugin <verb>` commands. Its commands run
 unsandboxed as the user, so never install one the user did not ask for:
 `tmuxy plugin install owner/repo` shows what it can do and asks on the terminal
-(an agent without one passes `--yes --sha <commit>` only after the user saw it).
+(an agent without one passes `--yes` and a `--sha <commit>` for each commit it
+shows, only after the user saw it).
 
 To write one (or an action of the user's own, in `~/.config/tmuxy/tmuxy-plugin.toml`
 with `name = "user"`):

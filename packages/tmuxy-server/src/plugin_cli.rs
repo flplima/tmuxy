@@ -47,12 +47,13 @@ enum PluginCommand {
         /// Link a local directory: used in place, edits apply at once.
         #[arg(long, value_name = "DIR", conflicts_with = "source")]
         path: Option<PathBuf>,
-        /// Do not ask (no terminal): needs --sha for a repository.
+        /// Do not ask (no terminal): needs a --sha for every commit fetched.
         #[arg(long)]
         yes: bool,
-        /// The commit you reviewed, for --yes.
-        #[arg(long, value_name = "COMMIT")]
-        sha: Option<String>,
+        /// A commit you reviewed, for --yes: once per commit the gate shows
+        /// (the plugin's and each new dependency's), or comma-separated.
+        #[arg(long, value_name = "COMMIT", value_delimiter = ',')]
+        sha: Vec<String>,
     },
     /// The installed plugins.
     List,
@@ -61,8 +62,8 @@ enum PluginCommand {
         name: Option<String>,
         #[arg(long)]
         yes: bool,
-        #[arg(long, value_name = "COMMIT")]
-        sha: Option<String>,
+        #[arg(long, value_name = "COMMIT", value_delimiter = ',')]
+        sha: Vec<String>,
     },
     /// Uninstall a plugin. Its config dir stays unless --purge.
     Remove {
