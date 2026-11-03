@@ -25,6 +25,8 @@ const {
   sendPrefixCommand,
   shownRunRect,
   tmuxRunAsOperator,
+  waitForPaneCount,
+  afterFrames,
 } = require('./helpers');
 const { writePluginDir, pluginCli, pluginStateDir, knownActions } = require('./helpers/plugins');
 
@@ -93,9 +95,15 @@ function runs() {
     }));
 }
 
-/** The next run after `seen` runs, once the action has recorded it. */
+/**
+ * The next run after `seen` runs, once the action has recorded it and its
+ * split has closed again: until then the pane is mid-resize, and a click
+ * computed from its rows can land on the line above.
+ */
 async function nextRun(page, seen, what) {
   await waitForCondition(page, () => runs().length > seen, 15000, `the action to run from ${what}`);
+  expect(await waitForPaneCount(page, 1, 10000)).toBe(true);
+  await afterFrames(page, 2);
   return runs()[seen];
 }
 
@@ -173,8 +181,15 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
       async () => `the client to have the plugin key; it has ${await pluginBindings(page)}`,
     );
     expect(await pluginBindings(page)).not.toContain('M-u');
-    expect(pluginCli('list')).toMatch(
-      /key\s+prefix M-u -> record\s+NOT BOUND: kept .*display-message user-key/,
+    // The user's M-u is still theirs in tmux, and `list` says why the
+    // plugin's is not bound. Read until the install's reloads have settled.
+    const userKey = () => tmuxRunAsOperator('list-keys -T prefix M-u');
+    const keptLine = /key\s+prefix M-u -> record\s+NOT BOUND: kept .*display-message user-key/;
+    await waitForCondition(
+      page,
+      () => keptLine.test(pluginCli('list')) && userKey().includes('display-message user-key'),
+      10000,
+      () => `M-u to stay the user's; tmux has "${userKey()}", list says:\n${pluginCli('list')}`,
     );
 
     // The menu shows the key beside the action.
