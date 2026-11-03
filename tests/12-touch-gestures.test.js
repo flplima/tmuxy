@@ -69,20 +69,21 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
           totalWidth: window.app.getSnapshot().context.totalWidth,
         };
       });
+    // Tapped in the middle, the view is scrolled to the middle. The scroll
+    // lands a frame after the grid grows, so it is part of what the wait waits
+    // for: read straight after the growth, it was still 0 on a loaded run.
     let zoom = null;
     await waitForCondition(
       ctx.page,
       async () => {
         zoom = await measureZoom();
-        return zoom.zoomed && zoom.scrollWidth > zoom.clientWidth + 10;
+        return zoom.zoomed && zoom.scrollWidth > zoom.clientWidth + 10 && zoom.scrollLeft > 50;
       },
       5000,
-      () => `the double tap to zoom (last: ${JSON.stringify(zoom)})`,
+      () => `the double tap to zoom, scrolled to the point tapped (last: ${JSON.stringify(zoom)})`,
     );
     expect(zoom.gridWidth).toBeCloseTo(gridBefore.width * 2, 0);
     expect(zoom.totalWidth).toBe(80);
-    // Tapped in the middle, the view is scrolled to the middle.
-    expect(zoom.scrollLeft).toBeGreaterThan(50);
     // A finger pans it.
     const scrollLeftBefore = zoom.scrollLeft;
     await swipeSideways(ctx.page, centre.y, 300, 100);
