@@ -48,7 +48,7 @@ mod tests_links;
 use std::path::{Path, PathBuf};
 
 /// The manifest's file name, at a plugin's root.
-pub const MANIFEST_FILE: &str = "tmuxy-plugin.toml";
+pub use crate::session::PLUGIN_MANIFEST_FILE as MANIFEST_FILE;
 
 /// The plugin a user's own `<config_dir>/tmuxy-plugin.toml` is: installed by
 /// nobody, gated by nothing, its commands relative to the config dir.
