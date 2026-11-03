@@ -322,7 +322,15 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
       15000,
       async () => `the default theme to come back; the page shows ${await termBackground(page)}`,
     );
-    expect(await themes()).not.toContain(`${PLUGIN}__night`);
+    // The colour and the list arrive separately — the session's theme as it
+    // changes, the list once the client asks for it again — so the list is
+    // waited on too.
+    await waitForCondition(
+      page,
+      async () => !(await themes()).includes(`${PLUGIN}__night`),
+      10000,
+      async () => `the plugin's theme to leave the list; it has ${await themes()}`,
+    );
     // Leave the menu's remembered choice as the suite found it.
     await clickMenuItem(page, ['View', 'Theme', 'Default']);
     tmuxRunAsOperator('set-option -gu @tmuxy-theme');
