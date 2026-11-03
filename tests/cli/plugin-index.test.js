@@ -28,6 +28,8 @@ describe('the plugin index builder', () => {
     const tools = fixtureRepo(base, 'tools', {
       'plugins/one/tmuxy-plugin.toml': manifest('one'),
       'plugins/two/tmuxy-plugin.toml': manifest('chrome-devtools'),
+      // A valid manifest at a path `tmuxy plugin install` cannot name.
+      'plugins/my plugin/tmuxy-plugin.toml': manifest('spaced'),
     });
     const broken = fixtureRepo(base, 'broken', {
       'tmuxy-plugin.toml': manifest('x', 'INVALID = 1'),
@@ -43,10 +45,11 @@ describe('the plugin index builder', () => {
     fs.writeFileSync(
       path.join(base, 'repos.json'),
       JSON.stringify([
-        entry('someone/tmuxy-chrome-devtools', devtools, 10),
+        // Out of order, as a search may answer: the file comes out the same.
+        entry('x/empty', empty, 0),
         entry('team/tmuxy-tools', tools, 3),
         entry('x/broken', broken, 0),
-        entry('x/empty', empty, 0),
+        entry('someone/tmuxy-chrome-devtools', devtools, 10),
       ]),
     );
     const checker = path.join(base, 'checker');
@@ -65,7 +68,7 @@ describe('the plugin index builder', () => {
       summary,
     ]);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain('3 plugins indexed, 2 left out');
+    expect(run.stdout).toContain('3 plugins indexed, 3 left out');
 
     const index = JSON.parse(fs.readFileSync(out, 'utf8'));
     const bySource = Object.fromEntries(index.plugins.map((p) => [p.source, p]));
@@ -89,6 +92,10 @@ describe('the plugin index builder', () => {
     expect(index.plugins[0].source).toBe('someone/tmuxy-chrome-devtools');
 
     expect(index.excluded).toEqual([
+      {
+        source: 'team/tmuxy-tools/plugins/my plugin',
+        reason: 'subdirectory "my plugin" is not a source path word',
+      },
       { source: 'x/broken', reason: 'tmuxy-plugin.toml:2:1: unknown field' },
       { source: 'x/empty', reason: 'no tmuxy-plugin.toml' },
     ]);
