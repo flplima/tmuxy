@@ -130,7 +130,29 @@ describe('Scenario: an MCP client sees and drives the session', () => {
     });
     expect(seen.line).toBe('mcp-e2e-#{ok}');
 
-    // 5. Closed, and gone from the page.
+    // 5. Into a program the user allowed (`@tmuxy-send-allow-into`, meant for
+    //    an agent's prompt): no question, the keys land at once. The pane runs
+    //    a shell here, so its shell is the program allowed.
+    const { panes: now } = await agent.call('pane_list');
+    const program = now.find((p) => p.id === paneId).command;
+    try {
+      ctx.session.runAsOperator(`set -g @tmuxy-send-allow-into ${program}`);
+      const unasked = await agent.call('pane_send_keys', {
+        pane: paneId,
+        keys: ["echo 'mcp-e2e-unasked'", 'Enter'],
+      });
+      expect(unasked).toEqual({ paneId, sent: true, asked: false });
+      await waitForTerminalText(page, 'mcp-e2e-unasked', 20000, {
+        scope: `[data-pane-id="${paneId}"]`,
+        notOnLineWith: 'echo',
+      });
+      expect(await page.$(`[data-pane-ask="${paneId}"]`)).toBeNull();
+    } finally {
+      // Global options outlive the test on the shared server.
+      ctx.session.runAsOperator('set -gu @tmuxy-send-allow-into');
+    }
+
+    // 6. Closed, and gone from the page.
     await agent.call('pane_kill', { pane: paneId });
     await waitForPaneCount(page, 1);
     expect(await paneBox(page, userPane)).not.toBeNull();

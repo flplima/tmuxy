@@ -134,6 +134,7 @@ case "${1:-}" in
     case "$*" in
       *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
       *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
+      *@tmuxy-send-allow-into) echo "${MOCK_TMUX_SEND_ALLOW_INTO:-}"; exit 0 ;;
       *@tmuxy-pane-state) echo "${MOCK_TMUX_PANE_STATE:-}"; exit 0 ;;
       # The question on the pane, played from the log: what the last write put
       # there, nothing once an unset followed it. MOCK_TMUX_PENDING_ASK plays

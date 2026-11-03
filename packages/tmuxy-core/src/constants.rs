@@ -179,8 +179,13 @@ pub mod tmux_options {
     /// not own asks the user there first (`packages/tmuxy-cli/bin/tmuxy/send`).
     pub const SEND_ASK: &str = "@tmuxy-send-ask";
     /// Comma list of caller process names and target pane ids whose sends
-    /// skip that question. Read by the CLI alone.
+    /// skip that question. Read by the CLI's `send` and the MCP endpoint's
+    /// `pane_send_keys`.
     pub const SEND_ALLOW: &str = "@tmuxy-send-allow";
+    /// Comma list of programs (`claude,agy`): a send into a pane whose
+    /// program in front is one of them skips that question — an agent's
+    /// prompt, which other agents may type into. Read where `SEND_ALLOW` is.
+    pub const SEND_ALLOW_INTO: &str = "@tmuxy-send-allow-into";
     /// Integer: how many cards each row of the "all tabs" view holds.
     pub const TAB_OVERVIEW_COLS: &str = "@tmuxy-tab-overview-cols";
     /// `on`/`off`: a two-finger trackpad slide left/right switches tabs.

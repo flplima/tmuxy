@@ -13,8 +13,11 @@
 #
 # `set -g @tmuxy-send-ask off` sends without asking; `@tmuxy-send-allow` is a
 # comma list of caller process names (`claude,codex`) and target panes
-# (`%3,%5`) that skip the question while it is on. A send that skips it still
-# marks the target pane unread, so nothing is typed into a pane unseen.
+# (`%3,%5`) that skip the question while it is on, and
+# `@tmuxy-send-allow-into` one of programs (`claude,agy`) a send into a pane
+# running them skips it. A send that skips it still marks the target pane
+# unread, so nothing is typed into a pane unseen. The MCP endpoint's
+# pane_send_keys reads the same three (tmuxy-server/src/mcp/ask.rs).
 #
 # Protocol (both ends of it live here and in packages/tmuxy-ui):
 #   @tmuxy-ask         on the target pane — base64 of {token, caller, keys}.
@@ -61,6 +64,8 @@ Options:
 Skipping the question:
   set -g @tmuxy-send-ask off            never ask
   set -g @tmuxy-send-allow claude,%3    don't ask these callers or panes
+  set -g @tmuxy-send-allow-into claude,agy
+                                        don't ask into panes running these
 
 Exit status: 0 sent, 1 declined, 2 timed out or bad usage, 3 no such pane.
 
@@ -236,18 +241,36 @@ pane_option() {
   _tmux show-options -pqv -t "$1" "$2" 2>/dev/null || true
 }
 
-allowed() {
-  [ "$(_tmux show-options -gqv @tmuxy-send-ask 2>/dev/null || true)" = off ] && return 0
-  local entry list
-  list="$(_tmux show-options -gqv @tmuxy-send-allow 2>/dev/null || true)"
+# Whether the comma list in global option $1 has an entry equal to one of the
+# other arguments.
+option_lists() {
+  local list entry wanted
+  list="$(_tmux show-options -gqv "$1" 2>/dev/null || true)"
+  shift
   IFS=',' read -r -a entries <<<"$list"
   for entry in "${entries[@]+"${entries[@]}"}"; do
     entry="${entry// /}"
-    if [ -n "$entry" ] && { [ "$entry" = "$CALLER" ] || [ "$entry" = "$TARGET" ]; }; then
-      return 0
-    fi
+    [ -n "$entry" ] || continue
+    for wanted in "$@"; do
+      [ -n "$wanted" ] && [ "$entry" = "$wanted" ] && return 0
+    done
   done
   return 1
+}
+
+# The program in front in the target pane, named as the caller is: Claude
+# Code's process is its version number.
+target_program() {
+  local program
+  program="$(_tmux display-message -p -t "$TARGET" '#{pane_current_command}' 2>/dev/null || true)"
+  [[ "$program" =~ ^[0-9]+(\.[0-9]+)+$ ]] && program="claude"
+  printf '%s' "$program"
+}
+
+allowed() {
+  [ "$(_tmux show-options -gqv @tmuxy-send-ask 2>/dev/null || true)" = off ] && return 0
+  option_lists @tmuxy-send-allow "$CALLER" "$TARGET" && return 0
+  option_lists @tmuxy-send-allow-into "$(target_program)"
 }
 
 if allowed; then

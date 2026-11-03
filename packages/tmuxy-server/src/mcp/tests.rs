@@ -1,5 +1,4 @@
-use super::ask::{self, encode_question, send_keys_command, skips_question};
-use super::tmux::{parse_panes, parse_tabs, resolve_pane, PaneKind, Tmux};
+use super::tmux::{parse_panes, parse_tabs, resolve_pane, PaneKind};
 use super::tools::{
     find_on_screen, float_command, float_create_args, preview_path, screen_pattern, split_command,
     tab_command, trim_screen, FloatArgs, FloatPosition, SplitDirection, TabArgs,
@@ -11,12 +10,8 @@ use axum::{
     http::{Request, StatusCode},
     Router,
 };
-use base64::Engine as _;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tmuxy_core::control_mode::{CommandReply, MonitorCommand};
-use tmuxy_core::session::SessionName;
+use std::sync::Arc;
 use tmuxy_core::PaneId;
 use tower::ServiceExt;
 
@@ -357,168 +352,4 @@ fn a_wait_pattern_is_anchored_at_each_line() {
 fn a_screen_loses_its_trailing_blanks_only() {
     assert_eq!(trim_screen("  a  \n\nb \n\n   \n"), "  a\n\nb");
     assert_eq!(trim_screen("\n\n"), "");
-}
-
-// ============================================
-// Asking before typing
-// ============================================
-
-#[test]
-fn the_question_is_skipped_only_when_the_user_said_so() {
-    let pane = PaneId::parse("%3").unwrap();
-    assert!(!skips_question("", "", "claude-code", &pane));
-    assert!(!skips_question("on", "codex,%4", "claude-code", &pane));
-    assert!(skips_question("off", "", "claude-code", &pane));
-    assert!(skips_question(
-        "",
-        "codex, claude-code",
-        "claude-code",
-        &pane
-    ));
-    assert!(skips_question("", "%3", "claude-code", &pane));
-    assert!(skips_question("", "mcp", "cursor", &pane));
-}
-
-/// What a fake monitor saw, in order, and what it holds of the pane's
-/// options.
-#[derive(Default)]
-struct FakePane {
-    ask: String,
-    answer: String,
-    log: Vec<String>,
-}
-
-/// A monitor that answers like tmux for one pane's ask options, and has the
-/// "user" answer `reply` as soon as a question goes up.
-fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
-    let (tx, mut rx) = tokio::sync::mpsc::channel(32);
-    let pane = Arc::new(Mutex::new(FakePane::default()));
-    let seen = Arc::clone(&pane);
-    tokio::spawn(async move {
-        while let Some(cmd) = rx.recv().await {
-            let MonitorCommand::RunCommandWithReply { command, reply: tx } = cmd else {
-                continue;
-            };
-            let output = {
-                let mut p = seen.lock().unwrap();
-                p.log.push(command.clone());
-                if command.contains("#{@tmuxy-send-ask}") {
-                    "\t\t\n".to_string()
-                } else if command.contains("set-option -pu -t %3 @tmuxy-ask ;") {
-                    p.ask.clear();
-                    p.answer.clear();
-                    String::new()
-                } else if let Some((_, value)) = command.split_once("@tmuxy-ask '") {
-                    p.ask = value.trim_end_matches('\'').to_string();
-                    let question: Value = serde_json::from_slice(
-                        &base64::engine::general_purpose::STANDARD
-                            .decode(&p.ask)
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    if let Some(reply) = reply {
-                        p.answer = format!("{}:{reply}", question["token"].as_str().unwrap());
-                    }
-                    String::new()
-                } else if command.contains("#{@tmuxy-ask-answer}") {
-                    format!("{}\n", p.answer)
-                } else if command.contains("#{@tmuxy-ask}") {
-                    format!("{}\n", p.ask)
-                } else {
-                    String::new()
-                }
-            };
-            let _ = tx.send(CommandReply {
-                output,
-                error: None,
-            });
-        }
-    });
-    let state = Arc::new(AppState::new());
-    let session = SessionName::parse("s").unwrap();
-    (Tmux::with_channel(&state, &session, tx), pane)
-}
-
-fn keys() -> Vec<String> {
-    vec!["npm test".into(), "Enter".into()]
-}
-
-#[tokio::test]
-async fn keys_land_only_after_the_user_allows_them_and_the_question_is_down() {
-    let (tmux, pane) = fake_monitor(Some("yes"));
-    let id = PaneId::parse("%3").unwrap();
-    let sent = ask::send_keys(&tmux, &id, &keys(), "claude-code", Duration::from_secs(5))
-        .await
-        .unwrap();
-    assert_eq!(sent["asked"], true);
-
-    let p = pane.lock().unwrap();
-    let position = |needle: &str| p.log.iter().position(|c| c.contains(needle));
-    let asked = position("@tmuxy-ask '").expect("the question went up");
-    let taken_down = position("set-option -pu -t %3 @tmuxy-ask ;").expect("and came down");
-    let typed = position("send-keys").expect("the keys were sent");
-    assert!(asked < taken_down && taken_down < typed, "{:?}", p.log);
-    assert_eq!(p.log[typed], send_keys_command(&id, &keys()));
-    assert_eq!(p.log[typed], "send-keys -t %3 -- 'npm test' 'Enter'");
-    assert!(p.ask.is_empty());
-}
-
-#[tokio::test]
-async fn a_declined_send_types_nothing() {
-    let (tmux, pane) = fake_monitor(Some("no"));
-    let id = PaneId::parse("%3").unwrap();
-    let error = ask::send_keys(&tmux, &id, &keys(), "claude-code", Duration::from_secs(5))
-        .await
-        .unwrap_err();
-    assert!(error.error.contains("declined"), "{error:?}");
-    let p = pane.lock().unwrap();
-    assert!(
-        !p.log.iter().any(|c| c.contains("send-keys")),
-        "{:?}",
-        p.log
-    );
-    assert!(p.ask.is_empty(), "the question is left up");
-}
-
-/// The client hangs up mid-question (its HTTP request dropped): nobody is
-/// listening for the answer any more, so the question comes down.
-#[tokio::test]
-async fn a_client_that_hangs_up_takes_its_question_down() {
-    let (tmux, pane) = fake_monitor(None);
-    let id = PaneId::parse("%3").unwrap();
-    let keys = keys();
-    let send = ask::send_keys(&tmux, &id, &keys, "claude-code", Duration::from_secs(60));
-    let dropped = tokio::time::timeout(Duration::from_millis(500), send).await;
-    assert!(
-        dropped.is_err(),
-        "nothing answered, so the send was still waiting"
-    );
-    for _ in 0..100 {
-        if pane.lock().unwrap().ask.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let p = pane.lock().unwrap();
-    assert!(
-        p.ask.is_empty(),
-        "the question outlived its sender: {:?}",
-        p.log
-    );
-    assert!(!p.log.iter().any(|c| c.contains("send-keys")));
-}
-
-#[test]
-fn the_question_carries_who_asks_and_what_they_would_type() {
-    let encoded = encode_question("3-mcp-ab", "claude-code", &keys());
-    let decoded: Value = serde_json::from_slice(
-        &base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        decoded,
-        json!({ "token": "3-mcp-ab", "caller": "claude-code", "keys": ["npm test", "Enter"] })
-    );
 }

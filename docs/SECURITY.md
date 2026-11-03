@@ -100,7 +100,7 @@ When using AI coding assistants (Claude, Copilot, etc.) with tmuxy running:
 If an AI agent has access to the machine where tmuxy is running, it can interact with your tmux sessions. This includes:
 
 - Reading terminal output from all panes
-- Sending keystrokes to any pane (`tmuxy pane send -t` into a pane that is not the caller's asks the user there first, unless `@tmuxy-send-ask` is off or the caller is on `@tmuxy-send-allow`)
+- Sending keystrokes to any pane (`tmuxy pane send -t` into a pane that is not the caller's asks the user there first, unless `@tmuxy-send-ask` is off, the caller is on `@tmuxy-send-allow`, or the target pane runs a program on `@tmuxy-send-allow-into`)
 - Running shell commands via `run-shell`
 - Creating/destroying windows and panes
 
@@ -110,7 +110,7 @@ None of that reaches a process that runs raw `tmux` on the socket as the same Un
 
 ### Agents on `/mcp`
 
-The MCP endpoint ([MCP.md](MCP.md)) is the same remote shell as `/commands`, offered as tools: it sits behind the same Basic auth and the same origin rules, so whoever can call it could already call `/commands`. What it adds is a shape an agent uses without a shell of its own. Typing into a pane that exists asks the user there, as `tmuxy pane send -t` does, and the endpoint has no tool that writes an option, so an agent cannot turn the question off. A pane, tab or float an agent opens runs the command it gives without asking, as `tmuxy pane run` does: that program is the agent's own, in a pane the user sees appear, and it can be anything, `tmux` included. An endpoint URL with `?read-only` offers only the tools that read; give an agent that one when it should watch and not act.
+The MCP endpoint ([MCP.md](MCP.md)) is the same remote shell as `/commands`, offered as tools: it sits behind the same Basic auth and the same origin rules, so whoever can call it could already call `/commands`. What it adds is a shape an agent uses without a shell of its own. Typing into a pane that exists asks the user there, as `tmuxy pane send -t` does, and the endpoint has no tool that writes an option, so an agent cannot turn the question off. A pane, tab or float an agent opens runs the command it gives without asking, as `tmuxy pane run` does: that program is the agent's own, in a pane the user sees appear, and it can be anything, `tmux` included. An endpoint URL with `?read-only` offers only the tools that read; give an agent that one when it should watch and not act. `@tmuxy-send-allow-into claude,agy` lets every sender, an MCP client included, type into those agents' prompts without asking: what it types, that agent then acts on with its own permissions.
 
 ### Prompt Injection via Terminal Output
 

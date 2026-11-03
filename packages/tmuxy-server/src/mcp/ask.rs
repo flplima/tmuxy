@@ -10,7 +10,9 @@
 //!
 //! `@tmuxy-send-ask off` skips the question, and so does an
 //! `@tmuxy-send-allow` entry naming the client (as it introduced itself), the
-//! target pane, or `mcp` for every MCP client. A send that skips it still
+//! target pane, or `mcp` for every MCP client, and an `@tmuxy-send-allow-into`
+//! entry naming the program in front in the target pane (`claude,agy`: an
+//! agent's prompt, which an agent may type into). A send that skips it still
 //! marks the pane unread, so nothing is typed into a pane unseen.
 
 use base64::Engine as _;
@@ -33,17 +35,70 @@ const PENDING_LIMIT: Duration = Duration::from_secs(60);
 /// The allow-list word for every MCP client.
 const ANY_MCP_CLIENT: &str = "mcp";
 
-/// Whether the question is skipped: asking is off, or the allow list names
-/// the caller, the pane, or every MCP client.
-pub(super) fn skips_question(send_ask: &str, allow: &str, caller: &str, pane: &PaneId) -> bool {
-    send_ask == "off"
-        || allow
-            .split(',')
-            .map(|entry| entry.replace(' ', ""))
-            .any(|entry| {
-                !entry.is_empty()
-                    && (entry == caller || entry == ANY_MCP_CLIENT || entry == pane.as_str())
-            })
+/// The options a send reads off its target pane, in one `display-message`.
+const SEND_RULES_FORMAT: &str =
+    "#{@tmuxy-send-ask}\t#{@tmuxy-send-allow}\t#{@tmuxy-send-allow-into}\t#{pane_current_command}\t#{@tmuxy-pane-state}";
+
+/// What decides whether a send into a pane asks first.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct SendRules {
+    /// `@tmuxy-send-ask`: `off` never asks.
+    pub send_ask: String,
+    /// `@tmuxy-send-allow`: callers and panes that never ask.
+    pub allow: String,
+    /// `@tmuxy-send-allow-into`: programs a pane may be running for a send
+    /// into it not to ask.
+    pub allow_into: String,
+    /// The program in front in the target pane, by its name.
+    pub program: String,
+    /// `@tmuxy-pane-state`, which a send that does not ask marks unread.
+    pub pane_state: String,
+}
+
+impl SendRules {
+    pub(super) fn parse(line: &str) -> Self {
+        let mut fields = line.trim_end_matches('\n').split('\t').map(str::to_string);
+        let mut next = || fields.next().unwrap_or_default();
+        Self {
+            send_ask: next(),
+            allow: next(),
+            allow_into: next(),
+            program: program_name(&next()),
+            pane_state: next(),
+        }
+    }
+
+    /// Whether the question is skipped: asking is off, the allow list names
+    /// the caller, the pane or every MCP client, or the program in the pane
+    /// is one sends may go into.
+    pub(super) fn skip_question(&self, caller: &str, pane: &PaneId) -> bool {
+        self.send_ask == "off"
+            || entries(&self.allow)
+                .any(|entry| entry == caller || entry == ANY_MCP_CLIENT || entry == pane.as_str())
+            || (!self.program.is_empty() && entries(&self.allow_into).any(|e| e == self.program))
+    }
+}
+
+/// A comma list's entries, spaces dropped, empty ones skipped.
+fn entries(list: &str) -> impl Iterator<Item = String> + '_ {
+    list.split(',')
+        .map(|entry| entry.replace(' ', ""))
+        .filter(|entry| !entry.is_empty())
+}
+
+/// A program as an allow list names it. Claude Code runs as
+/// `…/claude/versions/<version>`, so tmux reports a bare version (`2.1.314`)
+/// for it; the CLI's `send` reads it the same way.
+pub(super) fn program_name(command: &str) -> String {
+    let is_version = command.contains('.')
+        && command
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
+    if is_version {
+        "claude".to_string()
+    } else {
+        command.to_string()
+    }
 }
 
 /// `@tmuxy-ask`'s value: base64 of the question, so the free-text keys survive
@@ -70,20 +125,18 @@ pub(super) async fn send_keys(
     caller: &str,
     timeout: Duration,
 ) -> Result<Value, CommandError> {
-    let options = tmux
-        .read(&format!(
-            "display-message -p -t {pane} {}",
-            tmux_quote("#{@tmuxy-send-ask}\t#{@tmuxy-send-allow}\t#{@tmuxy-pane-state}")
-        ))
-        .await?;
-    let mut fields = options.trim_end_matches('\n').split('\t');
-    let send_ask = fields.next().unwrap_or_default();
-    let allow = fields.next().unwrap_or_default();
-    let pane_state = fields.next().unwrap_or_default();
+    let rules = SendRules::parse(
+        &tmux
+            .read(&format!(
+                "display-message -p -t {pane} {}",
+                tmux_quote(SEND_RULES_FORMAT)
+            ))
+            .await?,
+    );
 
-    if skips_question(send_ask, allow, caller, pane) {
+    if rules.skip_question(caller, pane) {
         tmux.mutate(&send_keys_command(pane, keys)).await?;
-        if pane_state.is_empty() || pane_state == "idle" {
+        if rules.pane_state.is_empty() || rules.pane_state == "idle" {
             tmux.mutate(&format!("set-option -p -t {pane} @tmuxy-pane-state unread"))
                 .await?;
         }

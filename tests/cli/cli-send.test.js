@@ -203,6 +203,16 @@ describe('tmuxy pane send', () => {
     test.each([
       ['@tmuxy-send-ask off', { MOCK_TMUX_SEND_ASK: 'off' }],
       ['the target on the allow list', { MOCK_TMUX_SEND_ALLOW: 'codex, %3' }],
+      // An agent's prompt: the program in the TARGET pane, Claude Code's
+      // version-named process read as claude.
+      [
+        'a target running a program on @tmuxy-send-allow-into',
+        { MOCK_TMUX_SEND_ALLOW_INTO: 'claude, agy', MOCK_TMUX_PANE_COMMAND: 'agy' },
+      ],
+      [
+        'a target running Claude Code, allowed into as claude',
+        { MOCK_TMUX_SEND_ALLOW_INTO: 'claude', MOCK_TMUX_PANE_COMMAND: '2.1.314' },
+      ],
     ])('%s sends at once and leaves the target unread', (_, env) => {
       const { exitCode, stdout, tmuxCalls } = send(['-t', '%3', 'make', 'Enter'], env);
       expect(exitCode).toBe(0);
@@ -236,11 +246,14 @@ describe('tmuxy pane send', () => {
       );
     });
 
-    test('an allow list naming someone else still asks', () => {
-      const { tmuxCalls } = send(['-t', '%3', 'make'], {
-        MOCK_TMUX_SEND_ALLOW: '%5',
-        MOCK_TMUX_ANSWER: 'yes',
-      });
+    test.each([
+      ['an allow list naming someone else', { MOCK_TMUX_SEND_ALLOW: '%5' }],
+      [
+        'a target running a program not on @tmuxy-send-allow-into',
+        { MOCK_TMUX_SEND_ALLOW_INTO: 'claude,agy', MOCK_TMUX_PANE_COMMAND: 'zsh' },
+      ],
+    ])('%s still asks', (_, env) => {
+      const { tmuxCalls } = send(['-t', '%3', 'make'], { ...env, MOCK_TMUX_ANSWER: 'yes' });
       expect(askPayload(tmuxCalls)).not.toBeNull();
     });
   });
