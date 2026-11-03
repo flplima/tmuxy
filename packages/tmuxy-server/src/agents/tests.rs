@@ -48,6 +48,20 @@ fn each_event_means_a_state() {
     assert_eq!(state(Agent::Claude, "Notification", &idle), None);
     assert_eq!(state(Agent::Codex, "Interrupt", &none), Some("idle"));
     assert_eq!(state(Agent::Agy, "PreInvocation", &none), Some("working"));
+    // Antigravity has no permission hook; a tool finishing is working again.
+    assert_eq!(state(Agent::Agy, "PostToolUse", &none), Some("working"));
+    // A failed model request is the turn's error; the retry that answers is
+    // working again.
+    let refused = json!({ "status": "failed", "error": "rate limited" });
+    assert_eq!(
+        state(Agent::Codex, "PostModelRequest", &refused),
+        Some("error")
+    );
+    let answered = json!({ "status": "ok", "error": null });
+    assert_eq!(
+        state(Agent::Codex, "PostModelRequest", &answered),
+        Some("working")
+    );
     let failed = json!({ "terminationReason": "error", "error": "", "fullyIdle": true });
     assert_eq!(state(Agent::Agy, "Stop", &failed), Some("error"));
     let done = json!({ "terminationReason": "model_stop", "fullyIdle": true });
@@ -154,7 +168,7 @@ fn antigravity_gets_a_named_hook_set_beside_the_users() {
         doc["tmuxy"]["Stop"][0]["command"],
         hook_command(Agent::Agy, "Stop", "tmuxy")
     );
-    assert_eq!(hooked_events(&doc, Agent::Agy), 3);
+    assert_eq!(hooked_events(&doc, Agent::Agy), Agent::Agy.hooks().len());
 
     uninstall(&places, &which(&[Agent::Agy])).unwrap();
     let doc = read_doc(&path).unwrap();

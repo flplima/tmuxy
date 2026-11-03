@@ -13,6 +13,7 @@ use std::io::{IsTerminal, Read};
 use serde_json::Value;
 
 mod config;
+pub(crate) mod screen;
 use config::*;
 
 #[cfg(test)]
@@ -83,6 +84,9 @@ const CODEX_HOOKS: &[Hook] = &[
     Hook::on("UserPromptSubmit"),
     Hook::on("PostToolUse"),
     Hook::on("PermissionRequest"),
+    // A model request that failed (`error`) is the turn's error, until a
+    // retry within the turn answers.
+    Hook::on("PostModelRequest"),
     Hook::on("Stop"),
     Hook::on("Interrupt"),
     // Codex allows SessionEnd three seconds at most.
@@ -93,9 +97,13 @@ const CODEX_HOOKS: &[Hook] = &[
     },
 ];
 
+/// Antigravity has no hook for a permission prompt: `needs-input` comes from
+/// its screen (`agents::screen`). A tool finishing is back to working, as a
+/// prompt answered by the user is.
 const AGY_HOOKS: &[Hook] = &[
     Hook::on("SessionStart"),
     Hook::on("PreInvocation"),
+    Hook::on("PostToolUse"),
     Hook::on("Stop"),
 ];
 
@@ -132,6 +140,16 @@ pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str>
                 return None;
             }
             "needs-input"
+        }
+        (Agent::Codex, "PostModelRequest") => {
+            let failed = payload
+                .get("error")
+                .is_some_and(|e| !e.is_null() && e.as_str() != Some(""));
+            if failed {
+                "error"
+            } else {
+                "working"
+            }
         }
         (Agent::Agy, "Stop") => {
             if !field("error").is_empty() || field("terminationReason") == "error" {

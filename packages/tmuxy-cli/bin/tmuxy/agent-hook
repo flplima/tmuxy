@@ -37,23 +37,22 @@ base="${TMPDIR:-/tmp}/tmuxy-agent-$UID"
 chmod 700 "$base" 2>/dev/null || exit 0
 dir="$base/${TMUX//[^A-Za-z0-9]/_}_${TMUX_PANE#%}"
 [ -d "$dir" ] || (umask 077 && mkdir -p "$dir") 2>/dev/null || exit 0
-wanted=""
-[ -f "$dir/wanted" ] && read -r wanted <"$dir/wanted"
-[ "$state" = "$wanted" ] && exit 0
 echo "$state" >"$dir/wanted" 2>/dev/null || exit 0
 
+# What the pane says is read from tmux, not remembered: other writers set the
+# state too — the server reading a dialog off the screen
+# (tmuxy-server/src/agents/screen.rs), a send's question, `tmuxy pane state` —
+# and a remembered "already applied" skipped the hook that should have put it
+# back (a pane left `needs-input` after the user had answered).
 apply() {
-  local wanted="" applied=""
+  local wanted="" current=""
   _lock_acquire "$dir"
   read -r wanted <"$dir/wanted"
-  [ -f "$dir/applied" ] && read -r applied <"$dir/applied"
-  if [ -n "$wanted" ] && [ "$wanted" != "$applied" ]; then
-    if [ "$wanted" = clear ]; then
-      _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-state"
-    else
-      _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-state $(shquote "$wanted")"
-    fi
-    echo "$wanted" >"$dir/applied"
+  current="$(_tmux show-options -pqv -t "$TMUX_PANE" @tmuxy-pane-state 2>/dev/null || true)"
+  if [ "$wanted" = clear ]; then
+    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-state"
+  elif [ -n "$wanted" ] && [ "$wanted" != "$current" ]; then
+    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-state $(shquote "$wanted")"
   fi
   _lock_release "$dir"
 }

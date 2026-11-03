@@ -103,7 +103,7 @@ impl Notice {
     }
 }
 
-fn is_version(command: &str) -> bool {
+pub(crate) fn is_version(command: &str) -> bool {
     command.contains('.')
         && command
             .split('.')

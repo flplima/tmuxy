@@ -50,23 +50,46 @@ describe('tmuxy agent', () => {
     expect(stdout.trim()).toBe('mock-server-started agent install claude --dry-run');
   });
 
-  test('a hook sets the pane state the event means, once per change', async () => {
+  // The state is read from tmux before it is written, never remembered: the
+  // screen corrector, a send's question and `tmuxy pane state` write it too,
+  // and a remembered "already applied" skipped the hook that had to put it
+  // back — a pane left needs-input after the user answered.
+  test('a hook sets the pane state the event means, whenever tmux says otherwise', async () => {
     const where = scratch();
+    const writes = (calls) => calls.filter((c) => c[2] === 'run-shell').map((c) => c[5]);
     expect(hook('claude', 'UserPromptSubmit', 'working', where).exitCode).toBe(0);
-    let calls = await callsAfterHook(where.log, 1);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].slice(2, 5)).toEqual(['run-shell', '-t', '%5']);
-    expect(calls[0][5]).toContain(
-      "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'working'",
-    );
+    let calls = await callsAfterHook(where.log, 2);
+    expect(calls[1].slice(2, 5)).toEqual(['run-shell', '-t', '%5']);
+    expect(writes(calls)).toEqual([
+      expect.stringContaining(
+        "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'working'",
+      ),
+    ]);
 
-    // The same state again costs no tmux call at all.
+    // The same state again: tmux already says it, so nothing is written.
     expect(hook('claude', 'PostToolUse', 'working', where).exitCode).toBe(0);
+    calls = await callsAfterHook(where.log, 3);
+    expect(writes(calls)).toHaveLength(1);
+
+    // Something else marked the pane meanwhile; the same event's state is
+    // written again.
+    fs.appendFileSync(
+      where.log,
+      JSON.stringify({
+        args: [
+          'run-shell',
+          "tmux -L tmuxy-test set-option -p -t '%5' @tmuxy-pane-state 'needs-input'",
+        ],
+      }) + '\n',
+    );
+    expect(hook('claude', 'PostToolUse', 'working', where).exitCode).toBe(0);
+    calls = await callsAfterHook(where.log, 6);
+    expect(writes(calls).slice(-1)[0]).toContain("@tmuxy-pane-state 'working'");
+
     // The session ending unsets it.
     expect(hook('claude', 'SessionEnd', 'clear', where).exitCode).toBe(0);
-    calls = await callsAfterHook(where.log, 2);
-    expect(calls).toHaveLength(2);
-    expect(calls[1][5]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
+    calls = await callsAfterHook(where.log, 8);
+    expect(writes(calls).slice(-1)[0]).toContain("set-option -p -u -t '%5' @tmuxy-pane-state");
   });
 
   test('outside a tmuxy pane a hook changes nothing, and still answers Antigravity', async () => {

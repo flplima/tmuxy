@@ -141,10 +141,10 @@ case "${1:-}" in
       *@tmuxy-pane-state)
         last=""
         [ -n "${MOCK_TMUX_LOG:-}" ] &&
-          last=$(grep -E "set-option -pu? -t '[^']*' @tmuxy-pane-state" "$MOCK_TMUX_LOG" | tail -1)
+          last=$(grep -E "set-option -p( -u|u)? -t '[^']*' @tmuxy-pane-state" "$MOCK_TMUX_LOG" | tail -1)
         case "$last" in
           "") echo "${MOCK_TMUX_PANE_STATE:-}" ;;
-          *"set-option -pu "*) ;;
+          *"set-option -pu "* | *"set-option -p -u "*) ;;
           *) printf '%s\n' "$last" | sed -n "s/.*@tmuxy-pane-state '\{0,1\}\([a-z-]*\).*/\1/p" ;;
         esac
         exit 0
