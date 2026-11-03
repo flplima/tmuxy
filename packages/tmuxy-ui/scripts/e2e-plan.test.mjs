@@ -70,6 +70,18 @@ describe('the E2E plan', () => {
     expect(path.test('tests/1-input-interaction.test.js')).toBe(false);
   });
 
+  // jest takes an entry's `path` as a regex over the test file's path. A
+  // file no entry matches never runs in CI, and its tests guard nothing: the
+  // plugin and personalization suites sat out of the matrix that way.
+  it('every E2E file runs on some entry', () => {
+    const full = plan(suites, 'full');
+    const files = readdirSync(join(ROOT, 'tests'))
+      .filter((name) => name.endsWith('.test.js'))
+      .map((name) => `tests/${name}`);
+    const unrun = files.filter((file) => !full.some((s) => new RegExp(s.path).test(file)));
+    expect(unrun).toEqual([]);
+  });
+
   // The shard filters are regexes someone wrote by hand against the scenario
   // numbers of the day. A new "Scenario 6n" has to land in exactly one of the
   // two halves of its file, or it runs twice — or, the worse case, never.

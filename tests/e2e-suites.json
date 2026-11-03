@@ -34,7 +34,7 @@
     { "name": "5-stress", "path": "tests/5-stress-stability.test.js" },
     { "name": "6-nvim", "path": "tests/6-nvim-performance.test.js", "tier": "nightly" },
     { "name": "7-regression", "path": "tests/7-regression-bugs" },
-    { "name": "8-tui", "path": "tests/8-tui-alternate-screen.test.js" },
+    { "name": "8-tui-group-tab", "path": "tests/8-" },
     {
       "name": "tmux-3.4",
       "path": "tests/(snapshots/|8-tui-alternate-screen|7-regression-bugs-run-shell)",
@@ -45,6 +45,10 @@
     { "name": "13-send-permission", "path": "tests/13-send-permission.test.js" },
     { "name": "14-widget-authorisation", "path": "tests/14-widget-authorisation.test.js" },
     { "name": "14-widget-preview", "path": "tests/14-widget-preview.test.js" },
+    {
+      "name": "16-personalization-plugins",
+      "path": "tests/1[678]-(personalization|plugin)"
+    },
     {
       "name": "15-session-snapshot",
       "path": "tests/15-session-snapshot.test.js",
