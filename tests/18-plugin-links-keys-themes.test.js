@@ -95,13 +95,33 @@ function runs() {
     }));
 }
 
+/** What says why an action did not run: its plugin's log, and tmux's M-y. */
+function whyNoRun() {
+  let log;
+  try {
+    log = pluginCli('log', PLUGIN).trim() || '(empty)';
+  } catch (e) {
+    log = `(no log: ${e.message.split('\n')[0]})`;
+  }
+  const bound = tmuxRunAsOperator('list-keys -T prefix')
+    .split('\n')
+    .filter((line) => /\sM-y\s/.test(line))
+    .join('\n');
+  return `the plugin's log says:\n${log}\ntmux binds M-y as: ${bound || '(nothing)'}`;
+}
+
 /**
  * The next run after `seen` runs, once the action has recorded it and its
  * split has closed again: until then the pane is mid-resize, and a click
  * computed from its rows can land on the line above.
  */
 async function nextRun(page, seen, what) {
-  await waitForCondition(page, () => runs().length > seen, 15000, `the action to run from ${what}`);
+  await waitForCondition(
+    page,
+    () => runs().length > seen,
+    15000,
+    () => `the action to run from ${what}; ${whyNoRun()}`,
+  );
   expect(await waitForPaneCount(page, 1, 10000)).toBe(true);
   await afterFrames(page, 2);
   return runs()[seen];
