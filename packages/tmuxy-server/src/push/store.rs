@@ -75,7 +75,9 @@ impl Store {
     }
 
     /// The VAPID key, made on the first call and kept from then on: a new
-    /// key would orphan every subscription made with the old one.
+    /// key would orphan every subscription made with the old one. One that
+    /// no longer reads (an older build kept the bare scalar) is replaced,
+    /// and the devices subscribed with it are forgotten, to subscribe again.
     pub(crate) fn vapid_key(&self) -> std::io::Result<VapidKey> {
         if let Some(key) = std::fs::read_to_string(self.key_path())
             .ok()
@@ -84,7 +86,16 @@ impl Store {
         {
             return Ok(key);
         }
-        let key = VapidKey::generate();
+        // A key file that does not read was another key: the devices on it
+        // are its, not the new one's.
+        if self.key_path().exists() {
+            match std::fs::remove_file(self.subscriptions_path()) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+                _ => {}
+            }
+        }
+        let key = VapidKey::generate()
+            .ok_or_else(|| std::io::Error::other("no random source for a VAPID key"))?;
         write_private(
             &self.key_path(),
             super::crypto::b64url(&key.to_bytes()).as_bytes(),

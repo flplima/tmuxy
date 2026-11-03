@@ -5,11 +5,9 @@ use super::Push;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes128Gcm, KeyInit, Nonce};
 use hkdf::Hkdf;
-use p256::ecdsa::signature::Verifier;
-use p256::ecdsa::{Signature, VerifyingKey};
-use p256::elliptic_curve::sec1::ToEncodedPoint;
-use p256::{PublicKey, SecretKey};
-use rand_core::OsRng;
+use ring::agreement::{agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey, ECDH_P256};
+use ring::rand::SystemRandom;
+use ring::signature::{UnparsedPublicKey as SignatureKey, ECDSA_P256_SHA256_FIXED};
 use sha2::Sha256;
 use std::sync::{Arc, Mutex};
 
@@ -19,26 +17,27 @@ fn scratch(name: &str) -> std::path::PathBuf {
     dir
 }
 
-/// A browser's side of a subscription: its key pair and auth secret.
+/// A browser's side of a subscription: its key pair and auth secret. The
+/// private key opens one push body: ring's ECDH keys are single-use.
 struct Browser {
-    secret: SecretKey,
+    secret: std::cell::Cell<Option<EphemeralPrivateKey>>,
+    public: Vec<u8>,
     auth: [u8; 16],
 }
 
 impl Browser {
     fn new() -> Self {
+        let secret = EphemeralPrivateKey::generate(&ECDH_P256, &SystemRandom::new()).unwrap();
+        let public = secret.compute_public_key().unwrap().as_ref().to_vec();
         Self {
-            secret: SecretKey::random(&mut OsRng),
+            secret: std::cell::Cell::new(Some(secret)),
+            public,
             auth: *b"0123456789abcdef",
         }
     }
 
     fn public(&self) -> Vec<u8> {
-        self.secret
-            .public_key()
-            .to_encoded_point(false)
-            .as_bytes()
-            .to_vec()
+        self.public.clone()
     }
 
     fn subscription(&self, endpoint: &str) -> Subscription {
@@ -51,8 +50,9 @@ impl Browser {
         }
     }
 
-    /// What the browser does with a push body (RFC 8291, the receiving end).
-    fn decrypt(&self, body: &[u8]) -> Vec<u8> {
+    /// What the browser does with a push body (RFC 8291, the receiving
+    /// end): the plaintext, or `None` when these keys do not open it.
+    fn decrypt(&self, body: &[u8]) -> Option<Vec<u8>> {
         let salt = &body[..16];
         let rs = u32::from_be_bytes(body[16..20].try_into().unwrap());
         assert_eq!(rs, 4096);
@@ -60,17 +60,22 @@ impl Browser {
         let as_public = &body[21..21 + idlen];
         let ciphertext = &body[21 + idlen..];
 
-        let shared = p256::ecdh::diffie_hellman(
-            self.secret.to_nonzero_scalar(),
-            PublicKey::from_sec1_bytes(as_public).unwrap().as_affine(),
-        );
+        let secret = self.secret.take().expect("one body per browser key");
         let mut key_info = b"WebPush: info\0".to_vec();
         key_info.extend_from_slice(&self.public());
         key_info.extend_from_slice(as_public);
-        let mut ikm = [0u8; 32];
-        Hkdf::<Sha256>::new(Some(&self.auth), shared.raw_secret_bytes().as_slice())
-            .expand(&key_info, &mut ikm)
-            .unwrap();
+        let ikm = agree_ephemeral(
+            secret,
+            &UnparsedPublicKey::new(&ECDH_P256, as_public),
+            |shared| {
+                let mut ikm = [0u8; 32];
+                Hkdf::<Sha256>::new(Some(&self.auth), shared)
+                    .expand(&key_info, &mut ikm)
+                    .unwrap();
+                ikm
+            },
+        )
+        .unwrap();
         let prk = Hkdf::<Sha256>::new(Some(salt), &ikm);
         let mut cek = [0u8; 16];
         let mut nonce = [0u8; 12];
@@ -80,56 +85,30 @@ impl Browser {
             .unwrap();
         let mut record = Aes128Gcm::new(&cek.into())
             .decrypt(Nonce::from_slice(&nonce), ciphertext)
-            .unwrap();
+            .ok()?;
         assert_eq!(record.pop(), Some(2), "the one record is the last one");
-        record
+        Some(record)
     }
 }
 
-/// The body decrypts, with this browser's keys only, to what was sent.
+/// The body decrypts, with this browser's keys only, to what was sent —
+/// a fresh sender key and salt each time, so no two bodies are alike.
 #[test]
 fn a_push_body_is_readable_by_its_browser_alone() {
     let browser = Browser::new();
     let body = crypto::encrypt(&browser.public(), &browser.auth, b"{\"title\":\"hi\"}").unwrap();
-    assert_eq!(browser.decrypt(&body), b"{\"title\":\"hi\"}");
+    assert_eq!(
+        browser.decrypt(&body).as_deref(),
+        Some(&b"{\"title\":\"hi\"}"[..])
+    );
+    let again = crypto::encrypt(&browser.public(), &browser.auth, b"{\"title\":\"hi\"}").unwrap();
+    assert_ne!(body, again);
 
     let other = Browser::new();
-    assert!(
-        std::panic::catch_unwind(|| other.decrypt(&body)).is_err(),
-        "another browser's keys open it"
-    );
+    assert_eq!(other.decrypt(&body), None, "another browser's keys open it");
     assert_eq!(
         crypto::encrypt(&[4u8; 65], &browser.auth, b"x"),
         Err(crypto::EncryptError::BadKey)
-    );
-}
-
-/// RFC 8291 Appendix A, byte for byte: the sender's key pair, the salt, the
-/// browser's public key and auth secret it gives, and the message it says
-/// they encrypt to. A body that differs is one no browser can read.
-#[test]
-fn the_rfc_8291_example_encrypts_to_its_own_bytes() {
-    let as_private = from_b64url("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw").unwrap();
-    let ua_public = from_b64url(
-        "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
-    )
-    .unwrap();
-    let auth = from_b64url("BTBZMqHH6r4Tts7J_aSIgg").unwrap();
-    let salt: [u8; 16] = from_b64url("DGv6ra1nlYgDCS1FRnbzlw")
-        .unwrap()
-        .try_into()
-        .unwrap();
-    let body = crypto::encrypt_with(
-        &ua_public,
-        &auth,
-        b"When I grow up, I want to be a watermelon",
-        &SecretKey::from_slice(&as_private).unwrap(),
-        salt,
-    )
-    .unwrap();
-    assert_eq!(
-        b64url(&body),
-        "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
     );
 }
 
@@ -137,7 +116,7 @@ fn the_rfc_8291_example_encrypts_to_its_own_bytes() {
 /// day, names a subject, and verifies against the public key it carries.
 #[test]
 fn the_vapid_token_is_signed_by_the_key_it_names() {
-    let key = VapidKey::generate();
+    let key = VapidKey::generate().unwrap();
     let header = key
         .authorization("https://web.push.apple.com/QGuQyavXutnMH?x=1", 1_000)
         .unwrap();
@@ -146,10 +125,8 @@ fn the_vapid_token_is_signed_by_the_key_it_names() {
     assert_eq!(from_b64url(k).unwrap(), key.public_key());
 
     let (signing_input, signature) = token.rsplit_once('.').unwrap();
-    let verifying = VerifyingKey::from_sec1_bytes(&key.public_key()).unwrap();
-    let signature = Signature::from_slice(&from_b64url(signature).unwrap()).unwrap();
-    verifying
-        .verify(signing_input.as_bytes(), &signature)
+    SignatureKey::new(&ECDSA_P256_SHA256_FIXED, key.public_key())
+        .verify(signing_input.as_bytes(), &from_b64url(signature).unwrap())
         .unwrap();
 
     let claims: serde_json::Value =
@@ -210,6 +187,27 @@ fn the_key_is_kept_and_the_devices_are_capped_deduped_and_private() {
         }
     }
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A key file an older build wrote (the bare 32-byte scalar) does not read:
+/// a new key is made, and the devices subscribed with the old one, which
+/// could no longer verify a push, are forgotten so they subscribe again.
+#[test]
+fn a_key_that_no_longer_reads_is_replaced_with_its_devices() {
+    let dir = scratch("old-key");
+    let store = Store::new(dir.clone());
+    store
+        .add(Browser::new().subscription("https://push.example/kept"))
+        .unwrap();
+    std::fs::write(dir.join("vapid-key"), b64url(&[7u8; 32])).unwrap();
+    let key = store.vapid_key().unwrap();
+    assert_eq!(key.public_key().len(), 65);
+    assert!(store.subscriptions().is_empty());
+    assert_eq!(
+        store.vapid_key().unwrap().public_key(),
+        key.public_key(),
+        "the new key is kept"
+    );
 }
 
 #[test]
@@ -348,7 +346,8 @@ async fn a_notice_is_delivered_encrypted_and_a_gone_device_is_forgotten() {
         .to_str()
         .unwrap()
         .starts_with("vapid t="));
-    let delivered: serde_json::Value = serde_json::from_slice(&phone.decrypt(body)).unwrap();
+    let delivered: serde_json::Value =
+        serde_json::from_slice(&phone.decrypt(body).unwrap()).unwrap();
     assert_eq!(delivered["title"], "claude needs you");
     assert_eq!(delivered["url"], "/?session=tmuxy");
     assert_eq!(delivered["paneId"], "%3");

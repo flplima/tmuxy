@@ -168,6 +168,10 @@ struct Gone;
 /// Watch the panes and push what comes to need the user, for the life of
 /// the server.
 pub async fn watch(state: Arc<AppState>) {
+    // The key is read (or made, or an unreadable one replaced along with its
+    // devices) before any device can subscribe, so no new subscription is
+    // forgotten with an old key.
+    let _ = state.push.public_key();
     let shutdown = state.shutdown.clone();
     let host = crate::host_name();
     let watched = Arc::clone(&state);
