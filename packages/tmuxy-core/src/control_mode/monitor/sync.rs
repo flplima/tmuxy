@@ -47,6 +47,16 @@ impl<C: ControlLink> TmuxMonitor<C> {
             self.connection.send_command(&cmd).await?;
         }
 
+        // The plugins this machine has, for the client's menus (a fresh tmux
+        // server has none until something writes them). A server over SSH is
+        // another machine's, whose own tmuxy publishes its plugins.
+        if crate::session::ssh_target().is_none() {
+            let dirs = crate::plugins::Dirs::current();
+            for cmd in crate::plugins::inventory::commands(&dirs) {
+                self.connection.send_command(&cmd).await?;
+            }
+        }
+
         // Enable flow control (tmux 3.2+)
         // pause-after=5 means pause output if client is 5+ seconds behind
         // This prevents unbounded memory growth during heavy output

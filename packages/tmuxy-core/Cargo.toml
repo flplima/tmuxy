@@ -37,6 +37,8 @@ dirs = { workspace = true, optional = true }
 # `native`: the async transport.
 tokio = { workspace = true, optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
+# `native`: plugin manifests (`plugins::manifest`).
+toml = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -56,7 +58,7 @@ default = ["native"]
 cli = ["dep:dirs"]
 # The async/pty transport (monitor, connection, transport, snapshots, trace)
 # on top of `cli`. Off for the wasm build.
-native = ["cli", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber"]
+native = ["cli", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber", "dep:toml"]
 
 [lints]
 workspace = true

@@ -11,7 +11,8 @@
 
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId, paneNumber } from './ids';
-import { PaneContent, PaneTree, WindowType, type ServerState } from './wire';
+import { PaneTree, WindowType, type ServerState } from './wire';
+import { PaneContent } from './wireCells';
 
 /** A required field, read from the wire key `key`. */
 const from = <K extends string, S extends Schema.Schema.All>(key: K, schema: S) =>
@@ -206,6 +207,8 @@ const ClientSession = Schema.Struct({
   totalHeight: from('total_height', Schema.Number),
   /** See `ServerState.focus_request`; `''` when nothing is pending. */
   focusRequest: withDefault('focus_request', Schema.String, () => ''),
+  /** See `ServerState.plugins_rev`; `''` when no inventory was published. */
+  pluginsRev: withDefault('plugins_rev', Schema.String, () => ''),
 });
 
 /** The session as the client holds it, decoded from a wire full state. */

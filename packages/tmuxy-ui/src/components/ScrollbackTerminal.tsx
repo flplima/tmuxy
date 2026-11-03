@@ -28,7 +28,7 @@ import { setLinkHot } from '../utils/linkHover';
 import type { CopyModeState } from '../domain/copyMode';
 import type { ImagePlacement } from '../domain/client';
 import type { PaneId } from '../domain/ids';
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;

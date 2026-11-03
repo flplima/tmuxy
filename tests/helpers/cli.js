@@ -5,13 +5,14 @@
  * queries go through tmuxExec in tmux-socket.js.
  */
 
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const path = require('path');
 
 const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
 const { tmuxEnv } = require('./tmux-socket');
+const { serverBinary } = require('./server-binary');
 
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
@@ -74,8 +75,29 @@ function tmuxRunAsOperator(command, env = tmuxEnv()) {
   ).trim();
 }
 
+/**
+ * The tmuxy CLI as the person at the terminal runs it, against the suite's
+ * own socket and scratch dirs: for verbs a test drives rather than asserts
+ * the routing of (`tmuxy plugin install`, say).
+ *
+ * @param {string[]} args - The CLI's arguments
+ * @returns {string} What it printed
+ */
+function tmuxyCli(args) {
+  return execFileSync(TMUXY_CLI, args, {
+    cwd: WORKSPACE_ROOT,
+    encoding: 'utf-8',
+    timeout: 30000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // The build under test, as a pane's shell gets it from the server's
+    // published environment: a `tmuxy-server` on PATH is some other build.
+    env: { ...tmuxEnv(), TMUXY_SERVER_BIN: serverBinary() },
+  });
+}
+
 module.exports = {
   tmuxRun,
   tmuxRunAsOperator,
+  tmuxyCli,
   TMUXY_CLI,
 };

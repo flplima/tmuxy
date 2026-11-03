@@ -45,6 +45,12 @@ export interface TmuxSnapshot {
    * it.
    */
   readonly focusRequest: string;
+  /**
+   * The plugin inventory's revision (`@tmuxy-plugins-rev`), `''` when none
+   * was published. Like `focusRequest` a signal rather than layout: a new
+   * value has the machine re-read the inventory.
+   */
+  readonly pluginsRev: string;
 }
 
 export const EMPTY_SNAPSHOT: TmuxSnapshot = {
@@ -56,6 +62,7 @@ export const EMPTY_SNAPSHOT: TmuxSnapshot = {
   totalHeight: 0,
   sessionName: '',
   focusRequest: '',
+  pluginsRev: '',
 };
 
 /** Branded string so a raw string can't be passed where an OpId is expected. */

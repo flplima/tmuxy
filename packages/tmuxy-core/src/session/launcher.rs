@@ -64,6 +64,13 @@ pub fn set_server_command(exe: PathBuf, subcommand: Option<&'static str>) {
     let _ = SERVER_COMMAND.set((exe, subcommand));
 }
 
+/// The binary and subcommand [`set_server_command`] recorded: how a pane
+/// tmuxy opens runs one of this build's server verbs (a plugin's
+/// `tmuxy plugin exec`).
+pub fn server_command() -> Option<(PathBuf, Option<&'static str>)> {
+    SERVER_COMMAND.get().cloned()
+}
+
 /// The commands that publish [`SERVER_BIN_ENV`] and [`SERVER_SUBCOMMAND_ENV`]
 /// to the tmux server, or nothing when no entry point recorded a binary.
 pub fn server_command_env() -> Vec<String> {

@@ -1,6 +1,6 @@
 /** Client-side scrollback views: what a pane in scroll or copy mode is showing. */
 
-import type { CellLine } from './wire';
+import type { CellLine } from './wireCells';
 
 /**
  * Which of the two scrollback views a pane is showing.

@@ -1,15 +1,13 @@
 import type {
-  CellLine,
-  PaneContent,
   PaneDelta,
   ServerDelta,
   ServerState,
-  SparseContent,
   StateUpdate,
   WindowDelta,
   WirePane,
   WireWindow,
 } from './wire';
+import type { CellLine, PaneContent, SparseContent } from './wireCells';
 
 /**
  * Detect if a full state update represents a different session (kill+recreate).
@@ -167,6 +165,7 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
     active_window_id: delta.active_window_id ?? state.active_window_id,
     active_pane_id: delta.active_pane_id ?? state.active_pane_id,
     focus_request: delta.focus_request ?? state.focus_request,
+    plugins_rev: delta.plugins_rev ?? state.plugins_rev,
     total_width: delta.total_width ?? state.total_width,
     total_height: delta.total_height ?? state.total_height,
     panes:

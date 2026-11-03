@@ -2,7 +2,7 @@
 
 A web-based tmux interface built with React (Vite) frontend and Rust backend.
 
-**This project is under active development, not production.** Breaking changes are welcome. No backwards compatibility required — delete, rename, and restructure freely.
+**This project is under active development, not production.** Breaking changes are welcome. No backwards compatibility required — delete, rename, and restructure freely. **One exception:** the plugin API ([docs/PLUGIN-API.md](docs/PLUGIN-API.md)) only grows; changing or removing any of it needs `api = 2`.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for high-level system overview and component interaction.
 See [docs/STATE-MANAGEMENT.md](docs/STATE-MANAGEMENT.md) for frontend XState and backend Rust state details.
@@ -16,6 +16,7 @@ See [docs/TESTS.md](docs/TESTS.md) for testing guidelines and principles.
 See [docs/NIGHTLY-SWEEP.md](docs/NIGHTLY-SWEEP.md) for why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it now tells a flake from a defect.
 See [docs/INVARIANTS.md](docs/INVARIANTS.md) for the cross-layer promises (effect order, stream sequencing, predictions, session lifecycle) and the test that holds each one.
 See [docs/NON-GOALS.md](docs/NON-GOALS.md) for what tmuxy intentionally does NOT do.
+See [docs/PLUGINS.md](docs/PLUGINS.md) for plugins: the manifest, the install gate, how an action runs.
 See [docs/RICH-RENDERING.md](docs/RICH-RENDERING.md) for terminal image/OSC protocol support.
 See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for speed measurement: core/render processing (Axis A) vs transport (Axis B).
 See [docs/TRACING.md](docs/TRACING.md) for unified cross-layer action tracing into a single local NDJSON file (schema, seams, redaction boundary).

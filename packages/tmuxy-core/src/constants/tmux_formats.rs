@@ -160,6 +160,9 @@ pane_columns! {
     Ask => "#{@tmuxy-ask}",
     Widget => "#{@tmuxy-pane-widget}",
     Restore => escaped_var!("@tmuxy-pane-restore"),
+    // Global, so every row carries the same value: the session-wide plugin
+    // inventory's revision (`plugins::inventory`), a hex hash.
+    PluginsRev => "#{@tmuxy-plugins-rev}",
 }
 
 const LIST_PANES_PREFIX: &str = "list-panes -s -F '";
@@ -242,13 +245,14 @@ macro_rules! pane_title_subscription_name {
 /// a second and answered with `%subscription-changed`, whatever made the
 /// change (tmux 3.2+; `%*` is every pane of every window). The group
 /// scripts bump the global `@tmuxy-group-rev`, which every pane inherits,
-/// so a reorder among hidden members is seen too.
+/// so a reorder among hidden members is seen too, and a plugin install or
+/// removal writes the global `@tmuxy-plugins-rev` the same way.
 pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = pane_title_subscription_name!();
 /// See [`PANE_TITLE_SUBSCRIPTION_NAME`].
 pub const SUBSCRIBE_PANE_TITLES_CMD: &str = concat!(
     "refresh-client -B '",
     pane_title_subscription_name!(),
-    ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}'"
+    ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}|#{@tmuxy-plugins-rev}'"
 );
 
 /// Enumerates the HIDDEN pane-group members parked in

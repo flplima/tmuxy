@@ -12,67 +12,7 @@
 
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId } from './ids';
-
-// ============================================
-// Cells
-// ============================================
-
-/** A colour: an indexed one (0-255) or RGB. */
-export const CellColor = Schema.Union(
-  Schema.Number,
-  Schema.Struct({ r: Schema.Number, g: Schema.Number, b: Schema.Number }),
-);
-export type CellColor = Schema.Schema.Type<typeof CellColor>;
-
-/** Line/character size multiplier (`ESC # 3..6` DEC line sizes or `OSC 66` text sizing). */
-export const CellSize = Schema.Literal('dwl', 'dhl-top', 'dhl-bottom');
-export type CellSize = Schema.Schema.Type<typeof CellSize>;
-
-/** A cell's style; every attribute optional. */
-export const CellStyle = Schema.mutable(
-  Schema.Struct({
-    fg: Schema.optional(CellColor),
-    bg: Schema.optional(CellColor),
-    bold: Schema.optional(Schema.Boolean),
-    /** SGR 2: faint text, drawn at reduced opacity. */
-    dim: Schema.optional(Schema.Boolean),
-    italic: Schema.optional(Schema.Boolean),
-    underline: Schema.optional(Schema.Boolean),
-    inverse: Schema.optional(Schema.Boolean),
-    /** OSC 8 hyperlink. */
-    url: Schema.optional(Schema.String),
-    /** Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`). */
-    size: Schema.optional(CellSize),
-  }),
-);
-export type CellStyle = Schema.Schema.Type<typeof CellStyle>;
-
-/** One terminal cell: its character and, when styled, its style. */
-export const TerminalCell = Schema.Struct({
-  c: Schema.String,
-  s: Schema.optional(CellStyle),
-});
-export type TerminalCell = Schema.Schema.Type<typeof TerminalCell>;
-
-/** One row of cells. */
-export const CellLine = Schema.mutable(Schema.Array(TerminalCell));
-export type CellLine = Schema.Schema.Type<typeof CellLine>;
-/** A pane's visible grid: its rows, top to bottom. */
-export type PaneContent = CellLine[];
-
-/** The cell grid, checked for its outer shape only (see the module note). */
-export const PaneContent = Schema.declare((u: unknown): u is PaneContent => Array.isArray(u), {
-  identifier: 'PaneContent',
-});
-
-/** Changed rows of a pane, keyed by row index (JSON object keys are strings). */
-export type SparseContent = Record<number, CellLine>;
-
-/** A delta's changed rows, checked for its outer shape only. */
-export const SparseContent = Schema.declare(
-  (u: unknown): u is SparseContent => typeof u === 'object' && u !== null && !Array.isArray(u),
-  { identifier: 'SparseContent' },
-);
+import { PaneContent, SparseContent } from './wireCells';
 
 // ============================================
 // Panes and windows
@@ -206,6 +146,8 @@ export const ServerState = Schema.Struct({
    * unsets the tmux option, which clears the field on the next poll.
    */
   focus_request: Schema.optional(Schema.String),
+  /** `@tmuxy-plugins-rev`: a new value has the client re-read the plugins. */
+  plugins_rev: Schema.optional(Schema.String),
   /**
    * The stream's counter when this state was taken: the delta that follows
    * it carries `seq + 1`, so a delta lost right after a full state or an
@@ -300,6 +242,8 @@ export const ServerDelta = Schema.Struct({
   active_pane_id: Schema.optional(PaneId),
   /** See `ServerState.focus_request`. An empty string means "cleared". */
   focus_request: Schema.optional(Schema.String),
+  /** See `ServerState.plugins_rev`; `''` when gone. */
+  plugins_rev: Schema.optional(Schema.String),
   total_width: Schema.optional(Schema.Number),
   total_height: Schema.optional(Schema.Number),
 });

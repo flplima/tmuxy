@@ -23,6 +23,7 @@ import {
   mouseReport,
   NAV_WORD,
   pastedText,
+  pluginAction,
   script,
   target,
   tmuxDoubleQuoted,
@@ -216,6 +217,15 @@ export type TmuxOp = Data.TaggedEnum<{
   ClearFocusRequest: { readonly session: string };
   /** Clear the session switch a shell helper queued. */
   ClearSwitchRequest: NoFields;
+
+  // ── Plugins ────────────────────────────────────────────
+  /** A plugin's action on a pane (`tmuxy plugin action`); `token` carries a selection. */
+  PluginAction: {
+    readonly plugin: string;
+    readonly action: string;
+    readonly paneId: PaneId;
+    readonly token: string | null;
+  };
 
   // ── Handled by the client itself ───────────────────────
   /** Open the client's command prompt; `%%` in `template` takes what was typed. */
@@ -416,6 +426,8 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `set-option -u -t ${target(op.session)} @tmuxy-focus-request`;
     case 'ClearSwitchRequest':
       return 'set-environment -g -u TMUXY_SWITCH_TO';
+    case 'PluginAction':
+      return pluginAction(op);
     case 'CommandPrompt':
       return [
         'command-prompt',

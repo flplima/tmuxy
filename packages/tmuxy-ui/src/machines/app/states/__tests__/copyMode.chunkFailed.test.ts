@@ -5,7 +5,7 @@ import { copyModeState } from '../copyMode';
 import { copyModeActions } from '../../actions/copyMode';
 import { mountState, sendAndGetContext } from './testHarness';
 import type { CopyModeState } from '../../../../domain/copyMode';
-import type { CellLine } from '../../../../domain/wire';
+import type { CellLine } from '../../../../domain/wireCells';
 import type { PaneId } from '../../../../domain/ids';
 
 const copyModeGuards = {};

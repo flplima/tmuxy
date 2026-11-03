@@ -80,6 +80,7 @@ export const modelUpdate = (
     totalHeight: activePane?.height ?? 24,
     sessionName: 'main',
     focusRequest: '',
+    pluginsRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

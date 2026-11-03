@@ -1,4 +1,5 @@
 import type { CopyModeState } from '../../domain/copyMode';
+import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { KeyBindings, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../utils/gridFit';
@@ -267,6 +268,10 @@ export interface AppMachineContext {
    * refused by a kill switch, so the UI renders the backend's answer.
    */
   traceSettings: TraceSettings | null;
+  /** The installed plugins' menu actions (`domain/plugins.ts`). */
+  plugins: ReadonlyArray<PluginInfo>;
+  /** The `@tmuxy-plugins-rev` `plugins` was read at; `''` before any. */
+  pluginsRev: string;
   /** Whether the app container is focused (for keyboard capture gating) */
   appFocused: boolean;
   /** Whether the tmux prefix key has been pressed and we're awaiting a binding key */

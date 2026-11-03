@@ -244,6 +244,11 @@ pub struct StateAggregator {
     /// that acts on it unsets the option, which clears this on the next poll.
     focus_request: Option<String>,
 
+    /// Latest value of the global `@tmuxy-plugins-rev`, read as a column of
+    /// the `list-panes` rows. A new value tells the client to re-read the
+    /// plugin inventory (`tmux_options::PLUGINS`).
+    plugins_rev: Option<String>,
+
     // Delta state tracking
     /// Previous state snapshot for delta computation
     prev_state: Option<crate::TmuxState>,
@@ -324,6 +329,7 @@ impl StateAggregator {
             markers: Markers::fresh(),
 
             focus_request: None,
+            plugins_rev: None,
             even_out_pending: Vec::new(),
             prev_state: None,
             delta_seq: 0,

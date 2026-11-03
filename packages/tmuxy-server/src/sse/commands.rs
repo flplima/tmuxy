@@ -267,6 +267,12 @@ pub(super) async fn handle_command(
             Ok(serde_json::json!(null))
         }
         ClientCommand::ListSnapshots => transport::list_snapshots_json().await,
+        ClientCommand::PreparePluginAction {
+            plugin,
+            action,
+            pane_id,
+            selection,
+        } => transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await,
         // Through THIS session's client: a new session made from inside a
         // control-mode client is how the server already creates one.
         ClientCommand::RestoreSession { session: name } => {

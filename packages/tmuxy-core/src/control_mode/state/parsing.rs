@@ -118,6 +118,9 @@ impl StateAggregator {
         pane.pane_ask = option(PaneColumn::Ask);
         pane.pane_widget = option(PaneColumn::Widget);
         pane.pane_restore = (!restore.is_empty()).then_some(restore);
+        // Global, so every row carries the same value; the last one parsed
+        // wins, as `focus_request` does for the window rows.
+        self.plugins_rev = option(PaneColumn::PluginsRev);
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = number(PaneColumn::CursorX);

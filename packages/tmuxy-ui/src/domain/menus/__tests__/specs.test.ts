@@ -130,6 +130,55 @@ describe('paneMenuSpec', () => {
   });
 });
 
+const PLUGINS: AppMachineContext['plugins'] = [
+  {
+    name: 'artifacts',
+    actions: [
+      { id: 'open', title: 'Open Artifact', menu: 'pane', surface: 'popup' },
+      { id: 'home', title: 'Artifacts Home', menu: 'app', surface: 'tab' },
+      { id: 'explain', title: 'Explain This', menu: 'selection', surface: 'float' },
+      { id: 'hidden', title: 'No menu', menu: null, surface: 'split' },
+    ],
+  },
+  {
+    name: 'devtools',
+    actions: [{ id: 'inspect', title: 'Inspect', menu: 'pane', surface: 'split' }],
+  },
+];
+
+describe('the Plugins submenus', () => {
+  it('are absent with no plugin offering an item', () => {
+    expect(find(paneMenuSpec(ctx(), { paneId: pid('%2') }), 'pane-plugins')).toBeUndefined();
+    expect(find(appMenuSpec(ctx(), WEB), 'app-plugins')).toBeUndefined();
+  });
+
+  it('the pane menu runs each pane action on its own pane, grouped by plugin', () => {
+    const spec = paneMenuSpec(ctx({ plugins: PLUGINS }), { paneId: pid('%2') });
+    const submenu = find(spec, 'pane-plugins');
+    expect(submenu?.kind).toBe('submenu');
+    if (submenu?.kind !== 'submenu') return;
+    expect(
+      submenu.children.map((n) => (n.kind === 'header' ? `# ${n.label}` : 'id' in n && n.id)),
+    ).toEqual(['# artifacts', 'plugin:artifacts:open', '# devtools', 'plugin:devtools:inspect']);
+    const item = find(submenu.children, 'plugin:artifacts:open');
+    expect(item?.kind === 'item' && item.action).toEqual({
+      kind: 'event',
+      event: { type: 'PLUGIN_ACTION', plugin: 'artifacts', action: 'open', paneId: pid('%2') },
+    });
+  });
+
+  it('the app menu offers the app actions, on the active pane', () => {
+    const submenu = find(appMenuSpec(ctx({ plugins: PLUGINS }), WEB), 'app-plugins');
+    if (submenu?.kind !== 'submenu') throw new Error('no Plugins submenu');
+    expect(itemIds(submenu.children)).toEqual(['plugin:artifacts:home']);
+    const item = submenu.children[0];
+    expect(item.kind === 'item' && item.action).toEqual({
+      kind: 'event',
+      event: { type: 'PLUGIN_ACTION', plugin: 'artifacts', action: 'home', paneId: null },
+    });
+  });
+});
+
 describe('tabMenuSpec', () => {
   it('a context menu leaves navigation out and acts on its own tab', () => {
     const spec = tabMenuSpec(ctx(), { windowId: wid('@2'), navigation: false });
@@ -282,6 +331,20 @@ describe('themeMenuSpec and debugMenuSpec', () => {
 describe('selection, session switcher and window menus', () => {
   it('copies and types the selection', () => {
     expect(itemIds(selectionMenuSpec())).toEqual(['selection-copy', 'selection-send-keys']);
+  });
+
+  it('hands the selection to a plugin’s selection actions, after the built-ins', () => {
+    const spec = selectionMenuSpec(PLUGINS);
+    expect(itemIds(spec)).toEqual([
+      'selection-copy',
+      'selection-send-keys',
+      'plugin:artifacts:explain',
+    ]);
+    const item = find(spec, 'plugin:artifacts:explain');
+    expect(item?.kind === 'item' && item.action).toEqual({
+      kind: 'local',
+      id: 'plugin:artifacts:explain',
+    });
   });
 
   it('lists sessions with the current one marked, restorable ones, servers on the desktop', () => {

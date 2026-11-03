@@ -13,7 +13,8 @@
  * The current adapter wires its state/clipboard callbacks via `setSink()`; the
  * engine calls back into whichever sink is currently attached.
  */
-import type { PaneContent, ServerStateEncoded } from '../../../../domain/wire';
+import type { ServerStateEncoded } from '../../../../domain/wire';
+import type { PaneContent } from '../../../../domain/wireCells';
 import {
   CaptureBook,
   EMPTY_STATE,

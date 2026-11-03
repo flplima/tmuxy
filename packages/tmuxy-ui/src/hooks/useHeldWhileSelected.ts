@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import type { PaneContent } from '../domain/wire';
+import type { PaneContent } from '../domain/wireCells';
 
 export interface LiveScreen {
   content: PaneContent;

@@ -40,19 +40,33 @@ exec 3>&1
 # question); the scripts' own EXIT traps still run.
 trap 'exit 130' INT
 
-# `--json` anywhere on the line is the output mode, not an argument of the
-# command: it is taken off here so every subcommand reads one switch. The
-# verbs that exec the server binary pass it on (`tmuxy trace --json`).
+# `tmuxy plugin`'s own commands. Any other word after `plugin` is a plugin's
+# verb, whose arguments are its own. RESERVED_VERBS in tmuxy-core lists the
+# same words; tests/cli/cli-plugin.test.js holds the two together.
+PLUGIN_COMMANDS=" install list update remove action log check new exec publish help --help -h "
+
+# `--json` on the line is the output mode, not an argument of the command: it
+# is taken off here so every subcommand reads one switch, and the verbs that
+# exec the server binary pass it on (`tmuxy trace --json`). Not past `--`,
+# and not among a plugin verb's arguments (`tmuxy plugin <verb> -j 4`): those
+# belong to the command that receives them.
 _args=()
+_own=true
 for _arg in "$@"; do
-  if [ "$_arg" = --json ] || [ "$_arg" = -j ]; then
+  if [ "$_own" = true ] && { [ "$_arg" = --json ] || [ "$_arg" = -j ]; }; then
     JSON_OUT=true
-  else
-    _args+=("$_arg")
+    continue
+  fi
+  _args+=("$_arg")
+  if [ "$_arg" = -- ]; then
+    _own=false
+  elif [ "${#_args[@]}" -eq 2 ] && [ "${_args[0]}" = plugin ] &&
+    [[ "$PLUGIN_COMMANDS" != *" $_arg "* ]]; then
+    _own=false
   fi
 done
 set -- ${_args[@]+"${_args[@]}"}
-unset _args _arg
+unset _args _arg _own
 
 # Where a target-less command lands. Inside a pane, tmux reads the caller's
 # $TMUX_PANE and every `splitw`, `breakp` and `#{pane_id}` resolves from it.
@@ -128,7 +142,10 @@ Commands:
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
   config      Re-apply tmuxy.conf (reload) or change a setting (use-tmux-conf)
+  plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
+
+A plugin's own commands run as 'tmuxy plugin <verb>' ('tmuxy plugin list').
 
 Options:
   -h, --help    Show this help
@@ -312,6 +329,61 @@ Examples:
 EOF
 }
 
+usage_plugin() {
+  cat <<'EOF'
+Usage: tmuxy plugin <command> [args...]
+
+Commands:
+  install       Install from GitHub <owner/repo[/subdir][@ref]>, or link a
+                local directory (--path DIR); with no argument, install
+                exactly what plugins.json lists [--yes --sha COMMIT]
+  list          The installed plugins [--json]
+  update        Move plugins to the latest commit of their ref [name]
+  remove        Uninstall a plugin <name> [--purge]
+  action        Run an action on a pane <plugin>:<id> [--pane %id] [--wait]
+                [-- args...]
+  log           What a plugin ran, and how it exited <name> [-f]
+  check         Validate a plugin directory [dir]
+  new           Write a plugin to start from, tmuxy-<name>/ <name>
+  <verb>        An installed plugin's own command [args...] (see 'list')
+
+Plugin commands run unsandboxed as your user and can control every pane.
+Install shows what a plugin can do and asks first; without a terminal it
+needs --yes --sha <the commit you reviewed>. docs/PLUGINS.md describes the
+manifest (tmuxy-plugin.toml).
+EOF
+}
+
+# `tmuxy plugin`: everything is the server binary's (`tmuxy_core::plugins`),
+# a plugin's own verbs (`tmuxy plugin <verb>`) included. `--json` goes before
+# the command, where it is the binary's switch rather than a verb's argument.
+# `action` acts on the caller's pane unless one is named; it runs here, and
+# puts the one command list that opens the pane through run-shell itself.
+cmd_plugin() {
+  case "${1:-}" in
+    "" | --help | -h | help)
+      usage_plugin
+      return 0
+      ;;
+  esac
+  find_server_cmd || exit "$EXIT_FAILED"
+  if [ "$1" != action ]; then
+    exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} "$@"
+  fi
+  shift
+  local arg named=false pane=()
+  for arg in "$@"; do
+    case "$arg" in
+      --) break ;;
+      --pane | --pane=*) named=true ;;
+    esac
+  done
+  if [ "$named" = false ] && [ -n "${TMUX_PANE:-}" ]; then
+    pane=(--pane "$TMUX_PANE")
+  fi
+  exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} action ${pane[@]+"${pane[@]}"} "$@"
+}
+
 usage_connect() {
   cat <<'EOF'
 Usage: tmuxy connect [socket] [session]
@@ -442,6 +514,10 @@ CEOF
     else
       echo "tmuxy $TMUXY_VERSION"
     fi
+    ;;
+  plugin)
+    shift
+    cmd_plugin "$@"
     ;;
   gui)
     shift

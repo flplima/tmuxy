@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { detectWidget, registerWidget } from '../registry';
-import type { PaneContent } from '../../../domain/wire';
+import type { PaneContent } from '../../../domain/wireCells';
 
 // The registry is populated by `widgets/init.ts` at app start; two stand-ins
 // are enough here — what is under test is the authorisation, not the widgets.

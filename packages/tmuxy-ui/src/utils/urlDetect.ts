@@ -4,7 +4,7 @@
  */
 
 import { isWrappedRow } from './copyMode';
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 
 export interface DetectedUrl {
   start: number;

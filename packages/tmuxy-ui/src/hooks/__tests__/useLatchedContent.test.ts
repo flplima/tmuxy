@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useLatchedContent } from '../useLatchedContent';
-import type { PaneContent } from '../../domain/wire';
+import type { PaneContent } from '../../domain/wireCells';
 
 const grid = (text: string): PaneContent => [[...text].map((c) => ({ c }))];
 

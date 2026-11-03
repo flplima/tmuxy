@@ -95,6 +95,17 @@ pub mod tmux_options {
     /// subscription (`tmux_formats::SUBSCRIBE_PANE_TITLES_CMD`) fires.
     pub const GROUP_REV: &str = "@tmuxy-group-rev";
 
+    /// Global inventory of the installed plugins' menu actions: base64 of a
+    /// JSON array (`plugins::inventory`). Read by the client with one query
+    /// whenever [`PLUGINS_REV`] changes; never part of a subscription itself.
+    pub const PLUGINS: &str = "@tmuxy-plugins";
+
+    /// Global revision of [`PLUGINS`] (a hash of its JSON). Rides the
+    /// pane-metadata subscription and the `list-panes` rows, as
+    /// [`GROUP_REV`] does, so a client learns of an install or a removal
+    /// within a second.
+    pub const PLUGINS_REV: &str = "@tmuxy-plugins-rev";
+
     /// Pane-scoped state the pane declares about itself (`tmuxy pane state`).
     /// Free-form; the client owns the vocabulary.
     pub const PANE_STATE: &str = "@tmuxy-pane-state";

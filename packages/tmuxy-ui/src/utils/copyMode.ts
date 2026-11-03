@@ -3,7 +3,7 @@
  */
 
 import type { CopyModeState } from '../domain/copyMode';
-import type { CellLine } from '../domain/wire';
+import type { CellLine } from '../domain/wireCells';
 
 /**
  * Whether a physical row is a wrapped continuation of a logical line.
@@ -102,14 +102,14 @@ export function extractSelectedText(state: CopyModeState): string {
  * Returns a new Map with the merged data and updated loadedRanges.
  */
 export function mergeScrollbackChunk(
-  existingLines: Map<number, import('../domain/wire').CellLine>,
+  existingLines: Map<number, import('../domain/wireCells').CellLine>,
   existingRanges: Array<[number, number]>,
-  cells: import('../domain/wire').PaneContent,
+  cells: import('../domain/wireCells').PaneContent,
   historySize: number,
   tmuxStart: number,
   tmuxEnd: number,
 ): {
-  lines: Map<number, import('../domain/wire').CellLine>;
+  lines: Map<number, import('../domain/wireCells').CellLine>;
   loadedRanges: Array<[number, number]>;
 } {
   const newLines = new Map(existingLines);

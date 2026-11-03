@@ -147,7 +147,8 @@ export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot)
     prev.totalWidth === next.totalWidth &&
     prev.totalHeight === next.totalHeight &&
     prev.sessionName === next.sessionName &&
-    prev.focusRequest === next.focusRequest;
+    prev.focusRequest === next.focusRequest &&
+    prev.pluginsRev === next.pluginsRev;
 
   if (panesSame && windowsSame && scalarsSame) return prev;
   return {

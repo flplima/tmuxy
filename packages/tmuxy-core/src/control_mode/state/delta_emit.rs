@@ -79,6 +79,9 @@ impl StateAggregator {
         if current.focus_request != prev.focus_request {
             delta.focus_request = Some(current.focus_request.clone().unwrap_or_default());
         }
+        if current.plugins_rev != prev.plugins_rev {
+            delta.plugins_rev = Some(current.plugins_rev.clone().unwrap_or_default());
+        }
 
         // Build maps for efficient lookup
         let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =

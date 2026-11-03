@@ -216,6 +216,9 @@ pub enum ServerAction {
     /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks
     /// that show their state, and the tmuxy skill. Backs `tmuxy agent`.
     Agent(crate::agents::AgentArgs),
+    /// Install, list, update and remove plugins, and run their actions.
+    /// Backs `tmuxy plugin` (docs/PLUGINS.md).
+    Plugin(crate::plugin_cli::PluginArgs),
 }
 
 /// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
@@ -276,6 +279,7 @@ pub async fn run(args: ServerArgs) {
         Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
         Some(ServerAction::Agent(agent_args)) => crate::agents::run(agent_args),
+        Some(ServerAction::Plugin(plugin_args)) => crate::plugin_cli::run(plugin_args),
     }
 }
 
@@ -318,6 +322,7 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     // `$TMUXY_DATA_DIR/bin/tmuxy/…`, the data dir the config chain publishes
     // to tmux. Mirrors gui.rs setup().
     tmuxy_core::session::ensure_bin_scripts();
+    tmuxy_core::plugins::gc::on_start();
 
     let state = Arc::new(AppState::new());
 

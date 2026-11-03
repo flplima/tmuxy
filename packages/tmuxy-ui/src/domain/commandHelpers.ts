@@ -1,5 +1,9 @@
 import { isPlaceholderId, type PaneId } from './ids';
 import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
+import { isPluginName } from './plugins';
+
+/** The bundled CLI dispatcher, beside the scripts. */
+const CLI_PATH = '$TMUXY_DATA_DIR/bin/tmuxy-cli';
 
 /** Longest literal a single `send-keys -l` carries before the text is split. */
 const LITERAL_CHUNK_SIZE = 500;
@@ -205,3 +209,26 @@ export function chromeWindow(
 }
 
 export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;
+
+/**
+ * `tmuxy plugin action` for a menu item, in the background with its output
+ * dropped: a `run-shell -b` that prints opens a view mode on the pane. A
+ * launch that fails says so on the status line itself (`--trigger menu`).
+ *
+ * Every word is checked against the alphabet the server accepts, since the
+ * line is a shell's: an inventory entry that is not one is never sent. The
+ * path is quoted for the shell, as a data dir may hold a space.
+ */
+export function pluginAction(op: TmuxOpOf<'PluginAction'>): string {
+  const valid =
+    isPluginName(op.plugin) &&
+    isPluginName(op.action) &&
+    /^%\d+$/.test(op.paneId) &&
+    (op.token === null || /^[0-9a-f]{32}$/.test(op.token));
+  if (!valid) return `display-message ${quote('tmuxy: not a plugin action')}`;
+  const token = op.token === null ? '' : ` --token ${op.token}`;
+  return (
+    `run-shell -b "\\"${CLI_PATH}\\" plugin action ${op.plugin}:${op.action}` +
+    ` --pane ${op.paneId} --trigger menu${token} >/dev/null 2>&1"`
+  );
+}

@@ -3,7 +3,7 @@ import { pid } from './wire';
 import { render, screen } from '@testing-library/react';
 import { Terminal } from '../components/Terminal';
 import { cellsToCss } from '../components/terminalShared';
-import type { PaneContent, CellLine, TerminalCell } from '../domain/wire';
+import type { PaneContent, CellLine, TerminalCell } from '../domain/wireCells';
 
 // Helper to create a simple cell line from a string
 function createLine(text: string): CellLine {

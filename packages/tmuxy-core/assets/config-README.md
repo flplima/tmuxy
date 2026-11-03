@@ -3,7 +3,8 @@
 tmuxy keeps its files in three directories, split by who owns them. Only the
 first is yours, and it is the only one you edit; it is safe to keep in a
 dotfiles repo and symlink, because tmuxy never writes into it after the first
-run. Edits there apply to the running app — a saved file is picked up within a
+run unless you ask (`tmuxy plugin install` records what it installed in
+`plugins.json`). Edits there apply to the running app — a saved file is picked up within a
 second, no restart and no page reload.
 
 | Directory | Default                                                                                 | Owner | Rule                                                                      |
@@ -22,6 +23,9 @@ machine (`--json` for a script).
 | `tmuxy.conf`            | config | you   | yes          | yes             | Your overrides. tmuxy sources its defaults before it and its essentials after it.      |
 | `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.            |
 | `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme. |
+| `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                     |
+| `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
+| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's own settings and credentials. Kept on update, and on remove unless `--purge`. |
 | `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                 |
 | `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                        |
 | `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.           |
@@ -36,6 +40,33 @@ machine (`--json` for a script).
 | `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                   |
 | `tmuxy.pid`             | state  | tmuxy | no           | no              | The running web server's pid (`tmuxy-<port>.pid` on another port).                     |
 | `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.        |
+| `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.     |
+
+## Plugins
+
+A plugin adds actions to the menus and verbs to the CLI (`tmuxy plugin <verb>`). `tmuxy plugin
+install owner/repo` shows what it can do and asks first: plugin commands run
+unsandboxed as you, with every pane in reach, so install only what you trust.
+`plugins.json` here lists what is installed at which commit; synced to another
+machine, `tmuxy plugin install` with no argument reproduces it.
+
+Your own actions need no repository: write a `tmuxy-plugin.toml` in this
+directory with `name = "user"`, and commands relative to this directory.
+
+    [plugin]
+    api = 1
+    name = "user"
+    version = "0"
+
+    [[actions]]
+    id = "htop"
+    title = "System Monitor"
+    menu = "app"
+    surface = "popup"
+    command = ["bin/htop"]
+
+`tmuxy config reload` puts it in the menus. The manifest reference is
+docs/PLUGINS.md in the tmuxy repository.
 
 ## The config chain
 

@@ -13,7 +13,7 @@ pub(super) fn list_panes_line(title: &str, window_id: &str, border_title: &str) 
     let border_title = border_title.replace(',', "%2C");
     format!(
         // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
-        "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,"
+        "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,,"
     )
 }
 
@@ -42,7 +42,7 @@ fn a_row_with_the_wrong_number_of_fields_is_dropped() {
     let mut agg = StateAggregator::new();
     assert_eq!(
         agg.parse_list_panes_line(
-            "%3,0,0,0,80,24,0,0,1,zsh,a, b,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,"
+            "%3,0,0,0,80,24,0,0,1,zsh,a, b,0,0,0,0,@4,,0,0,0,0,0,0,100,,,,,,,"
         ),
         None,
         "an unescaped comma makes one field too many"
@@ -114,9 +114,9 @@ fn list_panes_parses_rows_captured_from_a_real_tmux() {
     // Unlike `list_panes_line`, this carries tmux's real habit of leaving the
     // copy-mode/selection numerics EMPTY rather than zero.
     let mut agg = StateAggregator::new();
-    agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,");
+    agg.parse_list_panes_line("%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,");
     agg.parse_list_panes_line(
-        "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests%2C docs%2C and CI,0,,,,@0, ,0,0,0,,,,0,,,,,,",
+        "%1,1,0,13,80,11,0,0,0,sleep,✳ Add tests%2C docs%2C and CI,0,,,,@0, ,0,0,0,,,,0,,,,,,,",
     );
 
     let untitled = agg.panes.get("%0").expect("untitled pane parsed");
@@ -147,7 +147,7 @@ fn list_panes_empty_title_keeps_fields_aligned() {
 fn list_panes_reads_the_pane_state_tail() {
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,",
+        "%3,0,0,0,80,24,0,0,1,claude,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,needs-input,,,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.pane_state.as_deref(), Some("needs-input"));
@@ -174,7 +174,7 @@ fn list_panes_reads_the_ask_tail() {
     // comma-split even when the question itself is full of commas.
     let mut agg = StateAggregator::new();
     agg.parse_list_panes_line(
-        "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,eyJ0b2tlbiI6ImExIn0=,,",
+        "%3,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@4, ,0,0,0,0,0,0,100,,,,eyJ0b2tlbiI6ImExIn0=,,,",
     );
     let pane = agg.panes.get("%3").expect("pane parsed");
     assert_eq!(pane.pane_ask.as_deref(), Some("eyJ0b2tlbiI6ImExIn0="));

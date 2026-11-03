@@ -75,6 +75,7 @@ const showing = (activeWindowId: WindowId, panes: TmuxPane[]) => {
     totalHeight: 24,
     sessionName: 'main',
     focusRequest: '',
+    pluginsRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,

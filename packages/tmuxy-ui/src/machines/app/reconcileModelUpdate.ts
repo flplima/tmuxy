@@ -163,6 +163,10 @@ export const reconcileModelActions = {
 
     reconcileFloatAndSidebarLifecycle(context, transformed, floatPanes, enqueue);
 
+    if (transformed.pluginsRev !== context.pluginsRev) {
+      enqueue.raise({ type: 'PLUGINS_REV_CHANGED', rev: transformed.pluginsRev });
+    }
+
     let updatedCopyModeStates = context.copyModeStates;
     const now = Date.now();
     for (const newPane of transformed.panes) {

@@ -271,6 +271,19 @@ pub async fn list_snapshots() -> Result<Value, CommandError> {
     transport::list_snapshots_json().await
 }
 
+/// The invocation token a plugin's menu action opens with, holding the
+/// selected text (`plugins::invoke::prepare`).
+#[tauri::command]
+pub async fn prepare_plugin_action(
+    plugin: String,
+    action: String,
+    pane_id: String,
+    selection: Option<String>,
+) -> Result<Value, CommandError> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
+    transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await
+}
+
 /// Rebuild a session from its latest snapshot through this window's
 /// control-mode client, the way the web server does. Refused when the session
 /// is already running.
