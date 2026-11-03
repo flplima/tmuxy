@@ -121,6 +121,12 @@ impl StateEmitter for SseEmitter {
         let state = Arc::clone(&self.app_state);
         let session = self.session.clone();
         tokio::spawn(async move {
+            // The plugin keys first, so the bindings read next include them.
+            if let Ok(tx) = state.monitor_tx(&session).await {
+                if let Err(e) = transport::apply_plugin_keys(&tx).await {
+                    warn!(error = %e, "could not bind the plugin keys");
+                }
+            }
             refresh_keybindings(&state, &session).await;
             broadcast_theme_settings(&state, &session).await;
         });

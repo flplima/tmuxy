@@ -79,3 +79,69 @@ pub async fn open_plugin_text_json(
     .await?;
     Ok(serde_json::to_value(prepared).unwrap_or_default())
 }
+
+/// What a config reload re-reads of the plugins: the inventory (the user's
+/// own `tmuxy-plugin.toml` with it) and the plugin keys. Every command rides
+/// the connection a `source-file` was just queued on, so it runs after it.
+pub async fn reload_plugins(
+    tx: &crate::control_mode::MonitorCommandSender,
+) -> Result<(), CommandError> {
+    if crate::session::ssh_target().is_some() {
+        return Ok(());
+    }
+    for cmd in crate::plugins::inventory::commands(&crate::plugins::Dirs::current()) {
+        super::run(tx, &cmd).await?;
+    }
+    apply_plugin_keys(tx).await
+}
+
+/// One word of a command line sent over control mode: a key name or a
+/// command name as it is, anything else quoted.
+fn tmux_word(word: &str) -> String {
+    if !word.is_empty()
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        word.to_string()
+    } else {
+        crate::executor::tmux_quote(word)
+    }
+}
+
+/// Bind the plugin keys (`plugins::keys`) over the control-mode connection:
+/// the tables are read with `query`, which tmux answers after everything
+/// queued before it (a `source-file` and what it binds), so a user binding
+/// the config just made is seen and kept.
+pub async fn apply_plugin_keys(
+    tx: &crate::control_mode::MonitorCommandSender,
+) -> Result<(), CommandError> {
+    use crate::plugins::{keys, manifest::KeyTable, registry::Registry};
+    if crate::session::ssh_target().is_some() {
+        return Ok(());
+    }
+    let registry = Registry::load(&crate::plugins::Dirs::current()).unwrap_or_default();
+    let mut listings = Vec::new();
+    for table in [KeyTable::Prefix, KeyTable::Root] {
+        let listing = match super::query(tx, &keys::list_command(table)).await {
+            Ok(listing) => listing,
+            // tmux refuses to list a table with no bindings: nothing in it.
+            Err(e) if e.kind == crate::ErrorKind::Tmux => String::new(),
+            // Unread is not empty: binding blind could take a user's key.
+            Err(e) => return Err(e),
+        };
+        listings.push((table, listing));
+    }
+    let (_, cmds) = keys::commands(&registry, |table| {
+        listings
+            .iter()
+            .find(|(t, _)| *t == table)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default()
+    });
+    for argv in cmds {
+        let line: Vec<String> = argv.iter().map(|w| tmux_word(w)).collect();
+        super::run(tx, &line.join(" ")).await?;
+    }
+    Ok(())
+}

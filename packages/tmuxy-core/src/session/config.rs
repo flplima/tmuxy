@@ -413,7 +413,11 @@ pub fn config_stamps() -> ConfigStamps {
     }
     ConfigStamps {
         css,
+        // The user's own plugin is config too: saving it reloads.
         conf: file_stamp(&layout.user_conf())
+            .wrapping_add(file_stamp(
+                &layout.config.join(crate::plugins::MANIFEST_FILE),
+            ))
             .wrapping_add(file_stamp(&layout.state.join(RELOAD_MARKER))),
     }
 }

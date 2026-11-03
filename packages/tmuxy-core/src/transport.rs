@@ -323,10 +323,7 @@ where
     };
     run(tx, &routed).await?;
     if sourced {
-        for cmd in crate::session::current_managed_state_commands() {
-            run(tx, &cmd).await?;
-        }
-        tokio::time::sleep(SOURCE_FILE_SETTLE).await;
+        bindings::after_source_file(tx).await?;
         after_source_file().await;
     }
     Ok(())

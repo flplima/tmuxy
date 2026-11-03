@@ -316,9 +316,8 @@ pub fn source_with_entry(command: String, entry: Option<&std::path::Path>) -> St
 pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
 /// Source the config chain — the defaults, the user's `tmuxy.conf`, the
-/// essentials — over the control-mode connection, put the menu choices the
-/// file does not pin back on top (the defaults just reset them), and wait for
-/// it to settle, as a client's own `source-file` would. The caller then
+/// essentials — over the control-mode connection, followed by what follows
+/// a client's own `source-file` ([`after_source_file`]). The caller then
 /// pushes what a config can change — the bindings, the theme and appearance
 /// settings — exactly as it does after that client command.
 pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError> {
@@ -332,19 +331,19 @@ pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError
         &format!("source-file {}", tmux_quote(&path.to_string_lossy())),
     )
     .await?;
+    after_source_file(tx).await
+}
+
+/// What follows every `source-file` of the config chain, the monitor's own
+/// or a client's: the menu choices the file does not pin put back on top
+/// (the defaults just reset them), the plugins re-read (the user's own
+/// `tmuxy-plugin.toml` is config too, and the tables may have been reset
+/// under the plugin keys), then a wait for it to settle.
+pub(super) async fn after_source_file(tx: &MonitorCommandSender) -> Result<(), CommandError> {
     for cmd in crate::session::current_managed_state_commands() {
         run(tx, &cmd).await?;
     }
-    // The user's own plugin is `<config_dir>/tmuxy-plugin.toml`, re-read on
-    // a reload like the rest of the config.
-    if crate::session::ssh_target().is_none() {
-        let dirs = crate::plugins::Dirs::current();
-        for cmd in crate::plugins::inventory::commands(&dirs) {
-            run(tx, &cmd).await?;
-        }
-        // The config just sourced may have reset the key tables.
-        let _ = tokio::task::spawn_blocking(move || crate::plugins::keys::apply(&dirs)).await;
-    }
+    super::reload_plugins(tx).await?;
     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
     Ok(())
 }
