@@ -402,15 +402,15 @@
    the session at the right, in the same small type — 80% of the terminal's
    font, here the phone's cell (App.tsx scopes it to .phone-pty), as on a
    desktop. The hints are written for 80 columns (statusLineHints.ts), so at
-   that size the whole line fits the 80 columns the screen is cut into. The
-   row stays tall enough to tap the host and the session (PHONE_STATUS_HEIGHT). */
+   that size the whole line fits the 80 columns the screen is cut into, on a
+   row just tall enough for the type (PHONE_STATUS_HEIGHT). */
 .phone-pty {
   --tmuxy-small-font-size: calc(var(--tmuxy-font-size) * 0.8);
 }
 
 .phone-pty .tmux-status-bar {
   flex: none;
-  height: 24px;
+  height: 12px;
 }
 
 .phone-pty .tmux-status-bar-content,
@@ -422,17 +422,22 @@
    it is drawn at the chrome's size, too wide for them. */
 .phone-pty .statusline-hints {
   display: inline;
-  line-height: 24px;
+  line-height: 12px;
 }
 
 .phone-pty .statusline-host,
 .phone-pty .statusline-session {
   padding: 0 var(--spacing-md);
-  line-height: 24px;
+  line-height: 12px;
   border-radius: 0;
 }
 
-/* The prompt is typed into, so it keeps a size a thumb can read. */
+/* The prompt is typed into, so it keeps a size a thumb can read, and the
+   line grows to a row of it while it is up. */
+.phone-pty .tmux-command-mode {
+  height: 24px;
+}
+
 .phone-pty .tmux-command-prompt,
 .phone-pty .tmux-command-input {
   font-size: 12px;

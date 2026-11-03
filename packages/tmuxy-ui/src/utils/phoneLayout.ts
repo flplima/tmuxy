@@ -32,11 +32,11 @@ export const PHONE_QUERY = '(pointer: coarse), (max-width: 600px)';
 export const PHONE_SIDE_MIN = 300;
 
 /**
- * tmux's status line under the grid, in the chrome's type rather than a
- * terminal row: at the phone's cell a row is too short for the host and
- * session labels to be read, let alone tapped (styles mirror it).
+ * tmux's status line under the grid: the desktop's line in its small type,
+ * 80% of the phone's terminal font, on a row just tall enough for it — some
+ * 6 to 9px of type, upright or sideways (styles mirror it).
  */
-export const PHONE_STATUS_HEIGHT = 24;
+export const PHONE_STATUS_HEIGHT = 12;
 
 /** The window a phone asks for; tmux's status line is drawn as a 25th row. */
 export const PHONE_COLS = 80;

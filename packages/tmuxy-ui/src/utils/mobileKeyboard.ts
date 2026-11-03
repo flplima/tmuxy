@@ -6,8 +6,9 @@ import type { PaneId } from '../domain/ids';
  *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
  *    typed characters (input events). It also calls getMobileInput() to identify
  *    the element in keydown so it can skip printable chars already handled here.
- *  - usePaneTouch calls focusMobileInput(paneId) on tap so an open keyboard follows
- *    the pane; the key row's ⌨ key calls toggleMobileKeyboard() to show or hide it.
+ *  - usePaneTouch calls focusMobileInput(paneId) on a tap on another pane, so an
+ *    open keyboard follows it, and toggleMobileKeyboard() on a tap on the pane
+ *    that has it; the key row's ⌨ key calls toggleMobileKeyboard() too.
  *
  * Key event routing:
  *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
@@ -170,9 +171,8 @@ export function isMobileKeyboardOpen(): boolean {
 }
 
 /**
- * The key row's ⌨ key: put the keyboard away if it is up, bring it up for
- * `paneId` otherwise. A tap on a pane never does this (it only focuses the
- * pane); the key is the one way to toggle the keyboard on a phone.
+ * The key row's ⌨ key, and a tap on the pane that has the keyboard: put the
+ * keyboard away if it is up, bring it up for `paneId` otherwise.
  */
 export function toggleMobileKeyboard(paneId: PaneId | null): void {
   if (!isTouchDevice()) return;
@@ -186,8 +186,8 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
 }
 
 /**
- * Called by usePaneTouch on a tap: the keyboard, if it is up, follows the
- * pane; if it is down it stays down.
+ * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
+ * up, follows the pane; if it is down it stays down.
  */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;

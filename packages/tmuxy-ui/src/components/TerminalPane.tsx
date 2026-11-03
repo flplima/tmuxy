@@ -172,6 +172,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     copyModeActive: copyState?.mode === 'copy',
     phoneLayout: phoneGestures,
     phoneZoomed: phoneGestures && phoneZoomed,
+    holdsKeyboard,
     forwardScrollToParent,
   });
 

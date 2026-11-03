@@ -16,6 +16,7 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, tapAt } from './phoneStoryHelpers';
+import { PHONE_STATUS_HEIGHT } from '../utils/phoneLayout';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Layout',
@@ -91,7 +92,7 @@ export const PhoneKeyboardDown: Story = {
         const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
         expect(line.left).toBeCloseTo(screen.left, 1);
         expect(line.width).toBeCloseTo(screen.width, 1);
-        expect(line.height).toBe(24);
+        expect(line.height).toBe(PHONE_STATUS_HEIGHT);
       },
       { timeout: 8000 },
     );
@@ -115,7 +116,7 @@ export const PhoneKeyboardDown: Story = {
     // The desktop's line: the hints at its left edge, the host beside the
     // session at its right, all of it on the screen — the hints are written
     // for 80 columns, and the line is drawn in the small type at the phone's
-    // cell. The host and the session are a row tall, to read and to tap.
+    // cell, on a row just tall enough for it.
     const screenBox = box(canvasElement.querySelector('.app-container'));
     const hints = box(canvasElement.querySelector('.phone-pty .statusline-hints'));
     const host = box(canvasElement.querySelector('.phone-pty .statusline-host'));
@@ -126,7 +127,7 @@ export const PhoneKeyboardDown: Story = {
     expect(session.left).toBeGreaterThanOrEqual(host.right);
     expect(session.right).toBeLessThanOrEqual(screenBox.right + 0.5);
     expect(session.right).toBeGreaterThan(screenBox.right - 8);
-    expect(host.height).toBe(24);
+    expect(host.height).toBe(PHONE_STATUS_HEIGHT);
     const smallType = (sel: string) =>
       parseFloat(getComputedStyle(canvasElement.querySelector(sel)!).fontSize);
     const termType = parseFloat(

@@ -274,6 +274,10 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         {showLayout && !phone && <Sidebar side="right" />}
       </div>
       {!phone && <TmuxStatusBar />}
+      {/* Installed on a phone: the solid bands over the status bar and the
+          home indicator (standalone.css says why). */}
+      {phone && <div className="edge-band edge-band-top" aria-hidden="true" />}
+      {phone && <div className="edge-band edge-band-bottom" aria-hidden="true" />}
       {/* First run: what this is and what it can do, before anything is typed. */}
       {/* Errors, top-right, over everything but the cursor. */}
       <Snackbar />

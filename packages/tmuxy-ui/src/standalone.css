@@ -62,8 +62,42 @@ html.tmuxy-phone #root {
 
 /* Installed on a phone's home screen (the manifest's standalone display),
    the page runs under the status bar and the home indicator: the phone's
-   layout keeps clear of both. */
+   layout keeps clear of both, and an opaque band fills each (below). */
 html.tmuxy-phone #root {
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* The installed app's two edge bands (App.tsx): opaque, full-width, fixed
+   boxes in the window colour over the status bar's and the home indicator's
+   safe areas. iOS 26 draws a "scroll edge" fade under the status bar of a
+   home-screen web app — and a band of its own colour over the home
+   indicator — which read as a fade above the tab strip and a stray
+   rectangle in the footer. WebKit is reported to leave an edge alone when a
+   solid, hit-testable box more than 10px tall already covers it; each band
+   is at least 11px for that. Only where the app is installed and laid out
+   for a phone. */
+.edge-band {
+  display: none;
+}
+
+@media (display-mode: standalone) {
+  html.tmuxy-phone .edge-band {
+    display: block;
+    position: fixed;
+    right: 0;
+    left: 0;
+    z-index: var(--z-edge-band);
+    background-color: rgb(var(--window-bg-rgb));
+  }
+
+  html.tmuxy-phone .edge-band-top {
+    top: 0;
+    height: max(env(safe-area-inset-top, 0px), 11px);
+  }
+
+  html.tmuxy-phone .edge-band-bottom {
+    bottom: 0;
+    height: max(env(safe-area-inset-bottom, 0px), 11px);
+  }
 }

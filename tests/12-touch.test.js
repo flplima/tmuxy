@@ -35,7 +35,7 @@ const {
 describe('Phone width (390px) with a touchscreen', () => {
   const ctx = usePhoneContext(PHONE);
 
-  test('the whole 80 × 25 terminal over the keys and the tree; the ⌨ key opens the keyboard, ctrl latches, a swipe opens history, the tree switches tabs', async () => {
+  test('the whole 80 × 25 terminal over the keys and the tree; a tap on the pane opens the keyboard and another puts it away, ctrl latches, a swipe opens history, the tree switches tabs', async () => {
     if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
 
@@ -139,31 +139,29 @@ describe('Phone width (390px) with a touchscreen', () => {
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 
-    // 2. The virtual keyboard. A tap on the terminal only focuses the pane —
-    //    the keyboard stays down — and the key row's ⌨ key is what opens it:
-    //    the hidden input is only focused for a device with touch points, so
-    //    on this path alone does the phone get a keyboard at all.
+    // 2. The virtual keyboard. A tap on the terminal — the pane in front —
+    //    opens it, as the key row's ⌨ key does: the hidden input is only
+    //    focused for a device with touch points, so on these paths alone
+    //    does the phone get a keyboard at all. The tap's own handler has to
+    //    do it: a phone brings its keyboard up inside the tap, never later.
     const target = { x: layout.pane.left + layout.pane.width / 2, y: layout.pane.top + 40 };
-    // The tap's own handler runs before the tap resolves: a keyboard it had
-    // opened would already have the focus.
-    await ctx.page.touchscreen.tap(target.x, target.y);
-    expect(await ctx.page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
+    const keyboardUp = () =>
+      ctx.page.evaluate(() => {
+        const el = document.activeElement;
+        return !!el && el.tagName === 'INPUT' && getComputedStyle(el).position === 'fixed';
+      });
     const keyRowKey = async (label) =>
       ctx.page.evaluate((l) => {
         const r = document.querySelector(`[data-key-row="${l}"]`).getBoundingClientRect();
         return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       }, label);
     const keyboardKey = await keyRowKey('⌨');
-    await ctx.page.touchscreen.tap(keyboardKey.x, keyboardKey.y);
+    await ctx.page.touchscreen.tap(target.x, target.y);
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const el = document.activeElement;
-          return !!el && el.tagName === 'INPUT' && getComputedStyle(el).position === 'fixed';
-        }),
+      keyboardUp,
       5000,
-      'the ⌨ key to open the keyboard (focus the hidden input)',
+      'a tap on the pane in front to open the keyboard (focus the hidden input)',
     );
 
     // What is typed on it reaches the shell and comes back on screen — and
@@ -209,31 +207,21 @@ describe('Phone width (390px) with a touchscreen', () => {
     await ctx.page.touchscreen.tap(enterKey.x, enterKey.y);
     await waitForTerminalText(ctx.page, 'CTRL_C_OK', 15000, { notOnLineWith: 'echo CTRL' });
 
-    // The ⌨ key again puts the keyboard away, which is the only way to get
-    // the screen back on a phone; a tap on the terminal leaves it as it is.
-    await ctx.page.touchscreen.tap(keyboardKey.x, keyboardKey.y);
+    // A tap on the terminal again puts the keyboard away, and the screen
+    // comes back.
+    await ctx.page.touchscreen.tap(target.x, target.y);
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const el = document.activeElement;
-          return !el || el.tagName !== 'INPUT';
-        }),
+      async () => !(await keyboardUp()),
       5000,
-      'the ⌨ key again to dismiss the keyboard',
+      'a second tap on the pane to put the keyboard away',
     );
-    await ctx.page.touchscreen.tap(target.x, target.y);
-    expect(await ctx.page.evaluate(() => document.activeElement?.tagName)).not.toBe('INPUT');
 
     // 3. The scroll view. Print more history than the screen holds, then drag
     //    it down with a finger the way every other app scrolls.
+    // The ⌨ key brings it back.
     await ctx.page.touchscreen.tap(keyboardKey.x, keyboardKey.y);
-    await waitForCondition(
-      ctx.page,
-      async () => ctx.page.evaluate(() => document.activeElement?.tagName === 'INPUT'),
-      5000,
-      'the keyboard to come back for the second command',
-    );
+    await waitForCondition(ctx.page, keyboardUp, 5000, 'the ⌨ key to bring the keyboard back');
     await typeOnVirtualKeyboard(ctx.page, 'for i in $(seq 0 79); do echo "line-$i"; done');
     await ctx.page.keyboard.press('Enter');
     await waitForTerminalText(ctx.page, 'line-79', 20000);

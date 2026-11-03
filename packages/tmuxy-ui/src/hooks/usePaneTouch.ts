@@ -12,8 +12,9 @@
  *
  * And, in the phone layout (utils/phoneLayout.ts), what else one finger
  * means (utils/touchGesture.ts):
- * - A tap focuses the pane; an open keyboard follows it, a closed one stays
- *   closed (the key row's ⌨ key toggles it).
+ * - A tap on a pane focuses it, and an open keyboard follows it; a tap on
+ *   the pane that already has the keyboard puts the keyboard up or away, as
+ *   the key row's ⌨ key does.
  * - A double tap zooms the terminal in the browser, around the tap, and
  *   again puts it back. Zoomed, the finger pans: nothing here claims it.
  * - A hold selects the word under the finger in copy mode, and dragging on
@@ -28,7 +29,7 @@ import { Effect, Fiber } from 'effect';
 import type { AppMachineEvent } from '../machines/types/events';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { clientToCell } from './paneMouseHelpers';
-import { focusMobileInput } from '../utils/mobileKeyboard';
+import { focusMobileInput, toggleMobileKeyboard } from '../utils/mobileKeyboard';
 import { haptics } from '../utils/haptics';
 import {
   HOLD_MS,
@@ -67,6 +68,8 @@ interface UsePaneTouchOptions {
   phoneLayout: boolean;
   /** The phone's zoom is on: a moving finger pans the browser, not the pane. */
   phoneZoomed: boolean;
+  /** The pane already holds the keyboard: a tap on it toggles the keyboard. */
+  holdsKeyboard: boolean;
   forwardScrollToParent?: boolean;
 }
 
@@ -104,6 +107,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     copyModeActive,
     phoneLayout,
     phoneZoomed,
+    holdsKeyboard,
     forwardScrollToParent,
   } = options;
 
@@ -119,6 +123,8 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const intentRef = useRef<TouchIntent>('undecided');
   // The last tap, for the double tap after it.
   const lastTapRef = useRef<TouchPoint | null>(null);
+  // Whether that tap put the keyboard up or away, for a double tap to undo.
+  const lastTapToggledRef = useRef(false);
   const holdTimerRef = useRef<number | null>(null);
   // Whether the finger currently on the screen started on THIS pane. The move
   // and end listeners sit on the window (see TerminalPane), because the row
@@ -382,7 +388,12 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           // which steals focus from the hidden mobile input and closes the keyboard.
           e.preventDefault();
           if (phoneLayout && isDoubleTap(lastTapRef.current, tap)) {
+            // The first tap of the pair toggled the keyboard — it had to then:
+            // a phone brings its keyboard up only inside the tap's own
+            // handler, never a moment later — so this one puts it back.
+            if (lastTapToggledRef.current) toggleMobileKeyboard(paneId);
             lastTapRef.current = null;
+            lastTapToggledRef.current = false;
             haptics.trigger(15);
             send({ type: 'TOGGLE_PHONE_ZOOM', x: tap.x, y: tap.y });
             return;
@@ -390,7 +401,11 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           lastTapRef.current = tap;
           haptics.trigger(10);
           send({ type: 'FOCUS_PANE', paneId });
-          focusMobileInput(paneId);
+          // The pane in front again: the keyboard up or away. Any other: the
+          // pane takes focus, and an open keyboard follows it.
+          lastTapToggledRef.current = phoneLayout && holdsKeyboard;
+          if (lastTapToggledRef.current) toggleMobileKeyboard(paneId);
+          else focusMobileInput(paneId);
           return;
         }
       }
@@ -444,7 +459,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
         ),
       );
     },
-    [send, paneId, processPixelDelta, cancelHold, phoneLayout, phoneZoomed],
+    [send, paneId, processPixelDelta, cancelHold, phoneLayout, phoneZoomed, holdsKeyboard],
   );
 
   // The browser took the touch (a system gesture, a dialog): nothing was

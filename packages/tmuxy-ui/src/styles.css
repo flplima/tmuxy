@@ -243,6 +243,9 @@
   --z-snackbar: 1400;
   /* Above the menus (10000): a tooltip can describe a menu item. */
   --z-tooltip: 10001;
+  /* The installed phone app's edge bands (App.tsx, standalone.css): over
+     the safe areas only, where nothing else is drawn, so above everything. */
+  --z-edge-band: 10002;
 }
 
 @media (prefers-reduced-motion: reduce) {

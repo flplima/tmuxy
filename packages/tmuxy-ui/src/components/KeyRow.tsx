@@ -17,8 +17,8 @@
  * The arrows repeat while held and work as one pad: a finger that lands on
  * one and slides onto another presses that one instead (`utils/keyRepeat`).
  *
- * ⌨ puts the phone's keyboard up or away (a tap on a pane only focuses it —
- * utils/mobileKeyboard.ts), and the magnifier zooms the terminal in the
+ * ⌨ puts the phone's keyboard up or away, as a tap on the pane in front does
+ * (utils/mobileKeyboard.ts), and the magnifier zooms the terminal in the
  * browser or puts it back, as a double tap on it does (the `phone` slice); its
  * glass reads + while the terminal is at its size and − while it is zoomed.
  *
