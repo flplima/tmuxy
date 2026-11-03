@@ -151,6 +151,23 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       disabled: ctx.pinnedOptions.includes(PINNABLE.sendAsk),
       action: event({ type: 'TOGGLE_SEND_ASK' }),
     },
+    // This device's push notifications: a browser or the installed web app
+    // only (utils/pushNotifications.ts). tmuxy.conf can turn them off for
+    // every device (`@tmuxy-notify off`), and the browser for this one. The
+    // demo has no server to push from.
+    !env.isDemo &&
+      ctx.pushState !== 'unsupported' && {
+        kind: 'checkbox',
+        id: 'view-notify',
+        label: !ctx.notifyAllowed
+          ? 'Notify When a Pane Needs You (off in tmuxy.conf)'
+          : ctx.pushState === 'denied'
+            ? 'Notify When a Pane Needs You (blocked by the browser)'
+            : 'Notify When a Pane Needs You',
+        checked: ctx.notifyAllowed && ctx.pushState === 'on',
+        disabled: !ctx.notifyAllowed || ctx.pushState === 'denied' || ctx.pushState === 'working',
+        action: event({ type: 'TOGGLE_PUSH' }),
+      },
     // The native blur only exists on macOS, and only the desktop app has a
     // window to make see-through.
     env.isTauri &&

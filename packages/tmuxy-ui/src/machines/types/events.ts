@@ -1,3 +1,4 @@
+import type { PushState } from '../../utils/pushNotifications';
 import type { ServerState, KeyBindings, Appearance } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
 import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
@@ -286,6 +287,10 @@ export type AppMachineEvent =
       message: string;
     }
   | { type: 'SET_THEME'; name: string }
+  /** Turn this device's push notifications on or off (the View menu). */
+  | { type: 'TOGGLE_PUSH' }
+  /** Where this device's push notifications stand now. */
+  | { type: 'PUSH_STATE'; state: PushState }
   /** tmux's `<theme>:<mode>` changed: some client picked a theme. */
   | { type: 'THEME_REV_CHANGED'; rev: string }
   | { type: 'SET_THEME_MODE'; mode: ThemeMode }

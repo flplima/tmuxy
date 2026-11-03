@@ -278,6 +278,10 @@ pub struct AppState {
 
     /// The names `/mcp` clients introduced themselves with (`crate::mcp`).
     pub mcp_clients: crate::mcp::Clients,
+
+    /// Web push: the VAPID key and the devices notifications go to
+    /// (`crate::push`).
+    pub push: crate::push::Push,
 }
 
 /// A live `/events` stream's place in the server's budget, released on drop.
@@ -303,6 +307,7 @@ impl Default for AppState {
             preview_pages: tmuxy_core::preview::PreviewPages::default(),
             session_create_lock: Mutex::new(()),
             mcp_clients: crate::mcp::Clients::default(),
+            push: crate::push::Push::default(),
         }
     }
 }
@@ -396,6 +401,13 @@ pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
         // The MCP endpoint (`crate::mcp`, docs/MCP.md): an agent's way to the
         // session, behind the same guard and auth as the rest of the API.
         .route("/mcp", post(crate::mcp::mcp_handler))
+        // Web push (`crate::push`): the key a device subscribes with, and
+        // the subscription it hands over to turn notifications on or off.
+        .route("/api/push", get(crate::push::key_handler))
+        .route(
+            "/api/push/subscription",
+            post(crate::push::subscribe_handler).delete(crate::push::unsubscribe_handler),
+        )
         .route(
             "/api/preview/{pane_id}",
             get(crate::sse::preview_page_handler).post(crate::sse::stage_preview_handler),

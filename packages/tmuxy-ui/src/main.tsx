@@ -4,6 +4,7 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AppProvider } from './machines/AppContext';
 import { applyTheme, loadThemeFromStorage } from './utils/themeManager';
 import { isTauri } from './utils/platform';
+import { registerPushWorker } from './utils/pushNotifications';
 import './fonts/nerd-font.css';
 import './standalone.css';
 import './components/widgets/init';
@@ -12,6 +13,9 @@ import './components/widgets/init';
 // on macOS) shows through whatever alpha the surfaces leave; in a browser it
 // stays opaque (standalone.css).
 if (isTauri()) document.documentElement.dataset.desktop = '';
+
+// The worker web push notifications are shown by (utils/pushNotifications.ts).
+registerPushWorker();
 
 // Apply saved theme (or defaults) before first render to avoid FOUC
 const savedTheme = loadThemeFromStorage();

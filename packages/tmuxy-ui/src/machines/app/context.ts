@@ -1,3 +1,4 @@
+import { pushSupported } from '../../utils/pushNotifications';
 /**
  * Initial context and field-ownership registry for appMachine.
  *
@@ -156,6 +157,8 @@ export const FIELD_OWNERS = {
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
   sendAsk: 'uiPrefs',
+  notifyAllowed: 'uiPrefs',
+  pushState: 'uiPrefs',
   transparency: 'uiPrefs',
   pinnedOptions: 'uiPrefs',
   tabOverviewCols: 'uiPrefs',
@@ -242,6 +245,8 @@ export function createInitialContext(): AppMachineContext {
     animationsAllowed: true,
     cursorBlink: true,
     sendAsk: true,
+    notifyAllowed: true,
+    pushState: pushSupported() ? 'unknown' : 'unsupported',
     transparency: true,
     pinnedOptions: [],
     tabOverviewCols: 3,

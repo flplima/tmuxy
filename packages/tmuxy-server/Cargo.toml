@@ -31,8 +31,16 @@ clap.workspace = true
 rust-embed = "8"
 dirs.workspace = true
 futures-util = "0.3"
-# The `--dev` proxy to Vite.
-reqwest = { version = "0.12", default-features = false }
+# The `--dev` proxy to Vite, and web push to a browser's push service over
+# HTTPS (`push`), with rustls and the Mozilla roots: no system OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# Web push (`push`): VAPID's ES256 and RFC 8291's ECDH, HKDF and AES-GCM, all
+# pure Rust.
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+hkdf = "0.12"
+sha2 = "0.10"
+aes-gcm = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-group = { path = "../tmuxy-group" }

@@ -45,6 +45,8 @@ pub struct Appearance {
     pub cursor_blink: bool,
     /// Whether a send into another pane asks first (`@tmuxy-send-ask`).
     pub send_ask: bool,
+    /// Push a notification when a pane needs the user (`@tmuxy-notify`).
+    pub notify: bool,
     /// Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`).
     pub tab_overview_cols: u32,
     /// Two-finger slide left/right switches tabs (`@tmuxy-gesture-swipe-tabs`).
@@ -78,6 +80,7 @@ impl Default for Appearance {
             animations: true,
             cursor_blink: true,
             send_ask: true,
+            notify: true,
             tab_overview_cols: 3,
             gesture_swipe_tabs: true,
             gesture_pinch_zoom: true,
@@ -122,7 +125,7 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
 
 /// Every option the theme settings are read from, in the order the query
 /// prints them.
-const SETTINGS_OPTIONS: [&str; 18] = [
+const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
     tmux_options::OPACITY,
@@ -135,6 +138,7 @@ const SETTINGS_OPTIONS: [&str; 18] = [
     tmux_options::ANIMATIONS,
     tmux_options::CURSOR_BLINK,
     tmux_options::SEND_ASK,
+    tmux_options::NOTIFY,
     tmux_options::TAB_OVERVIEW_COLS,
     tmux_options::GESTURE_SWIPE_TABS,
     tmux_options::GESTURE_PINCH_ZOOM,
@@ -244,6 +248,7 @@ fn parse_settings(output: &str) -> serde_json::Value {
         animations: parse_flag(value(tmux_options::ANIMATIONS), defaults.animations),
         cursor_blink: parse_flag(value(tmux_options::CURSOR_BLINK), defaults.cursor_blink),
         send_ask: parse_flag(value(tmux_options::SEND_ASK), defaults.send_ask),
+        notify: parse_flag(value(tmux_options::NOTIFY), defaults.notify),
         tab_overview_cols: parse_count(
             value(tmux_options::TAB_OVERVIEW_COLS),
             defaults.tab_overview_cols,

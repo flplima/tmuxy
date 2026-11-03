@@ -339,6 +339,33 @@ describe('themeMenuSpec and debugMenuSpec', () => {
     expect(disabled(view, 'view-send-ask')).toBe(false);
   });
 
+  // Notifications are a browser's (and the installed web app's): nowhere
+  // else are they offered. tmuxy.conf turning them off greys the switch out
+  // on every device and says so; a browser that blocked them says that.
+  it('the notification switch follows the device, tmuxy.conf and the browser', () => {
+    const view = (over: Partial<AppMachineContext>) => viewMenuSpec(ctx(over), WEB);
+    expect(find(view({ pushState: 'unsupported' }), 'view-notify')).toBeUndefined();
+    expect(
+      find(viewMenuSpec(ctx({ pushState: 'off' }), { ...WEB, isDemo: true }), 'view-notify'),
+    ).toBeUndefined();
+    expect(find(view({ pushState: 'off' }), 'view-notify')).toMatchObject({
+      label: 'Notify When a Pane Needs You',
+      checked: false,
+      disabled: false,
+    });
+    expect(find(view({ pushState: 'on' }), 'view-notify')).toMatchObject({ checked: true });
+    expect(find(view({ pushState: 'on', notifyAllowed: false }), 'view-notify')).toMatchObject({
+      label: 'Notify When a Pane Needs You (off in tmuxy.conf)',
+      checked: false,
+      disabled: true,
+    });
+    expect(find(view({ pushState: 'denied' }), 'view-notify')).toMatchObject({
+      label: 'Notify When a Pane Needs You (blocked by the browser)',
+      disabled: true,
+    });
+    expect(disabled(view({ pushState: 'working' }), 'view-notify')).toBe(true);
+  });
+
   it('a locked trace switch is disabled and the levels wait for it', () => {
     const spec = debugMenuSpec(
       ctx({ traceSettings: { enabled: false, level: 'shape', path: null, locked: true } }),

@@ -225,12 +225,17 @@ const COVERED_ROUTES: &[(&str, &str)] = &[
     ("/api/images/{pane_id}/{image_id}", "/api/images/1/0"),
     ("/api/preview/{pane_id}", "/api/preview/1"),
     ("/mcp", "/mcp"),
+    ("/api/push", "/api/push"),
+    ("/api/push/subscription", "/api/push/subscription"),
 ];
 
 /// A request for `route` in the shape a page on another origin sends one.
 fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
     let (_, target) = COVERED_ROUTES.iter().find(|(name, _)| *name == route)?;
-    let builder = if matches!(route, "/commands" | "/trace" | "/mcp") {
+    let builder = if matches!(
+        route,
+        "/commands" | "/trace" | "/mcp" | "/api/push/subscription"
+    ) {
         Request::post(*target)
     } else {
         Request::get(*target)

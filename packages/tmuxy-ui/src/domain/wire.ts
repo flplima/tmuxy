@@ -336,6 +336,8 @@ export const Appearance = Schema.Struct({
   cursorBlink: Schema.Boolean,
   /** Whether a send into another pane asks there first (`@tmuxy-send-ask`). */
   sendAsk: Schema.Boolean,
+  /** Whether a pane needing the user is pushed as a notification (`@tmuxy-notify`); absent from older servers. */
+  notify: Schema.optional(Schema.Boolean),
   /** Cards per row in the "all tabs" view (`@tmuxy-tab-overview-cols`), 1–12. */
   tabOverviewCols: Schema.Number,
   /** Two-finger slide switches tabs (`@tmuxy-gesture-swipe-tabs`). */

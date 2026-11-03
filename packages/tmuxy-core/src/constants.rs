@@ -186,6 +186,10 @@ pub mod tmux_options {
     /// program in front is one of them skips that question — an agent's
     /// prompt, which other agents may type into. Read where `SEND_ALLOW` is.
     pub const SEND_ALLOW_INTO: &str = "@tmuxy-send-allow-into";
+    /// `on`/`off`: whether a pane entering `needs-input` or `error` sends a
+    /// web push notification to the devices that turned them on
+    /// (`tmuxy-server/src/push.rs`).
+    pub const NOTIFY: &str = "@tmuxy-notify";
     /// Integer: how many cards each row of the "all tabs" view holds.
     pub const TAB_OVERVIEW_COLS: &str = "@tmuxy-tab-overview-cols";
     /// `on`/`off`: a two-finger trackpad slide left/right switches tabs.

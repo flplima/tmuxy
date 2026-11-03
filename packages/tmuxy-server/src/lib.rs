@@ -11,6 +11,7 @@ mod dev;
 mod log_file;
 mod mcp;
 mod plugin_cli;
+mod push;
 mod request_guard;
 pub mod server;
 mod session_cli;

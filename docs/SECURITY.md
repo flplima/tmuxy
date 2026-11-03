@@ -112,6 +112,10 @@ None of that reaches a process that runs raw `tmux` on the socket as the same Un
 
 The MCP endpoint ([MCP.md](MCP.md)) is the same remote shell as `/commands`, offered as tools: it sits behind the same Basic auth and the same origin rules, so whoever can call it could already call `/commands`. What it adds is a shape an agent uses without a shell of its own. Typing into a pane that exists asks the user there, as `tmuxy pane send -t` does, and the endpoint has no tool that writes an option, so an agent cannot turn the question off. A pane, tab or float an agent opens runs the command it gives without asking, as `tmuxy pane run` does: that program is the agent's own, in a pane the user sees appear, and it can be anything, `tmux` included. An endpoint URL with `?read-only` offers only the tools that read; give an agent that one when it should watch and not act. `@tmuxy-send-allow-into claude,agy` lets every sender, an MCP client included, type into those agents' prompts without asking: what it types, that agent then acts on with its own permissions.
 
+### Push Notifications
+
+A device that turns notifications on hands the server a push subscription (`/api/push/subscription`, behind the same auth and origin rules as `/commands`), and the server then sends that device's push service a notice whenever a pane enters `needs-input` or `error` (`tmuxy-server/src/push.rs`). The notice is encrypted for the device and signed with the server's VAPID key (both RFC 8291/8292), so the push service can deliver it but not read it, and cannot be made to deliver anyone else's. A subscription must name an HTTPS endpoint (or loopback, for tests); the server keeps at most 32 and forgets one its push service reports gone. `@tmuxy-notify off` in tmuxy.conf sends none.
+
 ### Prompt Injection via Terminal Output
 
 Terminal output from running processes could contain text that looks like instructions to an AI agent. If the agent reads pane content and acts on it, malicious programs could manipulate the agent's behavior. This is a general risk of AI agents interacting with untrusted output.

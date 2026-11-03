@@ -340,6 +340,7 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     };
 
     crate::sse::watch_config_dir(state.clone()).await;
+    crate::push::watch(state.clone()).await;
     let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),

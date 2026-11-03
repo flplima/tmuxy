@@ -4,7 +4,7 @@
  *
  * Owns context fields: themeName, themeMode, availableThemes, baseFontSize,
  * enableAnimations, animationsAllowed, cursorBlink, sendAsk, tabOverviewCols, gestureFlags,
- * traceSettings, themeRev.
+ * traceSettings, themeRev, notifyAllowed, pushState.
  *
  * Action implementations live in ../actions/uiPrefs.ts.
  *
@@ -18,6 +18,8 @@ export const uiPrefsState = {
     SET_THEME_MODE: { actions: 'uiPrefs_applyThemeMode' },
     THEME_SETTINGS_RECEIVED: { actions: 'uiPrefs_acceptThemeSettings' },
     THEME_REV_CHANGED: { actions: 'uiPrefs_themeRevChanged' },
+    TOGGLE_PUSH: { actions: 'uiPrefs_togglePush' },
+    PUSH_STATE: { actions: 'uiPrefs_pushState' },
     TOGGLE_CURSOR_BLINK: { actions: 'uiPrefs_toggleCursorBlink' },
     TOGGLE_SEND_ASK: { actions: 'uiPrefs_toggleSendAsk' },
     TOGGLE_TRANSPARENCY: { actions: 'uiPrefs_toggleTransparency' },

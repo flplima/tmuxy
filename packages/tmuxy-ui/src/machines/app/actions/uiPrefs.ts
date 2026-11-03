@@ -29,6 +29,14 @@ import {
 import { applyAppearance } from '../../../utils/appearanceManager';
 import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
 import { PINNABLE } from '../../../domain/pins';
+import type { PaneId } from '../../../domain/ids';
+import {
+  disablePush,
+  enablePush,
+  onNotificationFocus,
+  readPushState,
+  type PushState,
+} from '../../../utils/pushNotifications';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
@@ -67,6 +75,25 @@ export const uiPrefsActions = {
     );
   }),
 
+  // This device's notifications on or off. The permission prompt has to come
+  // from the tap itself (WebKit refuses it a moment later), and this action
+  // runs inside the menu's click: enablePush asks before it awaits anything.
+  uiPrefs_togglePush: act(({ context, self, enqueue }) => {
+    const report = (state: PushState) => self.send({ type: 'PUSH_STATE', state });
+    if (context.pushState === 'on') {
+      enqueue(assign({ pushState: 'working' as PushState }));
+      void disablePush().then(report);
+    } else if (context.notifyAllowed && ['off', 'unknown'].includes(context.pushState)) {
+      enqueue(assign({ pushState: 'working' as PushState }));
+      void enablePush().then(report);
+    }
+  }),
+
+  uiPrefs_pushState: act(({ event, enqueue }) => {
+    if (event.type !== 'PUSH_STATE') return;
+    enqueue(assign({ pushState: event.state }));
+  }),
+
   // Some client picked a theme or a mode (tmux's `<theme>:<mode>` moved):
   // read the settings again, which applies them. The first value is the one
   // the connection's own read already answered.
@@ -78,8 +105,14 @@ export const uiPrefsActions = {
     }
   }),
 
-  uiPrefs_acceptThemeSettings: act(({ context, event, enqueue }) => {
+  uiPrefs_acceptThemeSettings: act(({ context, event, enqueue, self }) => {
     if (event.type !== 'THEME_SETTINGS_RECEIVED') return;
+    // The first settings are the backend answering: read where this device's
+    // notifications stand, and let a tapped one bring its pane forward.
+    if (context.pushState === 'unknown') {
+      void readPushState().then((state) => self.send({ type: 'PUSH_STATE', state }));
+      onNotificationFocus((paneId) => self.send({ type: 'FOCUS_PANE', paneId: paneId as PaneId }));
+    }
     const sizePolicy = event.appearance?.size ?? DEFAULT_SIZE_POLICY;
     if (!sameSizePolicy(sizePolicy, context.sizePolicy)) {
       enqueue(assign({ sizePolicy }));
@@ -98,6 +131,7 @@ export const uiPrefsActions = {
         animationsAllowed: event.appearance?.animations ?? true,
         cursorBlink: event.appearance?.cursorBlink ?? true,
         sendAsk: event.appearance?.sendAsk ?? true,
+        notifyAllowed: event.appearance?.notify ?? true,
         transparency: event.appearance?.transparency ?? true,
         tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
         gestureFlags: {

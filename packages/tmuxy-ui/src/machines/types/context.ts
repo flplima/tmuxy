@@ -1,3 +1,4 @@
+import type { PushState } from '../../utils/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
@@ -191,6 +192,10 @@ export interface AppMachineContext {
    * pane the caller does not own asks the user there first.
    */
   sendAsk: boolean;
+  /** Whether tmuxy.conf lets the server push notifications (`@tmuxy-notify`). */
+  notifyAllowed: boolean;
+  /** Whether this device gets them (utils/pushNotifications.ts). */
+  pushState: PushState;
   /**
    * The config's `@tmuxy-transparency` switch, flipped from the View menu on
    * the macOS desktop app and written back to `tmuxy.state.json`: off, the
