@@ -138,7 +138,10 @@ describe('tmuxy pane send', () => {
       expect(askPayload(tmuxCalls).caller).toBe('claude');
     });
 
-    test('marks the caller’s pane as waiting on the user, then puts back what it said', () => {
+    // The pane waiting on the user is the one the question is drawn over, not
+    // the sender's: an agent sending from its own pane is not the one that
+    // needs the user, and its own state (an agent's hooks) is left alone.
+    test('marks the target pane as needing the user, leaves the sender’s, then puts back what it said', () => {
       const { tmuxCalls } = send(['-t', '%3', 'ls', 'Enter'], {
         ...IN_PANE_1,
         MOCK_TMUX_ANSWER: 'yes',
@@ -146,13 +149,14 @@ describe('tmuxy pane send', () => {
       });
       const commands = runShellCommands(tmuxCalls);
       const waiting = commands.findIndex((cmd) =>
-        cmd.endsWith("set-option -p -t '%1' @tmuxy-pane-state needs-input"),
+        cmd.endsWith("set-option -p -t '%3' @tmuxy-pane-state needs-input"),
       );
       const restored = commands.findIndex((cmd) =>
-        cmd.endsWith("set-option -p -t '%1' @tmuxy-pane-state 'working'"),
+        cmd.endsWith("set-option -p -t '%3' @tmuxy-pane-state 'working'"),
       );
       expect(waiting).toBeGreaterThan(-1);
       expect(restored).toBeGreaterThan(waiting);
+      expect(commands.some((cmd) => cmd.includes("-t '%1' @tmuxy-pane-state"))).toBe(false);
     });
   });
 

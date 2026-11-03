@@ -302,12 +302,13 @@ ENCODED="$(printf '%s' "$PAYLOAD" | base64 | tr -d '\n')"
 
 # --- Ask ---
 
-# While the question is up, the caller's own pane says it is waiting on the
-# user; what it said before comes back afterwards.
-OWN_STATE=""
-[ -n "$OWN_PANE" ] && OWN_STATE="$(pane_option "$OWN_PANE" @tmuxy-pane-state)"
+# While the question is up, the TARGET pane says it needs the user — it is
+# the one waiting on an answer; the sender's own pane is left as it is. What
+# the target said before comes back afterwards (TARGET_STATE, read once this
+# sender's turn has come, below).
+TARGET_STATE=""
 
-# Clear the question and the caller's waiting mark on ANY exit: an interrupted
+# Clear the question and the target's waiting mark on ANY exit: an interrupted
 # or killed sender must not leave a question on screen that nothing is
 # listening to any more. Only this sender's own question comes down: one a
 # later sender asked over it (an abandoned question is taken over, below)
@@ -317,11 +318,13 @@ cleanup() {
     _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask" 2>/dev/null || true
     _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer" 2>/dev/null || true
   fi
-  if [ -n "$OWN_PANE" ]; then
-    if [ -n "$OWN_STATE" ]; then
-      _run_safe "set-option -p -t $(shquote "$OWN_PANE") @tmuxy-pane-state $(shquote "$OWN_STATE")" 2>/dev/null || true
+  # Only the mark this sender put up: a state the pane set itself since
+  # (an agent's hook) is newer news and stays.
+  if [ "$(pane_option "$TARGET" @tmuxy-pane-state)" = needs-input ]; then
+    if [ -n "$TARGET_STATE" ]; then
+      _run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-pane-state $(shquote "$TARGET_STATE")" 2>/dev/null || true
     else
-      _run_safe "set-option -pu -t $(shquote "$OWN_PANE") @tmuxy-pane-state" 2>/dev/null || true
+      _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-pane-state" 2>/dev/null || true
     fi
   fi
 }
@@ -344,15 +347,17 @@ while [ -n "$(pane_option "$TARGET" @tmuxy-ask)" ]; do
   sleep "$POLL_INTERVAL" 2>/dev/null || sleep 1
 done
 
+# A mark an abandoned question left behind is not the pane's own state.
+TARGET_STATE="$(pane_option "$TARGET" @tmuxy-pane-state)"
+[ "$TARGET_STATE" = needs-input ] && TARGET_STATE=""
+
 trap cleanup EXIT INT TERM
 
 # Answer first, question second: a stale answer left by a previous question
 # would otherwise be read as this one's before the poll ever starts.
 _run_safe "set-option -pu -t $(shquote "$TARGET") @tmuxy-ask-answer"
 _run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-ask $(shquote "$ENCODED")"
-if [ -n "$OWN_PANE" ]; then
-  _run_safe "set-option -p -t $(shquote "$OWN_PANE") @tmuxy-pane-state needs-input"
-fi
+_run_safe "set-option -p -t $(shquote "$TARGET") @tmuxy-pane-state needs-input"
 
 # Writing to stderr is not only for the user's benefit: it is pane output, and
 # pane output is what makes the backend re-list the panes promptly. Without it

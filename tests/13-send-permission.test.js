@@ -150,13 +150,15 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
     // Yes is highlighted before anything is touched — the same answer the
     // shortcut gives, so what the user sees and what the shortcut does agree.
     expect(overlay.selected).toBe('yes');
-    // The sending pane says it is waiting on the user while the question is up.
+    // The pane the question is over is the one that needs the user while it
+    // is up — not the sender, which is only waiting for the answer.
     await waitForCondition(
       page,
-      async () => (await headerMark(page, here)) === 'needs-input',
+      async () => (await headerMark(page, there)) === 'needs-input',
       10000,
-      'the sending pane to show it needs input',
+      'the target pane to show it needs input',
     );
+    expect(await headerMark(page, here)).not.toBe('needs-input');
     // Nothing has been sent yet: that is the point of asking.
     expect(await screenOf(page, there)).not.toContain('send-allowed');
 
@@ -171,15 +173,16 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
       notOnLineWith: 'echo send',
     });
     expect((await panesOfTab(page)).here).toBe(here);
-    // The sender is free again, says what it sent, and is no longer waiting.
+    // The sender is free again and says what it sent; the target no longer
+    // needs the user.
     await waitForTerminalText(page, `sent to ${there}`, 15000, {
       scope: `[data-pane-id="${here}"]`,
     });
     await waitForCondition(
       page,
-      async () => (await headerMark(page, here)) !== 'needs-input',
+      async () => (await headerMark(page, there)) !== 'needs-input',
       10000,
-      'the sending pane to stop waiting on the user',
+      'the target pane to stop needing the user',
     );
 
     // 2. Declined with a click on "2. No": nothing lands.

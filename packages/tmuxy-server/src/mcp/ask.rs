@@ -154,17 +154,26 @@ pub(super) async fn send_keys(
     );
     let question = encode_question(&token, caller, keys);
     // Armed before the question goes up: a request dropped from here on
-    // still takes it down.
+    // still takes it down. A mark an abandoned question left behind is not
+    // the pane's own state.
     let guard = QuestionGuard {
         tx: Some(tmux.channel().clone()),
-        session: tmux.session().to_string(),
-        pane: pane.clone(),
-        question: question.clone(),
+        asked: Asked {
+            session: tmux.session().to_string(),
+            pane: pane.clone(),
+            question: question.clone(),
+            prior_state: Some(rules.pane_state)
+                .filter(|state| state != NEEDS_INPUT)
+                .unwrap_or_default(),
+        },
     };
     // Answer first, question second: a stale answer left by an earlier
-    // question would otherwise be read as this one's.
+    // question would otherwise be read as this one's. The pane the question
+    // is over is the one waiting on the user, so it says so; the sender has
+    // no pane here, and the CLI's leaves its own alone too.
     tmux.mutate(&format!(
-        "set-option -pu -t {pane} @tmuxy-ask-answer ; set-option -p -t {pane} @tmuxy-ask {}",
+        "set-option -pu -t {pane} @tmuxy-ask-answer ; set-option -p -t {pane} @tmuxy-ask {} ; \
+         set-option -p -t {pane} @tmuxy-pane-state {NEEDS_INPUT}",
         tmux_quote(&question)
     ))
     .await?;
@@ -252,27 +261,43 @@ async fn wait_for_answer(
     }
 }
 
-/// Takes the question off the pane, when told to or when dropped — a client
-/// that hangs up mid-question must not leave one on screen that nothing is
-/// listening to. Only this sender's own question: one asked over it after
-/// `PENDING_LIMIT` belongs to that sender.
-struct QuestionGuard {
-    tx: Option<MonitorCommandSender>,
+/// The `@tmuxy-pane-state` a pane waiting on the user's answer shows.
+const NEEDS_INPUT: &str = "needs-input";
+
+/// A question this sender put up, and what to put back when it comes down.
+struct Asked {
     session: String,
     pane: PaneId,
     question: String,
+    /// The target's `@tmuxy-pane-state` before it was marked `needs-input`.
+    prior_state: String,
+}
+
+/// Takes the question off the pane, and its `needs-input` mark, when told to
+/// or when dropped — a client that hangs up mid-question must not leave one
+/// on screen that nothing is listening to.
+struct QuestionGuard {
+    tx: Option<MonitorCommandSender>,
+    asked: Asked,
 }
 
 impl QuestionGuard {
     async fn take_down(mut self) {
         if let Some(tx) = self.tx.take() {
-            take_down(
-                tx,
-                self.session.clone(),
-                self.pane.clone(),
-                self.question.clone(),
-            )
-            .await;
+            let asked = std::mem::replace(&mut self.asked, Asked::taken());
+            take_down(tx, asked).await;
+        }
+    }
+}
+
+impl Asked {
+    /// What a guard holds once its question has been handed on.
+    fn taken() -> Self {
+        Self {
+            session: String::new(),
+            pane: PaneId::from_number(0),
+            question: String::new(),
+            prior_state: String::new(),
         }
     }
 }
@@ -283,32 +308,45 @@ impl Drop for QuestionGuard {
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
             return;
         };
-        runtime.spawn(take_down(
-            tx,
-            std::mem::take(&mut self.session),
-            self.pane.clone(),
-            std::mem::take(&mut self.question),
-        ));
+        let asked = std::mem::replace(&mut self.asked, Asked::taken());
+        runtime.spawn(take_down(tx, asked));
     }
 }
 
-async fn take_down(tx: MonitorCommandSender, session: String, pane: PaneId, question: String) {
-    let up = transport::query(
-        &tx,
-        &format!("display-message -p -t {pane} '#{{@tmuxy-ask}}'"),
-    )
-    .await
-    .unwrap_or_default();
-    if up.trim() != question {
+/// Only this sender's own question comes down: one asked over it after
+/// `PENDING_LIMIT` belongs to that sender. The mark comes down only while it
+/// is still this sender's: a state the pane set itself since (an agent's
+/// hook) is newer news and stays.
+async fn take_down(tx: MonitorCommandSender, asked: Asked) {
+    let Asked {
+        session,
+        pane,
+        question,
+        prior_state,
+    } = asked;
+    let read = |format: &str| {
+        let command = format!("display-message -p -t {pane} {}", tmux_quote(format));
+        let tx = tx.clone();
+        async move { transport::query(&tx, &command).await.unwrap_or_default() }
+    };
+    let mut commands = Vec::new();
+    if read("#{@tmuxy-ask}").await.trim() == question {
+        commands.push(format!(
+            "set-option -pu -t {pane} @tmuxy-ask ; set-option -pu -t {pane} @tmuxy-ask-answer"
+        ));
+    }
+    if read("#{@tmuxy-pane-state}").await.trim() == NEEDS_INPUT {
+        commands.push(if prior_state.is_empty() {
+            format!("set-option -pu -t {pane} @tmuxy-pane-state")
+        } else {
+            format!(
+                "set-option -p -t {pane} @tmuxy-pane-state {}",
+                tmux_quote(&prior_state)
+            )
+        });
+    }
+    if commands.is_empty() {
         return;
     }
-    let _ = transport::run_with_output(
-        &tx,
-        &format!(
-            "set-option -pu -t {pane} @tmuxy-ask ; set-option -pu -t {pane} @tmuxy-ask-answer"
-        ),
-        &session,
-        None,
-    )
-    .await;
+    let _ = transport::run_with_output(&tx, &commands.join(" ; "), &session, None).await;
 }

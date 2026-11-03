@@ -62,13 +62,16 @@ fn a_pane_running_claude_code_is_named_claude() {
 struct FakePane {
     ask: String,
     answer: String,
+    /// `@tmuxy-pane-state`, as the commands sent left it.
+    state: String,
     log: Vec<String>,
     /// What the pane's send options read as (`SendRules`); unset, all empty.
     rules: String,
 }
 
-/// A monitor that answers like tmux for one pane's ask options, and has the
-/// "user" answer `reply` as soon as a question goes up.
+/// A monitor that answers like tmux for one pane's ask options and its state,
+/// and has the "user" answer `reply` as soon as a question goes up. A command
+/// list is taken a command at a time, as tmux does.
 fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     let pane = Arc::new(Mutex::new(FakePane::default()));
@@ -81,31 +84,42 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
             let output = {
                 let mut p = seen.lock().unwrap();
                 p.log.push(command.clone());
-                if command.contains("#{@tmuxy-send-ask}") {
-                    format!("{}\n", p.rules)
-                } else if command.contains("set-option -pu -t %3 @tmuxy-ask ;") {
-                    p.ask.clear();
-                    p.answer.clear();
-                    String::new()
-                } else if let Some((_, value)) = command.split_once("@tmuxy-ask '") {
-                    p.ask = value.trim_end_matches('\'').to_string();
-                    let question: Value = serde_json::from_slice(
-                        &base64::engine::general_purpose::STANDARD
-                            .decode(&p.ask)
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    if let Some(reply) = reply {
-                        p.answer = format!("{}:{reply}", question["token"].as_str().unwrap());
+                let mut output = String::new();
+                for part in command.split(" ; ").map(str::trim) {
+                    if part.contains("#{@tmuxy-send-ask}") {
+                        output += &format!("{}\n", p.rules);
+                    } else if part == "set-option -pu -t %3 @tmuxy-ask" {
+                        p.ask.clear();
+                    } else if part == "set-option -pu -t %3 @tmuxy-ask-answer" {
+                        p.answer.clear();
+                    } else if part == "set-option -pu -t %3 @tmuxy-pane-state" {
+                        p.state.clear();
+                    } else if let Some(value) =
+                        part.strip_prefix("set-option -p -t %3 @tmuxy-pane-state ")
+                    {
+                        p.state = value.trim_matches('\'').to_string();
+                    } else if let Some(value) =
+                        part.strip_prefix("set-option -p -t %3 @tmuxy-ask '")
+                    {
+                        p.ask = value.trim_end_matches('\'').to_string();
+                        let question: Value = serde_json::from_slice(
+                            &base64::engine::general_purpose::STANDARD
+                                .decode(&p.ask)
+                                .unwrap(),
+                        )
+                        .unwrap();
+                        if let Some(reply) = reply {
+                            p.answer = format!("{}:{reply}", question["token"].as_str().unwrap());
+                        }
+                    } else if part.contains("#{@tmuxy-ask-answer}") {
+                        output += &format!("{}\n", p.answer);
+                    } else if part.contains("#{@tmuxy-ask}") {
+                        output += &format!("{}\n", p.ask);
+                    } else if part.contains("#{@tmuxy-pane-state}") {
+                        output += &format!("{}\n", p.state);
                     }
-                    String::new()
-                } else if command.contains("#{@tmuxy-ask-answer}") {
-                    format!("{}\n", p.answer)
-                } else if command.contains("#{@tmuxy-ask}") {
-                    format!("{}\n", p.ask)
-                } else {
-                    String::new()
                 }
+                output
             };
             let _ = tx.send(CommandReply {
                 output,
@@ -140,6 +154,28 @@ async fn keys_land_only_after_the_user_allows_them_and_the_question_is_down() {
     assert_eq!(p.log[typed], send_keys_command(&id, &keys()));
     assert_eq!(p.log[typed], "send-keys -t %3 -- 'npm test' 'Enter'");
     assert!(p.ask.is_empty());
+}
+
+/// The pane waiting on the answer is the one the question is over: it is
+/// marked `needs-input` while the question is up, and what it said before
+/// comes back when it comes down — unless the pane said something new since.
+#[tokio::test]
+async fn the_target_pane_needs_the_user_while_asked_and_gets_its_state_back() {
+    let (tmux, pane) = fake_monitor(Some("no"));
+    pane.lock().unwrap().rules = "\t\t\tclaude\tworking".into();
+    let id = PaneId::parse("%3").unwrap();
+    let _ = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5)).await;
+    let p = pane.lock().unwrap();
+    let marked = p
+        .log
+        .iter()
+        .position(|c| c.contains("@tmuxy-ask '") && c.contains("@tmuxy-pane-state needs-input"));
+    assert!(
+        marked.is_some(),
+        "the target is marked with the question: {:?}",
+        p.log
+    );
+    assert_eq!(p.state, "working", "{:?}", p.log);
 }
 
 /// `@tmuxy-send-allow-into agy`: a send into a pane whose program is `agy`
@@ -203,6 +239,11 @@ async fn a_client_that_hangs_up_takes_its_question_down() {
     assert!(
         p.ask.is_empty(),
         "the question outlived its sender: {:?}",
+        p.log
+    );
+    assert!(
+        p.state.is_empty(),
+        "the needs-input mark outlived its sender: {:?}",
         p.log
     );
     assert!(!p.log.iter().any(|c| c.contains("send-keys")));
