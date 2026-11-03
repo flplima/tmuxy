@@ -77,6 +77,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | S3 | Reconnecting beyond the ring serves no replay so the first live delta triggers a gap refetch (C1). | safety | `sse.rs` | `sse.rs › a_client_beyond_the_buffer…` (`can_replay_from`; connect path is —) |
 | S4 | Streams end on shutdown; the last client leaving keeps the monitor for a 2 s grace period. | liveness | `sse.rs` | `sse.rs › open_stream_ends…`, `› the_last_client_leaving_keeps…` |
 | S5 | Monitor reconnect gives up after 5 short runs and broadcasts fatal so clients stop retrying. | liveness | `sse.rs` | — |
+| S6 | `GET /events` attaches only to a session a live monitor holds or tmux has; any other is a 404, so the client creates it with `POST /commands`, a killed session included. | liveness | `sse.rs` | `sse.rs › a_session_whose_monitor_ended…` |
 
 ## C — client stream stage
 

@@ -373,3 +373,32 @@ async fn success_is_still_a_bare_result() {
     assert!(body["result"].is_array(), "{body}");
     assert!(body.get("error").is_none());
 }
+
+/// A session this server served, whose monitor ended because the session was
+/// killed (a page still on it), is a 404 to the next `GET /events`, as a name
+/// it never saw is: the page then asks `POST /commands` to make it. It was
+/// given a monitor that may not create a session instead, and the page said
+/// "Connecting…" for ever.
+#[tokio::test]
+async fn a_session_whose_monitor_ended_and_that_tmux_no_longer_has_is_a_404() {
+    let state = Arc::new(AppState::new());
+    let name = format!("killed-{}", std::process::id());
+    {
+        let mut conns = SessionConnections::new();
+        let ended = tokio::spawn(async {});
+        while !ended.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        conns.monitor_handle = Some(ended);
+        state.sessions.write().await.insert(name.clone(), conns);
+    }
+    let response = sse_handler(
+        State(Arc::clone(&state)),
+        Query(SessionQuery {
+            session: Some(name),
+        }),
+        HeaderMap::new(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

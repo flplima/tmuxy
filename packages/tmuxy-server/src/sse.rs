@@ -172,9 +172,18 @@ pub async fn sse_handler(
         .and_then(|s| s.parse().ok());
 
     // `GET /events` attaches only to an existing session; creating a missing
-    // session requires an explicit `POST /commands` (`ensure_session`).
-    let unknown_here = !state.sessions.read().await.contains_key(session.as_str());
-    if unknown_here && !clients::session_exists(&session).await {
+    // session requires an explicit `POST /commands` (`ensure_session`). One
+    // this server has served before but whose monitor is gone may have been
+    // killed since: it is asked about too, or a page reopening it got a
+    // monitor that may not create it and kept "Connecting…" for ever.
+    let monitored = state
+        .sessions
+        .read()
+        .await
+        .get(session.as_str())
+        .and_then(|c| c.monitor_handle.as_ref())
+        .is_some_and(|h| !h.is_finished());
+    if !monitored && !clients::session_exists(&session).await {
         return (StatusCode::NOT_FOUND, "session not found\n").into_response();
     }
     let session = session.into_string();
