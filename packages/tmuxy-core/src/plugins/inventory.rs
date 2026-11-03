@@ -16,6 +16,7 @@
 use base64::Engine;
 use serde::Serialize;
 
+use super::manifest::LinkMatch;
 use super::registry::Registry;
 use super::Dirs;
 use crate::constants::tmux_options::{PLUGINS, PLUGINS_REV};
@@ -24,6 +25,14 @@ use crate::constants::tmux_options::{PLUGINS, PLUGINS_REV};
 pub struct Plugin {
     pub name: String,
     pub actions: Vec<Action>,
+    /// The hosts its URL handlers take: a click on one asks the server
+    /// (`open_link`), which checks the whole URL.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub link_hosts: Vec<String>,
+    /// Whether it has text handlers: a click on plain text asks the server
+    /// (`open_text`), which runs the patterns.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub text_links: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -54,6 +63,20 @@ pub fn build(registry: &Registry) -> Vec<Plugin> {
                     surface: a.surface.as_str(),
                 })
                 .collect(),
+            link_hosts: p
+                .manifest
+                .link_handlers
+                .iter()
+                .flat_map(|h| match &h.matcher {
+                    LinkMatch::Url { hosts, .. } => hosts.clone(),
+                    LinkMatch::Text { .. } => Vec::new(),
+                })
+                .collect(),
+            text_links: p
+                .manifest
+                .link_handlers
+                .iter()
+                .any(|h| matches!(h.matcher, LinkMatch::Text { .. })),
         })
         .collect()
 }

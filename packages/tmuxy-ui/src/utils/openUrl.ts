@@ -44,3 +44,24 @@ export function openExternalUrl(url: string): void {
   }
   window.open(link, '_blank', 'noopener,noreferrer');
 }
+
+/** The event a link click is announced as, for a plugin to take (`usePluginLinks`). */
+export const LINK_EVENT = 'tmuxy:open-link';
+
+export interface LinkEventDetail {
+  readonly url: string;
+  /** Shift was held: straight to the browser, past every plugin. */
+  readonly bypass: boolean;
+}
+
+/**
+ * Open a link clicked in `el`: announced first, so a plugin's link handler
+ * can take it; opened in the browser when nothing did.
+ */
+export function openLinkFrom(el: Element, url: string, bypass: boolean): void {
+  const detail: LinkEventDetail = { url, bypass };
+  const taken = !el.dispatchEvent(
+    new CustomEvent(LINK_EVENT, { bubbles: true, cancelable: true, detail }),
+  );
+  if (!taken) openExternalUrl(url);
+}

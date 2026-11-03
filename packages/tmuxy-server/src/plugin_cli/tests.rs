@@ -207,3 +207,25 @@ fn any_other_word_is_a_verb_with_its_arguments() {
         other => panic!("parsed as {other:?}"),
     }
 }
+
+/// A plugin key's binding runs `action … --trigger key`
+/// (`plugins::keys::binding_command`): the command line must take it.
+#[test]
+fn a_key_binding_command_line_parses() {
+    #[derive(clap::Parser)]
+    struct Wrapper {
+        #[command(flatten)]
+        args: PluginArgs,
+    }
+    let line = tmuxy_core::plugins::keys::binding_command("p", "a");
+    let words: Vec<&str> = line
+        .split_whitespace()
+        .skip_while(|w| *w != "action")
+        .take_while(|w| !w.starts_with('>'))
+        .map(|w| if w == "#{pane_id}" { "%1" } else { w })
+        .collect();
+    let mut argv = vec!["x"];
+    argv.extend(words);
+    let parsed = <Wrapper as clap::Parser>::try_parse_from(&argv);
+    assert!(parsed.is_ok(), "{argv:?}: {:?}", parsed.err());
+}

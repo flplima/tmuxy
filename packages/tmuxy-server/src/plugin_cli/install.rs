@@ -8,15 +8,16 @@ use tmuxy_core::plugins::manifest::Manifest;
 use tmuxy_core::plugins::registry::{self, Kind, Registry};
 use tmuxy_core::plugins::source::{self, InstallSource, RepoSource};
 use tmuxy_core::plugins::{
-    fetch, gc, inventory, satisfies_min_tmuxy, Dirs, PluginError, RESERVED_VERBS, USER_PLUGIN,
+    fetch, satisfies_min_tmuxy, Dirs, PluginError, RESERVED_VERBS, USER_PLUGIN,
 };
 
 use super::gate::{self, Answer, Subject};
+use super::graph;
 use super::{say, Failure, Outcome};
 
 /// Load a manifest from a fresh checkout or a linked directory, with every
 /// problem it has rendered as `tmuxy plugin check` would.
-fn load_manifest(root: &Path) -> Result<Manifest, Failure> {
+pub(super) fn load_manifest(root: &Path) -> Result<Manifest, Failure> {
     Manifest::load(root).map_err(|diags| Failure {
         code: 1,
         message: diags
@@ -106,7 +107,11 @@ pub(super) fn admissible(
 
 /// A fresh checkout of `source` at `sha` in a staging directory, and the
 /// plugin root inside it.
-fn stage(dirs: &Dirs, source: &RepoSource, sha: &str) -> Result<(PathBuf, PathBuf), Failure> {
+pub(super) fn stage(
+    dirs: &Dirs,
+    source: &RepoSource,
+    sha: &str,
+) -> Result<(PathBuf, PathBuf), Failure> {
     let staging = dirs.staging().join(format!(
         "{}-{}-{}",
         source.repo,
@@ -172,7 +177,12 @@ fn intact_checkout(checkout: &Path, source: &RepoSource, name: &str) -> Result<(
 }
 
 /// Move a staged checkout to its permanent place.
-fn commit_checkout(dirs: &Dirs, staging: &Path, name: &str, sha: &str) -> Result<(), Failure> {
+pub(super) fn commit_checkout(
+    dirs: &Dirs,
+    staging: &Path,
+    name: &str,
+    sha: &str,
+) -> Result<(), Failure> {
     let dest = dirs.checkout(name, sha);
     if dest.exists() {
         // The same commit is already here (a reinstall): keep it.
@@ -188,7 +198,7 @@ fn commit_checkout(dirs: &Dirs, staging: &Path, name: &str, sha: &str) -> Result
     })
 }
 
-fn declined() -> Failure {
+pub(super) fn declined() -> Failure {
     Failure {
         code: 1,
         message: "declined; nothing installed".into(),
@@ -213,12 +223,15 @@ pub(super) fn install(
     let source = match source::parse_install(&spec)? {
         InstallSource::Repo(source) => source,
         InstallSource::Name(name) => {
-            return Err(Failure {
-                code: 1,
-                message: format!(
-                    "installing by name ({name:?}) needs the plugin index, which this tmuxy does not have yet; use owner/repo"
-                ),
-            })
+            // The index only names the repository; what is installed is its
+            // commit now, which the gate shows.
+            let index = tmuxy_core::plugins::index::load()?;
+            let entry = tmuxy_core::plugins::index::by_name(&index, &name)?;
+            say(
+                json,
+                format!("{name}: {} in the plugin index", entry.source),
+            );
+            source::parse_repo(&entry.source)?
         }
         InstallSource::Path(path) => return install_path(dirs, &path, answer, json),
     };
@@ -234,29 +247,40 @@ pub(super) fn install(
             return Err(e);
         }
     };
+    let deps = match with_dependencies(dirs, &registry, &manifest) {
+        Ok(deps) => deps,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+    };
     let slug = source.slug();
-    let subject = Subject {
+    let mut subjects = vec![Subject {
         manifest: &manifest,
         source: &slug,
         sha: Some(&sha),
         previous: None,
-    };
-    match gate::ask(&subject, answer) {
-        Ok(true) => {}
-        Ok(false) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(declined());
-        }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(e.into());
-        }
+    }];
+    subjects.extend(deps.iter().map(graph::Staged::subject));
+    let asked = gate::ask_all(&subjects, answer);
+    if !matches!(asked, Ok(true)) {
+        let _ = std::fs::remove_dir_all(&staging);
+        graph::discard(&deps);
+        return Err(asked.map_or_else(Failure::from, |_| declined()));
     }
-    commit_checkout(dirs, &staging, &manifest.name, &sha)?;
+    let installed: Vec<String> = deps.iter().map(|d| d.manifest.name.clone()).collect();
     let mut lock = Lockfile::load(dirs)?;
+    graph::commit(dirs, deps, &mut lock)?;
+    commit_checkout(dirs, &staging, &manifest.name, &sha)?;
     lock.upsert(Entry::from_repo(&manifest.name, &source, &sha));
     lock.save(dirs)?;
-    inventory::publish(dirs);
+    for dep in &installed {
+        say(
+            json,
+            format!("installed {dep} (a dependency of {})", manifest.name),
+        );
+    }
+    tmuxy_core::plugins::refresh(dirs);
     say(
         json,
         format!(
@@ -290,25 +314,59 @@ fn install_path(dirs: &Dirs, path: &Path, answer: &Answer, json: bool) -> Outcom
         }
     }
     admissible(&registry, &manifest, &root, None)?;
+    let deps = with_dependencies(dirs, &registry, &manifest)?;
     let shown = root.display().to_string();
-    let subject = Subject {
+    let mut subjects = vec![Subject {
         manifest: &manifest,
         source: &shown,
         sha: None,
         previous: None,
-    };
-    if !gate::ask(&subject, answer)? {
-        return Err(declined());
+    }];
+    subjects.extend(deps.iter().map(graph::Staged::subject));
+    let asked = gate::ask_all(&subjects, answer);
+    if !matches!(asked, Ok(true)) {
+        graph::discard(&deps);
+        return Err(asked.map_or_else(Failure::from, |_| declined()));
     }
     let mut lock = Lockfile::load(dirs)?;
+    graph::commit(dirs, deps, &mut lock)?;
     lock.upsert(Entry::from_path(&manifest.name, &root));
     lock.save(dirs)?;
-    inventory::publish(dirs);
+    tmuxy_core::plugins::refresh(dirs);
     say(
         json,
         format!("linked {} from {}", manifest.name, root.display()),
     );
     Ok(serde_json::json!({ "name": manifest.name, "path": root }))
+}
+
+/// The dependencies `manifest` brings, fetched and checked, with no verb
+/// claimed twice among them and it.
+pub(super) fn with_dependencies(
+    dirs: &Dirs,
+    registry: &Registry,
+    manifest: &Manifest,
+) -> Result<Vec<graph::Staged>, Failure> {
+    let mut deps = Vec::new();
+    let resolved = graph::resolve(
+        dirs,
+        registry,
+        manifest,
+        &mut vec![manifest.name.clone()],
+        &mut deps,
+    )
+    .and_then(|()| {
+        let mut all = vec![manifest];
+        all.extend(deps.iter().map(|d| &d.manifest));
+        graph::verbs_unique(&all)
+    });
+    match resolved {
+        Ok(()) => Ok(deps),
+        Err(e) => {
+            graph::discard(&deps);
+            Err(e)
+        }
+    }
 }
 
 /// Install what the lockfile lists, at its commits: a synced plugins.json
@@ -397,130 +455,9 @@ fn install_lockfile(dirs: &Dirs, answer: &Answer, json: bool) -> Outcome {
             }
         }
     }
-    inventory::publish(dirs);
+    tmuxy_core::plugins::refresh(dirs);
     if installed.is_empty() {
         say(json, "every plugin in plugins.json is installed");
     }
     Ok(serde_json::json!({ "installed": installed }))
-}
-
-// ── update / remove ─────────────────────────────────────────────────────
-
-pub(super) fn update(dirs: &Dirs, name: Option<String>, answer: &Answer, json: bool) -> Outcome {
-    let lock = Lockfile::load(dirs)?;
-    if let Some(name) = &name {
-        if lock.get(name).is_none() {
-            return Err(
-                PluginError::NotFound(format!("no plugin named {name:?} is installed")).into(),
-            );
-        }
-    }
-    let mut updated = Vec::new();
-    for entry in lock
-        .plugins
-        .iter()
-        .filter(|e| name.as_ref().is_none_or(|n| *n == e.name))
-    {
-        let EntrySource::Repo {
-            source,
-            sha: old_sha,
-        } = entry.source()?
-        else {
-            say(json, format!("{}: linked, so always current", entry.name));
-            continue;
-        };
-        let new_sha = fetch::resolve_ref(&source.url(), source.git_ref.as_deref())?;
-        if new_sha == old_sha {
-            say(
-                json,
-                format!("{}: up to date at {}", entry.name, &old_sha[..12]),
-            );
-            continue;
-        }
-        let registry = Registry::load(dirs)?;
-        let (staging, root) = stage(dirs, &source, &new_sha)?;
-        let checked = load_manifest(&root).and_then(|m| {
-            if m.name != entry.name {
-                return Err(Failure {
-                    code: 1,
-                    message: format!(
-                        "{} now names itself {:?}; remove and reinstall it",
-                        source.slug(),
-                        m.name
-                    ),
-                });
-            }
-            admissible(&registry, &m, &root, Some(&entry.name)).map(|()| m)
-        });
-        let manifest = match checked {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&staging);
-                return Err(e);
-            }
-        };
-        let previous = registry.get(&entry.name).map(|p| p.manifest.clone());
-        let slug = source.slug();
-        let subject = Subject {
-            manifest: &manifest,
-            source: &slug,
-            sha: Some(&new_sha),
-            previous: previous.as_ref().map(|m| (m, Some(old_sha.as_str()))),
-        };
-        if !gate::ask(&subject, answer)? {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(declined());
-        }
-        commit_checkout(dirs, &staging, &entry.name, &new_sha)?;
-        let mut lock = Lockfile::load(dirs)?;
-        lock.upsert(Entry::from_repo(&entry.name, &source, &new_sha));
-        lock.save(dirs)?;
-        say(
-            json,
-            format!(
-                "updated {} {} -> {}",
-                entry.name,
-                &old_sha[..12],
-                &new_sha[..12]
-            ),
-        );
-        updated.push(entry.name.clone());
-    }
-    inventory::publish(dirs);
-    report_gc(dirs, json);
-    Ok(serde_json::json!({ "updated": updated }))
-}
-
-pub(super) fn remove(dirs: &Dirs, name: &str, purge: bool, json: bool) -> Outcome {
-    if name == USER_PLUGIN {
-        return Err(Failure {
-            code: 1,
-            message: "the user plugin is your own ~/.config/tmuxy/tmuxy-plugin.toml; delete that file instead".into(),
-        });
-    }
-    let mut lock = Lockfile::load(dirs)?;
-    if lock.remove(name).is_none() {
-        return Err(PluginError::NotFound(format!("no plugin named {name:?} is installed")).into());
-    }
-    lock.save(dirs)?;
-    inventory::publish(dirs);
-    report_gc(dirs, json);
-    if purge {
-        let _ = std::fs::remove_dir_all(dirs.plugin_config(name));
-        let _ = std::fs::remove_dir_all(dirs.plugin_state(name));
-    }
-    say(json, format!("removed {name}"));
-    Ok(serde_json::json!({ "name": name }))
-}
-
-fn report_gc(dirs: &Dirs, json: bool) {
-    for dir in gc::collect(dirs).busy {
-        say(
-            json,
-            format!(
-                "kept {}: something still runs from it; it goes once that exits",
-                dir.display()
-            ),
-        );
-    }
 }

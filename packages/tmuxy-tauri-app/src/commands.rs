@@ -284,6 +284,24 @@ pub async fn prepare_plugin_action(
     transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await
 }
 
+/// A URL clicked in a pane that a plugin's link handler may take.
+#[tauri::command]
+pub async fn open_link(url: String, pane_id: String) -> Result<Value, CommandError> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
+    transport::open_plugin_link_json(url, pane_id).await
+}
+
+/// Text clicked in a pane: a plugin's text handler may take it.
+#[tauri::command]
+pub async fn open_text(
+    pane_id: String,
+    line: String,
+    column: usize,
+) -> Result<Value, CommandError> {
+    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
+    transport::open_plugin_text_json(pane_id, line, column).await
+}
+
 /// Rebuild a session from its latest snapshot through this window's
 /// control-mode client, the way the web server does. Refused when the session
 /// is already running.

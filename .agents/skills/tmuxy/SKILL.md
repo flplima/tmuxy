@@ -126,6 +126,13 @@ verb = "hello"                 # `tmuxy plugin hello ...`, in your shell
 command = ["bin/hello"]
 ```
 
+A plugin can also take clicked links (`[[link_handlers]]`: a URL host and
+path, or a text pattern like `file:line`), bind keys (`[[keys]]`, never over
+the user's), declare settings (`[[settings]]`, set with `tmuxy plugin config`;
+a `secret = true` one stays out of every listing), depend on other plugins
+(`depends`) and add themes (`[[themes]]`). `tmuxy plugin search <words>` and
+`tmuxy plugin install <name>` use the plugin index.
+
 A command runs in the plugin's directory with `TMUXY_TARGET_PANE`,
 `TMUXY_PLUGIN_CONFIG_DIR` (credentials go there, never in the plugin) and
 `TMUXY_PLUGIN_CONTEXT_JSON`; a selection action also gets `TMUXY_SELECTION_FILE`.

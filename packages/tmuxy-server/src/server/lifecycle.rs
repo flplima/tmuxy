@@ -22,7 +22,7 @@ pub(super) fn serve_user_css(path: &str) -> Option<Response> {
     if path != "custom.css" && !path.starts_with("themes/") {
         return None;
     }
-    Some(match tmuxy_core::session::resolve_user_css(path) {
+    Some(match tmuxy_core::plugins::themes::resolve_css(path) {
         Some(data) => {
             let mut response = build_response(StatusCode::OK, "text/css; charset=utf-8", data);
             response.headers_mut().insert(

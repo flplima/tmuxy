@@ -11,6 +11,16 @@ use toml::Spanned;
 
 use super::{is_valid_name, parse_version, API_VERSION};
 
+mod report;
+pub mod sections;
+mod validate;
+
+pub use report::Diagnostic;
+use report::{line_col, Report};
+pub use sections::{
+    Dependency, Key, KeyTable, LinkHandler, LinkMatch, Setting, SettingType, SettingValue, Theme,
+};
+
 /// Larger than any honest manifest; checked before parsing.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
@@ -26,6 +36,11 @@ pub struct Manifest {
     pub requires: Vec<String>,
     pub actions: Vec<Action>,
     pub cli: Vec<CliVerb>,
+    pub link_handlers: Vec<LinkHandler>,
+    pub keys: Vec<Key>,
+    pub settings: Vec<Setting>,
+    pub depends: Vec<Dependency>,
+    pub themes: Vec<Theme>,
 }
 
 /// An `[[actions]]` entry: the unit everything else (menus, `tmuxy plugin
@@ -160,25 +175,6 @@ impl Size {
     }
 }
 
-/// One problem with a manifest, with the line it is on when known.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub line: Option<usize>,
-    pub column: Option<usize>,
-    pub message: String,
-}
-
-impl Diagnostic {
-    /// `path:line:col: message`, as a compiler prints it.
-    pub fn render(&self, path: &str) -> String {
-        match (self.line, self.column) {
-            (Some(line), Some(col)) => format!("{path}:{line}:{col}: {}", self.message),
-            (Some(line), None) => format!("{path}:{line}: {}", self.message),
-            _ => format!("{path}: {}", self.message),
-        }
-    }
-}
-
 // ── The raw form ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -189,6 +185,14 @@ struct RawManifest {
     actions: Vec<Spanned<RawAction>>,
     #[serde(default)]
     cli: Vec<Spanned<RawCli>>,
+    #[serde(default)]
+    link_handlers: Vec<Spanned<validate::RawLink>>,
+    #[serde(default)]
+    keys: Vec<Spanned<validate::RawKey>>,
+    #[serde(default)]
+    settings: Vec<Spanned<validate::RawSetting>>,
+    #[serde(default)]
+    themes: Vec<Spanned<validate::RawTheme>>,
 }
 
 #[derive(Deserialize)]
@@ -205,6 +209,8 @@ struct RawPlugin {
     platforms: Option<Spanned<Vec<Platform>>>,
     #[serde(default)]
     requires: Option<Spanned<Vec<String>>>,
+    #[serde(default)]
+    depends: Option<Spanned<Vec<validate::RawDependency>>>,
 }
 
 #[derive(Deserialize)]
@@ -248,36 +254,6 @@ struct RawCli {
     command: Spanned<Vec<String>>,
     #[serde(default)]
     platforms: Option<Vec<Platform>>,
-}
-
-/// Collects diagnostics, turning byte spans into lines.
-struct Report<'a> {
-    text: &'a str,
-    diagnostics: Vec<Diagnostic>,
-}
-
-impl Report<'_> {
-    fn at(&mut self, span: std::ops::Range<usize>, message: impl Into<String>) {
-        let (line, column) = line_col(self.text, span.start);
-        self.diagnostics.push(Diagnostic {
-            line: Some(line),
-            column: Some(column),
-            message: message.into(),
-        });
-    }
-}
-
-/// 1-based line and column of a byte offset.
-fn line_col(text: &str, offset: usize) -> (usize, usize) {
-    let offset = offset.min(text.len());
-    let before = &text[..offset];
-    let line = before.matches('\n').count() + 1;
-    let column = before
-        .rfind('\n')
-        .map(|nl| before[nl + 1..].chars().count())
-        .unwrap_or_else(|| before.chars().count())
-        + 1;
-    (line, column)
 }
 
 /// Whether `text` is plain text for a menu label: no control characters.
@@ -549,10 +525,17 @@ fn validate(raw: RawManifest, report: &mut Report<'_>) -> Manifest {
         });
     }
 
-    if actions.is_empty() && cli.is_empty() {
+    let action_ids: std::collections::HashSet<String> =
+        actions.iter().map(|a| a.id.clone()).collect();
+    let link_handlers = validate::links(raw.link_handlers, &action_ids, report);
+    let keys = validate::keys(raw.keys, &action_ids, report);
+    let settings = validate::settings(raw.settings, report);
+    let depends = validate::depends(plugin.depends, plugin.name.get_ref(), report);
+    let themes = validate::themes(raw.themes, report);
+    if actions.is_empty() && cli.is_empty() && themes.is_empty() {
         report.at(
             plugin_span,
-            "the plugin declares nothing: add an [[actions]] or a [[cli]] entry",
+            "the plugin declares nothing: add an [[actions]], [[cli]] or [[themes]] entry",
         );
     }
 
@@ -568,6 +551,11 @@ fn validate(raw: RawManifest, report: &mut Report<'_>) -> Manifest {
         requires,
         actions,
         cli,
+        link_handlers,
+        keys,
+        settings,
+        depends,
+        themes,
     }
 }
 
@@ -587,6 +575,22 @@ impl Manifest {
 
     pub fn action(&self, id: &str) -> Option<&Action> {
         self.actions.iter().find(|a| a.id == id)
+    }
+
+    /// What the plugin can do, as the index lists it.
+    pub fn capabilities(&self) -> Vec<&'static str> {
+        [
+            ("actions", !self.actions.is_empty()),
+            ("cli", !self.cli.is_empty()),
+            ("links", !self.link_handlers.is_empty()),
+            ("keys", !self.keys.is_empty()),
+            ("settings", !self.settings.is_empty()),
+            ("themes", !self.themes.is_empty()),
+            ("depends", !self.depends.is_empty()),
+        ]
+        .into_iter()
+        .filter_map(|(name, has)| has.then_some(name))
+        .collect()
     }
 
     /// Whether the plugin as a whole is for this platform.

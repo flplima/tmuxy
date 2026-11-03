@@ -5096,6 +5096,7 @@ dependencies = [
  "png 0.18.1",
  "proptest",
  "pty-process",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -5103,6 +5104,7 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+ "url",
  "vt100",
  "web-time",
 ]

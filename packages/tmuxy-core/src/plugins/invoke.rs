@@ -35,29 +35,37 @@ use super::registry::{resolve_command, Installed, Registry};
 use super::{private_dir, Dirs, PluginError, Result};
 use token::selection_path;
 
-/// `TMUXY_PLUGIN_CONTEXT_JSON`.
-pub fn context_json(
-    plugin: &Installed,
-    action: Option<&str>,
-    trigger: Trigger,
-    pane: &str,
-    info: Option<&PaneInfo>,
-    selection_file: Option<&Path>,
-) -> String {
-    let info = info.cloned().unwrap_or_default();
+/// What a command's context is about, beside its plugin.
+#[derive(Debug, Clone, Copy)]
+pub struct Context<'a> {
+    pub action: Option<&'a str>,
+    pub trigger: Trigger,
+    pub pane: &'a str,
+    pub info: Option<&'a PaneInfo>,
+    pub selection_file: Option<&'a Path>,
+    pub link: Option<&'a super::links::LinkInfo>,
+}
+
+/// `TMUXY_PLUGIN_CONTEXT_JSON`: the target pane, what started the command,
+/// the link a click matched, and the settings in force (never a secret one).
+pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String {
+    let info = ctx.info.cloned().unwrap_or_default();
     let mut context = serde_json::json!({
         "plugin": plugin.name,
-        "trigger": trigger.as_str(),
-        "pane": { "id": pane, "cwd": info.cwd, "command": info.command },
+        "trigger": ctx.trigger.as_str(),
+        "pane": { "id": ctx.pane, "cwd": info.cwd, "command": info.command },
         "tab": info.tab,
         "session": info.session,
-        "settings": {},
+        "settings": super::settings::context_values(dirs, plugin),
     });
-    if let Some(action) = action {
+    if let Some(action) = ctx.action {
         context["action"] = action.into();
     }
-    if let Some(file) = selection_file {
+    if let Some(file) = ctx.selection_file {
         context["selection_file"] = file.display().to_string().into();
+    }
+    if let Some(link) = ctx.link {
+        context["link"] = serde_json::to_value(link).unwrap_or_default();
     }
     context.to_string()
 }
@@ -145,12 +153,16 @@ fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Resul
         None => None,
     };
     let context = context_json(
+        dirs,
         plugin,
-        Some(action_id),
-        token.trigger,
-        &token.pane,
-        token.info.as_ref(),
-        selection_file.as_deref(),
+        Context {
+            action: Some(action_id),
+            trigger: token.trigger,
+            pane: &token.pane,
+            info: token.info.as_ref(),
+            selection_file: selection_file.as_deref(),
+            link: token.link.as_ref(),
+        },
     );
     let mut cmd = command_for(plugin, action, &token.args)?;
     cmd.envs(plugin_env(dirs, plugin, &token.pane, context)?);
@@ -218,7 +230,18 @@ pub fn cli_command(dirs: &Dirs, verb: &str, args: &[String]) -> Result<std::proc
         .ok()
         .filter(|p| is_pane_id(p))
         .unwrap_or_default();
-    let context = context_json(plugin, None, Trigger::Cli, &pane, None, None);
+    let context = context_json(
+        dirs,
+        plugin,
+        Context {
+            action: None,
+            trigger: Trigger::Cli,
+            pane: &pane,
+            info: None,
+            selection_file: None,
+            link: None,
+        },
+    );
     let mut cmd = std::process::Command::new(program);
     cmd.args(&cli.command[1..])
         .args(args)

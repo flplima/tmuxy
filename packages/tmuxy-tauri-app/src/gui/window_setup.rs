@@ -130,7 +130,7 @@ pub(super) fn handle_tmuxycss(
 ) -> tauri::http::Response<Vec<u8>> {
     let path = request.uri().path().to_string();
     let builder = tauri::http::Response::builder().header("Cache-Control", "no-store");
-    match tmuxy_core::session::resolve_user_css(&path) {
+    match tmuxy_core::plugins::themes::resolve_css(&path) {
         Some(css) => builder
             .status(tauri::http::StatusCode::OK)
             .header("Content-Type", "text/css; charset=utf-8")

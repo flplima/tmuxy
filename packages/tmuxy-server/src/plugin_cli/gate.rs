@@ -8,7 +8,8 @@
 
 use std::io::{BufRead, IsTerminal, Write};
 
-use tmuxy_core::plugins::manifest::{Action, Manifest};
+use tmuxy_core::plugins::keys;
+use tmuxy_core::plugins::manifest::{Action, LinkHandler, LinkMatch, Manifest};
 use tmuxy_core::plugins::registry::on_path;
 use tmuxy_core::plugins::PluginError;
 
@@ -116,6 +117,44 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
             .collect();
         line(format!("  {:<10}{}", "requires", list.join(", ")));
     }
+    for (i, h) in m.link_handlers.iter().enumerate() {
+        let label = if i == 0 { "links" } else { "" };
+        line(format!("  {label:<10}{}", describe_link(h)));
+    }
+    for (i, k) in m.keys.iter().enumerate() {
+        let label = if i == 0 { "keys" } else { "" };
+        let taken = keys::user_binding(k.table, &k.key)
+            .map(|b| s.yellow(&format!(" (yours is kept: {b})")))
+            .unwrap_or_default();
+        line(format!(
+            "  {label:<10}{} {} -> {}{taken}",
+            k.table.as_str(),
+            k.key,
+            k.action
+        ));
+    }
+    for (i, set) in m.settings.iter().enumerate() {
+        let label = if i == 0 { "settings" } else { "" };
+        let secret = if set.secret { ", secret" } else { "" };
+        line(format!(
+            "  {label:<10}{} ({}{secret})",
+            set.key,
+            set.kind.describe()
+        ));
+    }
+    for (i, t) in m.themes.iter().enumerate() {
+        let label = if i == 0 { "themes" } else { "" };
+        line(format!("  {label:<10}{}: {}", t.id, t.file));
+    }
+    if !m.themes.is_empty() {
+        line(s.yellow(
+            "            a theme's CSS can restyle or hide any of the app, this prompt included",
+        ));
+    }
+    for (i, d) in m.depends.iter().enumerate() {
+        let label = if i == 0 { "depends" } else { "" };
+        line(format!("  {label:<10}{} from {}", d.name, d.source));
+    }
     let platforms = m
         .platforms
         .as_ref()
@@ -134,6 +173,23 @@ pub fn render(subject: &Subject<'_>, color: bool) -> String {
         }
     }
     out
+}
+
+fn describe_link(h: &LinkHandler) -> String {
+    match &h.matcher {
+        LinkMatch::Url {
+            hosts, path_regex, ..
+        } => format!(
+            "{}{} -> {}",
+            hosts.join(", "),
+            path_regex
+                .as_deref()
+                .map(|r| format!(" path {r}"))
+                .unwrap_or_default(),
+            h.action
+        ),
+        LinkMatch::Text { pattern } => format!("text {pattern} -> {}", h.action),
+    }
 }
 
 /// What an update changes in what the plugin can do.
@@ -190,7 +246,24 @@ pub struct Answer {
 
 /// Show the table and ask. `Ok(false)` is a no.
 pub fn ask(subject: &Subject<'_>, answer: &Answer) -> Result<bool, PluginError> {
+    ask_all(std::slice::from_ref(subject), answer)
+}
+
+/// One question for a plugin and the dependencies it brings: every table,
+/// then one yes or no. `--sha` names the first subject's commit; the
+/// dependencies' are shown with theirs.
+pub fn ask_all(subjects: &[Subject<'_>], answer: &Answer) -> Result<bool, PluginError> {
+    let Some(subject) = subjects.first() else {
+        return Ok(true);
+    };
     let color = std::io::stderr().is_terminal();
+    let render_all = |color: bool| {
+        subjects
+            .iter()
+            .map(|s| render(s, color))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     if answer.yes {
         if let Some(sha) = subject.sha {
             match &answer.sha {
@@ -207,7 +280,7 @@ pub fn ask(subject: &Subject<'_>, answer: &Answer) -> Result<bool, PluginError> 
                 }
             }
         }
-        eprint!("{}", render(subject, color));
+        eprint!("{}", render_all(color));
         return Ok(true);
     }
     let tty = std::fs::OpenOptions::new()
@@ -223,7 +296,12 @@ pub fn ask(subject: &Subject<'_>, answer: &Answer) -> Result<bool, PluginError> 
             })
         })?;
     let mut writer = &tty;
-    let _ = write!(writer, "{}\nInstall it? [y/N] ", render(subject, true));
+    let question = if subjects.len() > 1 {
+        "Install them?"
+    } else {
+        "Install it?"
+    };
+    let _ = write!(writer, "{}\n{question} [y/N] ", render_all(true));
     let _ = writer.flush();
     let mut reply = String::new();
     std::io::BufReader::new(&tty)

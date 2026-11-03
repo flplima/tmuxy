@@ -129,7 +129,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       action: action('pane-clear'),
     },
     separator,
-    pluginsSubmenu(ctx.plugins, 'pane', paneId),
+    pluginsSubmenu(ctx.plugins, 'pane', paneId, keybindings),
     separator,
     op('view-zoom', 'Zoom Pane', 'zoom'),
     separator,

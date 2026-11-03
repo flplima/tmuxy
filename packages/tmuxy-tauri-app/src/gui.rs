@@ -293,6 +293,8 @@ pub fn run() {
             commands::list_servers,
             commands::list_snapshots,
             commands::prepare_plugin_action,
+            commands::open_link,
+            commands::open_text,
             commands::restore_session,
             commands::connect_server,
             commands::detach_client,

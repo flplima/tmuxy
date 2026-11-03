@@ -30,10 +30,14 @@ const PLUGINS: PluginInfo[] = [
       { id: 'open', title: 'Open Artifact', menu: 'pane', surface: 'popup' },
       { id: 'home', title: 'Artifacts Home', menu: 'app', surface: 'tab' },
     ],
+    linkHosts: [],
+    textLinks: false,
   },
   {
     name: 'devtools',
     actions: [{ id: 'inspect', title: 'Inspect Page', menu: 'pane', surface: 'split' }],
+    linkHosts: [],
+    textLinks: false,
   },
 ];
 

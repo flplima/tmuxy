@@ -25,6 +25,10 @@ export interface PluginActionInfo {
 export interface PluginInfo {
   readonly name: string;
   readonly actions: ReadonlyArray<PluginActionInfo>;
+  /** Hosts its URL handlers take; the server checks the whole URL. */
+  readonly linkHosts: ReadonlyArray<string>;
+  /** Whether it has text handlers, which run on the server. */
+  readonly textLinks: boolean;
 }
 
 /** The option the inventory is read from. */
@@ -82,7 +86,12 @@ export function parseInventory(raw: string): PluginInfo[] {
     const actions = Array.isArray(e.actions)
       ? e.actions.map(asAction).filter((a): a is PluginActionInfo => a !== null)
       : [];
-    plugins.push({ name: e.name, actions });
+    const linkHosts = Array.isArray(e.link_hosts)
+      ? e.link_hosts.filter(
+          (h): h is string => typeof h === 'string' && /^[a-z0-9.-]{1,253}$/.test(h),
+        )
+      : [];
+    plugins.push({ name: e.name, actions, linkHosts, textLinks: e.text_links === true });
   }
   return plugins;
 }
@@ -108,4 +117,15 @@ export function pluginMenuEntries(
 /** A menu item's id for an action: what tests click by. */
 export function pluginItemId(plugin: string, action: string): string {
   return `plugin:${plugin}:${action}`;
+}
+
+/** Every host a URL handler takes, and whether any plugin has text handlers. */
+export function pluginLinkHosts(plugins: ReadonlyArray<PluginInfo>): {
+  hosts: ReadonlySet<string>;
+  text: boolean;
+} {
+  return {
+    hosts: new Set(plugins.flatMap((p) => p.linkHosts)),
+    text: plugins.some((p) => p.textLinks),
+  };
 }

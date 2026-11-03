@@ -139,10 +139,14 @@ const PLUGINS: AppMachineContext['plugins'] = [
       { id: 'explain', title: 'Explain This', menu: 'selection', surface: 'float' },
       { id: 'hidden', title: 'No menu', menu: null, surface: 'split' },
     ],
+    linkHosts: [],
+    textLinks: false,
   },
   {
     name: 'devtools',
     actions: [{ id: 'inspect', title: 'Inspect', menu: 'pane', surface: 'split' }],
+    linkHosts: [],
+    textLinks: false,
   },
 ];
 
@@ -165,6 +169,27 @@ describe('the Plugins submenus', () => {
       kind: 'event',
       event: { type: 'PLUGIN_ACTION', plugin: 'artifacts', action: 'open', paneId: pid('%2') },
     });
+  });
+
+  it('an action a plugin key opens shows that key', () => {
+    const keybindings = {
+      prefix_key: 'C-a',
+      prefix_bindings: [
+        {
+          key: 'M-o',
+          command:
+            'run-shell -b "\\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" plugin action artifacts:open --pane #{pane_id} --trigger key >/dev/null 2>&1"',
+          description: '',
+        },
+      ],
+      root_bindings: [],
+      tables: {},
+    };
+    const spec = paneMenuSpec(ctx({ plugins: PLUGINS, keybindings }), { paneId: pid('%2') });
+    const item = find(spec, 'plugin:artifacts:open');
+    expect(item?.kind === 'item' && item.keyHint).toBeTruthy();
+    const other = find(spec, 'plugin:devtools:inspect');
+    expect(other?.kind === 'item' && other.keyHint).toBeFalsy();
   });
 
   it('the app menu offers the app actions, on the active pane', () => {

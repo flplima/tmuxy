@@ -159,12 +159,16 @@ fn the_context_names_the_pane_and_the_selection_file() {
         session: "main".into(),
     };
     let json: serde_json::Value = serde_json::from_str(&invoke::context_json(
+        &dirs,
         plugin,
-        Some("plain"),
-        Trigger::Menu,
-        "%9",
-        Some(&info),
-        Some(Path::new("/s/file")),
+        invoke::Context {
+            action: Some("plain"),
+            trigger: Trigger::Menu,
+            pane: "%9",
+            info: Some(&info),
+            selection_file: Some(Path::new("/s/file")),
+            link: None,
+        },
     ))
     .unwrap();
     assert_eq!(json["pane"]["id"], "%9");

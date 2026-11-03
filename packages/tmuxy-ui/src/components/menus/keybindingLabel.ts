@@ -34,7 +34,7 @@ export function formatPrefixKey(prefixKey: string): string {
 /**
  * Format a binding key for display
  */
-function formatBindingKey(key: string): string {
+export function formatBindingKey(key: string): string {
   return KEY_DISPLAY[key] ?? key;
 }
 

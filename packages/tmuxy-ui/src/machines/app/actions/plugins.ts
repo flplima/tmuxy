@@ -6,18 +6,48 @@ import { sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 
 export const pluginsActions = {
-  /** Remember the revision and read the inventory it names (none: no plugins). */
+  /**
+   * Remember the revision and read the inventory it names (none: no
+   * plugins), and the theme list, which holds the plugins' themes.
+   */
   plugins_revChanged: act(({ event, enqueue }) => {
     if (event.type !== 'PLUGINS_REV_CHANGED') return;
     enqueue.assign(
       event.rev === '' ? { pluginsRev: event.rev, plugins: [] } : { pluginsRev: event.rev },
     );
     if (event.rev !== '') enqueue(sendTo('tmux', { type: 'FETCH_PLUGINS' as const }));
+    // A plugin's `[[themes]]` come and go with it: the theme menu re-reads.
+    enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
   }),
 
   plugins_received: assignCtx(({ event }) => {
     if (event.type !== 'PLUGINS_RECEIVED') return {};
     return { plugins: event.plugins };
+  }),
+
+  /** A click a link handler may take: the server matches it (`open_link` / `open_text`). */
+  plugins_openLink: act(({ event, enqueue }) => {
+    if (event.type === 'PLUGIN_OPEN_LINK') {
+      enqueue(
+        sendTo('tmux', {
+          type: 'OPEN_PLUGIN_LINK' as const,
+          cmd: 'open_link' as const,
+          args: { url: event.url, paneId: event.paneId },
+          paneId: event.paneId,
+          fallbackUrl: event.url,
+        }),
+      );
+    } else if (event.type === 'PLUGIN_OPEN_TEXT') {
+      enqueue(
+        sendTo('tmux', {
+          type: 'OPEN_PLUGIN_LINK' as const,
+          cmd: 'open_text' as const,
+          args: { paneId: event.paneId, line: event.line, column: event.column },
+          paneId: event.paneId,
+          fallbackUrl: null,
+        }),
+      );
+    }
   }),
 
   /**

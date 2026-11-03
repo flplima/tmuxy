@@ -273,6 +273,14 @@ pub(super) async fn handle_command(
             pane_id,
             selection,
         } => transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await,
+        ClientCommand::OpenLink { url, pane_id } => {
+            transport::open_plugin_link_json(url, pane_id).await
+        }
+        ClientCommand::OpenText {
+            pane_id,
+            line,
+            column,
+        } => transport::open_plugin_text_json(pane_id, line, column).await,
         // Through THIS session's client: a new session made from inside a
         // control-mode client is how the server already creates one.
         ClientCommand::RestoreSession { session: name } => {

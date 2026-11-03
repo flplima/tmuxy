@@ -55,6 +55,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
             for cmd in crate::plugins::inventory::commands(&dirs) {
                 self.connection.send_command(&cmd).await?;
             }
+            // Plugin keys, never over a user's binding (`plugins::keys`).
+            let _ = tokio::task::spawn_blocking(move || crate::plugins::keys::apply(&dirs)).await;
         }
 
         // Enable flow control (tmux 3.2+)

@@ -9,89 +9,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+mod plugin_common;
 
-struct Scratch {
-    base: PathBuf,
-}
+use std::path::PathBuf;
 
-impl Scratch {
-    fn new(tag: &str) -> Self {
-        let base = std::env::temp_dir().join(format!(
-            "tmuxy-plugin-it-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&base).unwrap();
-        Scratch { base }
-    }
-
-    fn path(&self, rel: &str) -> PathBuf {
-        self.base.join(rel)
-    }
-
-    /// The binary, with every directory pointed into the scratch dir, a
-    /// tmux socket nothing listens on, and no terminal.
-    fn tmuxy(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmuxy-server"))
-            .arg("plugin")
-            .args(args)
-            .env("HOME", self.path("home"))
-            .env("XDG_CONFIG_HOME", self.path("home/.config"))
-            .env("TMUXY_STATE_DIR", self.path("state"))
-            .env(
-                "TMUXY_PLUGIN_GIT_BASE",
-                format!("file://{}", self.path("remote").display()),
-            )
-            .env("TMUX_SOCKET", self.path("no-such-socket"))
-            .env_remove("TMUX")
-            .env_remove("TMUX_PANE")
-            .current_dir(self.path("home"))
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
-    }
-
-    fn lockfile(&self) -> serde_json::Value {
-        let text = std::fs::read_to_string(self.path("home/.config/tmuxy/plugins.json")).unwrap();
-        serde_json::from_str(&text).unwrap()
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.base);
-    }
-}
-
-/// git for building fixtures: no user config either way.
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args([
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "init.defaultBranch=main",
-        ])
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
+use plugin_common::{git, stderr, Scratch};
 
 const MANIFEST: &str = r#"[plugin]
 api = 1
@@ -184,10 +106,6 @@ fn hostile_home(s: &Scratch) -> PathBuf {
     std::fs::create_dir_all(home.join(".config/git")).unwrap();
     std::fs::write(home.join(".config/git/config"), &config).unwrap();
     marker
-}
-
-fn stderr(out: &Output) -> String {
-    String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
 #[test]

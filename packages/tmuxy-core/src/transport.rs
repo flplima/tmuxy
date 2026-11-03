@@ -19,8 +19,10 @@ use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, Snapsh
 use crate::{CommandError, PaneId, StateUpdate, TmuxError, TmuxState};
 
 mod bindings;
+mod plugins;
 mod supervise;
 pub use bindings::*;
+pub use plugins::*;
 pub use supervise::*;
 
 // ============================================
@@ -408,37 +410,6 @@ pub async fn list_snapshots_json() -> Result<serde_json::Value, CommandError> {
         .into_iter()
         .map(|(name, saved_at)| serde_json::json!({ "name": name, "savedAt": saved_at }))
         .collect::<Vec<_>>()))
-}
-
-// ============================================
-// Plugins
-// ============================================
-
-/// The invocation token a plugin's menu action opens with, holding the
-/// selected text, so the text reaches the plugin in a file and never on a
-/// command line (`plugins::invoke`). Answers `{ token }`; the client then
-/// names the token in `TmuxOp.PluginAction`. The plugins and the token
-/// directory are this machine's, so a server reached over SSH has neither.
-pub async fn prepare_plugin_action_json(
-    plugin: String,
-    action: String,
-    pane_id: crate::PaneId,
-    selection: Option<String>,
-) -> Result<serde_json::Value, CommandError> {
-    if crate::session::ssh_target().is_some() {
-        return Err(CommandError::unavailable(
-            "a plugin's selection action needs tmuxy on the machine the tmux server runs on",
-        ));
-    }
-    let pane = pane_id.to_string();
-    let token = tokio::task::spawn_blocking(move || {
-        let dirs = crate::plugins::Dirs::current();
-        crate::plugins::invoke::prepare(&dirs, &plugin, &action, &pane, selection)
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(e.to_string()))?
-    .map_err(|e| CommandError::invalid(e.to_string()))?;
-    Ok(serde_json::json!({ "token": token }))
 }
 
 /// Rebuild a session from its latest snapshot through the caller's

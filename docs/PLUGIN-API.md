@@ -46,17 +46,19 @@ pane it runs in) and the `tmuxy` CLI.
   "tab": "@2",
   "session": "main",
   "selection_file": "/…/plugins/.run/….selection",
-  "settings": {}
+  "link": { "url": "https://…", "text": "src/main.rs:42", "captures": { "line": "42" } },
+  "settings": { "download_dir": "~/Downloads" }
 }
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `trigger` | `menu` (a menu item), `action` (`tmuxy plugin action`), `cli` (`tmuxy plugin <verb>`). Later releases add `key` and `link`. |
+| `trigger` | `menu` (a menu item), `action` (`tmuxy plugin action`), `cli` (`tmuxy plugin <verb>`), `key` (a `[[keys]]` binding), `link` (a `[[link_handlers]]` click). |
 | `action` | The action's id; absent for a verb. |
 | `pane` | The target pane, as tmux described it when the action opened. |
 | `selection_file` | Present only when there is a selection. |
-| `settings` | Always `{}` for now; the settings schema fills it in a later release. |
+| `link` | Present only for `trigger: "link"`: the URL (also after `--` in argv), or the matched text and its named captures. |
+| `settings` | Every `[[settings]]` value in force (set, else the default), except secrets, which the command reads from `$TMUXY_PLUGIN_CONFIG_DIR/settings.toml`. |
 
 A plugin must ignore fields it does not know.
 
@@ -74,6 +76,8 @@ A plugin may call any `tmuxy` verb a user may; these are the ones whose
 | `tmuxy pane float [cmd…]`, `tmuxy tab create [--json]` | Open a float or a tab. |
 | `tmuxy open <file.md\|file.html>` | Show a document or a page in a pane (read-only, sandboxed). |
 | `tmuxy plugin action <plugin>:<id> [--pane %N] [--wait] [-- args…]` | Run an action, this plugin's or another's. |
+| `tmuxy plugin path <name>` | The directory a plugin (a dependency) is installed in. |
+| `tmuxy plugin config <name> [<key> [<value>]] [--json]` | Read or set this plugin's settings. |
 
 Exit codes, for every verb: `0` ok, `1` failed (or declined), `2` bad command
 line, `3` target not found, `4` no tmux server, `130` interrupted; `--wait`

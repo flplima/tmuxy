@@ -342,6 +342,8 @@ pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError
         for cmd in crate::plugins::inventory::commands(&dirs) {
             run(tx, &cmd).await?;
         }
+        // The config just sourced may have reset the key tables.
+        let _ = tokio::task::spawn_blocking(move || crate::plugins::keys::apply(&dirs)).await;
     }
     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
     Ok(())
