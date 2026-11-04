@@ -145,8 +145,9 @@
   min-width: 0;
 }
 
+/* The first tab's icon sits a few pixels in from the pane's edge, not on it. */
 .pane-tab:first-child {
-  padding-left: 0;
+  padding-left: 4px;
 }
 
 /* Hovering the PANE — anywhere in it, not just its title — brightens that
