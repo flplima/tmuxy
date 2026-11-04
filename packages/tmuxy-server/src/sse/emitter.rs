@@ -123,6 +123,9 @@ impl StateEmitter for SseEmitter {
         tokio::spawn(async move {
             // The plugin keys first, so the bindings read next include them.
             if let Ok(tx) = state.monitor_tx(&session).await {
+                if let Err(e) = transport::repair_start_dir(&tx).await {
+                    warn!(error = %e, "could not check the session's start directory");
+                }
                 if let Err(e) = transport::apply_plugin_keys(&tx).await {
                     warn!(error = %e, "could not bind the plugin keys");
                 }

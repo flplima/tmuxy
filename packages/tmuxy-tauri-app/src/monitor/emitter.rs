@@ -197,6 +197,9 @@ impl StateEmitter for TauriEmitter {
         tauri::async_runtime::spawn(async move {
             // The plugin keys first, so the bindings emitted next include them.
             if let Some(tx) = monitor.tx() {
+                if let Err(e) = transport::repair_start_dir(&tx).await {
+                    tracing::warn!(error = %e, "could not check the session's start directory");
+                }
                 if let Err(e) = transport::apply_plugin_keys(&tx).await {
                     tracing::warn!(error = %e, "could not bind the plugin keys");
                 }
