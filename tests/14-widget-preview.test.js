@@ -88,6 +88,22 @@ async function pressPrefixed(page, key) {
   await waitForPrefixConsumed(page);
 }
 
+/** A pane's row in the tree: its icon, name and title, and whether it shows. */
+function treeRow(page, paneId) {
+  return page.evaluate((id) => {
+    const el = document.querySelector(`[data-testid="tree-pane-${id}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const text = (sel) => el.querySelector(sel)?.textContent ?? null;
+    return {
+      visible: r.width > 0 && r.height > 0 && r.left >= 0,
+      icon: text('.sidebar-tree-icon'),
+      name: text('.sidebar-tree-name'),
+      title: text('.sidebar-tree-title'),
+    };
+  }, paneId);
+}
+
 /** The panes in the active tab. */
 function tabPaneCount(page) {
   return page.evaluate(() => {
@@ -210,6 +226,23 @@ describe('Scenario: tmuxy open previews a local file', () => {
     expect(stillShown.heading).toBe('Doc Two');
     expect(stillShown.headingBox.height).toBeGreaterThan(0);
     expect(Math.abs(stillShown.scrollTop - readTo)).toBeLessThanOrEqual(2);
+
+    // The tree names the pane by what it shows, as its header does: the
+    // preview, its document icon and the file — not the shell under it.
+    if (!(await ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen))) {
+      await pressPrefixed(ctx.page, 's');
+    }
+    let row = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        row = await treeRow(ctx.page, shown.paneId);
+        return row?.visible && row.name === 'preview';
+      },
+      15000,
+      () => `the tree row to name the preview (${JSON.stringify(row)})`,
+    );
+    expect(row).toMatchObject({ icon: '\uf0f6', title: 'doc.md' });
 
     await splitFromPreview(ctx, shown.paneId);
 

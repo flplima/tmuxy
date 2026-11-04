@@ -7,7 +7,7 @@
 
 import type { TmuxPane } from '../domain/client';
 import type { TmuxServer } from '../machines/types/domain';
-import { getWidget } from './widgets/registry';
+import { detectWidget, getWidget } from './widgets/registry';
 import { circledNumber } from '../utils/paneState';
 import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
 
@@ -247,15 +247,26 @@ export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
  * only repeats the process name — so a plain shell stays a one-line row rather
  * than reserving a blank second line.
  *
+ * A pane showing a widget (`tmuxy open`'s preview, the tree) is named by the
+ * widget, not by the shell that sleeps under it.
+ *
  * Copy mode takes over the title line: `[COPY MODE]` is a state of the pane,
  * not the program in it, and the process underneath is still worth seeing.
  */
 export function paneRowLines(
   pane: TmuxPane,
-  titleOverride?: string,
+  widgetName?: string,
 ): { process: string; title: string } {
-  const process = pane.command || 'shell';
+  const process = widgetName || pane.command || 'shell';
   if (pane.inMode) return { process, title: '[COPY MODE]' };
-  const title = splitTitleIcon(titleOverride || pane.title || '').text.trim();
+  const title = splitTitleIcon(pane.title || '').text.trim();
   return { process, title: title === process ? '' : title };
+}
+
+/**
+ * The widget a pane is showing, if any, by the same scan its body runs — so
+ * the tree names and draws a preview the way the pane's own header does.
+ */
+export function paneWidgetName(pane: TmuxPane): string | undefined {
+  return detectWidget(pane.content, pane.paneWidget)?.widgetName;
 }

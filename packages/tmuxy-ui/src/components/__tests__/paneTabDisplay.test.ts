@@ -6,11 +6,17 @@ import {
   getTabIcon,
   isSvgIcon,
   paneRowLines,
+  paneWidgetName,
   splitLeadingEmoji,
   splitTitleIcon,
   tabIcon,
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../domain/client';
+import type { PaneContent } from '../../domain/wireCells';
+import { registerWidget } from '../widgets/registry';
+
+registerWidget('preview', { component: () => null, icon: 'D' });
+const screen = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
   id: 0,
@@ -196,6 +202,23 @@ describe('paneRowLines', () => {
       process: 'nvim',
       title: '[COPY MODE]',
     });
+  });
+
+  it('names a pane showing a widget by the widget, with the widget’s icon', () => {
+    // `tmuxy open` sleeps in the shell it was typed in: the tree says what the
+    // pane shows, the way its header does, not `bash`.
+    const preview = pane({
+      command: 'bash',
+      title: 'notes.md',
+      paneWidget: 'preview',
+      content: screen('__TMUXY_WIDGET__:preview', '/tmp/notes.md'),
+    });
+    const widget = paneWidgetName(preview);
+    expect(widget).toBe('preview');
+    expect(paneRowLines(preview, widget)).toEqual({ process: 'preview', title: 'notes.md' });
+    expect(getTabIcon(preview, widget)).toBe('D');
+    // A tag left over a live shell (no marker on screen) is the shell again.
+    expect(paneWidgetName({ ...preview, content: screen('$ ls') })).toBeUndefined();
   });
 
   it('names an unknown process rather than leaving the line empty', () => {
