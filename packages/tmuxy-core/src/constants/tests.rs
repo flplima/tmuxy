@@ -163,16 +163,17 @@ fn list_panes_cmds_embed_group_id() {
     );
 }
 
-/// The pane-metadata subscription watches exactly the pane options the
-/// group scripts change without tmux announcing it.
+/// The pane-metadata subscription watches the pane options that change
+/// without tmux announcing it: the group scripts', and an agent's state.
 #[test]
-fn pane_meta_subscription_watches_the_group_options() {
+fn pane_meta_subscription_watches_the_group_options_and_the_pane_state() {
     let cmd = tmux_formats::SUBSCRIBE_PANE_TITLES_CMD;
     assert!(cmd.contains(&format!("'{}:", tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME)));
     for opt in [
         tmux_options::GROUP_ID,
         tmux_options::GROUP_POS,
         tmux_options::GROUP_REV,
+        tmux_options::PANE_STATE,
     ] {
         assert!(
             cmd.contains(&format!("#{{{opt}}}")),

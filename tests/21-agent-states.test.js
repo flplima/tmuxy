@@ -92,7 +92,9 @@ describe('Scenario: an agent pane needs the user while its dialog is up, and wor
       await waitForCondition(
         page,
         async () => (await headerMark(page, paneId)) === 'needs-input',
-        15000,
+        // The screen is read every 1.5 s and tmux reports the option within
+        // about a second: a mark that waits for the 15 s idle heartbeat is late.
+        5000,
         () => seen(page, paneId, 'the dialog to mark the pane needs-input'),
       );
 
@@ -102,7 +104,9 @@ describe('Scenario: an agent pane needs the user while its dialog is up, and wor
       await waitForCondition(
         page,
         async () => (await headerMark(page, paneId)) === 'working',
-        15000,
+        // The screen is read every 1.5 s and tmux reports the option within
+        // about a second: a mark that waits for the 15 s idle heartbeat is late.
+        5000,
         () => seen(page, paneId, 'the answered dialog to mark the pane working again'),
       );
     } finally {

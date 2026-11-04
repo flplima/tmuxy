@@ -246,13 +246,16 @@ macro_rules! pane_title_subscription_name {
 /// change (tmux 3.2+; `%*` is every pane of every window). The group
 /// scripts bump the global `@tmuxy-group-rev`, which every pane inherits,
 /// so a reorder among hidden members is seen too, and a plugin install or
-/// removal writes the global `@tmuxy-plugins-rev` the same way.
+/// removal writes the global `@tmuxy-plugins-rev` the same way. An agent's
+/// `@tmuxy-pane-state` is written with nothing printed after it as often as
+/// not — the server marking a dialog it read off the screen, a script's
+/// `tmuxy pane state` — and showed only at the heartbeat.
 pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = pane_title_subscription_name!();
 /// See [`PANE_TITLE_SUBSCRIPTION_NAME`].
 pub const SUBSCRIBE_PANE_TITLES_CMD: &str = concat!(
     "refresh-client -B '",
     pane_title_subscription_name!(),
-    ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}|#{@tmuxy-plugins-rev}'"
+    ":%*:#{pane_title}|#{@tmuxy-group-id}|#{@tmuxy-group-pos}|#{@tmuxy-group-rev}|#{@tmuxy-plugins-rev}|#{@tmuxy-pane-state}'"
 );
 
 /// The control-mode subscription that reports the theme and its mode,
