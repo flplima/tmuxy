@@ -20,11 +20,9 @@ use crate::{CommandError, PaneId, StateUpdate, TmuxError, TmuxState};
 
 mod bindings;
 mod plugins;
-mod start_dir;
 mod supervise;
 pub use bindings::*;
 pub use plugins::*;
-pub use start_dir::*;
 pub use supervise::*;
 
 // ============================================

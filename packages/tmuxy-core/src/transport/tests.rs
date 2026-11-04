@@ -325,32 +325,3 @@ fn a_clipboard_write_over_the_cap_is_refused() {
         &"x".repeat(MAX_CLIPBOARD_BYTES + 1)
     ));
 }
-
-#[test]
-fn a_session_whose_start_directory_is_gone_is_moved_home_and_a_live_one_is_left() {
-    let home = Path::new("/home/user");
-    // A dead mount: the session's id, then its start directory, as tmux prints them.
-    assert_eq!(
-        start_dir_repair("$3 /tmp/.mount_tmuxyPdMlpc/usr\n", home, |_| false).as_deref(),
-        Some("attach-session -t '$3' -c '/home/user'")
-    );
-    // A directory with a space in it is read whole, and left alone while it is there.
-    let seen = std::cell::RefCell::new(None);
-    let kept = start_dir_repair("$0 /home/user/My Projects", home, |dir| {
-        *seen.borrow_mut() = Some(dir.to_path_buf());
-        true
-    });
-    assert_eq!(kept, None);
-    assert_eq!(
-        seen.into_inner().as_deref(),
-        Some(Path::new("/home/user/My Projects"))
-    );
-    // Nothing that is not tmux's answer moves anything.
-    for answer in ["", "$1", "error: no session", "$1 "] {
-        assert_eq!(
-            start_dir_repair(answer, home, |_| false),
-            None,
-            "{answer:?}"
-        );
-    }
-}
