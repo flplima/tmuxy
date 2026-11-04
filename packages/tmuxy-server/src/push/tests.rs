@@ -3,7 +3,7 @@ use super::store::{Store, Subscription, SubscriptionKeys, MAX_SUBSCRIPTIONS};
 use super::watch::{parse_rows, Notice, Watch};
 use super::Push;
 use aes_gcm::aead::Aead;
-use aes_gcm::{Aes128Gcm, KeyInit, Nonce};
+use aes_gcm::{AeadCore, Aes128Gcm, Key, KeyInit, Nonce};
 use hkdf::Hkdf;
 use ring::agreement::{agree_ephemeral, EphemeralPrivateKey, UnparsedPublicKey, ECDH_P256};
 use ring::rand::SystemRandom;
@@ -77,15 +77,13 @@ impl Browser {
         )
         .unwrap();
         let prk = Hkdf::<Sha256>::new(Some(salt), &ikm);
-        let mut cek = [0u8; 16];
-        let mut nonce = [0u8; 12];
+        let mut cek = Key::<Aes128Gcm>::default();
+        let mut nonce = Nonce::<<Aes128Gcm as AeadCore>::NonceSize>::default();
         prk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
             .unwrap();
         prk.expand(b"Content-Encoding: nonce\0", &mut nonce)
             .unwrap();
-        let mut record = Aes128Gcm::new(&cek.into())
-            .decrypt(Nonce::from_slice(&nonce), ciphertext)
-            .ok()?;
+        let mut record = Aes128Gcm::new(&cek).decrypt(&nonce, ciphertext).ok()?;
         assert_eq!(record.pop(), Some(2), "the one record is the last one");
         Some(record)
     }

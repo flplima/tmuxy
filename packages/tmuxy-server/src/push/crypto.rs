@@ -4,7 +4,7 @@
 //! The push service carries the ciphertext and cannot read it.
 
 use aes_gcm::aead::Aead;
-use aes_gcm::{Aes128Gcm, KeyInit, Nonce};
+use aes_gcm::{AeadCore, Aes128Gcm, Key, KeyInit, Nonce};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use hkdf::Hkdf;
@@ -149,8 +149,9 @@ pub(crate) fn encrypt(
 
     // RFC 8188 §2.2: the content key and the nonce, from the salt.
     let prk = Hkdf::<Sha256>::new(Some(&salt), &ikm);
-    let mut cek = [0u8; 16];
-    let mut nonce = [0u8; 12];
+    // Both are typed by the cipher and filled by HKDF in place.
+    let mut cek = Key::<Aes128Gcm>::default();
+    let mut nonce = Nonce::<<Aes128Gcm as AeadCore>::NonceSize>::default();
     prk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
         .map_err(|_| EncryptError::Derive)?;
     prk.expand(b"Content-Encoding: nonce\0", &mut nonce)
@@ -159,8 +160,8 @@ pub(crate) fn encrypt(
     // One record, so the last one: the plaintext and the 0x02 delimiter.
     let mut record = plaintext.to_vec();
     record.push(2);
-    let ciphertext = Aes128Gcm::new(&cek.into())
-        .encrypt(Nonce::from_slice(&nonce), record.as_slice())
+    let ciphertext = Aes128Gcm::new(&cek)
+        .encrypt(&nonce, record.as_slice())
         .map_err(|_| EncryptError::Encrypt)?;
 
     let mut body = Vec::with_capacity(16 + 4 + 1 + as_public.len() + ciphertext.len());
