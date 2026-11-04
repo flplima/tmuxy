@@ -161,7 +161,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
   beforeEach(ctx.beforeEach);
   afterEach(ctx.afterEach, ctx.hookTimeout);
 
-  test('an agent’s hooks show it working → it finishes while the user is in another pane → unread → the user looks → idle', async () => {
+  test('an agent’s hooks show it working → it finishes while the user is in another pane → idle, its process icon back', async () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
@@ -258,22 +258,25 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
       async () => `the spinner to turn (saw ${JSON.stringify([...frames])})`,
     );
 
-    // The agent finishes while the user is in the other pane: unread.
+    // The agent finishes while the user is in the other pane: idle at once,
+    // with nothing left to dismiss. No mark on the row, the tab shows its
+    // number again, and the pane's header wears its process icon.
     fs.writeFileSync(go, '');
-    await waitForMark(rowMark, { state: 'unread', text: '●' }, 'the tree row');
-    await waitForMark(tabMark, { state: 'unread', text: '●' }, 'the tab');
-
-    // The user sees the mark and clicks the row: seen, so idle — no mark on
-    // the row, and the tab shows its number again.
-    await ctx.page.click(`[data-testid="tree-pane-${agentPane}"]`);
-    await waitForCondition(
-      ctx.page,
-      async () => (await activePane()) === agentPane,
-      10000,
-      'the agent’s pane to be active again',
-    );
     await waitForMark(rowMark, { state: null }, 'the tree row');
     await waitForMark(tabMark, { state: null, text: '➊' }, 'the tab');
+    await waitForCondition(
+      ctx.page,
+      async () =>
+        ctx.page.evaluate((sel) => {
+          const icon = document.querySelector(`${sel}.pane-tab-icon-static`);
+          const box = icon?.getBoundingClientRect();
+          return !!box && box.width > 0 && !icon.classList.contains('pane-state-mark');
+        }, headerMark),
+      20000,
+      async () =>
+        `the pane header to wear its process icon (now ${JSON.stringify(await mark(headerMark))})`,
+    );
+    expect(await activePane()).toBe(otherPane);
   }, 120000);
 });
 

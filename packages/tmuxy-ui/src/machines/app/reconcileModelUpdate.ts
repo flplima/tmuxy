@@ -19,7 +19,7 @@ import {
 } from './helpers';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from './scrollback';
 import { pruneAskSelections } from './actions/ask';
-import { nextUnreadPaneIds, normalizePaneState } from '../../utils/paneState';
+import { normalizePaneState } from '../../utils/paneState';
 import { TmuxOp } from '../../domain/commands';
 import { reconcileFloatAndSidebarLifecycle } from './reconcileSidebars';
 
@@ -290,12 +290,6 @@ export const reconcileModelActions = {
             ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
             : ctx.paneActivationOrder,
         lastActivePaneByWindow,
-        unreadPaneIds: nextUnreadPaneIds(
-          ctx.unreadPaneIds,
-          ctx.panes,
-          transformed.panes,
-          effectiveActivePaneId,
-        ),
       })),
     );
 

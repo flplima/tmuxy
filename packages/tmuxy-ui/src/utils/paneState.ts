@@ -17,7 +17,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
+import { isPlaceholderId, type WindowId } from '../domain/ids';
 import { paneSendFor } from './paneAsk';
 
 export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
@@ -94,46 +94,16 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
  * `tmuxy pane send -t`: a pane showing a question IS waiting on the user, whatever it
  * last declared about itself, and it outranks that declaration so the tab
  * holding the question is the one the tree points at.
+ *
+ * An agent that finishes is `idle`, whether or not the user was looking: its
+ * pane wears its process icon again, and nothing is left to dismiss.
  */
-export function paneStateFor(
-  pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>,
-  unread = false,
-): PaneStateName {
+export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): PaneStateName {
   if (paneSendFor(pane)) return 'needs-input';
-  const declared = normalizePaneState(pane.paneState);
-  return declared === 'idle' && unread ? 'unread' : declared;
+  return normalizePaneState(pane.paneState);
 }
 
 type StatePane = Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'>;
-
-/**
- * The panes to draw `unread`: those that finished — went from `working` or
- * `needs-input` to `idle` — while the user was in another pane. An agent's
- * hooks only ever say `idle` when it stops; whether anybody saw the result is
- * this side's to judge, since only the client knows which pane is in front.
- *
- * A pane stops being unread when it becomes the active one, or when it
- * declares anything but `idle` again. Returns `unread` itself when nothing
- * changed, so the context keeps its identity.
- */
-export function nextUnreadPaneIds(
-  unread: readonly PaneId[],
-  before: readonly StatePane[],
-  after: readonly StatePane[],
-  activePaneId: PaneId | null,
-): PaneId[] {
-  const was = new Map(before.map((p) => [p.tmuxId, paneStateFor(p)]));
-  const next = after
-    .filter((pane) => {
-      if (pane.tmuxId === activePaneId || paneStateFor(pane) !== 'idle') return false;
-      if (unread.includes(pane.tmuxId)) return true;
-      const previous = was.get(pane.tmuxId);
-      return previous === 'working' || previous === 'needs-input';
-    })
-    .map((pane) => pane.tmuxId);
-  const same = next.length === unread.length && next.every((id, i) => id === unread[i]);
-  return same ? (unread as PaneId[]) : next;
-}
 
 /**
  * Roll several panes up into the one state a tab row shows: the most
@@ -156,16 +126,13 @@ export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateN
 export function tabPaneStates(
   windowIds: readonly WindowId[],
   panes: readonly (StatePane & Pick<TmuxPane, 'windowId'>)[],
-  unreadPaneIds: readonly PaneId[],
 ): Map<WindowId, { count: number; state: PaneStateName }> {
   const out = new Map<WindowId, { count: number; state: PaneStateName }>();
   for (const id of windowIds) {
     const windowPanes = panes.filter((p) => p.windowId === id && !isPlaceholderId(p.tmuxId));
     out.set(id, {
       count: windowPanes.length,
-      state: aggregatePaneState(
-        windowPanes.map((p) => paneStateFor(p, unreadPaneIds.includes(p.tmuxId))),
-      ),
+      state: aggregatePaneState(windowPanes.map((p) => paneStateFor(p))),
     });
   }
   return out;

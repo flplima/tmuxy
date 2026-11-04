@@ -83,7 +83,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const repositories = useAppSelectorShallow(selectRepositories);
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
   const paneGroups = useAppSelector((ctx) => ctx.paneGroups);
-  const unreadPaneIds = useAppSelectorShallow((ctx) => ctx.unreadPaneIds);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
@@ -99,9 +98,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       tabPaneStates(
         windows.map((w) => w.id),
         panes,
-        unreadPaneIds,
       ),
-    [windows, panes, unreadPaneIds],
+    [windows, panes],
   );
 
   // Flatten into the ordered row list (also the keyboard nav order): this
@@ -372,7 +370,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             isSelected={isSelected}
             activeWindowId={activeWindowId}
             activePaneId={activePaneId}
-            unreadPaneIds={unreadPaneIds}
             tabSummaries={tabSummaries}
             tabCount={tabCount}
             tabReorder={tabReorder}

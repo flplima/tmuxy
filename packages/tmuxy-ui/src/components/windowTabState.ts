@@ -19,7 +19,6 @@ export function selectTabStates(context: AppMachineContext): string[] {
   const states = tabPaneStates(
     context.windows.map((w) => w.id),
     context.panes,
-    context.unreadPaneIds,
   );
   return [...states].map(([id, { state }]) => `${id}=${state}`);
 }

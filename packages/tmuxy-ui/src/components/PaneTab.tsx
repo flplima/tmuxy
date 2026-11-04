@@ -3,7 +3,6 @@
  */
 
 import { memo, type ReactNode } from 'react';
-import { useAppSelector } from '../machines/appHooks';
 import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { PaneStateMark } from './PaneStateMark';
@@ -52,8 +51,7 @@ export const PaneTab = memo(function PaneTab({
 }) {
   const text = getTabLabel(pane, titleOverride);
   // What the pane is doing takes the icon's place while it is anything but idle.
-  const unread = useAppSelector((ctx) => ctx.unreadPaneIds.includes(pane.tmuxId));
-  const state = paneStateFor(pane, unread);
+  const state = paneStateFor(pane);
 
   return (
     <div

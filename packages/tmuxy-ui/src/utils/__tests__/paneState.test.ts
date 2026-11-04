@@ -5,7 +5,6 @@ import {
   PANE_STATE_TIER,
   aggregatePaneState,
   circledNumber,
-  nextUnreadPaneIds,
   tabPaneStates,
   normalizePaneState,
   paneStateFor,
@@ -91,46 +90,19 @@ describe('aggregatePaneState', () => {
   });
 });
 
-describe('nextUnreadPaneIds', () => {
-  const pane = (id: string, paneState: string | null) => ({ tmuxId: pid(id), paneState });
-
-  it('marks a pane that finished while the user was in another one, until they look', () => {
-    const working = [pane('%1', 'working'), pane('%2', null)];
-    const done = [pane('%1', 'idle'), pane('%2', null)];
-    const unread = nextUnreadPaneIds([], working, done, pid('%2'));
-    expect(unread).toEqual([pid('%1')]);
-    expect(paneStateFor(done[0], unread.includes(pid('%1')))).toBe('unread');
-
-    // Still unread on the next update, and the same array: nothing changed.
-    expect(nextUnreadPaneIds(unread, done, done, pid('%2'))).toBe(unread);
-    // The user moves to it.
-    expect(nextUnreadPaneIds(unread, done, done, pid('%1'))).toEqual([]);
-  });
-
-  it('leaves a pane the user is in, and one that starts working again', () => {
-    const working = [pane('%1', 'needs-input')];
-    expect(nextUnreadPaneIds([], working, [pane('%1', 'idle')], pid('%1'))).toEqual([]);
-    expect(nextUnreadPaneIds([pid('%1')], working, [pane('%1', 'working')], null)).toEqual([]);
-  });
-
-  it('does not mark a pane that was only ever idle, or one that closed', () => {
-    expect(nextUnreadPaneIds([], [pane('%1', null)], [pane('%1', 'idle')], null)).toEqual([]);
-    expect(nextUnreadPaneIds([pid('%1')], [pane('%1', 'idle')], [], null)).toEqual([]);
-  });
-});
-
 describe('tabPaneStates', () => {
   it('rolls each tab up to its most attention-worthy pane, a question ahead of work', () => {
     const panes = [
       { tmuxId: pid('%1'), windowId: wid('@1'), paneState: 'working' },
       { tmuxId: pid('%2'), windowId: wid('@1'), paneState: 'needs-input' },
       { tmuxId: pid('%3'), windowId: wid('@2'), paneState: 'working' },
-      { tmuxId: pid('%4'), windowId: wid('@3'), paneState: null },
+      { tmuxId: pid('%4'), windowId: wid('@3'), paneState: 'idle' },
     ];
-    const states = tabPaneStates([wid('@1'), wid('@2'), wid('@3')], panes, [pid('%4')]);
+    const states = tabPaneStates([wid('@1'), wid('@2'), wid('@3')], panes);
     expect(states.get(wid('@1'))).toEqual({ count: 2, state: 'needs-input' });
     expect(states.get(wid('@2'))?.state).toBe('working');
-    expect(states.get(wid('@3'))?.state).toBe('unread');
+    // An agent that finished is idle, so its tab draws nothing for it.
+    expect(states.get(wid('@3'))?.state).toBe('idle');
   });
 });
 

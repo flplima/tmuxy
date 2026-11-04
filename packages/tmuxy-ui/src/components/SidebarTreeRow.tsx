@@ -43,7 +43,6 @@ interface SidebarTreeRowProps {
 
   activeWindowId: WindowId | null;
   activePaneId: PaneId | null;
-  unreadPaneIds: readonly PaneId[];
   tabSummaries: ReturnType<typeof tabPaneStates>;
   tabCount: number;
   tabReorder: ReturnType<typeof useReorderDrag>;
@@ -69,7 +68,6 @@ export function SidebarTreeRow({
 
   activeWindowId,
   activePaneId,
-  unreadPaneIds,
   tabSummaries,
   tabCount,
   tabReorder,
@@ -226,7 +224,7 @@ export function SidebarTreeRow({
   // The current tab's panes read a step brighter than the dimmed rest.
   const inCurrentTab = row.window.id === activeWindowId;
   const { process, title } = paneRowLines(row.pane);
-  const state = paneStateFor(row.pane, unreadPaneIds.includes(row.pane.tmuxId));
+  const state = paneStateFor(row.pane);
   const cwd = displayCwd(cwdByPane.get(row.pane.tmuxId));
   const branch = branchOf([row.pane.tmuxId]);
   return (
