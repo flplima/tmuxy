@@ -245,6 +245,11 @@ export const appMachine = setup({
           target: 'idle',
           actions: 'connection_onReconnected',
         },
+        // What is typed meanwhile goes on to the transport, which holds it
+        // until the stream is back and sends it then (Q5). Only `idle` took
+        // these, so every key typed during an outage was dropped here.
+        SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
+        DISPATCH_OP: { actions: 'dispatch_op' },
         TMUX_STATE_UPDATE: {
           actions: sendTo('tmuxStore', ({ event }) => ({
             type: 'RECONCILE_SERVER' as const,

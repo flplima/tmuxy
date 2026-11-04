@@ -102,7 +102,7 @@ See `AGENTS.md`: a bug-fix commit on a seam cites or adds a row, and a row's enf
 | Q2 | Keystroke batches share the mutation queue and non-`send-keys` flush pending batches first. | ordering | `TauriAdapter.ts`, `HttpAdapter.ts`, `keyBatching.ts` | `keyBatching.test.ts › flushAll drains…` (batcher only; mutation interleaving is —) |
 | Q3 | Lone keystrokes send on leading edge; literal/special order holds; hex-byte (`-H`) and double-quoted sends never batch. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› never intercepts…`; `tests/1-input-interaction.test.js › Type → backspace…` |
 | Q4 | Client reads (`query_tmux`) run unserialized; order vs. mutations holds in-band on control mode (A6). | ordering | `HttpAdapter.ts`, `docs/DATA-FLOW.md` | — |
-| Q5 | A keystroke issued while the stream is down waits for it and posts under the new connection id, still in issue order; `disconnect()` and a session switch end the wait. | liveness | `HttpAdapter.ts` | `HttpAdapter.test.ts › a key typed while the stream is down…` (example) |
+| Q5 | A keystroke issued while the stream is down reaches the transport (the app's `reconnecting` takes it), waits for the stream and posts under the new connection id, still in issue order; `disconnect()` and a session switch end the wait. | liveness | `HttpAdapter.ts`, `appMachine.ts` | `HttpAdapter.test.ts › a key typed while the stream is down…` (example), `reconnectKeys.test.ts › a key and an op sent while reconnecting…` |
 
 ## P — client model
 
