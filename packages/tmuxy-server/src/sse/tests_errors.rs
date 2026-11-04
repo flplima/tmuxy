@@ -402,3 +402,43 @@ async fn a_session_whose_monitor_ended_and_that_tmux_no_longer_has_is_a_404() {
     .await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+/// Q5 at the server: a command for a session whose monitor is still
+/// connecting waits for it rather than being refused. A page's stream comes
+/// back with the server before the monitor has attached to tmux, and it sends
+/// what was typed meanwhile at once: the first key was answered "No monitor
+/// connection available" and lost.
+#[tokio::test]
+async fn a_command_waits_for_a_monitor_still_connecting_and_not_for_a_dead_one() {
+    let state = Arc::new(AppState::new());
+    {
+        let mut conns = SessionConnections::new();
+        conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
+        state.sessions.write().await.insert("s".to_string(), conns);
+    }
+    let attach = {
+        let state = Arc::clone(&state);
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            let (tx, _rx) = tokio::sync::mpsc::channel(1);
+            state
+                .sessions
+                .write()
+                .await
+                .get_mut("s")
+                .unwrap()
+                .monitor_command_tx = Some(tx);
+            _rx
+        })
+    };
+    assert!(
+        state.monitor_tx("s").await.is_ok(),
+        "refused while the monitor was connecting"
+    );
+    drop(attach.await);
+
+    // No monitor at all: refused at once, not after the wait.
+    let started = std::time::Instant::now();
+    assert!(state.monitor_tx("nobody").await.is_err());
+    assert!(started.elapsed() < AppState::MONITOR_START_WAIT);
+}

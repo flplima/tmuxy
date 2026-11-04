@@ -353,18 +353,42 @@ impl AppState {
         }
     }
 
+    /// How long a command waits for a monitor that is still connecting.
+    pub const MONITOR_START_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
     /// The session's monitor command channel, or the error a client is
-    /// answered with while its monitor is not connected.
+    /// answered with while its monitor is not connected. A monitor that is
+    /// still connecting is waited for, up to [`Self::MONITOR_START_WAIT`]: a page
+    /// whose stream came back with the server sends what was typed meanwhile
+    /// at once, and the first of it reached a monitor not yet attached to
+    /// tmux and was refused — a line typed during an outage lost its first
+    /// character.
     pub async fn monitor_tx(
         &self,
         session: &str,
     ) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
-        self.sessions
-            .read()
-            .await
-            .get(session)
-            .and_then(|s| s.monitor_command_tx.clone())
-            .ok_or_else(|| tmuxy_core::CommandError::unavailable("No monitor connection available"))
+        let deadline = tokio::time::Instant::now() + Self::MONITOR_START_WAIT;
+        loop {
+            let (tx, starting) = self
+                .sessions
+                .read()
+                .await
+                .get(session)
+                .map(|s| {
+                    let live = s.monitor_handle.as_ref().is_some_and(|h| !h.is_finished());
+                    (s.monitor_command_tx.clone(), live)
+                })
+                .unwrap_or((None, false));
+            if let Some(tx) = tx {
+                return Ok(tx);
+            }
+            if !starting || tokio::time::Instant::now() >= deadline {
+                return Err(tmuxy_core::CommandError::unavailable(
+                    "No monitor connection available",
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
     }
 
     /// Spawn a background task into the shutdown-tracked `JoinSet`.
