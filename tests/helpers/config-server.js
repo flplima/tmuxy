@@ -73,7 +73,6 @@ const unsetConfigVariable = () => {
   tmuxRunAsOperator('set-option -gu @tmuxy-css-term-background');
   tmuxRunAsOperator('set-option -gu @tmuxy-theme');
   tmuxRunAsOperator('set-option -gu @tmuxy-e2e-tmux-conf');
-  tmuxRunAsOperator('set-option -gu @tmuxy-icon-filter');
   for (const name of iconsSet.splice(0)) tmuxRunAsOperator(`set-option -gu @tmuxy-icon-${name}`);
 };
 

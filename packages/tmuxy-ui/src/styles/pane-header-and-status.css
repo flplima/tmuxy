@@ -195,12 +195,22 @@
   cursor: default;
 }
 
-/* An image process icon (components/PaneIcon.tsx), drawn at the size of
-   the glyphs beside it. */
-.process-icon-image img {
-  display: block;
+/* An SVG process icon (components/PaneIcon.tsx): its shape, at the size of
+   the glyphs beside it, in their colour. The mask is the SVG's own alpha,
+   whole and centred in the box; the box's colour is the text's. */
+.process-icon-svg {
+  display: inline-block;
+  flex: none;
   width: 1em;
   height: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 .pane-tab-title {

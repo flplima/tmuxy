@@ -1,5 +1,4 @@
 import { isTauri, tauriSchemeUrl } from './platform';
-import { paletteChanged } from './themedIcon';
 
 const THEME_LINK_ID = 'tmuxy-theme';
 /** The user's own `custom.css`, loaded after the theme so it wins. */
@@ -84,11 +83,9 @@ function ensureLink(id: string, href: string, before: Element | null): void {
 /**
  * The browser's own chrome in the theme's window colour: `theme-color` is
  * what a phone's browser and an installed web app tint their bars with, and
- * a fixed `#000000` left them black, or white, whatever the theme. Image
- * icons are drawn in the theme's colours too, so they are drawn again.
+ * a fixed `#000000` left them black, or white, whatever the theme.
  */
 function syncThemeColor(): void {
-  paletteChanged();
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
   const rgb = getComputedStyle(document.documentElement).getPropertyValue('--window-bg-rgb').trim();
@@ -181,7 +178,6 @@ export function applyCssVars(vars: Readonly<Record<string, string>>): void {
   ensureVarsStyle().textContent = declarations
     ? `:root.theme-dark, :root.theme-light {\n${declarations}\n}\n`
     : '';
-  paletteChanged();
 }
 
 /** Save theme name and mode to localStorage. */

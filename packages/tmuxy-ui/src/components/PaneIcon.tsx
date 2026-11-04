@@ -1,37 +1,16 @@
 /**
  * A pane's process icon (paneTabDisplay's `getTabIcon`) as the header tab,
- * the sidebar tree and the "all tabs" view draw it: a glyph as text, an
- * image in the theme's colours (utils/themedIcon.ts).
+ * the sidebar tree and the "all tabs" view draw it: text as text, an SVG as
+ * its shape in the text colour beside it. The SVG is a CSS mask over
+ * `currentColor`, so its own colours never show: what it covers takes the
+ * colour of the text, what it leaves transparent shows the background, and
+ * it follows the tab from inactive to active as the title does.
  */
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import type { CSSProperties } from 'react';
 import { useAppSelector } from '../machines/appHooks';
-import { getTabIcon, isImageIcon } from './paneTabDisplay';
-import { paletteVersion, subscribePalette, themedIcon, themedIconNow } from '../utils/themedIcon';
+import { getTabIcon, isSvgIcon } from './paneTabDisplay';
 import type { TmuxPane } from '../domain/client';
-
-function ThemedImage({ src, className }: { src: string; className: string }) {
-  const filter = useAppSelector((ctx) => ctx.processIcons.filter);
-  const version = useSyncExternalStore(subscribePalette, paletteVersion);
-  const key = `${version}\u0000${filter}\u0000${src}`;
-  const [drawn, setDrawn] = useState<{ key: string; url: string } | null>(null);
-  useEffect(() => {
-    let live = true;
-    void themedIcon(src, filter).then((url) => {
-      if (live) setDrawn({ key, url });
-    });
-    return () => {
-      live = false;
-    };
-  }, [src, filter, key]);
-  // Nothing until it is drawn: the image in its own colours would flash.
-  const url = themedIconNow(src, filter) ?? (drawn?.key === key ? drawn.url : null);
-  return (
-    <span className={`${className} process-icon-image`} aria-hidden="true">
-      {url && <img src={url} alt="" draggable={false} />}
-    </span>
-  );
-}
 
 export function PaneIcon({
   pane,
@@ -44,10 +23,18 @@ export function PaneIcon({
   widgetName?: string;
   titleOverride?: string;
 }) {
-  const custom = useAppSelector((ctx) => ctx.processIcons.map);
+  const custom = useAppSelector((ctx) => ctx.processIcons);
   const icon = getTabIcon(pane, widgetName, titleOverride, custom);
   if (!icon) return null;
-  if (isImageIcon(icon)) return <ThemedImage src={icon} className={className} />;
+  if (isSvgIcon(icon)) {
+    const mask = `url("${icon}")`;
+    const style: CSSProperties = { maskImage: mask, WebkitMaskImage: mask };
+    return (
+      <span className={className} aria-hidden="true">
+        <span className="process-icon-svg" style={style} />
+      </span>
+    );
+  }
   return (
     <span className={className} aria-hidden="true">
       {icon}

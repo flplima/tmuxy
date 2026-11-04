@@ -197,8 +197,8 @@ export interface AppMachineContext {
   /** Whether this device gets them (utils/pushNotifications.ts). */
   pushState: PushState;
   /**
-   * The config's `@tmuxy-icon-<process>` icons (a glyph, or an image as a
-   * `data:` URL) and `@tmuxy-icon-filter` (components/ProcessIcon.tsx).
+   * The config's `@tmuxy-icon-<process>` icons: ASCII text, or an SVG as a
+   * `data:` URL (components/PaneIcon.tsx).
    */
   processIcons: ProcessIcons;
   /**

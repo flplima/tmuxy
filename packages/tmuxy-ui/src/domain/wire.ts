@@ -353,11 +353,8 @@ export const Appearance = Schema.Struct({
 });
 export type Appearance = Schema.Schema.Type<typeof Appearance>;
 
-/** The config's process icons: what each process wears, and how an image is painted. */
-export const ProcessIcons = Schema.Struct({
-  filter: Schema.String,
-  map: Schema.Record({ key: Schema.String, value: Schema.String }),
-});
+/** The config's process icons: what each process wears, text or an SVG `data:` URL. */
+export const ProcessIcons = Schema.Record({ key: Schema.String, value: Schema.String });
 export type ProcessIcons = Schema.Schema.Type<typeof ProcessIcons>;
 
 /** `get_theme_settings` answer and `theme-settings` push. */
@@ -367,7 +364,7 @@ export const ThemeSettings = Schema.Struct({
   appearance: Schema.optional(Appearance),
   /** The `@tmuxy-css-<name>` options: `--<name>` declared over the theme, under `custom.css`. */
   cssVars: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-  /** `@tmuxy-icon-<process>` (a glyph, or an image as a `data:` URL) and `@tmuxy-icon-filter`. */
+  /** `@tmuxy-icon-<process>`: ASCII text, or an SVG as a `data:` URL. */
   icons: Schema.optional(ProcessIcons),
   pinned: Schema.optional(Schema.Array(Schema.String)),
 });

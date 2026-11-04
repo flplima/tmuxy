@@ -259,7 +259,7 @@ pub async fn get_theme_settings(
 ) -> Result<serde_json::Value, CommandError> {
     let output = query(tx, &settings_query()).await?;
     let mut settings = parse_settings(&output);
-    icons::inline_images(&mut settings["icons"], &session::config_dir().join("icons"));
+    icons::inline_svgs(&mut settings["icons"], &session::config_dir().join("icons"));
     settings["pinned"] = serde_json::json!(session::pinned_options());
     Ok(settings)
 }

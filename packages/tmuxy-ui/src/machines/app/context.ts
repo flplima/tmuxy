@@ -248,7 +248,7 @@ export function createInitialContext(): AppMachineContext {
     sendAsk: true,
     notifyAllowed: true,
     pushState: pushSupported() ? 'unknown' : 'unsupported',
-    processIcons: { filter: 'palette', map: {} },
+    processIcons: {},
     transparency: true,
     pinnedOptions: [],
     tabOverviewCols: 3,

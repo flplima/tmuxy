@@ -4,7 +4,7 @@ import {
   getTabText,
   getTabLabel,
   getTabIcon,
-  isImageIcon,
+  isSvgIcon,
   paneRowLines,
   splitLeadingEmoji,
   splitTitleIcon,
@@ -122,8 +122,7 @@ describe('the icon an application announces', () => {
     // The backend normalises the version-pinned launcher's command name, so a
     // freshly started pane is `claude` here even before it announces a title.
     const icon = getTabIcon(pane({ command: 'claude', title: '\u273b claude' }));
-    expect(icon && isImageIcon(icon)).toBe(true);
-    expect(decodeURIComponent(icon ?? '')).toContain('#D97757');
+    expect(icon && isSvgIcon(icon)).toBe(true);
     // The row does not say `claude` twice once the title arrives.
     expect(paneRowLines(pane({ command: 'claude', title: '\u273b claude' }))).toEqual({
       process: 'claude',
@@ -133,15 +132,15 @@ describe('the icon an application announces', () => {
 
   it('gives each agent its own mark', () => {
     const marks = ['claude', 'codex', 'agy'].map((command) => getTabIcon(pane({ command })));
-    expect(marks.every((icon) => icon && isImageIcon(icon))).toBe(true);
+    expect(marks.every((icon) => icon && isSvgIcon(icon))).toBe(true);
     expect(new Set(marks).size).toBe(3);
   });
 
   it('wears the icon the config gives a process, over every other', () => {
-    const custom = { claude: '\u2605', zsh: 'data:image/png;base64,AAAA' };
+    const custom = { claude: '*', zsh: 'data:image/svg+xml;base64,PHN2Zy8+' };
     expect(
       getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, undefined, custom),
-    ).toBe('\u2605');
+    ).toBe('*');
     expect(getTabIcon(pane({ command: 'ZSH' }), undefined, undefined, custom)).toBe(custom.zsh);
     // A name the map does not hold, even one every object has, is not in it.
     expect(getTabIcon(pane({ command: 'constructor' }), undefined, undefined, custom)).toBe(

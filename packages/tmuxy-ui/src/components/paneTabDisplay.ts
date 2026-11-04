@@ -71,19 +71,19 @@ const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 const svgIcon = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
 /**
- * The agents' own marks, as images: drawn in the theme's colours like any
- * image icon (utils/themedIcon.ts), and replaced by `@tmuxy-icon-<process>`.
+ * The agents' own marks, as SVGs: drawn in the text's colour like any SVG
+ * icon (components/PaneIcon.tsx), and replaced by `@tmuxy-icon-<process>`.
  */
-const BUILTIN_IMAGE_ICONS: Readonly<Record<string, string>> = {
+const BUILTIN_SVG_ICONS: Readonly<Record<string, string>> = {
   claude: svgIcon(CLAUDE_SVG),
   codex: svgIcon(CODEX_SVG),
   agy: svgIcon(AGY_SVG),
   antigravity: svgIcon(AGY_SVG),
 };
 
-/** Whether an icon is an image (a `data:` URL) rather than a glyph. */
-export function isImageIcon(icon: string): boolean {
-  return icon.startsWith('data:image/');
+/** Whether an icon is an SVG (a `data:` URL) rather than text. */
+export function isSvgIcon(icon: string): boolean {
+  return icon.startsWith('data:image/svg+xml');
 }
 
 /**
@@ -170,8 +170,8 @@ export function tabIcon(name: string, position: number): { icon: string; label: 
 }
 
 /**
- * Process/widget icon for a pane: a glyph, or an image as a `data:` URL
- * ([`isImageIcon`]). A widget's own icon comes from its registered definition
+ * Process/widget icon for a pane: a glyph, or an SVG as a `data:` URL
+ * ([`isSvgIcon`]). A widget's own icon comes from its registered definition
  * (components/widgets), so adding a widget never means editing a table here.
  * Then, by process: the icon the config gives it (`@tmuxy-icon-<process>`,
  * `custom`), an agent's own mark, the icon the application put in front of
@@ -188,7 +188,7 @@ export function getTabIcon(
   const command = pane.command.toLowerCase();
   const ownIcon = (map: Readonly<Record<string, string>>) =>
     Object.prototype.hasOwnProperty.call(map, command) ? map[command] : undefined;
-  const configured = ownIcon(custom) ?? ownIcon(BUILTIN_IMAGE_ICONS);
+  const configured = ownIcon(custom) ?? ownIcon(BUILTIN_SVG_ICONS);
   if (configured) return configured;
   const own = splitTitleIcon(getTabText(pane, titleOverride)).icon;
   if (own) return own;

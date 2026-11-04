@@ -132,7 +132,7 @@ export const uiPrefsActions = {
         cursorBlink: event.appearance?.cursorBlink ?? true,
         sendAsk: event.appearance?.sendAsk ?? true,
         notifyAllowed: event.appearance?.notify ?? true,
-        processIcons: event.icons ?? { filter: 'palette', map: {} },
+        processIcons: event.icons ?? {},
         transparency: event.appearance?.transparency ?? true,
         tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
         gestureFlags: {

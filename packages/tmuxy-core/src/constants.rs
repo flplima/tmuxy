@@ -154,11 +154,9 @@ pub mod tmux_options {
     /// `@tmuxy-css-<variable> <value>`: one CSS variable set on the page over
     /// the theme file — see [`crate::theme::CSS_VAR_PREFIX`].
     pub const CSS_VAR_PREFIX: &str = "@tmuxy-css-";
-    /// `@tmuxy-icon-<process> <glyph|file>`: the icon a pane running
+    /// `@tmuxy-icon-<process> <text|file.svg>`: the icon a pane running
     /// `<process>` wears — see `theme/icons.rs`.
     pub const ICON_PREFIX: &str = "@tmuxy-icon-";
-    /// How an image icon is painted: `palette`, `none` or a theme colour.
-    pub const ICON_FILTER: &str = "@tmuxy-icon-filter";
 
     /// Appearance: background alpha (0.0–1.0) of each surface, on every
     /// platform — see [`crate::theme::Appearance`].
