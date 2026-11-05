@@ -415,6 +415,13 @@
   white-space: nowrap;
 }
 
+/* A tab's label clips (the ellipsis), so its box is the row's full height, as
+   a pane row's line is: a colour emoji in the icon slot paints taller than its
+   1.15em box, and a box only the name's line tall cut off its top. */
+.sidebar-tree-tab > .sidebar-tree-label {
+  line-height: var(--tree-row);
+}
+
 /* A pane's git context: the branch (or short head) of the worktree its cwd
    sits in, from the host's worktree discovery (docs/TMUX.md "Sessions tree"),
    in the 30% of the line the path leaves it. */

@@ -12,6 +12,7 @@ const {
   afterFrames,
   waitForCondition,
   waitForKeyboardTarget,
+  renameWindowKeyboard,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 6d: Sidebar Tree View ====================
@@ -363,4 +364,68 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     }));
     expect(afterNav).toEqual({ column: false, open: false, focused: false });
   }, 180000);
+
+  test('a tab named with a leading emoji shows the whole glyph as its tree row icon, not a top or bottom cut off', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+
+    // A plain pictograph, a variation-selector one and a ZWJ sequence: colour
+    // emoji paint taller than their em box, which a clip sized to the name's
+    // own line cut off.
+    const names = ['📺 tmuxy', '🏛️ agora', '🧑‍💻 dev'];
+    const tabNames = () =>
+      ctx.page.evaluate(() => window.app.getSnapshot().context.windows.map((w) => w.name));
+    for (const [i, name] of names.entries()) {
+      if (i > 0) await createWindowKeyboard(ctx.page);
+      await renameWindowKeyboard(ctx.page, name);
+      await waitForCondition(
+        ctx.page,
+        async () => (await tabNames()).includes(name),
+        10000,
+        `the tab to be named ${name}`,
+      );
+    }
+    await openSidebarKeyboard(ctx.page, 'left');
+
+    // Each tab row's icon, its ink measured by the browser's own text metrics
+    // in the icon's font, against the box of the nearest ancestor that clips.
+    const measure = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.sidebar-tree-tab')].map((row) => {
+          const icon = row.querySelector('.sidebar-tree-tab-icon');
+          let clip = icon.parentElement;
+          while (clip !== row && getComputedStyle(clip).overflow === 'visible') {
+            clip = clip.parentElement;
+          }
+          const style = getComputedStyle(icon);
+          const text = document.createElement('canvas').getContext('2d');
+          text.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const m = text.measureText(icon.textContent);
+          const box = icon.getBoundingClientRect();
+          const em = m.fontBoundingBoxAscent + m.fontBoundingBoxDescent;
+          const baseline = box.top + (box.height - em) / 2 + m.fontBoundingBoxAscent;
+          const { top, bottom } = clip.getBoundingClientRect();
+          return {
+            icon: icon.textContent,
+            over: Math.max(top - (baseline - m.actualBoundingBoxAscent), 0),
+            under: Math.max(baseline + m.actualBoundingBoxDescent - bottom, 0),
+          };
+        }),
+      );
+    await waitForCondition(
+      ctx.page,
+      async () => (await measure()).length === names.length,
+      10000,
+      'a tree row for every tab',
+    );
+    const rows = await measure();
+    expect(rows.map((r) => r.icon)).toEqual(names.map((n) => n.split(' ')[0]));
+    // Half a pixel for rounding: the clip before the fix took 1.6px off the top.
+    for (const row of rows) {
+      expect({ icon: row.icon, cut: row.over + row.under > 0.5 }).toEqual({
+        icon: row.icon,
+        cut: false,
+      });
+    }
+  }, 90000);
 });
