@@ -9,13 +9,20 @@ inputs:
     default: '3.7a'
   # The cache key's namespace. `runner.os` serves one runner image; a job that
   # builds on several images of one OS (build-app.yml) passes `matrix.os`, so
-  # the 22.04 and arm builds each link their own libevent.
+  # the 22.04 and arm builds each link their own libevent. The key also names
+  # the image's release (`ImageOS`, e.g. ubuntu24), so a binary linked against
+  # one release's ncurses is never restored onto the next.
   cache-key-namespace:
     required: false
     default: ${{ runner.os }}
 runs:
   using: composite
   steps:
+    - name: Name the runner image
+      id: image
+      shell: bash
+      run: echo "os=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
+
     - name: Cache tmux ${{ inputs.version }}
       id: tmux-cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -23,7 +30,7 @@ runs:
         path: |
           /usr/local/bin/tmux
           /usr/local/share/tmux
-        key: ${{ inputs.cache-key-namespace }}-tmux-${{ inputs.version }}-v1
+        key: ${{ inputs.cache-key-namespace }}-${{ steps.image.outputs.os }}-tmux-${{ inputs.version }}-v1
 
     # The build's own apt dependencies are installed here, on a miss, so a job
     # that only ever restores the cache pays for no apt index refresh.

@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   sweep:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     outputs:
       failed: ${{ steps.failed.outputs.ids }}
@@ -90,7 +90,7 @@ jobs:
   # tagged `nightly` — and the axe accessibility pass over every story, which
   # the per-commit probe skips. docs/TESTS-LAYERS.md § Tiers.
   deterministic:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     outputs:
       failed: ${{ steps.failed.outputs.ids }}
@@ -138,7 +138,7 @@ jobs:
   reconfirm-v86:
     needs: sweep
     if: needs.sweep.outputs.failed != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -172,7 +172,7 @@ jobs:
   reconfirm-deterministic:
     needs: deterministic
     if: needs.deterministic.outputs.failed != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -211,7 +211,7 @@ jobs:
   report:
     needs: [sweep, deterministic, reconfirm-v86, reconfirm-deterministic]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read

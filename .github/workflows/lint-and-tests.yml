@@ -48,7 +48,7 @@ jobs:
   # rules are bin/ci/ci-changes.mjs (tested from the UI package); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       desktop: ${{ steps.changes.outputs.desktop }}
@@ -74,10 +74,10 @@ jobs:
   # (rust-embed in tmuxy-server/src/server.rs), and the E2E suites hit the
   # embedded copy.
   #
-  # Every consumer runs on ubuntu-latest, so one linux-x86_64 binary serves
+  # Every consumer runs on ubuntu-24.04, so one linux-x86_64 binary serves
   # them all. Artifacts do not carry the executable bit; consumers chmod it.
   build-frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -106,7 +106,7 @@ jobs:
   # that no functional test can tell apart. The artifact keeps the
   # `target/release/` path its consumers expect.
   build-server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: build-frontend
 
@@ -211,7 +211,7 @@ jobs:
   # A push that edited the web suites also gets the [nightly] tier, on one
   # more runner (the `changes` job decides).
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs: changes
     outputs:
@@ -228,7 +228,7 @@ jobs:
   # one runner per suite. Previously these were serial inside a single
   # job (~10 min total); matrix puts walltime at max-of-suites.
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: [plan, build-server]
     strategy:
@@ -381,7 +381,7 @@ jobs:
   # nightly tier gone the probe was still the longest job on every push, and
   # a second runner's setup (~90s) is cheaper than the half it takes over.
   storybook-probe:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -442,7 +442,7 @@ jobs:
         run: tail -200 /tmp/storybook.log
 
   storybook-v86-probe:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Skipped for a push that touched nothing the probe loads (the `changes`
     # job): the E2E suites, the server, the desktop crate, prose.
@@ -545,7 +545,7 @@ jobs:
   # The smoke test runs FIRST and brings its own tauri-driver up and down; the
   # jest suite then starts its own on the same port.
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     # Skipped for a push that touched nothing the app is built from or tested
     # by (the `changes` job): the web E2E suites, the demo, stories, prose.
@@ -652,7 +652,7 @@ jobs:
   # would keep this job permanently red) and the Rust workspace, with the
   # policy and its reasons in .cargo/audit.toml.
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Only when a lockfile moved (the `changes` job): an advisory published
     # against a dependency no push touched made this job red for commits that
@@ -686,7 +686,7 @@ jobs:
   # slowest tests, read back from the logs by bin/ci/ci-timing.mjs. Runs after
   # everything else whatever their result, and never fails the run itself.
   timing:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: always()
     needs:
