@@ -12,7 +12,7 @@
  * - **key** — a Ctrl or Alt chord pressed in the page. The page has the
  *   keyboard while the user is in it, so without this Ctrl+C would never
  *   reach the widget (it quits the preview) and the prefix would never reach
- *   the app;
+ *   the app. A copy with something to copy stays the page's (`pageChord`);
  * - **open** — a link the user followed, handed to the system browser.
  *
  * The page is not trusted, and anything can post a message, so the app reads
@@ -73,8 +73,33 @@ export function isReplayedPreviewKey(event: KeyboardEvent): boolean {
   return replayedPreviewKeys.has(event);
 }
 
+/**
+ * What the bridge does with a Ctrl or Alt chord pressed in the page, given
+ * whether the page has something to copy (selected text, or the cursor in a
+ * field): `native` leaves the browser's own copy (Ctrl+C) to the browser,
+ * `copy` copies for the terminal's (Ctrl+Shift+C), which the browser does not
+ * know, and `post` hands the chord to the app. With nothing to copy, Ctrl+C
+ * is the app's, and quits the preview.
+ *
+ * It runs inside the page, handed to `bridge` by `bridgeScript`, so it may
+ * use nothing outside itself.
+ */
+export function pageChord(
+  key: { key: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean },
+  somethingToCopy: boolean,
+): 'native' | 'copy' | 'post' {
+  if (!somethingToCopy || !key.ctrlKey || key.altKey || key.key.toLowerCase() !== 'c') {
+    return 'post';
+  }
+  return key.shiftKey ? 'copy' : 'native';
+}
+
 /** The script's body: a function of where to scroll to once the page loads. */
-function bridge(start: { x: number; y: number }, channel: BridgeChannel) {
+function bridge(
+  start: { x: number; y: number },
+  channel: BridgeChannel,
+  chordOf: typeof pageChord,
+) {
   // Remove our own <script> element and take what we call before any page
   // script runs, so the page can neither read the token from the DOM nor
   // replace the functions we post and listen with. `isTrusted` needs no
@@ -84,6 +109,12 @@ function bridge(start: { x: number; y: number }, channel: BridgeChannel) {
   const postToParent = parent.postMessage.bind(parent);
   const addWin = window.addEventListener.bind(window);
   const addDoc = document.addEventListener.bind(document);
+  const selection = window.getSelection.bind(window);
+  const execCommand = document.execCommand.bind(document);
+  const inField = (target: EventTarget | null) =>
+    !!(target as Element | null)?.closest?.(
+      'input, textarea, [contenteditable]:not([contenteditable="false"])',
+    );
   const post = (message: unknown) => postToParent({ tmuxyPreview: message, token }, targetOrigin);
   const restore = () => window.scrollTo(start.x, start.y);
   addDoc('DOMContentLoaded', restore);
@@ -111,8 +142,14 @@ function bridge(start: { x: number; y: number }, channel: BridgeChannel) {
       if (!(e.ctrlKey || e.altKey) || e.metaKey) return;
       // Ctrl held on its own is the start of a chord, not one.
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+      const chord = chordOf(e, inField(e.target) || selection()?.isCollapsed === false);
+      if (chord === 'native') return;
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (chord === 'copy') {
+        execCommand('copy');
+        return;
+      }
       post({
         type: 'key',
         key: e.key,
@@ -140,7 +177,7 @@ function bridge(start: { x: number; y: number }, channel: BridgeChannel) {
 
 /** The `<script>` that runs `bridge`, first in the page, scrolled to `start`. */
 export function bridgeScript(start: { x: number; y: number }, channel: BridgeChannel): string {
-  return `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(channel)});`;
+  return `(${bridge.toString()})(${JSON.stringify(start)},${JSON.stringify(channel)},${pageChord.toString()});`;
 }
 
 const MODIFIERS = new Set(['Control', 'Alt', 'Shift', 'Meta']);

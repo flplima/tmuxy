@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bridgeScript, newBridgeChannel, readBridgeMessage } from '../previewBridge';
+import { bridgeScript, newBridgeChannel, pageChord, readBridgeMessage } from '../previewBridge';
 
 const TOKEN = 'a1b2c3';
 const wrap = (m: unknown) => ({ tmuxyPreview: m, token: TOKEN });
@@ -65,7 +65,30 @@ describe('the preview bridge', () => {
 
   it('scrolls the page to where it was, signing for and posting to the app alone', () => {
     const script = bridgeScript({ x: 0, y: 340 }, { token: TOKEN, targetOrigin: 'http://app' });
-    expect(script).toContain('({"x":0,"y":340},{"token":"a1b2c3","targetOrigin":"http://app"})');
+    expect(script).toContain('({"x":0,"y":340},{"token":"a1b2c3","targetOrigin":"http://app"},');
+  });
+
+  it('leaves a copy to the page while it has something to copy, and Ctrl+C to the app otherwise', () => {
+    const chord = (key: string, mods: { shift?: boolean; alt?: boolean } = {}) => ({
+      key,
+      ctrlKey: true,
+      altKey: mods.alt === true,
+      shiftKey: mods.shift === true,
+    });
+    // Text selected, or the cursor in a field: Ctrl+C is the browser's copy,
+    // and Ctrl+Shift+C, which the browser does not know, is copied for it.
+    expect(pageChord(chord('c'), true)).toBe('native');
+    expect(pageChord(chord('C', { shift: true }), true)).toBe('copy');
+    // Nothing to copy: both are the app's, and Ctrl+C quits the preview.
+    expect(pageChord(chord('c'), false)).toBe('post');
+    expect(pageChord(chord('C', { shift: true }), false)).toBe('post');
+    // Any other chord is the app's, selection or not.
+    expect(pageChord(chord('b'), true)).toBe('post');
+    expect(pageChord(chord('c', { alt: true }), true)).toBe('post');
+    expect(pageChord({ ...chord('c'), ctrlKey: false, altKey: true }, true)).toBe('post');
+    // The page runs it standalone, handed to the bridge.
+    const script = bridgeScript({ x: 0, y: 0 }, { token: TOKEN, targetOrigin: 'http://app' });
+    expect(script.endsWith(`,${pageChord.toString()});`)).toBe(true);
   });
 
   it('takes a message only with the token of the page it composed', () => {

@@ -372,8 +372,9 @@ describe('Scenario: tmuxy open previews a local file', () => {
 <script>
   window.netResult = 'pending';
   fetch('https://example.com/').then(() => { window.netResult = 'online'; }, () => { window.netResult = 'offline'; });
+  document.addEventListener('copy', () => { const f = document.activeElement; window.copied = f.tagName === 'INPUT' ? f.value.slice(f.selectionStart, f.selectionEnd) : String(getSelection()); });
 </script></head>
-<body><h1>${heading}</h1><img id="outside" src="../outside.png"><div style="height: 4000px"></div></body></html>\n`,
+<body><h1>${heading}</h1><input value="Field Text"><img id="outside" src="../outside.png"><div style="height: 4000px"></div></body></html>\n`,
       );
     write('First Heading');
     await openPreview(ctx, page);
@@ -471,6 +472,29 @@ describe('Scenario: tmuxy open previews a local file', () => {
     await clickIntoPage();
     await splitFromPreview(ctx, shown.paneId);
     await clickIntoPage();
+    // With text selected, or the cursor in a field, a copy is the page's and
+    // the preview stays; Ctrl+Shift+C, the terminal's, copies there too.
+    const copyIn = async (select, keys, text) => {
+      await previewFrame(ctx.page).evaluate(select);
+      await ctx.page.keyboard.press(keys);
+      const copied = () => previewFrame(ctx.page).evaluate(() => window.copied);
+      await waitForCondition(
+        ctx.page,
+        async () => (await copied()) === text,
+        5000,
+        () => `${keys} to copy ${text}`,
+      );
+      expect((await activePreview(ctx.page)).widget).toBeTruthy();
+    };
+    await copyIn(
+      () => getSelection().selectAllChildren(document.querySelector('h1')),
+      'Control+c',
+      'Second Heading',
+    );
+    await copyIn(() => document.querySelector('input').select(), 'Control+Shift+C', 'Field Text');
+    await previewFrame(ctx.page).evaluate(
+      () => document.activeElement.blur() || getSelection().removeAllRanges(),
+    );
     await ctx.page.keyboard.press('Control+c');
     await waitForCondition(
       ctx.page,
