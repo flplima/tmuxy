@@ -23,6 +23,7 @@ const {
   waitForCondition,
   pasteText,
 } = require('./helpers');
+const { tmuxSideOfSession } = require('./helpers/tmux-side');
 
 const BRACKETED_PASTE_SCRIPT = require('path').join(__dirname, 'helpers', 'bracketed-paste.py');
 
@@ -396,7 +397,12 @@ describe('Scenario 2c: International Input', () => {
       ctx.page,
       async () => squash(await getTerminalText(ctx.page)).split(expected).length - 1 >= 2,
       20000,
-      'the composed text to be on screen twice: typed, then echoed',
+      // CI has lost this twice with nothing to go on: show what the client
+      // drew and what tmux holds, a delivery fault apart from a drawing one.
+      async () =>
+        `the composed text to be on screen twice: typed, then echoed. Client screen: ` +
+        `${JSON.stringify((await getTerminalText(ctx.page)).trim().slice(-300))}\n` +
+        (await tmuxSideOfSession(ctx.page)),
     );
   }, 90000);
 });
