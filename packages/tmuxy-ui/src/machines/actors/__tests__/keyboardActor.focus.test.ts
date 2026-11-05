@@ -61,9 +61,10 @@ describe('keyboardActor — the page gets the focus with no pane clicked', () =>
   let field: HTMLInputElement;
 
   beforeEach(() => {
-    // jsdom answers to `ontouchstart`; this is a desktop, where the hidden
-    // input holds the keyboard. A phone keeps it down until the ⌨ key.
-    vi.spyOn(mobileKeyboard, 'isTouchDevice').mockReturnValue(false);
+    // jsdom has no `matchMedia` and answers to `ontouchstart`; this is a
+    // desktop, where the hidden input holds the keyboard. A phone keeps it
+    // down until the ⌨ key.
+    vi.spyOn(mobileKeyboard, 'touchIsPrimary').mockReturnValue(false);
     chrome = document.createElement('button');
     field = document.createElement('input');
     document.body.append(chrome, field);
@@ -108,5 +109,23 @@ describe('keyboardActor — the page gets the focus with no pane clicked', () =>
     expect(document.activeElement).toBe(chrome);
     document.dispatchEvent(new Event('visibilitychange'));
     expect(document.activeElement).toBe(getMobileInput());
+  });
+
+  it('takes it on a desktop whose screen also takes touch, and leaves it on a phone', () => {
+    // Touch points (jsdom has `ontouchstart`) with the mouse as the primary
+    // pointer: a touchscreen laptop. Only a coarse primary pointer is a phone.
+    vi.mocked(mobileKeyboard.touchIsPrimary).mockRestore();
+    for (const [coarse, takes] of [
+      [false, true],
+      [true, false],
+    ] as const) {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query === '(pointer: coarse)' && coarse,
+      }));
+      expect('ontouchstart' in window).toBe(true);
+      pageGetsFocusWith(chrome);
+      expect(document.activeElement === getMobileInput()).toBe(takes);
+    }
+    vi.unstubAllGlobals();
   });
 });

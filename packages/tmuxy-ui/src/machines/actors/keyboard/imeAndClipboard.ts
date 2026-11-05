@@ -15,7 +15,7 @@ import type { AnyActorRef } from 'xstate';
 import {
   focusKeyboardInput,
   getMobileInput,
-  isTouchDevice,
+  touchIsPrimary,
   setKeyboardInputTarget,
   setupMobileKeyboard,
 } from '../../../utils/mobileKeyboard';
@@ -52,7 +52,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       return;
     }
     const target = realPaneId(currentPane);
-    if (!isTouchDevice() && !keyboardFocusEstablished && target !== null && nothingFocused()) {
+    if (!touchIsPrimary() && !keyboardFocusEstablished && target !== null && nothingFocused()) {
       focusKeyboardInput(target);
       keyboardFocusEstablished = true;
     }
@@ -73,7 +73,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
    * hidden input takes it for the active pane, so typing works at once.
    */
   const reclaimKeyboard = () => {
-    if (isTouchDevice() || primaryPointerDown || hasSelection()) return;
+    if (touchIsPrimary() || primaryPointerDown || hasSelection()) return;
     if (deps.isLeftSidebarFocused()) return;
     const active = document.activeElement as HTMLElement | null;
     if (active === getMobileInput()) return;
@@ -170,7 +170,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   // until it has gone and come back.
   let copiedOnSelect: string | null = null;
   const copyOnSelect = () => {
-    if (!deps.isEnabled() || isTouchDevice()) return;
+    if (!deps.isEnabled() || touchIsPrimary()) return;
     const selected = terminalSelection();
     if (!selected) {
       copiedOnSelect = null;
@@ -202,7 +202,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   };
 
   const restoreKeyboardFocus = (byPointer: boolean) => {
-    if (isTouchDevice() || hasSelection()) return;
+    if (touchIsPrimary() || hasSelection()) return;
     const active = document.activeElement as HTMLElement | null;
     if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
       const paneId = realPaneId(deps.getActivePaneId());

@@ -102,6 +102,18 @@ export function isTouchDevice(): boolean {
   return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 }
 
+/**
+ * Touch is how this device is mainly used: a phone or a tablet, whose primary
+ * pointer is coarse (the phone layout's own test, utils/phoneLayout.ts). A
+ * touchscreen laptop, or a desktop with a touch display or a pen, reports
+ * touch points too, but its primary pointer is the mouse: there the app takes
+ * the keyboard for the active pane as on any desktop.
+ */
+export function touchIsPrimary(): boolean {
+  if (typeof window.matchMedia !== 'function') return isTouchDevice();
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
 /** Called by keyboardActor at startup to register the character-forwarding handler. */
 export function setupMobileKeyboard(
   handler: (text: string, paneId: PaneId | null) => void,

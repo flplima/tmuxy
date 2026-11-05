@@ -93,4 +93,25 @@ describe('Scenario: typing reaches the active pane as soon as the page has the f
     await typeLine(page, 'echo FOCUS_BODY_OK');
     await expectTyped(page, 'FOCUS_BODY_OK');
   }, 120000);
+
+  test('a desktop whose screen also takes touch: a fresh load, no click, the text lands', async () => {
+    if (ctx.skipIfNotReady()) return;
+    await ctx.setupPage();
+    const page = ctx.page;
+
+    // A touchscreen laptop, or a desktop with a touch display or a pen: the
+    // browser reports touch points, but the mouse is the primary pointer and
+    // the page is laid out for it. Only a phone or tablet keeps the keyboard
+    // down until a tap asks for it.
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 10 });
+    });
+    await navigateToSession(page, ctx.session.name);
+    await waitForSessionReady(page, ctx.session.name);
+    expect(await page.evaluate(() => navigator.maxTouchPoints)).toBe(10);
+    expect(await page.evaluate(() => matchMedia('(pointer: fine)').matches)).toBe(true);
+    await waitForCondition(page, () => holdsKeyboard(page), 10000, 'the app to hold the keyboard');
+    await typeLine(page, 'echo FOCUS_TOUCH_DESKTOP_OK');
+    await expectTyped(page, 'FOCUS_TOUCH_DESKTOP_OK');
+  }, 120000);
 });

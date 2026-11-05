@@ -91,7 +91,7 @@ describe('keyboardActor — copy on select', () => {
   let copied: string[];
 
   beforeEach(() => {
-    vi.spyOn(mobileKeyboard, 'isTouchDevice').mockReturnValue(false);
+    vi.spyOn(mobileKeyboard, 'touchIsPrimary').mockReturnValue(false);
     // jsdom lays nothing out: the copy blink has no rectangles to cover.
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
     copied = [];
