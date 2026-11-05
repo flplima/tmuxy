@@ -280,3 +280,39 @@ fn github_workflow_annotations_percent_escape_newlines_and_carriage_returns() {
         "{annotation}"
     );
 }
+
+/// `--last 2` keeps the last two actions and everything between the first
+/// of them beginning and the last ending, uncorrelated events included, and
+/// leaves out what came after. The last are the ones seen last: a1, which
+/// began first but was busy again at ts 5, is one, while a2, done at ts 3, is
+/// in the slice only for falling inside it. Fewer actions than asked are all
+/// kept; a trace with none gives nothing.
+#[test]
+fn the_last_actions_are_kept_with_everything_between_them() {
+    let action = |id: &str, ts: u64| {
+        ev(
+            serde_json::json!({"layer": "server", "name": "client command", "action_id": id, "ts_wall": ts}),
+        )
+    };
+    let plain =
+        |ts: u64| ev(serde_json::json!({"layer": "emitter", "name": "emit state", "ts_wall": ts}));
+    let events = vec![
+        action("a1", 1),
+        plain(2),
+        action("a2", 3),
+        plain(4),
+        action("a1", 5),
+        action("a3", 6),
+        plain(7),
+    ];
+    let ts = |kept: Vec<Map<String, Value>>| -> Vec<u64> {
+        kept.iter()
+            .map(|e| e["ts_wall"].as_u64().unwrap())
+            .collect()
+    };
+    // The last two by their latest event are a3 and a1; a1 began at ts 1.
+    assert_eq!(ts(last_actions(&events, 2)), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(ts(last_actions(&events, 1)), vec![6]);
+    assert_eq!(ts(last_actions(&events, 10)), vec![1, 2, 3, 4, 5, 6]);
+    assert!(last_actions(&[plain(1), plain(2)], 3).is_empty());
+}

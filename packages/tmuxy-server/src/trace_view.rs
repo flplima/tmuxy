@@ -49,6 +49,14 @@ pub struct TraceViewArgs {
     /// marker after it — one test's slice of a whole run's trace.
     #[arg(long, value_name = "MARK")]
     pub window: Option<String>,
+
+    /// Read only the last N actions (an `action_id` each, one per thing the
+    /// user did): every event traced from the first of them to the last, the
+    /// uncorrelated ones in between included. With no `--health` or
+    /// `--export`, print those lines as NDJSON, a short slice to paste into a
+    /// bug report.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    pub last: Option<u32>,
 }
 
 pub fn run(args: TraceViewArgs) {
@@ -85,6 +93,10 @@ pub fn run(args: TraceViewArgs) {
         Some(label) => window(&events, label),
         None => events,
     };
+    let events = match args.last {
+        Some(n) => last_actions(&events, n as usize),
+        None => events,
+    };
     if events.is_empty() {
         println!("tmuxy trace: {} has no events to read", path.display());
         return;
@@ -111,6 +123,10 @@ pub fn run(args: TraceViewArgs) {
                 print!("{}", github_annotations(&events));
             } else if args.health {
                 print!("{}", health_check(&events));
+            } else if args.last.is_some() {
+                for ev in &events {
+                    println!("{}", Value::Object(ev.clone()));
+                }
             } else {
                 print!("{}", summarize(&events));
             }
@@ -156,6 +172,33 @@ fn append_marker(path: &Path, label: &str) -> Result<(), String> {
     let mut file = tmuxy_core::private_files::open_append(path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
     writeln!(file, "{line}").map_err(|e| e.to_string())
+}
+
+/// The events of the last `n` actions: the `n` action ids seen last, and every
+/// event, correlated or not, from the first event of the earliest of them to
+/// the last event of any. What the server traced after them, mostly state it
+/// pushed while nobody did anything, is left out. Fewer actions than `n` are
+/// all kept; none at all leave nothing.
+fn last_actions(events: &[Map<String, Value>], n: usize) -> Vec<Map<String, Value>> {
+    let mut first_seen: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut last_seen: BTreeMap<&str, usize> = BTreeMap::new();
+    for (i, ev) in events.iter().enumerate() {
+        if let Some(id) = ev.get("action_id").and_then(Value::as_str) {
+            first_seen.entry(id).or_insert(i);
+            last_seen.insert(id, i);
+        }
+    }
+    let mut by_recency: Vec<(&str, usize)> = last_seen.into_iter().collect();
+    by_recency.sort_by_key(|&(_, i)| std::cmp::Reverse(i));
+    let kept = &by_recency[..n.min(by_recency.len())];
+    let start = kept
+        .iter()
+        .filter_map(|(id, _)| first_seen.get(id).copied())
+        .min();
+    match (start, kept.first()) {
+        (Some(start), Some(&(_, end))) => events[start..=end].to_vec(),
+        _ => Vec::new(),
+    }
 }
 
 fn load(path: &Path) -> Result<Vec<Map<String, Value>>, String> {

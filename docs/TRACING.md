@@ -250,6 +250,12 @@ production pays nothing.
   run, the test). `--github` prints the findings as GitHub Actions annotations;
   `--window "<marker label>"` reads only the events from that marker to the
   next, which is one test's slice of a run.
+- **A slice for a bug report:** `tmuxy trace --last <N>` prints, as NDJSON,
+  the last N actions and every event traced from the first of them to the
+  last, uncorrelated ones included. The state the server pushed afterwards
+  while nobody acted is left out, so a few actions come to tens of lines. With
+  `--check` or `--export`, it narrows what those read instead. What a line
+  holds depends on the trace level, so share a slice taken at `shape`.
 
 ## Where the code lives
 
