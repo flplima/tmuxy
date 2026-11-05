@@ -3,6 +3,12 @@
   "version": "0.1.4",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flplima/tmuxy.git",
+    "directory": "packages/tmuxy-ui"
+  },
+  "homepage": "https://tmuxy.sh/",
   "type": "module",
   "exports": {
     ".": "./src/lib.ts",

@@ -3,6 +3,12 @@
   "version": "0.1.4",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flplima/tmuxy.git",
+    "directory": "packages/tmuxy-demo"
+  },
+  "homepage": "https://tmuxy.sh/",
   "scripts": {
     "predev": "bash ../../bin/kill-port 9003 && node scripts/agent-docs.mjs && node scripts/stage-guest-assets.mjs",
     "dev": "next dev",

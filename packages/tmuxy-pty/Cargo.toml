@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "The terminal a CheerpX guest pane runs on: tmux execs each pane's program under it, over a socket pair, because CheerpX gives every process the same pty"
 
 [lib]

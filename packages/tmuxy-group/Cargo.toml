@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "The pane-group operations (`tmuxy-group <verb>`, `tmuxy-server group <verb>`) — standalone so the in-browser v86 guest (i686-musl) can run them too"
 
 [lib]

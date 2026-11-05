@@ -4,7 +4,9 @@ Thanks for helping build **tmuxy**, a web and desktop UI over real `tmux`.
 
 Whether you are posting a 2-minute action trace on a bug, adding a CSS theme, or fixing a Rust control-mode race, any PR or draft PR is welcome at any stage. There is no need to claim an issue before starting.
 
-> **Security issues:** Please do not post exploit details in public issues. Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/flplima/tmuxy/security/advisories/new) and review our threat model in [docs/SECURITY.md](docs/SECURITY.md).
+> **Security issues:** Please do not post exploit details in public issues. Report vulnerabilities privately via [GitHub Security Advisories](https://github.com/flplima/tmuxy/security/advisories/new), as [SECURITY.md](SECURITY.md) describes, and review our threat model in [docs/SECURITY.md](docs/SECURITY.md).
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## 1. Setup in 3 minutes (without touching your own tmux)
 

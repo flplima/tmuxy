@@ -3,6 +3,12 @@
   "version": "0.1.4",
   "private": true,
   "description": "A tmux terminal wrapper - available as Tauri app or web server",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flplima/tmuxy.git"
+  },
+  "homepage": "https://tmuxy.sh/",
   "workspaces": [
     "packages/tmuxy-ui",
     "packages/tmuxy-demo"
