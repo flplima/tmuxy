@@ -38,7 +38,7 @@ jobs:
   # The frontend bundle and the release server, built once and handed to all
   # four matrix entries — neither depends on the tmux version under test.
   build-artifacts:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     steps:
@@ -82,7 +82,7 @@ jobs:
 
   suites:
     needs: build-artifacts
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     name: tmux ${{ matrix.tmux.name }}
     permissions:
@@ -349,7 +349,7 @@ jobs:
   # run counts: re-running the matrix after a fix is how one is confirmed.
   resolve-issue:
     needs: suites
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read

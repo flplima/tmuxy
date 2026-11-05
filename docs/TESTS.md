@@ -118,7 +118,7 @@ npm run storybook -w tmuxy-ui              # Storybook dev server (required for 
 npm run test-storybook -w tmuxy-ui         # Probe all non-v86 stories
 npm run test-storybook:v86 -w tmuxy-ui     # Probe v86 stories (shared engine)
 
-npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, webkit2gtk-driver)
+npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvfb, WebKitWebDriver: `webkitgtk-webdriver`, `webkit2gtk-driver` before Ubuntu 26.04)
 
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
 npm run perf:interactions -- --url http://localhost:9000 --out tests/perf/interaction-report.json

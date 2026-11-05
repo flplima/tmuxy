@@ -81,7 +81,7 @@ jobs:
             binary: target/release/tmuxy
           - platform: macos
             arch: universal
-            os: macos-latest
+            os: macos-26
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             tauri-args: '--target universal-apple-darwin'
             binary: target/universal-apple-darwin/release/tmuxy
@@ -580,7 +580,7 @@ jobs:
   # or a fork) the job says so and passes.
   upgrade-path:
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -597,7 +597,7 @@ jobs:
         run: |
           bin/ci/apt-get update
           bin/ci/apt-get install -y --no-install-recommends \
-            tmux libwebkit2gtk-4.1-0 libgtk-3-0 libsoup-3.0-0 \
+            tmux libwebkit2gtk-4.1-0 libgtk-3-0t64 libsoup-3.0-0 \
             libegl1 libgl1 libgbm1 libasound2t64
           tmux -V
 
@@ -792,7 +792,7 @@ jobs:
   release:
     needs: [build, tests, upgrade-path]
     if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'release'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -841,7 +841,7 @@ jobs:
     # `release: released` and runs this. Forgetting to promote leaves users on
     # the last good build, which is the failure mode we want.
     if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       # The PUBLISHED bytes, not the build's artifacts. The tap's sha256 has to
@@ -969,7 +969,7 @@ jobs:
     # `release: released` and runs this. Forgetting to promote leaves users on
     # the last good build, which is the failure mode we want.
     if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       # Same as the cask: hash what was published, not what was built.
@@ -1132,7 +1132,7 @@ jobs:
     # `release: released` and runs this. Forgetting to promote leaves users on
     # the last good build, which is the failure mode we want.
     if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:

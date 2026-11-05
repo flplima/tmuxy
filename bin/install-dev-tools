@@ -37,7 +37,7 @@ fi
 echo "[dev-tools] apt packages"
 # fzf and neovim are driven BY the tests (the float fzf round trip, the nvim
 # performance suite); jq reads the NDJSON trace; zstd unpacks the v86 image;
-# xvfb + webkit2gtk-driver are the Tauri E2E display and driver. The fonts are
+# xvfb + WebKitWebDriver are the Tauri E2E display and driver. The fonts are
 # bin/chromium-fonts.txt, the list CI's Chromium gets: without the CJK and emoji
 # faces headless Chromium measures a fullwidth glyph as a 1-cell fallback box,
 # and the wide-glyph stories and E2E tests assert real cell widths — the same
@@ -46,10 +46,14 @@ echo "[dev-tools] apt packages"
 # fonts and nothing said so, where `set -e` stops on a failed assignment.
 fonts="$(cat "$(dirname "$0")/chromium-fonts.txt")"
 $SUDO apt-get update
+# WebKitWebDriver's package was renamed in Ubuntu 26.04; Debian and older
+# Ubuntu still call it webkit2gtk-driver.
+webdriver=webkit2gtk-driver
+if apt-cache show webkitgtk-webdriver >/dev/null 2>&1; then webdriver=webkitgtk-webdriver; fi
 # shellcheck disable=SC2086
 $SUDO apt-get install -y --no-install-recommends \
     jq zstd fzf neovim \
-    xvfb x11-utils webkit2gtk-driver \
+    xvfb x11-utils "$webdriver" \
     $fonts
 
 # Prebuilt binaries where there is one: `cargo install` from source costs

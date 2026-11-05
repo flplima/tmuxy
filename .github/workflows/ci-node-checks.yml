@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   demo-build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
@@ -25,7 +25,7 @@ jobs:
         run: npm run build --ignore-scripts -w tmuxy-demo
 
   unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
 
     steps:
@@ -39,7 +39,7 @@ jobs:
         run: npm test -- --run
 
   cli-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
 
     steps:
