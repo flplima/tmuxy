@@ -1,8 +1,8 @@
 {
   "_comment": [
     "The web E2E matrix: one runner per entry in lint-and-tests.yml, read by bin/ci/e2e-plan.mjs.",
-    "`filter` is a jest name regex (no leading ^) that splits one oversized file across runners;",
-    "the second half is a negative lookahead on the first, so a new scenario always lands somewhere.",
+    "`path` is the regex jest matches against each test file's path. An oversized family of files",
+    "is split across runners by naming its files, so a test's describe title never decides its runner.",
     "`tier: nightly` marks a file whose every test is tagged [nightly]: it leaves the per-commit",
     "matrix rather than spend a runner on a suite that would skip everything. docs/TESTS-LAYERS.md § Tiers.",
     "`tmux` runs the entry on that tmux instead of the 3.7a every other entry builds against."
@@ -12,24 +12,14 @@
     { "name": "1-input", "path": "tests/1-input-interaction" },
     {
       "name": "2-layout-a",
-      "path": "tests/2-layout-navigation",
-      "filter": "Scenario (4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):"
+      "path": "tests/2-layout-navigation(-(float|groups|overview|panes|zoom-drag))?\\.test\\.js"
     },
     {
       "name": "2-layout-b",
-      "path": "tests/2-layout-navigation",
-      "filter": "Scenario (?!(4|4b|4c|4d|4e|4f|4g|5|6|6b|6c):)"
+      "path": "tests/2-layout-navigation-(dock|float-scope|group-drag|peek|tree|tree-drag|tree-rows)\\.test\\.js"
     },
-    {
-      "name": "3-rendering-a",
-      "path": "tests/3-rendering-protocols",
-      "filter": "(Scenario (16|16b)|Category 11):"
-    },
-    {
-      "name": "3-rendering-b",
-      "path": "tests/3-rendering-protocols",
-      "filter": "(?!(Scenario (16|16b)|Category 11):)"
-    },
+    { "name": "3-rendering-a", "path": "tests/3-rendering-protocols-(links|unicode)\\.test\\.js" },
+    { "name": "3-rendering-b", "path": "tests/3-rendering-protocols(-images)?\\.test\\.js" },
     { "name": "4-session", "path": "tests/4-session-connectivity" },
     { "name": "5-stress", "path": "tests/5-stress-stability.test.js" },
     { "name": "6-nvim", "path": "tests/6-nvim-performance.test.js", "tier": "nightly" },
