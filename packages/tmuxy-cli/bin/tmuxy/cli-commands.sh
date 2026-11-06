@@ -60,7 +60,7 @@ cmd_tab() {
         local rows
         rows=$(_tmux_read list-windows -F "$LIST_WINDOWS_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' "$JSON_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         _tmux_read list-windows
       fi
@@ -227,7 +227,7 @@ cmd_session() {
       [ "$status" -eq 0 ] || _fail "$status" "$out"
       if [ "$sub" = snapshots ]; then
         # The binary prints one `name<TAB>saved<TAB>state` per line.
-        printf '%s\n' "$out" | awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NF>0{ if(n++) printf ","; printf "{\"name\":\"%s\",\"saved\":\"%s\",\"state\":\"%s\"}", jstr($1), jstr($2), jstr($3)} END{printf "]\n"}'
+        printf '%s\n' "$out" | awk -F'\t' "$JSON_AWK"'BEGIN{printf "["} NF>0{ if(n++) printf ","; printf "{\"name\":\"%s\",\"saved\":\"%s\",\"state\":\"%s\"}", jstr($1), jstr($2), jstr($3)} END{printf "]\n"}'
       else
         json_ok "output=$(json_string "$out")"
       fi
