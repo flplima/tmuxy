@@ -143,13 +143,14 @@ export const OP_STALE_TIMEOUT_MS = 2000;
 export const OP_ACKED_STALE_TIMEOUT_MS = 10000;
 
 /**
- * Focus ops stay in the log this long after the server confirms them: stale
- * snapshots computed before the change (an in-flight periodic list-panes sync,
- * an update batched earlier in a burst) can arrive AFTER the confirmation and
- * would flap the highlight A → B → A. Sized to outlast the v86 engine's 3s
- * re-sync cadence.
+ * Ops that pin a value (a focus, a zoom, a sidebar's hidden flag) stay in the
+ * log this long after the server confirms them: stale snapshots computed
+ * before the change (an in-flight periodic list-panes sync, an update batched
+ * earlier in a burst, the echo of this client's own previous write) can
+ * arrive AFTER the confirmation and would flap the value A → B → A. Sized to
+ * outlast the v86 engine's 3s re-sync cadence.
  */
-export const FOCUS_CONFIRM_LINGER_MS = 4000;
+export const CONFIRM_LINGER_MS = 4000;
 
 /**
  * How long an in-flight focus op holds its pin when the server reports focus
@@ -162,9 +163,9 @@ export const FOCUS_CONFIRM_LINGER_MS = 4000;
 export const FOCUS_SUPERSEDE_GRACE_MS = 800;
 
 /**
- * The verdict for an op that pins a focus (a pane's, a window's, a group's
- * shown member) on `target`; `previous` is where the focus was when the op was
- * predicted, `server` where the server now says it is.
+ * The verdict for an op that pins a value on `target` (a pane's, a window's or
+ * a group's focus, a sidebar's hidden flag); `previous` is the value when the
+ * op was predicted, `server` the one the server now reports.
  */
 export function lingerVerdict<Id>(
   target: Id,
@@ -173,9 +174,9 @@ export function lingerVerdict<Id>(
   ageMs: number,
 ): ReconcileVerdict {
   if (server === target) {
-    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+    return ageMs >= CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
   }
-  if (server === previous && ageMs < FOCUS_CONFIRM_LINGER_MS) return { _tag: 'pending' };
+  if (server === previous && ageMs < CONFIRM_LINGER_MS) return { _tag: 'pending' };
   if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) return { _tag: 'pending' };
   return { _tag: 'matched' };
 }

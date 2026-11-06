@@ -49,10 +49,13 @@ const hiddenTree = modelUpdate(
 const hiddenTag = (op: TmuxOp) =>
   op._tag === 'SetWindowTag' && op.tag === 'sidebar-hidden' ? op.value : undefined;
 
-/** The app machine over a tmux actor that records the ops it is sent from `first` on. */
+/**
+ * The app machine over a tmux actor and a store that record the ops they are
+ * sent from `first` on.
+ */
 function connected(first: ReturnType<typeof modelUpdate>) {
   const tmux = recorder();
-  const actor = startApp({ actors: { tmuxActor: tmux.logic } });
+  const actor = startApp({ actors: { tmuxActor: tmux.logic, tmuxStoreActor: tmux.logic } });
   actor.send(first);
   tmux.received.length = 0;
   return { actor, sent: tmux.ops, ctx: () => actor.getSnapshot().context };
