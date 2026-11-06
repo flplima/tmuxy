@@ -19,8 +19,16 @@ if [ "${1:-}" = agent ] && [ "${2:-}" = hook ]; then
 fi
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
-# Rewritten by the release's bump-version, so it is package.json's version.
-TMUXY_VERSION="${TMUXY_VERSION:-0.1.4}"
+# The binary that mirrors this file into the data dir writes its own version
+# in place of the placeholder (tmuxy-core `session::assets`); a checkout's copy
+# reads the tree's package.json.
+TMUXY_VERSION="@TMUXY_VERSION@"
+case "$TMUXY_VERSION" in
+  @*)
+    TMUXY_VERSION="$(sed -n 's/^  "version": "\([^"]*\)",$/\1/p' "${SELF%/*}/../../../package.json" 2>/dev/null || true)"
+    TMUXY_VERSION="${TMUXY_VERSION:-unknown}"
+    ;;
+esac
 
 # --- Helpers ---
 
