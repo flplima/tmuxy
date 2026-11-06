@@ -17,6 +17,8 @@ Events:    Frontend ← Backend ← StateEmitter ← Monitor ← stdout ← tmux
 
 The `TmuxMonitor` (in `tmuxy-core/src/control_mode/monitor.rs`) maintains a persistent `tmux -CC attach-session` subprocess via `ControlModeConnection`. All state-modifying commands flow through the monitor's command channel as `MonitorCommand::RunCommand` messages. The monitor writes commands to control mode stdin, and tmux sends notifications back through stdout (`%output`, `%layout-change`, `%window-add`, etc.).
 
+A connection counts as made only once control mode opens (X7 in [INVARIANTS.md](INVARIANTS.md)). `tmux -CC` writes a DCS (`ESC P 1000 p`) glued to the `%begin` of the block that answers its own `attach-session` or `new-session`: that block closing with `%end`, or a first notification, means attached. An `%error` closing it carries tmux's reason (a session it will not create), `%exit` means the client left, and a plain line before any of it is tmux or ssh talking on its way out; the connect fails with those words and tmux's exit status, and the host's backoff takes over (`tmuxy-core/src/control_mode/connection/spawn.rs`, `host/supervise.rs`).
+
 ## Why Control Mode Only
 
 Running external `tmux` commands (as separate subprocesses) while a control mode client is attached can **crash the tmux server**. Observed in tmux 3.3a and 3.5a. The [tmux Control Mode wiki](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
