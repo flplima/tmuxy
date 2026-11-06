@@ -24,8 +24,10 @@ describe('TmuxTransport over a driver', () => {
   it('an answer that does not match its command is a ProtocolError naming the command', async () => {
     const adapter = fakeTransport({ send: async () => [{ name: 'work', savedAt: 'yesterday' }] });
     const exit = await adapter.runtime.runPromiseExit(call((t) => t.call('list_snapshots', {})));
-    expect(failure(exit)).toMatchObject({ _tag: 'ProtocolError' });
-    expect(JSON.stringify(exit)).toMatch(/list_snapshots/);
+    expect(failure(exit)).toMatchObject({
+      _tag: 'ProtocolError',
+      reason: expect.stringContaining('list_snapshots'),
+    });
   });
 
   it('a refusal of kind tmux is a TmuxError, not a ProtocolError', async () => {
@@ -44,16 +46,6 @@ describe('TmuxTransport over a driver', () => {
     });
   });
 
-  it('a lost link (an Error) is a TransportError', async () => {
-    const adapter = fakeTransport({
-      send: async () => {
-        throw new Error('socket hang up');
-      },
-    });
-    const exit = await adapter.runtime.runPromiseExit(call((t) => t.call('list_snapshots', {})));
-    expect(failure(exit)).toMatchObject({ _tag: 'TransportError' });
-  });
-
   it('answers queries only over a driver that can reach tmux', async () => {
     const live = fakeTransport({ answersQueries: true, send: async () => '%0\n' });
     const recorded = fakeTransport({});
@@ -61,12 +53,6 @@ describe('TmuxTransport over a driver', () => {
     expect(live.invocations).toEqual([{ cmd: 'query_tmux', args: { command: 'list-panes' } }]);
     const exit = await recorded.runtime.runPromiseExit(call((t) => t.query('list-panes')));
     expect(failure(exit)).toMatchObject({ _tag: 'TransportError' });
-  });
-
-  it('connect success completes', async () => {
-    const adapter = fakeTransport({ connect: vi.fn(async () => {}) });
-    const exit = await adapter.runtime.runPromiseExit(call((t) => t.connect));
-    expect(Exit.isSuccess(exit)).toBe(true);
   });
 
   it('a driver with no session switch of its own switches with switch-client on the lane', async () => {

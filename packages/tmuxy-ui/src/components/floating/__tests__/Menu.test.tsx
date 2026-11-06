@@ -25,7 +25,18 @@ const press = (key: string) =>
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
   );
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+/** Resolves once `element` holds the focus. */
+function focusOn(element: HTMLElement): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (document.activeElement !== element) return;
+      document.removeEventListener('focusin', check);
+      resolve();
+    };
+    document.addEventListener('focusin', check);
+    check();
+  });
+}
 
 const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
@@ -35,7 +46,11 @@ describe('a submenu opened by hovering its item', () => {
   });
 
   it('closes one level per Escape even when the keys arrive before React has idled', async () => {
-    const onClose = vi.fn();
+    let closed: () => void = () => {};
+    const menuClosed = new Promise<void>((resolve) => {
+      closed = resolve;
+    });
+    const onClose = vi.fn(() => closed());
     render(
       <FloatingMenu id="menu" anchor={{ kind: 'point', x: 0, y: 0 }} onClose={onClose}>
         <MenuItem>New Tab</MenuItem>
@@ -60,10 +75,10 @@ describe('a submenu opened by hovering its item', () => {
       .find((el) => el.textContent?.includes('Gruvbox'))!
       .focus();
     press('Escape');
-    await settle();
-    expect(document.activeElement).toBe(theme);
+    await focusOn(theme);
+    expect(onClose).not.toHaveBeenCalled();
     press('Escape');
-    await settle();
+    await menuClosed;
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
