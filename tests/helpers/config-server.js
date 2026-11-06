@@ -15,7 +15,7 @@ const { execFileSync } = require('child_process');
 const { TMUXY_PORT } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
-const { tmuxEnv } = require('./tmux-socket');
+const { tmuxEnv, isolateHome } = require('./tmux-socket');
 
 // Clear of the suite's port.
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
@@ -46,7 +46,7 @@ const DIRS = {
  */
 async function startConfigServer() {
   fs.rmSync(ROOT, { recursive: true, force: true });
-  fs.mkdirSync(HOME_DIR, { recursive: true });
+  isolateHome({}, HOME_DIR);
   return startExtraServer(CONFIG_PORT, [], DIRS);
 }
 
