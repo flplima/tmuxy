@@ -110,6 +110,11 @@ impl Panes {
         self.row(pane)?.group.as_ref()
     }
 
+    /// The panes of `window`, in tmux's order (the tab's).
+    pub fn in_window<'a>(&'a self, window: &'a WindowId) -> impl Iterator<Item = &'a PaneRow> {
+        self.rows.iter().filter(move |r| r.window == *window)
+    }
+
     /// A group's members, sorted by [`order_key`].
     pub fn members(&self, group: &GroupId) -> Vec<&PaneRow> {
         let mut members: Vec<&PaneRow> = self
