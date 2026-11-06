@@ -5,7 +5,8 @@
 import { assign, sendTo } from 'xstate';
 import { groupMembers } from '../../domain/client';
 import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
-import type { DrawerDirection, FloatBackdrop, FloatPaneState, PaneGroup } from '../types/domain';
+import type { DrawerDirection, FloatBackdrop, FloatPaneState } from '../types/domain';
+import type { PaneGroup } from '../../domain/client';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { Ctx, EnqueueAction } from './actionTypes';
 import { fitGridCell, fixedGridSize, type GridCell } from '../../utils/gridFit';

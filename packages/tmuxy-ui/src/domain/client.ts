@@ -141,6 +141,26 @@ export function groupMembers(
     .map((p) => p.tmuxId);
 }
 
+/** tmux's marked pane (`select-pane -m`) among `panes`, or null. */
+export function markedPaneId(
+  panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'marked'>>,
+): PaneId | null {
+  return panes.find((p) => p.marked)?.tmuxId ?? null;
+}
+
+/**
+ * Whether copy mode means anything on the pane. A pane running a widget (a
+ * preview, the tree) draws its own view, and under it the pane's text is only
+ * the widget's marker: there is nothing there to scroll back through or copy.
+ */
+export function paneTakesCopyMode(
+  panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'paneWidget'>>,
+  paneId: PaneId,
+): boolean {
+  const pane = panes.find((p) => p.tmuxId === paneId);
+  return !!pane && !pane.paneWidget;
+}
+
 /** A window as the client holds it, decoded from a wire window. */
 export const TmuxWindow = Schema.mutable(
   Schema.Struct({
@@ -253,4 +273,10 @@ export function toClientState(state: ServerState): ClientState {
     panes: state.panes.map(decodePane),
     windows: state.windows.map(decodeWindow).sort((a, b) => a.index - b.index),
   };
+}
+
+/** Pane group - groups panes that share the same visual position (like tabs) */
+export interface PaneGroup {
+  id: GroupId;
+  paneIds: PaneId[]; // Tab order - active pane is derived from which pane is in activeWindowId
 }

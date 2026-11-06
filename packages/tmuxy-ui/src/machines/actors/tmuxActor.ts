@@ -1,7 +1,6 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
+import { Cause, Effect, Exit, Fiber, Schema, Stream } from 'effect';
 import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/wire';
-import type { TraceLevel, TraceSettings } from '../types/domain';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
 import type { PaneId } from '../../domain/ids';
@@ -9,7 +8,12 @@ import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
 import { TransportEvent } from '../../infra/transport/events';
-import { parseThemeMode, type ThemeInfo } from '../../utils/themeManager';
+import {
+  parseThemeMode,
+  ThemeInfo,
+  TraceSettings,
+  type TraceLevel,
+} from '../../domain/wireSettings';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import { openExternalUrl } from '../../utils/openUrl';
 
@@ -322,7 +326,9 @@ export function createTmuxActor(runtime: AppRuntime) {
             : event.type === 'SET_TRACE_LEVEL'
               ? withTransport((t) => t.invoke('set_trace_level', { level: event.level }))
               : null;
-        const read = withTransport((t) => t.invoke<TraceSettings>('get_trace_settings', {}));
+        const read = withTransport((t) =>
+          t.decodingInvoke('get_trace_settings', Schema.NullOr(TraceSettings), {}),
+        );
         run(write ? Effect.flatMap(write, () => read) : read, {
           onSuccess: (settings) => {
             if (!settings) return;
@@ -433,7 +439,9 @@ export function createTmuxActor(runtime: AppRuntime) {
         );
       } else if (event.type === 'FETCH_THEMES_LIST') {
         run(
-          withTransport((t) => t.invoke<ThemeInfo[]>('get_themes_list', {})),
+          withTransport((t) =>
+            t.decodingInvoke('get_themes_list', Schema.NullOr(Schema.Array(ThemeInfo)), {}),
+          ),
           {
             onSuccess: (themes) =>
               parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),

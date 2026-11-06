@@ -60,19 +60,6 @@ export function newBridgeChannel(): BridgeChannel {
   return { token, targetOrigin };
 }
 
-const replayedPreviewKeys = new WeakSet<KeyboardEvent>();
-
-/** Tag a synthetic KeyboardEvent replayed out of an `HtmlPreview` frame. */
-export function markReplayedPreviewKey<T extends KeyboardEvent>(event: T): T {
-  replayedPreviewKeys.add(event);
-  return event;
-}
-
-/** True when `event` was synthesized by `HtmlPreview` rather than pressed in the app. */
-export function isReplayedPreviewKey(event: KeyboardEvent): boolean {
-  return replayedPreviewKeys.has(event);
-}
-
 /**
  * What the bridge does with a Ctrl or Alt chord pressed in the page, given
  * whether the page has something to copy (selected text, or the cursor in a

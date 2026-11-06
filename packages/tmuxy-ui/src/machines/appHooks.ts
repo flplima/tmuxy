@@ -16,7 +16,7 @@ import type { appMachine, AppMachineActor } from './app/appMachine';
 import type { AppMachineContext } from './types/context';
 import type { AppMachineEvent } from './types/events';
 import type { TmuxPane } from '../domain/client';
-import type { PaneGroup } from './types/domain';
+import type { PaneGroup } from '../domain/client';
 import type { CopyModeState } from '../domain/copyMode';
 import {
   selectPaneById,

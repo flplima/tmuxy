@@ -5,10 +5,7 @@
  */
 
 import type { AppMachineContext } from '../../../machines/types/context';
-import {
-  selectMarkedPaneId,
-  selectPaneTakesCopyMode,
-} from '../../../machines/selectors/panesAndSidebars';
+import { markedPaneId, paneTakesCopyMode } from '../../../domain/client';
 import { TmuxOp } from '../../../domain/commands';
 import type { PaneId } from '../../../domain/ids';
 import { keyHint } from '../../../domain/menus/keyHint';
@@ -65,9 +62,9 @@ const PANE_OPS = {
 export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): AppMenuSpec {
   const { keybindings } = ctx;
   const paneId = options.paneId ?? ctx.activePaneId;
-  const markedPaneId = selectMarkedPaneId(ctx);
-  const isMarked = markedPaneId !== null && markedPaneId === paneId;
-  const hasMarked = markedPaneId !== null;
+  const marked = markedPaneId(ctx.panes);
+  const isMarked = marked !== null && marked === paneId;
+  const hasMarked = marked !== null;
   const single = ctx.panes.filter((p) => p.windowId === ctx.activeWindowId).length <= 1;
   const navigation = options.navigation ?? true;
 
@@ -119,7 +116,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       'pane-copy-mode',
       'Copy Mode',
       'copy-mode',
-      !paneId || !selectPaneTakesCopyMode(ctx, paneId),
+      !paneId || !paneTakesCopyMode(ctx.panes, paneId),
     ),
     op('pane-paste', 'Paste', 'paste'),
     op('pane-clear', 'Clear Screen', 'clear'),

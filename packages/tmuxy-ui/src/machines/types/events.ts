@@ -1,25 +1,21 @@
 import type { PushState } from '../../utils/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
+import type { ThemeInfo, ThemeMode } from '../../domain/wireSettings';
 import type { TabStripGeometry } from '../../utils/tabStripDrop';
 import type { AskAnswer } from '../../utils/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
+import type { ChildMachineEvent, KeyPressEvent, NotificationKind, ResizeHandle } from './domain';
 import type {
-  ChildMachineEvent,
   GitRepository,
-  KeyPressEvent,
-  NotificationKind,
-  ResizeHandle,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
-  TraceLevel,
-  TraceSettings,
-} from './domain';
+} from '../../domain/servers';
+import type { TraceLevel, TraceSettings } from '../../domain/wireSettings';
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =

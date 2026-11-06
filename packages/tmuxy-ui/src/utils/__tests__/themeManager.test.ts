@@ -3,10 +3,10 @@ import {
   applyCssVars,
   applyTheme,
   applyThemeMode,
-  parseThemeMode,
   reloadThemeCss,
   resolveThemeMode,
 } from '../themeManager';
+import { parseThemeMode } from '../../domain/wireSettings';
 
 const links = () =>
   [...document.head.querySelectorAll('link[rel="stylesheet"]')].map((l) => ({

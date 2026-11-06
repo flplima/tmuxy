@@ -1,7 +1,8 @@
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
-import type { FloatPaneState, PaneGroup } from '../types/domain';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type { FloatPaneState } from '../types/domain';
+import type { PaneGroup } from '../../domain/client';
+import { paneTakesCopyMode, type TmuxPane, type TmuxWindow } from '../../domain/client';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../../utils/memoize';
 import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
@@ -163,13 +164,6 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   return [...result].sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
 }
 
-/** tmux's marked pane (`select-pane -m`) in the attached session, or null. */
-export const selectMarkedPaneId = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.panes] as const,
-  (context: AppMachineContext): string | null =>
-    context.panes.find((p) => p.marked)?.tmuxId ?? null,
-);
-
 /**
  * The floats that belong to the tab the user is looking at, bottom-most first.
  */
@@ -286,14 +280,8 @@ export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: P
   return pane?.windowId === context.activeWindowId;
 }
 
-/**
- * Whether copy mode means anything on the pane. A pane running a widget (a
- * preview, the tree) draws its own view, and under it the pane's text is only
- * the widget's marker: there is nothing there to scroll back through or copy.
- */
 export function selectPaneTakesCopyMode(context: AppMachineContext, paneId: PaneId): boolean {
-  const pane = context.panes.find((p) => p.tmuxId === paneId);
-  return !!pane && !pane.paneWidget;
+  return paneTakesCopyMode(context.panes, paneId);
 }
 
 export function selectIsSinglePane(context: AppMachineContext): boolean {

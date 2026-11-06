@@ -17,7 +17,7 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import type { PaneGroup } from '../machines/types/domain';
+import type { PaneGroup } from '../domain/client';
 import { paneInsetX } from '../constants/layout';
 import type { TabDrop } from './tabStripDrop';
 import type { GroupId, PaneId } from '../domain/ids';

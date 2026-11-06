@@ -10,7 +10,7 @@ import { decodePaneAsk, type AskAnswer } from '../../../utils/paneAsk';
 import { extractSelectedText } from '../../../utils/copyMode';
 import { focusGuiWindow, newGuiWindow } from '../../../utils/guiWindows';
 import { isTauri } from '../../../utils/platform';
-import { isReplayedPreviewKey } from '../../../components/widgets/preview/previewBridge';
+import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
 
 /**

@@ -19,8 +19,10 @@ import { TransportEvent } from '../../infra/transport/events';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../infra/transport/wireDecode';
 import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../domain/wire';
-import type { TraceSettings } from '../../machines/types/domain';
-import { loadThemeFromStorage, parseThemeMode, saveThemeToStorage } from '../../utils/themeManager';
+import type { Types } from 'effect';
+import type { TraceSettings } from '../../domain/wireSettings';
+import { loadThemeFromStorage, saveThemeToStorage } from '../../utils/themeManager';
+import { parseThemeMode } from '../../domain/wireSettings';
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */
 export interface Fixture {
@@ -90,7 +92,7 @@ export class FixtureAdapter implements TmuxAdapter {
   private current: string;
   /** Every command the app sent, in order. */
   readonly commands: string[] = [];
-  private traceSettings: TraceSettings = {
+  private traceSettings: Types.Mutable<TraceSettings> = {
     enabled: false,
     level: 'shape',
     path: '/home/demo/.local/state/tmuxy/trace.ndjson',

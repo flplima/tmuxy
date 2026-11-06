@@ -11,7 +11,7 @@ import {
 } from './gitContext';
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { selectSessions, selectRepositories } from '../machines/selectors/ui';
-import type { PaneGroup } from '../machines/types/domain';
+import type { PaneGroup } from '../domain/client';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { inGridOrder } from '../utils/gridOrder';
 

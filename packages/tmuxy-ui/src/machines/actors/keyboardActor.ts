@@ -24,7 +24,7 @@ import {
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
-import { isReplayedPreviewKey } from '../../components/widgets/preview/previewBridge';
+import { isReplayedPreviewKey } from '../../infra/dom/replayedKeys';
 
 const PREVIEW_SAFE_ROOT_COMMAND =
   /^(?:tmuxy-nav-(?:left|right|up|down)|select-pane|selectp|select-window|selectw|previous-window|prev|next-window|next)(?:\s|$)/;

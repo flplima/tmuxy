@@ -1,22 +1,11 @@
 import { isTauri, tauriSchemeUrl } from './platform';
+import { parseThemeMode, type ResolvedThemeMode, type ThemeMode } from '../domain/wireSettings';
 
 const THEME_LINK_ID = 'tmuxy-theme';
 /** The user's own `custom.css`, loaded after the theme so it wins. */
 const CUSTOM_LINK_ID = 'tmuxy-custom-css';
 /** The `@tmuxy-css-*` options, as one rule between the two links. */
 const VARS_STYLE_ID = 'tmuxy-css-vars';
-
-/** What the Theme menu offers: a palette, or the operating system's choice. */
-export type ThemeMode = 'dark' | 'light' | 'auto';
-export type ResolvedThemeMode = Exclude<ThemeMode, 'auto'>;
-
-/** A theme entry as `get_themes_list` answers it. */
-export interface ThemeInfo {
-  name: string;
-  displayName: string;
-  /** The modes the file declares a palette for; absent from adapters without the file. */
-  modes?: readonly string[];
-}
 
 const LS_THEME_KEY = 'tmuxy-theme-name';
 const LS_MODE_KEY = 'tmuxy-theme-mode';
@@ -188,10 +177,6 @@ export function saveThemeToStorage(name: string, mode: ThemeMode): void {
   } catch {
     // localStorage unavailable (e.g. private browsing)
   }
-}
-
-export function parseThemeMode(mode: unknown): ThemeMode {
-  return mode === 'light' || mode === 'auto' ? mode : 'dark';
 }
 
 /** Load saved theme from localStorage. Returns null if nothing saved. */

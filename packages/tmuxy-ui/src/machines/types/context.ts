@@ -4,7 +4,7 @@ import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../utils/gridFit';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
+import type { ThemeInfo, ThemeMode } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../utils/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
@@ -13,15 +13,17 @@ import type {
   FloatPaneState,
   GestureFlags,
   GestureState,
-  GitRepository,
   LogEntry,
-  PaneGroup,
   ResizeState,
+} from './domain';
+import type {
+  GitRepository,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
-  TraceSettings,
-} from './domain';
+} from '../../domain/servers';
+import type { PaneGroup } from '../../domain/client';
+import type { TraceSettings } from '../../domain/wireSettings';
 
 export interface AppMachineContext {
   connected: boolean;
