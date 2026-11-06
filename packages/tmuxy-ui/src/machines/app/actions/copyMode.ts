@@ -1,7 +1,5 @@
 /**
  * Action implementations for the copyMode state slice.
- *
- * Owns context field: copyModeStates (per-pane CopyModeState records).
  */
 
 import { assign, sendTo } from 'xstate';

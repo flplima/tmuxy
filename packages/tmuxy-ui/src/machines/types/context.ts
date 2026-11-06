@@ -276,8 +276,6 @@ export interface AppMachineContext {
   renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
-  /** Timestamp of last layout command (for debouncing rapid layout changes) */
-  lastLayoutCommandTime: number;
   /** Temporarily suppress layout transitions (e.g., command-based resize) */
   suppressLayoutTransition: boolean;
   /**
@@ -290,9 +288,6 @@ export interface AppMachineContext {
    *  Prevents unmount/remount flicker when optimistic placeholders are replaced
    *  by server-confirmed panes. */
   paneKeyOverrides: Record<PaneId, PaneId>;
-  /** Per-window most-recently-active pane ID, populated from server state and
-   *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
-  lastActivePaneByWindow: Record<WindowId, PaneId>;
   /**
    * All tmux sessions on the current server, for the sidebar sessions→tabs→panes
    * tree. Populated by the `serversActor` poll on web + desktop; stays `[]` on

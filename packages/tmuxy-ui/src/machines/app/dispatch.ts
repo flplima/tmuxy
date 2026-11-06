@@ -12,10 +12,10 @@
  * store, which predicts it and sends it.
  */
 
-import { assign, sendTo } from 'xstate';
+import { sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from './actionTypes';
 import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
-import { isLayoutChange, isMultiStep } from '../../domain/opTraits';
+import { isMultiStep } from '../../domain/opTraits';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
@@ -162,8 +162,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       });
       return;
     case 'SelectWindow': {
-      // Shares the optimistic flip and lastActivePaneByWindow bookkeeping
-      // with a click on the tab.
+      // Shares what a click on the tab does (the scroll views it leaves).
       const windowId = tabNavTarget(op.target, context);
       if (windowId) {
         enqueue.raise({ type: 'SELECT_TAB', windowId });
@@ -194,9 +193,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
   // but the active-pane swap it ends with can still trigger a CSS transition;
   // the next model update re-enables animations. Splits are not suppressed:
   // PaneLayout's enter/shift lifecycle owns the split morph.
-  if (isMultiStep(op)) enqueue(assign({ enableAnimations: false }));
-  // Lets a re-tile's transient active-pane changes be ignored.
-  if (isLayoutChange(op)) enqueue(assign({ lastLayoutCommandTime: Date.now() }));
+  if (isMultiStep(op)) enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' });
 
   // The store applies the op's predicted patch synchronously (this machine
   // sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it back if the

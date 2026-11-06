@@ -1,31 +1,9 @@
 /**
  * Action implementations for the layout state slice.
- *
- * Owns context fields: panes, windows, activeWindowId, activePaneId,
- * paneActivationOrder, lastActivePaneByWindow,
- * paneKeyOverrides, lastLayoutCommandTime,
- * drag, resize, resizeActive, suppressLayoutTransition.
- *
- * Handled here:
- *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
- *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
- *   DRAG_STATE_UPDATE.
- *
- * In the app machine's own orchestration (cross-cutting handlers that hand
- * work to several slices):
- *   - SEND_TMUX_COMMAND / DISPATCH_OP (the one command routing step, in
- *     ../dispatch.ts)
- *   - TMUX_STATE_UPDATE (one-liner relay to tmuxStore for reconcile; the heavy
- *     downstream work runs in the TMUX_MODEL_UPDATE handler)
- *   - FOCUS_PANE (writes focusedFloatPaneId which is groupsAndFloats-owned)
- *   - SELECT_PANE_GROUP_TAB (dispatches a GroupSwitch op to the store)
- *   - DRAG_START (large assign that snapshots pane positions)
- *   - CREATE_TAB (raises a NewWindow DISPATCH_OP)
  */
-
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
-import { isPlaceholderId, type PaneId } from '../../../domain/ids';
+import { isPlaceholderId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn } from '../helpers';
 
@@ -38,12 +16,10 @@ const RESIZE_PREVIEW_FALLBACK_MS = 2000;
 export const layoutActions = {
   layout_sendKeysToTmux: act(({ event, enqueue }) => {
     if (event.type !== 'SEND_KEYS') return;
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
-        op: TmuxOp.SendKeys({ target: event.paneId, keys: event.keys }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP' as const,
+      op: TmuxOp.SendKeys({ target: event.paneId, keys: event.keys }),
+    });
   }),
 
   layout_closePane: act(({ event, context, enqueue }) => {
@@ -64,12 +40,10 @@ export const layoutActions = {
       );
       return;
     }
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
-        op: TmuxOp.GroupClose({ paneId: event.paneId }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP' as const,
+      op: TmuxOp.GroupClose({ paneId: event.paneId }),
+    });
   }),
 
   layout_zoomPane: act(({ event, enqueue }) => {
@@ -92,78 +66,34 @@ export const layoutActions = {
 
   layout_writeToPane: act(({ event, enqueue }) => {
     if (event.type !== 'WRITE_TO_PANE') return;
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
-        op: TmuxOp.SendText({ target: event.paneId, text: event.data }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP' as const,
+      op: TmuxOp.SendText({ target: event.paneId, text: event.data }),
+    });
   }),
 
+  /**
+   * A tab picked in this client. The store predicts the switch (SelectWindow
+   * puts the tab and its active pane in front and holds them over stale
+   * snapshots until tmux confirms), and the model update carries the rest:
+   * the float of the tab now in front takes the keyboard. A placeholder tab
+   * is a window tmux has not named yet: nothing to send, and tmux's current
+   * window is already the one it stands for (a new window is selected as it
+   * is made). The tab left behind keeps no scroll view open (see
+   * closeScrollViewsIn).
+   */
   layout_selectTab: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_TAB') return;
-    if (context.activeWindowId === event.windowId) return;
-
-    const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
-    if (context.activeWindowId && context.activePaneId) {
-      lastActivePaneByWindow[context.activeWindowId] = context.activePaneId;
-    }
-
-    const targetPanes = context.panes.filter((p) => p.windowId === event.windowId);
-    const inTarget = (id: PaneId | null | undefined) =>
-      id && targetPanes.some((p) => p.tmuxId === id) ? id : null;
-    // Where the switch lands, best knowledge first: the pane this client
-    // last left the tab on; the tab's own active pane as tmux reports it
-    // (`pane.active` is session-wide, so a background tab's panes never
-    // carry it — without the window's own field the switch fell on the
-    // first pane for a beat, then jumped); the flagged pane; the first.
-    const targetPaneId =
-      inTarget(context.lastActivePaneByWindow[event.windowId]) ??
-      inTarget(context.windows.find((w) => w.id === event.windowId)?.activePaneId) ??
-      targetPanes.find((p) => p.active)?.tmuxId ??
-      targetPanes[0]?.tmuxId ??
-      null;
-
-    enqueue(
-      assign({
-        activeWindowId: event.windowId,
-        activePaneId: targetPaneId,
-        // Flip the per-window active flags too — the tab strip renders
-        // aria-selected from windows[].active, and without this the
-        // highlight waits for the server round-trip even though the pane
-        // grid flipped optimistically.
-        windows: context.windows.map((w) => ({ ...w, active: w.id === event.windowId })),
-        lastActivePaneByWindow,
-      }),
-    );
-    // The tab left behind keeps no scroll view open (see closeScrollViewsIn).
+    if (context.activeWindowId === event.windowId || isPlaceholderId(event.windowId)) return;
     for (const paneId of scrollViewsIn(context, context.activeWindowId)) {
       enqueue.raise({ type: 'EXIT_SCROLL_MODE', paneId });
     }
-
-    // Through the STORE: the SelectWindow op's patch + confirm-linger hold
-    // the optimistic tab selection over stale snapshots for seconds (the
-    // 200ms machine grace alone cannot cover a slow confirm — the tab strip
-    // visibly flapped on the v86 transport). A placeholder tab is a window
-    // tmux has not named yet: nothing to send, and tmux's current window is
-    // already the one it stands for (a new window is selected as it is made).
-    if (!isPlaceholderId(event.windowId)) {
-      enqueue(
-        sendTo('tmuxStore', {
-          type: 'DISPATCH_OP' as const,
-          op: TmuxOp.SelectWindow({ target: event.windowId }),
-        }),
-      );
-    }
-
-    // A float belongs to a tab, so the switch moves the keyboard with it: the
-    // target tab's topmost float takes it back, and leaving a tab drops the
-    // float that had it (the keyboard cannot stay on a surface that is no
-    // longer on screen). Raised rather than left to the model update, which
-    // cannot see it: this switch is optimistic, so by the time the update
-    // lands the new tab is already the active one and its float no longer
-    // looks like one that just came into view.
-    enqueue.raise({ type: 'SYNC_FLOAT_FOCUS' as const, claim: true });
+    enqueue(
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
+        op: TmuxOp.SelectWindow({ target: event.windowId }),
+      }),
+    );
   }),
 
   layout_forwardKeyToDragResize: act(({ event, enqueue }) => {

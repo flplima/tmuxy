@@ -1,8 +1,6 @@
 /**
  * gestures state - trackpad slides and pinches (see actors/gestureActor.ts).
  *
- * Owns context fields: gesture.
- *
  * Every event here is spread into the machine root: a gesture only draws on
  * the pane area, and it commits through events (SELECT_TAB, ZOOM_PANE,
  * TOGGLE_TAB_OVERVIEW, TAB_OVERVIEW_ACTIVATE) that the states handling them

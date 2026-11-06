@@ -1,8 +1,6 @@
 /**
  * copyMode state — the `on` slice for client-side copy mode.
  *
- * Owns context field: copyModeStates.
- *
  * Spread into states.idle.on (not the machine root) — copy mode events
  * only fire when connected and idle, never during connecting.
  *

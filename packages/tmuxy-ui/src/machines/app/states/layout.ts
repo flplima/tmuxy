@@ -1,24 +1,10 @@
 /**
  * layout state — the `on` slice for panes, windows, and focus.
  *
- * Owns context fields: panes, windows, activeWindowId, activePaneId,
- * paneActivationOrder, lastActivePaneByWindow, paneKeyOverrides,
- * lastLayoutCommandTime, drag, resize,
- * resizeActive, suppressLayoutTransition.
- *
  * Optimistic operations are owned by the TmuxStore (`src/infra/store/TmuxStore.ts`, its model in `src/domain/store/`).
  * The TMUX_MODEL_UPDATE handler mirrors the store's `derived` snapshot into
  * context, so this state stays a passive view of the model.
- *
- * Events (spread into states.idle.on):
- *   SEND_KEYS, CLOSE_PANE, ZOOM_PANE, WRITE_TO_PANE, SELECT_TAB,
- *   KEY_PRESS, RESIZE_STATE_UPDATE, RESIZE_COMPLETED,
- *   DRAG_STATE_UPDATE.
- *
- * Cross-cutting events live inline in appMachine.ts — see the header of
- * ../actions/layout.ts for the list.
  */
-
 export const layoutState = {
   on: {
     SEND_KEYS: { actions: 'layout_sendKeysToTmux' },

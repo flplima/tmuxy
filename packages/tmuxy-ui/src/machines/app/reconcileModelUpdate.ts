@@ -251,26 +251,7 @@ export const reconcileModelActions = {
       samePanes(context.panes, transformed.panes) &&
       !isBoxPermutation(context.panes, transformed.panes);
 
-    const samePaneSet =
-      hasDimensionChange &&
-      transformed.panes.length === context.panes.length &&
-      transformed.panes.every((p) => context.panes.some((cp) => cp.tmuxId === p.tmuxId));
-    const isLayoutTransition =
-      context.activePaneId !== null &&
-      transformed.activePaneId !== null &&
-      transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
-      ((context.lastLayoutCommandTime > 0 && Date.now() - context.lastLayoutCommandTime < 500) ||
-        samePaneSet);
-    const effectiveActivePaneId = isLayoutTransition
-      ? context.activePaneId
-      : (transformed.activePaneId ?? context.activePaneId);
-
-    const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
-    for (const pane of transformed.panes) {
-      if (pane.active && pane.windowId) {
-        lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
-      }
-    }
+    const effectiveActivePaneId = transformed.activePaneId ?? context.activePaneId;
 
     enqueue(
       assign(({ context: ctx }) => ({
@@ -296,7 +277,6 @@ export const reconcileModelActions = {
           effectiveActivePaneId !== ctx.activePaneId
             ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
             : ctx.paneActivationOrder,
-        lastActivePaneByWindow,
       })),
     );
 

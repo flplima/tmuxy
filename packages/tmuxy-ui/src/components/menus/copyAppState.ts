@@ -32,7 +32,6 @@ function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
       active: p.active,
       command: p.command,
     })),
-    lastActivePaneByWindow: ctx.lastActivePaneByWindow,
     sidebars: ctx.sidebars,
     keyboardOwner: ctx.keyboardOwner,
     tabOverviewOpen: ctx.tabOverviewOpen,

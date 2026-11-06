@@ -1,8 +1,6 @@
 /**
  * commandUi state — a root-level `on` slice for command mode and status messages.
  *
- * Owns context fields: commandMode, statusMessage, prefixActive, keyTable,
- * keysViewOpen, renamingPaneId.
  * Action implementations live in ../actions/commandUi.ts.
  */
 

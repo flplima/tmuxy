@@ -160,7 +160,6 @@ export const focusAndDragActions = {
     }
 
     takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
-    enqueue(assign({ activePaneId: clickedPaneId }));
 
     const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(clickedPaneId));
 
@@ -182,20 +181,15 @@ export const focusAndDragActions = {
       return;
     }
 
-    if (!group || !visiblePane) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'SEND_OP' as const,
-          op: TmuxOp.GroupSwitch({ clickedPaneId, visiblePaneId: null }),
-        }),
-      );
-      return;
-    }
-
+    // The store predicts the swap when the member on screen is known; with
+    // none (the group's tab is not the one in front) tmux decides alone.
     enqueue(
       sendTo('tmuxStore', {
         type: 'DISPATCH_OP' as const,
-        op: TmuxOp.GroupSwitch({ clickedPaneId, visiblePaneId: visiblePane.tmuxId }),
+        op: TmuxOp.GroupSwitch({
+          clickedPaneId,
+          visiblePaneId: group && visiblePane ? visiblePane.tmuxId : null,
+        }),
       }),
     );
   }),
@@ -212,8 +206,8 @@ export const focusAndDragActions = {
       return;
     }
     enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
         op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
       }),
     );

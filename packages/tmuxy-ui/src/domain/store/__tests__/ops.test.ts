@@ -316,6 +316,29 @@ describe('SelectWindow predicts even when the target window has no known panes',
     const resolved = result!.patch(withPane);
     expect(resolved.activePaneId).toBe(pid('%9'));
   });
+
+  it("lands on the target window's own active pane, not its first pane", () => {
+    // `pane.active` is session-wide: none of a background tab's panes carry
+    // it. The window's own activePaneId (from the server) is what the switch
+    // must use — the first pane was a wrong guess the server then corrected.
+    const target = { ...win(wid('@1'), 1, false), activePaneId: pid('%36') };
+    const background: TmuxSnapshot = {
+      ...snap,
+      windows: [win(wid('@0'), 0, true), target],
+      panes: [
+        ...snap.panes,
+        { ...pane(pid('%35'), 0, 0, 40, 20), windowId: wid('@1') },
+        { ...pane(pid('%36'), 40, 0, 40, 20), windowId: wid('@1') },
+      ],
+    };
+    const result = predict(
+      TmuxOp.SelectWindow({ target: wid('@1') }),
+      background,
+      CTX,
+      'op_own' as OpId,
+    );
+    expect(result!.patch(background).activePaneId).toBe(pid('%36'));
+  });
 });
 
 describe('NewWindow reconcile requires the window to have a pane', () => {

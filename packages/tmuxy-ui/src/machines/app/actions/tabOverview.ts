@@ -1,8 +1,6 @@
 /**
  * Tab Overview actions — the Safari-style "all tabs" view.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
- *
  * The overview is a client-side surface over the pane area: opening it zooms
  * the current tab out into a grid of every tab; picking a slot zooms that tab
  * back in and makes it current. Slot order is the tab strip's order (the
@@ -150,8 +148,8 @@ export const tabOverviewActions = {
     // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
     if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
     enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
         op: TmuxOp.KillWindow({ windowId: event.windowId }),
       }),
     );
