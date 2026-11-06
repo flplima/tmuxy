@@ -1,76 +1,17 @@
 /**
- * Snapshot reader and modal / copy-mode / ask-overlay key interception for
- * keyboardActor.
+ * Modal / copy-mode / ask-overlay key classification for keyboardActor: each
+ * key becomes the event of the slice it belongs to, which decides what it
+ * does. What stays here is what must happen inside the key's own event: the
+ * `preventDefault`, and the copy a browser only allows from a user gesture.
  */
 
 import type { AnyActorRef } from 'xstate';
-import { type CopyModeState, extractSelectedText } from '../../../domain/copyMode';
-import type { PaneId, WindowId } from '../../../domain/ids';
-import { decodePaneAsk, type AskAnswer } from '../../../domain/paneAsk';
+import { extractSelectedText } from '../../../domain/copyMode';
+import type { KeyContext } from '../../selectors/keyboard';
 import { focusGuiWindow, newGuiWindow } from '../../../infra/guiWindows';
 import { isTauri } from '../../../infra/platform';
 import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
-
-/**
- * The slice of a pane this actor reads off the machine snapshot.
- */
-export interface LivePane {
-  tmuxId: PaneId;
-  windowId: WindowId;
-  active: boolean;
-  paneAsk?: string | null;
-}
-
-export interface LiveKeyboardSnapshot {
-  liveActivePaneId: PaneId | null;
-  liveActiveWindowId: WindowId | null;
-  liveCopyStates: Record<PaneId, CopyModeState> | undefined;
-  liveAskSelections: Record<PaneId, AskAnswer>;
-  livePanes: ReadonlyArray<LivePane>;
-  keysViewOpen: boolean;
-}
-
-export function readLiveSnapshot(
-  parent: AnyActorRef,
-  fallbackActivePaneId: PaneId | null,
-): LiveKeyboardSnapshot {
-  let liveActivePaneId = fallbackActivePaneId;
-  let liveActiveWindowId: WindowId | null = null;
-  let liveCopyStates: Record<PaneId, CopyModeState> | undefined;
-  let liveAskSelections: Record<PaneId, AskAnswer> = {};
-  let livePanes: ReadonlyArray<LivePane> = [];
-  let keysViewOpen = false;
-  try {
-    const snapshot = parent.getSnapshot() as {
-      context?: {
-        activePaneId?: PaneId;
-        activeWindowId?: WindowId | null;
-        copyModeStates?: Record<PaneId, CopyModeState>;
-        askSelections?: Record<PaneId, AskAnswer>;
-        panes?: ReadonlyArray<LivePane>;
-        keysViewOpen?: boolean;
-      };
-    };
-    const ctx = snapshot?.context;
-    if (ctx?.activePaneId !== undefined) liveActivePaneId = ctx.activePaneId;
-    if (ctx?.activeWindowId) liveActiveWindowId = ctx.activeWindowId;
-    liveCopyStates = ctx?.copyModeStates;
-    if (ctx?.panes) livePanes = ctx.panes;
-    if (ctx?.askSelections) liveAskSelections = ctx.askSelections;
-    keysViewOpen = ctx?.keysViewOpen === true;
-  } catch (_) {
-    /* keep the cached closure values */
-  }
-  return {
-    liveActivePaneId,
-    liveActiveWindowId,
-    liveCopyStates,
-    liveAskSelections,
-    livePanes,
-    keysViewOpen,
-  };
-}
 
 /**
  * Handle font-size shortcuts, Tauri window shortcuts, modal keys view,
@@ -84,14 +25,12 @@ export function handleModalOrCopyKeyDown(
   event: KeyboardEvent,
   parent: AnyActorRef,
   state: {
-    snap: LiveKeyboardSnapshot;
-    overlayPaneId: PaneId | null;
-    leftSidebarFocused: boolean;
+    keys: KeyContext;
     prefixActive: boolean;
     setPendingCopyText: (text: string) => void;
   },
 ): boolean {
-  const { snap, overlayPaneId, leftSidebarFocused, prefixActive, setPendingCopyText } = state;
+  const { keys, prefixActive, setPendingCopyText } = state;
 
   const replayed = isReplayedPreviewKey(event);
 
@@ -131,7 +70,7 @@ export function handleModalOrCopyKeyDown(
   }
 
   // Modal keys view (`prefix ?`)
-  if (snap.keysViewOpen && !event.ctrlKey && !event.metaKey && !event.altKey && !prefixActive) {
+  if (keys.keysViewOpen && !event.ctrlKey && !event.metaKey && !event.altKey && !prefixActive) {
     event.preventDefault();
     if (event.key === 'Escape' || event.key === 'q') {
       parent.send({ type: 'TOGGLE_KEYS_VIEW' });
@@ -139,83 +78,35 @@ export function handleModalOrCopyKeyDown(
     return true;
   }
 
-  let activeCopyState: CopyModeState | undefined;
-  let scrollbackPane: PaneId | null = null;
-  if (!leftSidebarFocused) {
-    scrollbackPane = overlayPaneId ?? snap.liveActivePaneId;
-    activeCopyState = scrollbackPane ? snap.liveCopyStates?.[scrollbackPane] : undefined;
-  }
+  const activeCopyState = keys.copy;
+  const scrollbackPane = keys.focusPaneId;
   const copyModeActive = activeCopyState?.mode === 'copy' && !activeCopyState.copiedAt;
   const scrollModePane = activeCopyState?.mode === 'scroll' ? scrollbackPane : null;
 
-  const askSelection = (paneId: PaneId): AskAnswer => snap.liveAskSelections[paneId] ?? 'yes';
-
-  // Cmd+Enter / Ctrl+Enter: allow every send pending in the active tab. Only
-  // from the user's own keyboard: a chord a script dispatched (a preview
-  // page's replayed key, say) is not the user saying yes to every pane.
+  // Cmd+Enter / Ctrl+Enter: allow every send pending on screen. Only from the
+  // user's own keyboard: a chord a script dispatched (a preview page's
+  // replayed key, say) is not the user saying yes to every pane.
   if (
     event.isTrusted !== false &&
     (event.metaKey || event.ctrlKey) &&
     event.key === 'Enter' &&
-    !event.altKey
+    !event.altKey &&
+    keys.sendPendingOnScreen
   ) {
-    const anyPending = snap.livePanes.some(
-      (pane) =>
-        pane.windowId === snap.liveActiveWindowId && decodePaneAsk(pane.paneAsk)?.kind === 'send',
-    );
-    if (anyPending) {
-      event.preventDefault();
-      parent.send({ type: 'ANSWER_VISIBLE_ASKS', answer: 'yes' });
-      return true;
-    }
+    event.preventDefault();
+    parent.send({ type: 'ANSWER_VISIBLE_ASKS', answer: 'yes' });
+    return true;
   }
 
-  const askPaneId = leftSidebarFocused ? null : (overlayPaneId ?? snap.liveActivePaneId);
-  const pendingAsk = askPaneId
-    ? decodePaneAsk(snap.livePanes.find((pane) => pane.tmuxId === askPaneId)?.paneAsk)
-    : null;
+  // A question on the pane holding the keyboard takes its plain keys (the ask
+  // slice decides what each means). An offer only claims Enter and Escape: any
+  // other key declines it and goes on to the pane as typed.
   const plainKey = !event.ctrlKey && !event.metaKey && !event.altKey;
-
-  if (askPaneId && pendingAsk?.kind === 'offer' && plainKey) {
-    if (event.key === 'Enter' || event.key === 'Escape') {
+  if (keys.ask && keys.focusPaneId && plainKey) {
+    parent.send({ type: 'ASK_KEY', paneId: keys.focusPaneId, key: event.key });
+    if (keys.ask.kind === 'send' || event.key === 'Enter' || event.key === 'Escape') {
       event.preventDefault();
-      parent.send({
-        type: 'ANSWER_ASK',
-        paneId: askPaneId,
-        answer: event.key === 'Enter' ? 'yes' : 'no',
-      });
       return true;
-    }
-    parent.send({ type: 'ANSWER_ASK', paneId: askPaneId, answer: 'no' });
-  }
-
-  if (askPaneId && pendingAsk?.kind === 'send' && plainKey) {
-    const move = (to: AskAnswer) => {
-      event.preventDefault();
-      parent.send({ type: 'MOVE_ASK_SELECTION', paneId: askPaneId, to });
-    };
-    const answer = (choice: AskAnswer) => {
-      event.preventDefault();
-      parent.send({ type: 'ANSWER_ASK', paneId: askPaneId, answer: choice });
-    };
-    switch (event.key) {
-      case 'ArrowUp':
-      case '1':
-        move('yes');
-        return true;
-      case 'ArrowDown':
-      case '2':
-        move('no');
-        return true;
-      case 'Escape':
-        answer('no');
-        return true;
-      case 'Enter':
-        answer(askSelection(askPaneId));
-        return true;
-      default:
-        event.preventDefault();
-        return true;
     }
   }
 
@@ -247,7 +138,7 @@ export function handleModalOrCopyKeyDown(
 
   // Cmd+C / Ctrl+C: copy selection or send SIGINT
   if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
-    if (leftSidebarFocused) {
+    if (keys.owner.kind === 'left') {
       event.preventDefault();
       return true;
     }

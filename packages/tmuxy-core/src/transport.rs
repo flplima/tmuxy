@@ -1,6 +1,4 @@
-//! The reads and writes a host makes over a live monitor's channel: the
-//! pieces `host::handle` and `host::SessionRuntime` are built from. Every
-//! tmux read here rides the monitor's control-mode connection
+//! Every tmux read here rides the monitor's control-mode connection
 //! (`MonitorCommand::RunCommandWithReply`): an external `tmux` process while a
 //! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
 
@@ -25,14 +23,12 @@ pub use plugins::*;
 /// The bookkeeping both emitters do with a state update before handing it to
 /// their client.
 ///
-/// `forget_dead_images` is given a full state — the one update that names
-/// every live pane — so the emitter's image store, behind whichever lock it
-/// keeps, can drop the pictures of the rest. The keeper is told of a change
-/// of SHAPE (a split, a closed pane, a tag, a program starting — never bytes
-/// arriving), which is what a snapshot follows. And the emit is traced by the
-/// DELTA seq and kind, so the return leg joins to the client's applied `seq`
-/// (docs/TRACING.md); the transport's own ids are another counter.
-/// Content-free.
+/// `forget_dead_images` is given a full state, the one update that names every
+/// live pane. The keeper is told of a change of SHAPE (a split, a closed pane, a
+/// tag, a program starting; never bytes arriving), which is what a snapshot
+/// follows. The emit is traced by the DELTA seq, so the return leg joins to the
+/// client's applied `seq` (docs/TRACING.md); the transport's own ids are
+/// another counter.
 pub fn on_state_update(
     update: &StateUpdate,
     keeper: &SnapshotKeeper,
@@ -77,10 +73,9 @@ pub async fn initial_state(tx: &MonitorCommandSender) -> Result<TmuxState, Comma
 }
 
 /// How long a client's first state waits for the resize it just asked for.
-///
-/// tmux answers in milliseconds over a local socket. The bound is what stops a
-/// size tmux will not take (`resize_given_up` in the monitor) from holding up
-/// the first paint: past it the client is given the freshest state there is.
+/// tmux answers in milliseconds over a local socket; the bound stops a size
+/// tmux will not take (`resize_given_up` in the monitor) from holding up the
+/// first paint.
 pub const INITIAL_STATE_RESIZE_WAIT: Duration = Duration::from_millis(750);
 
 /// The initial state, agreeing with the size the session was asked to be
@@ -124,11 +119,10 @@ pub fn to_json(
 // Client commands
 // ============================================
 
-/// Decide a client command's route (`command_router`) and record the WHAT as
-/// its tmux verb — the first token, a fixed subcommand name and never the
-/// args; the full command string is admitted only at trace level `full`
-/// (docs/TRACING.md). `size` is the viewport a freshly created window
-/// should be sized to, when a client has reported one.
+/// Records the command as its tmux verb, never the args; the full command
+/// string is admitted only at trace level `full` (docs/TRACING.md). `size` is
+/// the viewport a freshly created window should be sized to, when a client has
+/// reported one.
 pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
     tracing::debug!(
         target: "tmuxy_core::transport",
@@ -139,8 +133,6 @@ pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
     route_command(command, session, size)
 }
 
-/// Decide a client query's route (`command_router::route_query`): a query
-/// only reads, logged by verb like a mutation.
 pub fn route_query(command: &str) -> Route {
     tracing::debug!(
         target: "tmuxy_core::transport",
@@ -167,11 +159,7 @@ pub async fn git_worktrees(
     Ok(repositories)
 }
 
-/// Everything the Debug menu needs to render itself (docs/TRACING.md): the
-/// switch position, the level, the file it writes to, and whether a
-/// `DO_NOT_TRACK` / `TMUXY_NO_TRACE` kill switch forbids turning it on at all
-/// (in which case the UI shows the control disabled rather than a switch that
-/// silently does nothing).
+/// Everything the Debug menu needs to render itself (docs/TRACING.md).
 pub fn trace_settings() -> TraceSettings {
     TraceSettings {
         enabled: crate::trace::is_enabled(),
@@ -181,7 +169,6 @@ pub fn trace_settings() -> TraceSettings {
     }
 }
 
-/// [`trace_settings`]' answer.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TraceSettings {
     pub enabled: bool,
@@ -190,9 +177,8 @@ pub struct TraceSettings {
     pub locked: bool,
 }
 
-/// Set the trace level (`shape` | `labeled` | `full`) and remember it; the
-/// name of the level in force. An unknown name resolves to `shape`, so a bad
-/// argument cannot raise sensitivity.
+/// Returns the name of the level in force. An unknown name resolves to
+/// `shape`, so a bad argument cannot raise sensitivity.
 pub fn set_trace_level(level: &str) -> &'static str {
     let level = crate::trace::TraceLevel::parse(level);
     crate::trace::set_level_persisted(level);
@@ -328,8 +314,6 @@ pub async fn scrollback_cells(
     })
 }
 
-/// [`scrollback_cells`]' answer: the lines `start..=end` (clamped), the
-/// pane's history length and its width, as tmux gave them.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScrollbackCells {
@@ -340,7 +324,6 @@ pub struct ScrollbackCells {
     pub width: u32,
 }
 
-/// A `capture-pane -S/-E` line number inside the range tmux parses.
 fn clamp_capture_line(line: i64) -> i64 {
     line.clamp(i64::from(i32::MIN), i64::from(i16::MAX))
 }
@@ -360,7 +343,6 @@ fn parse_geometry(line: &str) -> Result<(u32, u32), String> {
 // Session snapshots
 // ============================================
 
-/// The sessions that have a snapshot to be rebuilt from.
 pub async fn list_snapshots() -> Result<Vec<SnapshotInfo>, CommandError> {
     let dir = snapshot::default_dir();
     let list = tokio::task::spawn_blocking(move || snapshot::list(&dir))
@@ -372,8 +354,7 @@ pub async fn list_snapshots() -> Result<Vec<SnapshotInfo>, CommandError> {
         .collect())
 }
 
-/// A session [`list_snapshots`] can rebuild, and when its latest snapshot
-/// was taken (unix seconds).
+/// `saved_at` is unix seconds.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotInfo {

@@ -1,8 +1,6 @@
 /**
  * tabOverview state — the "all tabs" view over the pane area.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected, renamingTabId.
- *
  * Every event here is spread into the machine root: opening the overview,
  * moving its cursor and picking a slot are pure client-side dispatches, and
  * the two that reach tmux (REORDER_TAB, CLOSE_TAB) target a window by id, so
@@ -20,6 +18,6 @@ export const tabOverviewGlobalEvents = {
   CLOSE_TAB: { actions: 'tabOverview_closeTab' },
   RENAME_ACTIVE_TAB: { actions: 'tabOverview_rename' },
   RENAME_TAB: { actions: 'tabOverview_rename' },
-  TAB_RENAME_END: { actions: 'tabOverview_renameEnd' },
+  RENAME_TAB_COMMIT: { actions: 'tabOverview_renameCommit' },
   TOGGLE_STACKED_PANES: { actions: 'tabOverview_toggleStacked' },
 } as const;

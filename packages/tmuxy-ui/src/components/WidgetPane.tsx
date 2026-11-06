@@ -6,11 +6,11 @@ import {
   useAppSend,
   usePane,
   useIsDragging,
-  useIsPaneInActiveWindow,
   useIsResizing,
   useIsSinglePane,
 } from '../machines/appHooks';
 import { useFramedPaneFocus } from './useFramedPaneFocus';
+import { selectPaneHoldsKeyboard } from '../machines/selectors/keyboard';
 import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {
@@ -22,7 +22,6 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { definition } = widget;
-  const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const wrapperRef = useRef<HTMLDivElement>(null);
   // A widget that embeds a frame (a page preview) swallows the mousedown that
@@ -38,8 +37,9 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
     definition.selectTitle?.(context, paneId, widget.lines),
   );
 
-  // Capture phase, so it runs before the keyboard actor's listener.
-  const isActiveWidget = !!pane?.active && isInActiveWindow;
+  // Capture-phase window listener that fires BEFORE the keyboard actor's
+  // bubble-phase window listener.
+  const isActiveWidget = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const widgetKeyRef = useRef({ send, paneId, isActiveWidget });
   widgetKeyRef.current = { send, paneId, isActiveWidget };
 
@@ -74,7 +74,7 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
       data-pane-id={pane.tmuxId}
       tabIndex={-1}
       onMouseDown={() => {
-        send({ type: 'FOCUS_PANE', paneId });
+        send({ type: 'SELECT_PANE', paneId });
       }}
     >
       <PaneHeader paneId={paneId} titleOverride={widgetTitle} />

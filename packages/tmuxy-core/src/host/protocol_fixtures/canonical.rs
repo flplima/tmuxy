@@ -34,10 +34,6 @@ pub(super) fn styled_cell(c: &str) -> TerminalCell {
     )
 }
 
-/// A state that populates EVERY field of every type on the wire. A field
-/// left at its default would be skipped by `skip_serializing_if` and
-/// never reach the TypeScript decoder, which is exactly the hole a
-/// fixture is supposed to close.
 pub(super) fn canonical_state() -> TmuxState {
     TmuxState {
         session_name: "tmuxy".to_string(),

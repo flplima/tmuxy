@@ -1,12 +1,5 @@
-//! `tmuxy-server config …`: the config verbs whose work is a file tmuxy-core
-//! owns, and what `tmuxy config` says about them, so the CLI keeps no copy of
-//! the files' names or formats.
-//!
-//! - `paths`: every file tmuxy keeps, from the one table of them
-//!   (`tmuxy_core::paths::FILES`), resolved on this machine.
-//! - `reload`: touch the marker every running app watches.
-//! - `use-tmux-conf [on|off]`: read or set the menu-state choice to source
-//!   `~/.tmux.conf`, through the same reader and writer the app uses.
+//! The config verbs whose work is a file tmuxy-core owns live here, so the
+//! shell CLI keeps no copy of the files' names or formats.
 
 use tmuxy_core::paths::{Layout, FILES};
 

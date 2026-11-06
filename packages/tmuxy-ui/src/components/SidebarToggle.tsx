@@ -24,9 +24,7 @@ const LABELS = {
 
 export function SidebarToggle({ side }: SidebarToggleProps) {
   const send = useAppSend();
-  const shown = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
-  );
+  const shown = useAppSelector((ctx) => ctx.sidebars[side].open);
   const peeking = useAppSelector((ctx) => ctx.sidebarPeek === side);
   const keybindings = useAppSelector(selectKeyBindings);
   const labels = LABELS[side];
@@ -43,9 +41,7 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
         aria-pressed={shown}
         onPointerEnter={peek.onPointerEnter}
         onPointerLeave={peek.onPointerLeave}
-        onClick={() =>
-          send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
-        }
+        onClick={() => send({ type: 'TOGGLE_SIDEBAR', side })}
       >
         <SidebarGlyph side={side} />
       </button>

@@ -146,7 +146,7 @@ export function SmoothCursor() {
   // Overview zooming, a sidebar opening, a font or viewport change.
   const layoutKey = useAppSelector(
     (ctx) =>
-      `${ctx.tabOverviewOpen}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
+      `${ctx.tabOverviewOpen}|${ctx.sidebars.left.open}|${ctx.sidebars.right.open}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
   );
   const scene = useAppSelector((ctx) =>
     sceneKey({

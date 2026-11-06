@@ -176,6 +176,7 @@ describe('the Plugins submenus', () => {
   it('an action a plugin key opens shows that key', () => {
     const keybindings = {
       prefix_key: 'C-a',
+      repeat_time_ms: 300,
       prefix_bindings: [
         {
           key: 'M-o',
@@ -220,8 +221,8 @@ describe('tabMenuSpec', () => {
     // Stacked Panes flips this tab's option, not the active tab's.
     const stacked = find(spec, 'tab-stack-toggle');
     expect(stacked && 'action' in stacked && stacked.action).toEqual({
-      kind: 'op',
-      op: TmuxOp.SetWindowTag({ windowId: wid('@2'), tag: 'collapsible', value: '1' }),
+      kind: 'event',
+      event: { type: 'TOGGLE_STACKED_PANES', windowId: wid('@2') },
     });
   });
 

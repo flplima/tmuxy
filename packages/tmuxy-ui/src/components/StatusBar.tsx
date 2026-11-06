@@ -13,6 +13,7 @@ import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { RenderTabline } from '../App';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
+import { selectSidebarHoldsKeyboard } from '../machines/selectors/keyboard';
 import { CONTAINER_PADDING_X } from '../constants/layout';
 import { isTauri } from '../infra/platform';
 import {
@@ -53,8 +54,8 @@ export const StatusBar = memo(function StatusBar({
   renderTabline?: RenderTabline;
 }) {
   const { leftOpen, rightOpen, leftWidth, rightWidth } = useAppSelector(selectSidebarLayout);
-  const leftFocused = useAppSelector((ctx) => ctx.leftSidebarFocused);
-  const rightFocused = useAppSelector((ctx) => ctx.rightSidebarFocused);
+  const leftFocused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'left'));
+  const rightFocused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'right'));
 
   // Tauri's startDragging() swallows the native dblclick, so the second
   // mousedown of a double-click (e.detail === 2) performs the title-bar

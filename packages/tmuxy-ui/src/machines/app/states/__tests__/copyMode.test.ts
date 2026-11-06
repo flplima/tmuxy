@@ -3,7 +3,6 @@ import { pid, wid } from '../../../../test/wire';
 import { fromCallback } from 'xstate';
 import { copyModeState } from '../copyMode';
 import { copyModeActions } from '../../actions/copyMode';
-import { copyModeExitTimes } from '../../scrollback';
 import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
@@ -116,7 +115,7 @@ describe('copyMode state', () => {
     });
     const ctx = sendAndGetContext(actor, { type: 'EXIT_COPY_MODE', paneId: pid('%1') });
     expect(ctx.copyModeStates[pid('%1')]).toBeUndefined();
-    const exitTime = copyModeExitTimes.get(pid('%1'));
+    const exitTime = ctx.copyModeExitedAt[pid('%1')];
     expect(exitTime).toBeGreaterThanOrEqual(before);
   });
 
@@ -193,7 +192,6 @@ describe('copyMode state', () => {
 
   it('EXIT_SCROLL_MODE drops the view without cancelling a mode tmux never entered', () => {
     const sent: string[] = [];
-    copyModeExitTimes.delete(pid('%1'));
     const actor = mountState(
       copyModeState,
       copyModeActions,
@@ -217,7 +215,7 @@ describe('copyMode state', () => {
     expect(sent.some((c) => c.includes('-X cancel'))).toBe(false);
     // And no cooldown is stamped: that exists to outlast a stale `in_mode`
     // this view never sets, and would swallow a real `prefix [` for 2s.
-    expect(copyModeExitTimes.get(pid('%1'))).toBeUndefined();
+    expect(ctx.copyModeExitedAt[pid('%1')]).toBeUndefined();
   });
 
   it('scrolling back to the bottom leaves by the door the view came in through', () => {

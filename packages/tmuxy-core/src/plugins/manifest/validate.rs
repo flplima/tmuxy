@@ -1,7 +1,3 @@
-//! The raw `[[link_handlers]]`, `[[keys]]`, `[[settings]]`, `depends` and
-//! `[[themes]]` sections, with spans, and their validation into
-//! `super::sections`' types: every problem reported on its line.
-
 use std::collections::HashSet;
 
 use serde::Deserialize;

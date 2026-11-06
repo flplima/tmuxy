@@ -271,7 +271,6 @@ fn a_pane_coming_to_need_the_user_is_one_notice() {
         .update(&rows(&[("%1", "needs-input"), ("%2", "error")], "on"), "")
         .is_empty());
 
-    // Back to working, then asking again: news again.
     watch.update(&rows(&[("%1", "working")], "on"), "");
     let again = watch.update(&rows(&[("%1", "needs-input")], "on"), "");
     assert_eq!(again.len(), 1);

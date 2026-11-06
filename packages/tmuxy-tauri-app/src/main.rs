@@ -29,7 +29,6 @@ fn main() {
     use std::io::IsTerminal;
 
     match args.first().map(|s| s.as_str()) {
-        // No args: in terminal or inside tmux session, run CLI info; otherwise GUI
         None => {
             if std::env::var("TMUX").is_ok() || std::io::stdout().is_terminal() {
                 cli::run_cli(vec!["info".to_string()]);
@@ -53,7 +52,6 @@ fn main() {
 /// What this binary runs itself rather than handing to the shell dispatcher.
 #[derive(Debug, PartialEq, Eq)]
 enum AppCommand {
-    /// The desktop window.
     Gui,
     /// The web server (delegates to tmuxy-server).
     Server,

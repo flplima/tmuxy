@@ -1,20 +1,8 @@
 #!/bin/bash
-# Shared helpers for tmuxy shell scripts.
-#
-# Window typing is sourced from the @tmuxy-window-type window option, with
-# values: float | sidebar-left | sidebar-right. A window
-# without @tmuxy-window-type is a tab.
-#
-# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
-# hands its arguments to the server binary's `group` verb (`group_verb`).
-
-# The values tmuxy-core shares with the scripts (STASH_SESSION, the session
-# hidden pane-group members are parked in; APP_PANE_TITLE_FMT), generated
-# from it into `_options`.
 source "${BASH_SOURCE[0]%/*}/_options"
 
 # Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
-# (session::config_dir, paths::data_dir, paths::state_dir):
+# (paths::config_dir, paths::data_dir, paths::state_dir):
 #   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
 #   data   — what the app mirrors from its bundle: defaults, themes, bin/.
 #   state  — this machine's: menu choices, launcher, servers.json, pid files.
@@ -87,11 +75,8 @@ case "$_dir" in
   *) SCRIPTS_DIR="$(cd "$_dir" && pwd)" ;;
 esac
 
-# Derive TMUX_SOCKET from TMUX env var if not already set.
-# Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9" — extract
-# the socket name (basename of the path before the first comma). Outside any
-# tmux, fall back to the dedicated `tmuxy` socket (never the user's default
-# tmux server).
+# Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9". Outside any
+# tmux, the dedicated `tmuxy` socket, never the user's default tmux server.
 if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
   TMUX_SOCKET="${_path##*/}"
@@ -117,8 +102,6 @@ fi
 # so a side-installed tmux is used end to end), else the one on PATH.
 TMUX_BIN="${TMUX_BIN:-tmux}"
 
-# The same binary as one word of a line run-shell hands a shell: bare when it
-# plainly is one, `shquote`d otherwise.
 tmux_word() {
   if [[ "$TMUX_BIN" =~ ^[A-Za-z0-9._/@+-]+$ ]]; then
     printf '%s' "$TMUX_BIN"
@@ -180,8 +163,6 @@ _run_shell() {
 # inner client's TMUX_PANE, which tmux reads for an unattached client the way
 # it reads it for a shell in a pane.
 _run_safe() {
-  # The socket is a name or a path from the environment: bare when it is
-  # plainly one word, quoted for the shell otherwise.
   local socket="$TMUX_SOCKET"
   [[ "$socket" =~ ^[A-Za-z0-9._/@+-]+$ ]] || socket="$(shquote "$socket")"
   _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
@@ -206,23 +187,15 @@ shquote() {
   printf '%s' "${out# }"
 }
 
-# The exit codes, `_fail`/`_die_usage`, JSON answers and `_resolve_target`
-# live in `_contract`, sourced here so every script that has `_lib` has them.
 source "$SCRIPTS_DIR/_contract"
 
 # --- The server binary -----------------------------------------------------
 #
-# Sets SERVER_CMD to the command that runs a server verb (`session`, `group`,
-# `tree`, …) of the right build, or fails with a message:
-#   1. TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND): what the running tmuxy
-#      published to its tmux server's global environment, which run-shell
-#      hands every script — the build actually serving this socket. Without
-#      it the bundled copies under the data dir's bin/, which sit nowhere near
-#      a build tree, could only guess.
-#   2. tmuxy-server on PATH.
-#   3. A cargo build beside these scripts (a checkout's bin/tmuxy).
-#   4. The desktop app the `tmuxy` shorthand launches, whose server verbs are
-#      `tmuxy server <verb>`.
+# TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND) is what the running tmuxy
+# published to its tmux server's global environment, which run-shell hands
+# every script: the build actually serving this socket. Without it the bundled
+# copies under the data dir's bin/, which sit nowhere near a build tree, could
+# only guess. The desktop app's server verbs are `tmuxy server <verb>`.
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
   local root="${SCRIPTS_DIR%/*}/../../.." launcher
@@ -245,10 +218,8 @@ find_server_cmd() {
   fi
 }
 
-# Run a pane-group operation: the pane-group script is its name, and keeps
-# its arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
-# directory whose `pane-group close` a member's pane-died hook runs.
-# Args: $1=verb, then the script's own arguments
+# TMUXY_SCRIPTS_DIR names the directory whose `pane-group close` a member's
+# pane-died hook runs (read by tmuxy-group).
 group_verb() {
   find_group_cmd || exit 1
   TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${GROUP_CMD[@]}" "$@"
@@ -275,8 +246,6 @@ find_group_cmd() {
 # back to a whole second rather than failing under `set -e`.
 _lock_nap() { sleep 0.05 2>/dev/null || sleep 1; }
 
-# Take the lock for a directory, blocking until it is free.
-# Args: $1=directory to lock within
 _lock_acquire() {
   local lock="$1/.lock" owner tries=0
   # A `.lock` left as a FILE is from the flock era, when the lock was an fd
@@ -328,29 +297,22 @@ _lock_acquire() {
   done
 }
 
-# Release the lock for a directory. Safe to call when not held.
-# Args: $1=directory to unlock within
 _lock_release() {
   rm -rf "$1/.lock" 2>/dev/null || true
 }
 
-# Get the window type set on a window via @tmuxy-window-type.
-# Args: $1=window_id (e.g., @5)
-# Output: float|sidebar-left|sidebar-right  (empty for a tab)
+# Output: float|sidebar-left|sidebar-right, empty for a tab.
 window_type() {
   _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
 }
 
-# The window id of a sidebar column, if that column currently exists.
-# Args: $1=left|right
-# Output: window id (e.g. @7), or empty.
 sidebar_window() {
   _tmux list-windows -F '#{window_id} #{@tmuxy-window-type}' 2>/dev/null \
     | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
 }
 
-# The same, only while the column is on screen: a closed column keeps its
-# window, hidden (`@tmuxy-sidebar-hidden`), and is nowhere to move to.
+# A closed sidebar column keeps its window, hidden (`@tmuxy-sidebar-hidden`),
+# and is nowhere to move to.
 shown_sidebar_window() {
   _tmux list-windows -F '#{window_id} #{@tmuxy-window-type} #{?@tmuxy-sidebar-hidden,hidden,shown}' 2>/dev/null \
     | awk -v t="sidebar-$1" '$2 == t && $3 == "shown" { print $1; exit }'
@@ -403,7 +365,6 @@ reap_pids() {
   done
 }
 
-# Get a pane's window ID
 pane_window() {
   _tmux display-message -t "$1" -p '#{window_id}'
 }
@@ -411,9 +372,8 @@ pane_window() {
 # The name for a session the user did not name: an adjective and a noun from
 # session-names.json (the UI draws from the same lists, in
 # tmuxy-ui/src/domain/sessionNames.ts), like `drifting-cedar`, that no session
-# on the server and no snapshot has. The pairs are tried from a random one
-# onward, so a number is added only once every pair is taken. awk reads the
-# lists, one word per line, since jq is not a dependency of the CLI.
+# on the server and no snapshot has. awk reads the lists, since jq is not a
+# dependency of the CLI.
 memorable_session_name() {
   local file="$SCRIPTS_DIR/session-names.json" taken word
   local adjectives=() nouns=()
@@ -441,8 +401,7 @@ memorable_session_name() {
   echo "$base-$n"
 }
 
-# Whether a name is one of the newline-separated names: a pattern match, not a
-# grep per candidate, since there can be a thousand candidates.
+# A pattern match, not a grep per candidate: there can be a thousand.
 _name_taken() {
   case $'\n'"$2"$'\n' in
     *$'\n'"$1"$'\n'*) return 0 ;;
@@ -450,7 +409,6 @@ _name_taken() {
   return 1
 }
 
-# The words of one list in session-names.json, one per line.
 _session_words() {
   awk -v list="\"$1\"" '
     index($0, list) { on = 1; next }

@@ -23,7 +23,6 @@ while IFS= read -r f; do
   printf '%s %s\n' "$(git hash-object -- "$f")" "$f"
 done < "$HOOK_TMP/partial" > "$HOOK_TMP/partial-before"
 
-# Prettier, eslint --fix and cargo fmt over everything the gate owns.
 bin/lint-gate format
 
 # A fully staged file that differs from the index now was rewritten by a
@@ -40,11 +39,9 @@ while read -r hash f; do
   fi
 done < "$HOOK_TMP/partial-before"
 
-# Run only the unit tests related to the staged tmuxy-ui changes. `vitest
-# related` runs a staged test file directly and any tests that transitively
-# import a staged source file, so this stays correct while being much faster
-# than the full suite. CI still runs the entire suite, so this is purely a
-# local speed-up — a miss here is caught there.
+# `vitest related` runs a staged test file and every test that transitively
+# imports a staged source file. CI runs the entire suite, so a miss here is
+# caught there.
 CHANGED_UI=$(git diff --cached --name-only --diff-filter=ACM \
   | grep -E '^packages/tmuxy-ui/src/.*\.(ts|tsx)$' \
   | sed 's#^packages/tmuxy-ui/##' || true)

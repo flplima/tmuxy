@@ -1,4 +1,14 @@
 /**
+ * Sidebar stories, over states recorded from real tmux.
+ *
+ * The left sidebar is a native React tab/pane tree (`SidebarTree`) drawn in a
+ * fixed-width, full-height column beside the pane area, opened onto a tmux
+ * window running the tree widget. The tree is derived from the recorded
+ * `context.windows`/`context.panes`, so these stories exercise the real user
+ * chain: TOGGLE_SIDEBAR left (the header button) → the column opens → the tree
+ * lists every tab and its panes → clicking a node activates it through the
+ * same events the rest of the UI uses.
+ *
  * Context menus are floating surfaces portalled out of the tree, so menu queries
  * run against `document`, not `canvasElement`.
  */
@@ -155,12 +165,22 @@ export const TabsCollapseToHideTheirPanes: Story = {
     const paneRow = (id: string) =>
       tree.querySelector(`[data-testid="tree-pane-${id}"]`) as HTMLElement | null;
     const treeBox = () => tree.getBoundingClientRect();
+    // Drawn, as the user sees it: the row's height left inside the group that
+    // folds it, and reachable (a folded group is inert).
+    const shownHeight = (id: string) => {
+      const row = paneRow(id);
+      const group = row?.closest<HTMLElement>('.sidebar-tree-children');
+      if (!row || !group || group.inert) return 0;
+      const r = row.getBoundingClientRect();
+      const g = group.getBoundingClientRect();
+      return Math.max(0, Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top));
+    };
 
     for (const id of paneIds) {
       const row = paneRow(id);
       expect(row).not.toBeNull();
       const box = row!.getBoundingClientRect();
-      expect(box.height).toBeGreaterThan(0);
+      expect(shownHeight(id)).toBeGreaterThan(0);
       expect(box.top).toBeGreaterThanOrEqual(treeBox().top - 1);
     }
 
@@ -171,7 +191,7 @@ export const TabsCollapseToHideTheirPanes: Story = {
 
     await waitFor(
       () => {
-        for (const id of paneIds) expect(paneRow(id)).toBeNull();
+        for (const id of paneIds) expect(shownHeight(id)).toBe(0);
       },
       { timeout: 5000 },
     );
@@ -188,7 +208,9 @@ export const TabsCollapseToHideTheirPanes: Story = {
     await user.click(chevron);
     await waitFor(
       () => {
-        for (const id of paneIds) expect(paneRow(id)).not.toBeNull();
+        for (const id of paneIds) {
+          expect(shownHeight(id)).toBeCloseTo(paneRow(id)!.getBoundingClientRect().height, 0);
+        }
       },
       { timeout: 5000 },
     );

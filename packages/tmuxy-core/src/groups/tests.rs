@@ -26,7 +26,6 @@ pub(super) fn row(
     }
 }
 
-/// Every command line, one per element, as `tmux` would be handed them.
 pub(super) fn lines(plan: &[Invocation]) -> Vec<String> {
     plan.iter()
         .flat_map(|i| i.commands.iter().map(|c| c.join(" ")))
@@ -269,7 +268,6 @@ fn park_arms_the_anchor_splits_in_its_directory_and_keeps_the_place() {
 fn closing_the_visible_member_promotes_the_next_in_order() {
     let plan = close(&grouped(), &pid("%1")).unwrap();
     assert_eq!(lines(&plan), ["swap-pane -s %1 -t %4", "kill-window -t @4"]);
-    // The swap and the kill are one list.
     assert_eq!(plan[0].commands.len(), 2);
 }
 

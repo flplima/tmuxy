@@ -269,6 +269,8 @@ export type KeyBinding = Schema.Schema.Type<typeof KeyBinding>;
  */
 export const KeyBindings = Schema.Struct({
   prefix_key: Schema.String,
+  /** tmux's `repeat-time`: how long a `-r` binding keeps the prefix armed, in ms. */
+  repeat_time_ms: Schema.Number,
   prefix_bindings: Schema.Array(KeyBinding),
   root_bindings: Schema.Array(KeyBinding),
   tables: Schema.Record({ key: Schema.String, value: Schema.Array(KeyBinding) }),

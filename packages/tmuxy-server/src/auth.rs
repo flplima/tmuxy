@@ -1,19 +1,9 @@
-//! Optional HTTP Basic authentication for the web server.
-//!
-//! When `tmuxy server --password <PW>` (or the `TMUXY_PASSWORD` env var) is
-//! set, every HTTP route — the SSE stream, the command endpoint, the `/api/*`
-//! handlers, and the embedded frontend itself — is gated behind Basic auth.
-//! Only the password is checked; any username is accepted, so the browser's
-//! native login prompt just needs the shared password. With no password
-//! configured the layer is never installed and the server stays fully open
-//! (unchanged default behaviour).
-//!
-//! The gate works transparently for the browser client: the first request 401s
-//! with a `WWW-Authenticate` challenge, the browser prompts and then caches the
-//! credentials for the origin, and every subsequent request — including the
-//! `EventSource` SSE connection and `fetch` POSTs — carries the `Authorization`
-//! header automatically. No frontend change is required. The Tauri desktop app
-//! talks over local IPC, not HTTP, so it is unaffected.
+//! Every HTTP route, the embedded frontend included, is gated. Only the
+//! password is checked; any username is accepted, so the browser's native
+//! prompt just needs the shared password. The browser caches the credentials
+//! for the origin after the first `WWW-Authenticate` challenge, and sends
+//! them on every later request, `EventSource` included. The desktop app talks
+//! over local IPC, not HTTP, so it is unaffected.
 
 use axum::{
     body::Body,
@@ -29,7 +19,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::warn;
 
-/// Realm shown in the browser's Basic-auth prompt.
 const REALM: &str = "tmuxy";
 
 /// Wrong passwords a peer may try before its next attempt is delayed.
@@ -53,12 +42,10 @@ const FORGET_AFTER: Duration = Duration::from_secs(600);
 /// exhaustion it exists to prevent. Past it the oldest entry is dropped.
 const MAX_TRACKED_PEERS: usize = 4096;
 
-/// Per-peer failed-attempt counts, and what they cost.
-///
 /// Basic auth over a routable bind is the recommended VPN/mobile setup
 /// (docs/SECURITY.md), and a password is the only thing between the network
-/// and a shell. The comparison is constant-time, but nothing stopped a peer
-/// trying passwords as fast as it could open connections.
+/// and a shell: a constant-time comparison alone lets a peer try passwords as
+/// fast as it can open connections.
 #[derive(Default)]
 pub struct AuthThrottle {
     peers: Mutex<HashMap<IpAddr, (u32, Instant)>>,
@@ -78,7 +65,6 @@ impl AuthThrottle {
         Self::default()
     }
 
-    /// Record a failure for `peer` and return how long to hold the refusal.
     fn penalise(&self, peer: IpAddr, now: Instant) -> Duration {
         let peer = throttle_key(peer);
         let Ok(mut peers) = self.peers.lock() else {
@@ -102,7 +88,6 @@ impl AuthThrottle {
         delay_for_failures(entry.0)
     }
 
-    /// Forget `peer`: it got the password right.
     fn forgive(&self, peer: IpAddr) {
         let peer = throttle_key(peer);
         if let Ok(mut peers) = self.peers.lock() {
@@ -126,9 +111,6 @@ fn delay_for_failures(failures: u32) -> Duration {
 
 /// Length-hiding constant-time comparison so neither the secret bytes nor
 /// `expected.len()` can be recovered by timing the response.
-///
-/// The iteration count depends only on `candidate.len()` (chosen by the caller),
-/// while `candidate.len() ^ expected.len()` is folded into the opaque accumulator.
 fn constant_time_eq(candidate: &[u8], expected: &[u8]) -> bool {
     let mut diff = std::hint::black_box(candidate.len() ^ expected.len());
     if expected.is_empty() {
@@ -142,8 +124,8 @@ fn constant_time_eq(candidate: &[u8], expected: &[u8]) -> bool {
     std::hint::black_box(diff) == 0
 }
 
-/// Extract the password half of a `Basic <base64(user:pass)>` header value.
-/// Splits on the FIRST colon so passwords may themselves contain colons.
+/// Splits on the FIRST colon: a user-id cannot hold one (RFC 7617), a
+/// password can.
 fn password_from_header(value: &str) -> Option<Vec<u8>> {
     let encoded = value.strip_prefix("Basic ")?;
     let decoded = base64::engine::general_purpose::STANDARD
@@ -153,16 +135,12 @@ fn password_from_header(value: &str) -> Option<Vec<u8>> {
     Some(decoded[colon + 1..].to_vec())
 }
 
-/// What the auth layer is given: the password, the failures so far, and the
-/// server's request policy (`request_guard`).
 pub struct AuthState {
     pub password: String,
     pub throttle: AuthThrottle,
     pub policy: crate::request_guard::HostPolicy,
 }
 
-/// Axum middleware enforcing HTTP Basic auth against the configured password.
-///
 /// A wrong password costs the peer time once it has spent its allowance, and
 /// every refusal is logged with the address it came from. Behind a reverse
 /// proxy the peer IS the proxy, so the delay is then shared by everyone behind
@@ -245,7 +223,7 @@ mod tests {
         )
     }
 
-    /// SEC-08. The comparison is constant time, but nothing stopped a peer
+    /// The comparison is constant time, but nothing used to stop a peer
     /// trying passwords as fast as it could open connections — and a password
     /// is the only thing between a routable bind and a shell.
     #[test]
@@ -254,7 +232,6 @@ mod tests {
         for attempt in 1..=FREE_ATTEMPTS {
             assert_eq!(delay_for_failures(attempt), Duration::ZERO, "{attempt}");
         }
-        // Then it doubles.
         assert_eq!(delay_for_failures(FREE_ATTEMPTS + 1), BASE_DELAY);
         assert_eq!(delay_for_failures(FREE_ATTEMPTS + 2), BASE_DELAY * 2);
         assert_eq!(delay_for_failures(FREE_ATTEMPTS + 3), BASE_DELAY * 4);
@@ -362,7 +339,6 @@ mod tests {
     fn rejects_malformed_headers() {
         assert_eq!(password_from_header("Bearer xyz"), None);
         assert_eq!(password_from_header("Basic not-base64!!"), None);
-        // No colon at all → not a valid user:pass pair.
         let no_colon = base64::engine::general_purpose::STANDARD.encode("nopass");
         assert_eq!(password_from_header(&format!("Basic {no_colon}")), None);
     }

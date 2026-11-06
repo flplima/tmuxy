@@ -1,11 +1,4 @@
-//! The manifest sections that point at an action or extend the app:
-//! `[[link_handlers]]`, `[[keys]]`, `[[settings]]`, `depends` and
-//! `[[themes]]`, as plain types, and the limits their validation
-//! (`super::validate`) holds them to.
-
 use serde::Serialize;
-
-// ── Validated ───────────────────────────────────────────────────────────
 
 /// A `[[link_handlers]]` entry: links in pane output that open an action.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,9 +160,6 @@ pub struct Theme {
     pub file: String,
 }
 
-// ── Limits ──────────────────────────────────────────────────────────────
-
-/// The longest text pattern or path regex a manifest may carry.
 pub const MAX_PATTERN_CHARS: usize = 256;
 
 /// A pattern compiled with bounded memory: `regex` matches in linear time,

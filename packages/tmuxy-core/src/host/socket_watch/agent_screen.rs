@@ -3,14 +3,13 @@
 //! Claude Code and Codex fire none when the user answers one — the next
 //! hook is the tool finishing, which for a long command is minutes later.
 //!
-//! So the host reads the bottom of every agent pane its hooks have marked,
-//! on every read of the panes (`socket_watch::run`), and corrects the state
-//! on one sign only: an approval dialog. One on screen is `needs-input`; one
-//! seen to go away again is `working`, the user having answered it. Nothing else on a
-//! screen is trusted — a quiet screen proves nothing, and the hooks own
-//! every other change. It is what the tmux tools for agents settled on
-//! (agent-deck, tmux-agent-deck, bosun): hooks for the turn, the screen for
-//! the dialogs.
+//! So the bottom of every agent pane its hooks have marked is read, and the
+//! state corrected on one sign only: an approval dialog. One on screen is
+//! `needs-input`; one seen to go away again is `working`, the user having
+//! answered it. Nothing else on a screen is trusted: a quiet screen proves
+//! nothing, and the hooks own every other change. It is what the tmux tools
+//! for agents settled on (agent-deck, tmux-agent-deck, bosun): hooks for the
+//! turn, the screen for the dialogs.
 //!
 //! Reads are read-only tmux subprocesses (`capture-pane`), which tmux runs
 //! safely beside an attached control-mode client; the one write goes
@@ -45,12 +44,12 @@ const CURSORS: [char; 4] = ['❯', '›', '>', '▶'];
 /// Antigravity under either of its names.
 pub const AGENT_COMMANDS: [&str; 4] = ["claude", "codex", "agy", "antigravity"];
 
-/// Whether the pane runs one of the agents tmuxy installs hooks for.
 pub fn is_agent(command: &str) -> bool {
     AGENT_COMMANDS.contains(&crate::program::program_name(command))
 }
 
-/// Whether an option's line: the cursor or a number, then `N.`.
+/// A menu option's line (`N. text`, maybe after a cursor glyph): whether the
+/// cursor is on it, and its text.
 fn option_number(line: &str) -> Option<(bool, &str)> {
     let line = line.trim_start();
     let (cursor, rest) = match line.strip_prefix(CURSORS) {
@@ -91,8 +90,7 @@ pub struct Corrector {
 }
 
 impl Corrector {
-    /// The state `row` should have now, given whether its screen shows a
-    /// dialog; `None` to leave it.
+    /// `None` leaves the state as it is.
     fn correct(&mut self, row: &PaneRow, dialog: bool) -> Option<&'static str> {
         if row.asking {
             self.dialogs.remove(&row.pane_id);
@@ -115,7 +113,6 @@ impl Corrector {
         }
     }
 
-    /// Forget panes that are gone.
     fn retain(&mut self, rows: &[PaneRow]) {
         self.dialogs
             .retain(|pane| rows.iter().any(|row| &row.pane_id == pane));
@@ -131,7 +128,7 @@ fn tmux_output(args: &[&str]) -> Option<String> {
 }
 
 impl Corrector {
-    /// Correct the agent panes a hook has marked among `rows`, once.
+    /// Only an agent pane a hook has marked (a non-empty state) is read.
     pub(super) fn pass(&mut self, rows: &[PaneRow]) {
         self.retain(rows);
         for row in rows

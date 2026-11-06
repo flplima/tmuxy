@@ -9,7 +9,6 @@ import { TouchSelectionBar } from './TouchSelectionBar';
 import {
   useAppSend,
   usePane,
-  useIsPaneInActiveWindow,
   useIsSinglePane,
   useCopyModeState,
   useAppSelector,
@@ -20,7 +19,7 @@ import {
   selectPhoneLayout,
   selectPhoneZoom,
 } from '../../machines/selectors/layout';
-import { selectKeyboardElsewhere } from '../../machines/selectors/ui';
+import { selectPaneHoldsKeyboard } from '../../machines/selectors/keyboard';
 import { usePaneMouse } from './usePaneMouse';
 import { usePaneTouch } from './usePaneTouch';
 import { useLatchedContent } from './useLatchedContent';
@@ -60,14 +59,15 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // A capture refresh leaves the grid momentarily empty — a pane-group switch's
   // `swap-pane` does — and drawing that gap blinks the pane.
   const content = useLatchedContent(pane?.content);
-  const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const gridCell = useAppSelector(selectCharSize);
   const charWidth = cellSize?.width ?? gridCell.charWidth;
   const charHeight = cellSize?.height ?? gridCell.charHeight;
-  const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
-  const holdsKeyboard =
-    isActive ?? (pane?.active === true && isInActiveWindow && !keyboardElsewhere);
+  // The pane holds the keyboard: tmux's active pane in the active window with
+  // nothing (float, dock, tree) focused over it — or whatever the dock's column
+  // says about its own pane.
+  const paneHoldsKeyboard = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
+  const holdsKeyboard = isActive ?? paneHoldsKeyboard;
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -127,7 +127,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     forwardScrollToParent,
   });
 
-  // The phone draws the dock too, but a slide on it is not a slide between tabs.
+  // Touch handling for mobile scroll — and, in the phone layout, the taps,
+  // holds and slides a finger means on a tiled pane. The dock (chrome none)
+  // is drawn by the phone too, but a slide on it is not a slide between tabs,
+  // and a tap on it brings the keyboard up for it.
   const phoneLayout = useAppSelector(selectPhoneLayout);
   const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
   const phoneGestures = phoneLayout && chrome === 'header';
@@ -147,6 +150,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     phoneLayout: phoneGestures,
     phoneZoomed: phoneGestures && phoneZoomed,
     holdsKeyboard,
+    tapRaisesKeyboard: phoneLayout && chrome === 'none',
     forwardScrollToParent,
   });
 

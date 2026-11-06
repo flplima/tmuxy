@@ -2,11 +2,21 @@ import type { PaneId } from '../../domain/ids';
 /**
  * The hidden text input that desktop IMEs and touch keyboards type into.
  *
- * Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events,
- * which the keyboard actor handles on the window. Printable characters and
- * finished IME compositions only arrive reliably as `input` / `compositionend`
- * events, so they are forwarded from here, and the keyboard actor skips
- * printable keydowns from this input so text is sent once.
+ * Ownership:
+ *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
+ *    typed characters (input events). It also calls getMobileInput() to identify
+ *    the element in keydown so it can skip printable chars already handled here.
+ *  - usePaneTouch calls focusMobileInput(paneId) on a tap on another pane, so an
+ *    open keyboard follows it, toggleMobileKeyboard() on a tap on the pane
+ *    that has it, and raiseMobileKeyboard() on a tap on the phone's side pane;
+ *    the key row's ⌨ key calls toggleMobileKeyboard() too.
+ *
+ * Key event routing:
+ *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
+ *    that bubble to window and are handled by keyboardActor's existing keydown listener.
+ *  - Printable characters and finalized IME compositions arrive through `input` or
+ *    `compositionend` events and are forwarded through the registered callback.
+ *  - keyboardActor skips printable keydowns from this input so text is sent once.
  */
 
 let input: HTMLInputElement | null = null;
@@ -183,7 +193,19 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
   }
 }
 
-/** A tap on another pane: the keyboard, if it is up, follows the pane; if down it stays down. */
+/**
+ * Called by usePaneTouch on a tap on the phone's side pane: the keyboard
+ * comes up for it, or, already up, follows it there.
+ */
+export function raiseMobileKeyboard(paneId: PaneId): void {
+  if (!isTouchDevice()) return;
+  focusInput(paneId);
+}
+
+/**
+ * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
+ * up, follows the pane; if it is down it stays down.
+ */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   if (isMobileKeyboardOpen()) focusInput(paneId);

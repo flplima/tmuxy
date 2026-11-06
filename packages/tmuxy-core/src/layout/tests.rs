@@ -8,7 +8,6 @@ const MANUAL: &str = "adc3,159x48,0,0{79x48,0,0,0,79x48,80,0[79x24,80,0,1,79x23,
 fn round_trips_the_manual_example_with_its_checksum() {
     let node = parse(MANUAL).expect("parses");
     assert_eq!(serialize(&node), MANUAL);
-    // A checksum-less string parses too and gets one on the way out.
     let bare = parse("159x48,0,0,1").expect("parses");
     assert_eq!(
         serialize(&bare),
@@ -28,9 +27,7 @@ fn tmux_3_8_json_layout_becomes_the_classic_string() {
         parse_json(json).map(|n| serialize(&n)).as_deref(),
         Some(tmux_3_4)
     );
-    // `parse` takes either form and sees the same tree.
     assert_eq!(parse(json), parse(tmux_3_4));
-    // Not a layout: no tree, not a panic.
     assert_eq!(parse_json(r#"{"V":2}"#), None);
     assert_eq!(parse_json("not json"), None);
 }
@@ -43,7 +40,6 @@ fn collapses_every_first_level_row_but_the_active_one() {
     let out = collapse_first_level(layout, 3).expect("relayout");
     let node = parse(&out).expect("parses back");
     assert_eq!(first_level_heights(&out), Some(vec![2, 27, 1]));
-    // The nested pair kept its widths and took the row's full height.
     let Node::Split { children, .. } = &node else {
         panic!()
     };
@@ -52,12 +48,10 @@ fn collapses_every_first_level_row_but_the_active_one() {
     };
     assert_eq!(pair.iter().map(Node::w).collect::<Vec<_>>(), vec![40, 39]);
     assert!(pair.iter().all(|c| c.h() == 27));
-    // Offsets are recomputed top to bottom.
     let Node::Leaf { y, .. } = &children[2] else {
         panic!()
     };
     assert_eq!(*y, 31);
-    // Applying the same rule again is a no-op.
     assert_eq!(collapse_first_level(&out, 3), None);
     assert_eq!(collapse_first_level(&out, 2), None);
 }
@@ -72,10 +66,7 @@ fn tmux_keeping_a_status_line_on_the_top_row_counts_as_in_shape() {
 #[test]
 fn the_top_row_keeps_a_line_of_its_own_to_show() {
     // The reported bug: the first pane of a stack was a bare header with
-    // no content under it. tmuxy runs with `pane-border-status top`, so
-    // every row's status line sits on the separator above it — except the
-    // top row, which has no separator, so tmux takes the line out of the
-    // pane. Asked for one row, that pane had nothing left.
+    // no content under it (see `collapsed_height`).
     let layout = "0000,80x32,0,0[80x10,0,0,1,80x10,0,11,2,80x10,0,22,3]";
     let out = collapse_first_level(layout, 3).expect("relayout");
     assert_eq!(first_level_heights(&out), Some(vec![2, 1, 27]));

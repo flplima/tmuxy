@@ -10,7 +10,6 @@ use tmuxy_core::control_mode::{
 };
 use tmuxy_core::TmuxState;
 
-/// Feed `stream` line by line through the public push API.
 fn feed(parser: &mut Parser, agg: &mut StateAggregator, stream: &str) {
     for line in stream.split('\n') {
         if let Some(event) = parser.parse_line(line) {
@@ -52,7 +51,6 @@ fn attach(parser: &mut Parser, agg: &mut StateAggregator) {
     feed(parser, agg, &stream);
 }
 
-/// The state the attach slice leaves.
 fn drive() -> TmuxState {
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
@@ -74,7 +72,6 @@ fn reconstructs_two_pane_state_from_control_mode() {
     widths.sort_unstable();
     assert_eq!(widths, vec![39, 40], "pane geometry from the layout string");
 
-    // Both panes are associated with the window from the list-panes response.
     assert!(state.panes.iter().all(|p| p.window_id == "@0"));
     let ids: Vec<&str> = state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
     assert!(ids.contains(&"%0") && ids.contains(&"%1"));

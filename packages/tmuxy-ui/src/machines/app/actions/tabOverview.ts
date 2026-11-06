@@ -1,8 +1,6 @@
 /**
  * Tab Overview actions — the Safari-style "all tabs" view.
  *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
- *
  * The overview is a client-side surface over the pane area: opening it zooms
  * the current tab out into a grid of every tab; picking a slot zooms that tab
  * back in and makes it current. Slot order is the tab strip's order (the
@@ -117,21 +115,34 @@ export const tabOverviewActions = {
    * from the thing being named.
    */
   tabOverview_rename: assignCtx(({ context, event }) => {
-    if (event.type === 'RENAME_TAB') return { renamingTabId: event.windowId };
+    if (event.type === 'RENAME_TAB') {
+      return { renamingTab: { windowId: event.windowId, surface: event.surface ?? 'strip' } };
+    }
+    const active = context.activeWindowId;
     return {
-      renamingTabId:
-        context.activeWindowId && !isPlaceholderId(context.activeWindowId)
-          ? context.activeWindowId
-          : null,
+      renamingTab:
+        active && !isPlaceholderId(active) ? { windowId: active, surface: 'strip' } : null,
     };
   }),
 
-  /** The field closed, committed or not. */
-  tabOverview_renameEnd: assignCtx(() => ({ renamingTabId: null })),
+  /** The field closed: renamed (a name), or left as it was (null). */
+  tabOverview_renameCommit: act(({ event, enqueue }) => {
+    if (event.type !== 'RENAME_TAB_COMMIT') return;
+    enqueue(assign({ renamingTab: null }));
+    if (!event.name) return;
+    enqueue(
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
+        op: TmuxOp.RenameWindow({ target: event.windowId, name: event.name }),
+      }),
+    );
+  }),
 
-  /** Stacked panes on the active tab: a window option the backend reads (docs/TMUX.md). */
-  tabOverview_toggleStacked: act(({ context, enqueue }) => {
-    const window = context.windows.find((w) => w.id === context.activeWindowId);
+  /** Stacked panes on a tab: a window option the backend reads (docs/TMUX.md). */
+  tabOverview_toggleStacked: act(({ context, event, enqueue }) => {
+    if (event.type !== 'TOGGLE_STACKED_PANES') return;
+    const windowId = event.windowId ?? context.activeWindowId;
+    const window = context.windows.find((w) => w.id === windowId);
     if (!window || isPlaceholderId(window.id)) return;
     enqueue(
       sendTo('tmux', {
@@ -150,8 +161,8 @@ export const tabOverviewActions = {
     // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
     if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
     enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
         op: TmuxOp.KillWindow({ windowId: event.windowId }),
       }),
     );

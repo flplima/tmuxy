@@ -20,7 +20,6 @@ impl Pane {
         Self::run_in(&std::env::temp_dir(), program)
     }
 
-    /// `run`, with the helper (and the program) started in `dir`.
     fn run_in(dir: &std::path::Path, program: &[&str]) -> Self {
         let (socket, theirs) = UnixStream::pair().expect("socket pair");
         let theirs = OwnedFd::from(theirs);

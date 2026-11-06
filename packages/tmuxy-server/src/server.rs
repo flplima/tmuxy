@@ -77,11 +77,8 @@ fn resolve_password_from(flag: Option<String>, env_password: Option<String>) -> 
         .or_else(|| env_password.filter(|s| !s.is_empty()))
 }
 
-/// The port `tmuxy server` listens on unless told otherwise.
 const DEFAULT_PORT: u16 = 9000;
 
-/// Wrap the router in the Basic-auth layer when a password is configured.
-/// With no password the router is returned unchanged (server stays open).
 fn with_optional_auth(
     app: axum::Router,
     password: Option<String>,
@@ -141,11 +138,9 @@ fn resolve_listen(
              Set TMUXY_PASSWORD (or --password), listen on --host 127.0.0.1, or pass --no-auth on a network you trust."
         ));
     }
-    // SEC-10/SEC-15: a routable bind keeps the allowed list and still checks
-    // `Host` against it. It used to be discarded here, so `--allowed-host` (and
-    // `TMUXY_ALLOWED_HOSTS`, which the public demo builds it from) silently did
-    // nothing, and a routable `--no-auth` bind was one DNS rebind from a shell.
-    // `bound` is None for a wildcard, which answers on every address it has.
+    // A routable bind checks `Host` too: without it a routable `--no-auth`
+    // bind is one DNS rebind from a shell. `bound` is None for a wildcard,
+    // which answers on every address it has.
     let bound = (!ip.is_unspecified()).then_some(ip);
     Ok(Listen {
         ip,
@@ -156,7 +151,6 @@ fn resolve_listen(
     })
 }
 
-/// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
 fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
     let env = std::env::var("TMUXY_ALLOWED_HOSTS").unwrap_or_default();
     flag.into_iter()
@@ -204,11 +198,11 @@ pub enum ServerAction {
     Verb(tmuxy_verbs::Verb),
 }
 
-/// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
-/// and subcommands — and run it. The one clap wrapper around [`ServerArgs`]:
-/// the standalone `tmuxy-server` binary hands over its own argv, and the
-/// desktop binary builds one for `tmuxy server …` and `tmuxy trace …`. A
-/// parse error prints clap's message and exits, as clap does.
+/// `argv` is the program name, then `tmuxy server`'s own arguments: the
+/// standalone binary hands over its own, and the desktop binary builds one
+/// for `tmuxy server …` and `tmuxy trace …`. Serving, `stop` and `status` are
+/// this crate's; every other verb is `tmuxy-verbs`'. A parse error prints
+/// clap's message and exits.
 pub async fn run_argv<I, T>(argv: I)
 where
     I: IntoIterator<Item = T>,
@@ -242,9 +236,7 @@ pub async fn run(args: ServerArgs) {
                     }
                 };
             prepare();
-            // Action tracing per the gating rules (docs/TRACING.md), which
-            // announces itself. Only on the actual server-start path — never
-            // for stop/status/tree/connect.
+            // Gated per docs/TRACING.md.
             tmuxy_core::trace::init(args.trace.clone(), dev_mode);
             let frontend = if dev_mode {
                 Frontend::Dev
@@ -263,16 +255,13 @@ pub async fn run(args: ServerArgs) {
     }
 }
 
-/// Where the app's own pages come from.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Frontend {
-    /// The built frontend compiled into this binary.
     Embedded,
     /// `--dev`: Vite started as a child and proxied, so the UI hot-reloads.
     Dev,
 }
 
-/// Serve the API and the frontend until a shutdown signal.
 async fn serve(
     frontend: Frontend,
     port: u16,
@@ -280,12 +269,10 @@ async fn serve(
     password: Option<String>,
     state: AppState,
 ) {
-    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
-    // told to bind that one, it wins the race; Vite fails silently, and the
-    // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
-    // EventSources 404 on /events while `curl` (different headers/timing)
-    // appears to work. Bail early with an actionable message instead of
-    // letting that happen.
+    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server
+    // takes it, Vite fails silently and the dev proxy loops back to
+    // tmuxy-server itself: EventSources 404 on /events while `curl` appears
+    // to work.
     if frontend == Frontend::Dev && port == dev::VITE_PORT {
         error!(port, "FATAL: port collides with the hard-coded Vite port");
         error!(

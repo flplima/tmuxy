@@ -1,6 +1,3 @@
-//! The ask protocol against a pane that answers like tmux: when the question
-//! is skipped, what goes up and in which order, and what comes down.
-
 use super::*;
 use std::sync::Mutex;
 
@@ -176,7 +173,6 @@ async fn an_allowed_question_is_down_before_the_keys_land() {
     let asked = position("set-option -p -t %3 @tmuxy-ask ").unwrap();
     let taken_down = position("set-option -pu -t %3 @tmuxy-ask").unwrap();
     let typed = position("send-keys").unwrap();
-    // A stale answer is cleared before the question goes up.
     assert!(cleared < asked, "{log:?}");
     assert!(log[taken_down..]
         .iter()
@@ -186,9 +182,6 @@ async fn an_allowed_question_is_down_before_the_keys_land() {
     assert!(tmux.0.lock().unwrap().ask.is_empty());
 }
 
-/// The pane waiting on the answer is the one the question is over: it is
-/// marked `needs-input` while the question is up, and what it said before
-/// comes back when it comes down.
 #[tokio::test]
 async fn the_target_pane_needs_the_user_while_asked_and_gets_its_state_back() {
     let tmux = Fake::new(Some("no"));

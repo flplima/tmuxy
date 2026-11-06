@@ -85,14 +85,9 @@ fn test_parse_window_add() {
 fn test_parse_command_response() {
     let mut parser = Parser::new();
 
-    // Begin
     assert!(parser.parse_line("%begin 1234567890 0 0").is_none());
-
-    // Response content
     assert!(parser.parse_line("line 1").is_none());
     assert!(parser.parse_line("line 2").is_none());
-
-    // End
     let event = parser.parse_line("%end 1234567890 0 0");
 
     match event {
@@ -122,8 +117,6 @@ fn test_parse_command_error() {
 
 #[test]
 fn stray_end_without_begin_is_ignored() {
-    // A %end/%error with no matching %begin must not emit a bogus
-    // CommandResponse (an empty body).
     let mut parser = Parser::new();
     assert!(parser.parse_line("%end 1234567890 0 0").is_none());
     assert!(parser.parse_line("%error 1234567890 1 0").is_none());
@@ -257,11 +250,8 @@ fn test_parse_paste_buffer_changed() {
     }
 }
 
-/// `%extended-output` carries a pane's bytes, and nothing tested it at all: `cargo mutants` turned `parts.len() < 2` into
-/// `<= 2`, which makes the function return None for every line tmux can
-/// send — `splitn(2, …)` never yields more than two parts — and the whole
-/// suite still passed. A pane whose output arrives this way would have gone
-/// silent with no test failing.
+/// `%extended-output` carries a pane's bytes: a parse that refuses it leaves
+/// a pane whose output arrives this way silent.
 #[test]
 fn extended_output_carries_the_panes_bytes() {
     let mut parser = Parser::new();
@@ -289,8 +279,7 @@ fn extended_output_without_a_readable_age_still_delivers_its_bytes() {
 }
 
 /// A line with no ` : ` separator is not an extended-output line, and must
-/// be refused rather than half-read. This is the branch the surviving
-/// mutant inverted, so it is asserted from both sides.
+/// be refused rather than half-read.
 #[test]
 fn extended_output_without_a_separator_is_not_an_event() {
     let mut parser = Parser::new();
@@ -331,8 +320,6 @@ fn a_session_rename_carries_the_session_id_apart_from_the_name() {
     }
 }
 
-/// A reply that outgrows the cap is answered as an error, and the next reply
-/// is read normally.
 #[test]
 fn a_reply_past_the_cap_is_an_error_and_the_next_one_is_whole() {
     let mut parser = Parser::with_max_response_bytes(10);

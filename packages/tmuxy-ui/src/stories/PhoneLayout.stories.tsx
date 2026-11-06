@@ -1,7 +1,13 @@
 /**
- * The phone layout at a 390 × 844 phone's width, over a recording of real tmux
- * at the 80 × 24 grid the layout asks for. The story frame is not the viewport
- * the media query reads, so the layout is asked for through the config.
+ * The phone layout, at a 390 × 844 phone's width, over a recording of real
+ * tmux at the 80 × 24 grid the layout asks for.
+ *
+ * The whole 80 × 25 terminal at the top, 80 columns spanning the screen edge
+ * to edge with tmux's status line as the 25th row, then the key row, then the
+ * bottom view — the tab/pane tree to begin with — over a tab bar that picks
+ * the menu, the tree or the side pane. No tab strip. The frame is not the
+ * viewport the media query reads, so the story asks for the layout through
+ * the config.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -37,7 +43,7 @@ export const PhoneKeyboardDown: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'A strip of the tabs, the app menu at its left end, sits over the terminal. The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across the screen, edge to edge; tmux’s line sits under it as row 25, as wide. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
+          'No tab strip: the terminal is at the top of the screen, and the tree under the keys lists the tabs. The terminal is asked for at 80 × 24 and drawn at the cell that fits 80 columns across the screen, edge to edge; tmux’s line sits under it as row 25, as wide. ctrl latches on one tap, locks on a second and lets go on a third; the tree lists both tabs below the keys.',
       },
     },
   },
@@ -52,18 +58,12 @@ export const PhoneKeyboardDown: Story = {
 
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    // No "+": the menu opens a tab.
-    const strip = canvasElement.querySelector('.phone-tab-strip')!;
-    expect([...strip.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual([
-      expect.stringContaining('main'),
-      expect.stringContaining('logs'),
-    ]);
-    const menu = box(strip.querySelector('.app-menu-button'));
-    const tabs = [...strip.querySelectorAll('[role="tab"]')].map(box);
-    expect(menu.left - box(strip).left).toBeLessThan(16);
-    expect(tabs.every((tab) => tab.left >= menu.right && tab.right <= box(strip).right)).toBe(true);
-    expect(strip.querySelector('.tab-add')).toBeNull();
-    expect(strip.querySelectorAll('button').length).toBe(1);
+    // No tab strip: the terminal starts at the top of the screen.
+    expect(canvasElement.querySelector('.phone-tab-strip')).toBeNull();
+    expect(box(canvasElement.querySelector('.phone-pty')).top).toBeCloseTo(
+      box(canvasElement.querySelector('.app-container')).top,
+      0,
+    );
 
     // 80 columns span the screen less 4px of padding each side (the grid's
     // outer borders).
@@ -87,15 +87,20 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
+    // Top to bottom: the grid, the status line as its last row, the keys,
+    // the tree, and the tab bar under it, which reaches the screen's bottom.
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
-    expect(grid.top).toBeGreaterThanOrEqual(box(strip).bottom - 1);
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     const keys = box(canvasElement.querySelector('.key-row'));
     const tree = box(canvasElement.querySelector('.phone-tree'));
+    const tabBar = box(canvasElement.querySelector('.phone-tabs'));
     expect(status.top).toBeGreaterThanOrEqual(grid.bottom - 1);
     expect(keys.top).toBeGreaterThanOrEqual(status.bottom - 1);
     expect(tree.top).toBeGreaterThanOrEqual(keys.bottom - 1);
     expect(tree.height).toBeGreaterThan(100);
+    expect(tabBar.top).toBeGreaterThanOrEqual(tree.bottom - 1);
+    expect(tabBar.bottom).toBeCloseTo(box(canvasElement.querySelector('.app-container')).bottom, 0);
+    // The tree is the chrome's size, not the terminal's shrunken one.
     const row = canvasElement.querySelector('.phone-tree [role="treeitem"]');
     expect(row).not.toBeNull();
     expect(parseFloat(getComputedStyle(row!).fontSize)).toBeGreaterThanOrEqual(11);
@@ -122,6 +127,9 @@ export const PhoneKeyboardDown: Story = {
     expect(smallType('.phone-pty .statusline-hints')).toBeCloseTo(termType * 0.8, 1);
     expect(smallType('.phone-pty .statusline-host')).toBeCloseTo(termType * 0.8, 1);
 
+    // Two rows of six, every key the same width: esc, tab, ctrl, alt, the
+    // prefix and the keyboard; the arrows, enter and the zoom. Each a
+    // thumb's size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
     expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);
@@ -155,57 +163,6 @@ export const PhoneKeyboardDown: Story = {
   },
 };
 
-export const AppMenuFromTheTabStrip: Story = {
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 844 },
-      description: {
-        story:
-          'A phone has no status bar, so the app menu opens from the tab strip’s left end, before the first tab: a thumb’s target, drawn without a border. Tapping it opens the menu on screen.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    await waitFor(() => expect(ctx().phoneLayout).toBe(true), { timeout: 8000 });
-    const button = await waitFor(
-      () => {
-        const el = canvasElement.querySelector(
-          '.phone-tab-strip .app-menu-button',
-        ) as HTMLElement | null;
-        expect(el).not.toBeNull();
-        expect(canvasElement.querySelector('.phone-tab-strip [role="tab"]')).not.toBeNull();
-        return el!;
-      },
-      { timeout: 8000 },
-    );
-    expect(canvasElement.querySelector('.key-row .app-menu-button')).toBeNull();
-    const strip = box(canvasElement.querySelector('.phone-tab-strip'));
-    const at = box(button);
-    const firstTab = box(canvasElement.querySelector('.phone-tab-strip [role="tab"]'));
-    expect(at.left).toBeGreaterThanOrEqual(strip.left);
-    expect(at.right).toBeLessThanOrEqual(firstTab.left);
-    expect(at.width).toBeGreaterThanOrEqual(40);
-    expect(at.height).toBeGreaterThanOrEqual(32);
-    expect(getComputedStyle(button).borderTopWidth).toBe('0px');
-    expect(at.top + at.height / 2).toBeCloseTo(firstTab.top + firstTab.height / 2, 0);
-
-    await userEvent.click(button);
-    const item = await waitFor(
-      () => {
-        const el = document.querySelector('[role="menu"] [role="menuitem"]');
-        expect(el).not.toBeNull();
-        return el!;
-      },
-      { timeout: 5000 },
-    );
-    const shown = box(item);
-    expect(shown.width).toBeGreaterThan(0);
-    expect(shown.top).toBeGreaterThanOrEqual(0);
-    expect(shown.bottom).toBeLessThanOrEqual(window.innerHeight);
-    expect(shown.right).toBeLessThanOrEqual(window.innerWidth);
-  },
-};
-
 export const LandscapeAndTheKeyboard: Story = {
   render: ({ fixture, start, config }) => (
     <FixtureProvider fixture={fixture} start={start} config={config} width={844} height={390}>
@@ -217,7 +174,7 @@ export const LandscapeAndTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 390 },
       description: {
         story:
-          'Held sideways, the terminal takes the right of the screen at the height that fits its 24 rows and tmux’s line, and the tab strip, the keys and the bottom view stack in the column left of it. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
+          'Held sideways, the terminal takes the right of the screen at the height that fits its 24 rows and tmux’s line, and the keys and the bottom view stack in the column left of it. A keyboard coming up leaves the type as it was: the terminal is cut short and scrolled to keep the cursor’s row in view, the keys stay above the keyboard.',
       },
     },
   },
@@ -239,7 +196,7 @@ export const LandscapeAndTheKeyboard: Story = {
     expect(side.right).toBeLessThanOrEqual(pty.left + 1);
     expect(pty.width).toBeCloseTo(80 * ctx().charWidth + 8, 0);
     expect(side.width).toBeGreaterThanOrEqual(299);
-    for (const part of ['.phone-tab-strip', '.key-row', '.phone-tree']) {
+    for (const part of ['.key-row', '.phone-tree']) {
       expect(box(canvasElement.querySelector(`.phone-side ${part}`)).width).toBeGreaterThan(0);
     }
     const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));

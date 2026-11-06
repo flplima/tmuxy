@@ -436,7 +436,9 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+        ctx.page.evaluate(
+          () => (window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'right') === true,
+        ),
       10000,
       'the dock to take the keyboard',
     );

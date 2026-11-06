@@ -1,6 +1,4 @@
 #!/bin/bash
-# session-switch — Interactive session switcher: switch the tmux client to
-# the selected session.
 set -euo pipefail
 source "${0%/*}/_lib"
 
@@ -15,10 +13,8 @@ for arg in "$@"; do
   esac
 done
 
-# Get current session
 current=$(_tmux display-message -p '#{session_name}')
 
-# List all sessions (never the hidden stash session that parks group members).
 # A read loop rather than `mapfile`: macOS ships bash 3.2, where mapfile does
 # not exist and `set -e` then killed the switcher before it drew anything.
 sessions=()
@@ -31,7 +27,6 @@ if [ ${#sessions[@]} -eq 0 ]; then
   exit 1
 fi
 
-# Display numbered list
 echo "Sessions:"
 for i in "${!sessions[@]}"; do
   num=$((i + 1))
@@ -44,7 +39,6 @@ for i in "${!sessions[@]}"; do
 done
 echo ""
 
-# Prompt
 read -rp 'Select session (number or "new"): ' choice
 
 if [ "$choice" = "new" ]; then

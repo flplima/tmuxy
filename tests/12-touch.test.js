@@ -58,11 +58,15 @@ describe('Phone width (390px) with a touchscreen', () => {
           // the `ffori in $$(seq` the screen showed.
           fontsLoaded: document.fonts.status === 'loaded',
           pane: box(document.querySelector('.pane-active [role="log"]')),
-          tabs: box(document.querySelector('.tab-list')),
+          strip: document.querySelector('.phone-tab-strip, .tab-list') !== null,
           container: box(document.querySelector('.phone-pty .pane-container')),
           status: box(document.querySelector('.phone-pty .tmux-status-bar')),
           keys: box(document.querySelector('.key-row')),
           tree: box(document.querySelector('.phone-tree')),
+          tabs: box(document.querySelector('.phone-tabs')),
+          tabNames: [...document.querySelectorAll('.phone-tabs [role="tab"]')].map(
+            (t) => `${t.textContent}${t.getAttribute('aria-selected') === 'true' ? '*' : ''}`,
+          ),
           // What the grid was sized from, for a failure to be readable: the
           // client's target against what tmux actually reports, and the panes
           // it reports it for.
@@ -75,8 +79,8 @@ describe('Phone width (390px) with a touchscreen', () => {
             targetRows: ctx.targetRows,
             phoneLayout: ctx.phoneLayout ?? null,
             sidebarMotion: ctx.sidebarMotion ?? null,
-            leftSidebar: ctx.leftSidebarOpen ?? null,
-            rightSidebar: ctx.rightSidebarOpen ?? null,
+            leftSidebar: ctx.sidebars.left.open ?? null,
+            rightSidebar: ctx.sidebars.right.open ?? null,
             panes: (ctx.panes ?? []).map((p) => `${p.tmuxId} ${p.width}x${p.height}`),
           },
         };
@@ -113,19 +117,20 @@ describe('Phone width (390px) with a touchscreen', () => {
     );
     expect(layout.docScrollWidth).toBeLessThanOrEqual(PHONE.width + 1);
     expectOnScreen(layout.pane, 'the terminal', PHONE.width, { grid: layout.grid });
-    // The phone layout: the tab strip over the terminal; 80 columns span the
-    // screen edge to edge, and tmux's line under them is as wide.
+    // The phone layout: no tab strip, the terminal at the top of the screen;
+    // 80 columns span it edge to edge, and tmux's line under them is as wide.
     expect(layout.grid.phoneLayout).toBe(true);
-    expectOnScreen(layout.tabs, 'the tab strip');
-    expect(layout.tabs.top + layout.tabs.height).toBeLessThanOrEqual(layout.container.top + 1);
+    expect(layout.strip).toBe(false);
+    expect(layout.container.top).toBeCloseTo(0, 0);
     expect(layout.container.left).toBeCloseTo(0, 0);
     expect(layout.container.width).toBeCloseTo(PHONE.width, 0);
     expect(80 * layout.grid.charWidth).toBeCloseTo(layout.grid.containerWidth, 1);
     // 4px of padding each side: the grid's outer borders stay on screen.
     expect(layout.grid.containerWidth).toBeCloseTo(PHONE.width - 8, 0);
     expect(layout.pane.left).toBeGreaterThanOrEqual(1);
-    // Top to bottom: the tabs, the grid, tmux's line as its 25th row, the
-    // keys, the tree.
+    // Top to bottom: the grid, tmux's line as its 25th row, the keys, the
+    // tree, and the tab bar under it down to the screen's bottom: the menu,
+    // the tree in front, the side pane.
     expectOnScreen(layout.status, 'the status line');
     expect(layout.status.left).toBeCloseTo(0, 0);
     expect(layout.status.width).toBeCloseTo(PHONE.width, 0);
@@ -136,6 +141,10 @@ describe('Phone width (390px) with a touchscreen', () => {
     );
     expect(layout.keys.top).toBeGreaterThanOrEqual(layout.status.top + layout.status.height - 1);
     expect(layout.tree.top).toBeGreaterThanOrEqual(layout.keys.top + layout.keys.height - 1);
+    expectOnScreen(layout.tabs, 'the tab bar');
+    expect(layout.tabNames).toEqual(['Menu', 'Tree*', 'Side pane']);
+    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.tree.top + layout.tree.height - 1);
+    expect(layout.tabs.top + layout.tabs.height).toBeCloseTo(PHONE.height, 0);
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 

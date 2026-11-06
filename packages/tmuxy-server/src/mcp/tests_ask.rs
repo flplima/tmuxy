@@ -1,8 +1,5 @@
-//! Typing into a pane for an MCP client, against a monitor that answers like
-//! tmux: the endpoint's own part of the ask protocol (`tmuxy_core::ask` holds
-//! the rest, and its tests): the commands it sends on the control-mode
-//! connection, `mcp` on the allow list, and a question taken down when the
-//! client hangs up.
+//! The endpoint's own part of the ask protocol; `tmuxy_core::ask` and its
+//! tests hold the rest.
 
 use super::ask;
 use super::tmux::Tmux;
@@ -15,13 +12,10 @@ use tmuxy_core::control_mode::{CommandReply, MonitorCommand};
 use tmuxy_core::session::SessionName;
 use tmuxy_core::PaneId;
 
-/// What a fake monitor saw, in order, and what it holds of the pane's
-/// options.
 #[derive(Default)]
 struct FakePane {
     ask: String,
     answer: String,
-    /// `@tmuxy-pane-state`, as the commands sent left it.
     state: String,
     log: Vec<String>,
     /// What the pane's send options read as (`SendRules`); unset, all empty.

@@ -188,10 +188,6 @@ async fn a_bad_session_name_is_refused_before_anything_runs() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
-// ============================================
-// Panes and tabs as tmux lists them
-// ============================================
-
 #[test]
 fn panes_are_read_with_their_free_text_intact() {
     let listing = "%1\t@1\t80\t24\t1\t\tzsh\t\tbuild\n\
@@ -238,10 +234,6 @@ fn a_target_is_an_id_a_label_or_a_title_and_never_a_guess() {
     // alone names two, which is ambiguous.
     assert!(id(Some("build")).is_err());
 }
-
-// ============================================
-// The command lines the tools send
-// ============================================
 
 #[test]
 fn a_split_or_a_tab_leaves_the_users_focus_where_it_is() {

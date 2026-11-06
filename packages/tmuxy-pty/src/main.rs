@@ -88,8 +88,6 @@ fn pipe() -> std::io::Result<[i32; 2]> {
     Ok(fds)
 }
 
-/// Fork `file` with `argv`, reading one pipe and writing (stdout and stderr)
-/// another.
 fn spawn(file: &CString, argv: &[CString], pids: PathBuf) -> std::io::Result<Pane> {
     let [stdin_read, stdin_write] = pipe()?;
     let [output_read, output_write] = pipe()?;
@@ -144,8 +142,6 @@ struct Pane {
 }
 
 impl Pane {
-    /// Relay until the program exits or tmux closes the pane; returns the
-    /// exit code to leave with.
     fn run(&self) -> i32 {
         // SAFETY: ignoring SIGPIPE so a closed peer shows up as EPIPE.
         unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
@@ -191,8 +187,6 @@ impl Pane {
                     self.signal_all(libc::SIGHUP);
                     return 0;
                 };
-                // A line still owed to the screen is shown before what is typed
-                // after it, or it would come after, out of order.
                 if let Some(line) = redraw.line.take() {
                     redraw.due = None;
                     write_all(PANE_OUT, &line);
@@ -240,7 +234,7 @@ impl Pane {
         }
     }
 
-    /// Carry out one keystroke's action; false once the pane is gone.
+    /// False once the pane is gone.
     fn apply(&self, action: Action) -> bool {
         match action {
             Action::Echo(bytes) => {
@@ -419,7 +413,6 @@ impl Pane {
     }
 }
 
-/// One read; None on end of file or an error other than an interruption.
 fn read(fd: i32, buf: &mut [u8]) -> Option<usize> {
     loop {
         // SAFETY: read into a buffer of the length given.
@@ -433,7 +426,6 @@ fn read(fd: i32, buf: &mut [u8]) -> Option<usize> {
     }
 }
 
-/// Write all of `bytes`; false if the peer is gone.
 fn write_all(fd: i32, mut bytes: &[u8]) -> bool {
     while !bytes.is_empty() {
         // SAFETY: write from a buffer of the length given.
@@ -455,9 +447,6 @@ const BUILTINS: &[&str] = &[
     "set", "source", "type", "unalias", "unset", "wait",
 ];
 
-/// What `word` completes to, as whole names (a directory's with its `/`):
-/// the line's first word as a command, a builtin or one on PATH; anything
-/// else, and a first word with a `/`, as a file from the shell's directory.
 fn completions(word: &str, first: bool, cwd: &Path) -> Vec<String> {
     let mut names = Vec::new();
     if first && !word.contains('/') {

@@ -2,6 +2,7 @@ import { DEFAULT_FONT_SIZE, smallFontSize } from '../../infra/fontSizeManager';
 import { sidebarCellMetrics } from '../../infra/dom/cellMetrics';
 import { CHAR_HEIGHT } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
+import type { BottomView } from '../types/domain';
 import type { TmuxPane } from '../../domain/client';
 import { createMemoizedSelector } from './memoize';
 import type { TabDrop } from '../drag/tabStripDrop';
@@ -254,22 +255,30 @@ export function selectPhoneZoom(context: AppMachineContext): AppMachineContext['
   return context.phoneZoom;
 }
 
-/** What the phone shows under the keys: the tree or the dock. */
-export function selectPhoneBottomView(context: AppMachineContext): 'tree' | 'dock' {
+/** What the phone shows under the keys: the menu, the tree or the dock. */
+export function selectPhoneBottomView(context: AppMachineContext): BottomView {
   return context.phoneBottomView;
 }
 
 /**
- * Rows the dock's pane should have: the column runs the app body's height in
- * the sidebar font's shorter rows, so it holds more of them than the pane
- * grid. 0 before the body has been measured.
+ * The size the dock's pane should have, or null before there is room to
+ * measure. On a phone it is the bottom view the dock is drawn in. Beside the
+ * desktop's grid it is rows only (the column's width is the user's, dragged):
+ * the column runs the app body's height in the sidebar font's shorter rows,
+ * so it holds more of them than the pane grid.
  */
-export function selectDockRows(context: AppMachineContext): number {
-  if (context.containerHeight <= 0) return 0;
-  return Math.max(
-    1,
-    Math.floor(context.containerHeight / selectSidebarCellMetrics(context).lineHeight),
-  );
+export function selectDockSize(
+  context: AppMachineContext,
+): { cols: number | null; rows: number } | null {
+  if (context.phoneLayout) return context.phoneDockView;
+  if (context.containerHeight <= 0) return null;
+  return {
+    cols: null,
+    rows: Math.max(
+      1,
+      Math.floor(context.containerHeight / selectSidebarCellMetrics(context).lineHeight),
+    ),
+  };
 }
 
 /**

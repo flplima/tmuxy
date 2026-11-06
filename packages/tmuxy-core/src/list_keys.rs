@@ -66,7 +66,6 @@ impl<'a> Row<'a> {
     }
 }
 
-/// Every binding in a `list-keys` listing.
 pub fn rows(listing: &str) -> impl Iterator<Item = Row<'_>> {
     listing.lines().filter_map(Row::parse)
 }

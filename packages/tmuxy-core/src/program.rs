@@ -16,7 +16,6 @@ pub fn program_name(command: &str) -> &str {
     }
 }
 
-/// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
 fn is_version(value: &str) -> bool {
     value.contains('.')
         && value

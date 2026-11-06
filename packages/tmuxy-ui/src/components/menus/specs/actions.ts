@@ -116,14 +116,17 @@ export function commandHint(
 }
 
 /**
- * The pane a "Close Pane" targets from a menu not anchored to a pane (the
- * hamburger, the native bar): the focused float, else the real active pane,
- * else undefined, which leaves it to tmux's active pane.
+ * Resolve the pane a menu "Close Pane" should target when the menu isn't
+ * anchored to a specific pane (the hamburger AppMenu and the Tauri native
+ * menu): the focused float, else the real active pane, else undefined so the
+ * caller falls back to tmux's server-active pane. Mirrors the focus-target
+ * resolution the keyboard uses (the float holding the keyboard, else the
+ * real active pane), so close hits the pane the user sees as active.
  */
 export function activeCloseTarget(
   activePaneId: PaneId | null,
-  focusedFloatPaneId: PaneId | null,
+  focusedFloat: PaneId | null,
 ): PaneId | undefined {
   const realActive = activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null;
-  return focusedFloatPaneId ?? realActive ?? undefined;
+  return focusedFloat ?? realActive ?? undefined;
 }

@@ -1,19 +1,20 @@
 /**
  * Exactly one surface holds the keyboard. A float that appears takes it from
  * a focused column, and a session switch takes it from whatever held it — in
- * the machine's context and in the keyboard actor, which is what aims the
- * next keystroke.
+ * the machine's context and in the key context the keyboard actor reads,
+ * which is what aims the next keystroke.
  *
  * `appMachine` is exported with stub actors, so it starts standalone with a
  * recording stand-in for the keyboard actor.
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor, fromCallback, type AnyActorRef } from 'xstate';
+import { createActor, fromCallback, type EventObject } from 'xstate';
 import { appMachine } from '../appMachine';
 import { pid, wid } from '../../../test/wire';
 import { modelPane, modelUpdate, modelWindow } from '../../../test/model';
-import type { KeyboardActorEvent } from '../../actors/keyboardActor';
+import type { KeyboardActorInput } from '../../actors/keyboardActor';
+import type { KeyContext } from '../../selectors/keyboard';
 
 const TAB = wid('@0');
 const TREE = wid('@1');
@@ -31,51 +32,48 @@ const float = modelWindow(FLOAT, 2, { windowType: 'float', floatParent: TAB });
 
 const active = { paneId: PANE, windowId: TAB };
 
-/** The app machine with a keyboard actor that records what it is sent. */
+/** The app machine with a keyboard actor that records each key context it is told of. */
 function startApp() {
-  const sent: KeyboardActorEvent[] = [];
-  const keyboardActor = fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(({ receive }) => {
-    receive((event) => sent.push(event));
-    return () => {};
+  const seen: KeyContext[] = [];
+  let view: KeyboardActorInput['keys'] | null = null;
+  const keyboardActor = fromCallback<EventObject, KeyboardActorInput>(({ input }) => {
+    view = input.keys;
+    return input.keys.subscribe((keys) => seen.push(keys));
   });
   const actor = createActor(appMachine.provide({ actors: { keyboardActor } })).start();
   actor.send({ type: 'TMUX_CONNECTED' });
-  return { actor, sent };
+  return { actor, seen, keys: () => view!.get() };
 }
-
-const lastOfType = <T extends KeyboardActorEvent['type']>(sent: KeyboardActorEvent[], type: T) => {
-  const ofType = sent.filter((e): e is Extract<KeyboardActorEvent, { type: T }> => e.type === type);
-  return ofType[ofType.length - 1];
-};
 
 describe('the keyboard surface', () => {
   it('a float that appears takes the keyboard from the focused tree', () => {
-    const { actor, sent } = startApp();
+    const { actor, seen, keys } = startApp();
     actor.send(modelUpdate([tabPane, treePane], [tab, tree], active));
-    actor.send({ type: 'FOCUS_LEFT_SIDEBAR' });
-    expect(actor.getSnapshot().context.leftSidebarFocused).toBe(true);
-    sent.length = 0;
+    actor.send({ type: 'FOCUS_SIDEBAR', side: 'left' });
+    expect(actor.getSnapshot().context.keyboardOwner).toEqual({ kind: 'left', paneId: TREE_PANE });
+    seen.length = 0;
 
     actor.send(modelUpdate([tabPane, treePane, floatPane], [tab, tree, float], active));
 
-    const { context } = actor.getSnapshot();
-    expect(context.focusedFloatPaneId).toBe(FLOAT_PANE);
-    expect(context.leftSidebarFocused).toBe(false);
-    expect(lastOfType(sent, 'UPDATE_FOCUSED_FLOAT')?.paneId).toBe(FLOAT_PANE);
-    expect(lastOfType(sent, 'UPDATE_LEFT_SIDEBAR_FOCUSED')?.focused).toBe(false);
+    expect(actor.getSnapshot().context.keyboardOwner).toEqual({
+      kind: 'float',
+      paneId: FLOAT_PANE,
+    });
+    expect(seen[seen.length - 1]?.target).toBe(FLOAT_PANE);
+    expect(keys().target).toBe(FLOAT_PANE);
     actor.stop();
   });
 
   it('a session switch takes the keyboard from the old session’s float', () => {
-    const { actor, sent } = startApp();
+    const { actor, seen, keys } = startApp();
     actor.send(modelUpdate([tabPane, floatPane], [tab, float], active));
-    expect(actor.getSnapshot().context.focusedFloatPaneId).toBe(FLOAT_PANE);
-    sent.length = 0;
+    expect(keys().owner).toEqual({ kind: 'float', paneId: FLOAT_PANE });
+    seen.length = 0;
 
     actor.send({ type: 'SWITCH_SESSION', sessionName: 'other' });
 
-    expect(actor.getSnapshot().context.focusedFloatPaneId).toBeNull();
-    expect(lastOfType(sent, 'UPDATE_FOCUSED_FLOAT')?.paneId).toBeNull();
+    expect(actor.getSnapshot().context.keyboardOwner).toEqual({ kind: 'panes' });
+    expect(seen[seen.length - 1]?.owner).toEqual({ kind: 'panes' });
     actor.stop();
   });
 });

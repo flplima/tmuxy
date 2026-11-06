@@ -240,7 +240,7 @@ async function assertLayoutInvariants(page, options = {}) {
       // ========== 7. Exactly one .pane-active ==========
       // Skip when grid doesn't fit — overflow filter may exclude the active pane
       // Skip when a float is focused — all tiled panes become inactive
-      const hasFloatFocus = !!snap.context.focusedFloatPaneId;
+      const hasFloatFocus = snap.context.keyboardOwner.kind === 'float';
       if (gridFits && !hasFloatFocus) {
         const activeItems = items.filter((el) => el.classList.contains('pane-active'));
         if (activeItems.length !== 1) {

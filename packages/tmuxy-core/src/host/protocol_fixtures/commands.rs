@@ -145,7 +145,6 @@ fn every_request() -> Vec<ClientCommand> {
     ]
 }
 
-/// The wire name of each command, in variant order.
 fn command_names() -> Vec<String> {
     every_request()
         .iter()
@@ -159,7 +158,6 @@ fn command_names() -> Vec<String> {
 }
 
 /// One request per command, as both hosts receive it: `{ cmd, args }`.
-/// Each must decode back to the command it came from.
 #[test]
 fn every_command_request_matches_its_fixture() {
     let requests = every_request();

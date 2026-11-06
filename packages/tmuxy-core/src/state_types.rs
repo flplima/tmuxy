@@ -2,20 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{control_mode, is_false, layout, GroupId, PaneContent, PaneId, WindowId};
 
-// ============================================
-// Tmux State Types
-// ============================================
-
-/// A single tmux pane
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxPane {
     pub id: u32,
-    pub tmux_id: PaneId,     // actual tmux pane ID (e.g., "%0")
-    pub window_id: WindowId, // window this pane belongs to (e.g., "@0")
-    /// Rendered cell grid. `Arc`-shared so building a state snapshot, storing
-    /// `prev_state`, and diffing unchanged panes never deep-copies the grid —
-    /// the cost that made a one-field delta as expensive as a full sync.
-    /// Serializes transparently (serde `rc`), so the wire shape is unchanged.
+    pub tmux_id: PaneId, // actual tmux pane ID (e.g., "%0")
+    pub window_id: WindowId,
+    /// `Arc`-shared so building a state, storing `prev_state` and diffing
+    /// unchanged panes never deep-copies the grid. Serializes transparently
+    /// (serde `rc`).
     pub content: std::sync::Arc<PaneContent>,
     pub cursor_x: u32,
     pub cursor_y: u32,
@@ -27,10 +21,9 @@ pub struct TmuxPane {
     pub command: String,
     pub title: String,        // pane title (set by shell/application)
     pub border_title: String, // evaluated pane-border-format from tmux config
-    /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`). `None` unless the
-    /// pane belongs to a group. Set on the visible member and every hidden
-    /// member (the latter emitted as lightweight stubs from the stash session),
-    /// so the frontend reconstructs group membership by grouping on this value.
+    /// Pane-group identity from `@tmuxy-group-id` (e.g. `g5`). Hidden members
+    /// carry it too (as stubs from the stash session), so the frontend
+    /// reconstructs membership by grouping on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<GroupId>,
     /// `@tmuxy-group-pos`: this member's place in its group, when the group
@@ -40,12 +33,12 @@ pub struct TmuxPane {
     pub in_mode: bool, // true if in copy mode
     pub copy_cursor_x: u32,
     pub copy_cursor_y: u32,
-    /// True if the application is in alternate screen mode (vim, less, htop)
-    /// Used to determine scroll behavior (wheel -> arrow keys vs copy mode)
+    /// The application is in alternate screen mode (vim, less, htop): the
+    /// wheel sends arrow keys instead of entering copy mode.
     #[serde(default)]
     pub alternate_on: bool,
-    /// True if the application has mouse tracking enabled
-    /// When true, mouse events should be forwarded as SGR sequences
+    /// The application has mouse tracking on: mouse events are forwarded as
+    /// SGR sequences.
     #[serde(default)]
     pub mouse_any_flag: bool,
     /// True if this is tmux's marked pane (`select-pane -m`). The UI shows an
@@ -64,7 +57,6 @@ pub struct TmuxPane {
     /// Selection start Y (visible-area-relative row, can be negative if off-screen)
     #[serde(default)]
     pub selection_start_y: i32,
-    /// Image placements on this pane's terminal grid
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<control_mode::images::ImagePlacement>,
     /// Cursor shape from DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar
@@ -75,11 +67,9 @@ pub struct TmuxPane {
     pub cursor_hidden: bool,
     /// What the pane says it is doing, from `@tmuxy-pane-state`.
     ///
-    /// Any process can set it — an agent's hooks, a shell's precmd/preexec, a
-    /// build script — so the sidebar shows a pane's state without tmuxy having
-    /// to infer one. Carried verbatim: the client owns the vocabulary and
-    /// collapses anything it does not recognize, which keeps writers free to
-    /// use their own status names. `None` when the option is unset.
+    /// Any process can set it (an agent's hooks, a shell's precmd/preexec, a
+    /// build script). Carried verbatim: the client owns the vocabulary and
+    /// collapses anything it does not recognize.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_state: Option<String>,
     /// The pending confirmation from `@tmuxy-ask`: the base64 payload
@@ -108,8 +98,8 @@ pub struct TmuxPane {
 pub enum WindowType {
     Tab,
     Float,
-    /// The left sidebar's window — a single pane running `tmuxy widget tree`,
-    /// which the UI renders as the tab/pane tree. See [`SidebarRight`] for the
+    /// The left sidebar's window: a single pane running the tree widget
+    /// ([`crate::session_snapshot::LEFT_SIDEBAR_WIDGET`]). See [`SidebarRight`] for the
     /// properties both sidebars share.
     ///
     /// [`SidebarRight`]: WindowType::SidebarRight
@@ -143,10 +133,6 @@ impl WindowType {
         }
     }
 
-    /// Whether this is one of the two docked sidebar columns. They share every
-    /// behaviour that separates chrome from tabs — hidden from the tab strip,
-    /// no pane border, sized to a fixed column — and differ only in width and
-    /// which edge they dock to.
     pub fn is_sidebar(self) -> bool {
         matches!(self, WindowType::SidebarLeft | WindowType::SidebarRight)
     }
@@ -155,7 +141,6 @@ impl WindowType {
 /// A single tmux window: a tab, a float or a sidebar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxWindow {
-    /// Window ID (e.g., "@0")
     pub id: WindowId,
     pub index: u32,
     pub name: String,
@@ -212,14 +197,10 @@ pub struct TmuxWindow {
     pub pane_tree: Option<layout::PaneTree>,
 }
 
-/// Full tmux state with all panes and windows
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxState {
-    /// Session name (e.g., "tmuxy")
     pub session_name: String,
-    /// Active window ID (e.g., "@0")
     pub active_window_id: Option<WindowId>,
-    /// Active pane ID (e.g., "%0")
     pub active_pane_id: Option<PaneId>,
     pub panes: Vec<TmuxPane>,
     pub windows: Vec<TmuxWindow>,

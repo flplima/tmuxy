@@ -4,7 +4,7 @@
  */
 
 import { assign, sendTo } from 'xstate';
-import type { Ctx, Enqueue, EnqueueAction } from './actionTypes';
+import type { Ctx, Enqueue, EnqueueAction } from '../../actionTypes';
 import {
   type CopyModeState,
   type ScrollbackMode,
@@ -12,12 +12,12 @@ import {
   getNeededChunk,
   shiftScrollbackRows,
   mergeScrollbackChunk,
-} from '../../domain/copyMode';
-import type { TmuxPane } from '../../domain/client';
-import type { CellLine } from '../../domain/wireCells';
-import type { PaneId } from '../../domain/ids';
-import { TmuxOp } from '../../domain/commands';
-import { COPY_FLASH_MS } from '../../infra/dom/copyFlash';
+} from '../../../../domain/copyMode';
+import type { TmuxPane } from '../../../../domain/client';
+import type { CellLine } from '../../../../domain/wireCells';
+import type { PaneId } from '../../../../domain/ids';
+import { TmuxOp } from '../../../../domain/commands';
+import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 
 /**
  * Ask for the rows the view at `updated.scrollTop` is missing, when any are
@@ -179,8 +179,6 @@ export function fetchHistory(enqueue: EnqueueAction, paneId: PaneId, record: Cop
   );
 }
 
-export const copyModeExitTimes = new Map<PaneId, number>();
-
 /**
  * Leave copy mode the way a copy does. tmux leaves its mode at once, as its
  * `copy-pipe-and-cancel` would; the client's view stays just long enough for
@@ -191,10 +189,10 @@ export function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: PaneId): 
   const copyState = context.copyModeStates[paneId];
   if (!copyState) return;
   const copiedAt = Date.now();
-  copyModeExitTimes.set(paneId, copiedAt);
   enqueue(
     assign({
       copyModeStates: { ...context.copyModeStates, [paneId]: { ...copyState, copiedAt } },
+      copyModeExitedAt: { ...context.copyModeExitedAt, [paneId]: copiedAt },
     }),
   );
   enqueue(
@@ -221,12 +219,12 @@ export function reconcilePaneMode(
   prevPane: Pick<TmuxPane, 'inMode'> | undefined,
   newPane: Pick<TmuxPane, 'tmuxId' | 'inMode'>,
   record: Pick<CopyModeState, 'copiedAt' | 'tmuxSeen'> | undefined,
-  options: { now: number },
+  options: { now: number; exitedAt: number | undefined },
 ): PaneModeReconciliation {
   if (newPane.inMode) {
     if (record) return record.tmuxSeen ? 'none' : 'confirm';
     if (prevPane?.inMode) return 'none';
-    const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+    const exitTime = options.exitedAt;
     if (exitTime !== undefined && options.now - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
       return 'none';
     }

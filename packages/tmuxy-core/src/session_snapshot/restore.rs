@@ -9,10 +9,6 @@ mod run;
 pub use offer::*;
 pub use run::*;
 
-// =============================================================================
-// Restore
-// =============================================================================
-
 /// The script whose `park` verb parks a restored group member (`packages/tmuxy-cli/bin/tmuxy/pane-group`).
 pub(super) fn group_script() -> String {
     crate::session::bin_dir()
@@ -41,14 +37,13 @@ fn answer_option(session: &str) -> String {
 /// Run `shell` through `run-shell` and keep what it printed as `key`.
 ///
 /// Not by reading run-shell's own output: tmux 3.4 does not hand that back to
-/// a control client, it opens it in view-mode on the current pane — and a
-/// pane in view-mode takes the keys the restore types next as mode commands,
-/// one of which opens a prompt that leaves the control client answering
-/// nothing more. So the shell writes its output into a server option, which
-/// is read back and cleared, and the shell step always succeeds (a "returned
-/// 1" is view-mode output too); a failure surfaces as an answer the next
-/// steps cannot use as a target. A `run-shell` a client sends is relayed the
-/// same way (`control_mode/monitor/run_shell.rs`).
+/// a control client, it opens it in view-mode on the current pane, and a pane
+/// in view-mode takes the keys the restore types next as mode commands, one
+/// of which opens a prompt that leaves the control client answering nothing
+/// more. So the shell writes into a server option, read back and cleared, and
+/// always succeeds (a "returned 1" is view-mode output too); a failure
+/// surfaces as an answer the next steps cannot use as a target. A client's
+/// `run-shell` is relayed the same way (`control_mode/monitor_core/run_shell.rs`).
 fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
     let option = answer_option(session);
     let relay = format!(
@@ -156,8 +151,8 @@ fn argv(words: &[&str]) -> TmuxArgv {
 ///   * Each offered command is offered (`offer_steps`), not typed or run;
 ///     `run` types it and adds the Enter. A program that was running is not
 ///     proof it should run again.
-///   * A pane with saved scrollback starts as `cat` of that text and then the
-///     shell, so what was on screen is on screen again above a fresh prompt.
+///   * A pane's saved scrollback is printed into it (`run-shell -t … printf`),
+///     not typed, so what was on screen is back above a fresh prompt.
 pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
     let mut steps = Vec::new();
     if snapshot.windows.is_empty() {
@@ -173,7 +168,6 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
     steps
 }
 
-/// The first window's first pane's directory, or the fallback.
 fn first_cwd(w: &WindowSnapshot, options: &RestoreOptions) -> String {
     w.panes
         .first()

@@ -43,7 +43,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         }
     }
 
-    /// Handle a `MonitorCommand` from external code. Returns false to stop the loop.
+    /// `false` stops the loop.
     pub(super) async fn on_command<E: StateEmitter>(
         &mut self,
         emitter: &E,

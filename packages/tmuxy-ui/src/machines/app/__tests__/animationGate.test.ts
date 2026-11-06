@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
-import { connectionActions, connectionGlobalEvents } from '../connection';
+import { viewportActions } from '../actions/viewport';
+import { viewportGlobalEvents } from '../states/viewport';
+import { layoutActions } from '../actions/layout';
+import { layoutGlobalEvents } from '../states/layout';
 import { mountState, sendAndGetContext } from '../states/__tests__/testHarness';
 import type { TmuxPane } from '../../../domain/client';
 
@@ -17,8 +20,8 @@ const pane = {
 /** Connected, holding a 120x30 grid, animations still off. */
 function connected(overrides = {}) {
   return mountState(
-    { on: connectionGlobalEvents },
-    connectionActions,
+    { on: { ...viewportGlobalEvents, ...layoutGlobalEvents } },
+    { ...viewportActions, ...layoutActions },
     {},
     {
       connected: true,

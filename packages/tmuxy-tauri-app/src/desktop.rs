@@ -51,7 +51,7 @@ pub fn ensure_entry() {
     let apps_dir = data_home.join("applications");
     let dest = apps_dir.join("tmuxy.desktop");
     if std::fs::read_to_string(&dest).is_ok_and(|current| current == entry) {
-        return; // Already current — including the version stamp.
+        return;
     }
 
     if std::fs::create_dir_all(&apps_dir).is_err() || std::fs::write(&dest, &entry).is_err() {
@@ -88,7 +88,6 @@ fn exec_path() -> Option<String> {
     Some(cellar_to_opt(&appimage).unwrap_or(appimage))
 }
 
-/// Rebuild the bundled entry with our keys overridden and the rest kept.
 fn rewrite_entry(source: &str, exec: &str) -> String {
     let mut out = String::with_capacity(source.len() + 128);
 

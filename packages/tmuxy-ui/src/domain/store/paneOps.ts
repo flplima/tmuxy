@@ -387,6 +387,27 @@ function findAbsorber(doomed: TmuxPane, siblings: ReadonlyArray<TmuxPane>): Tmux
   );
 }
 
+/**
+ * `panes` without `gone`, its freed space given to the neighbour that shares
+ * its full edge (`findAbsorber`): what tmux does to the window a pane leaves.
+ */
+export function withoutPane(panes: ReadonlyArray<TmuxPane>, gone: TmuxPane): TmuxPane[] {
+  const sibs = panes.filter((p) => p.windowId === gone.windowId && p.tmuxId !== gone.tmuxId);
+  const absorber = findAbsorber(gone, sibs);
+  return panes
+    .filter((p) => p.tmuxId !== gone.tmuxId)
+    .map((p) => {
+      if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
+      return {
+        ...p,
+        x: Math.min(p.x, gone.x),
+        y: Math.min(p.y, gone.y),
+        width: p.y === gone.y && p.height === gone.height ? p.width + gone.width + 1 : p.width,
+        height: p.x === gone.x && p.width === gone.width ? p.height + gone.height + 1 : p.height,
+      };
+    });
+}
+
 export function predictKillPane(
   op: TmuxOpOf<'KillPane'>,
   snapshot: TmuxSnapshot,
@@ -426,26 +447,7 @@ export function predictKillPane(
         activePaneId: s.activePaneId === paneId ? nextFocus : s.activePaneId,
       };
     }
-    const sibs = s.panes.filter((p) => p.windowId === doomedNow.windowId && p.tmuxId !== paneId);
-    const absorber = findAbsorber(doomedNow, sibs);
-    const panes = s.panes
-      .filter((p) => p.tmuxId !== paneId)
-      .map((p) => {
-        if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
-        return {
-          ...p,
-          x: Math.min(p.x, doomedNow.x),
-          y: Math.min(p.y, doomedNow.y),
-          width:
-            p.y === doomedNow.y && p.height === doomedNow.height
-              ? p.width + doomedNow.width + 1
-              : p.width,
-          height:
-            p.x === doomedNow.x && p.width === doomedNow.width
-              ? p.height + doomedNow.height + 1
-              : p.height,
-        };
-      });
+    const panes = withoutPane(s.panes, doomedNow);
     return {
       ...s,
       panes,

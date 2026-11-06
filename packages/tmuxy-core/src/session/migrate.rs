@@ -2,16 +2,12 @@
 //!
 //! An older build kept everything in `~/.config/tmuxy`: the user's files, the
 //! files it mirrored on every launch, the menu choices and this machine's
-//! runtime files. On the first launch of a build with the split, this moves
-//! the state files to the state dir, removes the mirrored copies (the data
-//! dir has this build's), and drops the blocks older builds wrote into
-//! `tmuxy.conf` itself. Running it again finds nothing to do.
+//! runtime files.
 //!
-//! The config dir is the user's, so the rules are strict: nothing is written
-//! or deleted through a symlink — a linked config dir is only read, and a
-//! linked file in a real one is left in place — and the user's own files are
-//! never touched, except for the one rewrite of `tmuxy.conf`, which keeps the
-//! original beside it as `tmuxy.conf.bak`.
+//! The config dir is the user's: nothing is written or deleted through a
+//! symlink (a linked config dir is only read, a linked file in a real one is
+//! left in place), and the user's own files are never touched except for the
+//! one rewrite of `tmuxy.conf`, which keeps the original as `tmuxy.conf.bak`.
 
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -124,11 +120,9 @@ pub enum StaleBlock {
 pub struct Migration {
     /// State files copied into the state dir.
     pub moved: Vec<PathBuf>,
-    /// Files removed from the config dir.
     pub removed: Vec<PathBuf>,
     /// The backup of a rewritten `tmuxy.conf`.
     pub backup: Option<PathBuf>,
-    /// The blocks dropped from `tmuxy.conf`.
     pub dropped: Vec<StaleBlock>,
     /// The blocks found in a `tmuxy.conf` that is not tmuxy's to rewrite (a
     /// symlink, or in a linked config dir), left in place and logged.

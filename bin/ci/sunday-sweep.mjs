@@ -24,7 +24,7 @@
  *   bin/ci/sunday-sweep.mjs --dry-run           say what it would dispatch, change nothing
  *
  * Needs `gh` with a token that can read security alerts and start agent
- * tasks (the workflow's \`COPILOT_AGENT_PAT\`); \`GH_REPO\` names the repository.
+ * tasks (the workflow's `COPILOT_AGENT_PAT`); `GH_REPO` names the repository.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -91,8 +91,6 @@ const say = (line) => {
   report.push(line);
 };
 
-// --- What is already being worked on ------------------------------------------
-
 const openFixIssues = new Set(
   JSON.parse(
     gh(['issue', 'list', '--label', LABEL, '--state', 'open', '--limit', '200', '--json', 'title']),
@@ -110,8 +108,6 @@ const dependabotPRs = JSON.parse(
     'number,title,body,headRefName,statusCheckRollup',
   ]),
 );
-
-// --- Alerts → agent-fix issues ------------------------------------------------
 
 const serious = (level) => level === 'high' || level === 'critical';
 const work = [];
@@ -181,8 +177,6 @@ for (const alert of alertsOf(
   });
 }
 
-// --- Red Dependabot PRs → agent tasks on their own branch -----------------------
-
 const failed = (check) => ['FAILURE', 'TIMED_OUT', 'CANCELLED'].includes(check.conclusion);
 let heldBack = 0;
 for (const pr of dependabotPRs) {
@@ -235,8 +229,6 @@ for (const pr of dependabotPRs) {
     ].join('\n'),
   });
 }
-
-// --- Dispatch -----------------------------------------------------------------
 
 if (work.length === 0 && heldBack === 0)
   say('Nothing to hand over: no open serious alert or red Dependabot PR needs it.');

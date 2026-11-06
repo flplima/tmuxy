@@ -5,7 +5,6 @@ use serde_json::{json, Map, Value};
 
 use super::{Agent, Hook};
 
-/// The skill every agent gets, and the text `tmuxy skill` prints.
 pub(crate) const SKILL: &str = include_str!("../../../../.agents/skills/tmuxy/SKILL.md");
 pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Written beside an installed SKILL.md: what makes the directory tmuxy's to
@@ -14,16 +13,12 @@ const SKILL_MARKER: &str = ".tmuxy-version";
 /// Every installed hook command contains this, followed by agent and event.
 const HOOK_VERB: &str = " agent hook ";
 
-// --- Where each agent keeps things -----------------------------------------
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Scope {
     Home,
     Project,
 }
 
-/// The directories the agents' files are found from; [`Places::from_env`]
-/// in the CLI, a scratch tree in the tests.
 pub(super) struct Places {
     pub(super) home: PathBuf,
     pub(super) cwd: PathBuf,
@@ -90,7 +85,6 @@ impl Places {
                 .is_some_and(|path| std::env::split_paths(path).any(|d| d.join(binary).is_file()))
     }
 
-    /// `~/…` for a path under the home directory, for messages.
     pub(super) fn show(&self, path: &Path) -> String {
         match path.strip_prefix(&self.home) {
             Ok(rest) => format!("~/{}", rest.display()),
@@ -98,8 +92,6 @@ impl Places {
         }
     }
 }
-
-// --- Hook entries in an agent's config --------------------------------------
 
 fn is_ours(handler: &Value) -> bool {
     handler
@@ -130,8 +122,6 @@ fn handler(agent: Agent, hook: &Hook, tmuxy: &str) -> Value {
     })
 }
 
-/// Take every tmuxy hook out of `doc`, leaving the rest as it was. Returns
-/// whether anything was removed.
 pub(super) fn remove_hooks(doc: &mut Map<String, Value>, agent: Agent) -> bool {
     if agent.named_hooks() {
         return doc.remove("tmuxy").is_some();
@@ -196,7 +186,6 @@ pub(super) fn add_hooks(
     Ok(())
 }
 
-/// How many of the agent's events carry a tmuxy hook.
 pub(super) fn hooked_events(doc: &Map<String, Value>, agent: Agent) -> usize {
     let has_ours = |handlers: Option<&Value>| {
         handlers
@@ -235,8 +224,6 @@ pub(super) fn read_doc(path: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
-/// Write `doc` if it differs from what is on disk, keeping the previous file
-/// as `<name>.tmuxy-bak`. Returns whether it wrote.
 pub(super) fn write_doc(path: &Path, doc: &Map<String, Value>) -> Result<bool, String> {
     // A settings file kept in a dotfiles repo is a symlink into it: write
     // through to the file it points at, or the rename below would replace
@@ -266,8 +253,6 @@ pub(super) fn backup_path(path: &Path) -> PathBuf {
     name.push(".tmuxy-bak");
     path.with_file_name(name)
 }
-
-// --- The skill --------------------------------------------------------------
 
 pub(super) enum SkillState {
     Missing,
@@ -316,7 +301,6 @@ pub(super) fn write_skill(dir: &Path, force: bool) -> Result<&'static str, Strin
     Ok("installed")
 }
 
-/// Remove tmuxy's own files, and the directory once nothing else is in it.
 pub(super) fn remove_skill(dir: &Path) -> Result<bool, String> {
     if !matches!(skill_state(dir), SkillState::Ours(_)) {
         return Ok(false);

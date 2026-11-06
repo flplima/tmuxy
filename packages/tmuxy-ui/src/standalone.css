@@ -67,15 +67,25 @@ html.tmuxy-phone #root {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* The installed app's two edge bands (App.tsx): opaque, full-width, fixed
-   boxes in the window colour over the status bar's and the home indicator's
-   safe areas. iOS 26 draws a "scroll edge" fade under the status bar of a
-   home-screen web app — and a band of its own colour over the home
-   indicator — which read as a fade above the tab strip and a stray
-   rectangle in the footer. WebKit is reported to leave an edge alone when a
-   solid, hit-testable box more than 10px tall already covers it; each band
-   is at least 11px for that. Only where the app is installed and laid out
-   for a phone. */
+/* The keyboard covers the home indicator: while it is up
+   (components/phone/usePhoneViewport.ts marks the root), the inset kept clear of it
+   would only be a gap above the keyboard. */
+html.tmuxy-phone.tmuxy-keyboard-up #root {
+  padding-bottom: 0;
+}
+
+/* The installed app's edges (App.tsx). iOS 26 draws a "scroll edge" blur
+   over the top of a home-screen web app and a band of
+   its own colour over the home indicator. WebKit leaves an edge alone when a
+   solid, hit-testable fixed or sticky box more than 10px tall covers it, but
+   it checks only where the status bar sits ABOVE the page: with the status
+   bar drawn over it (`black-translucent`) the blur stayed whatever covered
+   the edge. So index.html puts the status bar above the page, and the top
+   edge is the phone's root, fixed and painted (above). The top band is for an app installed before
+   that, still under a status bar drawn over it: it covers that bar's height
+   and is nothing otherwise. The bottom band covers the home indicator's safe
+   area, at least 11px. Only where the app is installed and laid out for a
+   phone. */
 .edge-band {
   display: none;
 }
@@ -92,7 +102,7 @@ html.tmuxy-phone #root {
 
   html.tmuxy-phone .edge-band-top {
     top: 0;
-    height: max(env(safe-area-inset-top, 0px), 11px);
+    height: env(safe-area-inset-top, 0px);
   }
 
   html.tmuxy-phone .edge-band-bottom {

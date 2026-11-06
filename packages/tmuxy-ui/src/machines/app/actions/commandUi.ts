@@ -8,8 +8,9 @@
  * user typed, parsed and routed like a binding (see ../dispatch.ts).
  */
 
-import { assign, cancel, raise } from 'xstate';
+import { assign, cancel, raise, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
+import { TmuxOp } from '../../../domain/commands';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 
 const utf8 = new TextEncoder();
@@ -59,8 +60,18 @@ export const commandUiActions = {
     event.type === 'RENAME_PANE' ? { renamingPaneId: event.paneId } : {},
   ),
 
-  /** The field closed, committed or not. */
-  commandUi_paneRenameEnd: assignCtx(() => ({ renamingPaneId: null })),
+  /** The field closed: retitled (a title), or left as it was (null). */
+  commandUi_renamePaneCommit: act(({ event, enqueue }) => {
+    if (event.type !== 'RENAME_PANE_COMMIT') return;
+    enqueue(assign({ renamingPaneId: null }));
+    if (!event.title) return;
+    enqueue(
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
+        op: TmuxOp.SetPaneTitle({ paneId: event.paneId, title: event.title }),
+      }),
+    );
+  }),
 
   commandUi_setPrefixActive: assignCtx(({ event }) => {
     if (event.type !== 'PREFIX_MODE_CHANGE') return {};

@@ -7,10 +7,6 @@ use crate::error::TmuxError;
 
 use super::*;
 
-// =============================================================================
-// The edges: tmux and ps as subprocesses
-// =============================================================================
-
 /// Unix seconds now.
 pub fn now() -> u64 {
     std::time::SystemTime::now()
@@ -19,10 +15,8 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
-/// The foreground program on each pane's terminal, by pane id.
-///
-/// One `ps` per pane rather than one for all: `-t` takes one terminal, and the
-/// output is a handful of lines, so this costs what it looks like.
+/// The foreground program on each pane's terminal, by pane id: one `ps` per
+/// pane, since `ps -t` takes one terminal.
 pub fn discover_commands(panes: &[PaneRecord]) -> Discovery {
     let mut out = Discovery::default();
     for pane in panes {
@@ -94,7 +88,6 @@ where
         )));
     }
     let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
-    // `ps` is a subprocess; off the async runtime like the other reads.
     let found = tokio::task::spawn_blocking(move || discover_commands(&all))
         .await
         .map_err(|e| TmuxError::other(e.to_string()))?;
@@ -136,10 +129,6 @@ where
         }
     }
 }
-
-// =============================================================================
-// Where snapshots live, and when a host is told not to use them
-// =============================================================================
 
 /// Where snapshots live: under the state directory (`crate::paths`), the same
 /// place the trace goes.
@@ -194,10 +183,6 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
         })
     })
 }
-
-// =============================================================================
-// Through a running monitor: the hosts' half
-// =============================================================================
 
 /// Run one tmux command through a monitor's control-mode connection: the
 /// hosts' `run` for `take`, `run_steps` and `attach_scrollback`.
@@ -299,7 +284,6 @@ impl SnapshotKeeper {
             if rx.changed().await.is_err() {
                 return;
             }
-            // Settle: more changes during the debounce restart it.
             loop {
                 match tokio::time::timeout(AUTOSAVE_DEBOUNCE, rx.changed()).await {
                     Ok(Ok(())) => continue,

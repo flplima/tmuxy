@@ -6,9 +6,9 @@
 //! There is no ts-rs/specta/typeshare in this workspace: the Effect schemas
 //! and `deltaProtocol.ts` mirror these Rust types by hand, and a field that
 //! drifts between the two (`history_size` did) is invisible to both test
-//! suites. These fixtures are the shared artefact — Rust emits them from the
-//! live types, TypeScript decodes the committed files, and either side
-//! changing shape turns one of the two suites red.
+//! suites. Rust emits these fixtures from the live types and TypeScript
+//! decodes the committed files, so either side changing shape turns a suite
+//! red.
 //!
 //! Regenerate with:
 //!
@@ -25,7 +25,6 @@ mod canonical;
 mod commands;
 use canonical::{canonical_delta, canonical_state, cell, styled_cell};
 
-/// Where the committed fixtures live, shared with the Vitest suite.
 fn fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures")
 }
@@ -51,8 +50,7 @@ fn sorted_keys(value: &serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// Write `value` to `name` when regenerating, otherwise assert the
-/// committed file is byte-for-byte what the code emits today.
+/// Written when regenerating, otherwise compared byte for byte.
 fn assert_fixture(name: &str, value: &serde_json::Value) {
     let path = fixture_dir().join(name);
     let rendered = format!(
@@ -88,7 +86,7 @@ fn get_initial_state_response_matches_its_fixture() {
     );
 }
 
-/// The two `state-update` frames, exactly as they go down the SSE wire.
+/// The two `state-update` frames, as they go down the SSE wire.
 #[test]
 fn state_update_frames_match_their_fixtures() {
     for (name, update) in [
@@ -122,6 +120,7 @@ fn binding(key: &str, command: &str, description: &str, repeat: bool) -> KeyBind
 fn canonical_bindings() -> KeyBindings {
     KeyBindings {
         prefix_key: "C-b".to_string(),
+        repeat_time_ms: 300,
         prefix_bindings: vec![binding("c", "new-window", "new window", false)],
         root_bindings: vec![binding("M-Left", "select-pane -L", "pane left", true)],
         tables: [(

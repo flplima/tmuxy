@@ -1,7 +1,5 @@
 name: Install Linux dependencies
 description: The WebKitGTK headers the desktop crate links against, for a job that compiles the whole workspace.
-# tmux's own build dependencies are not here: install-tmux installs them, and
-# only on a cache miss.
 runs:
   using: composite
   steps:

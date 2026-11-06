@@ -13,17 +13,11 @@ use super::{query, run};
 
 /// The most a single pane's images may hold in memory.
 ///
-/// A pane used to accumulate images forever: the store is only swept when the
-/// PANE goes away, and nothing retires an image whose placement was replaced.
-/// That is survivable while an image means a picture someone `icat`ed, and is
-/// not for a program that redraws a picture several times a second — the same
-/// anchor, a new image id each time, so the placements stay at one while the
-/// bytes behind them grow without limit.
-///
-/// Generous on purpose: this is a backstop against a stream, not a budget for
-/// ordinary use. A pane full of distinct pictures in its scrollback stays
-/// whole, and a stream at 30KB a frame has room for several hundred frames
-/// before the oldest is dropped.
+/// A backstop against a program that redraws a picture several times a second:
+/// the same anchor, a new image id each time, so the placements stay at one
+/// while the bytes behind them grow, and nothing else retires an image until
+/// its pane goes away. Generous on purpose: a stream at 30KB a frame has room
+/// for several hundred frames before the oldest is dropped.
 pub const MAX_PANE_IMAGE_BYTES: usize = 24 * 1024 * 1024;
 
 /// Decoded picture bytes keyed by `(pane id, image id)`, served back to the
@@ -34,8 +28,6 @@ pub struct ImageStore {
 }
 
 impl ImageStore {
-    /// Keep a pane's new pictures, then drop its oldest until it is back
-    /// under [`MAX_PANE_IMAGE_BYTES`].
     pub fn insert(&mut self, pane_id: &PaneId, images: Vec<(u32, StoredImage)>) {
         for (id, img) in images {
             self.images.insert((pane_id.clone(), id), img);
@@ -43,8 +35,7 @@ impl ImageStore {
         self.trim_pane(pane_id);
     }
 
-    /// Forget every picture of a pane that is no longer in `state`. Called
-    /// on a full state, the one update that names every live pane.
+    /// Only correct on a full state, the one update that names every live pane.
     pub fn retain_live_panes(&mut self, state: &crate::TmuxState) {
         let live: std::collections::HashSet<&PaneId> =
             state.panes.iter().map(|p| &p.tmux_id).collect();
@@ -55,8 +46,6 @@ impl ImageStore {
         self.images.get(&(pane_id.clone(), id))
     }
 
-    /// Drop a pane's oldest images until it is back under the cap.
-    ///
     /// Oldest by image id, which the core assigns increasing per pane, so the
     /// one dropped first is the one least likely to still be placed on screen.
     /// An image whose placement is live is only dropped if a pane is holding
@@ -111,8 +100,6 @@ pub struct KeyBinding {
     pub repeat: bool,
 }
 
-/// The `KeyBinding`s of `table` in a `list-keys` listing
-/// ([`crate::list_keys::rows`], the one reader of its lines).
 pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
     crate::list_keys::rows(output)
         .filter(|row| row.table == table)
@@ -128,7 +115,6 @@ pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
         .collect()
 }
 
-/// Human description for the common commands the menus surface.
 fn describe_binding(command_name: &str, command: &str) -> String {
     match command_name {
         "split-window" => {
@@ -165,6 +151,10 @@ fn describe_binding(command_name: &str, command: &str) -> String {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBindings {
     pub prefix_key: String,
+    /// tmux's `repeat-time`: how long a `-r` binding keeps the prefix armed
+    /// for the next repeat, in milliseconds.
+    #[serde(default = "default_repeat_time_ms")]
+    pub repeat_time_ms: u64,
     pub prefix_bindings: Vec<KeyBinding>,
     pub root_bindings: Vec<KeyBinding>,
     /// Every other table a binding can enter with `switch-client -T` — the
@@ -174,12 +164,17 @@ pub struct KeyBindings {
     pub tables: std::collections::BTreeMap<String, Vec<KeyBinding>>,
 }
 
-/// Tables `KeyBindings::tables` leaves out: the two it has fields for, and
-/// copy mode's, which the client handles itself.
 const UNLISTED_TABLES: [&str; 4] = ["prefix", "root", "copy-mode", "copy-mode-vi"];
 
 /// tmux's own prefix, for a server that answers nothing.
 const DEFAULT_PREFIX: &str = "C-b";
+
+/// tmux's own `repeat-time`, for a server that answers nothing.
+const DEFAULT_REPEAT_TIME_MS: u64 = 500;
+
+fn default_repeat_time_ms() -> u64 {
+    DEFAULT_REPEAT_TIME_MS
+}
 
 impl KeyBindings {
     /// Read the live bindings in one round trip. A server that cannot answer
@@ -188,7 +183,12 @@ impl KeyBindings {
     pub async fn read(tx: &MonitorCommandSender) -> Self {
         // Every table in one list: asking for a table by name is an error when
         // it does not exist, and an error ends the command list.
-        match query(tx, "show-options -gv prefix ; list-keys").await {
+        match query(
+            tx,
+            "show-options -gv prefix ; show-options -gv repeat-time ; list-keys",
+        )
+        .await
+        {
             Ok(output) => Self::parse(&output),
             Err(e) => {
                 tracing::warn!(error = %e, "could not read key bindings");
@@ -197,16 +197,22 @@ impl KeyBindings {
         }
     }
 
-    /// The first line is the prefix (`show-options -gv`); the tables follow,
-    /// each line naming its own table.
+    /// The option lines come first (`show-options -gv`: the prefix, then the
+    /// repeat time); the tables follow, each line naming its own table.
     pub(super) fn parse(output: &str) -> Self {
-        let prefix_key = output
+        let mut options = output
             .lines()
-            .next()
             .map(str::trim)
-            .filter(|p| !p.is_empty() && !p.starts_with("bind-key"))
+            .take_while(|line| !line.starts_with("bind-key"));
+        let prefix_key = options
+            .next()
+            .filter(|p| !p.is_empty())
             .unwrap_or(DEFAULT_PREFIX)
             .to_string();
+        let repeat_time_ms = options
+            .next()
+            .and_then(|ms| ms.parse().ok())
+            .unwrap_or(DEFAULT_REPEAT_TIME_MS);
         let names: std::collections::BTreeSet<&str> = output
             .lines()
             .filter_map(|line| crate::list_keys::Row::parse(line).map(|row| row.table))
@@ -214,6 +220,7 @@ impl KeyBindings {
             .collect();
         Self {
             prefix_key,
+            repeat_time_ms,
             prefix_bindings: parse_bindings("prefix", output),
             root_bindings: parse_bindings("root", output),
             tables: names
@@ -260,11 +267,8 @@ pub fn source_with_entry(command: String, entry: Option<&std::path::Path>) -> St
 /// starts in the background (`run-shell -b`, hooks).
 pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 
-/// Source the config chain — the defaults, the user's `tmuxy.conf`, the
-/// essentials — over the control-mode connection, followed by what follows
-/// a client's own `source-file` ([`after_source_file`]). The caller then
-/// pushes what a config can change — the bindings, the theme and appearance
-/// settings — exactly as it does after that client command.
+/// The caller then pushes what a config can change (the bindings, the theme
+/// and appearance settings), exactly as it does after a client's `source-file`.
 pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError> {
     let Some(path) = crate::session::get_config_path() else {
         return Err(CommandError::unavailable(
@@ -297,7 +301,6 @@ pub(super) async fn after_source_file(tx: &MonitorCommandSender) -> Result<(), C
 // The config directory
 // ============================================
 
-/// What changed under the config dir, from [`watch_config`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigChange {
     /// A theme file or `custom.css`: clients re-fetch their stylesheets.
@@ -309,9 +312,8 @@ pub enum ConfigChange {
 /// How often the config dir is looked at. A save shows within this.
 pub const CONFIG_POLL: Duration = Duration::from_secs(1);
 
-/// Watch the config dir for the user's edits, forever: `on_change` is called
-/// once per poll for each kind of file that changed since the last one. A
-/// poll of a few file stamps (`session::config_stamps`) rather than a
+/// Runs forever: `on_change` is called once per poll for each kind of file
+/// that changed since the last one. A poll of a few file stamps rather than a
 /// native watcher, so both hosts behave the same on every platform.
 pub async fn watch_config(mut on_change: impl FnMut(ConfigChange)) {
     let mut last = crate::session::config_stamps();

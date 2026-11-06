@@ -1,24 +1,9 @@
 #!/bin/bash
-# Collapsible panes (zellij-style stacks), at the window's first level.
-#
-#   stack new <pane_id>    Turn the pane's window collapsible and add a new
-#                          first-level row below (a full-width horizontal
-#                          split). The backend then keeps only the row holding
-#                          the active pane expanded; every other first-level
-#                          row collapses to one line per pane (the header).
-#   stack off <window_id>  Turn the feature off. The backend evens the
-#                          first-level rows back out.
-#   stack toggle <window_id>
-#                          Turn it on for the rows the window already has, or
-#                          off if it is already on. Unlike `new` this adds no
-#                          pane: it is the switch on its own.
-#
-# The flag is the @tmuxy-collapsible window option (docs/TMUX.md). Everything
-# that reshapes the window lives in tmuxy-core (`layout.rs`,
-# `collapsible_layout_commands`): it reacts to the option, to focus changes and
-# to layout changes, and only ever touches the first level — panes nested
-# inside a row keep their proportions, so navigating among them changes
-# nothing.
+# Collapsible panes (zellij-style stacks). The flag is the @tmuxy-collapsible
+# window option (docs/TMUX-TAGS.md). tmuxy-core reshapes the window around it
+# (`layout.rs`, `collapsible_layout_commands`): only the first-level row holding
+# the active pane stays expanded, every other first-level row collapses to its
+# headers, and panes nested inside a row keep their proportions.
 set -euo pipefail
 source "${0%/*}/_lib"
 

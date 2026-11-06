@@ -1,8 +1,8 @@
 //! Plugins: third-party (and the user's own) actions and CLI verbs declared
 //! in a `tmuxy-plugin.toml` (docs/PLUGINS.md).
 //!
-//! The trust boundary is the install gate (`tmuxy plugin install`, in the
-//! server crate): a plugin's commands run unsandboxed as the user, with the
+//! The trust boundary is the install gate (`tmuxy plugin install`, in
+//! `tmuxy-verbs`): a plugin's commands run unsandboxed as the user, with the
 //! tmux socket, so nothing here claims to confine them. What this module
 //! guarantees instead is that nothing a plugin ships runs before the user said
 //! yes (the hardened fetch in [`fetch`]), that every command it declares
@@ -12,11 +12,9 @@
 //!
 //! | Piece | Where |
 //! | --- | --- |
-//! | the manifest | [`manifest`] |
-//! | what is installed, at which commit | [`lockfile`] (`<config_dir>/plugins.json`) |
-//! | the checkouts, one per pinned commit | `<state_dir>/plugins/<name>@<sha>/` ([`crate::paths::Layout::checkout`]) |
-//! | what the UI shows | [`inventory`] (`@tmuxy-plugins`, `@tmuxy-plugins-rev`) |
-//! | running an action | [`invoke`] |
+//! | what is installed, at which commit | `<config_dir>/plugins.json` ([`lockfile`]) |
+//! | the checkouts, one per pinned commit | `<state_dir>/plugins/<name>@<sha>/` |
+//! | what the UI shows | `@tmuxy-plugins`, `@tmuxy-plugins-rev` ([`inventory`]) |
 
 pub mod fetch;
 pub mod gc;
@@ -49,22 +47,21 @@ use std::path::Path;
 
 use crate::paths::Layout;
 
-/// The manifest's file name, at a plugin's root.
 pub use crate::paths::PLUGIN_MANIFEST_FILE as MANIFEST_FILE;
 
 /// The plugin a user's own `<config_dir>/tmuxy-plugin.toml` is: installed by
 /// nobody, gated by nothing, its commands relative to the config dir.
 pub const USER_PLUGIN: &str = "user";
 
-/// The plugin API this build implements (`[plugin] api`).
+/// The plugin API this build implements (`[plugin] api`, docs/PLUGIN-API.md).
 pub const API_VERSION: u32 = 1;
 
-/// This build's version, which a manifest's `min_tmuxy` is compared with.
+/// What a manifest's `min_tmuxy` is compared with.
 pub const TMUXY_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// `tmuxy plugin`'s own subcommands: a plugin's `[[cli]]` verb, which runs
-/// as `tmuxy plugin <verb>`, may not be one of them. The server crate's
-/// tests hold this list to its clap subcommands.
+/// as `tmuxy plugin <verb>`, may not be one of them. `tmuxy-verbs`' tests
+/// hold this list to its clap subcommands.
 pub const RESERVED_VERBS: &[&str] = &[
     "install", "list", "update", "remove", "action", "log", "check", "new", "config", "path",
     "search", "exec", "help",
@@ -84,7 +81,7 @@ pub fn is_valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-/// A full 40-hex commit id.
+/// A full 40-hex commit id, lowercase.
 pub fn is_sha(sha: &str) -> bool {
     sha.len() == 40
         && sha
@@ -92,7 +89,6 @@ pub fn is_sha(sha: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-/// The platform this build runs on, as a manifest names it.
 pub fn current_platform() -> manifest::Platform {
     if cfg!(target_os = "macos") {
         manifest::Platform::Macos
@@ -118,7 +114,7 @@ pub fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-/// Whether this build is at least `min` (`min_tmuxy`).
+/// `false` when either version does not parse.
 pub fn satisfies_min_tmuxy(min: &str) -> bool {
     match (parse_version(TMUXY_VERSION), parse_version(min)) {
         (Some(have), Some(want)) => have >= want,
@@ -178,13 +174,12 @@ impl PluginError {
 
 pub type Result<T> = std::result::Result<T, PluginError>;
 
-/// Create `dir` owner-only, with what it says on failure.
 pub(crate) fn private_dir(dir: &Path) -> Result<()> {
     crate::private_files::create_dir_all(dir)
         .map_err(|e| PluginError::io(format!("creating {}", dir.display()), e))
 }
 
-/// 32 random hex digits, from the OS.
+/// 32 random hex digits.
 pub(crate) fn random_hex() -> Result<String> {
     use std::io::Read;
     let mut bytes = [0u8; 16];
@@ -194,13 +189,11 @@ pub(crate) fn random_hex() -> Result<String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// After plugins changed (install, update, remove): publish the inventory,
-/// bind and unbind plugin keys, and ask every running app to reload its
-/// config, which is how its clients get the new key bindings
-/// (`docs/DATA-FLOW.md`: bindings reach a client at connect and on a
-/// reload). With no tmux server there is nothing to do: the next server to
-/// attach does all of it. The change itself is made by then, so a step that
-/// fails is reported, and the others still run.
+/// After plugins changed (install, update, remove). The running apps are
+/// asked to reload their config because bindings reach a client only at
+/// connect and on a reload (docs/DATA-FLOW.md). With no tmux server there is
+/// nothing to do: the next server to attach does all of it. The change itself
+/// is made by then, so a step that fails is reported and the others still run.
 pub fn refresh(dirs: &Layout) {
     if let Err(e) = inventory::publish(dirs) {
         tracing::warn!(error = %e, "could not publish the plugin inventory");

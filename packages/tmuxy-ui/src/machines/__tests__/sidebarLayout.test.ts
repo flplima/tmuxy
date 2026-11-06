@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { wid } from '../../test/wire';
+import { sidebarsOpen } from '../../test/model';
 import { selectSettledPaneWidth, selectSidebarLayout } from '../selectors/panesAndSidebars';
 import { createInitialContext } from '../app/context';
 import type { AppMachineContext } from '../types/context';
@@ -51,24 +52,23 @@ describe('selectSidebarLayout', () => {
     const docked = 30 * CHAR + 35 * CHAR;
     const layout = selectSidebarLayout(
       ctx({
-        leftSidebarOpen: true,
-        rightSidebarOpen: true,
+        sidebars: sidebarsOpen({ left: true, right: true }),
         windows: [sidebarWindow('left'), sidebarWindow('right')],
         bodyWidth: body,
         containerWidth: containerFor(body, docked),
       }),
     );
     expect(layout).toMatchObject({ leftOpen: true, rightOpen: true, leftWidth: 30 * CHAR });
-    expect(selectSettledPaneWidth(ctx({ leftSidebarOpen: true, bodyWidth: body }))).toBe(
-      body - 2 * CONTAINER_PADDING_X - 30 * CHAR,
-    );
+    expect(
+      selectSettledPaneWidth(ctx({ sidebars: sidebarsOpen({ left: true }), bodyWidth: body })),
+    ).toBe(body - 2 * CONTAINER_PADDING_X - 30 * CHAR);
   });
 
   it('draws a dragged width from the window, and a live preview ahead of it', () => {
     const body = 1280;
     const dragged = selectSidebarLayout(
       ctx({
-        leftSidebarOpen: true,
+        sidebars: sidebarsOpen({ left: true }),
         windows: [sidebarWindow('left', { sidebarCols: 40 })],
         bodyWidth: body,
         containerWidth: containerFor(body, 40 * CHAR),
@@ -78,7 +78,7 @@ describe('selectSidebarLayout', () => {
 
     const previewed = selectSidebarLayout(
       ctx({
-        leftSidebarOpen: true,
+        sidebars: sidebarsOpen({ left: true }),
         windows: [sidebarWindow('left', { sidebarCols: 40 })],
         sidebarColsPreview: { side: 'left', cols: 52 },
         bodyWidth: body,
@@ -90,7 +90,7 @@ describe('selectSidebarLayout', () => {
     // A preview of `null` means "the default" (a double-click on the divider).
     const reset = selectSidebarLayout(
       ctx({
-        leftSidebarOpen: true,
+        sidebars: sidebarsOpen({ left: true }),
         windows: [sidebarWindow('left', { sidebarCols: 40 })],
         sidebarColsPreview: { side: 'left', cols: null },
         bodyWidth: body,

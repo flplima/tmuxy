@@ -90,7 +90,7 @@ describe('Scenario 32: Session snapshots', () => {
     await openSidebarKeyboard(page, 'left');
     await waitForCondition(
       page,
-      () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true),
+      () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === true),
       15000,
       'the left sidebar to open',
     );
@@ -265,11 +265,11 @@ describe('Scenario 32: Session snapshots', () => {
     );
     // A new browser has no docking remembered, so the restored tree column
     // overlays the panes; it is closed from its own header.
-    if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
+    if (await page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open)) {
       await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
-        () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),
+        () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === false),
         15000,
         'the tree column to close',
       );
@@ -298,11 +298,11 @@ describe('Scenario 32: Session snapshots', () => {
     //    opened from the status line with the tree sidebar closed (the menu
     //    must read the list as it opens, not wait for the tree's poll), and
     //    choosing it rebuilds the session and switches to it.
-    if (await page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen)) {
+    if (await page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open)) {
       await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
-        () => page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === false),
+        () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === false),
         15000,
         'the tree sidebar to close',
       );

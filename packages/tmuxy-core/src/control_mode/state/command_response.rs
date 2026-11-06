@@ -3,7 +3,6 @@ use super::*;
 use crate::constants::tmux_formats::TmuxList;
 use crate::{PaneId, WindowId};
 
-/// A reply-wrapped command's output, being collected between its markers.
 pub(super) struct ReplyInFlight {
     pub(super) id: u64,
     pub(super) output: String,
@@ -26,14 +25,11 @@ impl StateAggregator {
             return self.on_read(read, &output, success);
         }
 
-        // Reply-wrapped commands (see reply_wrapped_lines). Everything
-        // between the BEGIN and END marker blocks belongs to the
-        // caller and is handed back whole; none of it may fall
-        // through to the parsers below. A `list-panes -a` sent as a
-        // query prints rows shaped exactly like the aggregator's own
-        // list-panes poll, and letting them reach
-        // handle_command_response would conjure another session's
-        // panes into this one.
+        // Everything between a reply's BEGIN and END blocks
+        // (`reply_wrapped_lines`) goes back to the caller whole: a
+        // `list-panes -a` sent as a query prints rows shaped exactly like
+        // the aggregator's own poll, and parsing them would conjure another
+        // session's panes into this one.
         if let Some(id) = self.markers.argument(marker_line, REPLY_BEGIN_MARKER) {
             self.reply_in_flight = Some(ReplyInFlight {
                 id,
@@ -89,7 +85,6 @@ impl StateAggregator {
         }
 
         if let Some(read) = self.markers.read_begun(marker_line) {
-            // A buffer read nobody is waiting on is not ours to mirror.
             if read != Read::Buffer || self.pending_buffer_reads > 0 {
                 self.armed = Some(read);
             }
@@ -103,7 +98,6 @@ impl StateAggregator {
         ProcessEventResult::default()
     }
 
-    /// A read's block, routed by the BEGIN marker before it.
     fn on_read(&mut self, read: Read, output: &str, success: bool) -> ProcessEventResult {
         match read {
             Read::Capture(pane_id) => self.on_capture(pane_id, output, success),
@@ -111,10 +105,9 @@ impl StateAggregator {
             Read::Buffer => {
                 self.pending_buffer_reads = self.pending_buffer_reads.saturating_sub(1);
                 let text = output.trim_end_matches(['\r', '\n']);
-                // The buffer can hold anything a pane's program put there, so
-                // it gets the same cap as an OSC 52 write, here where every
-                // consumer of the effect (the in-browser engine included)
-                // sees it.
+                // A pane's program can fill the buffer with anything, so it
+                // gets the OSC 52 cap here, where every host (the in-browser
+                // engine included) sees it.
                 if success && !text.is_empty() && text.len() <= MAX_CLIPBOARD_BYTES {
                     return ProcessEventResult {
                         clipboard_writes: vec![(None, text.to_string())],
@@ -198,13 +191,11 @@ impl StateAggregator {
         }
     }
 
-    /// A capture's block, for the pane its BEGIN marker named.
     fn on_capture(&mut self, pane_id: PaneId, output: &str, success: bool) -> ProcessEventResult {
-        // In-flight bookkeeping is done for this pane regardless of
-        // the outcome — a wedged entry would freeze the pane's
-        // content preservation in to_state_update forever, and a
-        // moved pane left in `panes_moved_window` would drop every
-        // `%output` it prints until some later capture happens to land.
+        // Whatever the outcome: a wedged entry would block every later
+        // capture of the pane and hold the first state back
+        // (`initial_state_ready`), and a moved pane left in
+        // `panes_moved_window` would drop every `%output` it prints.
         self.pending_captures.retain(|id| *id != pane_id);
         self.panes_moved_window.remove(&pane_id);
         // A capture asked for while this one was in flight (a second resize
@@ -227,12 +218,9 @@ impl StateAggregator {
             };
         }
         let Some(pane) = self.panes.get_mut(&pane_id) else {
-            // Pane was killed after the capture was sent — discard.
             return ProcessEventResult::default();
         };
         if pane.in_mode {
-            // In copy mode: process into separate copy_mode_content
-            // to avoid corrupting the main terminal state
             pane.process_copy_mode_capture(output.as_bytes());
         } else {
             debug!(
@@ -269,13 +257,12 @@ impl StateAggregator {
         self.pane_reports = self.pane_reports.wrapping_add(1);
         self.panes_synced = true;
 
-        // Remove panes that weren't seen (they were deleted in tmux).
         self.panes.retain(|pane_id, pane| {
             if seen_panes.contains(pane_id) {
                 return true;
             }
-            // Keep panes with empty window_id (from other sessions' output events)
-            // They'll be filtered out in to_tmux_state anyway
+            // A pane with no window came from another session's `%output`;
+            // `to_tmux_state` leaves it out.
             if pane.window_id.is_none() {
                 return true;
             }
@@ -286,7 +273,6 @@ impl StateAggregator {
         resized_panes
     }
 
-    /// Apply a `list-windows` answer: every window in it, and none other.
     pub(super) fn apply_window_list(&mut self, output: &str) {
         let seen_windows: HashSet<WindowId> = output
             .lines()

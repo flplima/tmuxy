@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
+import { selectFocusedFloat } from '../../machines/selectors/keyboard';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
 import { writeClipboard } from '../../infra/clipboard';
@@ -39,7 +40,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const send = useAppSend();
   const actor = useAppActor();
   const activePaneId = useAppSelector((c) => c.activePaneId);
-  const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
+  const focusedFloat = useAppSelector(selectFocusedFloat);
   const sessionName = useAppSelector((c) => c.sessionName);
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
   const widgetItems = useWidgetMenuItems(activePaneId);
@@ -86,7 +87,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     }
   };
   const dispatch = useMenuDispatch({
-    closeTarget: activeCloseTarget(activePaneId, focusedFloatPaneId),
+    closeTarget: activeCloseTarget(activePaneId, focusedFloat),
     onLocal,
   });
 

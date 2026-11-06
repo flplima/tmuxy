@@ -7,8 +7,7 @@ fn parse(v: serde_json::Value) -> ClientCommand {
 
 #[test]
 fn unit_variant_accepts_empty_args_object() {
-    // The TS adapter sends `args: {}` for no-arg commands. serde rejects
-    // an empty map for a unit variant, so `decode` must strip it.
+    // The TS adapter sends `args: {}` for no-arg commands.
     for cmd_name in [
         "get_theme_settings",
         "get_themes_list",
@@ -23,8 +22,6 @@ fn unit_variant_accepts_empty_args_object() {
 
 #[test]
 fn struct_variant_still_decodes_with_empty_args() {
-    // All-defaulted struct variants accept `{}` directly; `decode` must
-    // not regress that path while rescuing unit variants.
     let body = serde_json::to_vec(&json!({ "cmd": "get_initial_state", "args": {} })).unwrap();
     match ClientCommand::decode(&body).expect("should decode") {
         ClientCommand::GetInitialState { cols, rows } => {
@@ -99,7 +96,7 @@ fn only_web_links_are_openable() {
 }
 
 /// A host that does none of the host-only things, over a session with no
-/// monitor: the web server's position for most of them.
+/// monitor.
 struct Bare(std::sync::Arc<SessionRuntime>);
 
 impl HostCtx for Bare {
@@ -136,9 +133,8 @@ async fn answer(cmd: serde_json::Value) -> Result<Value, CommandError> {
     handle(ClientCommand::from_value(cmd).unwrap(), &bare()).await
 }
 
-/// What a host cannot do is refused as `unavailable`, so the client can tell
-/// "not here" from "it failed"; a command that needs no monitor is answered
-/// without one, and one that does is refused at once when none is coming.
+/// A command that needs no monitor is answered without one, and one that
+/// does is refused at once when none is coming.
 #[tokio::test]
 async fn a_host_answers_what_it_cannot_do_as_unavailable() {
     for cmd in ["detach_client", "list_servers", "open_trace_file"] {
@@ -161,8 +157,7 @@ async fn a_host_answers_what_it_cannot_do_as_unavailable() {
 }
 
 /// A desktop command rejects with `{ error, kind }`, the shape the web
-/// server's `/commands` failures have; a link a pane printed is opened only
-/// when it is a web or mail link.
+/// server's `/commands` failures have.
 #[tokio::test]
 async fn a_refused_link_rejects_with_kind_forbidden() {
     let err = answer(json!({ "cmd": "open_url", "args": { "url": "file:///etc/passwd" } }))

@@ -1,12 +1,17 @@
-/* Two rows of six so each key is a thumb's size, whatever the terminal's cell
-   shrank to. */
+/* KeyRow — the phone's extra keys, between the terminal and the tree, in two
+   rows of six, edge to edge: no gap between the keys, a hairline between
+   neighbours (each key draws its right and bottom edge, the row the top and
+   left), so the screen's width all goes to the keys. The chrome's own size,
+   whatever the terminal's cell shrank to. */
 
 .key-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   flex: 0 0 auto;
-  gap: 6px;
-  padding: 6px 8px;
+  gap: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-light);
+  border-left: 1px solid var(--border-light);
   font-family: var(--font-mono);
   font-size: 14px;
 }
@@ -15,8 +20,9 @@
   min-width: 0;
   height: 40px;
   padding: 0;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
+  border: solid var(--border-light);
+  border-width: 0 1px 1px 0;
+  border-radius: 0;
   background-color: var(--bg-medium);
   color: var(--text-primary);
   font: inherit;

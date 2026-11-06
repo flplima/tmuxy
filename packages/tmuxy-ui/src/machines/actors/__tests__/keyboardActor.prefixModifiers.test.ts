@@ -4,15 +4,9 @@
  * plugin's `[[keys]]` may bind `M-y`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
-import type { AnyActorRef } from 'xstate';
+import { describe, expect, it } from 'vitest';
 import { pid } from '../../../test/wire';
 import { lastSendCommand, pressKey, spawnKeyboardActor } from './keyboardHarness';
-
-const running: AnyActorRef[] = [];
-afterEach(() => {
-  while (running.length) running.pop()?.stop();
-});
 
 describe('keyboardActor — a prefix binding with a modifier', () => {
   /**
@@ -21,10 +15,8 @@ describe('keyboardActor — a prefix binding with a modifier', () => {
    * key they were bound to runs, not the bare letter's.
    */
   it('runs the binding for the key with Alt or Ctrl, and the bare one without', () => {
-    const { actor, child, events } = spawnKeyboardActor(pid('%1'));
-    running.push(actor);
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    const { events, set } = spawnKeyboardActor(pid('%1'));
+    set({
       keybindings: {
         prefix_key: 'C-a',
         tables: {},

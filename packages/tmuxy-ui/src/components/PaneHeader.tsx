@@ -1,11 +1,11 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { TmuxOp } from '../domain/commands';
 import { selectDraggedPaneId, selectGroupDrop } from '../machines/selectors/layout';
 import { useAppSelector, useAppSend, usePane, usePaneGroup } from '../machines/appHooks';
 import { PaneContextMenu } from './PaneContextMenu';
 import { PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';
 import { selectKeyBindings } from '../machines/selectors/ui';
+import { TmuxOp } from '../domain/commands';
 import { keyHint } from '../domain/keyLabels';
 import type { KeyBindings } from '../domain/wire';
 import { measureTabStrip } from '../machines/drag/tabStripDrop';
@@ -116,13 +116,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
-    // FOCUS_PANE on a parked group member would fire a premature `select-pane`
-    // into the stash window, racing swap-pane.
-    if (isGroup) {
-      send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
-    } else {
-      send({ type: 'FOCUS_PANE', paneId: clickedPaneId });
-    }
+    send({ type: 'SELECT_PANE', paneId: clickedPaneId });
   };
 
   const handleClosePane = (e: React.MouseEvent, forPaneId?: PaneId) => {
@@ -166,7 +160,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
     // Pressing a pane's title bar takes the pane, as pressing its body does, so
     // moving or renaming it needs no click inside. A group's tabs keep their own handler.
     if (!target.closest('.pane-tab')) {
-      send({ type: 'FOCUS_PANE', paneId: tmuxId });
+      send({ type: 'SELECT_PANE', paneId: tmuxId });
     }
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
@@ -341,15 +335,9 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
               renaming={renamingPaneId === tabPane.tmuxId}
-              onRenameEnd={(name) => {
-                send({ type: 'PANE_RENAME_END' });
-                if (name) {
-                  send({
-                    type: 'DISPATCH_OP',
-                    op: TmuxOp.SetPaneTitle({ paneId: tabPane.tmuxId, title: name }),
-                  });
-                }
-              }}
+              onRenameEnd={(name) =>
+                send({ type: 'RENAME_PANE_COMMIT', paneId: tabPane.tmuxId, title: name })
+              }
               onClick={(e) => handleTabClick(e, tabPane.tmuxId)}
               onContextMenu={(e) => handleContextMenu(e, tabPane.tmuxId)}
               controls={isGroup ? controlsFor(tabPane.tmuxId) : null}

@@ -15,7 +15,6 @@ use super::registry::Installed;
 use super::{PluginError, Result};
 use crate::paths::Layout;
 
-/// The file, `<config_dir>/plugins/<name>/settings.toml`.
 pub fn path(dirs: &Layout, plugin: &str) -> PathBuf {
     dirs.plugin_config(plugin).join("settings.toml")
 }
@@ -94,7 +93,6 @@ fn write_table(dirs: &Layout, plugin: &str, table: &toml::Table) -> Result<()> {
         .map_err(|e| PluginError::io(format!("writing {}", file.display()), e))
 }
 
-/// Set `key` from its text form, checked against its type.
 pub fn set(dirs: &Layout, plugin: &Installed, key: &str, text: &str) -> Result<SettingValue> {
     let setting = setting(plugin, key)?;
     let value = setting

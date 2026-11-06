@@ -1,7 +1,7 @@
 /**
  * notifications state — what the user has to see in the snackbar.
  *
- * Owns context field: notifications. Errors raise NOTIFY (kind `error`, the
+ * Errors raise NOTIFY (kind `error`, the
  * default); a message tmux shows this client (`display-message`, arriving as
  * `%message`) raises it with kind `info`. The Snackbar component renders the
  * list in the top-right corner of the app chrome, newest at the bottom, each

@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { pinPrefix, TmuxOp, toTmuxCommand } from '../commands';
-import { isLayoutChange, isMultiStep } from '../opTraits';
+import { isMultiStep, isStructural } from '../opTraits';
 import { parseCommandToOp } from '../store/parseCommand';
 import { pid, wid } from '../../test/wire';
 
@@ -24,10 +24,17 @@ describe('op classification', () => {
     expect(raw(`run-shell "${S}/pane-group join %3 %1 0"`)).toBe(false);
   });
 
-  it('flags layout changes, typed or raw', () => {
-    expect(isLayoutChange(TmuxOp.SelectLayout({ layout: 'tiled' }))).toBe(true);
-    expect(isLayoutChange(TmuxOp.RawCommand({ command: 'select-layout -t @1 tiled' }))).toBe(true);
-    expect(isLayoutChange(TmuxOp.Split({ direction: 'vertical' }))).toBe(false);
+  it('calls an op structural when the store predicts a layout for it, not a focus pin', () => {
+    const move = TmuxOp.MoveWindow({
+      windowId: wid('@1'),
+      anchorId: wid('@2'),
+      placement: 'after',
+    });
+    expect(isStructural(move)).toBe(true);
+    expect(
+      isStructural(TmuxOp.GroupSwitch({ clickedPaneId: pid('%1'), visiblePaneId: null })),
+    ).toBe(true);
+    expect(isStructural(TmuxOp.SelectPane({ paneId: pid('%1') }))).toBe(false);
   });
 });
 

@@ -183,6 +183,7 @@ export function reconcileSelectWindow(
 export function predictKillWindow(
   op: TmuxOpOf<'KillWindow'>,
   snapshot: TmuxSnapshot,
+  ctx: PredictContext,
 ): PredictResult | null {
   const windowId = op.windowId ?? snapshot.activeWindowId;
   if (!windowId || isPlaceholderId(windowId)) return null;
@@ -190,12 +191,19 @@ export function predictKillWindow(
   if (!doomed) return null;
 
   const tabs = snapshot.windows.filter((w) => w.windowType === 'tab' && w.id !== windowId);
-  // tmux activates an adjacent window; approximated with the previous tab by
-  // index, else the next.
+  // tmux makes the last window used current (its `lastw` stack), else the
+  // previous one, else the next. The last used is the tab of the most recently
+  // active pane outside the doomed one; the reconciler only requires the
+  // window to be gone, so a different server choice self-corrects on confirm.
   const sorted = [...tabs].sort((a, b) => a.index - b.index);
+  const lastUsed = ctx.paneActivationOrder
+    .map((id) => snapshot.panes.find((p) => p.tmuxId === id)?.windowId)
+    .map((id) => tabs.find((w) => w.id === id))
+    .find((w) => w !== undefined);
   const nextActive =
     snapshot.activeWindowId === windowId
-      ? ([...sorted].reverse().find((w) => w.index < doomed.index) ??
+      ? (lastUsed ??
+        [...sorted].reverse().find((w) => w.index < doomed.index) ??
         sorted.find((w) => w.index > doomed.index) ??
         null)
       : null;

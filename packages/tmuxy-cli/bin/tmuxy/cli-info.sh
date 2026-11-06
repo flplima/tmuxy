@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — info, agent and skill commands.
 
 # --- Info & Skill ---
 
@@ -41,7 +40,6 @@ cmd_info() {
     return
   fi
 
-  # Inside session — read session, active pane, and active window in one display-message call
   local fmt=$'#{session_name}\t#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{window_index}\t#{window_name}\t#{window_panes}'
   local info_line
   info_line=$(_tmux display-message -p "$fmt" 2>/dev/null || true)

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { pid } from '../../../test/wire';
+import type { PaneId } from '../../../domain/ids';
 import { pasteBufferInto } from '../../../domain/commandHelpers';
 import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 import {
@@ -7,6 +8,8 @@ import {
   pasteText,
   pressKey,
   sendCommands,
+  ownerOf,
+  PANES,
   spawnKeyboardActor,
 } from './keyboardHarness';
 
@@ -262,7 +265,7 @@ describe('keyboardActor — desktop IME', () => {
     if (!input) return;
     mobileKeyboard.focusKeyboardInput(pid('%3'));
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
+    handle.set({ activePaneId: pid('%4') });
     insertText(input, 'b');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l -- 'b'"]);
@@ -274,7 +277,7 @@ describe('keyboardActor — desktop IME', () => {
     if (!input) return;
     mobileKeyboard.focusKeyboardInput(pid('%3'));
 
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    handle.set({ keyboardOwner: ownerOf('float', pid('%9')) });
     insertText(input, 'f');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %9 -l -- 'f'"]);
@@ -284,10 +287,10 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    handle.set({ keyboardOwner: ownerOf('float', pid('%9')) });
     mobileKeyboard.focusKeyboardInput(pid('%9'));
 
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: null });
+    handle.set({ keyboardOwner: PANES });
     insertText(input, 'r');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'r'"]);
@@ -297,8 +300,7 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    handle.set({
       keybindings: {
         prefix_key: 'C-a',
         tables: {},
@@ -325,8 +327,7 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    handle.set({
       keybindings: {
         prefix_key: 'C-a',
         tables: {},
@@ -350,8 +351,7 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    handle.set({
       keybindings: {
         prefix_key: 'a',
         tables: {},
@@ -407,7 +407,7 @@ describe('keyboardActor — desktop IME', () => {
     mobileKeyboard.focusKeyboardInput(pid('%3'));
     startComposition(input, ['ㅎ']);
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
+    handle.set({ activePaneId: pid('%4') });
     mobileKeyboard.focusKeyboardInput(pid('%4'));
     commitComposition(input, '한');
 
@@ -419,10 +419,10 @@ describe('keyboardActor — desktop IME', () => {
     expect(input).not.toBeNull();
     if (!input) return;
     mobileKeyboard.focusKeyboardInput(pid('%3'));
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
+    handle.set({ activePaneId: pid('%4') });
     startComposition(input, ['ㅎ']);
 
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%5') });
+    handle.set({ activePaneId: pid('%5') });
     commitComposition(input, '한');
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %4 -l -- '한'"]);
@@ -430,7 +430,7 @@ describe('keyboardActor — desktop IME', () => {
 
   it('commits non-input composition to the pane where composition started', () => {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    handle.child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: pid('%4') });
+    handle.set({ activePaneId: pid('%4') });
     window.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한' }));
 
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- '한'"]);
@@ -440,7 +440,7 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    handle.set({ keyboardOwner: ownerOf('float', pid('%9')) });
     mobileKeyboard.focusKeyboardInput(pid('%9'));
 
     startComposition(input, ['ㅎ']);
@@ -451,7 +451,7 @@ describe('keyboardActor — desktop IME', () => {
 
   it('drops a composition commit after keyboard forwarding is disabled', () => {
     window.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    handle.child.send({ type: 'UPDATE_ENABLED', enabled: false });
+    handle.set({ appFocused: false });
     window.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한' }));
 
     expect(sendCommands(handle.events)).toEqual([]);
@@ -461,15 +461,15 @@ describe('keyboardActor — desktop IME', () => {
     const input = mobileKeyboard.getMobileInput();
     expect(input).not.toBeNull();
     if (!input) return;
-    const placeholder = '__placeholder_float_1';
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: placeholder });
+    const placeholder = '__placeholder_float_1' as PaneId;
+    handle.set({ keyboardOwner: ownerOf('float', placeholder) });
 
     insertText(input, 'x');
     pressKey({ key: 'Tab' });
     startComposition(input, ['ㅎ']);
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: pid('%9') });
+    handle.set({ keyboardOwner: ownerOf('float', pid('%9')) });
     commitComposition(input, '한');
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: placeholder });
+    handle.set({ keyboardOwner: ownerOf('float', placeholder) });
     pasteText('붙여넣기');
 
     expect(sendCommands(handle.events)).toEqual([
@@ -483,10 +483,9 @@ describe('keyboardActor — desktop IME', () => {
   });
 
   it('never pins prefix or root commands to a provisional float id', () => {
-    const placeholder = '__placeholder_float_1';
-    handle.child.send({ type: 'UPDATE_FOCUSED_FLOAT', paneId: placeholder });
-    handle.child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    const placeholder = '__placeholder_float_1' as PaneId;
+    handle.set({ keyboardOwner: ownerOf('float', placeholder) });
+    handle.set({
       keybindings: {
         prefix_key: 'C-a',
         tables: {},

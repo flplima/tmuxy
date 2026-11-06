@@ -1,14 +1,9 @@
-//! WASM binding over tmuxy-core's sans-IO control-mode client.
-//!
-//! The browser (v86 or CheerpX running real tmux) feeds raw `tmux -CC`
-//! control-mode text into [`WasmTmux::feed`], and the SAME client core the
-//! native server runs (`control_mode::MonitorCore`: the parser, the state
-//! aggregator, reply correlation, the attach settings, the re-list timers,
-//! window sizing) says what to send back, what changed, and what to tell the
-//! person. The client's commands are routed by the same policy the native
-//! transports apply ([`route_command`], [`route_query`]).
-//!
-//! No client-side reimplementation, no VT emulator — one source of truth.
+//! WASM binding over tmuxy-core's sans-IO control-mode client, for the
+//! browser guests (v86 or CheerpX running real tmux): they feed raw `tmux -CC`
+//! text into [`WasmTmux::feed`], and the same `control_mode::MonitorCore` the
+//! native server runs says what to send back, what changed, and what to tell
+//! the person. Client commands go through the native routing policy
+//! ([`route_command`], [`route_query`]).
 
 use serde::Serialize;
 use tmuxy_core::command_router::{self, Route};
@@ -142,8 +137,8 @@ impl Session {
         }
     }
 
-    /// Run what the core asked for into `out`. The decoded images stay in the
-    /// pane's store (served by `image_url`); their placements ride the state.
+    /// The decoded images stay in the pane's store (served by `image_url`);
+    /// their placements ride the state.
     fn apply(&mut self, actions: Vec<Action<u32>>, out: &mut Feed) {
         for action in actions {
             match action {
@@ -207,7 +202,6 @@ impl Session {
     }
 }
 
-/// The stateful control-mode client exposed to JS.
 #[wasm_bindgen]
 pub struct WasmTmux {
     inner: Session,
@@ -222,17 +216,15 @@ impl WasmTmux {
         }
     }
 
-    /// The commands a freshly attached control client sends, the native
-    /// monitor's list: the window sizing at `cols`x`rows`, the enforced
-    /// settings, flow control, the full re-list and the subscriptions. The
-    /// guest image bakes the config in, so there is nothing to source.
+    /// The native monitor's attach commands, with the window sized to
+    /// `cols`x`rows`. The guest image bakes the config in, so there is nothing
+    /// to source.
     pub fn attach(&self, cols: u32, rows: u32) -> Vec<String> {
         self.inner
             .core
             .attach_commands((cols, rows), AttachConfig::default())
     }
 
-    /// Feed control-mode text the guest wrote.
     #[wasm_bindgen(unchecked_return_type = "Feed")]
     pub fn feed(&mut self, text: &str) -> Result<JsValue, JsValue> {
         to_js(&self.inner.feed(text))
@@ -279,18 +271,15 @@ impl WasmTmux {
         self.inner.core.expect_session(session);
     }
 
-    /// The full current `TmuxState`.
     #[wasm_bindgen(unchecked_return_type = "ServerState")]
     pub fn snapshot(&mut self) -> Result<JsValue, JsValue> {
         let state = self.inner.core.aggregator_mut().to_tmux_state();
         to_js(&state)
     }
 
-    /// Parse raw `capture-pane -p -e` scrollback text into structured cells.
-    /// Client-side copy mode fetches history this way: the host runs
-    /// capture-pane over the control connection, collects the block, and hands
-    /// the text here so the same core ANSI parser used for live panes produces
-    /// the scrollback cells (no JS-side vt100 reimplementation).
+    /// Parse raw `capture-pane -p -e` scrollback text into structured cells,
+    /// for client-side copy mode: the host runs the capture over the control
+    /// connection and hands the block's text here.
     pub fn parse_scrollback(&self, text: &str, width: u32) -> Result<JsValue, JsValue> {
         to_js(&tmuxy_core::parse_scrollback_to_cells(text, width))
     }
@@ -465,8 +454,9 @@ mod tests {
         assert!(matches!(ended.ended, Some(Ended { reason: Some(ref r) }) if r == "server exited"));
     }
 
-    /// The attach is the native one: SEC-01's `set-clipboard off` included,
-    /// panes listed before windows.
+    /// The attach is the native one: `set-clipboard off` (tmux's own OSC 52
+    /// handling fills a server-global paste buffer, which let a background
+    /// pane's write reach every client) included, panes listed before windows.
     #[test]
     fn the_attach_is_the_native_monitors() {
         let s = WasmTmux::new("m");

@@ -3,7 +3,10 @@
  *
  * Enforces the state-slice ownership invariant: a file under
  * `src/machines/app/states/<name>.ts` or `src/machines/app/actions/<name>.ts`
- * may only `assign(...)` fields whose FIELD_OWNERS entry is `<name>`.
+ * (or a helper in `actions/<name>/`) may only `assign(...)` fields whose
+ * FIELD_OWNERS entry is `<name>`, and any
+ * other file in `src/machines/app/` (the machine's own wiring, the command
+ * entry, the model-update mirror) owns no field at all.
  * `assignCtx(...)` (src/machines/app/actionTypes.ts) is `assign` bound to the
  * machine's types, and is read the same way.
  *
@@ -33,7 +36,9 @@ function loadFieldOwners() {
 
 const FIELD_OWNERS = loadFieldOwners();
 
-const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\.ts$/;
+const SLICE_FILE_REGEX =
+  /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)(?:\/[a-zA-Z0-9_-]+)?\.ts$/;
+const APP_FILE_REGEX = /\/machines\/app\/[a-zA-Z0-9_-]+\.ts$/;
 
 /** The callees whose first argument is a context payload. */
 const ASSIGN_CALLEES = new Set(['assign', 'assignCtx']);
@@ -93,17 +98,18 @@ export default {
     messages: {
       foreignField:
         'Field "{{field}}" is owned by state slice "{{owner}}", but this file owns "{{current}}". Move this assign to states/{{owner}}.ts (or actions/{{owner}}.ts) or send an event to that state.',
-      parentField:
-        'Field "{{field}}" is parent-owned (lifecycle/connection/dimensions). State files cannot mutate parent fields directly; emit an event the parent listens to instead.',
+      unownedFile:
+        'Field "{{field}}" is owned by state slice "{{owner}}", and this file owns no field. Move this assign to actions/{{owner}}.ts, or mark it `// cross-cutting: <reason>`.',
       unknownField:
         'Field "{{field}}" is not in FIELD_OWNERS. Either it is a typo or the registry in src/machines/app/context.ts is out of date.',
     },
   },
   create(context) {
     const filename = context.filename ?? context.getFilename?.() ?? '';
-    const match = filename.replace(/\\/g, '/').match(STATE_FILE_REGEX);
-    if (!match) return {};
-    const currentState = match[1];
+    const path = filename.replace(/\\/g, '/');
+    const match = path.match(SLICE_FILE_REGEX);
+    if (!match && !APP_FILE_REGEX.test(path)) return {};
+    const currentState = match ? match[1] : null;
 
     return {
       CallExpression(node) {
@@ -133,11 +139,11 @@ export default {
           const owner = FIELD_OWNERS[name];
           if (owner === currentState) continue;
           if (isCrossCutting) continue;
-          if (owner === 'parent') {
+          if (currentState === null) {
             context.report({
               node: keyNode,
-              messageId: 'parentField',
-              data: { field: name },
+              messageId: 'unownedFile',
+              data: { field: name, owner },
             });
           } else {
             context.report({

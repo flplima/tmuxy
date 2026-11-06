@@ -1,13 +1,5 @@
 use super::*;
 
-// =========================================================================
-// RunState helper tests (Phase 3.6 follow-up).
-//
-// These exercise the pure functions extracted from `run()` directly,
-// without spinning a tmux process. Time advancement is simulated by
-// passing explicit `Instant` values — no tokio, no sleeps.
-// =========================================================================
-
 fn run_state_with_now(now: Instant) -> (MonitorConfig, RunState) {
     let cfg = MonitorConfig {
         throttle_interval: Duration::from_millis(32),
@@ -45,7 +37,6 @@ fn compute_throttle_sleep_zero_when_throttle_interval_already_passed() {
     let (cfg, mut rs) = run_state_with_now(now);
     rs.pending_output_emit = true;
     rs.in_throttle_mode = true;
-    // Pretend we last emitted >>throttle_interval ago.
     rs.last_output_emit = now - cfg.throttle_interval - Duration::from_millis(10);
     assert_eq!(
         rs.compute_throttle_sleep(&cfg, now),
@@ -86,9 +77,6 @@ fn update_rate_enters_throttle_above_threshold() {
     let now = Instant::now();
     let (_, mut rs) = run_state_with_now(now);
     assert!(!rs.in_throttle_mode);
-    // Push the counter past `throttle_threshold` within the same window.
-    // The first call resets `rate_window_start` to `now`, so subsequent
-    // calls accumulate. We loop one past the threshold to cross it.
     for _ in 0..=THROTTLE_THRESHOLD {
         rs.update_rate(now);
     }
@@ -105,8 +93,6 @@ fn update_rate_exits_throttle_when_rate_drops() {
     rs.in_throttle_mode = true;
     rs.rate_event_count = 0;
     rs.rate_window_start = now;
-    // Advance the clock past the rate window so update_rate evaluates
-    // the hysteresis on the previous window's count (zero) and exits.
     let after_window = now + RATE_WINDOW + Duration::from_millis(10);
     rs.update_rate(after_window);
     assert!(

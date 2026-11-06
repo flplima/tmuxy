@@ -1,14 +1,29 @@
 /**
- * One finger on a pane scrolls it the way a wheel does, with momentum after
- * the lift. In the phone layout one finger also means:
- * - a tap focuses the pane, and an open keyboard follows it; a tap on the pane
- *   that already has the keyboard puts the keyboard up or away, as the key
- *   row's ⌨ key does;
- * - a double tap zooms the terminal in the browser around the tap, and again
- *   puts it back; zoomed, the finger pans the browser;
- * - a hold selects the word under the finger in copy mode and a drag extends
- *   it, until TouchSelectionBar's Copy or Cancel;
- * - a sideways slide pulls the next tab in, as the desktop's two-finger slide does.
+ * usePaneTouch - Touch event handler for panes (mobile scrolling)
+ *
+ * Provides native-feeling touch scrolling for terminal panes on mobile:
+ * - Follows the finger with pixel-to-line accumulation
+ * - Momentum/inertia scrolling after finger lifts
+ * - Routes through the same three scroll modes as wheel events:
+ *   1. Alternate screen (vim, less) → arrow keys
+ *   2. Mouse tracking → SGR wheel events
+ *   3. Normal shell → open the native-like scroll view, then proxy to its
+ *      scroll container
+ *
+ * And, in the phone layout (infra/dom/phoneLayout.ts), what else one finger
+ * means (components/phone/touchGesture.ts):
+ * - A tap on a pane focuses it, and an open keyboard follows it; a tap on
+ *   the pane that already has the keyboard puts the keyboard up or away, as
+ *   the key row's ⌨ key does. The side pane under the keys
+ *   (`tapRaisesKeyboard`) is the one pane of its view, so a tap on it brings
+ *   the keyboard up for it whatever had it, or, already up for it, away.
+ * - A double tap zooms the terminal in the browser, around the tap, and
+ *   again puts it back. Zoomed, the finger pans: nothing here claims it.
+ * - A hold selects the word under the finger in copy mode, and dragging on
+ *   extends the selection; the Copy and Cancel buttons over the pane
+ *   (components/terminal/TouchSelectionBar) end it.
+ * - A sideways slide pulls the next tab in, as the desktop's two-finger
+ *   slide does (GESTURE_SWIPE, actors/gestureActor.ts).
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
@@ -16,7 +31,11 @@ import { Effect, Fiber } from 'effect';
 import type { AppMachineEvent } from '../../machines/types/events';
 import { sendScrollLines, takeWholeRows, scrollByRows } from './scrollUtils';
 import { clientToCell } from './paneMouseHelpers';
-import { focusMobileInput, toggleMobileKeyboard } from '../../infra/dom/mobileKeyboard';
+import {
+  focusMobileInput,
+  raiseMobileKeyboard,
+  toggleMobileKeyboard,
+} from '../../infra/dom/mobileKeyboard';
 import { haptics } from '../../infra/haptics';
 import {
   HOLD_MS,
@@ -52,6 +71,8 @@ interface UsePaneTouchOptions {
   phoneLayout: boolean;
   phoneZoomed: boolean;
   holdsKeyboard: boolean;
+  /** The phone's side pane: a tap brings the keyboard up for it, not just a focus. */
+  tapRaisesKeyboard?: boolean;
   forwardScrollToParent?: boolean;
 }
 
@@ -89,6 +110,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
     phoneLayout,
     phoneZoomed,
     holdsKeyboard,
+    tapRaisesKeyboard = false,
     forwardScrollToParent,
   } = options;
 
@@ -349,9 +371,14 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           }
           lastTapRef.current = tap;
           haptics.trigger(10);
-          send({ type: 'FOCUS_PANE', paneId });
-          lastTapToggledRef.current = phoneLayout && holdsKeyboard;
+          send({ type: 'SELECT_PANE', paneId });
+          // The pane in front again: the keyboard up or away. Any other: the
+          // pane takes focus, and an open keyboard follows it — or, on the
+          // side pane, comes up for it. It has to be now: a phone brings its
+          // keyboard up only inside the tap's own handler.
+          lastTapToggledRef.current = (phoneLayout || tapRaisesKeyboard) && holdsKeyboard;
           if (lastTapToggledRef.current) toggleMobileKeyboard(paneId);
+          else if (tapRaisesKeyboard) raiseMobileKeyboard(paneId);
           else focusMobileInput(paneId);
           return;
         }
@@ -401,7 +428,16 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
         ),
       );
     },
-    [send, paneId, processPixelDelta, cancelHold, phoneLayout, phoneZoomed, holdsKeyboard],
+    [
+      send,
+      paneId,
+      processPixelDelta,
+      cancelHold,
+      phoneLayout,
+      phoneZoomed,
+      holdsKeyboard,
+      tapRaisesKeyboard,
+    ],
   );
 
   // The browser took the touch (a system gesture, a dialog).

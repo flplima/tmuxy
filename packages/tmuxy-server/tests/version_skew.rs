@@ -1,7 +1,7 @@
 //! Version skew: the combinations a release actually produces.
 //!
 //! tmuxy ships roughly every three days, and an upgrade is never atomic. Three
-//! skews follow from that and none of them had a test:
+//! skews follow from that:
 //!
 //!   1. **An old tab against a new server.** The server serves the frontend, so
 //!      upgrading it does not reload a tab someone already has open. That tab
@@ -282,6 +282,5 @@ fn every_tag_the_cli_writes_is_one_the_core_reads() {
 // released build serves `tmuxy`, the dev server `tmuxy-dev`, the E2E suite
 // `tmuxy-test`). The piece of it that is pure logic — that each server's pid
 // file is its own, so `tmuxy server stop` cannot read one server's bookkeeping
-// and signal another — is pinned in `server.rs`'s own test module, next to the
-// private function that decides it:
-// `two_servers_on_different_ports_do_not_share_a_pid_file`.
+// and signal another — is pinned in `server/tests.rs`, beside the private
+// function that decides it: `each_port_owns_its_own_pid_file`.

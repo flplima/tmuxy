@@ -1,9 +1,18 @@
-/* When the phone's keyboard comes up the tree gives way first, then the
-   terminal (cut short and kept on the cursor's row, usePhoneViewport.ts). */
+/* ============================================
+   Phone layout (infra/dom/phoneLayout.ts)
+   ============================================ */
+
+/* Top to bottom: the terminal, the key row, the tree. The key row keeps its
+   place; the tree takes what is left and is the first to give when the
+   phone's keyboard comes up. After it, the
+   terminal does: it is cut short and scrolled to keep the cursor's row in
+   view (components/phone/usePhoneViewport.ts). */
 .app-body-phone {
   flex-direction: column;
 }
 
+/* Held sideways: the terminal on the right at its 80 columns' width (App.tsx
+   sets it), the keys and the tree stacked in the column left of it. */
 .app-body-phone.is-landscape {
   flex-direction: row;
 }
@@ -17,30 +26,11 @@
   border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
 }
 
-.phone-tab-strip {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--spacing-md);
-  height: var(--statusbar-height);
-  padding: 0 var(--spacing-md);
-  box-sizing: border-box;
-}
-
-/* A thumb's target: the desktop hamburger is a 24px glyph for a pointer. */
-.phone-tab-strip .app-menu-button {
-  width: 40px;
-  min-width: 40px;
-  height: 32px;
-  border: none;
-  background-color: transparent;
-  color: var(--text-primary);
-  font-size: 18px;
-  touch-action: manipulation;
-}
-
-/* The 4px padding each side (and below) keeps the grid's outer borders,
-   drawn half a cell outside the panes, on screen. */
+/* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
+   of grid, then tmux's status line under them. The 80 columns are cut from
+   the screen's width less 4px of padding each side — the grid's outer
+   borders are drawn half a cell outside the panes, and with no padding they
+   were off the screen (the same 4px below). */
 .phone-pty {
   --phone-zoom: 2;
   display: flex;
@@ -137,12 +127,79 @@
   line-height: 24px;
 }
 
+/* Under the keys: the menu, the tree or the side pane (PhoneBottomView),
+   over the tab bar that picks one. The track slides under the finger on an
+   inline transform, the view in front filling the stage and its neighbour
+   riding a stage's width to the side it is pulled in from; a released slide
+   settles on the tab slide's curve. */
 .phone-bottom {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}
+
+.phone-bottom-stage {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The tab bar: an icon over a name for each view, the one in front in the
+   theme's accent. */
+.phone-tabs {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+  background-color: rgb(var(--window-bg-rgb));
+}
+
+.phone-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color var(--transition-fast);
+}
+
+.phone-tab.is-active {
+  color: var(--theme-accent);
+}
+
+.phone-tab-icon {
+  display: block;
+}
+
+/* The phone's keyboard up (components/phone/usePhoneViewport.ts marks the root): the
+   tab bar makes way (and standalone.css gives
+   back the home indicator's inset, which the keyboard covers). While the side pane has
+   the keyboard, the terminal above gives up its room first: the side pane
+   gets two parts of what is left to the terminal's one, and the terminal is
+   scrolled to keep its cursor in view (components/phone/usePhoneViewport.ts). */
+html.tmuxy-keyboard-up .app-body-phone .phone-tabs {
+  display: none;
+}
+
+html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-pty {
+  flex: 1 1 0;
+}
+
+html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-bottom {
+  flex: 2 1 0;
 }
 
 .phone-bottom-track {

@@ -9,8 +9,8 @@
 //! server attaches and after every config reload (a config sourced again
 //! may reset the tables), and taken away when their plugin goes. The server
 //! reads and binds over its control-mode connection, so the reads come after
-//! a `source-file` it queued; a CLI verb, which has none, inside one
-//! `run-shell` (`job`).
+//! a `source-file` it queued; a CLI verb, which has none, reads as an
+//! external tmux and binds inside one `run-shell` (`job`).
 
 use std::collections::BTreeMap;
 
@@ -40,7 +40,6 @@ pub fn binding_command(plugin: &str, action: &str) -> String {
     )
 }
 
-/// One declared key and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Planned {
     pub plugin: String,
@@ -51,27 +50,23 @@ pub struct Planned {
     pub taken_by: Option<String>,
 }
 
-/// `list-keys -T <table>`, read by a CLI verb (no control-mode connection of
-/// its own) as an external tmux. The server reads the same over its
-/// connection (`transport::apply_plugin_keys`); both go through
-/// [`crate::list_keys::listing`], so a read that failed is an error, never
-/// an empty table.
+/// `list-keys -T <table>`, read by a CLI verb as an external tmux. Through
+/// [`crate::list_keys::listing`], as the server's read is, so a read that
+/// failed is an error, never an empty table.
 fn read_table(table: KeyTable) -> Result<String> {
     let argv = ["list-keys".to_string(), "-T".into(), table.as_str().into()];
     crate::list_keys::listing(crate::session::tmux_output(&argv)).map_err(PluginError::from)
 }
 
-/// The `list-keys` that lists one whole table.
 pub fn list_command(table: KeyTable) -> String {
     crate::list_keys::command(table.as_str())
 }
 
-/// Whether a binding's command is a plugin key's ([`binding_command`]).
 fn is_ours(command: &str) -> bool {
     command.contains(MARKER) && command.contains(" plugin action ")
 }
 
-/// `(table, key)` of every plugin binding in `listing` (`list-keys -T t`).
+/// `(table, key)` of every plugin binding in a `list-keys` listing.
 pub fn ours_in(listing: &str) -> Vec<(String, String)> {
     crate::list_keys::rows(listing)
         .filter(|row| is_ours(&row.command))
@@ -186,9 +181,8 @@ pub fn commands(
     (planned, out)
 }
 
-/// [`commands`] from a CLI verb: read and run inside one `run-shell`.
-/// Returns the plan. A table that does not read stops it before anything is
-/// bound.
+/// [`commands`] from a CLI verb, run inside one `run-shell`; returns the
+/// plan. A table that does not read stops it before anything is bound.
 pub fn apply(dirs: &Layout) -> Result<Vec<Planned>> {
     let registry = Registry::load(dirs)?;
     let prefix = read_table(KeyTable::Prefix)?;

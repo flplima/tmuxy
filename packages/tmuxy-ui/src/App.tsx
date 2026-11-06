@@ -1,3 +1,11 @@
+/**
+ * App - Main application component
+ *
+ * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
+ * phone, the whole 80 × 25 terminal, the key row and the tree under it.
+ * All state is accessed via hooks - no prop drilling.
+ */
+
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
@@ -32,6 +40,7 @@ import {
   selectCursorBlink,
   selectSidebarFocused,
 } from './machines/selectors/ui';
+import { selectSidebarHoldsKeyboard } from './machines/selectors/keyboard';
 import { cellMetricsStyle } from './infra/dom/cellMetrics';
 import { useSelectionRows } from './components/terminal/useSelectionRows';
 import { latencyTracker } from './infra/latencyTracker';
@@ -39,7 +48,6 @@ import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/phone/KeyRow';
-import { PhoneTabStrip } from './components/phone/PhoneTabStrip';
 import {
   useCursorInView,
   usePhoneZoomScroll,
@@ -86,6 +94,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const ptyRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
+  // The side pane holds the keyboard: with the phone's keyboard up the
+  // terminal above gives up its room first (styles/phone.css).
+  const dockTyping = useAppSelector(
+    (ctx) => ctx.phoneBottomView === 'dock' && selectSidebarHoldsKeyboard(ctx, 'right'),
+  );
   useVisualViewport(phone);
   useCursorInView(ptyRef, phone, cursorKey, phoneZoom ? zoomRef : null);
   usePhoneZoomScroll(zoomRef, ptyRef, phoneZoom);
@@ -171,8 +184,15 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  const phoneTabs = showLayout && <PhoneTabStrip />;
+  // The phone layout: the terminal, the key row and the bottom view, top to
+  // bottom — or, held sideways, the terminal on the right and the rest
+  // stacked in the column left of it. No tab strip: the tree lists the tabs
+  // and a slide on the terminal switches them, and the strip's height goes
+  // to the bottom view.
   const phoneKeys = showLayout && <KeyRow />;
+  // The app menu, every tab and pane, or the dock, picked by the tab bar
+  // under them or a sideways swipe (PhoneBottomView). Zoomed and upright, it
+  // makes way: the doubled grid takes its place, every row in view.
   const phoneTree = showLayout && !(phoneZoom && !landscape) && <PhoneBottomView />;
   const phonePty = (
     <div
@@ -192,7 +212,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneBody = landscape ? (
     <>
       <div className="phone-side">
-        {phoneTabs}
         {phoneKeys}
         {phoneTree}
       </div>
@@ -200,7 +219,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </>
   ) : (
     <>
-      {phoneTabs}
       {phonePty}
       {phoneKeys}
       {phoneTree}
@@ -218,7 +236,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
       <div
-        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}`}
+        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}`}
       >
         {/* Flex siblings of the pane container: an open sidebar shrinks it, so
             tmux re-tiles the panes into what is left, never under a sidebar. */}

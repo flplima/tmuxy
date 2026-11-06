@@ -1,6 +1,6 @@
 /**
  * P1 on the tab strip: a placeholder tab — a predicted new window tmux has
- * not named yet — can be switched to, but its id never goes to tmux. tmux is
+ * not named yet — never has its id sent to tmux. tmux is
  * already on the window it stands for (a new window is selected as it is
  * made), and `select-window -t __placeholder…` is an error that, pinned
  * ahead of a kill-window, also stops the kill.
@@ -50,7 +50,7 @@ describe('SELECT_TAB while a new tab is still predicted', () => {
     },
   ];
 
-  it('switches the view to a placeholder tab without naming it to tmux', () => {
+  it('never names a placeholder tab to tmux', () => {
     const { actor, sent } = mountSelectTab({
       activeWindowId: wid('@1'),
       activePaneId: pid('%1'),
@@ -58,8 +58,6 @@ describe('SELECT_TAB while a new tab is still predicted', () => {
       panes,
     } as never);
     actor.send({ type: 'SELECT_TAB', windowId: placeholder });
-    expect(actor.getSnapshot().context.activeWindowId).toBe(placeholder);
-    expect(actor.getSnapshot().context.activePaneId).toBe(placeholderPane);
     expect(sent).toEqual([]);
   });
 
@@ -71,7 +69,6 @@ describe('SELECT_TAB while a new tab is still predicted', () => {
       panes,
     } as never);
     actor.send({ type: 'SELECT_TAB', windowId: wid('@1') });
-    expect(actor.getSnapshot().context.activeWindowId).toBe(wid('@1'));
     expect(sent).toEqual([TmuxOp.SelectWindow({ target: wid('@1') })]);
   });
 });

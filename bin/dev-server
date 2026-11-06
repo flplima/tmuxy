@@ -45,9 +45,8 @@ fi
 PID_FILE="$STATE_DIR/dev-server.pid"
 LOG_FILE="$STATE_DIR/dev-server.log"
 
-# Every descendant of $1, deepest last, so a caller can signal children before
-# their parent and no orphan is left holding the port. `ps` rather than pgrep
-# -P: pgrep's -P is not recursive and its output differs across platforms.
+# Every descendant of $1, deepest first. `ps` rather than pgrep -P: pgrep's -P
+# is not recursive and its output differs across platforms.
 descendants() {
   local parent=$1 child
   for child in $(ps -Ao pid=,ppid= | awk -v p="$parent" '$2 == p { print $1 }'); do
@@ -56,20 +55,15 @@ descendants() {
   done
 }
 
-# When a process started, as `ps` reports it. Empty if it is gone.
 start_time_of() {
   ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' || true
 }
 
-# The PID of a live dev server, or nothing.
-#
-# The PID file holds the pid AND the process's start time, and both must match.
-# A stale file outlives a crash and the number gets reused, so `kill -0` alone
-# reports a stranger's process as ours. Matching on the COMMAND LINE instead
-# does not work here: `run` ends in `exec`, so the
-# process keeps its pid while its command line becomes `cargo …` — the check
-# then fails the moment the server is actually up, which is the worst possible
-# time to report "not running".
+# The PID file holds the pid AND the process's start time, and both must match:
+# a stale file outlives a crash and the number gets reused, so `kill -0` alone
+# reports a stranger's process as ours. Matching on the COMMAND LINE does not
+# work: `run` ends in `exec`, so the process keeps its pid while its command
+# line becomes `cargo …`.
 running_pid() {
   [[ -f "$PID_FILE" ]] || return 0
   local pid recorded current
@@ -81,16 +75,13 @@ running_pid() {
   echo "$pid"
 }
 
-# The server itself, in the foreground: what `start` runs in the background.
 cmd_run() {
   cd "$REPO_ROOT"
   local port="${DEV_PORT:-9000}" host
-  # The dev server's own socket, `tmuxy-dev` unless TMUX_SOCKET says otherwise.
   # The bare `tmuxy` socket belongs to the release bundle (tmuxy-core
-  # DEFAULT_TMUX_SOCKET); the dev server keeps off it so the two can run side by
-  # side, and the E2E suite owns `tmuxy-test` for the same reason. The server
-  # resolves its own socket from the env, so it is exported before `_lib`
-  # resolves the -L/-S flag for it the way every tmuxy script does.
+  # DEFAULT_TMUX_SOCKET) and `tmuxy-test` to the E2E suite. Exported before
+  # `_lib`, which resolves the -L/-S flag from it, and for the server, which
+  # reads it from the env.
   export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
   source packages/tmuxy-cli/bin/tmuxy/_lib
 
@@ -99,7 +90,6 @@ cmd_run() {
   echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src, packages/tmuxy-verbs/src"
   echo ""
 
-  # Keep target/ from outgrowing the disk (once a day at most).
   bin/trim-target
 
   # Ensure the tmux server has a session so it stays alive between test cycles.
@@ -206,7 +196,6 @@ cmd_stop() {
 
   kill -TERM "${targets[@]}" 2>/dev/null || true
 
-  # Give the tree a moment to go down on its own before insisting.
   local waited=0
   while ((waited < 50)); do
     kill -0 "$pid" 2>/dev/null || break

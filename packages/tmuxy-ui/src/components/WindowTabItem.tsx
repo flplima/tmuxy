@@ -1,4 +1,8 @@
-import { TmuxOp } from '../domain/commands';
+/**
+ * WindowTabItem — individual tab item and active-tab scroll-into-view hook
+ * for WindowTabs.
+ */
+
 import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
@@ -8,6 +12,7 @@ import { PaneStateMark } from './PaneStateMark';
 import { tabIcon } from './paneTabDisplay';
 import { useAppSelector } from '../machines/appHooks';
 import { selectKeyBindings } from '../machines/selectors/ui';
+import { TmuxOp } from '../domain/commands';
 import { keyHint, withKeyHint } from '../domain/keyLabels';
 import { commandHint } from './menus/specs/actions';
 import { type PaneStateName } from '../domain/paneState';
@@ -104,14 +109,8 @@ export function WindowTabItem({
           className="tab-name-input"
           value={window.name}
           ariaLabel={`Rename tab ${visualIndex}`}
-          onCommit={(name) => {
-            send({ type: 'TAB_RENAME_END' });
-            send({
-              type: 'DISPATCH_OP',
-              op: TmuxOp.RenameWindow({ target: window.id, name }),
-            });
-          }}
-          onCancel={() => send({ type: 'TAB_RENAME_END' })}
+          onCommit={(name) => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name })}
+          onCancel={() => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name: null })}
         />
       ) : (
         (() => {

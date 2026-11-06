@@ -204,7 +204,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     // Open the tree with its key — unless an earlier test left it open, when
     // the same key would free it to overlay the panes.
     const treeOpen = () =>
-      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+      ctx.page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === true);
     if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
@@ -408,10 +408,19 @@ describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorder
       8000,
       'the dragged tab row to become the first',
     );
-    const tmuxOrder = String(await ctx.session.query("list-windows -F '#{window_id}'"))
-      .split('\n')
-      .filter((id) => [firstWindowId, secondWindowId].includes(id));
-    expect(tmuxOrder).toEqual([secondWindowId, firstWindowId]);
+    // The row moves on the store's prediction; tmux's own order follows once
+    // the move has run, which a loaded machine reaches later.
+    const tmuxOrder = async () =>
+      String(await ctx.session.query("list-windows -F '#{window_id}'"))
+        .split('\n')
+        .filter((id) => [firstWindowId, secondWindowId].includes(id))
+        .join(' ');
+    await waitForCondition(
+      ctx.page,
+      async () => (await tmuxOrder()) === `${secondWindowId} ${firstWindowId}`,
+      8000,
+      async () => `tmux to order the tabs as the tree does (last: ${await tmuxOrder()})`,
+    );
     // The strip agrees with the tree.
     expect(
       await ctx.page.evaluate(() =>

@@ -1,10 +1,3 @@
-//! TmuxMonitor - High-level API with adapter pattern
-//!
-//! This module provides the main interface for tmux control mode monitoring.
-//! It uses an adapter pattern (like the frontend) to support different backends:
-//! - SSE (tmuxy-server)
-//! - Tauri events (tauri-app)
-
 mod commands;
 mod event_loop;
 mod sync;
@@ -21,7 +14,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
 
-/// Commands that can be sent to the monitor from external code
 #[derive(Debug)]
 pub enum MonitorCommand {
     /// Resize all windows in the session to the given dimensions
@@ -54,40 +46,26 @@ pub enum MonitorCommand {
         reply: oneshot::Sender<crate::TmuxState>,
     },
 
-    /// Gracefully shutdown the monitor
-    /// Sends detach-client and waits for the connection to close cleanly
+    /// Detach (`detach-client`) and wait for the connection to close.
     Shutdown,
 }
 
-/// Trait for emitting state changes (adapter pattern).
-///
-/// Implement this trait in tmuxy-server (SseEmitter) and tauri-app (TauriEmitter)
-/// to receive state updates from the monitor.
-///
-/// `StateEmitter: LogSink` — emitters may also override [`LogSink::log`] to
-/// surface connection-time command/output progress to the UI.
+/// Where the monitor's output goes. Emitters may also override
+/// [`LogSink::log`] to surface connection-time progress to the UI.
 pub trait StateEmitter: super::log::LogSink {
-    /// Called when tmux state changes (full or delta update)
     fn emit_state(&self, update: StateUpdate);
 
-    /// Called when an error occurs
     fn emit_error(&self, error: String);
 
     /// Called when the control-mode connection ended, with tmux's own reason
     /// (`%exit [reason]`) when it gave one — `detached` for a client that was
     /// detached deliberately.
     ///
-    /// This is what lets a client tell "you detached" from "the link died".
-    /// Without it both arrive as `emit_error` and the UI has to treat an
-    /// intentional detach as a failure to retry, which is the single
-    /// most-complained-about behaviour in comparable terminal clients.
-    ///
-    /// Defaulted so emitters that do not care (the test doubles) are
-    /// unaffected, exactly as `store_images` is.
+    /// This is what lets a client tell "you detached" from "the link died":
+    /// without it an intentional detach looks like a failure to retry.
     fn emit_disconnected(&self, _reason: Option<String>) {}
 
     /// Called when new images are decoded from terminal output.
-    /// Default implementation discards images (for emitters that don't need them).
     fn store_images(
         &self,
         _pane_id: &crate::PaneId,
@@ -98,26 +76,21 @@ pub trait StateEmitter: super::log::LogSink {
     /// Called when an OSC 52 clipboard request is decoded from terminal output.
     /// `text` is the UTF-8 string the application asked to place on the system
     /// clipboard; `pane_id` is the pane that asked, `None` for a paste-buffer
-    /// yank. Default implementation discards the request.
+    /// yank.
     fn write_clipboard(&self, _pane_id: Option<&crate::PaneId>, _text: String) {}
 
     /// Called when tmux shows this client a message (`display-message`, or
-    /// tmux's own notices), already cleaned by the parser. Default
-    /// implementation discards it.
+    /// tmux's own notices), already cleaned by the parser.
     fn show_message(&self, _text: String) {}
 
     /// Called after initial state sync completes (config sourced, settings enforced).
-    /// Default implementation does nothing.
     fn on_initial_sync_complete(&self) {}
 }
 
-/// Configuration for TmuxMonitor
 #[derive(Debug, Clone)]
 pub struct MonitorConfig {
-    /// Session name to connect to
     pub session: String,
 
-    /// Whether to create the session if it doesn't exist
     pub create_session: bool,
 
     /// On the create path, the session whose *group* this session joins
@@ -125,13 +98,12 @@ pub struct MonitorConfig {
     /// keeping their own current window. `None` for an ordinary session.
     pub group_target: Option<String>,
 
-    /// Minimum interval between throttled state emissions.
-    /// Used when high-frequency output is detected.
-    /// Recommended: 16ms (60fps) for smooth updates during bulk output.
+    /// Minimum interval between state emissions while high-frequency output
+    /// is detected.
     pub throttle_interval: Duration,
 
-    /// Working directory for the tmux control mode process.
-    /// run-shell commands resolve relative paths from this directory.
+    /// Working directory for the tmux control mode process; `run-shell`
+    /// commands resolve relative paths from it.
     pub working_dir: Option<std::path::PathBuf>,
 
     /// Name and directory for the first window when the session is created —
@@ -147,39 +119,31 @@ impl Default for MonitorConfig {
             session: String::new(),
             create_session: false,
             group_target: None,
-            throttle_interval: Duration::from_millis(32), // ~30fps during high throughput
+            throttle_interval: Duration::from_millis(32),
             first_window: None,
             working_dir: None,
         }
     }
 }
 
-/// Handle for sending commands to a running TmuxMonitor
 pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
 
-/// "Effectively infinite" sleep used by `tokio::select!` branches that need a
-/// `sleep_until` ceiling for branches gated behind an `Option<Instant>`. The
-/// real deadline is the `if` guard on the branch; this constant only exists
-/// so the future has *some* await point when the guard is false.
+/// The `sleep_until` deadline of a `tokio::select!` branch whose
+/// `Option<Instant>` is unset; its `if` guard keeps it from firing.
 const LONG_SLEEP: Duration = Duration::from_secs(3600);
 
-/// The handle a caller waits on for its reply.
 type Caller = oneshot::Sender<CommandReply>;
 
 /// The main tmux control mode monitor: the tokio host of a
 /// [`MonitorCore`], which decides everything; this connects, waits on the
 /// link, the timers and the command channel, and runs what the core says.
 pub struct TmuxMonitor<C: ControlLink = ControlModeConnection> {
-    /// Connection to tmux control mode
     connection: C,
 
-    /// The sans-IO client core.
     core: MonitorCore<Caller>,
 
-    /// Configuration
     config: MonitorConfig,
 
-    /// Channel for receiving commands from external code
     command_rx: mpsc::Receiver<MonitorCommand>,
 
     /// `GetState` requests waiting for the aggregator to settle.
@@ -216,22 +180,12 @@ impl ControlLink for ControlModeConnection {
 }
 
 impl TmuxMonitor<ControlModeConnection> {
-    /// Connect to a tmux session in control mode.
-    /// Returns the monitor and a sender for sending commands to it.
-    ///
-    /// `log` receives streaming progress entries (each tmux invocation, its
-    /// output, and any retry decisions). Pass `None` if the caller doesn't
-    /// surface these to a UI.
+    /// `log` receives each tmux invocation and its output as it happens.
     #[instrument(skip(log), fields(session = %config.session))]
     pub async fn connect(
         config: MonitorConfig,
         log: Option<&std::sync::Arc<dyn super::log::LogSink>>,
     ) -> Result<(Self, MonitorCommandSender), TmuxError> {
-        // Serialize control mode attachment to prevent concurrent operations
-        // that crash tmux 3.5a (multiple CC clients racing to attach).
-        // `tmux -CC new-session -A` (when create_session is true) handles
-        // both create and attach atomically — no clientless gap for the
-        // macOS launchd reaper to hit.
         let connection = {
             let _lock = super::connection::session_creation_lock().await;
             ControlModeConnection::connect(
@@ -251,7 +205,6 @@ impl TmuxMonitor<ControlModeConnection> {
 }
 
 impl<C: ControlLink> TmuxMonitor<C> {
-    /// A monitor over an already open link.
     fn over(
         connection: C,
         config: MonitorConfig,

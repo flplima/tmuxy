@@ -24,7 +24,6 @@ fn row0(input: &str) -> String {
         .to_string()
 }
 
-/// Render a payload over `h` rows and return row `r`.
 fn row_at(input: &str, r: usize, h: u32) -> String {
     parse_ansi_to_cells(input, 40, h)[r]
         .iter()

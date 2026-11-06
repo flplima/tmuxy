@@ -3,40 +3,109 @@
  * with the user's keys, typing and pastes dispatched on `window`.
  */
 
+import { afterEach } from 'vitest';
 import { pid } from '../../../test/wire';
-import { createActor, createMachine, type AnyActorRef } from 'xstate';
+import { assign, createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
+import { createInitialContext } from '../../app/context';
+import { contextView } from '../../contextView';
+import {
+  PANES_OWN_KEYBOARD,
+  sameKeyboardSurface,
+  selectKeyContext,
+} from '../../selectors/keyboard';
+import type { AppMachineContext } from '../../types/context';
+import type { KeyboardOwner } from '../../types/domain';
+import type { PaneId } from '../../../domain/ids';
+import type { KeyBindings } from '../../../domain/wire';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 
-export function spawnKeyboardActor(activePaneId = pid('%3')) {
+/**
+ * The actor under a stub machine whose context is the app's, seeded with
+ * `overrides`. `set` changes it the way the machine would, and the actor sees
+ * it through the same key-context view the app machine gives it.
+ */
+export function spawnKeyboardActor(
+  activePaneId: PaneId | null = pid('%3'),
+  overrides: Partial<AppMachineContext> = {},
+) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const keyboardActor = createKeyboardActor();
   const parent = createMachine({
     types: {} as {
-      context: { activePaneId: string; copyModeStates: Record<string, unknown> };
-      events: { type: string; [k: string]: unknown };
+      context: AppMachineContext;
+      events: { type: string; patch?: Partial<AppMachineContext>; [k: string]: unknown };
     },
-    context: { activePaneId, copyModeStates: {} },
+    context: { ...createInitialContext(), activePaneId, ...overrides },
     invoke: {
       id: 'keyboard',
       src: 'keyboardActor',
-      input: ({ self }: { self: AnyActorRef }) => ({ parent: self }),
+      input: ({ self }) => ({
+        parent: self,
+        keys: contextView(self, selectKeyContext, sameKeyboardSurface),
+      }),
     },
     on: {
+      [SET]: { actions: assign(({ event }) => event.patch ?? {}) },
       '*': {
         actions: ({ event }) => {
           events.push(event as { type: string; [k: string]: unknown });
         },
       },
     },
-  }).provide({ actors: { keyboardActor }, actions: {} } as never);
+  }).provide({ actors: { keyboardActor } } as never);
 
   const actor = createActor(parent);
   actor.start();
-  const child = actor.getSnapshot().children.keyboard as AnyActorRef;
-  child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: activePaneId });
-  return { actor, child, events };
+  running.push(actor);
+  const set = (patch: TestPatch) => actor.send({ type: SET, patch: withDescriptions(patch) });
+  return { actor, events, set };
 }
+
+const SET = 'TEST_SET_CONTEXT';
+
+type Binding = { key: string; command: string; repeat?: boolean; description?: string };
+type TestKeyBindings = {
+  prefix_key: string;
+  repeat_time_ms?: number;
+  prefix_bindings: Binding[];
+  root_bindings: Binding[];
+  tables: Record<string, Binding[]>;
+};
+/** A context change; a binding table may leave out the descriptions the keys view shows. */
+type TestPatch = Omit<Partial<AppMachineContext>, 'keybindings'> & {
+  keybindings?: TestKeyBindings;
+};
+
+function withDescriptions(patch: TestPatch): Partial<AppMachineContext> {
+  const kb = patch.keybindings;
+  if (!kb) return patch as Partial<AppMachineContext>;
+  const describe = (bindings: Binding[]) => bindings.map((b) => ({ description: '', ...b }));
+  const keybindings: KeyBindings = {
+    prefix_key: kb.prefix_key,
+    repeat_time_ms: kb.repeat_time_ms ?? 300,
+    prefix_bindings: describe(kb.prefix_bindings),
+    root_bindings: describe(kb.root_bindings),
+    tables: Object.fromEntries(
+      Object.entries(kb.tables).map(([name, bindings]) => [name, describe(bindings)]),
+    ),
+  };
+  return { ...patch, keybindings };
+}
+
+// Each actor listens on window, so one left running answers every later
+// test's keys too; every spawned actor is stopped after its test.
+const running: AnyActorRef[] = [];
+afterEach(() => {
+  running.splice(0).forEach((actor) => actor.stop());
+});
+
+/** The keyboard held by a float, the dock or the tree, as the keyboard slice records it. */
+export function ownerOf(kind: 'float' | 'left' | 'right', paneId: PaneId): KeyboardOwner {
+  return { kind, paneId };
+}
+
+export const PANES = PANES_OWN_KEYBOARD;
 
 export function pressKey(init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));

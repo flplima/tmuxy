@@ -149,7 +149,6 @@ pub(crate) fn encrypt(
 
     // RFC 8188 §2.2: the content key and the nonce, from the salt.
     let prk = Hkdf::<Sha256>::new(Some(&salt), &ikm);
-    // Both are typed by the cipher and filled by HKDF in place.
     let mut cek = Key::<Aes128Gcm>::default();
     let mut nonce = Nonce::<<Aes128Gcm as AeadCore>::NonceSize>::default();
     prk.expand(b"Content-Encoding: aes128gcm\0", &mut cek)

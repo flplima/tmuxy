@@ -8,6 +8,48 @@ import type { GroupDrop } from '../drag/groupDrop';
 // Shared State Types
 // ============================================
 
+/** A sidebar column: the tree on the left, the pinned terminal (the dock) on the right. */
+export type SidebarSide = 'left' | 'right';
+
+/**
+ * What the phone shows under the keys: the app menu, the tabs/panes tree, or
+ * the pinned terminal (the dock). The order the views are laid out in, left
+ * to right, is the bottom view's (components/phone/bottomSlide.ts).
+ */
+export type BottomView = 'menu' | 'tree' | 'dock';
+
+/**
+ * Who holds the keyboard: the tiled panes (the active pane), or one surface
+ * over or beside them — a float, or a sidebar column's pane. Exactly one does,
+ * so taking it is all a surface does to release the others.
+ */
+export type KeyboardOwner =
+  | { readonly kind: 'panes' }
+  | { readonly kind: 'float' | SidebarSide; readonly paneId: PaneId };
+
+/** One sidebar column's state on this client. */
+export interface SidebarState {
+  /**
+   * Whether the column is shown. Its pane lives in a `sidebar-<side>`-typed
+   * window; closing hides the column (`@tmuxy-sidebar-hidden` on its window)
+   * and keeps that pane, so the choice survives a reload and reaches every
+   * other client.
+   */
+  readonly open: boolean;
+  /**
+   * This client asked tmux to create the column's pane and is waiting for it.
+   * Cleared when the pane appears, or by SIDEBAR_START_TIMEOUT when it never
+   * does: then the start failed rather than a user closing it.
+   */
+  readonly starting: boolean;
+  /**
+   * The column was asked to open but its pane never appeared (the start
+   * command failed on this server). The column shows why instead of
+   * "starting…" forever.
+   */
+  readonly startFailed: boolean;
+}
+
 /** Drawer direction for float panes docked to an edge */
 export type DrawerDirection = 'left' | 'right' | 'top' | 'bottom';
 
@@ -223,7 +265,6 @@ export interface DragMachineContext {
   charWidth: number;
   charHeight: number;
   containerWidth: number;
-  containerHeight: number;
   containerLeft: number;
   containerTop: number;
   /** The tab strip's boxes, measured once when the drag started. */
@@ -247,7 +288,6 @@ export type DragMachineEvent =
       charWidth: number;
       charHeight: number;
       containerWidth: number;
-      containerHeight: number;
       containerLeft: number;
       containerTop: number;
       tabStrip: TabStripGeometry | null;

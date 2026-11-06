@@ -7,8 +7,8 @@
 //! checked once, where the text arrives (a control-mode line, a CLI argument,
 //! a client command), instead of at every use.
 //!
-//! On the wire an id is the bare string it always was: serialization is
-//! transparent, and deserialization is the same string checked. The canonical
+//! On the wire an id is the bare string: serialization is transparent, and
+//! deserialization is the same string checked. The canonical
 //! spelling has no leading zero, which is what makes two ids equal exactly
 //! when their numbers are.
 
@@ -18,7 +18,6 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-/// A string that does not spell the id it was meant to.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("not a {kind} id: {value:?}")]
 pub struct IdError {
@@ -26,7 +25,6 @@ pub struct IdError {
     pub value: String,
 }
 
-/// `<sigil><digits>` with no leading zero (`0` itself is fine).
 fn is_canonical(value: &str, sigil: char) -> bool {
     let Some(digits) = value.strip_prefix(sigil) else {
         return false;
@@ -45,7 +43,6 @@ macro_rules! tmux_id {
         pub struct $name(String);
 
         impl $name {
-            /// Check `value` and take it as an id.
             pub fn parse(value: &str) -> Result<Self, IdError> {
                 if is_canonical(value, $sigil) {
                     Ok(Self(value.to_string()))
@@ -57,19 +54,16 @@ macro_rules! tmux_id {
                 }
             }
 
-            /// The id with this number.
             pub fn from_number(number: u32) -> Self {
                 Self(format!("{}{number}", $sigil))
             }
 
-            /// The id as tmux spells it.
             pub fn as_str(&self) -> &str {
                 &self.0
             }
 
-            /// The number after the sigil.
             pub fn number(&self) -> u32 {
-                // Checked by `parse`/`from_number`, the only ways in.
+                // Every constructor checks the spelling.
                 self.0[1..].parse().unwrap_or_default()
             }
         }
@@ -161,10 +155,9 @@ macro_rules! tmux_id {
 tmux_id!(
     /// A tmux pane, `%N`. Never reused within a server.
     ///
-    /// SEC-17: a client that names a pane names it this way — it only ever
-    /// learned ids from `list-panes` — so anything else (`other:0.0`,
-    /// `{last}`, a name) is not a pane the client was shown, and is refused
-    /// before it reaches tmux.
+    /// A client only ever learned pane ids from `list-panes`, so a target
+    /// spelled any other way (`other:0.0`, `{last}`, a name) is not a pane the
+    /// client was shown, and is refused before it reaches tmux.
     PaneId,
     '%',
     "pane"
@@ -192,7 +185,6 @@ impl GroupId {
     }
 }
 
-/// Literal ids for tests: `pid("%3")` reads better than a parse and unwrap.
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 pub(crate) mod test_ids {

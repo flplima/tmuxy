@@ -1,6 +1,3 @@
-//! The view mode tmux opens on a pane, which the client does not draw: it
-//! is closed, with a notice, unless a terminal client is reading it.
-
 use super::tests::*;
 use super::*;
 use crate::constants::tmux_formats::TmuxList;

@@ -1,21 +1,19 @@
 name: nightly v86 sweep
 
-# The full ~110-story v86 probe. It used to hang off the per-commit
-# `storybook-v86-probe` job behind a step-level `continue-on-error`: 20 minutes
-# on the critical path of every pull request, producing a result no one was
-# obliged to look at. Here it runs once a night, it BLOCKS nothing, and a
-# failure opens (or updates) an issue so the result actually reaches someone.
-#
-# The three blocking gate stories still run per commit in lint-and-tests.yml.
+# The full ~110-story v86 probe (20 minutes), once a night: it BLOCKS
+# nothing, and a failure opens (or updates) an issue so the result reaches
+# someone. The three blocking gate stories run per commit in
+# lint-and-tests.yml.
 #
 # There is no quarantine list for this sweep. A story that fails is run again
 # that night on a FRESH runner (the `reconfirm-*` jobs), and `report` decides
-# from both runs and the nights before (scripts/nightly-ledger.mjs): a story
-# that fails twice is reported that night; one that passes the second time is
-# a flake, kept in the ledger, and reported once it flakes on 2 of the last 7
-# nights. Issues #87-#145 were each one story failing once on a loaded
-# runner: an issue a night, closed by the next green run, which taught that
-# the issue means nothing. docs/TESTS-STORYBOOK.md § "When the nightly reports".
+# from both runs and the nights before
+# (packages/tmuxy-ui/scripts/nightly-ledger.mjs): a story that fails twice is
+# reported that night; one that passes the second time is a flake, kept in
+# the ledger, and reported once it flakes on 2 of the last 7 nights. Issues
+# #87-#145 were each one story failing once on a loaded runner: an issue a
+# night, closed by the next green run, which taught that the issue means
+# nothing. docs/TESTS-STORYBOOK.md § "When the nightly reports".
 
 on:
   schedule:
@@ -295,8 +293,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bin/ci/nightly-issue resolve "Nightly v86 sweep is failing"
 
-      # The run's colour is the ledger's verdict: red for a defect, green for
-      # a clean night or a one-off flake (named in the step above's log).
       - name: Fail on a reported defect
         if: steps.ledger.outputs.report == 'true'
         run: |
