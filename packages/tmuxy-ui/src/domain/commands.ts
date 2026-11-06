@@ -29,6 +29,7 @@ import {
   target,
   tmuxDoubleQuoted,
 } from './commandHelpers';
+import { LEFT_SIDEBAR_WIDGET } from './tmuxyConstants.gen';
 
 /** The bundled scripts, in the data dir the config chain publishes to tmux. */
 export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
@@ -44,10 +45,11 @@ export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-r
  * The tree is the bundled script by its installed path, as every other script
  * the client runs: a bare `tmuxy` is whatever PATH holds, and a stale one (a
  * launcher left pointing at an unmounted AppImage) exited at once, its window
- * went with it, and the column sat on "starting…" for good.
+ * went with it, and the column sat on "starting…" for good. A restore
+ * recognises a sidebar by it, so it is tmuxy-core's (`LEFT_SIDEBAR_WIDGET`).
  */
 const SIDEBAR_RUN = {
-  left: `${SCRIPTS_DIR}/tmuxy-widget-tree`,
+  left: LEFT_SIDEBAR_WIDGET,
   right: null,
 } as const;
 

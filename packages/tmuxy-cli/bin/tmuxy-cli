@@ -85,7 +85,7 @@ if [ -z "${TMUX_PANE:-}" ] && [ "${1:-}" != agent ]; then
   _outside_pane="$(_tmux list-panes -a \
     -f '#{&&:#{window_active},#{pane_active}}' \
     -F '#{session_attached}	#{session_name}	#{pane_id}' 2>/dev/null \
-    | awk -F'\t' '$2 != "__tmuxy_stash" { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
+    | awk -F'\t' -v stash="$STASH_SESSION" '$2 != stash { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
     | head -1 || true)"
   if [ -n "$_outside_pane" ]; then
     TMUX_PANE="$_outside_pane"
@@ -107,10 +107,8 @@ CALLER_T=""
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-# `pane_title` is filtered against the host name because tmux seeds every
-# pane's title with it — same expression as tmux_formats::APP_PANE_TITLE in
-# packages/tmuxy-core/src/constants.rs; keep the two in step.
-APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
+# `pane_title` is APP_PANE_TITLE_FMT (`_options`): filtered against the host
+# name tmux seeds every pane's title with.
 LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t#{@tmuxy-label}'
 LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
 

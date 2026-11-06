@@ -8,14 +8,10 @@
  * an option greyed out and say where it is set.
  */
 
+import { MANAGED_OPTIONS } from './tmuxyConstants.gen';
+
 /** The options a menu changes, by what the client calls them (tmuxy-core `session::ManagedOption`). */
-export const PINNABLE = {
-  theme: '@tmuxy-theme',
-  themeMode: '@tmuxy-theme-mode',
-  transparency: '@tmuxy-transparency',
-  cursorBlink: '@tmuxy-cursor-blink',
-  sendAsk: '@tmuxy-send-ask',
-} as const;
+export const PINNABLE = MANAGED_OPTIONS;
 
 /** What a menu item for a pinned option says after its label. */
 export const PINNED_SUFFIX = ' (set in tmuxy.conf)';

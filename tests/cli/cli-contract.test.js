@@ -77,6 +77,15 @@ describe('label targets', () => {
     '\\n',
   );
 
+  // tmux seeds every untitled pane's title with the host name, so a raw
+  // `#{pane_title}` made the host name a label of every such pane: the title
+  // is read as the app sets it, the seed filtered out.
+  test('a title is read without the host name tmux seeds it with', () => {
+    const { tmuxCalls } = runCLI(['pane', 'kill', 'logs'], { env: { MOCK_TMUX_LABELS: LABELS } });
+    const listing = tmuxCalls.find((c) => c.args[0] === 'list-panes');
+    expect(listing.args.join(' ')).toContain('#{?#{==:#{pane_title},#{host}},,#{pane_title}}');
+  });
+
   test('a label naming one pane is that pane', () => {
     const { exitCode, tmuxCalls, stdout } = runCLI(['pane', 'kill', 'logs', '--json'], {
       env: { MOCK_TMUX_LABELS: LABELS },

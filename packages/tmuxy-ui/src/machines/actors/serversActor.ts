@@ -32,6 +32,11 @@ import { Effect, Fiber, Schedule } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type { GitRepository, SessionTreeNode, SessionTreePane, TmuxServer } from '../types/domain';
+import {
+  APP_PANE_TITLE,
+  CHROME_WINDOW_TYPES,
+  STASH_SESSION,
+} from '../../domain/tmuxyConstants.gen';
 
 export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
@@ -54,21 +59,11 @@ const DISCOVERY_INTERVAL_MS = 15000;
 const SEP = '\t';
 
 /** tmux window types that are tmuxy-internal chrome, hidden from the tree. */
-const HIDDEN_WINDOW_TYPES = new Set(['float', 'sidebar-left', 'sidebar-right']);
-
-/** The stash session parks hidden pane-group members; never show it in the tree. */
-const STASH_SESSION = '__tmuxy_stash';
+const HIDDEN_WINDOW_TYPES = new Set<string>(CHROME_WINDOW_TYPES);
 
 // One `list-windows -a` / `list-panes -a` row, tab-joined. `#{@tmuxy-window-type}`
 // is empty for foreign (e.g. vanilla-tmux) windows — those are kept as tabs.
 const WINDOWS_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{window_index}${SEP}#{window_name}${SEP}#{@tmuxy-window-type}`;
-/**
- * The app-set pane title, with tmux's default host-name seed filtered out —
- * the same expression the Rust monitor uses (`tmux_formats::APP_PANE_TITLE` in
- * `tmuxy-core/src/constants.rs`); keep the two in step.
- */
-const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
-
 const PANES_FORMAT = `#{session_name}${SEP}#{window_id}${SEP}#{pane_id}${SEP}#{pane_current_command}${SEP}#{pane_active}${SEP}${APP_PANE_TITLE}${SEP}#{pane_current_path}${SEP}#{@tmuxy-group-id}`;
 
 export const LIST_WINDOWS_COMMAND = `list-windows -a -F '${WINDOWS_FORMAT}'`;

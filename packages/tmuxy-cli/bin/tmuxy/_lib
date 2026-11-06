@@ -8,9 +8,10 @@
 # Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
 # hands its arguments to the server binary's `group` verb (`group_verb`).
 
-# The session hidden pane-group members are parked in. Kept out of every session
-# picker/tree (matches tmuxy-core `STASH_SESSION`).
-STASH_SESSION="__tmuxy_stash"
+# The values tmuxy-core shares with the scripts (STASH_SESSION, the session
+# hidden pane-group members are parked in; APP_PANE_TITLE_FMT), generated
+# from it into `_options`.
+source "${BASH_SOURCE[0]%/*}/_options"
 
 # Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
 # (session::config_dir, paths::data_dir, paths::state_dir):
