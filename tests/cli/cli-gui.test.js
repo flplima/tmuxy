@@ -36,6 +36,14 @@ describe('tmuxy gui', () => {
     expect(stdout.trim()).toBe('desktop gui');
   });
 
+  test('--help shows its usage and opens nothing, the app installed or not', () => {
+    fs.writeFileSync(path.join(dir, 'launcher'), desktop);
+    const { stdout, exitCode } = runCLI(['gui', '--help'], { env: { TMUXY_STATE_DIR: dir } });
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Usage: tmuxy gui');
+    expect(stdout).not.toContain('desktop gui');
+  });
+
   test('with no desktop app, says so and exits 1', () => {
     const { stdout, stderr, exitCode } = runCLI(['gui'], { env: { TMUXY_STATE_DIR: dir } });
     expect(exitCode).toBe(1);

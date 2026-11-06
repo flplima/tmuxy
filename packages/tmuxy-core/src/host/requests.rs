@@ -305,6 +305,5 @@ async fn session_running(tx: &MonitorCommandSender, name: &str) -> Result<bool, 
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[path = "requests_tests.rs"]
 mod tests;

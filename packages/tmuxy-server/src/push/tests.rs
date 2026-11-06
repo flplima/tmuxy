@@ -369,8 +369,10 @@ async fn a_device_subscribes_with_the_servers_key() {
     use tower::ServiceExt;
 
     let dir = scratch("routes");
-    let mut state = AppState::default();
-    state.push = Push::with_store(Store::new(dir.clone()));
+    let state = AppState {
+        push: Push::with_store(Store::new(dir.clone())),
+        ..Default::default()
+    };
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(state));
     let request = |method: &str, path: &str, body: String| {
         Request::builder()

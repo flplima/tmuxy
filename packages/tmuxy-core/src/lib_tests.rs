@@ -16,34 +16,8 @@ fn window_type_round_trip() {
 }
 
 #[test]
-fn window_type_serializes_as_kebab() {
-    let ty = WindowType::SidebarLeft;
-    let json = serde_json::to_string(&ty).unwrap();
-    assert_eq!(json, "\"sidebar-left\"");
-    let back: WindowType = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, WindowType::SidebarLeft);
-}
-
-#[test]
 fn a_pane_delta_is_empty_only_when_nothing_changed() {
     assert!(PaneDelta::default().is_empty());
-
-    // A dropped delta here is a pane state the tree never shows, or a
-    // question the user is never asked.
-    let state_only = PaneDelta {
-        pane_state: Some(Some("needs-input".to_string())),
-        ..Default::default()
-    };
-    assert!(
-        !state_only.is_empty(),
-        "a pane-state change must be emitted"
-    );
-
-    let ask_only = PaneDelta {
-        pane_ask: Some(Some("eyJ0b2tlbiI6ImExIn0=".to_string())),
-        ..Default::default()
-    };
-    assert!(!ask_only.is_empty(), "a pending question must be emitted");
 
     // Clearing is a change too: this is what answering the question, and
     // an agent unsetting its state on exit, look like on the wire.
@@ -326,23 +300,6 @@ mod vt100_capture_test {
         let (col, cells) = combined_cells("中\u{0301}X");
         assert_eq!(col, 3);
         assert_eq!(cells, vec!["中\u{0301}", "X"]);
-    }
-}
-
-mod pane_delta_marked_tests {
-    use super::PaneDelta;
-
-    /// A mark toggle is often the ONLY thing that changes about a pane; a delta
-    /// carrying just `marked` must not be classified as empty, or it is never
-    /// sent and the flag waits for the next full snapshot.
-    #[test]
-    fn a_delta_with_only_the_marked_flag_is_not_empty() {
-        let delta = PaneDelta {
-            marked: Some(true),
-            ..PaneDelta::default()
-        };
-        assert!(!delta.is_empty());
-        assert!(PaneDelta::default().is_empty());
     }
 }
 

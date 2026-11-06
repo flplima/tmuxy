@@ -161,6 +161,5 @@ impl Corrector {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[path = "agent_screen_tests.rs"]
 mod tests;

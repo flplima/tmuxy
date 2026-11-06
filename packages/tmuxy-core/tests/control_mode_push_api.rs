@@ -3,6 +3,8 @@
 //! `StateAggregator::step` → `TmuxState`. Runs in native CI (no browser, no
 //! tokio) and exercises the same code the WASM binding reuses verbatim.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use tmuxy_core::constants::tmux_formats::TmuxList;
 use tmuxy_core::control_mode::{
     Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, LIST_BEGIN_MARKER,

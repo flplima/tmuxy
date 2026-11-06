@@ -25,7 +25,9 @@ fn runtime() -> (Arc<SessionRuntime>, Arc<Recorded>) {
     (runtime, sink)
 }
 
-fn resizing_monitor() -> (MonitorCommandSender, Arc<Mutex<Vec<(u32, u32)>>>) {
+type Resizes = Arc<Mutex<Vec<(u32, u32)>>>;
+
+fn resizing_monitor() -> (MonitorCommandSender, Resizes) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let resizes = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&resizes);

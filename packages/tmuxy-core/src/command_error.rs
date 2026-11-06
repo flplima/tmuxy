@@ -78,7 +78,6 @@ impl From<crate::IdError> for CommandError {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

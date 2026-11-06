@@ -364,5 +364,4 @@ fn words(words: &[&str]) -> Argv {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests;

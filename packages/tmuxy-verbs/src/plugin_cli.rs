@@ -27,7 +27,6 @@ use install::install;
 use manage::{remove, update};
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 #[derive(clap::Args, Debug)]

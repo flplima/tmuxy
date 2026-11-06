@@ -398,5 +398,4 @@ fn emit(mut obj: Map<String, Value>) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests;

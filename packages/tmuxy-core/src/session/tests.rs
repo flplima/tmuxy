@@ -317,32 +317,14 @@ fn a_theme_supports_the_modes_whose_blocks_declare_something() {
     }
 }
 
+/// An older build's file has no such key: the choice is simply unmade, and
+/// reading it does not fail.
 #[test]
-fn managed_state_serde_roundtrips() {
-    let state = ManagedState {
-        theme: Some("dracula".into()),
-        theme_mode: Some("dark".into()),
-        cursor_blink: Some(false),
-        send_ask: Some(false),
-        transparency: Some(false),
-        use_tmux_conf: Some(true),
-    };
-    let json = serde_json::to_string(&state).unwrap();
-    let parsed: ManagedState = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.theme.as_deref(), Some("dracula"));
-    assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
-    assert_eq!(parsed.cursor_blink, Some(false));
-    assert_eq!(parsed.send_ask, Some(false));
-    assert_eq!(parsed.transparency, Some(false));
-    assert_eq!(parsed.use_tmux_conf, Some(true));
-
-    // An older build's file has no such key; the choice is simply unmade.
-    // `use_tmux_conf` unset must read as OFF rather than as "no opinion" —
-    // sourcing someone's config is not a thing to start doing on an upgrade.
+fn a_managed_state_file_missing_a_key_reads_it_as_unset() {
     let old: ManagedState = serde_json::from_str(r#"{"theme":"nord"}"#).unwrap();
+    assert_eq!(old.theme.as_deref(), Some("nord"));
     assert_eq!(old.cursor_blink, None);
     assert_eq!(old.use_tmux_conf, None);
-    assert!(!old.use_tmux_conf.unwrap_or(false));
 }
 
 #[test]

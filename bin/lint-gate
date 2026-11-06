@@ -104,11 +104,12 @@ check_clippy() {
   step clippy
   # The tauri crate's build script wants a frontend dist to exist.
   mkdir -p packages/tmuxy-ui/dist
+  # Test code too: clippy.toml lets a test unwrap and expect, nothing else.
   # shellcheck disable=SC2046
-  cargo clippy $(pkgs "${CLIPPY_CRATES[@]}") -- -D warnings
+  cargo clippy $(pkgs "${CLIPPY_CRATES[@]}") --all-targets -- -D warnings
   # The verbs as the in-browser guests build them (scripts/lib/guest.mjs):
   # a verb gated on `native` that the guest build still reaches fails here.
-  cargo clippy -p tmuxy-verbs --no-default-features -- -D warnings
+  cargo clippy -p tmuxy-verbs --no-default-features --all-targets -- -D warnings
 }
 
 check_knip() {

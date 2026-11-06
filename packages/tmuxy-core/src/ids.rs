@@ -186,7 +186,6 @@ impl GroupId {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 pub(crate) mod test_ids {
     use super::*;
 
@@ -204,7 +203,6 @@ pub(crate) mod test_ids {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use std::collections::HashMap;

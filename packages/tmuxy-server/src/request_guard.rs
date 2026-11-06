@@ -251,5 +251,4 @@ pub async fn require_same_origin(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;

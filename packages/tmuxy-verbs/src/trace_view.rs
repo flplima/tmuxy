@@ -12,7 +12,6 @@ use health::{github_annotations, health_check};
 use health::{silent_panes, SilentPane, SILENT_PANE_MIN_MS};
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests;
 
 #[derive(clap::Args)]

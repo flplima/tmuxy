@@ -17,24 +17,11 @@
 
 use std::time::Duration;
 
-use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::StateUpdate;
-
 mod common;
-
-struct Quiet;
-impl LogSink for Quiet {}
-impl StateEmitter for Quiet {
-    fn emit_state(&self, _update: StateUpdate) {}
-    fn emit_error(&self, error: String) {
-        panic!("unexpected error: {error}");
-    }
-}
 
 #[tokio::test]
 async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attached() {
-    let socket = format!("tmuxy-initial-state-{}", std::process::id());
-    std::env::set_var("TMUX_SOCKET", &socket);
+    let server = common::ScratchServer::new("initial-state");
 
     // A full-screen, mouse-tracking program is already running when the
     // monitor attaches — the way Claude Code is when the desktop app restarts.
@@ -47,44 +34,27 @@ async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attac
     ])
     .unwrap();
 
-    let config = MonitorConfig {
-        session: "app".to_string(),
-        create_session: false,
-        ..Default::default()
-    };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
-        .await
-        .expect("control-mode connection on the scratch socket");
-    let runner = tokio::spawn(async move { monitor.run(&Quiet).await });
+    let monitor = server.attach("app", false).await;
 
     // The program's `printf` and the monitor's first `list-panes` race each
     // other on a slow runner: a state read before the modes were set is not
-    // yet the one this test is about, so it is read again until the deadline.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    let state = loop {
-        let (reply, rx) = tokio::sync::oneshot::channel();
-        tx.send(MonitorCommand::GetState { reply }).await.unwrap();
-        let state = tokio::time::timeout(Duration::from_secs(10), rx)
-            .await
-            .expect("the initial state arrives")
-            .expect("the monitor answered");
-        let ready = state
-            .panes
-            .first()
-            .is_some_and(|p| p.alternate_on && p.mouse_any_flag);
-        if ready || tokio::time::Instant::now() >= deadline {
-            break state;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    };
+    // yet the one this test is about, so it is read again until it is.
+    common::wait_until(
+        "the alternate screen and mouse tracking in the state",
+        Duration::from_secs(10),
+        || async {
+            monitor
+                .state()
+                .await
+                .panes
+                .first()
+                .is_some_and(|p| p.alternate_on && p.mouse_any_flag)
+        },
+    )
+    .await;
+    let state = monitor.state().await;
 
     assert_eq!(state.panes.len(), 1, "one pane: {:?}", state.panes);
-    let pane = &state.panes[0];
-    assert!(pane.alternate_on, "the alternate screen is reported");
-    assert!(pane.mouse_any_flag, "mouse tracking is reported");
     assert_eq!(state.windows.len(), 1);
-
-    tx.send(MonitorCommand::Shutdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = common::tmux(&["kill-server"]);
+    assert_eq!(monitor.errors(), Vec::<String>::new());
 }

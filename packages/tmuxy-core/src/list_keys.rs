@@ -85,7 +85,6 @@ pub fn listing<E: std::fmt::Display>(answer: Result<String, E>) -> Result<String
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

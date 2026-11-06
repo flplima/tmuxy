@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::*;
 
 struct Folder(PathBuf);
@@ -82,7 +80,7 @@ fn the_document_is_read_with_its_kind_and_anything_else_is_refused() {
     })
     .unwrap();
     assert_eq!(doc.kind, "html");
-    assert_eq!(doc.net, true);
+    assert!(doc.net);
 
     let key = folder.write("id_rsa", b"secret");
     assert!(read_document(&Authorisation {
