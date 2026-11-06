@@ -58,8 +58,10 @@ async function holdsFor(page, ms, holds, what) {
   await waitForCondition(
     page,
     async () => {
-      if (!(await holds()))
-        throw new Error(`${what} stopped holding after ${Date.now() - start}ms`);
+      if (!(await holds())) {
+        const desc = typeof what === 'function' ? await what() : what;
+        throw new Error(`${desc} stopped holding after ${Date.now() - start}ms`);
+      }
       return Date.now() - start >= ms;
     },
     ms + 10000,
@@ -177,14 +179,16 @@ describe('Scenario 6g: a closed sidebar peeks over the panes on hover', () => {
       10000,
       'the tree to shut',
     );
+    let shut = null;
     await holdsFor(
       page,
       600,
       async () => {
-        const g = await geometry(page);
-        return g.docked === null && g.peek === null;
+        shut = await geometry(page);
+        return shut.docked === null && shut.peek === null;
       },
-      'the tree staying shut under the pointer',
+      () =>
+        `the tree staying shut under the pointer (docked: ${JSON.stringify(shut.docked)}, peek: ${JSON.stringify(shut.peek)}, open: ${shut.open})`,
     );
   }, 120000);
 });

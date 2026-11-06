@@ -5,20 +5,20 @@ Every test layer, where a new test goes, and which tier runs it. Part of [TESTS.
 ## The Test Layers
 
 ```
-                 cost / realism
-                       ^
-                       |   Desktop smoke (built app, Linux + macOS)   build-app.yml, tags + daily
-                       |   Tauri E2E (WebDriver -> WebKitGTK app)     desktop
-                       |   Web E2E + snapshots (Chromium -> server    e2e matrix (10 runners)
-                       |     -> tmux 3.7a)
-                       |   Storybook v86 probe (real tmux in an       storybook-v86-probe
-                       |     x86 emulator, in the browser)
-                       |   Storybook probe (recorded tmux states,     storybook-probe
-                       |     Chromium)
-                       |   CLI suite (mocked tmux)                    cli-tests
-                       |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
-                       |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
-                       +-------------------------------------------------------------------->
+ cost / realism
+       ^
+       |   Desktop smoke (built app, Linux + macOS)   build-app.yml, tags + daily
+       |   Tauri E2E (WebDriver -> WebKitGTK app)     desktop
+       |   Web E2E + snapshots (Chromium -> server    e2e matrix (10 runners)
+       |     -> tmux 3.7a)
+       |   Storybook v86 probe (real tmux in an       storybook-v86-probe
+       |     x86 emulator, in the browser)
+       |   Storybook probe (recorded tmux states,     storybook-probe
+       |     Chromium)
+       |   CLI suite (mocked tmux)                    cli-tests
+       |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
+       |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
+       +-------------------------------------------------------------------->
 ```
 
 | Layer | Tool | Location | What it is for | Run locally | CI job | Fails the run? |

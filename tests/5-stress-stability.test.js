@@ -7,7 +7,6 @@
 
 const {
   createTestContext,
-  delay,
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
@@ -22,7 +21,6 @@ const {
   assertLayoutInvariants,
   waitForSettled,
   waitForLayoutSettled,
-  DELAYS,
 } = require('./helpers');
 
 // ==================== Scenario 17: Large Output Perf ====================
@@ -73,21 +71,10 @@ describe('Scenario 18: Rapid Operations', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Step 1: Rapid splits ×4 (wait for each split to complete via XState)
+    // Step 1: Rapid splits ×4, each waited for on screen.
     async function splitAndWait(direction, expectedCount) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        await splitPaneKeyboard(ctx.page, direction);
-        const waitTime = 10000 + attempt * 5000;
-        const ok = await waitForPaneCount(ctx.page, expectedCount, waitTime);
-        if (ok) return;
-        const tmuxCount = await ctx.session.getPaneCount();
-        if (tmuxCount >= expectedCount) {
-          await waitForPaneCount(ctx.page, expectedCount, 5000);
-          return;
-        }
-        await delay(DELAYS.SYNC);
-      }
-      expect(await ctx.session.getPaneCount()).toBe(expectedCount);
+      await splitPaneKeyboard(ctx.page, direction);
+      await waitForPaneCount(ctx.page, expectedCount, 10000);
     }
     await splitAndWait('horizontal', 2);
     await splitAndWait('vertical', 3);

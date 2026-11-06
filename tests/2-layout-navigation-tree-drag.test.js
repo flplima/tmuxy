@@ -421,18 +421,29 @@ describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorder
       8000,
       async () => `tmux to order the tabs as the tree does (last: ${await tmuxOrder()})`,
     );
-    // The strip agrees with the tree.
-    expect(
-      await ctx.page.evaluate(() =>
-        [...document.querySelectorAll('.tab-list .tab-name[data-window-id]')].map(
-          (el) => el.dataset.windowId,
+    // The strip agrees with the tree once tmux's own report of the move has
+    // reached the client, a round trip after tmux ran it, and the drag's marks are gone.
+    const stripOrder = () =>
+      ctx.page.evaluate(() =>
+        [...document.querySelectorAll('.tab-list .tab-name[data-window-id]')]
+          .map((el) => el.dataset.windowId)
+          .join(' '),
+      );
+    await waitForCondition(
+      ctx.page,
+      async () => (await stripOrder()) === `${secondWindowId} ${firstWindowId}`,
+      8000,
+      async () => `the strip to order the tabs as tmux does (last: ${await stripOrder()})`,
+    );
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(
+          () =>
+            !document.querySelector('.sidebar-tree .is-dragging, .sidebar-tree .is-drop-before'),
         ),
-      ),
-    ).toEqual([secondWindowId, firstWindowId]);
-    expect(
-      await ctx.page.evaluate(() =>
-        document.querySelector('.sidebar-tree .is-dragging, .sidebar-tree .is-drop-before'),
-      ),
-    ).toBeNull();
+      5000,
+      'the drag marks to clear from the tree',
+    );
   }, 120000);
 });

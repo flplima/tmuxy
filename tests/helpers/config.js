@@ -35,7 +35,6 @@ const DELAYS = {
   SHORT: 100,
   MEDIUM: 200,
   LONG: 500,
-  EXTRA_LONG: 1000,
   SYNC: 1500, // For UI/tmux sync (full round trip: browser→HTTP→server→control mode→tmux→SSE→browser)
 };
 

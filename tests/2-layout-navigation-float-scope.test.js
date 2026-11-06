@@ -18,6 +18,7 @@ const {
   clickGroupTab,
   waitForGroupTabs,
   waitForCondition,
+  waitForShellPrompt,
   verifyFloatVisible,
   waitForFloatModal,
   focusedFloatPaneId,
@@ -425,6 +426,26 @@ describe('Scenario 6i: Cursor motion across tabs and group members', () => {
     await runCommand(ctx.page, 'for i in 1 2 3; do echo back$i; done', 'back3');
     const firstTab = await ctx.page.evaluate(() => window.app.getSnapshot().context.activeWindowId);
     await createWindowKeyboard(ctx.page);
+    // The new tab is current in the client before its pane is drawn: sampled
+    // from then, the overlay starts on the old tab and the click puts it back
+    // where it started. Its pane drawn, with a prompt, is the new tab on screen.
+    const newPane = await ctx.page.evaluate(() => {
+      const c = window.app.getSnapshot().context;
+      return c.panes.find((p) => p.windowId === c.activeWindowId)?.tmuxId;
+    });
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate((id) => {
+          const r = document
+            .querySelector(`.pane-layout-item[data-pane-id="${id}"]`)
+            ?.getBoundingClientRect();
+          return r && r.width > 0 && r.height > 0;
+        }, newPane),
+      10000,
+      `the new tab's pane ${newPane} on screen`,
+    );
+    await waitForShellPrompt(ctx.page);
     const tab = await motion(() => ctx.page.click(`.tab-name[data-window-id="${firstTab}"]`));
     expect(tab.moved).toBe(true);
     expect(tab.longestRun <= 2 ? 'drawn in place' : tab.detail).toBe('drawn in place');

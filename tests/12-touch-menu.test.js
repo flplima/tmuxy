@@ -117,20 +117,27 @@ describe('Phone width (390px) with a touchscreen: the menu', () => {
     );
     await until((s) => s.title === 'Menu' && s.back === null, 'the way back to the top page');
 
-    // 6. A slide: left from the menu is the tree, which lists the new tab;
-    //    right from the tree is the menu again, and right from the menu,
-    //    the left end, goes nowhere.
-    const y = (await boxOf(page, '.phone-bottom-stage')).top + 60;
-    await swipeSideways(page, y, 330, 60);
-    await until((s) => s.view === 'tree' && !s.sliding, 'the slide to the tree');
-    await until((s) => s.tabs === tabsBefore + 1, 'the tree to list the new tab');
-    await swipeSideways(page, y, 60, 330);
-    await until((s) => s.view === 'menu' && !s.sliding, 'the slide back to the menu');
-    await swipeSideways(page, y, 60, 330);
-    await until((s) => s.view === 'menu' && !s.sliding, 'the menu to stay at the left end');
-
-    // 7. The Tree tab brings the tree back in front.
+    // 6. The Tree tab brings the tree back in front, listing the new tab.
     await tapText(page, '.phone-tab', 'Tree');
     await until((s) => s.view === 'tree' && s.selected === 'tree', 'the Tree tab');
+    await until((s) => s.tabs === tabsBefore + 1, 'the tree to list the new tab');
+
+    // 7. A slide: right from the tree is the menu, right again from the menu,
+    //    the left end, goes nowhere, and left from the menu is the tree. Last,
+    //    because Chrome can draw no click for a tap that lands a moment after
+    //    a swipe, so no tap here follows one.
+    const y = (await boxOf(page, '.phone-bottom-stage')).top + 60;
+    await swipeSideways(page, y, 60, 330);
+    await until(
+      (s) => s.view === 'menu' && s.selected === 'menu' && !s.sliding,
+      'the slide to the menu',
+    );
+    await swipeSideways(page, y, 60, 330);
+    await until((s) => s.view === 'menu' && !s.sliding, 'the menu to stay at the left end');
+    await swipeSideways(page, y, 330, 60);
+    await until(
+      (s) => s.view === 'tree' && s.selected === 'tree' && !s.sliding,
+      'the slide back to the tree',
+    );
   }, 120000);
 });

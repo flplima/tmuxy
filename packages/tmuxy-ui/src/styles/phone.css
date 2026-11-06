@@ -140,6 +140,16 @@
   overflow: hidden;
 }
 
+/* A sideways slide is the view's own (PhoneBottomView.tsx): a pan the browser
+   took would cancel the touch, and at the page's edge Chrome reads it as
+   history navigation, which leaves the app. A scroller starts its own
+   touch-action, so the views that scroll say it again. Up and down still
+   scroll them. */
+.phone-bottom-stage,
+.phone-bottom-stage :is(.sidebar-tree, .phone-menu-page) {
+  touch-action: pan-y;
+}
+
 .phone-tabs {
   display: grid;
   flex: none;

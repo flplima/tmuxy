@@ -22,6 +22,7 @@ const { WORKSPACE_ROOT } = require('./config');
 const { waitForServer } = require('./browser');
 const { serverBinary } = require('./server-binary');
 const { tmuxRunAsOperator } = require('./cli');
+const { isolateHome } = require('./tmux-socket');
 
 const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
 
@@ -46,7 +47,7 @@ function isolatedEnv({ socket, stateDir }) {
   // so the panes would run an older build's scripts, not the ones under test.
   env.XDG_CONFIG_HOME = configHome(stateDir);
   env.TMUXY_DATA_DIR = path.join(path.dirname(stateDir), 'data');
-  return env;
+  return isolateHome(env, path.join(path.dirname(stateDir), 'home'));
 }
 
 /** The isolated server's config home, beside its state dir. */
@@ -190,4 +191,4 @@ function comparable(shape) {
   };
 }
 
-module.exports = { isolatedServer, shapeOf, layoutTree, comparable };
+module.exports = { isolatedServer, shapeOf, comparable };

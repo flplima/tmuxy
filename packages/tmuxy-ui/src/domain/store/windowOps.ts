@@ -178,36 +178,37 @@ export function predictKillWindow(
   const doomed = snapshot.windows.find((w) => w.id === windowId);
   if (!doomed) return null;
 
-  const tabs = stripTabs(snapshot.windows).filter((w) => w.id !== windowId);
   // tmux makes the last window used current (its `lastw` stack), else the
   // previous one, else the next. The last used is the tab of the most recently
   // active pane outside the doomed one; the reconciler only requires the
   // window to be gone, so a different server choice self-corrects on confirm.
-  const sorted = [...tabs].sort((a, b) => a.index - b.index);
-  const lastUsed = ctx.paneActivationOrder
-    .map((id) => snapshot.panes.find((p) => p.tmuxId === id)?.windowId)
-    .map((id) => tabs.find((w) => w.id === id))
-    .find((w) => w !== undefined);
-  const nextActive =
-    snapshot.activeWindowId === windowId
-      ? (lastUsed ??
-        [...sorted].reverse().find((w) => w.index < doomed.index) ??
-        sorted.find((w) => w.index > doomed.index) ??
-        null)
-      : null;
+  // Worked out from the state the patch lands on: a rebase replays it over a
+  // newer state, whose current tab may not be the one seen at predict time.
+  const nextActive = (s: TmuxSnapshot): TmuxWindow | null => {
+    const tabs = stripTabs(s.windows).filter((w) => w.id !== windowId);
+    const sorted = [...tabs].sort((a, b) => a.index - b.index);
+    const lastUsed = ctx.paneActivationOrder
+      .map((id) => s.panes.find((p) => p.tmuxId === id)?.windowId)
+      .map((id) => tabs.find((w) => w.id === id))
+      .find((w) => w !== undefined);
+    return (
+      lastUsed ??
+      [...sorted].reverse().find((w) => w.index < doomed.index) ??
+      sorted.find((w) => w.index > doomed.index) ??
+      null
+    );
+  };
 
   const patch: Patch = (s) => {
+    const next = s.activeWindowId === windowId ? nextActive(s) : null;
     const windows = s.windows
       .filter((w) => w.id !== windowId)
-      .map((w) => (nextActive ? { ...w, active: w.id === nextActive.id } : w));
+      .map((w) => (next ? { ...w, active: w.id === next.id } : w));
     const panes = s.panes.filter((p) => p.windowId !== windowId);
-    let activeWindowId = s.activeWindowId;
-    let activePaneId = s.activePaneId;
-    if (s.activeWindowId === windowId) {
-      activeWindowId = nextActive?.id ?? null;
-      const targetPanes = panes.filter((p) => p.windowId === activeWindowId);
-      activePaneId = (targetPanes.find((p) => p.active) ?? targetPanes[0])?.tmuxId ?? null;
-    }
+    if (s.activeWindowId !== windowId) return { ...s, windows, panes };
+    const activeWindowId = next?.id ?? null;
+    const targetPanes = panes.filter((p) => p.windowId === activeWindowId);
+    const activePaneId = (targetPanes.find((p) => p.active) ?? targetPanes[0])?.tmuxId ?? null;
     return { ...s, windows, panes, activeWindowId, activePaneId };
   };
 

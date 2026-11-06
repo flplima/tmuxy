@@ -22,9 +22,18 @@ export const DetachThenPickASession: Story = {
       timeout: 15000,
     });
 
-    await user.click(canvas.getByRole('button', { name: 'Menu' }));
-    await user.click(page.getByRole('menuitem', { name: 'Session' }));
-    await user.click(await page.findByRole('menuitem', { name: /Detach Session/ }));
+    // Only the desktop detaches, so the menu offers it only where `isTauri()`
+    // (infra/platform.ts) holds. Set after mount and cleared once the item is
+    // chosen: the rest of the app keeps its web paths.
+    const tauriWindow = window as unknown as Record<string, unknown>;
+    tauriWindow.__TAURI_INTERNALS__ = {};
+    try {
+      await user.click(canvas.getByRole('button', { name: 'Menu' }));
+      await user.click(page.getByRole('menuitem', { name: 'Session' }));
+      await user.click(await page.findByRole('menuitem', { name: /Detach Session/ }));
+    } finally {
+      delete tauriWindow.__TAURI_INTERNALS__;
+    }
 
     await waitFor(() => expect(canvas.getByText('Detached')).toBeInTheDocument());
     const list = canvasElement.querySelector('.session-picker') as HTMLElement;

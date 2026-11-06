@@ -1,3 +1,4 @@
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 /**
@@ -77,7 +78,29 @@ function tmuxEnv() {
   // inherits `APPIMAGE` takes itself for that install (`invoked_exe`) and
   // publishes ITS binary to the suite's tmux.
   for (const name of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD']) delete env[name];
-  return env;
+  return isolateHome(env, homeDir());
+}
+
+/**
+ * Give `env` a `$HOME` of the suite's own. The developer's, never: a pane's
+ * shell would run their rc (a prompt hook that retitles every pane, say), and
+ * anything that falls back to `~/.local/state/tmuxy` would write into the
+ * installed app's state. The rc files are there and empty, so zsh does not
+ * start its new-user wizard in every pane.
+ */
+function isolateHome(env, home) {
+  fs.mkdirSync(home, { recursive: true });
+  for (const rc of ['.zshrc', '.bashrc']) {
+    const file = path.join(home, rc);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '');
+  }
+  for (const name of ['XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME']) delete env[name];
+  return Object.assign(env, { HOME: home });
+}
+
+/** The suite's own `$HOME`, beside its state dir. */
+function homeDir() {
+  return path.join(os.tmpdir(), `tmuxy-e2e-home-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`);
 }
 
 /**
@@ -139,4 +162,13 @@ function tmuxExec(args, { timeout = 10000 } = {}) {
   return execSync(`${tmuxCmd()} ${args}`, { encoding: 'utf-8', timeout, env: tmuxEnv() }).trim();
 }
 
-module.exports = { DEFAULT_SOCKET, tmuxSocket, tmuxBin, tmuxCmd, tmuxEnv, tmuxExec, stateDir };
+module.exports = {
+  DEFAULT_SOCKET,
+  tmuxSocket,
+  tmuxBin,
+  tmuxCmd,
+  tmuxEnv,
+  tmuxExec,
+  stateDir,
+  isolateHome,
+};

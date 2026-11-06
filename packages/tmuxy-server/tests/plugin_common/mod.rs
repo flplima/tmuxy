@@ -26,8 +26,22 @@ impl Scratch {
     }
 
     pub fn tmuxy(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmuxy-server"))
-            .arg("plugin")
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_tmuxy-server"));
+        // The install gate asks on /dev/tty, never stdin: run from a terminal,
+        // a child that inherits it waits on a question nobody answers. A new
+        // session has no controlling terminal, so the gate fails closed.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: setsid is async-signal-safe and touches no parent state.
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::setsid();
+                    Ok(())
+                });
+            }
+        }
+        cmd.arg("plugin")
             .args(args)
             .env("HOME", self.path("home"))
             .env("XDG_CONFIG_HOME", self.path("home/.config"))

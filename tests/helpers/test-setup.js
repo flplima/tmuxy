@@ -11,7 +11,6 @@ const {
   verifyRoundTrip,
   focusPage,
   waitForSessionReady,
-  waitForPaneCount,
   waitForCondition,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
@@ -19,7 +18,7 @@ const { TMUXY_URL } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
 const { waitForMonitorGone } = require('./monitor');
 const { assertStateMatches } = require('./consistency');
-const { splitPaneKeyboard, navigatePaneKeyboard } = require('./pane-ops');
+const { splitPaneKeyboard, waitForPaneCount } = require('./pane-ops');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
@@ -46,7 +45,6 @@ function createTestContext({ snapshot = false } = {}) {
     browser: null,
     page: null,
     session: null, // TmuxTestSession instance
-    testSession: null, // Session name (for backwards compatibility)
     browserAvailable: true,
     browserError: null, // Why getBrowser() failed, surfaced by skipIfNotReady
     serverAvailable: true,
@@ -118,7 +116,6 @@ function createTestContext({ snapshot = false } = {}) {
     // Create TmuxTestSession (just marks it ready — actual tmux session
     // is created by the web server when the browser navigates to the URL)
     ctx.session = new TmuxTestSession();
-    ctx.testSession = ctx.session.name; // backwards compatibility
     ctx.session.create();
 
     ctx.page = await ctx.browser.newPage();
@@ -173,7 +170,6 @@ function createTestContext({ snapshot = false } = {}) {
 
     if (ctx.session) {
       ctx.session = null;
-      ctx.testSession = null;
     }
 
     // Re-throw after cleanup so the test still fails
@@ -271,23 +267,6 @@ function createTestContext({ snapshot = false } = {}) {
   };
 
   /**
-   * Setup multiple panes with alternating split directions
-   * Navigates first, then creates panes via keyboard
-   * @param {number} count - Number of panes to create (default: 3)
-   */
-  ctx.setupPanes = async (count = 3) => {
-    await ctx.navigateToSession();
-    await focusPage(ctx.page);
-    for (let i = 1; i < count; i++) {
-      if (i % 2 === 0) {
-        await splitPaneKeyboard(ctx.page, 'vertical');
-      } else {
-        await splitPaneKeyboard(ctx.page, 'horizontal');
-      }
-    }
-  };
-
-  /**
    * Setup two panes with a single split
    * Navigates first, then creates split via keyboard
    * @param {string} direction - 'horizontal' or 'vertical' (default: 'horizontal')
@@ -316,41 +295,6 @@ function createTestContext({ snapshot = false } = {}) {
         return `setupTwoPanes: the app to show 2 panes\nXState: ${JSON.stringify(debugState)}`;
       },
     );
-  };
-
-  /**
-   * Setup a 4-pane grid layout
-   * Navigates first, then creates panes via keyboard
-   */
-  ctx.setupFourPanes = async () => {
-    await ctx.navigateToSession();
-    await focusPage(ctx.page);
-    // Helper to wait for XState pane count
-    const waitForPanes = (n) =>
-      waitForCondition(
-        ctx.page,
-        async () => (await ctx.session.getPaneCount()) === n,
-        10000,
-        `setupFourPanes: the app to show ${n} panes`,
-      );
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await waitForPanes(2);
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await waitForPanes(3);
-    // The split below is pinned to the pane the app holds as active, so the
-    // move up has to have reached the app before it.
-    const activePane = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId ?? null);
-    const below = await activePane();
-    await navigatePaneKeyboard(ctx.page, 'up');
-    await waitForCondition(
-      ctx.page,
-      async () => (await activePane()) !== below,
-      5000,
-      'the move up to change the active pane',
-    );
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await waitForPanes(4);
   };
 
   return ctx;

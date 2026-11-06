@@ -73,4 +73,4 @@ const showKeyboard = (page, height) => page.evaluate(setKeyboard, height);
 /** Put the mock keyboard away. */
 const hideKeyboard = (page) => page.evaluate(setKeyboard, 0);
 
-module.exports = { showKeyboard, hideKeyboard, setKeyboard };
+module.exports = { showKeyboard, hideKeyboard };

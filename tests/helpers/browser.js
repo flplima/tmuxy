@@ -378,12 +378,7 @@ async function waitForSessionReady(page, sessionName, timeout = 5000) {
   );
 }
 
-/**
- * Wait for UI to show expected window count
- * @param {Page} page - Playwright page
- * @param {number} expectedCount - Expected window count
- * @param {number} timeout - Max wait time in ms
- */
+/** Wait until the strip shows `expectedCount` tabs; throw past the budget with what it shows. */
 async function waitForWindowCount(page, expectedCount, timeout = 10000) {
   const budget = waitBudget(timeout);
   try {
@@ -415,38 +410,6 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
 }
 
 /**
- * Wait for UI to show expected pane count
- * @param {Page} page - Playwright page
- * @param {number} expectedCount - Expected pane count
- * @param {number} timeout - Max wait time in ms
- */
-async function waitForPaneCount(page, expectedCount, timeout = 3000) {
-  const budget = waitBudget(timeout);
-  try {
-    await page.waitForFunction(
-      (count) => {
-        // Count UNIQUE pane ids (matching getUIPaneCount): each pane emits
-        // data-pane-id on both its layout wrapper and its inner TerminalPane,
-        // and sidebar tree rows repeat the same ids — raw element counts are
-        // 2x+ the real pane count. The old OR with [role="log"] could
-        // satisfy the wait while the real pane elements disagreed.
-        const ids = new Set();
-        for (const el of document.querySelectorAll('[data-pane-id]')) {
-          ids.add(el.getAttribute('data-pane-id'));
-        }
-        return ids.size === count;
-      },
-      expectedCount,
-      { timeout: budget, polling: 50 },
-    );
-    return true;
-  } catch {
-    // Timeout — non-throwing, callers check the return value
-    return false;
-  }
-}
-
-/**
  * Resolve after the page has drawn `frames` more frames. For a check that
  * something did NOT change after a local interaction (a scroll, a click that
  * re-renders): the app reacts in the event handler and on the next frame, so
@@ -469,10 +432,6 @@ async function afterFrames(page, frames = 2) {
  * Poll `fn` until it returns something truthy, and return that; throw past
  * the budget, with `description` (a string, or a function for one computed
  * at the time of failure).
- * @param {Page} page - Playwright page (for context; not always used by fn)
- * @param {Function} fn - Async function returning a boolean or the value waited for
- * @param {number} timeout - Max wait in ms
- * @param {string|Function} description - Description for error message
  */
 async function waitForCondition(page, fn, timeout = 10000, description = 'condition') {
   // The caller's number says how long this SHOULD take on the machine it was
@@ -529,6 +488,5 @@ module.exports = {
   waitForKeyboardFocus,
   waitForSessionReady,
   waitForWindowCount,
-  waitForPaneCount,
   waitForCondition,
 };

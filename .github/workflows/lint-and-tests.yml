@@ -238,7 +238,7 @@ jobs:
       - name: Run ${{ matrix.suite.name }}
         env:
           SUITE_PATH: ${{ matrix.suite.path }}
-          # The tier's lookahead plus this suite's shard filter, composed by
+          # The tier's jest name pattern, composed by
           # bin/ci/e2e-plan.mjs; empty when every test in the file is wanted.
           SUITE_PATTERN: ${{ matrix.suite.pattern }}
         run: |

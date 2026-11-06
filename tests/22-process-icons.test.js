@@ -55,13 +55,24 @@ describe('Scenario: a pane header wears its process icon, an SVG in the text col
     // Two panes, so each wears its icon in a header.
     await splitPaneKeyboard(page, 'horizontal');
     await waitForPaneCount(page, 2);
-    const { paneId, command } = await page.evaluate(() => {
-      const { panes, activePaneId } = window.app.getSnapshot().context;
-      return {
-        paneId: activePaneId,
-        command: panes.find((p) => p.tmuxId === activePaneId).command,
-      };
-    });
+    // The new pane's current command is its shell once that has started, the
+    // first pane's; read sooner, it can be whatever the shell ran on its way up.
+    const { paneId, command } = await waitForCondition(
+      page,
+      () =>
+        page.evaluate(() => {
+          const { panes, activePaneId } = window.app.getSnapshot().context;
+          const active = panes.find((p) => p.tmuxId === activePaneId);
+          const other = panes.find(
+            (p) => p.tmuxId !== activePaneId && p.windowId === active?.windowId,
+          );
+          return active?.command && active.command === other?.command
+            ? { paneId: activePaneId, command: active.command }
+            : null;
+        }),
+      10000,
+      'the new pane to be running the same shell as the first',
+    );
 
     // A square ring, orange on the left and blue on the right, with a
     // transparent hole: the hole must show the header, the ring the text colour.

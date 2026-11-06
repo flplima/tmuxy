@@ -100,7 +100,9 @@ export const HiddenInputOwnsFocus: Story = {
     start: 'one',
     transitions: [
       { match: /^send-keys -t %0 -l -- '한글'$/, to: 'hangul' },
-      { match: /^send-keys -t %0 -l -- 'b'$/, to: 'hangul-ab' },
+      // Keys typed in one beat go out as one send-keys; the screen with
+      // `ab` follows once `b` has gone, alone or with `a`.
+      { match: /^send-keys -t %0 -l -- 'a?b'$/, to: 'hangul-ab' },
     ],
   },
   play: async ({ canvasElement }) => {
