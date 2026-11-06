@@ -141,11 +141,6 @@ export const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
     ).app.getSnapshot().context.paneGroups ?? {},
   );
 
-export const sessionName = (): string =>
-  (
-    window as unknown as { app: { getSnapshot(): { context: { sessionName: string } } } }
-  ).app.getSnapshot().context.sessionName;
-
 /** Bounding rect of a pane by tmux id (throws if absent — assert presence first). */
 export function paneRect(canvas: Canvas, id: string): DOMRect {
   const el = paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id);
