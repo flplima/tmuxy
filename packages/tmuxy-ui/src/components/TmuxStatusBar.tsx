@@ -31,11 +31,9 @@ import {
   selectActivePaneCopyMode,
 } from '../machines/selectors/ui';
 import { selectGridDimensions } from '../machines/selectors/layout';
-import { formatPrefixKey } from '../domain/menus/keyHint';
-import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
+import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
 import { serverHostLabel } from './paneTabDisplay';
 import { SessionMenu } from './SessionMenu';
-import type { KeyBindings } from '../domain/wire';
 import './TmuxStatusBar.css';
 
 function Separator() {
@@ -66,36 +64,6 @@ function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null
       ))}
     </span>
   );
-}
-
-/**
- * The status line's label for directional pane nav — `ctrl+hjkl` for the default
- * bindings — or null when nothing is bound to it.
- *
- * Read from the bindings rather than written down here, because the key is
- * config: the default is Ctrl+hjkl, and a user's own `~/.tmux.conf` may move it
- * somewhere else. The four
- * directions have to share one modifier and spell one word for a single hint to
- * be honest about them; anything else is left to the keybindings view.
- */
-function navHintKey(rootBindings: KeyBindings['root_bindings']): string | null {
-  const isNav = (command: string) => command.includes('tmuxy-nav') || command.includes('tmuxy/nav');
-  const bound = new Map(
-    rootBindings.filter((b) => isNav(b.command)).map((b) => [b.key, b.command] as const),
-  );
-
-  for (const modifier of ['C', 'M']) {
-    const keys = ['h', 'j', 'k', 'l'];
-    if (keys.every((key) => bound.has(`${modifier}-${key}`))) {
-      return `${modifier === 'C' ? 'ctrl' : 'alt'}+${keys.join('')}`;
-    }
-  }
-  return null;
-}
-
-/** The keys a mode lists: its own, or none for a table the line knows nothing about. */
-function modeHints(mode: string): readonly Hint[] {
-  return MODE_HINTS[mode] ?? [];
 }
 
 function CommandModeInput({
@@ -202,13 +170,7 @@ export function TmuxStatusBar() {
   // The mode in force, by the table it is: a sticky table (PANE, TAB), else
   // the prefix, else copy mode. While one is on the line is the mode's.
   const mode = keyTable ?? (prefixActive ? 'prefix' : inCopyMode ? 'copy' : null);
-  // The nav hint names whatever key is actually bound: a user's own config
-  // may move it off the default.
-  const hints = mode
-    ? modeHints(mode)
-    : keybindings
-      ? normalHints(formatPrefixKey(keybindings.prefix_key), navHintKey(keybindings.root_bindings))
-      : null;
+  const hints = mode ? modeHints(keybindings, mode) : keybindings ? normalHints(keybindings) : null;
 
   return (
     <div className="tmux-status-bar" data-testid="tmux-status-bar">

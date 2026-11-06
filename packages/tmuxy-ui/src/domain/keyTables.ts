@@ -36,3 +36,30 @@ export function splitTableSwitch(command: string): {
   }
   return { command: list(rest), table };
 }
+
+/**
+ * Keys the client answers itself, by table: what they open has no tmux window
+ * or pane behind it (a sidebar's open/fixed state, the Tab Overview, the keys
+ * view), so there is no binding for tmux to run. The keyboard actor runs them;
+ * the key labels name them.
+ */
+export type ClientKey =
+  | 'left-sidebar'
+  | 'right-sidebar'
+  | 'tab-overview'
+  | 'keys-view'
+  | 'tab-left'
+  | 'tab-right';
+
+export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
+  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
+  tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
+};
+
+/**
+ * The chords the keyboard actor answers before any table (its ctrl+digit
+ * branch): ctrl+0 opens the Tab Overview, and ctrl+1-9 picks a tab by its
+ * position in the strip (`TAB_POSITION_CHORDS`).
+ */
+export const CLIENT_CHORDS: Partial<Record<ClientKey, string>> = { 'tab-overview': 'ctrl+0' };
+export const TAB_POSITION_CHORDS = 'ctrl+1-9';

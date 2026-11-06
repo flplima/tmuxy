@@ -13,6 +13,9 @@ import { useAppSelector, useAppSend, usePane, usePaneGroup } from '../machines/a
 import { PaneContextMenu } from './PaneContextMenu';
 import { PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';
+import { selectKeyBindings } from '../machines/selectors/ui';
+import { keyHint } from '../domain/keyLabels';
+import type { KeyBindings } from '../domain/wire';
 import { measureTabStrip } from '../machines/drag/tabStripDrop';
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../domain/tabOverview';
 import { isModelPaneId, type PaneId } from '../domain/ids';
@@ -37,6 +40,14 @@ interface ContextMenuState {
   targetPaneId: PaneId | null;
 }
 
+/** The mark badge's tooltip, with the keys that mark and clear when they are bound. */
+function markedTooltip(keybindings: KeyBindings | null): string {
+  const mark = keyHint(keybindings, TmuxOp.MarkPane({ marked: true }));
+  const clear = keyHint(keybindings, TmuxOp.MarkPane({ marked: false }));
+  const keys = [mark && `${mark} marks`, clear && `${clear} clears`].filter(Boolean).join(', ');
+  return keys ? `Marked pane — ${keys}` : 'Marked pane';
+}
+
 export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
@@ -50,6 +61,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
   // The pane whose title field is open — opened from this header's menu or
   // from the pane content's own; whichever header draws that pane shows it.
   const renamingPaneId = useAppSelector((c) => c.renamingPaneId);
+  const keybindings = useAppSelector(selectKeyBindings);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -387,7 +399,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
           a lone ⚑ says nothing about what it marks — and the pane's content
           carries the same accent wash, so the two read as one thing. */}
       {shownPane?.marked && (
-        <Tooltip label="Marked pane — prefix m marks, prefix M clears">
+        <Tooltip label={markedTooltip(keybindings)}>
           <span className="pane-header-mark" data-testid="pane-header-mark">
             MARKED<span aria-hidden="true"> ⚑</span>
           </span>
