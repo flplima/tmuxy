@@ -7,7 +7,7 @@ import { TmuxOp } from '../../commands';
 import { makePendingOp } from '../model';
 import {
   EMPTY_SNAPSHOT,
-  FOCUS_CONFIRM_LINGER_MS,
+  CONFIRM_LINGER_MS,
   FOCUS_SUPERSEDE_GRACE_MS,
   type TmuxSnapshot,
   type OpId,
@@ -49,9 +49,7 @@ describe('reconcileFocus — linger and supersession', () => {
     const op = focusOp(t0);
     const confirmed: TmuxSnapshot = { ...SNAPSHOT, activePaneId: pid('%1') };
     expect(reconcile(op, confirmed, undefined, t0 + 100)._tag).toBe('pending');
-    expect(reconcile(op, confirmed, undefined, t0 + FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
-      'matched',
-    );
+    expect(reconcile(op, confirmed, undefined, t0 + CONFIRM_LINGER_MS + 1)._tag).toBe('matched');
   });
 
   it('holds through stale echoes of the pre-op focus', () => {

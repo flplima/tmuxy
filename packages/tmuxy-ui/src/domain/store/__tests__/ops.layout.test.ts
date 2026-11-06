@@ -6,7 +6,7 @@ import { parseCommandToOp } from '../parseCommand';
 import { makePendingOp } from '../model';
 import {
   EMPTY_SNAPSHOT,
-  FOCUS_CONFIRM_LINGER_MS,
+  CONFIRM_LINGER_MS,
   FOCUS_SUPERSEDE_GRACE_MS,
   type TmuxSnapshot,
   type OpId,
@@ -65,9 +65,7 @@ describe('KillPane predict/reconcile', () => {
     const confirmed = { ...snap, panes: [snap.panes[0]] };
     expect(reconcile(pendingOp, snap, undefined, 100)._tag).toBe('pending');
     expect(reconcile(pendingOp, confirmed, undefined, 100)._tag).toBe('pending');
-    expect(reconcile(pendingOp, confirmed, undefined, FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
-      'matched',
-    );
+    expect(reconcile(pendingOp, confirmed, undefined, CONFIRM_LINGER_MS + 1)._tag).toBe('matched');
   });
 
   it('patch replays idempotently over confirmed layouts during the linger', () => {

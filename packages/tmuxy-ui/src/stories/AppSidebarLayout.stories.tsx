@@ -9,6 +9,7 @@ import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
 import { withTmuxView } from './tmuxView';
 import { app, tabPanes } from './sidebarStoryHelpers';
+import { tmuxCaughtUp } from './tmuxBarrier';
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application Sidebar Layout',
@@ -97,13 +98,20 @@ export const RightColumnDoesNotMoveTheLeftEdge: Story = {
     await waitFor(() => expect(paneRects(canvasElement).length).toBeGreaterThanOrEqual(2), {
       timeout: 30000,
     });
+    // The edge the toggle must keep is the settled one: two panes are drawn
+    // before the mount's own resize and font load have landed, and either
+    // moves the grid on its own, inside the sampling window.
+    await document.fonts.ready;
+    await tmuxCaughtUp();
 
     const before = leftEdge()!;
-    const samples: number[] = [];
+    // Every frame's left edge, and whether the column was drawn in it.
+    const samples: { edge: number; docked: boolean }[] = [];
     let sampling = true;
     const tick = () => {
       const edge = leftEdge();
-      if (edge !== null) samples.push(edge);
+      const docked = document.querySelector('.sidebar-column-right') !== null;
+      if (edge !== null) samples.push({ edge, docked });
       if (sampling) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -125,11 +133,13 @@ export const RightColumnDoesNotMoveTheLeftEdge: Story = {
       },
       { timeout: 30000, interval: 200 },
     );
+    // The settled frame is sampled too, however few frames the toggle took.
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     sampling = false;
 
     // The tolerance is the sub-cell remainder the grid is centred within.
-    expect(samples.length).toBeGreaterThan(5);
-    const drift = Math.max(...samples.map((x) => Math.abs(x - before)));
+    expect(samples.some((s) => s.docked)).toBe(true);
+    const drift = Math.max(...samples.map((s) => Math.abs(s.edge - before)));
     expect(drift).toBeLessThan(6);
     expect(Math.abs(leftEdge()! - before)).toBeLessThan(6);
   },

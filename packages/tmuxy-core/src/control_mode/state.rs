@@ -367,6 +367,8 @@ mod tests;
 #[cfg(test)]
 mod tests_capture;
 #[cfg(test)]
+mod tests_capture_cursor;
+#[cfg(test)]
 mod tests_hyperlinks;
 #[cfg(test)]
 mod tests_panes;
