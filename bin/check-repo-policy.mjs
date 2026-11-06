@@ -287,7 +287,7 @@ const BLIND_WAIT_CEILING = {
   tests: 11,
   // Stories over real tmux wait on it instead (src/stories/tmuxBarrier.ts).
   'v86 stories': 0,
-  stories: 15,
+  stories: 14,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */
