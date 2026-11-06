@@ -1,14 +1,10 @@
 /**
- * Tauri Desktop App E2E Tests
+ * The desktop app's IPC seam — what differs from the web build's HTTP/SSE.
+ * The React code is the same in both, so the UI's own behaviour is the web
+ * suites'.
  *
- * Tests the Tauri IPC integration seam — the part that's different from the
- * web E2E tests (which use HTTP/SSE). The frontend React code is identical
- * between adapters, so we don't duplicate full UI logic coverage.
- *
- * Stack: Jest → WebdriverIO → tauri-driver (port 4444) → WebKitWebDriver → Tauri app
- *
- * Each test creates a fresh WDIO session (launching a new Tauri binary instance)
- * with a unique TMUXY_SESSION name for isolation.
+ * Stack: Jest → WebdriverIO → tauri-driver (port 4444) → WebKitWebDriver → Tauri app.
+ * Each test launches a fresh app on a fresh tmux session.
  */
 
 const { execSync } = require('child_process');
@@ -36,9 +32,6 @@ afterEach(async () => {
   sessionName = null;
 });
 
-/**
- * Helper: create a session and wait for app to be ready
- */
 async function setupApp(options = {}) {
   const result = await ctx.setupApp(options);
   driver = result.driver;
@@ -89,7 +82,7 @@ describe('App Lifecycle', () => {
     expect(rect.visibleWidth).toBeGreaterThan(200);
     expect(rect.visibleHeight).toBeGreaterThan(100);
 
-    // The shell prompt rendered into it.
+    // Text is drawn in it.
     const text = await getTerminalText(driver);
     expect(text.length).toBeGreaterThan(0);
 
@@ -100,7 +93,6 @@ describe('App Lifecycle', () => {
     expect(state.adapterType).toBe('tauri');
     expect(state.sessionName).toBe(sessionName);
 
-    // The session the app reports really exists in tmux.
     try {
       tmuxExec(`has-session -t ${sessionName}`);
     } catch {
@@ -131,13 +123,11 @@ describe('State Sync', () => {
   });
 
   // The left column is created by one command list: split-window, break-pane,
-  // set-option. This transport used to give every command that named no target
-  // a `-t <session>`, and break-pane's `-t` is where the pane should GO, not
-  // what to act on. The injected destination resolved to the session's current
-  // window, whose index is by definition taken, so tmux answered "index in use",
-  // the break failed, and the tree stayed behind as an ordinary pane in the tab
-  // instead of becoming the sidebar. Only this suite can see it: the web server
-  // sends the same list down the control-mode connection with no rewrite.
+  // set-option. break-pane's `-t` is where the pane should GO, so a transport
+  // that adds `-t <session>` to every untargeted command (this one once did)
+  // aims it at the current window, whose index is taken: tmux answers "index
+  // in use" and the tree stays behind as a pane in the tab. Only this suite
+  // can see it: the web server sends the list with no rewrite.
   test('opening the left sidebar makes its own window and leaves no pane behind', async () => {
     await setupApp();
 
@@ -161,8 +151,7 @@ describe('State Sync', () => {
 
   // The desktop app serves no HTTP: a theme the user copied into the config
   // dir reaches the webview through the `tmuxycss:` scheme, or not at all —
-  // the bundled frontend only carries the built-in themes, and picking a
-  // custom one used to 404 and leave the page in the browser's defaults.
+  // the bundled frontend only carries the built-in themes.
   test('a theme copied into the config dir is listed with its modes and served to the webview', async () => {
     const themes = path.join(
       process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
@@ -306,10 +295,9 @@ describe('GUI windows', () => {
 
     // No Title Bar and back, also out of full screen and out of a maximized
     // frame: after each Normal the page is as tall as it was before the cycle
-    // (the content view is still full-size — rewriting the decorations used to
-    // put a real title-bar strip above the page on macOS and cost it that
-    // height; `outerHeight` is 0 in WebKit, so the page's own height is the
-    // measure) and the room the status bar keeps for the traffic lights is
+    // (rewriting the decorations on macOS can put a real title-bar strip above
+    // the page and cost it that height; `outerHeight` is 0 in WebKit, so the
+    // page's own height is the measure) and the room the status bar keeps for the traffic lights is
     // back; with no title bar the room is gone. The chrome itself is macOS's:
     // elsewhere (CI runs this suite under Xvfb) only the reported style is
     // asserted.

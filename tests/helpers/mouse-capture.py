@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Mouse event capture script for E2E testing.
-
-Enables SGR mouse tracking (modes 1000 + 1006), reads raw terminal input,
-parses SGR mouse escape sequences, and writes events to both stdout and a
-log file. This lets E2E tests verify the correct escape sequences are sent
-from the tmuxy UI to the tmux pane.
+Turns on SGR mouse tracking (modes 1000, 1002 and 1006), reads raw terminal
+input, and writes every SGR mouse report it gets to stdout and a log file, so
+an E2E test can check what the UI sent to the pane.
 
 Usage:
     python3 mouse-capture.py [logfile]
@@ -53,7 +50,7 @@ try:
             if not data:
                 break
 
-            # Check for 'q' to quit (outside of escape sequences)
+            # A 'q' outside an escape sequence quits.
             if b'q' in data and b'\x1b' not in data:
                 break
 
@@ -63,26 +60,24 @@ try:
             while b'\x1b[<' in buf:
                 start = buf.index(b'\x1b[<')
 
-                # Discard any non-sequence bytes before the escape
                 if start > 0:
                     buf = buf[start:]
                     start = 0
 
-                # Find the terminator: 'M' (0x4d) or 'm' (0x6d)
+                # Terminated by 'M' (0x4d, press) or 'm' (0x6d, release).
                 end = -1
                 for j in range(3, len(buf)):
                     if buf[j] in (0x4d, 0x6d):
                         end = j
                         break
-                    # If we hit another ESC, this sequence is malformed
+                    # Another ESC first: malformed.
                     if buf[j] == 0x1b:
                         break
 
                 if end == -1:
-                    # Incomplete sequence, wait for more data
+                    # Incomplete; the rest is in the next read.
                     break
 
-                # Extract and parse: \x1b[<btn;x;y{M|m}
                 inner = buf[3:end].decode('ascii', errors='replace')
                 term = chr(buf[end])
                 buf = buf[end + 1:]
@@ -98,14 +93,13 @@ try:
                 except ValueError:
                     continue
 
-                # Classify event type
                 if term == 'm':
                     evt = 'release'
                 elif btn >= 64:
                     evt = 'scroll_up' if btn == 64 else 'scroll_down'
                 elif btn >= 32:
                     evt = 'drag'
-                    btn -= 32  # Report the original button number
+                    btn -= 32  # +32 is the motion flag
                 else:
                     evt = 'press'
 
@@ -115,6 +109,5 @@ try:
                 os.write(1, (line + '\r\n').encode())
 
 finally:
-    # Disable mouse tracking
     os.write(1, b'\033[?1000l\033[?1002l\033[?1006l')
     termios.tcsetattr(fd, termios.TCSADRAIN, old_attrs)
