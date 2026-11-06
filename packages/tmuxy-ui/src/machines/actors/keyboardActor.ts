@@ -8,13 +8,11 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
-import { splitTableSwitch } from '../../domain/keyTables';
+import { CLIENT_KEYS, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../infra/dom/chromeTab';
 import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import {
   bindingKeyOf,
-  CLIENT_KEYS,
-  type ClientKey,
   formatTmuxKey,
   isModifierOnlyKey,
   isRealFormControl,

@@ -15,16 +15,14 @@ import type { TmuxPane } from '../domain/client';
 export function PaneIcon({
   pane,
   className,
-  widgetName,
   titleOverride,
 }: {
   pane: TmuxPane;
   className: string;
-  widgetName?: string;
   titleOverride?: string;
 }) {
   const custom = useAppSelector((ctx) => ctx.processIcons);
-  const icon = getTabIcon(pane, widgetName, titleOverride, custom);
+  const icon = getTabIcon(pane, titleOverride, custom);
   if (!icon) return null;
   if (isSvgIcon(icon)) {
     const mask = `url("${icon}")`;

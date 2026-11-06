@@ -9,12 +9,16 @@
 
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
+import { selectKeyBindings } from '../machines/selectors/ui';
+import { clientKeyHint, withKeyHint } from '../domain/keyLabels';
 
 export function TabOverviewToggle() {
   const send = useAppSend();
   const open = useAppSelector((ctx) => ctx.tabOverviewOpen);
+  const keybindings = useAppSelector(selectKeyBindings);
+  const hint = clientKeyHint(keybindings, 'tab-overview');
   return (
-    <Tooltip label="All tabs (ctrl+0)">
+    <Tooltip label={withKeyHint('All tabs', hint)}>
       <button
         className={`sidebar-toggle tab-overview-toggle${open ? ' sidebar-toggle-active' : ''}`}
         aria-label="Toggle all tabs"

@@ -6,6 +6,12 @@
 //! The string forms of window kinds are canonical in `WindowType::as_str` /
 //! `WindowType::parse` (`lib.rs`), not here.
 
+/// The name prefix of a sidebar window (`__sidebar-left`, `__sidebar-right`):
+/// how a sidebar left without its `@tmuxy-window-type` tag is recognised. The
+/// client names the windows it creates with it (`SIDEBAR_WINDOW_NAME` in
+/// tmuxy-ui's `domain/commands.ts`, from the generated constants).
+pub const SIDEBAR_WINDOW_PREFIX: &str = "__sidebar-";
+
 /// User-option keys tmuxy sets on tmux windows and the global session.
 /// All of these are `@tmuxy-*` so they can't collide with vanilla tmux options
 /// or with user-installed plugins.

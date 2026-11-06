@@ -147,6 +147,14 @@
      80% of the pane font. fontSizeManager sets it rounded to whole pixels. */
   --tmuxy-small-font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
 
+  /* The pane container's padding — the margin around the grid
+     (styles/terminal.css, styles/pane-layout.css); the phone sets its own
+     (styles/phone.css). The layout arithmetic's copies are CONTAINER_PADDING_X
+     / _BOTTOM and PHONE_CONTAINER_PADDING (constants/layout.ts), held to
+     these by components/__tests__/cssMirrors.test.ts. */
+  --pane-container-padding-x: 12px;
+  --pane-container-padding-bottom: 4px;
+
   /* Line Heights */
   --line-height-terminal: 24px; /* CHAR_HEIGHT */
 
@@ -161,7 +169,7 @@
   /* Sizes — scale with --tmuxy-font-size so chrome heights match terminal text */
   --statusbar-height: calc(var(--tmuxy-font-size, 15px) * 2.4);
   /* Header is the tmux pane-border-status row: exactly 1 cell row tall,
-     independent of font size. Keep in sync with CHAR_HEIGHT (constants/layout.ts). */
+     independent of font size. */
   --pane-header-height: var(--line-height-terminal);
 
   /* Border Radius — every corner is square, as in a terminal. The names stay
@@ -183,8 +191,9 @@
      changes and swaps, short enough to feel instant. */
   --transition-active: 80ms ease-out;
   /* Pane enter/shift lifecycle: a pane arriving on a split, and the panes
-     that move or grow around one arriving or closing. Must stay in sync with
-     PANE_ENTER_MS (constants/layout.ts). */
+     that move or grow around one arriving or closing. The morph's timers
+     read this and --transition-pane-zoom (PaneLayoutMorph.ts), so a theme
+     may change either. */
   --transition-pane-enter: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
      morph so a zoom reads as the same kind of motion as a split. */

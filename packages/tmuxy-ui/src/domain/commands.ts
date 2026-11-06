@@ -29,7 +29,7 @@ import {
   target,
   tmuxDoubleQuoted,
 } from './commandHelpers';
-import { LEFT_SIDEBAR_WIDGET } from './tmuxyConstants.gen';
+import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
 
 /** The bundled scripts, in the data dir the config chain publishes to tmux. */
 export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
@@ -38,7 +38,10 @@ export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
 export const CONFIG_FILE = '$TMUXY_ENTRY_CONF';
 
 /** The fixed window name of a sidebar column: unique, so a create can target it by name. */
-export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-right' } as const;
+export const SIDEBAR_WINDOW_NAME = {
+  left: `${SIDEBAR_WINDOW_PREFIX}left`,
+  right: `${SIDEBAR_WINDOW_PREFIX}right`,
+} as const;
 
 /**
  * What a sidebar column runs: the tree widget, or (`null`) the default shell.
@@ -276,9 +279,11 @@ function hasControlCharacter(text: string): boolean {
  * the window (which is what steers tmux's current target), then the pane.
  */
 export function pinPrefix(windowId: WindowId | null, paneId: PaneId | null): string {
-  const window = windowId ? `select-window -t ${windowId} \\; ` : '';
-  const pane = paneId ? `select-pane -t ${paneId} \\; ` : '';
-  return window + pane;
+  const pins = [
+    ...(windowId ? [`select-window -t ${windowId}`] : []),
+    ...(paneId ? [`select-pane -t ${paneId}`] : []),
+  ];
+  return list([...pins, '']);
 }
 
 /** The one place an op becomes tmux syntax. */

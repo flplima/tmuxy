@@ -8,7 +8,7 @@ import type { AppMachineContext } from '../../../machines/types/context';
 import { markedPaneId, paneTakesCopyMode } from '../../../domain/client';
 import { TmuxOp } from '../../../domain/commands';
 import type { PaneId } from '../../../domain/ids';
-import { keyHint } from '../../../domain/menus/keyHint';
+import { keyHint } from '../../../domain/keyLabels';
 import { pluginsSubmenu } from './pluginMenu';
 import type { MenuIconName } from '../../../domain/menus/icons';
 import { separator, tidy } from '../../../domain/menus/spec';

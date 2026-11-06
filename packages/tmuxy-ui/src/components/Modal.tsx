@@ -2,6 +2,9 @@ import React, { useCallback } from 'react';
 import { Tooltip } from './Tooltip';
 import './Modal.css';
 
+/** `.modal-header`'s height (Modal.css), for a caller that sizes the box around it. */
+export const MODAL_HEADER_HEIGHT = 28;
+
 interface ModalProps {
   open: boolean;
   onClose: () => void;

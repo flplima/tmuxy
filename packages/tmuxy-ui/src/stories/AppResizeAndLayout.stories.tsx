@@ -94,7 +94,7 @@ export const ResizePaneDragVertical: Story = {
  * every OTHER pane's row perfectly still. tmux emits intermediate
  * %layout-change events during a resize in which panes it isn't resizing
  * transiently report y=0 (the top border row momentarily gone), which
- * computePaneBox renders as that pane's content jumping up a row for a frame.
+ * paneBox renders as that pane's content jumping up a row for a frame.
  * The recorder watches all four panes; any top/height reversal — on the
  * resized panes OR an uninvolved one — fails.
  */
@@ -144,7 +144,7 @@ export const ResizePaneDragGrid: Story = {
 /**
  * Splitting a pane must not jump any EXISTING pane's rows. During a split tmux
  * emits transient intermediate %layout-change events in which an existing pane
- * briefly reports y=0 (its top border row momentarily gone); computePaneBox
+ * briefly reports y=0 (its top border row momentarily gone); paneBox
  * would drop that pane's header and shift its terminal content up a row for a
  * frame — the same root cause as the resize row-jump, on a different operation.
  * The reconcile masks the dip (appMachine TMUX_MODEL_UPDATE). The recorder

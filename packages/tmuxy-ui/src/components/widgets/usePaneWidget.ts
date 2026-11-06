@@ -1,35 +1,12 @@
 /**
- * Resolve the widget a pane is running, for components that are not the widget
- * itself — the pane menu in particular, which hangs off the header and has
- * only a pane id to go on.
- *
- * Detection is the same `detectWidget` scan `usePaneWidgetInfo` runs for the
- * pane body, so the menu and the pane agree about what a pane is showing. It
- * skips that hook's latch over transiently empty content: a menu reads the
- * pane once, while it is open.
+ * The widget section of a pane's menu, for the pane menu which hangs off the
+ * header and has only a pane id to go on.
  */
 
 import { useAppActor, usePane } from '../../machines/appHooks';
-import { detectWidget, getWidget, type WidgetDefinition } from './registry';
+import { paneWidgetOf } from './registry';
 import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
-
-interface PaneWidget {
-  name: string;
-  definition: WidgetDefinition;
-  /** The widget's content lines, below the marker. */
-  lines: string[];
-}
-
-function usePaneWidget(paneId: PaneId | null | undefined): PaneWidget | null {
-  const pane = usePane(paneId ?? null);
-  if (!pane) return null;
-  const info = detectWidget(pane.content, pane.paneWidget);
-  if (!info) return null;
-  const definition = getWidget(info.widgetName);
-  if (!definition) return null;
-  return { name: info.widgetName, definition, lines: info.contentLines };
-}
 
 const NO_ITEMS: AppMenuSpec = [];
 
@@ -43,7 +20,7 @@ const NO_ITEMS: AppMenuSpec = [];
  */
 export function useWidgetMenuItems(paneId: PaneId | null | undefined): AppMenuSpec {
   const actor = useAppActor();
-  const widget = usePaneWidget(paneId);
+  const widget = paneWidgetOf(usePane(paneId ?? null));
   if (!paneId || !widget?.definition.selectMenuItems) return NO_ITEMS;
   return widget.definition.selectMenuItems(actor.getSnapshot().context, paneId, widget.lines);
 }

@@ -9,7 +9,7 @@
 
 import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectKeyBindings } from '../machines/selectors/ui';
-import { formatPrefixKey } from '../domain/menus/keyHint';
+import { formatKey } from '../domain/keyLabels';
 import { splitTableSwitch } from '../domain/keyTables';
 import type { KeyBindings } from '../domain/wire';
 import './KeysView.css';
@@ -36,7 +36,7 @@ function Section({ title, bindings }: { title: string; bindings: readonly Bindin
         {bindings.map((b) => (
           <div key={b.key} className="keys-view-row">
             <dt>
-              <kbd>{b.key}</kbd>
+              <kbd>{formatKey(b.key)}</kbd>
             </dt>
             <dd>{bindingText(b)}</dd>
           </div>
@@ -52,7 +52,7 @@ export function KeysView() {
   const send = useAppSend();
   if (!open || !keybindings) return null;
 
-  const prefix = formatPrefixKey(keybindings.prefix_key);
+  const prefix = formatKey(keybindings.prefix_key);
   return (
     <div className="keys-view" data-testid="keys-view" role="dialog" aria-label="Keys">
       <div className="keys-view-scrim" onClick={() => send({ type: 'TOGGLE_KEYS_VIEW' })} />
