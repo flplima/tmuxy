@@ -36,7 +36,7 @@ import {
   sameGroupDrop,
   sideOf,
 } from './groupDrop';
-import { centeringOffset, paneInsetX } from '../../domain/paneGeometry';
+import { centeringOffset, gridExtent, paneBox } from '../../domain/paneGeometry';
 import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../infra/haptics';
 
@@ -125,6 +125,10 @@ export const dragMachine = setup({
                 startY: event.startY,
                 currentX: event.startX,
                 currentY: event.startY,
+                origin: centeringOffset(
+                  event.containerWidth,
+                  gridExtent(event.panes, null, { cols: 0, rows: 0 }).cols * event.charWidth,
+                ),
                 originalX: pane?.x ?? 0,
                 originalY: pane?.y ?? 0,
                 originalWidth: pane?.width ?? 0,
@@ -184,11 +188,7 @@ export const dragMachine = setup({
               enqueue('notifyStateUpdate');
             };
 
-            // Where PaneLayout draws the grid, so the hit test agrees with it.
-            const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
-            const origin = centeringOffset(context.containerWidth, totalW * context.charWidth);
-            const centerOffsetX = origin.x;
-            const centerOffsetY = origin.y;
+            const origin = context.drag.origin;
 
             // Use cursor position (container-relative) for hit-testing.
             // This correctly handles dragging large panes onto smaller targets,
@@ -226,8 +226,7 @@ export const dragMachine = setup({
                 context.groups,
                 context.charWidth,
                 context.charHeight,
-                centerOffsetX,
-                centerOffsetY,
+                origin,
               ),
               draggedId,
               groupOf(context.groups, draggedId) !== null,
@@ -260,19 +259,12 @@ export const dragMachine = setup({
                 cursorContainerY,
                 context.charWidth,
                 context.charHeight,
-                centerOffsetX,
-                centerOffsetY,
+                origin,
               );
               const pane = context.panes.find((p) => p.tmuxId === target);
-              const insetX = paneInsetX(context.charWidth);
               const leaveSide = pane
                 ? sideOf(
-                    {
-                      left: centerOffsetX + pane.x * context.charWidth - insetX,
-                      top: centerOffsetY + pane.y * context.charHeight,
-                      right: centerOffsetX + (pane.x + pane.width) * context.charWidth + insetX,
-                      bottom: centerOffsetY + (pane.y + pane.height) * context.charHeight,
-                    },
+                    paneBox(pane, context.charWidth, context.charHeight, origin.x, origin.y),
                     cursorContainerX,
                     cursorContainerY,
                   )
@@ -300,8 +292,7 @@ export const dragMachine = setup({
               cursorContainerY,
               context.charWidth,
               context.charHeight,
-              centerOffsetX,
-              centerOffsetY,
+              origin,
             );
 
             // A pane swaps once the pointer has rested on it for a moment: one

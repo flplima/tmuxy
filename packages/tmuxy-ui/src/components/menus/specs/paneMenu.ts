@@ -13,8 +13,7 @@ import { pluginsSubmenu } from './pluginMenu';
 import type { MenuIconName } from '../../../domain/menus/icons';
 import { separator, tidy } from '../../../domain/menus/spec';
 import {
-  command,
-  commandHint,
+  event as eventAction,
   local,
   op as opAction,
   type AppMenuNode,
@@ -130,8 +129,11 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       id: 'pane-close',
       label: 'Close Pane',
       icon: 'close',
-      keyHint: commandHint(keybindings, 'pane-close'),
-      action: command('pane-close'),
+      keyHint: keyHint(keybindings, TmuxOp.KillPane({ paneId: null })),
+      // The group-aware close (CLOSE_PANE) swaps a sibling into view and
+      // degroups the survivor, which a raw kill-pane does not. With no pane
+      // named, the machine closes the one the keyboard is in.
+      action: eventAction({ type: 'CLOSE_PANE', paneId: options.paneId }),
     },
   ]);
 }

@@ -13,38 +13,34 @@ import {
   type AppMenuAction,
   type AppMenuNode,
   type AppMenuSpec,
-  type MenuCommandId,
   type MenuLocal,
 } from './specs/actions';
-import type { PaneId } from '../../domain/ids';
 
 export type AppMenuDispatch = MenuDispatch<AppMenuAction>;
 
 export interface MenuDispatchOptions {
-  /** The pane a group-aware Close Pane acts on (see `activeCloseTarget`). */
-  closeTarget?: PaneId;
   /**
    * Runs before an op or a command is dispatched — a context menu focuses
-   * its pane first. Given the command, or null for an op.
+   * its pane first. An event names its own target.
    */
-  before?: (command: MenuCommandId | null) => void;
+  before?: () => void;
   /** The surface's own verbs: dialogs, native calls, anything not an event. */
   onLocal?: (local: MenuLocal) => void;
 }
 
 export function useMenuDispatch(options: MenuDispatchOptions = {}): AppMenuDispatch {
   const send = useAppSend();
-  const { closeTarget, before, onLocal } = options;
+  const { before, onLocal } = options;
   return useCallback<AppMenuDispatch>(
     (action) => {
       switch (action.kind) {
         case 'op':
-          before?.(null);
+          before?.();
           send({ type: 'DISPATCH_OP', op: action.op });
           return;
         case 'command':
-          before?.(action.id);
-          executeMenuCommand(send, action.id, closeTarget);
+          before?.();
+          executeMenuCommand(send, action.id);
           return;
         case 'event':
           send(action.event);
@@ -54,7 +50,7 @@ export function useMenuDispatch(options: MenuDispatchOptions = {}): AppMenuDispa
           return;
       }
     },
-    [send, closeTarget, before, onLocal],
+    [send, before, onLocal],
   );
 }
 

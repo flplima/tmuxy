@@ -17,7 +17,7 @@
  */
 
 import type { TmuxPane, PaneGroup } from '../../domain/client';
-import { paneInsetX } from '../../domain/paneGeometry';
+import { paneBox, type GridOffset } from '../../domain/paneGeometry';
 import type { TabDrop } from './tabStripDrop';
 import type { GroupId, PaneId } from '../../domain/ids';
 import { TmuxOp, type Side } from '../../domain/commands';
@@ -45,25 +45,22 @@ export function groupOf(groups: Record<GroupId, PaneGroup>, paneId: PaneId): Pan
   return null;
 }
 
-/** Each visible pane's header row, in the geometry of `findSwapTarget`. */
+/** Each visible pane's header row: the top row of the box `findSwapTarget` hit-tests. */
 export function headerBands(
   panes: TmuxPane[],
   groups: Record<GroupId, PaneGroup>,
   charWidth: number,
   charHeight: number,
-  centerOffsetX: number,
-  centerOffsetY: number,
+  origin: GridOffset,
 ): HeaderBand[] {
-  const insetX = paneInsetX(charWidth);
   return panes.map((pane) => {
-    const left = centerOffsetX + pane.x * charWidth - insetX;
-    const top = centerOffsetY + Math.max(0, pane.y - 1) * charHeight;
+    const box = paneBox(pane, charWidth, charHeight, origin.x, origin.y);
     return {
       paneId: pane.tmuxId,
-      left,
-      top,
-      right: left + pane.width * charWidth + 2 * insetX,
-      bottom: top + charHeight,
+      left: box.left,
+      top: box.top,
+      right: box.left + box.width,
+      bottom: box.top + charHeight,
       members: groupOf(groups, pane.tmuxId) ?? [pane.tmuxId],
     };
   });
@@ -123,12 +120,12 @@ export function groupDropOp(drop: GroupDrop, draggedId: PaneId): TmuxOp | null {
  * to its size, so a tall pane splits above or below only near its ends.
  */
 export function sideOf(
-  box: { left: number; top: number; right: number; bottom: number },
+  box: { left: number; top: number; width: number; height: number },
   x: number,
   y: number,
 ): Side {
-  const dx = (x - (box.left + box.right) / 2) / Math.max(1, box.right - box.left);
-  const dy = (y - (box.top + box.bottom) / 2) / Math.max(1, box.bottom - box.top);
+  const dx = (x - (box.left + box.width / 2)) / Math.max(1, box.width);
+  const dy = (y - (box.top + box.height / 2)) / Math.max(1, box.height);
   if (Math.abs(dx) >= Math.abs(dy)) return dx < 0 ? 'left' : 'right';
   return dy < 0 ? 'up' : 'down';
 }

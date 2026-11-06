@@ -45,11 +45,21 @@ function onACursorCell(canvasElement: HTMLElement): boolean {
   });
 }
 
-/** Past the overlay's re-measuring after the last render, so only the page moving can move it. */
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+/**
+ * The overlay on a cursor cell and done re-measuring: its corner the same two
+ * frames running, so only the page moving can move it.
+ */
 async function settled(canvasElement: HTMLElement): Promise<{ x: number; y: number }> {
-  await waitFor(() => expect(onACursorCell(canvasElement)).toBe(true), { timeout: 8000 });
-  await new Promise((r) => setTimeout(r, 1000));
-  return overlayCorner(canvasElement);
+  for (;;) {
+    await waitFor(() => expect(onACursorCell(canvasElement)).toBe(true), { timeout: 8000 });
+    const corner = overlayCorner(canvasElement);
+    await nextFrame();
+    await nextFrame();
+    const again = overlayCorner(canvasElement);
+    if (again.x === corner.x && again.y === corner.y) return again;
+  }
 }
 
 export const FollowsThePageScroll: Story = {

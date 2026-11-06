@@ -7,7 +7,6 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
-import { selectFocusedFloat } from '../../machines/selectors/keyboard';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
 import { writeClipboard } from '../../infra/clipboard';
@@ -26,7 +25,7 @@ import type { AppMenuOptions } from './specs/appMenu';
 import type { MenuEnv } from '../../domain/menus/spec';
 import { useMenuDispatch, type AppMenuDispatch } from './SpecMenu';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
-import { activeCloseTarget, op, type AppMenuNode, type MenuLocal } from './specs/actions';
+import { op, type AppMenuNode, type MenuLocal } from './specs/actions';
 import { TmuxOp } from '../../domain/commands';
 import './AppMenu.css';
 
@@ -40,7 +39,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const send = useAppSend();
   const actor = useAppActor();
   const activePaneId = useAppSelector((c) => c.activePaneId);
-  const focusedFloat = useAppSelector(selectFocusedFloat);
   const sessionName = useAppSelector((c) => c.sessionName);
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
   const widgetItems = useWidgetMenuItems(activePaneId);
@@ -86,10 +84,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
         return focusGuiWindow(local.index);
     }
   };
-  const dispatch = useMenuDispatch({
-    closeTarget: activeCloseTarget(activePaneId, focusedFloat),
-    onLocal,
-  });
+  const dispatch = useMenuDispatch({ onLocal });
 
   const windowMenu: AppMenuNode | undefined = isTauri()
     ? windowMenuSpec(env, { windows, style })

@@ -3,6 +3,10 @@
     "Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.",
     "Rewrite with UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants"
   ],
+  "confAssets": [
+    "tmuxy.essentials.conf",
+    "tmuxy.defaults.conf"
+  ],
   "configDir": "/root/.config/tmuxy",
   "dataDir": "/root/.local/share/tmuxy",
   "entryConf": "/root/.local/state/tmuxy/tmuxy.entry.conf",

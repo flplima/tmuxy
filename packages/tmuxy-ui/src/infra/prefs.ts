@@ -4,7 +4,9 @@
  * the one guarded read and write.
  */
 
-import { parseThemeMode, type ThemeMode } from '../domain/wireSettings';
+import { parseThemeMode, type ThemeInfo, type ThemeMode } from '../domain/wireSettings';
+import type { BackendCall } from '../domain/backendCalls';
+import { BUNDLED_THEMES } from '../domain/tmuxyConstants.gen';
 import { DEFAULT_FONT_SIZE, isFontSize } from './fontSizeManager';
 
 const KEYS = {
@@ -47,6 +49,46 @@ export function loadThemePref(): { theme: string; mode: ThemeMode } {
 export function saveThemePref(theme: string, mode: ThemeMode): void {
   write(KEYS.themeName, theme);
   write(KEYS.themeMode, mode);
+}
+
+type ThemeCall = Extract<
+  BackendCall,
+  { cmd: 'set_theme' | 'set_theme_mode' | 'get_theme_settings' | 'get_themes_list' }
+>;
+
+const THEME_CALLS: ReadonlySet<BackendCall['cmd']> = new Set([
+  'set_theme',
+  'set_theme_mode',
+  'get_theme_settings',
+  'get_themes_list',
+]);
+
+export function isThemeCall(call: BackendCall): call is ThemeCall {
+  return THEME_CALLS.has(call.cmd);
+}
+
+/**
+ * The theme calls of a transport with no server, answered from these prefs
+ * the way the demo site answers them: the shipped themes, the saved choice.
+ */
+export function answerThemeCall(
+  call: ThemeCall,
+): { theme: string; mode: ThemeMode } | readonly ThemeInfo[] | null {
+  const saved = loadThemePref();
+  switch (call.cmd) {
+    case 'set_theme': {
+      const { name, mode } = call.args;
+      saveThemePref(name || saved.theme, mode == null ? saved.mode : parseThemeMode(mode));
+      return null;
+    }
+    case 'set_theme_mode':
+      saveThemePref(saved.theme, parseThemeMode(call.args.mode));
+      return null;
+    case 'get_theme_settings':
+      return saved;
+    case 'get_themes_list':
+      return BUNDLED_THEMES;
+  }
 }
 
 export function loadFontSizePref(): number {

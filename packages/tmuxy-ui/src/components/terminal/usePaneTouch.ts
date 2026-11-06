@@ -117,8 +117,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
   const lastTapRef = useRef<TouchPoint | null>(null);
   const lastTapToggledRef = useRef(false);
   const holdTimerRef = useRef<number | null>(null);
-  // The finger on the screen started on THIS pane: the move and end listeners
-  // sit on the window (usePaneNativeListeners).
+  // The finger on the screen started a gesture this hook is following.
   const gestureRef = useRef(false);
 
   const velocitySamplesRef = useRef<Array<{ t: number; y: number }>>([]);

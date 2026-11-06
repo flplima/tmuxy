@@ -46,3 +46,6 @@ SIDEBAR_WINDOW_PREFIX='__sidebar-'
 # session it attaches to (`session::DEFAULT_TMUX_SOCKET`, `DEFAULT_SESSION_NAME`).
 DEFAULT_TMUX_SOCKET='tmuxy'
 DEFAULT_SESSION='tmuxy'
+
+# What tmuxy-widget prints before a widget's name, for the client to draw it.
+WIDGET_MARKER='__TMUXY_WIDGET__:'

@@ -94,7 +94,7 @@ check_eslint() {
 
 check_types() {
   step types
-  (cd packages/tmuxy-ui && npx tsc --noEmit)
+  (cd packages/tmuxy-ui && npx tsc --noEmit && npx tsc --noEmit -p tsconfig.node.json)
   # The demo imports the UI package, so a renamed export or a changed prop
   # breaks its build.
   npx tsc --noEmit -p packages/tmuxy-demo

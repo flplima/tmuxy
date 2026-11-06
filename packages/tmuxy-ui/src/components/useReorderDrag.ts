@@ -15,20 +15,6 @@ import {
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS, dropIndex } from '../domain/tabOverview';
 import type { WindowId } from '../domain/ids';
 
-/**
- * Route the rest of a press to `el` even when the pointer leaves it. A
- * synthetic pointer (a test firing events by hand) has no active pointer id
- * to capture, and the browser refuses it; the drag then works as long as the
- * events keep targeting the element, which is what such a test does.
- */
-function capturePointer(el: Element, pointerId: number): void {
-  try {
-    el.setPointerCapture(pointerId);
-  } catch {
-    return;
-  }
-}
-
 export interface ReorderDragState {
   windowId: WindowId;
   fromIndex: number;
@@ -143,7 +129,7 @@ export function useReorderDrag({
     windowId: WindowId,
     index: number,
   ) => {
-    capturePointer(e.currentTarget, e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     const state: ReorderDragState = {
       windowId,
       fromIndex: index,

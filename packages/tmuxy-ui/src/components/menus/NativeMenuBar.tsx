@@ -22,6 +22,19 @@ function shapeOf<A>(spec: MenuSpec<A>): string {
   return JSON.stringify(spec, (key, value: unknown) => (key === 'action' ? undefined : value));
 }
 
+interface Latest<A> {
+  current: { spec: MenuSpec<A>; dispatch: (action: A) => void };
+}
+
+function rebuild<A>(latest: Latest<A>): Promise<void> {
+  const { spec, dispatch } = latest.current;
+  return setNativeAppMenu(spec, dispatch);
+}
+
+function rebuildReporting<A>(latest: Latest<A>): void {
+  void rebuild(latest).catch(failing('native menu bar'));
+}
+
 export function NativeMenuBar() {
   const host = useMenuHost();
   const env = useMenuEnv();
@@ -34,10 +47,7 @@ export function NativeMenuBar() {
 
   useEffect(() => {
     if (host !== 'native-bar') return;
-    const timer = window.setTimeout(() => {
-      const { spec, dispatch } = latest.current;
-      void setNativeAppMenu(spec, dispatch).catch(failing('native menu bar'));
-    }, REBUILD_DEBOUNCE_MS);
+    const timer = window.setTimeout(() => rebuildReporting(latest), REBUILD_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [host, shape]);
 
@@ -60,7 +70,7 @@ export function NativeMenuBar() {
           if (!focused) return;
           const { spec, dispatch } = latest.current;
           submenuOpeners(spec).forEach(dispatch);
-          void setNativeAppMenu(spec, dispatch).catch(() => {});
+          rebuildReporting(latest);
         })
         .then((off) => {
           if (gone) off();
@@ -78,10 +88,7 @@ export function NativeMenuBar() {
   useEffect(() => {
     if (host !== 'native-bar' || typeof window.matchMedia !== 'function') return;
     const scheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const redraw = () => {
-      const { spec, dispatch } = latest.current;
-      void setNativeAppMenu(spec, dispatch).catch(() => {});
-    };
+    const redraw = () => rebuildReporting(latest);
     scheme.addEventListener('change', redraw);
     return () => scheme.removeEventListener('change', redraw);
   }, [host]);
@@ -90,8 +97,7 @@ export function NativeMenuBar() {
   useEffect(() => {
     const api: TmuxyMenusTestApi = {
       barIds: () => itemIds(latest.current.spec),
-      rebuild: () =>
-        setNativeAppMenu(latest.current.spec, latest.current.dispatch).then(() => true),
+      rebuild: () => rebuild(latest).then(() => true),
     };
     (window as unknown as { tmuxyMenus?: TmuxyMenusTestApi }).tmuxyMenus = api;
     return () => {

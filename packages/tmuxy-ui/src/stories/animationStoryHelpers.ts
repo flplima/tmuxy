@@ -1,4 +1,5 @@
 import { expect, within, waitFor } from 'storybook/test';
+import { DEFAULT_APPEARANCE } from '../domain/tmuxyConstants.gen';
 
 export interface AppActor {
   send: (event: unknown) => void;
@@ -70,14 +71,8 @@ export function alphaOf(color: string): number {
   return 1;
 }
 
-export const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-};
+/** The shipped appearance, with no macOS blur behind a story. */
+export const APPEARANCE = { ...DEFAULT_APPEARANCE, blur: false };
 
 /**
  * The commit that moves the boxes must carry the gate — that is what

@@ -4,7 +4,7 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { calculateTargetSize } from '../../constants/gridSize';
+import { calculateTargetSize } from '../../infra/dom/targetSize';
 import { CHAR_HEIGHT } from '../../constants/layout';
 import type { CellMetrics } from '../../infra/dom/cellMetrics';
 import {

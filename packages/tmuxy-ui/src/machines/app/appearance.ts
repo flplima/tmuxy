@@ -1,11 +1,12 @@
 /**
  * The context's appearance options as the config sets them, and the values
- * they take before a config has said (or on an adapter that has none): the
- * one place those defaults are written, for the initial context and for
- * every THEME_SETTINGS_RECEIVED. They match tmuxy.defaults.conf's.
+ * they take before a config has said (or on an adapter that has none),
+ * tmuxy.defaults.conf's, for the initial context and for every
+ * THEME_SETTINGS_RECEIVED.
  */
 
 import type { Appearance } from '../../domain/wire';
+import { DEFAULT_APPEARANCE as D } from '../../domain/tmuxyConstants.gen';
 import type { AppMachineContext } from '../types/context';
 
 export type AppearancePrefs = Pick<
@@ -22,17 +23,17 @@ export type AppearancePrefs = Pick<
 
 export function appearancePrefs(appearance: Appearance | undefined): AppearancePrefs {
   return {
-    animationsAllowed: appearance?.animations ?? true,
-    cursorBlink: appearance?.cursorBlink ?? true,
-    sendAsk: appearance?.sendAsk ?? true,
-    notifyAllowed: appearance?.notify ?? true,
-    transparency: appearance?.transparency ?? true,
-    tabOverviewCols: appearance?.tabOverviewCols ?? 3,
+    animationsAllowed: appearance?.animations ?? D.animations,
+    cursorBlink: appearance?.cursorBlink ?? D.cursorBlink,
+    sendAsk: appearance?.sendAsk ?? D.sendAsk,
+    notifyAllowed: appearance?.notify ?? D.notify,
+    transparency: appearance?.transparency ?? D.transparency,
+    tabOverviewCols: appearance?.tabOverviewCols ?? D.tabOverviewCols,
     gestureFlags: {
-      swipeTabs: appearance?.gestureSwipeTabs ?? true,
-      pinchZoom: appearance?.gesturePinchZoom ?? true,
-      pinchOverview: appearance?.gesturePinchOverview ?? true,
+      swipeTabs: appearance?.gestureSwipeTabs ?? D.gestureSwipeTabs,
+      pinchZoom: appearance?.gesturePinchZoom ?? D.gesturePinchZoom,
+      pinchOverview: appearance?.gesturePinchOverview ?? D.gesturePinchOverview,
     },
-    nativeMenus: appearance?.nativeMenus ?? true,
+    nativeMenus: appearance?.nativeMenus ?? D.nativeMenus,
   };
 }

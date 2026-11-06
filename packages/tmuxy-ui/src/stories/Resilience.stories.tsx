@@ -9,6 +9,7 @@ import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 import oneTabThenTwo from './fixtures/gen/one-tab-then-two.json';
 import { PaneId } from '../domain/ids';
+import { wait } from './animationObservers';
 
 const NEW_TAB = [{ match: /^new-window\b/, to: 'two-tabs' }];
 const KILL = [{ match: /^kill-pane\b/, to: 'one' }];
@@ -30,8 +31,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export const SlowTabCreate: Story = {
   args: { commandDelayMs: 250 },

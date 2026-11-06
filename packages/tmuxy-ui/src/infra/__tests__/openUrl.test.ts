@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { isOpenableUrl, safeHref } from '../openUrl';
+import cases from './openableUrlCases.gen.json';
 
 /**
  * A pane prints the URL, so the anchor's own `href` is a
@@ -32,5 +33,13 @@ describe('safeHref', () => {
     for (const url of ['https://example.com', 'javascript:alert(1)', 'file:///etc/passwd']) {
       expect(safeHref(url) !== undefined).toBe(isOpenableUrl(url));
     }
+  });
+});
+
+describe('isOpenableUrl', () => {
+  // The desktop opens a link only when core's is_openable_url agrees, so the
+  // client offers exactly the links core would open.
+  it.each(cases as [string, boolean][])('%j is openable: %s, as core decides', (url, openable) => {
+    expect(isOpenableUrl(url)).toBe(openable);
   });
 });

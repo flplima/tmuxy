@@ -15,6 +15,7 @@ import threePanes from './fixtures/gen/content-three-panes.json';
 import { ContentStabilityRecorder } from './contentStability';
 import { ContentMutationRecorder } from './contentMutation';
 import { getApp, getPaneLayout, waitForPaneCount } from './animationStoryHelpers';
+import { wait } from './animationObservers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Content Stability',
@@ -35,8 +36,6 @@ export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
 const cmd = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
-
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function waitForMarkers(
   canvasElement: HTMLElement,
@@ -99,7 +98,7 @@ export const NavigateBetweenPanes: Story = {
       for (let round = 0; round < 2; round++) {
         for (const id of ['%0', '%1', '%2']) {
           cmd(`select-pane -t ${id}`);
-          await sleep(120);
+          await wait(120);
         }
       }
     });
@@ -115,7 +114,7 @@ export const SplitPreservesContent: Story = {
     await recordStable(canvasElement, ['ZZ_A_ZZ'], 'split', async () => {
       cmd('split-window -h');
       await waitForPaneCount(canvas, 2);
-      await sleep(500);
+      await wait(500);
     });
   },
 };
@@ -136,11 +135,11 @@ export const ResizePreservesContent: Story = {
     await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'resize', async () => {
       for (let i = 0; i < 4; i++) {
         cmd('resize-pane -t %1 -L 5');
-        await sleep(120);
+        await wait(120);
       }
       for (let i = 0; i < 4; i++) {
         cmd('resize-pane -t %1 -R 5');
-        await sleep(120);
+        await wait(120);
       }
     });
   },
@@ -158,7 +157,7 @@ export const ZoomPreservesContent: Story = {
 
     await recordStable(canvasElement, ['ZZ_B_ZZ'], 'zoom in', async () => {
       cmd('resize-pane -t %1 -Z');
-      await sleep(600);
+      await wait(600);
     });
     await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'unzoom', async () => {
       cmd('resize-pane -t %1 -Z');
@@ -166,7 +165,7 @@ export const ZoomPreservesContent: Story = {
         () => expect(getPaneLayout(canvasElement).textContent ?? '').toContain('ZZ_A_ZZ'),
         { timeout: 8000 },
       );
-      await sleep(400);
+      await wait(400);
     });
   },
 };
@@ -181,7 +180,7 @@ export const KillPreservesSurvivorContent: Story = {
       dom.expectGone(['%1']);
       cmd('kill-pane -t %1');
       await waitForPaneCount(canvas, 1);
-      await sleep(500);
+      await wait(500);
     });
   },
 };
@@ -201,9 +200,9 @@ export const MovePreservesContent: Story = {
 
     await recordStable(canvasElement, ['ZZ_A_ZZ', 'ZZ_B_ZZ'], 'move (swap)', async () => {
       cmd('swap-pane -s %0 -t %1');
-      await sleep(300);
+      await wait(300);
       cmd('swap-pane -s %0 -t %1');
-      await sleep(300);
+      await wait(300);
     });
   },
 };

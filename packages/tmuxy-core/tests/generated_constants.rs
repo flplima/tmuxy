@@ -146,7 +146,207 @@ fn typescript() -> String {
          export const CLI_DISPATCHER = {};",
         quoted(tmuxy_core::paths::CLI_DISPATCHER)
     );
+    ui_shared(&mut out);
     out
+}
+
+// --- Values the UI shares with the shipped config and the CLI's scripts ---
+
+/// A number as TypeScript writes it after prettier: `1`, not `1.0`.
+fn ts_number(value: &serde_json::Number) -> String {
+    value
+        .as_f64()
+        .map_or_else(|| value.to_string(), |v| format!("{v}"))
+}
+
+/// A JSON value as a TypeScript literal, keys in sorted order and indented
+/// the way prettier prints it (objects only nest one level here).
+fn ts_literal(value: &serde_json::Value, indent: &str) -> String {
+    match value {
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => ts_number(n),
+        serde_json::Value::String(s) => quoted(s),
+        serde_json::Value::Array(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(|v| ts_literal(v, indent))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<_> = map.keys().collect();
+            keys.sort();
+            if indent.is_empty() {
+                let inner = "  ";
+                let body: String = keys
+                    .iter()
+                    .map(|k| format!("{inner}{k}: {},\n", ts_literal(&map[*k], inner)))
+                    .collect();
+                format!("{{\n{body}}}")
+            } else {
+                let body = keys
+                    .iter()
+                    .map(|k| format!("{k}: {}", ts_literal(&map[*k], indent)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {body} }}")
+            }
+        }
+        serde_json::Value::Null => "null".to_string(),
+    }
+}
+
+/// A character as a TypeScript string literal, quoted the way prettier quotes it.
+fn ts_char(c: char) -> String {
+    match c {
+        '\'' => "\"'\"".to_string(),
+        '\\' => "'\\\\'".to_string(),
+        c => format!("'{c}'"),
+    }
+}
+
+/// Links and whether core's `is_openable_url` opens them, for the client's
+/// rule to be held to (`infra/__tests__/openUrl.test.ts`).
+fn openable_url_cases() -> String {
+    let cases = [
+        "https://example.com/a?b=c",
+        "HTTP://EXAMPLE.COM",
+        "mailto:someone@example.com",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://example.com/\u{1b}[31m",
+        "https://example.com/\"&calc.exe",
+        "https://example.com/'x",
+        "https://example.com/a b",
+        "https://example.com/a\u{a0}b",
+        "https://example.com/a\u{85}b",
+        "https://example.com/a\u{feff}b",
+        "https://example.com/a\u{2028}b",
+        "https://example.com/<x>",
+        "https://example.com/{x}|^`\\",
+        "https://example.com/caf\u{e9}",
+        "",
+    ];
+    let rows: Vec<String> = cases
+        .iter()
+        .map(|url| {
+            format!(
+                "  [{}, {}]",
+                json_ascii(url),
+                tmuxy_core::host::command::is_openable_url(url)
+            )
+        })
+        .collect();
+    format!("[\n{}\n]\n", rows.join(",\n"))
+}
+
+/// A JSON string with everything outside printable ASCII escaped, so the
+/// fixture shows each case's character by its code.
+fn json_ascii(value: &str) -> String {
+    let mut out = String::from('"');
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            ' '..='~' => out.push(c),
+            c => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The prefix the shipped defaults set (`set -g prefix` in tmuxy.defaults.conf).
+fn default_prefix() -> String {
+    let path = packages().join("tmuxy-core/assets/tmuxy.defaults.conf");
+    let conf = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    conf.lines()
+        .find_map(|line| line.trim().strip_prefix("set -g prefix "))
+        .map(|key| key.trim().to_string())
+        .unwrap_or_else(|| panic!("{} sets no prefix", path.display()))
+}
+
+/// The themes the UI ships (`tmuxy-ui/public/themes`), named and moded as
+/// the server's `get_themes_list` names them.
+fn bundled_themes() -> Vec<tmuxy_core::theme::ThemeInfo> {
+    let dir = packages().join("tmuxy-ui/public/themes");
+    let mut stems: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "css"))
+        .filter_map(|path| Some((path.file_stem()?.to_str()?.to_string(), path)))
+        .collect();
+    stems.sort();
+    stems
+        .into_iter()
+        .map(|(name, path)| {
+            let css = std::fs::read_to_string(&path).unwrap_or_default();
+            tmuxy_core::theme::ThemeInfo {
+                display_name: tmuxy_core::theme::display_theme_name(&name),
+                modes: tmuxy_core::session::theme_modes(&css),
+                name,
+            }
+        })
+        .collect()
+}
+
+fn ui_shared(out: &mut String) {
+    let appearance =
+        serde_json::to_value(tmuxy_core::theme::Appearance::default()).unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "\n/** The appearance options before a config has said (`theme::Appearance::default()`, tmuxy.defaults.conf's). */\n\
+         export const DEFAULT_APPEARANCE = {} as const;",
+        ts_literal(&appearance, "")
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The prefix key tmuxy.defaults.conf sets. */\nexport const DEFAULT_PREFIX = {};",
+        quoted(&default_prefix())
+    );
+    let _ = writeln!(
+        out,
+        "\n/** What `tmuxy-widget` prints before a widget's name (`constants::WIDGET_MARKER`). */\n\
+         export const WIDGET_MARKER = {};",
+        quoted(tmuxy_core::constants::WIDGET_MARKER)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The buffer the client stages a paste in (`constants::PASTE_BUFFER`). */\n\
+         export const PASTE_BUFFER = {};",
+        quoted(tmuxy_core::constants::PASTE_BUFFER)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** Which links a pane printed may be opened (`host::command::is_openable_url`). */\n\
+         export const OPENABLE_URL = {{\n  schemes: [{}],\n  forbidden: [{}],\n}} as const;",
+        tmuxy_core::constants::OPENABLE_URL_SCHEMES
+            .map(quoted)
+            .join(", "),
+        tmuxy_core::constants::URL_FORBIDDEN_CHARS
+            .map(ts_char)
+            .join(", ")
+    );
+    out.push_str(
+        "\n/** The themes the app ships, as the server lists them (`theme::get_themes_list`). */\n\
+         export const BUNDLED_THEMES = [\n",
+    );
+    for theme in bundled_themes() {
+        let value = serde_json::to_value(&theme).unwrap_or_default();
+        let _ = writeln!(out, "  {},", ts_literal(&value, "  "));
+    }
+    out.push_str("];\n");
+}
+
+fn shell_ui_shared(out: &mut String) {
+    let _ = writeln!(
+        out,
+        "\n# What tmuxy-widget prints before a widget's name, for the client to draw it.\nWIDGET_MARKER={}",
+        quoted(tmuxy_core::constants::WIDGET_MARKER)
+    );
 }
 
 fn shell() -> String {
@@ -167,6 +367,7 @@ fn shell() -> String {
     );
     shell_cli_contract(&mut out);
     shell_tmux_names(&mut out);
+    shell_ui_shared(&mut out);
     out
 }
 
@@ -253,6 +454,10 @@ fn guest_json() -> String {
     // so only a sorted literal reads the same both ways.
     let value = serde_json::json!({
         "_generated": HEADER.lines().collect::<Vec<_>>(),
+        "confAssets": [
+            tmuxy_core::paths::ESSENTIALS_CONF.name,
+            tmuxy_core::paths::DEFAULTS_CONF.name,
+        ],
         "configDir": path(layout.config.clone()),
         "dataDir": path(layout.data.clone()),
         "entryConf": path(layout.entry_conf()),
@@ -283,6 +488,14 @@ fn the_ui_module_is_tmuxy_cores_values() {
     check(
         packages().join("tmuxy-ui/src/domain/tmuxyConstants.gen.ts"),
         typescript(),
+    );
+}
+
+#[test]
+fn the_ui_url_cases_are_tmuxy_cores_verdicts() {
+    check(
+        packages().join("tmuxy-ui/src/infra/__tests__/openableUrlCases.gen.json"),
+        openable_url_cases(),
     );
 }
 

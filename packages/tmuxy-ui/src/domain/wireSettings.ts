@@ -18,8 +18,8 @@ export function parseThemeMode(mode: unknown): ThemeMode {
 export const ThemeInfo = Schema.Struct({
   name: Schema.String,
   displayName: Schema.String,
-  /** The modes the file declares a palette for; absent from adapters without the file. */
-  modes: Schema.optional(Schema.Array(Schema.String)),
+  /** The modes the file declares a palette for. */
+  modes: Schema.Array(Schema.String),
 });
 export type ThemeInfo = Schema.Schema.Type<typeof ThemeInfo>;
 

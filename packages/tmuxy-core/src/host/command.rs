@@ -17,6 +17,7 @@ use super::plugins;
 use super::requests::{self, to_json};
 use super::{ClientId, HostEvent, SessionRuntime};
 use crate::command_router::Route;
+use crate::constants::{OPENABLE_URL_SCHEMES, URL_FORBIDDEN_CHARS};
 use crate::session::{ConnectTarget, ManagedOption};
 use crate::{CommandError, PaneId};
 
@@ -233,20 +234,17 @@ fn not_here(what: &str) -> CommandError {
     CommandError::unavailable(format!("{what} is not available here"))
 }
 
-/// Whether a link a pane printed may be handed to the browser: http(s) or
-/// mailto, with none of the characters a URL must percent-encode, so an
-/// opener that reads it as text finds nothing to parse in it.
+/// Whether a link a pane printed may be handed to the browser: one of
+/// [`OPENABLE_URL_SCHEMES`], with no control, whitespace or
+/// [`URL_FORBIDDEN_CHARS`] character.
 pub fn is_openable_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    (lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:"))
-        && !url.chars().any(|c| {
-            c.is_control()
-                || c.is_whitespace()
-                || matches!(
-                    c,
-                    '"' | '\'' | '<' | '>' | '^' | '`' | '{' | '}' | '|' | '\\'
-                )
-        })
+    OPENABLE_URL_SCHEMES
+        .iter()
+        .any(|scheme| lower.starts_with(scheme))
+        && !url
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || URL_FORBIDDEN_CHARS.contains(&c))
 }
 
 pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, CommandError> {

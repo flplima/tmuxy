@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
+import { placeholderPaneId } from '../../../../domain/ids';
 import { fromCallback } from 'xstate';
 import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
+import { act } from '../../actionTypes';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { ResizeState, DragState } from '../../../types/domain';
@@ -107,5 +109,44 @@ describe('layout state', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('CLOSE_PANE with no pane named (the app menu’s Close Pane)', () => {
+    const close = (context: Record<string, unknown>) => {
+      const raised: TmuxOp[] = [];
+      const state = { on: { ...layoutState.on, DISPATCH_OP: { actions: 'recordOp' } } };
+      const actor = mountState(
+        state,
+        {
+          ...layoutActions,
+          recordOp: act(({ event }) => {
+            if (event.type === 'DISPATCH_OP') raised.push(event.op);
+          }),
+        },
+        {},
+        context,
+      );
+      actor.send({ type: 'CLOSE_PANE', paneId: null });
+      return raised;
+    };
+
+    it('closes the float that holds the keyboard, through the group-aware close', () => {
+      const raised = close({
+        activePaneId: pid('%3'),
+        keyboardOwner: { kind: 'float', paneId: pid('%9') },
+        floatPanes: { [pid('%9')]: { paneId: pid('%9') } },
+      });
+      expect(raised).toEqual([TmuxOp.GroupClose({ paneId: pid('%9') })]);
+    });
+
+    it('else the active pane', () => {
+      expect(close({ activePaneId: pid('%3') })).toEqual([TmuxOp.KillPane({ paneId: pid('%3') })]);
+    });
+
+    it('else, while the active pane is a placeholder, tmux’s own active pane', () => {
+      expect(close({ activePaneId: placeholderPaneId('5') })).toEqual([
+        TmuxOp.KillPane({ paneId: null }),
+      ]);
+    });
   });
 });

@@ -1,11 +1,11 @@
 import { assign, raise, sendTo } from 'xstate';
 import { toStore } from '../dispatch';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
-import { isPlaceholderId, type PaneId, type WindowId } from '../../../domain/ids';
+import { isPlaceholderId, realId, type PaneId, type WindowId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn, takeKeyboard } from '../helpers';
 import { groupMemberInTab, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
-import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
+import { PANES_OWN_KEYBOARD, selectFocusedFloat } from '../../selectors/keyboard';
 
 // A finished resize keeps its preview until a model update shows tmux's sizes
 // settled on it (layout/modelUpdate.ts); this clears it if that never comes.
@@ -115,19 +115,21 @@ export const layoutActions = {
 
   layout_closePane: act(({ event, context, enqueue }) => {
     if (event.type !== 'CLOSE_PANE') return;
+    const paneId = event.paneId ?? selectFocusedFloat(context) ?? realId(context.activePaneId);
+    if (!paneId) {
+      enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.KillPane({ paneId: null }) });
+      return;
+    }
     // Group members and floats need the group-aware close script (swap-in /
     // window cleanup / option bookkeeping — server-side semantics we can't
     // predict). A plain pane is exactly `kill-pane` (the script's own
     // fallback), which the store predicts: the pane leaves on the click, not
     // on the round trip.
-    const inGroup = Object.values(context.paneGroups).some((g) => g.paneIds.includes(event.paneId));
-    const isFloat = Boolean(context.floatPanes[event.paneId]);
+    const inGroup = Object.values(context.paneGroups).some((g) => g.paneIds.includes(paneId));
+    const isFloat = Boolean(context.floatPanes[paneId]);
     enqueue.raise({
       type: 'DISPATCH_OP' as const,
-      op:
-        inGroup || isFloat
-          ? TmuxOp.GroupClose({ paneId: event.paneId })
-          : TmuxOp.KillPane({ paneId: event.paneId }),
+      op: inGroup || isFloat ? TmuxOp.GroupClose({ paneId }) : TmuxOp.KillPane({ paneId }),
     });
   }),
 

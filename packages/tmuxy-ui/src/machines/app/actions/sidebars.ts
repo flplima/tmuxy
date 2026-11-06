@@ -10,7 +10,7 @@ import {
 } from '../../selectors/panesAndSidebars';
 import { selectDockSize } from '../../selectors/layout';
 import type { SidebarSide, SidebarState } from '../../types/domain';
-import { calculateTargetSize } from '../../../constants/gridSize';
+import { calculateTargetSize } from '../../../infra/dom/targetSize';
 import { releaseKeyboard, sidebarStartTimeoutId, takeKeyboard } from '../helpers';
 import { fixedGridSize } from '../../../domain/gridFit';
 import { fitWindowToSidebar } from '../../../infra/desktopWindow';

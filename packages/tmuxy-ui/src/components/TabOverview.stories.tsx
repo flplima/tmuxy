@@ -8,6 +8,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import { APPEARANCE } from '../stories/animationStoryHelpers';
 import tabsFixture from '../stories/fixtures/gen/tabs.json';
 import manyTabs from '../stories/fixtures/gen/many-tabs.json';
 
@@ -44,18 +45,6 @@ async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
     { timeout: 8000 },
   );
 }
-
-const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-  animations: true,
-  cursorBlink: true,
-  tabOverviewCols: 3,
-};
 
 const cards = (grid: HTMLElement) => [...grid.querySelectorAll<HTMLElement>('.tab-overview-slot')];
 

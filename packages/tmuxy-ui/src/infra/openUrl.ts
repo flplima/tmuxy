@@ -6,17 +6,26 @@
  * on a link did nothing there. Both builds therefore route through here: the
  * desktop asks its Rust side to hand the URL to the system browser, the web
  * build opens a new tab. Only http(s)/mailto links are ever opened — a pane can
- * print any text.
+ * print any text — and only without the characters a URL must percent-encode:
+ * core's rule (`is_openable_url`), generated as OPENABLE_URL.
  */
 
 import { isTauri } from './platform';
 import { failing } from './logFailure';
 import { desktopInvoke } from './desktop';
+import { OPENABLE_URL } from '../domain/tmuxyConstants.gen';
 
-const OPENABLE = /^(https?:\/\/|mailto:)/i;
+const FORBIDDEN: ReadonlySet<string> = new Set(OPENABLE_URL.forbidden);
+/** Rust's `char::is_control` and `char::is_whitespace`. */
+const CONTROL_OR_SPACE = /[\p{Cc}\p{White_Space}]/u;
 
 export function isOpenableUrl(url: string): boolean {
-  return OPENABLE.test(url.trim());
+  const link = url.trim();
+  const lower = link.toLowerCase();
+  return (
+    OPENABLE_URL.schemes.some((scheme) => lower.startsWith(scheme)) &&
+    ![...link].some((c) => FORBIDDEN.has(c) || CONTROL_OR_SPACE.test(c))
+  );
 }
 
 /**

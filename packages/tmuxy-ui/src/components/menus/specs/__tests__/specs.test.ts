@@ -479,4 +479,21 @@ describe('selection, session switcher and window menus', () => {
     const close = find([node], 'window-close');
     if (close?.kind === 'item') expect(close.accelerator).toBe('CmdOrCtrl+Shift+W');
   });
+
+  it('a window shortcut’s native accelerator is the key its hint names, off a Mac too', () => {
+    const windows = [{ index: 2, title: 'two', focused: false }];
+    const keys = (env: MenuEnv) =>
+      ['window-new', 'window-focus-2'].map((id) => {
+        const item = find([windowMenuSpec(env, { style: 'normal', windows })], id);
+        return item && 'accelerator' in item ? [item.keyHint, item.accelerator] : null;
+      });
+    expect(keys(LINUX)).toEqual([
+      ['ctrl+shift+n', 'Ctrl+Shift+N'],
+      ['ctrl+shift+2', 'Ctrl+Shift+2'],
+    ]);
+    expect(keys(MAC)).toEqual([
+      ['cmd+n', 'Cmd+N'],
+      ['cmd+2', 'Cmd+2'],
+    ]);
+  });
 });

@@ -61,5 +61,5 @@ trap 'trap "" INT; ( printf "\033]2;\007" ) 2>/dev/null; _run_safe "set-option -
 # OSC 2 gives the parked member a name; on the visible one the widget's own
 # title wins.
 printf '\033]2;%s\007' "$TITLE"
-echo "__TMUXY_WIDGET__:${COMPONENT}"
+echo "${WIDGET_MARKER}${COMPONENT}"
 cat

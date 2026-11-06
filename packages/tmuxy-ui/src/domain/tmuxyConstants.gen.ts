@@ -44,3 +44,51 @@ export const PLUGIN_KEY_MARKER = '--trigger key';
 
 /** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */
 export const CLI_DISPATCHER = 'tmuxy-cli';
+
+/** The appearance options before a config has said (`theme::Appearance::default()`, tmuxy.defaults.conf's). */
+export const DEFAULT_APPEARANCE = {
+  activePaneOpacity: 1,
+  activeTextOpacity: 1,
+  animations: true,
+  blur: true,
+  cursorBlink: true,
+  gesturePinchOverview: true,
+  gesturePinchZoom: true,
+  gestureSwipeTabs: true,
+  inactivePaneOpacity: 0.7,
+  inactiveTextOpacity: 0.7,
+  nativeMenus: true,
+  notify: true,
+  opacity: 0.7,
+  sendAsk: true,
+  size: { mode: 'smallest' },
+  tabOverviewCols: 3,
+  transparency: true,
+} as const;
+
+/** The prefix key tmuxy.defaults.conf sets. */
+export const DEFAULT_PREFIX = 'C-a';
+
+/** What `tmuxy-widget` prints before a widget's name (`constants::WIDGET_MARKER`). */
+export const WIDGET_MARKER = '__TMUXY_WIDGET__:';
+
+/** The buffer the client stages a paste in (`constants::PASTE_BUFFER`). */
+export const PASTE_BUFFER = 'tmuxy-paste';
+
+/** Which links a pane printed may be opened (`host::command::is_openable_url`). */
+export const OPENABLE_URL = {
+  schemes: ['http://', 'https://', 'mailto:'],
+  forbidden: ['"', "'", '<', '>', '^', '`', '{', '}', '|', '\\'],
+} as const;
+
+/** The themes the app ships, as the server lists them (`theme::get_themes_list`). */
+export const BUNDLED_THEMES = [
+  { displayName: 'Catppuccin', modes: ['dark', 'light'], name: 'catppuccin' },
+  { displayName: 'Default', modes: ['dark', 'light'], name: 'default' },
+  { displayName: 'Dracula', modes: ['dark', 'light'], name: 'dracula' },
+  { displayName: 'Fallout', modes: ['dark', 'light'], name: 'fallout' },
+  { displayName: 'Gruvbox', modes: ['dark', 'light'], name: 'gruvbox' },
+  { displayName: 'Nord', modes: ['dark', 'light'], name: 'nord' },
+  { displayName: 'Solarized', modes: ['dark', 'light'], name: 'solarized' },
+  { displayName: 'Tokyonight', modes: ['dark', 'light'], name: 'tokyonight' },
+];

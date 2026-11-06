@@ -4,13 +4,22 @@
 /// tmuxy-ui's `domain/commands.ts`, from the generated constants).
 pub const SIDEBAR_WINDOW_PREFIX: &str = "__sidebar-";
 
-/// The buffer the client stages a paste in (`PASTE_BUFFER` in
-/// `tmuxy-ui/src/domain/commandHelpers.ts`). A staging buffer is never a yank,
+/// The buffer the client stages a paste in (generated into the UI's
+/// `tmuxyConstants.gen.ts`). A staging buffer is never a yank,
 /// so the aggregator never mirrors it to the clipboard.
 pub const PASTE_BUFFER: &str = "tmuxy-paste";
 
 /// `tmuxy pane paste`'s staging buffers: this prefix and the CLI's PID.
 pub const CLI_PASTE_BUFFER_PREFIX: &str = "tmuxy-cli-paste-";
+
+/// The schemes a link a pane printed may be opened with
+/// (`host::command::is_openable_url`, and the client's `isOpenableUrl`).
+pub const OPENABLE_URL_SCHEMES: [&str; 3] = ["http://", "https://", "mailto:"];
+
+/// The characters, past controls and whitespace, an openable link may not
+/// hold: the ones a URL must percent-encode, so an opener that reads it as
+/// text finds nothing to parse in it.
+pub const URL_FORBIDDEN_CHARS: [char; 10] = ['"', '\'', '<', '>', '^', '`', '{', '}', '|', '\\'];
 
 /// User-option keys tmuxy sets on tmux windows, panes and the global session,
 /// all `@tmuxy-*` so they cannot collide with tmux's own options or a user's
@@ -127,7 +136,7 @@ pub mod tmux_options {
     pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
 
     /// Pane-scoped authorisation for a widget, written by `tmuxy-widget` on the
-    /// pane it runs in. The `__TMUXY_WIDGET__:` marker the widget prints is
+    /// pane it runs in. The [`super::WIDGET_MARKER`] the widget prints is
     /// pane OUTPUT — a crafted file, a commit message in `git log`, an ssh MOTD
     /// — so the marker alone never turns a pane into a widget: the client
     /// honours it only when this option names the same widget.
@@ -207,6 +216,11 @@ pub mod tmux_options {
     /// see [`crate::client_size::SizePolicy`].
     pub const SIZE: &str = "@tmuxy-size";
 }
+
+/// What `tmuxy-widget` prints at the top of its pane, followed by the widget's
+/// name, for the client to draw that widget there (when
+/// [`tmux_options::PANE_WIDGET`] agrees). Generated into the UI and the CLI.
+pub const WIDGET_MARKER: &str = "__TMUXY_WIDGET__:";
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).

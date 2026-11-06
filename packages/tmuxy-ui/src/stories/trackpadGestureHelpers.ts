@@ -1,5 +1,6 @@
 import { expect, within, waitFor } from 'storybook/test';
 import type { NativeSlidePhase } from '../machines/gestures/gestureActor';
+import { wait } from './animationObservers';
 
 export interface AppActor {
   getSnapshot(): {
@@ -31,7 +32,6 @@ export const settled = () => ctx().gesture === null;
 
 export const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-export const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 export const layout = () => document.querySelector('.pane-container > .pane-layout') as HTMLElement;
 export const paneEl = (id: string) =>
   document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`) as HTMLElement;
@@ -71,7 +71,7 @@ export class Fingers {
   }
   /** The fingers stay on the pad: no event for `ms`. */
   async rest(ms: number) {
-    await pause(ms);
+    await wait(ms);
     this.t += ms / 1000;
   }
   async lift() {
@@ -93,7 +93,7 @@ export async function pinchSteps(el: Element, steps: number[]) {
         deltaY: step,
       }),
     );
-    await pause(0);
+    await wait(0);
   }
   await nextFrame();
 }
@@ -138,21 +138,6 @@ export function expectOneWay(samples: number[], direction: 1 | -1, what: string)
     );
   }
 }
-
-export const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-  animations: true,
-  cursorBlink: true,
-  tabOverviewCols: 3,
-  gestureSwipeTabs: true,
-  gesturePinchZoom: true,
-  gesturePinchOverview: true,
-};
 
 export async function ready(canvasElement: HTMLElement) {
   await within(canvasElement).findAllByRole('group', { name: /Pane/i }, { timeout: 8000 });

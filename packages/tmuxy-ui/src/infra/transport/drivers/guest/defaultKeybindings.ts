@@ -9,9 +9,10 @@
 
 import type { KeyBindings } from '../../../../domain/wire';
 import { STICKY_TABLE_ENTRIES, STICKY_TABLES } from '../stickyTables';
+import { DEFAULT_PREFIX } from '../../../../domain/tmuxyConstants.gen';
 
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
-  prefix_key: 'C-a',
+  prefix_key: DEFAULT_PREFIX,
   repeat_time_ms: 300,
   prefix_bindings: [
     { key: '-', command: 'split-window -v', description: 'Split horizontally' },

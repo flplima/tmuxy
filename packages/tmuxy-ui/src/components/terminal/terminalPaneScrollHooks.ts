@@ -167,18 +167,15 @@ export function usePaneNativeListeners({
     // passive: false on the start too: a finger resting on text is a hold
     // (usePaneTouch), not the browser's long press.
     el.addEventListener('touchstart', touchStartHandler, { passive: false });
-    // The rest of the gesture is watched on the WINDOW: a touch whose target
-    // has left the document keeps being dispatched to that node and bubbles
-    // nowhere. usePaneTouch ignores a move it did not see start on this pane.
-    window.addEventListener('touchmove', touchMoveHandler, { passive: false });
-    window.addEventListener('touchend', touchEndHandler, { passive: false });
-    window.addEventListener('touchcancel', touchCancelHandler);
+    el.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    el.addEventListener('touchend', touchEndHandler, { passive: false });
+    el.addEventListener('touchcancel', touchCancelHandler);
     return () => {
       el.removeEventListener('wheel', wheelHandler);
       el.removeEventListener('touchstart', touchStartHandler);
-      window.removeEventListener('touchmove', touchMoveHandler);
-      window.removeEventListener('touchend', touchEndHandler);
-      window.removeEventListener('touchcancel', touchCancelHandler);
+      el.removeEventListener('touchmove', touchMoveHandler);
+      el.removeEventListener('touchend', touchEndHandler);
+      el.removeEventListener('touchcancel', touchCancelHandler);
     };
   }, [wrapperRef]);
 }

@@ -4,6 +4,8 @@ import type { PaneWidget } from '../../domain/paneWidget';
 import type { AppMachineContext } from '../../machines/types/context';
 import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
+import { TmuxyTree } from './TmuxyTree';
+import { previewWidget } from './preview/definition';
 
 export interface WidgetProps {
   paneId: PaneId;
@@ -31,10 +33,15 @@ export interface WidgetDefinition {
   selectMenuItems?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => AppMenuSpec;
 }
 
-const widgetRegistry: Record<string, WidgetDefinition> = {};
+let widgets: Record<string, WidgetDefinition> | null = null;
 
-export function registerWidget(name: string, definition: WidgetDefinition) {
-  widgetRegistry[name] = definition;
+/**
+ * The widgets this build draws, by the name `tmuxy-widget` prints. Built on
+ * first use: the tree's own components reach back here for the pane menu.
+ */
+function widgetDefinitions(): Record<string, WidgetDefinition> {
+  widgets ??= { tree: { component: TmuxyTree }, preview: previewWidget };
+  return widgets;
 }
 
 export interface RegisteredPaneWidget extends PaneWidget {
@@ -44,12 +51,12 @@ export interface RegisteredPaneWidget extends PaneWidget {
 /**
  * The widget a pane is showing and its definition, or null when the pane draws
  * as a terminal — no widget (`selectPaneWidget`), or one this build does not
- * register.
+ * draw.
  */
 export function paneWidgetOf(
   pane: Parameters<typeof selectPaneWidget>[0],
 ): RegisteredPaneWidget | null {
   const widget = selectPaneWidget(pane);
-  const definition = widget ? widgetRegistry[widget.name] : undefined;
+  const definition = widget ? widgetDefinitions()[widget.name] : undefined;
   return widget && definition ? { ...widget, definition } : null;
 }

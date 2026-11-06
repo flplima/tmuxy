@@ -9,8 +9,7 @@
  * height so those buttons stay centred on it.
  */
 
-import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import type { RenderTabline } from '../App';
+import { memo, type ReactNode, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 import { selectSidebarHoldsKeyboard } from '../machines/selectors/keyboard';
@@ -32,6 +31,9 @@ import { TabStripScroll } from './TabStripScroll';
 import { SidebarTitle } from './SidebarTitle';
 import { useWindowStyle } from './useWindowStyle';
 import './StatusBar.css';
+
+/** A host's wrapper around the tab strip (the demo site frames it). */
+export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
 /** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */
 const CONTROLS =

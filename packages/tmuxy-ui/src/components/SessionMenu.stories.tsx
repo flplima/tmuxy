@@ -7,14 +7,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
-import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import tree from '../stories/fixtures/gen/tree.json';
 
-let adapter: FixtureAdapter | null = null;
-const keepAdapter = (a: FixtureAdapter) => {
-  adapter = a;
-};
-
+const held = adapterHolder();
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/SessionMenu',
   component: FixtureApp,
@@ -22,7 +18,7 @@ const meta: Meta<typeof FixtureApp> = {
   args: {
     fixture: asFixture(tree),
     start: 'closed',
-    onAdapterReady: keepAdapter,
+    onAdapterReady: held.keep,
     // The toggle opens the column; tmux's answer is the tree beside the panes.
     transitions: [{ match: /^split-window\b.*tmuxy-widget-tree'/, to: 'open' }],
   },
@@ -116,7 +112,7 @@ export const TypingFiltersTheList: Story = {
     const user = userEvent.setup({ delay: 5 });
     await user.click(await findChevron(canvasElement, user));
     const menu = await waitForSwitcher();
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     const filter = within(menu).getByRole('combobox', { name: /filter sessions/i });
     await waitFor(() => expect(document.activeElement).toBe(filter));
 
@@ -141,9 +137,9 @@ export const TypingFiltersTheList: Story = {
     expect(filter.getAttribute('aria-activedescendant')).toBe(row()?.id);
 
     // Keys typed into the box never reach the terminal.
-    expect(adapter!.commands.slice(sentBefore).filter((c) => c.startsWith('send-keys'))).toEqual(
-      [],
-    );
+    expect(
+      held.adapter!.commands.slice(sentBefore).filter((c) => c.startsWith('send-keys')),
+    ).toEqual([]);
 
     await user.keyboard('{Enter}');
     await switcherClosed();

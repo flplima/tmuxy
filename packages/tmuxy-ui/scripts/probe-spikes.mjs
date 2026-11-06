@@ -157,13 +157,22 @@ async function probeStory(id, i, fresh) {
   if (fresh) {
     await loadStory(id);
   } else if (i > 0) {
-    // Let the finished story's trailing engine traffic settle before rewinding
+    // Let the finished story's trailing engine traffic drain before rewinding
     // the shared machine: switching at once leaves the next mount racing the
-    // previous story's outbound bytes. (A periodic page reload would wipe
+    // previous story's outbound bytes. tmux has answered everything sent once
+    // the app has caught up (`window.app.caughtUp`); a story that never does
+    // gets a cold-booted engine instead. (A periodic page reload would wipe
     // document-level singletons such as the injected `#tmuxy-theme`
     // stylesheet mid-run.)
-    await new Promise((r) => setTimeout(r, 1500));
-    await selectStory(id);
+    const drained = page
+      .evaluate(() => window.app?.caughtUp?.())
+      .then(
+        () => true,
+        () => false,
+      );
+    const bound = new Promise((r) => setTimeout(() => r(false), PER_STORY_TIMEOUT_MS));
+    if (await Promise.race([drained, bound])) await selectStory(id);
+    else await loadStory(id);
   }
   const started = Date.now();
   let result = await awaitOutcome(id);

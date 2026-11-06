@@ -1,8 +1,8 @@
 /**
  * Applies the backend's appearance settings (tmuxy.conf `@tmuxy-*` opacities)
  * as the CSS variables the stylesheets compose their backgrounds with. The
- * defaults live in standalone.css so the look holds before the backend answers
- * and in adapters without a config (demo, v86).
+ * defaults live in styles.css's `:root` so the look holds before the backend
+ * answers and in adapters without a config (demo, v86).
  */
 
 import type { Appearance } from '../domain/wire';

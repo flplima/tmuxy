@@ -10,6 +10,7 @@ import moves from './fixtures/gen/side-by-side-moves.json';
 import {
   LayoutMutationRecorder,
   observeChildList,
+  wait,
   waitForCssAnimation,
 } from './animationObservers';
 import {
@@ -43,8 +44,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function sampleFrames(
   canvasElement: HTMLElement,

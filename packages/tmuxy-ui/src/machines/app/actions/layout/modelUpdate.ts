@@ -16,10 +16,10 @@ import {
   buildGroupsFromPanes,
   buildFloatPanesFromWindows,
   closeScrollViewsIn,
-  gridExtent,
   keepIfSame,
   keepLivePanes,
 } from '../../helpers';
+import { gridExtent } from '../../../../domain/paneGeometry';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
 import { pruneAskSelections } from '../ask';
 import { normalizePaneState } from '../../../../domain/paneState';

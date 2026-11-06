@@ -4,9 +4,7 @@
  */
 
 import type { PaneContent } from './wireCells';
-
-/** What `tmuxy-widget` prints before the widget's name (packages/tmuxy-cli/bin/tmuxy/tmuxy-widget). */
-export const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
+import { WIDGET_MARKER } from './tmuxyConstants.gen';
 
 export interface PaneWidget {
   name: string;
@@ -38,7 +36,7 @@ export function findPaneWidget(
   authorizedWidget: string | null | undefined,
 ): PaneWidget | null {
   if (!authorizedWidget) return null;
-  const marker = WIDGET_MARKER_PREFIX + authorizedWidget;
+  const marker = WIDGET_MARKER + authorizedWidget;
   for (let i = 0; i < content.length; i++) {
     const end = markerEnd(content, i, marker);
     if (end === null) continue;

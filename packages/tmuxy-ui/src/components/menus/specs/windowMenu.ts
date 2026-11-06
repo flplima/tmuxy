@@ -18,7 +18,12 @@ export interface WindowMenuState {
 }
 
 export function windowMenuSpec(env: MenuEnv, state: WindowMenuState): AppMenuNode {
-  const shortcut = (key: string) => (env.isMac ? `cmd+${key}` : `ctrl+shift+${key}`);
+  // The keys the window shortcuts listen for (`windowShortcut`): bare Cmd on a
+  // Mac, Ctrl+Shift elsewhere, written for the in-app menu and the native one.
+  const shortcut = (key: string) =>
+    env.isMac
+      ? { keyHint: `cmd+${key}`, accelerator: `Cmd+${key.toUpperCase()}` }
+      : { keyHint: `ctrl+shift+${key}`, accelerator: `Ctrl+Shift+${key.toUpperCase()}` };
   return {
     kind: 'submenu',
     id: 'menu-window',
@@ -30,8 +35,7 @@ export function windowMenuSpec(env: MenuEnv, state: WindowMenuState): AppMenuNod
         id: 'window-new',
         label: 'New Window',
         icon: 'new',
-        keyHint: shortcut('n'),
-        accelerator: 'CmdOrCtrl+N',
+        ...shortcut('n'),
         action: local({ verb: 'window-new' }),
       },
       separator,
@@ -68,8 +72,7 @@ export function windowMenuSpec(env: MenuEnv, state: WindowMenuState): AppMenuNod
           id: `window-focus-${w.index}`,
           label: w.title,
           checked: w.focused,
-          keyHint: shortcut(String(w.index)),
-          accelerator: `CmdOrCtrl+${w.index}`,
+          ...shortcut(String(w.index)),
           action: local({ verb: 'window-focus', index: w.index }),
         }),
       ),

@@ -5,7 +5,7 @@
  * Right-clicking the tab turns this card into the tab's menu (`WindowTabs`).
  */
 
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/appHooks';
 import { selectPanes, selectCharSize, selectContainerSize } from '../machines/selectors/layout';
@@ -48,6 +48,7 @@ export function TabPreview({
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const content = useMemo(() => (windowId ? { windowId, label } : null), [windowId, label]);
 
   const {
     ref: rootRef,
@@ -56,7 +57,7 @@ export function TabPreview({
     reposition,
   } = useFloatingSurface<{ windowId: WindowId; label: string }>({
     id: 'tab-preview',
-    content: windowId ? { windowId, label } : null,
+    content,
     anchor: {
       kind: 'element',
       element: windowId

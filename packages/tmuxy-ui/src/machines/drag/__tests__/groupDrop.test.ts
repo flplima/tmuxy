@@ -58,8 +58,7 @@ describe('a pane dragged over a header', () => {
       { [gid('g1')]: { id: gid('g1'), paneIds: [pid('%4'), pid('%7')] } },
       10,
       20,
-      0,
-      0,
+      { x: 0, y: 0 },
     );
     expect(b.members).toEqual([pid('%4'), pid('%7')]);
     expect(b.top).toBeLessThan(5 * 20);
@@ -95,7 +94,7 @@ describe('the command a release runs', () => {
   });
 
   it('picks the side of a pane by the pointer, relative to its shape', () => {
-    const box = { left: 0, top: 0, right: 400, bottom: 100 };
+    const box = { left: 0, top: 0, width: 400, height: 100 };
     expect(sideOf(box, 20, 50)).toBe('left');
     expect(sideOf(box, 390, 50)).toBe('right');
     expect(sideOf(box, 200, 5)).toBe('up');

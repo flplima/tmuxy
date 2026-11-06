@@ -23,6 +23,7 @@ import type { ContextView } from '../contextView';
 import { overlayPaneId, type KeyContext } from '../selectors/keyboard';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
 import { isReplayedPreviewKey } from '../../infra/dom/replayedKeys';
+import { DEFAULT_PREFIX } from '../../domain/tmuxyConstants.gen';
 
 const PREVIEW_SAFE_ROOT_COMMAND =
   /^(?:tmuxy-nav-(?:left|right|up|down)|select-pane|selectp|select-window|selectw|previous-window|prev|next-window|next)(?:\s|$)/;
@@ -52,7 +53,7 @@ interface BindingMaps {
 }
 
 const NO_BINDINGS: BindingMaps = {
-  prefixKey: 'C-a',
+  prefixKey: DEFAULT_PREFIX,
   repeatTimeMs: 500,
   prefix: new Map(),
   prefixRepeat: new Set(),
