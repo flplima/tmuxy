@@ -97,3 +97,80 @@ fn only_web_links_are_openable() {
     assert!(!is_openable_url("https://example.com/ x"));
     assert!(!is_openable_url("https://example.com/^|x"));
 }
+
+/// A host that does none of the host-only things, over a session with no
+/// monitor: the web server's position for most of them.
+struct Bare(std::sync::Arc<SessionRuntime>);
+
+impl HostCtx for Bare {
+    fn runtime(&self) -> &SessionRuntime {
+        &self.0
+    }
+
+    fn client(&self) -> Option<ClientId> {
+        None
+    }
+}
+
+struct Nowhere;
+
+impl super::super::Sink for Nowhere {
+    fn emit(&self, _event: HostEvent) {}
+}
+
+fn bare() -> Bare {
+    let runtime = SessionRuntime::new(
+        super::super::RuntimeConfig {
+            session: "s".to_string(),
+            preview: std::sync::Arc::default(),
+            preview_scope: "s".to_string(),
+            restore: false,
+        },
+        std::sync::Arc::new(Nowhere),
+    );
+    runtime.set_down();
+    Bare(runtime)
+}
+
+async fn answer(cmd: serde_json::Value) -> Result<Value, CommandError> {
+    handle(ClientCommand::from_value(cmd).unwrap(), &bare()).await
+}
+
+/// What a host cannot do is refused as `unavailable`, so the client can tell
+/// "not here" from "it failed"; a command that needs no monitor is answered
+/// without one, and one that does is refused at once when none is coming.
+#[tokio::test]
+async fn a_host_answers_what_it_cannot_do_as_unavailable() {
+    for cmd in ["detach_client", "list_servers", "open_trace_file"] {
+        let err = answer(json!({ "cmd": cmd, "args": {} })).await.unwrap_err();
+        assert_eq!(err.kind, crate::ErrorKind::Unavailable, "{cmd}: {err}");
+    }
+    let err = answer(json!({ "cmd": "connect_server", "args": { "id": "localhost" } }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, crate::ErrorKind::Unavailable);
+
+    assert!(answer(json!({ "cmd": "get_themes_list", "args": {} }))
+        .await
+        .unwrap()
+        .is_array());
+    let err = answer(json!({ "cmd": "query_tmux", "args": { "command": "list-panes" } }))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, crate::ErrorKind::Unavailable);
+}
+
+/// A desktop command rejects with `{ error, kind }`, the shape the web
+/// server's `/commands` failures have; a link a pane printed is opened only
+/// when it is a web or mail link.
+#[tokio::test]
+async fn a_refused_link_rejects_with_kind_forbidden() {
+    let err = answer(json!({ "cmd": "open_url", "args": { "url": "file:///etc/passwd" } }))
+        .await
+        .unwrap_err();
+    let json = serde_json::to_value(&err).unwrap();
+    assert_eq!(json["kind"], "forbidden");
+    assert!(json["error"]
+        .as_str()
+        .is_some_and(|e| e.starts_with("refusing to open")));
+}

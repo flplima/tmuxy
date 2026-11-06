@@ -3,7 +3,7 @@
 //! One enum for both transports: the web server writes an event as an SSE
 //! frame (`event: <name>`, `data: {"event": <name>, "data": <payload>}`),
 //! the desktop app as a Tauri event (`emit_to(label, <name>, <payload>)`).
-//! The protocol fixtures serialise it once (`sse_frames.json`), and the
+//! The protocol fixtures serialise it once (`events.json`), and the
 //! client decodes both transports with the one table that file pins
 //! (`tmuxy-ui/src/infra/transport/hostEvents.ts`).
 

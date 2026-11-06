@@ -37,19 +37,14 @@ pub use runtime::{ClientId, RuntimeConfig, SessionRuntime, Sink, MONITOR_READY_T
 pub use supervise::*;
 
 use crate::control_mode::MonitorConfig;
-use crate::session::SessionName;
 
-/// Whether tmux has a session called `session`, asked with a read-only
-/// subprocess off the async worker threads — before a host's own connection
-/// is attached, so it is safe beside one. A name outside the session
-/// alphabet names no session. A tmux that cannot be asked at all is taken to
-/// have it: a snapshot is restored, and a session created, only for one
-/// known to be gone, never on a guess.
+/// Whether tmux has a session called `session` (`session::session_known`,
+/// the one rule), asked off the async worker threads with a read-only
+/// subprocess — before a host's own connection is attached, so it is safe
+/// beside one.
 pub async fn session_exists(session: &str) -> bool {
-    let Some(name) = SessionName::parse(session) else {
-        return false;
-    };
-    tokio::task::spawn_blocking(move || crate::session::session_exists(&name).unwrap_or(true))
+    let session = session.to_string();
+    tokio::task::spawn_blocking(move || crate::session::session_known(&session))
         .await
         .unwrap_or(true)
 }

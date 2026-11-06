@@ -361,6 +361,14 @@ pub fn session_exists(name: &SessionName) -> Result<bool> {
     Ok(output.status.success())
 }
 
+/// [`session_exists`] as every tmuxy caller answers it: a name outside the
+/// session alphabet names no session, and a tmux that cannot be asked at all
+/// is taken to have it — a snapshot is restored, and a session created, only
+/// for one known to be gone, never on a guess.
+pub fn session_known(name: &str) -> bool {
+    SessionName::parse(name).is_some_and(|name| session_exists(&name).unwrap_or(true))
+}
+
 /// Names of every session the tmux server currently holds, from a read-only
 /// `list-sessions`; empty when there is no server to ask.
 pub fn session_names() -> Vec<String> {

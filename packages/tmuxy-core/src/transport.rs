@@ -1,8 +1,5 @@
-//! What both transports do with a live monitor, written once.
-//!
-//! The web server (`tmuxy-server/src/sse.rs`) and the desktop app
-//! (`tmuxy-tauri-app/src/commands.rs`, `monitor.rs`) differ in how they reach
-//! a client — an SSE broadcast, a Tauri event — and in nothing else. Every
+//! The reads and writes a host makes over a live monitor's channel: the
+//! pieces `host::handle` and `host::SessionRuntime` are built from. Every
 //! tmux read here rides the monitor's control-mode connection
 //! (`MonitorCommand::RunCommandWithReply`): an external `tmux` process while a
 //! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
