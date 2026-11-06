@@ -2,9 +2,14 @@
  * The phone's bottom view and the installable page: a sideways swipe on the
  * tree slides it to the side pane — the pinned terminal the desktop keeps in
  * its right column, sized to the view — the pane riding in beside the tree
- * under the finger as a tab slide shows both tabs, and back; the page links a
- * manifest that installs it on a home screen. The layout itself is
- * tests/12-touch.test.js.
+ * under the finger as a tab slide shows both tabs, and back; a tap on the
+ * side pane brings the keyboard up for it, and with the keyboard up the side
+ * pane stays above it, what is typed in view; the page links a manifest that
+ * installs it on a home screen. The layout itself is tests/12-touch.test.js,
+ * the menu and the tab bar tests/12-touch-menu.test.js.
+ *
+ * A headless browser draws no keyboard and never shrinks its visual viewport,
+ * so the suite brings up a mock one that does both (helpers/keyboard-mock.js).
  */
 
 const {
@@ -15,13 +20,44 @@ const {
   swipeSidewaysPausing,
   boxOf,
   waitForPhoneGrid,
+  typeOnVirtualKeyboard,
 } = require('./helpers/phone');
+const { showKeyboard, hideKeyboard } = require('./helpers/keyboard-mock');
 const { waitForCondition } = require('./helpers');
+
+/** The dock with the keyboard: where its typed line and cursor are, against the keyboard. */
+const dockOverKeyboard = (page, marker) =>
+  page.evaluate((m) => {
+    const box = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, height: r.height, width: r.width };
+    };
+    const dock = document.querySelector('.phone-dock');
+    const paneId = dock?.querySelector('.pane-wrapper')?.dataset.paneId;
+    const pane = window.app.getSnapshot().context.panes.find((p) => p.tmuxId === paneId);
+    const lines = [...(dock?.querySelectorAll('.terminal-line') ?? [])];
+    return {
+      dock: box(dock),
+      keyboard: box(document.querySelector('[data-testid="mock-keyboard"]')),
+      tabs: box(document.querySelector('.phone-tabs')),
+      // The output line, not the command that printed it.
+      typed: box(lines.find((l) => l.textContent.trim() === m)),
+      cursor: box(dock?.querySelector('.terminal-cursor')),
+      rows: pane?.height ?? null,
+      lineHeight: dock
+        ? parseFloat(getComputedStyle(dock).getPropertyValue('--line-height-terminal'))
+        : null,
+      inputFocused:
+        document.activeElement === document.querySelector('input[data-keyboard-target]'),
+      target: document.querySelector('input[data-keyboard-target]')?.dataset.keyboardTarget ?? null,
+    };
+  }, marker);
 
 describe('Phone width (390px) with a touchscreen: the bottom view and the app', () => {
   const ctx = usePhoneContext(PHONE);
 
-  test('a sideways swipe slides the tree to the side pane under the finger, sized to the view, and back; the page installs as an app', async () => {
+  test('a sideways swipe slides the tree to the side pane under the finger, sized to the view; a tap on it raises the keyboard and it stays above it; and back; the page installs as an app', async () => {
     if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
     await waitForPhoneGrid(ctx.page);
@@ -104,6 +140,57 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       'the keyboard to go to the dock',
     );
 
+    // 2. A tap on the side pane brings the keyboard up for it.
+    const tapDock = async () => {
+      const b = await boxOf(ctx.page, '.phone-dock');
+      await ctx.page.touchscreen.tap(b.left + b.width / 2, b.top + b.height / 2);
+    };
+    let over = null;
+    const untilOver = (check, what, marker = '') =>
+      waitForCondition(
+        ctx.page,
+        async () => check((over = await dockOverKeyboard(ctx.page, marker))),
+        15000,
+        () => `${what} (last: ${JSON.stringify(over)})`,
+      );
+    await tapDock();
+    await untilOver(
+      (o) => o.inputFocused && o.target === dock.paneId,
+      'the tap to raise the keyboard',
+    );
+
+    // With the keyboard up the tab bar makes way and the side pane stays
+    // above the keyboard, sized to what is left: what is typed shows there,
+    // in view, the cursor under it.
+    await showKeyboard(ctx.page, 320);
+    await typeOnVirtualKeyboard(ctx.page, 'echo DOCK_$((6*7))_TYPED');
+    await ctx.page.keyboard.press('Enter');
+    await untilOver(
+      (o) =>
+        o.typed !== null &&
+        o.cursor !== null &&
+        o.rows !== null &&
+        o.rows * o.lineHeight <= o.dock.height + 1,
+      'the typed line in the side pane, sized to its box',
+      'DOCK_42_TYPED',
+    );
+    expect(over.tabs.height).toBe(0);
+    expect(over.dock.height).toBeGreaterThan(over.lineHeight * 5);
+    expect(over.dock.bottom).toBeLessThanOrEqual(over.keyboard.top + 1);
+    for (const [what, b] of [
+      ['the typed line', over.typed],
+      ['the cursor', over.cursor],
+    ]) {
+      if (!(b.top >= over.dock.top - 1 && b.bottom <= over.keyboard.top + 1)) {
+        throw new Error(`${what} is not above the keyboard: ${JSON.stringify(over)}`);
+      }
+    }
+
+    // A tap on it again puts the keyboard away, and the tab bar is back.
+    await tapDock();
+    await hideKeyboard(ctx.page);
+    await untilOver((o) => !o.inputFocused && o.tabs.height > 0, 'the keyboard away');
+
     // Back to the tree, and the terminal holds the keyboard again.
     await swipeSideways(ctx.page, y, 60, 330);
     await waitForCondition(
@@ -118,7 +205,7 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       'the swipe back to the tree',
     );
 
-    // 2. Installable: the manifest the page links, and the icons it names.
+    // 3. Installable: the manifest the page links, and the icons it names.
     const install = await ctx.page.evaluate(async () => {
       const link = document.querySelector('link[rel="manifest"]')?.getAttribute('href');
       const res = await fetch(link);

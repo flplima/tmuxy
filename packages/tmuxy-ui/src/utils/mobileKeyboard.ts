@@ -7,8 +7,9 @@ import type { PaneId } from '../domain/ids';
  *    typed characters (input events). It also calls getMobileInput() to identify
  *    the element in keydown so it can skip printable chars already handled here.
  *  - usePaneTouch calls focusMobileInput(paneId) on a tap on another pane, so an
- *    open keyboard follows it, and toggleMobileKeyboard() on a tap on the pane
- *    that has it; the key row's ⌨ key calls toggleMobileKeyboard() too.
+ *    open keyboard follows it, toggleMobileKeyboard() on a tap on the pane
+ *    that has it, and raiseMobileKeyboard() on a tap on the phone's side pane;
+ *    the key row's ⌨ key calls toggleMobileKeyboard() too.
  *
  * Key event routing:
  *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
@@ -195,6 +196,15 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
   } else if (paneId) {
     focusInput(paneId);
   }
+}
+
+/**
+ * Called by usePaneTouch on a tap on the phone's side pane: the keyboard
+ * comes up for it, or, already up, follows it there.
+ */
+export function raiseMobileKeyboard(paneId: PaneId): void {
+  if (!isTouchDevice()) return;
+  focusInput(paneId);
 }
 
 /**

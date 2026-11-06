@@ -78,9 +78,13 @@ export const sidebarsActions = {
    * grid's, so its column holds more rows than the viewport. Write that count
    * to the dock's window (`@tmuxy-sidebar-rows`) whenever it changes — the
    * backend sizes the pane from it — and only then, so the poll is not poked
-   * on every state update.
+   * on every state update. A phone sizes its dock to the view it is drawn in
+   * (`phone_setDockSize`), and this count, from the terminal's box, would
+   * write over it: the pane then ran taller than its view, and the rows at
+   * its bottom, the prompt among them, were cut off.
    */
   sidebars_syncDockRows: act(({ context, enqueue }) => {
+    if (context.phoneLayout) return;
     const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
     const rows = selectDockRows(context);
     if (!dock || rows < 1) return;
