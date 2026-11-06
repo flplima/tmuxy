@@ -43,6 +43,8 @@ Everything a control-mode client does between what tmux sends and what goes back
 
 Two hosts run it: the tokio `TmuxMonitor` and `tmuxy-wasm` (the in-browser guest). See `tmuxy-core/src/control_mode/monitor_core.rs`.
 
+How the core's reads (the re-lists and pane captures that refresh its picture of tmux) reach tmux is a property of the host's link, `ReadPacing` (`monitor_core/reads.rs`). The native monitor sends each read the moment it is asked for. The guest's link is an emulated UART into an emulated CPU, where a `list-panes` costs about as much to send as tmux's answer, so the wasm host paces them: one batch of reads is out at a time, closed by an empty reply-wrapped command, and what is asked for meanwhile (the re-lists of five windows opened at once, a refresh per title notification, the copy-mode poll due every 50 ms) is merged into one batch, each list and capture once, sent when tmux has answered the last. A batch tmux does not answer within `REPLY_TIMEOUT` is given up on. Invariant M12.
+
 ### TmuxMonitor — the native host
 
 Connects, waits on the control-mode link, its emission timers, the core's deadline and the command channel, and runs what the core says: one dispatcher (`monitor/event_loop.rs`, `dispatch`), each action before the next (M1 in [INVARIANTS.md](INVARIANTS.md)). Its own policy is how state is emitted: output throttled under load and debounced otherwise, layout changes coalesced, everything else at once (`RunState`).
