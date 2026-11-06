@@ -23,16 +23,11 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
   );
 
   const dispatch = useMenuDispatch({
-    // Route Close Pane through group-aware CLOSE_PANE instead of raw
-    // kill-pane. Don't select the pane first — that would switch to a hidden
-    // group window and confuse the close script's visibility logic.
-    closeTarget: paneId,
-    // The menu's other actions run on the focused pane, so the pane is
-    // picked first, as a click on it would.
-    before: (command) => {
-      if (command === 'pane-close') return;
-      send({ type: 'SELECT_PANE', paneId });
-    },
+    // The menu's ops run on the focused pane, so the pane is picked first,
+    // as a click on it would. Close Pane is an event naming the pane: picking
+    // it first would switch to a hidden group window and confuse the close
+    // script's visibility logic.
+    before: () => send({ type: 'SELECT_PANE', paneId }),
     onLocal: (local) => {
       if (local.verb === 'rename') onRename?.();
     },

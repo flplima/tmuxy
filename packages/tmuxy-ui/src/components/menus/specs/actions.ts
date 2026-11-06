@@ -6,7 +6,6 @@
 
 import { restartApp } from '../../../infra/guiWindows';
 import type { AppMachineEvent } from '../../../machines/types/events';
-import { type PaneId, isPlaceholderId } from '../../../domain/ids';
 import { renameWindowPrompt, TmuxOp } from '../../../domain/commands';
 import type { KeyBindings } from '../../../domain/wire';
 import { clientKeyHint, keyHint } from '../../../domain/keyLabels';
@@ -50,8 +49,7 @@ export const event = (event: AppMachineEvent): AppMenuAction => ({ kind: 'event'
 export const local = (local: MenuLocal): AppMenuAction => ({ kind: 'local', local });
 
 interface MenuCommand {
-  /** `target`: the pane a group-aware Close Pane acts on (see `activeCloseTarget`). */
-  run: (send: Send, target?: PaneId) => void;
+  run: (send: Send) => void;
   /** What tmux binds the same thing to, for the item's key hint. */
   keyOp?: TmuxOp;
   /** The client's own key for it, when tmux has none. */
@@ -64,18 +62,6 @@ const sendEvent =
     send(event);
 
 export const MENU_COMMANDS = {
-  'pane-close': {
-    // Group members and floats need the group-aware close (CLOSE_PANE), which
-    // swaps a sibling into view and degroups the survivor; a raw kill-pane
-    // does neither. Without a target, tmux's active pane is killed.
-    run: (send, target) =>
-      send(
-        target
-          ? { type: 'CLOSE_PANE', paneId: target }
-          : { type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: null }) },
-      ),
-    keyOp: TmuxOp.KillPane({ paneId: null }),
-  },
   'tab-new': { run: sendEvent({ type: 'CREATE_TAB' }), keyOp: TmuxOp.NewWindow() },
   'tab-overview': { run: sendEvent({ type: 'TOGGLE_TAB_OVERVIEW' }), clientKey: 'tab-overview' },
   // The item renames in the strip, where the name is; the binding (`prefix ,`)
@@ -99,8 +85,8 @@ export const MENU_COMMANDS = {
 
 export type MenuCommandId = keyof typeof MENU_COMMANDS;
 
-export function executeMenuCommand(send: Send, id: MenuCommandId, target?: PaneId): void {
-  MENU_COMMANDS[id].run(send, target);
+export function executeMenuCommand(send: Send, id: MenuCommandId): void {
+  MENU_COMMANDS[id].run(send);
 }
 
 /** The key hint of a command: the binding its `keyOp` names, else the client's own key. */
@@ -113,18 +99,4 @@ export function commandHint(
     (entry.keyOp && keyHint(keybindings, entry.keyOp)) ??
     (entry.clientKey && clientKeyHint(keybindings, entry.clientKey))
   );
-}
-
-/**
- * The pane "Close Pane" targets from a menu not anchored to a pane (the
- * hamburger AppMenu, the Tauri native menu): the keyboard's own target, so
- * close hits the pane the user sees as active. Undefined lets the caller fall
- * back to tmux's server-active pane.
- */
-export function activeCloseTarget(
-  activePaneId: PaneId | null,
-  focusedFloat: PaneId | null,
-): PaneId | undefined {
-  const realActive = activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null;
-  return focusedFloat ?? realActive ?? undefined;
 }

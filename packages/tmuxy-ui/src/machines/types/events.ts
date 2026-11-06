@@ -137,7 +137,8 @@ export type AppMachineEvent =
   /** An intent the client issues itself, routed and dispatched through the store. */
   | { type: 'DISPATCH_OP'; op: TmuxOp }
   | { type: 'COPY_SELECTION' }
-  | { type: 'CLOSE_PANE'; paneId: PaneId }
+  /** `paneId` null: the pane the keyboard is in (a focused float, else the active pane). */
+  | { type: 'CLOSE_PANE'; paneId: PaneId | null }
   | { type: 'CREATE_TAB' }
   | { type: 'ZOOM_PANE'; paneId: PaneId }
 

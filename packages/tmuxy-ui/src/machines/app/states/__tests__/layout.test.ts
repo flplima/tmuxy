@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
+import { placeholderPaneId } from '../../../../domain/ids';
 import { fromCallback } from 'xstate';
 import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
@@ -105,5 +106,54 @@ describe('layout state', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('CLOSE_PANE with no pane named (the app menu’s Close Pane)', () => {
+    const close = (context: Record<string, unknown>) => {
+      const toStore: unknown[] = [];
+      const raised: TmuxOp[] = [];
+      const tmuxStore = fromCallback(({ receive }) => {
+        receive((event) => void toStore.push(event));
+      });
+      const state = {
+        on: {
+          ...layoutState.on,
+          DISPATCH_OP: { actions: 'recordOp' },
+        },
+      };
+      const actor = mountState(
+        state,
+        {
+          ...layoutActions,
+          recordOp: ({ event }: { event: { op: TmuxOp } }) => void raised.push(event.op),
+        },
+        {},
+        context,
+        { extraActors: { tmuxStore } },
+      );
+      actor.send({ type: 'CLOSE_PANE', paneId: null });
+      return { toStore, raised };
+    };
+
+    it('closes the float that holds the keyboard, through the group-aware close', () => {
+      const { raised } = close({
+        activePaneId: pid('%3'),
+        keyboardOwner: { kind: 'float', paneId: pid('%9') },
+        floatPanes: { [pid('%9')]: { paneId: pid('%9') } },
+      });
+      expect(raised).toEqual([TmuxOp.GroupClose({ paneId: pid('%9') })]);
+    });
+
+    it('else the active pane', () => {
+      const { toStore } = close({ activePaneId: pid('%3') });
+      expect(toStore).toEqual([
+        { type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: pid('%3') }) },
+      ]);
+    });
+
+    it('else, while the active pane is a placeholder, tmux’s own active pane', () => {
+      const { toStore } = close({ activePaneId: placeholderPaneId('5') });
+      expect(toStore).toEqual([{ type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: null }) }]);
+    });
   });
 });

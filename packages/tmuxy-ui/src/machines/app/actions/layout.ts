@@ -4,7 +4,7 @@ import { isPlaceholderId, type PaneId, type WindowId } from '../../../domain/ids
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn, takeKeyboard } from '../helpers';
 import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
-import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
+import { PANES_OWN_KEYBOARD, selectFocusedFloat } from '../../selectors/keyboard';
 
 // A finished resize keeps its preview until a model update shows tmux's sizes
 // settled on it (layout/modelUpdate.ts); this clears it if that never comes.
@@ -143,25 +143,37 @@ export const layoutActions = {
 
   layout_closePane: act(({ event, context, enqueue }) => {
     if (event.type !== 'CLOSE_PANE') return;
+    const active =
+      context.activePaneId && !isPlaceholderId(context.activePaneId) ? context.activePaneId : null;
+    const paneId = event.paneId ?? selectFocusedFloat(context) ?? active;
+    if (!paneId) {
+      enqueue(
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.KillPane({ paneId: null }),
+        }),
+      );
+      return;
+    }
     // Group members and floats need the group-aware close script (swap-in /
     // window cleanup / option bookkeeping — server-side semantics we can't
     // predict). A plain pane is exactly `kill-pane` (the script's own
     // fallback), so dispatch it through the STORE for the optimistic
     // removal + exit animation on click instead of on the round-trip.
-    const inGroup = Object.values(context.paneGroups).some((g) => g.paneIds.includes(event.paneId));
-    const isFloat = Boolean(context.floatPanes[event.paneId]);
+    const inGroup = Object.values(context.paneGroups).some((g) => g.paneIds.includes(paneId));
+    const isFloat = Boolean(context.floatPanes[paneId]);
     if (!inGroup && !isFloat) {
       enqueue(
         sendTo('tmuxStore', {
           type: 'DISPATCH_OP' as const,
-          op: TmuxOp.KillPane({ paneId: event.paneId }),
+          op: TmuxOp.KillPane({ paneId }),
         }),
       );
       return;
     }
     enqueue.raise({
       type: 'DISPATCH_OP' as const,
-      op: TmuxOp.GroupClose({ paneId: event.paneId }),
+      op: TmuxOp.GroupClose({ paneId }),
     });
   }),
 
