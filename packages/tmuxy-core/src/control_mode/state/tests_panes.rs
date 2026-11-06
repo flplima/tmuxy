@@ -105,7 +105,7 @@ fn a_real_title_that_starts_with_g_is_kept() {
 
 #[test]
 fn list_panes_parses_rows_captured_from_a_real_tmux() {
-    // `list-panes -s -F LIST_PANES_CMD` output as a real tmux (3.7c) sends
+    // `TmuxList::Panes` output as a real tmux (3.7c) sends
     // it: one pane whose app set no title (empty title field) and one that
     // set a comma-laden one over OSC 2, its commas escaped by the format.
     // Unlike `list_panes_line`, this carries tmux's real habit of leaving the
@@ -128,7 +128,7 @@ fn list_panes_parses_rows_captured_from_a_real_tmux() {
 
 #[test]
 fn list_panes_empty_title_keeps_fields_aligned() {
-    // LIST_PANES_CMD asks tmux for the APP-SET title only, so a pane whose
+    // The pane format asks tmux for the APP-SET title only, so a pane whose
     // app never set one arrives with an EMPTY title field, which is a field
     // like any other.
     let mut agg = StateAggregator::new();

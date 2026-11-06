@@ -1,5 +1,3 @@
-//! What `read_preview` answers.
-
 /// A preview pane's document: its kind (`html` or `markdown`), its file
 /// name, its text, and whether the page may reach the network.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -17,7 +15,6 @@ pub struct PreviewResource {
     pub data: String,
 }
 
-/// `read_preview`'s answer: the document, or the resource asked for.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(untagged)]
 pub enum PreviewRead {

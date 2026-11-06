@@ -40,7 +40,6 @@ impl Sink for TauriSink {
     }
 }
 
-/// How often the tmux environment is looked at for a `tmuxy connect` request.
 const CONNECT_POLL: Duration = Duration::from_secs(2);
 
 /// Watch for `tmuxy connect` requests and reconnect the app when one
@@ -89,7 +88,6 @@ pub async fn poll_connect_requests(app: AppHandle) {
         } = request;
         let session = session.unwrap_or_else(tmuxy_core::session::session_name);
 
-        // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
         let current_session = crate::windows::base_session(&app);
         if socket == tmuxy_core::session::tmux_socket()

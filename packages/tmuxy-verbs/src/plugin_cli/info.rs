@@ -1,6 +1,3 @@
-//! `list`, `log`, `check` and `new`: reading what is installed, and helping
-//! write a plugin.
-
 use std::path::Path;
 
 use tmuxy_core::paths::Layout;

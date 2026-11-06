@@ -9,7 +9,6 @@ use super::manifest::{Action, CliVerb, Manifest};
 use super::{PluginError, Result, RESERVED_VERBS, USER_PLUGIN};
 use crate::paths::Layout;
 
-/// How a plugin got here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
     /// Fetched from a repository, pinned to a commit.
@@ -20,7 +19,6 @@ pub enum Kind {
     User,
 }
 
-/// A plugin that loaded.
 #[derive(Debug, Clone)]
 pub struct Installed {
     pub name: String,
@@ -55,7 +53,6 @@ pub struct Shadowed {
     pub by: Option<String>,
 }
 
-/// Where an entry's plugin lives.
 pub fn entry_root(dirs: &Layout, entry: &Entry) -> Result<(PathBuf, Kind)> {
     match entry.source()? {
         EntrySource::Repo { source, sha } => {
@@ -147,7 +144,6 @@ impl Registry {
         self.plugins.iter().find(|p| p.name == name)
     }
 
-    /// The plugin of that name, or why there is none.
     pub fn require(&self, name: &str) -> Result<&Installed> {
         if let Some(p) = self.get(name) {
             return Ok(p);

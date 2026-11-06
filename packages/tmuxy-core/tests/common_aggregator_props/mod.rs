@@ -5,7 +5,6 @@ use tmuxy_core::control_mode::{
     LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 
-/// Generate a synthetic `Output` event with a small randomised payload.
 /// Pane id values are biased to a small pool so the aggregator actually has
 /// repeat hits to track instead of every event creating a fresh state.
 pub fn output_event_strategy() -> impl Strategy<Value = ControlModeEvent> {

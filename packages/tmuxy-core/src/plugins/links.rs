@@ -34,7 +34,6 @@ pub struct LinkInfo {
     pub captures: BTreeMap<String, String>,
 }
 
-/// The handler a link matched, and what it matched.
 pub struct Found<'a> {
     pub plugin: &'a Installed,
     pub handler: &'a LinkHandler,
@@ -52,7 +51,6 @@ fn handlers(registry: &Registry) -> impl Iterator<Item = (&Installed, &LinkHandl
         .filter(|(p, h)| p.manifest.actions_here().any(|a| a.id == h.action))
 }
 
-/// Whether `url` is one `matcher` takes.
 pub fn url_matches(matcher: &LinkMatch, url: &url::Url) -> bool {
     let LinkMatch::Url {
         hosts,
@@ -162,7 +160,7 @@ pub struct Prepared {
 /// Prepare the action a link opens on `pane`: the URL is also the command's
 /// last argument, as `tmuxy plugin action <plugin>:<id> -- <url>` passes it.
 /// `None` when no handler takes it (the client then opens a URL in the
-/// browser as before).
+/// browser).
 pub fn prepare(dirs: &Layout, found: Option<Found<'_>>, pane: &str) -> Result<Option<Prepared>> {
     let Some(found) = found else {
         return Ok(None);

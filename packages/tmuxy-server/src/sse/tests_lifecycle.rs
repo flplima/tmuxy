@@ -1,6 +1,3 @@
-//! A session's monitor across the moments a client is not there: idle
-//! guards, and a control link that drops while the session survives.
-
 use super::clients::schedule_idle_monitor_cleanup;
 use super::tests_sessions::session_with_fake_monitor;
 use super::*;

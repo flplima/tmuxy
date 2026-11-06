@@ -20,7 +20,6 @@ fn verbatim_keys_pass_through_but_unknown_keys_drop() {
     assert_eq!(v.fields.get("op").unwrap(), "split-window");
     assert_eq!(v.fields.get("session").unwrap(), "work");
     assert_eq!(v.fields.get("seq").unwrap(), 42);
-    // Not on any list → dropped entirely.
     assert!(!v.fields.contains_key("command"));
     assert!(!v.fields.contains_key("secret_count"));
 }
@@ -33,7 +32,6 @@ fn path_fields_are_hashed_not_stored_raw() {
     let path = v.fields.get("path").unwrap().as_str().unwrap();
     assert!(path.starts_with("h:"));
     assert!(!path.contains("secret"));
-    // Stable: same input → same id.
     assert_eq!(path, hash_str("/home/alice/projects/acme/secret.txt"));
 }
 
@@ -47,7 +45,6 @@ fn error_and_message_are_scrubbed_and_truncated() {
         MAX_SCRUB
     );
 
-    // message is captured separately as the event name, still scrubbed.
     let mut v2 = FieldVisitor::default();
     v2.put_str("message", &"y".repeat(500));
     assert_eq!(v2.message.as_ref().unwrap().len(), MAX_SCRUB);
@@ -73,10 +70,8 @@ fn sanitize_client_fields_drops_content_and_hashes_names() {
     assert_eq!(out.get("op").unwrap(), "split-window");
     assert_eq!(out.get("pane").unwrap(), "%3");
     assert_eq!(out.get("ts_wall").unwrap(), 1_700_000_000_000u64);
-    // Content-bearing keys not on any list are dropped.
     assert!(!out.contains_key("command"));
     assert!(!out.contains_key("keys"));
-    // A path key is admitted only as an opaque hash.
     let path = out.get("path").unwrap().as_str().unwrap();
     assert!(path.starts_with("h:"));
     assert!(!path.contains("secret"));
@@ -84,7 +79,6 @@ fn sanitize_client_fields_drops_content_and_hashes_names() {
 
 #[test]
 fn levels_trade_hashing_and_command_strings() {
-    // Shape: names hashed, command dropped (safe/shareable default).
     assert!(
         super::admit("path", Value::from("secret-proj"), TraceLevel::Shape)
             .unwrap()
@@ -94,7 +88,6 @@ fn levels_trade_hashing_and_command_strings() {
     );
     assert!(super::admit("command", Value::from("split-window -h"), TraceLevel::Shape).is_none());
 
-    // Labeled: names in the clear, command still dropped.
     assert_eq!(
         super::admit("path", Value::from("secret-proj"), TraceLevel::Labeled).unwrap(),
         "secret-proj"
@@ -106,14 +99,13 @@ fn levels_trade_hashing_and_command_strings() {
     )
     .is_none());
 
-    // Full: command string admitted (local-debug only).
     assert_eq!(
         super::admit("command", Value::from("split-window -h"), TraceLevel::Full).unwrap(),
         "split-window -h"
     );
 }
 
-/// SEC-CRIT-02. `Full` keeps command strings, and every keystroke and paste
+/// `Full` keeps command strings, and every keystroke and paste
 /// is one — so a password typed at a `sudo` prompt landed in trace.ndjson in
 /// the clear, against the promise that keystroke payloads are never captured
 /// at any level.
@@ -153,7 +145,6 @@ fn full_keeps_the_command_but_never_the_keys_or_the_paste() {
     ] {
         assert_eq!(full(sent), kept, "{sent}");
     }
-    // A command that carries no keystrokes stays whole.
     assert_eq!(full("resizep -t %0 -Z"), "resizep -t %0 -Z");
 }
 
@@ -192,8 +183,6 @@ fn kill_switch_env_disables() {
     assert!(!kill_switch_in(env(&[])));
 }
 
-/// One policy for both paths: what a Rust event's field records is what
-/// the same key from a client records.
 #[test]
 fn a_rust_field_and_a_client_field_are_admitted_alike() {
     for (key, value) in [
@@ -225,7 +214,6 @@ fn level_names_round_trip() {
 
 #[test]
 fn unknown_level_falls_back_to_the_safe_default() {
-    // A stale config or a typo must never silently raise sensitivity.
     assert_eq!(TraceLevel::parse("verbose"), TraceLevel::Shape);
     assert_eq!(TraceLevel::parse(""), TraceLevel::Shape);
     assert_eq!(TraceLevel::from_u8(9), TraceLevel::Shape);
@@ -239,10 +227,7 @@ fn explicit_flag_beats_everything_below_it() {
 
 #[test]
 fn saved_preference_overrides_the_dev_build_default() {
-    // The menu switch must be able to turn a development build's automatic
-    // tracing OFF, not just decorate it.
     assert!(!resolve_enabled(false, Some(false), true));
-    // ...and to turn a release build ON, which is the whole point.
     assert!(resolve_enabled(false, Some(true), false));
 }
 

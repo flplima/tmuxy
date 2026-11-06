@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — the `tmuxy config` commands.
-
-# --- Config ---
-#
-# The directories come from _lib (tmuxy_config_dir, tmuxy_data_dir,
-# tmuxy_state_dir), resolved as tmuxy-core resolves them.
 
 # `reload`, `use-tmux-conf` and `paths` are the server binary's: the files
 # they read and write are tmuxy-core's, which also says what they mean.
+# `reload` touches a marker the app watches; the app re-sources the config on
+# its own control-mode connection and pushes it to every client, where a raw
+# `source-file` from here would apply it to tmux but tell no client.
 config_verb() {
   find_server_cmd || exit "$EXIT_FAILED"
   if [ "$JSON_OUT" = true ]; then
@@ -66,12 +63,6 @@ EOF
       ;;
   esac
 }
-
-# `tmuxy config reload`: the app watches tmuxy.conf, and a marker in the
-# state dir beside it, and sources the config chain on its own control-mode
-# connection when either changes, then pushes the bindings and settings to
-# every client. Touching the marker is the whole request: a raw `source-file`
-# from here would apply the config to tmux but tell no client about it.
 
 cmd_config_use_tmux_conf() {
   case "${1:-}" in

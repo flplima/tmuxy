@@ -12,7 +12,6 @@ use tmuxy_core::{CommandError, PaneId};
 
 use super::tmux::Tmux;
 
-/// The allow-list word for every MCP client.
 const ANY_MCP_CLIENT: &str = "mcp";
 
 impl ask::Tmux for Tmux {
@@ -54,8 +53,6 @@ pub(super) async fn send_keys(
     let deadline = Some(Deadline::after(timeout));
     ask::wait_turn(tmux, pane, deadline).await?;
     let question = Question::new(pane, ANY_MCP_CLIENT, caller, keys, &rules);
-    // Armed before the question goes up: a request dropped from here on
-    // still takes it down.
     let guard = QuestionGuard(Some((tmux.clone(), question.clone())));
     question.put_up(tmux).await?;
     let answer = question.answer(tmux, deadline).await;

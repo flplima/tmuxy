@@ -9,7 +9,6 @@ use unicode_width::UnicodeWidthChar;
 /// What the pane's keystrokes ask for, in the order they asked.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Bytes to show in the pane.
     Echo(Vec<u8>),
     /// Input for the program: a finished line, or what Ctrl+D flushed.
     Send(Vec<u8>),
@@ -55,7 +54,6 @@ pub struct LineDiscipline {
     browse: usize,
     draft: Vec<u8>,
     escape: Escape,
-    /// The parameter bytes of the `ESC [` sequence being read.
     params: Vec<u8>,
 }
 
@@ -64,7 +62,6 @@ impl LineDiscipline {
         Self::default()
     }
 
-    /// What has been typed of the line so far, not yet sent.
     pub fn line(&self) -> &[u8] {
         &self.line
     }
@@ -84,8 +81,6 @@ impl LineDiscipline {
         )
     }
 
-    /// Type `text` at the cursor, as if keyed in: a completion, or a Tab
-    /// that was not one.
     pub fn type_text(&mut self, text: &[u8]) -> Vec<Action> {
         let mut actions = Vec::new();
         self.insert(text, &mut actions);
@@ -98,7 +93,6 @@ impl LineDiscipline {
         self.cursor = self.line.len();
     }
 
-    /// Feed bytes typed into the pane.
     pub fn input(&mut self, bytes: &[u8]) -> Vec<Action> {
         let mut actions = Vec::new();
         for &byte in bytes {
@@ -208,7 +202,6 @@ impl LineDiscipline {
         }
     }
 
-    /// Where the character before the cursor starts.
     fn previous(&self) -> Option<usize> {
         let mut at = self.cursor.checked_sub(1)?;
         while at > 0 && self.line[at] & 0xc0 == 0x80 {
@@ -217,7 +210,6 @@ impl LineDiscipline {
         Some(at)
     }
 
-    /// Where the character after the cursor ends.
     fn next(&self) -> Option<usize> {
         if self.cursor >= self.line.len() {
             return None;
@@ -288,7 +280,6 @@ impl LineDiscipline {
         self.redraw_tail(width, actions);
     }
 
-    /// Delete: drop the character under the cursor.
     fn delete(&mut self, actions: &mut Vec<Action>) {
         if let Some(at) = self.next() {
             let width = columns(&self.line[self.cursor..at]);
@@ -297,7 +288,6 @@ impl LineDiscipline {
         }
     }
 
-    /// Ctrl+U: the whole line, wherever the cursor is.
     fn erase_line(&mut self, actions: &mut Vec<Action>) {
         let width = columns(&self.line);
         back(actions, columns(&self.line[..self.cursor]));
@@ -343,7 +333,6 @@ impl LineDiscipline {
     }
 }
 
-/// The longest text every one of `names` starts with.
 pub fn common_prefix(names: &[String]) -> String {
     let Some(first) = names.first() else {
         return String::new();
@@ -418,15 +407,14 @@ pub fn escape_completion_suffix(suffix: &str) -> String {
     out
 }
 
-/// Create and verify a private `0700` per-UID runtime directory for this pane's
-/// PID tracking files, rejecting symlinks and directories owned by other users.
+/// `/tmp` is shared: another user could pre-create the directory or plant a
+/// symlink there, so it is refused unless it is a real directory we own.
 pub fn ensure_pid_dir() -> std::io::Result<std::path::PathBuf> {
     // SAFETY: getuid() has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     ensure_pid_dir_under(std::path::Path::new("/tmp"), uid, std::process::id())
 }
 
-/// Testable implementation of [`ensure_pid_dir`] rooted under `base`.
 pub fn ensure_pid_dir_under(
     base: &std::path::Path,
     uid: u32,
@@ -460,7 +448,6 @@ pub fn ensure_pid_dir_under(
     Ok(pids)
 }
 
-/// Create an empty `0600` marker file without following a final-component symlink.
 pub fn create_nofollow_marker(path: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
 
@@ -474,7 +461,6 @@ pub fn create_nofollow_marker(path: &std::path::Path) -> std::io::Result<()> {
         .map(|_| ())
 }
 
-/// The columns `bytes` take on screen.
 fn columns(bytes: &[u8]) -> usize {
     String::from_utf8_lossy(bytes)
         .chars()

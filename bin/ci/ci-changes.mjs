@@ -2,18 +2,13 @@
 /**
  * Which of the gated CI jobs a push can skip, from the files it changed.
  *
- * The desktop job (a Tauri build, Xvfb, two suites) and the v86 probe (a wasm
- * build and a guest image) are the two longest jobs of lint-and-tests.yml,
- * and a push that touched only the E2E suites, the demo site or a workflow
- * ran both for nothing. `audit` is the other way round: it was red for
- * advisories that no push had anything to do with, so it now runs only when
- * a lockfile moved (the Sunday sweep covers the rest of the week). And the
- * [nightly] E2E tier, which a push skips, runs on one more runner when the
- * push edited the suites it lives in.
+ * The desktop job and the v86 probe are the two longest jobs of
+ * lint-and-tests.yml. `audit` runs only when a lockfile moved: an advisory
+ * against a dependency no push touched is the Sunday sweep's. The [nightly]
+ * E2E tier, which a push skips, runs on one more runner when the push edited
+ * the suites it lives in.
  *
- * The rules are data here, so they can be read and tested
- * (ci-changes.test.mjs, beside it) rather than buried in a
- * workflow's shell step. Two shapes:
+ * Two shapes of rule:
  *
  *   SKIPPABLE — the job runs unless EVERY changed file is irrelevant to it.
  *               The safe direction: a file no pattern names runs the job.

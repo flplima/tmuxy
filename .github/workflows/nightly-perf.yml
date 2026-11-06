@@ -11,11 +11,10 @@ name: perf measurements
 #   soak                  nightly — Axis D, does a long session degrade; its
 #                         verdict table goes into the run summary
 #
-# The latency gates and the bench used to run per commit. With no branch
-# protection a per-commit gate was informational anyway, and together they
-# cost ~6 runner minutes per push, 3 of them on the critical path (the desktop
-# measurement needs the release Tauri build). A regression now shows the next
-# morning, as a red nightly, instead of on the commit.
+# Nightly, not per commit: with no branch protection a per-commit gate is
+# informational anyway, and together they cost ~6 runner minutes per push, 3
+# of them on the critical path (the desktop measurement needs the release
+# Tauri build). A regression shows the next morning, as a red nightly.
 
 on:
   schedule:
@@ -248,8 +247,7 @@ jobs:
   # Axis C, desktop: the same interactions over Tauri IPC instead of POST +
   # SSE — a different transport with a different cost. Needs the release
   # Tauri binary (a debug build's own slowness would swamp the signal), which
-  # is why this is not in the per-commit `desktop` job any more: that job
-  # builds in debug now and is the critical path of every push.
+  # the per-commit `desktop` job does not build.
   #
   # Its own tmux socket (`tmuxy-perf`, set by the harness).
   interaction-latency-desktop:

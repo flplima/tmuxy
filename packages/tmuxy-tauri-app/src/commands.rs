@@ -12,9 +12,6 @@ use crate::windows;
 
 use helpers::open_with_system;
 
-/// A command's view of the desktop host: the window's monitor, its one
-/// client, and what only the desktop does — switch servers, detach, open a
-/// link or a file on this machine.
 struct DesktopCtx {
     app: tauri::AppHandle,
     monitor: Monitor,
@@ -107,14 +104,11 @@ pub fn new_window(app: tauri::AppHandle) -> Result<(), CommandError> {
         .map_err(CommandError::unavailable)
 }
 
-/// Bring the GUI window at `index` to the front (Window ▸ the window list, and
-/// the Cmd/Ctrl+Shift+digit shortcuts).
 #[tauri::command]
 pub fn focus_window(app: tauri::AppHandle, index: usize) {
     crate::windows::focus_index(&app, index);
 }
 
-/// Close this OS window (Window ▸ Close Window).
 #[tauri::command]
 pub fn close_window(window: tauri::WebviewWindow) -> Result<(), CommandError> {
     window
@@ -158,7 +152,6 @@ pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(
     Ok(())
 }
 
-/// The style this window is in, as its slug — what the in-app menu ticks.
 #[tauri::command]
 pub fn get_window_style(window: tauri::WebviewWindow) -> String {
     crate::window_style::slug_of(

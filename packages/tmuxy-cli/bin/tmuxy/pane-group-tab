@@ -1,10 +1,4 @@
 #!/bin/bash
-# pane-group-tab <verb> <%id>: a whole tab's worth of pane-group work, built
-# from the one-pane verbs of `pane-group` (tmuxy_core::groups does each step).
-#   all <%id>       every other pane in %id's tab becomes a member of %id's group
-#                   (a new group when it has none): one slot, the others parked
-#   ungroup <%id>   every member of %id's group comes back as a split beside %id,
-#                   and the group is gone; the tab is re-tiled so the splits share it
 set -euo pipefail
 source "${0%/*}/_lib"
 
@@ -27,8 +21,6 @@ case "$verb" in
   ungroup)
     group=$(_tmux display-message -p -t "$pane" '#{@tmuxy-group-id}')
     [ -n "$group" ] || exit 0
-    # The members in their group order, the shown one (%id) left for last:
-    # each comes back as a split to the right of %id, then the tab is tiled.
     members=$(_tmux list-panes -a -F '#{pane_id} #{@tmuxy-group-id} #{@tmuxy-group-pos}' \
       | awk -v g="$group" -v p="$pane" '$2 == g && $1 != p { print $3, $1 }' | sort -n | awk '{ print $2 }')
     for member in $members; do

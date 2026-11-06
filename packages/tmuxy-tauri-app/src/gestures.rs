@@ -36,7 +36,6 @@ fn horizontal(dx: f64, dy: f64) -> bool {
     dx.abs() >= 1.0 && dx.abs() > dy.abs() * SWIPE_AXIS_RATIO
 }
 
-/// The call the page gets for one claimed event.
 fn forward(window: &WebviewWindow, phase: &str, dx: f64, dy: f64, t: f64) {
     let _ = window.eval(format!(
         "window.tmuxyGesture?.('slide','{phase}',{dx},{dy},{t})"
@@ -46,7 +45,6 @@ fn forward(window: &WebviewWindow, phase: &str, dx: f64, dy: f64, t: f64) {
 /// What one scroll stream is to the shell, from its first step to its end.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Stream {
-    /// Nothing under way.
     Idle,
     /// Begun, no delta seen yet: the first delta decides. (GTK has no begin
     /// event; its first delta is the beginning.)
@@ -81,7 +79,6 @@ mod macos {
     unsafe impl Send for Monitor {}
     unsafe impl Sync for Monitor {}
 
-    /// The window a scroll event belongs to, by its NSWindow.
     fn window_of(app: &AppHandle, event: &NSEvent, mtm: MainThreadMarker) -> Option<WebviewWindow> {
         let ns_window = event.window(mtm)?;
         let wanted = Retained::as_ptr(&ns_window) as *const std::ffi::c_void;

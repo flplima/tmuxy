@@ -4,10 +4,7 @@
 # The CI workflows and their composite actions, the devcontainer image
 # (.devcontainer/Dockerfile copies this file in, as it copies
 # bin/install-dev-tools), bin/bootstrap and bin/install-dev-tools all ask
-# here. Each used to spell its own: the tmux pin in five files and a
-# hand-written copy of the tmux build in the image, the rust targets in six,
-# the WebKitGTK headers in six, the tauri-driver pin in three and unpinned in
-# a fourth.
+# here.
 #
 # Usage:
 #   bin/toolchain tmux-version          the tmux CI, the image and docs/TMUX.md target

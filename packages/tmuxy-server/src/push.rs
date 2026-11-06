@@ -43,12 +43,10 @@ use watch::{Notice, Watch};
 /// How long a push service keeps a notification for a device that is off.
 const PUSH_TTL_SECS: u32 = 60 * 60;
 
-/// The most bytes of a subscription request the server reads.
 const MAX_SUBSCRIPTION_BYTES: usize = 8 * 1024;
 
-/// The server's web push: where it keeps its key and its devices, and the
-/// client it pushes with. The store is touched only under the lock, so two
-/// subscribes at once cannot lose one another.
+/// The store is touched only under the lock, so two subscribes at once
+/// cannot lose one another.
 pub struct Push {
     store: StdMutex<Store>,
     client: reqwest::Client,
@@ -85,8 +83,6 @@ impl Push {
             .unwrap_or(false)
     }
 
-    /// Push `notice` to every device, forgetting the ones the push service
-    /// says are gone.
     pub(crate) async fn send(&self, notice: &Notice) {
         let Some((key, devices)) = self.with(|s| (s.vapid_key().ok(), s.subscriptions())) else {
             return;
@@ -157,12 +153,8 @@ impl Push {
     }
 }
 
-/// A subscription the push service no longer knows, or one no push can be
-/// made for: forgotten.
 struct Gone;
 
-/// Watch the panes and push what comes to need the user, for the life of
-/// the server.
 pub async fn watch(state: Arc<AppState>, mut panes: tmuxy_core::host::socket_watch::Rows) {
     // The key is read (or made, or an unreadable one replaced along with its
     // devices) before any device can subscribe, so no new subscription is
@@ -196,10 +188,6 @@ pub async fn watch(state: Arc<AppState>, mut panes: tmuxy_core::host::socket_wat
         .await;
 }
 
-// ============================================
-// Routes
-// ============================================
-
 /// `GET /api/push`: the VAPID public key a device subscribes with.
 pub async fn key_handler(State(state): State<Arc<AppState>>) -> Response {
     match state.push.public_key() {
@@ -208,8 +196,6 @@ pub async fn key_handler(State(state): State<Arc<AppState>>) -> Response {
     }
 }
 
-/// A JSON body of at most `MAX_SUBSCRIPTION_BYTES`, or the status and
-/// reason it is refused with.
 async fn read_json<T: serde::de::DeserializeOwned>(
     headers: &HeaderMap,
     body: Body,

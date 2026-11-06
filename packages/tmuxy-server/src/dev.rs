@@ -8,10 +8,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{error, warn};
 
-/// Port for Vite dev server
 pub const VITE_PORT: u16 = 9001;
 
-/// Vite's process group, killed with the server.
 pub struct ViteChild {
     #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
@@ -28,7 +26,7 @@ impl ViteChild {
     }
 }
 
-/// Hop-by-hop headers that must not be forwarded by a proxy.
+/// Hop-by-hop headers a proxy must not forward (RFC 9110 §7.6.1).
 const HOP_BY_HOP: &[&str] = &[
     "connection",
     "keep-alive",
@@ -40,10 +38,8 @@ const HOP_BY_HOP: &[&str] = &[
     "upgrade",
 ];
 
-/// One client for every proxied request, so connections to Vite are reused.
 static PROXY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
-/// Drop the headers that describe one hop rather than the message.
 fn without_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     let mut headers = headers.clone();
     for name in HOP_BY_HOP {
@@ -85,8 +81,6 @@ pub async fn proxy_to_vite(req: Request) -> Response {
     }
 }
 
-/// Start Vite (`npm run dev -w tmuxy-ui`) from the workspace root, its output
-/// relayed line by line under the `[vite]` label.
 pub async fn spawn_vite() -> Option<ViteChild> {
     let label = "vite";
     let workspace_root = crate::state::find_workspace_root();

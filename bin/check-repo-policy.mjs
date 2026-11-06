@@ -173,8 +173,7 @@ function checkDocsToScriptsConsistency() {
     for (const name of Object.keys(pkg.scripts || {})) scripts.add(name);
   }
 
-  // Every doc, not a hand-kept four: a path a doc names is checked wherever
-  // the doc is, so a renamed file is caught by the doc that still names it.
+  // Every doc, so a renamed file is caught by the doc that still names it.
   const commandDocs = [
     'AGENTS.md',
     'CONTRIBUTING.md',

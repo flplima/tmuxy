@@ -1,11 +1,8 @@
-//! `tmuxy-server send`: what `tmuxy pane send` and `tmuxy pane paste` do once
-//! the CLI has resolved the target and the caller — type keys, or paste text,
-//! into a pane, asking the user there first when the pane is not the
-//! caller's own (`tmuxy_core::ask`, the protocol the MCP endpoint speaks too).
-//!
-//! The answer keeps the CLI's contract (`packages/tmuxy-cli/README.md`):
-//! exit 0 sent · 1 declined, unanswered or failed · 2 bad command line · 3
-//! the pane is gone, and under `--json` one object on stdout.
+//! The question put to another pane's user is `tmuxy_core::ask`, the protocol
+//! the MCP endpoint speaks too. The answer keeps the CLI's contract
+//! (`packages/tmuxy-cli/README.md`): exit 0 sent · 1 declined, unanswered or
+//! failed · 2 bad command line · 3 the pane is gone, and under `--json` one
+//! object on stdout.
 
 use std::time::Duration;
 
@@ -179,7 +176,6 @@ async fn caller_name<T: ask::Tmux>(
     name.unwrap_or_else(|| "a script".to_string())
 }
 
-/// SIGINT or SIGTERM: the user interrupted the send, or something killed it.
 async fn interrupted() {
     use tokio::signal::unix::{signal, SignalKind};
     let (Ok(mut int), Ok(mut term)) = (
@@ -198,7 +194,6 @@ fn failed(e: CommandError) -> (i32, String) {
     (EXIT_FAILED, e.error)
 }
 
-/// The keys, typed or pasted, into the target.
 struct Delivery<'a> {
     pane: &'a PaneId,
     keys: &'a [String],

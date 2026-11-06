@@ -20,7 +20,6 @@ pub enum PreviewUse {
     None,
 }
 
-/// One file type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileType {
     pub extension: &'static str,
@@ -72,7 +71,6 @@ pub const FILE_TYPES: &[FileType] = &[
     t("wasm", "application/wasm", PreviewUse::None),
 ];
 
-/// The label of a type the table does not know.
 pub const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
 
 /// The type of a path, from the extension of its last component, any case.
@@ -85,13 +83,10 @@ pub fn file_type(path: &str) -> Option<&'static FileType> {
     FILE_TYPES.iter().find(|t| t.extension == ext)
 }
 
-/// Content type for a path, from its extension. Unknown extensions fall back to
-/// UTF-8 plain text.
 pub fn content_type_for_path(path: &str) -> &'static str {
     file_type(path).map_or(PLAIN_TEXT, |t| t.mime)
 }
 
-/// What a preview does with the file at `path`.
 pub fn preview_use(path: &str) -> PreviewUse {
     file_type(path).map_or(PreviewUse::None, |t| t.preview)
 }

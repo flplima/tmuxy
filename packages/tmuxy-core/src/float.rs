@@ -60,12 +60,10 @@ impl Backdrop {
     }
 }
 
-/// A float to make.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Float {
     /// The pane it is split from, and given back to: the caller's.
     pub from_pane: Option<String>,
-    /// The new pane's working directory.
     pub cwd: Option<String>,
     /// The new pane's command, as a shell line; a shell when absent.
     pub command: Option<String>,

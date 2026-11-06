@@ -1,32 +1,12 @@
 #!/bin/bash
-# Create a new float pane (centered or drawer)
-#
-# Options:
-#   --left|--right|--top|--bottom   Drawer mode (slides from edge)
-#   --width N                       Width in columns
-#   --height N                      Height in rows
-#   --bg dim|blur|none              Backdrop style
-#   --hide-header                   Hide the header bar
-#   --detach                        With a command: run it in the float and
-#                                   print the float's pane id, without waiting
-#
-# Float-inside-float mode (called from within a float-typed window):
-#   Runs the command directly in the current float pane (reuses the same slot).
-#
-# Interactive mode (no command args):
-#   Creates a float pane with an interactive shell, outputs pane ID to stdout.
-#
-# Command mode (with args after options):
-#   Creates a float pane running the command, captures its stdout,
-#   waits for completion, auto-closes the float, and outputs the
-#   captured stdout. Enables: FILE=$(tmuxy float fzf) && nvim "$FILE"
-#   With --detach the float just runs the command, as its own program, and
-#   its pane id is output at once (an MCP client's `pane_float`).
+# With a command, the float runs it, closes when it exits and prints its
+# stdout: `FILE=$(tmuxy pane float fzf) && nvim "$FILE"`. With --detach the
+# pane id prints at once instead (an MCP client's `pane_float`). Called from
+# inside a float, the command (or a new shell) runs in that same float.
 
 set -euo pipefail
 source "${0%/*}/_lib"
 
-# Parse options
 DRAWER=""
 WIDTH=""
 HEIGHT=""
@@ -62,8 +42,6 @@ FLOAT_ARGS=(float ${TMUX_PANE:+--pane "$TMUX_PANE"})
 [ -n "$BG" ] && FLOAT_ARGS+=(--bg "$BG")
 [ -n "$HIDE_HEADER" ] && FLOAT_ARGS+=(--hide-header)
 
-# Create the float, its pane running $1 (a shell line) when given, and set
-# NEW_PANE_ID and NEW_WIN_ID to its pane and window, or fail.
 create_float() {
   local ids
   find_server_cmd || exit 1
@@ -72,28 +50,22 @@ create_float() {
 }
 
 if [ "$CURRENT_TYPE" = "float" ]; then
-  # Already in a float - reuse the current slot instead of creating a new one
   if [ $# -eq 0 ]; then
-    # Interactive mode inside float: replace current shell with a new one
     exec "${SHELL:-bash}"
   else
-    # Command mode inside float: run the command directly here, output its result
     "$@"
   fi
   exit $?
 fi
 
 if [ $# -eq 0 ]; then
-  # Interactive mode: create the float with a shell, output its pane id.
   create_float
   echo "$NEW_PANE_ID"
 elif [ -n "$DETACH" ]; then
-  # Detached: the command is the float's program, each word quoted for the
-  # shell tmux runs it with, and nothing waits on it.
+  # Each word quoted for the shell tmux runs the program with.
   create_float "$(printf '%q ' "$@")"
   echo "$NEW_PANE_ID"
 else
-  # Command mode: run the command in the float, capture its stdout, auto-close.
   TMPFILE=$(umask 077 && mktemp /tmp/tmuxy-float-out.XXXXXX)
   WRAPPER=$(umask 077 && mktemp /tmp/tmuxy-float-cmd.XXXXXX)
   trap 'rm -f "$TMPFILE" "$WRAPPER"' EXIT
@@ -115,11 +87,8 @@ else
 
   create_float "bash $(printf '%q' "$WRAPPER")"
 
-  # Wait for the command to finish
   _tmux wait-for "$WAIT_CHAN"
 
-  # Auto-close the float window.
-  #
   # The pane pids are read first: kill-window closes each PTY master right
   # after the SIGHUP, and a shell still inside its own start-up never returns
   # from opening its controlling terminal — it sleeps in the kernel holding a
@@ -132,6 +101,5 @@ else
     reap_pids "$FLOAT_PANE_PIDS"
   fi
 
-  # Output captured stdout
   cat "$TMPFILE"
 fi

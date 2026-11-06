@@ -21,15 +21,12 @@ pub struct ConnectionInfo {
     /// The id the client names itself by in later commands (the web's
     /// `X-Connection-Id`); the desktop window's client is always 0.
     pub connection_id: u64,
-    /// The basename of `$SHELL`, `bash` when it is unset.
     pub default_shell: String,
     pub trace_enabled: bool,
-    /// The machine's name ([`super::host_name`]), for the status line.
     pub hostname: String,
 }
 
 impl ConnectionInfo {
-    /// The greeting for client `connection_id` of this process.
     pub fn for_client(connection_id: u64) -> Self {
         Self {
             connection_id,
@@ -48,9 +45,9 @@ impl ConnectionInfo {
 pub enum HostEvent {
     ConnectionInfo(ConnectionInfo),
     StateUpdate(Box<StateUpdate>),
-    /// Something the user should read: tmux refused a command, a sync
-    /// failed. Never a statement about the link. Named `tmux-error`, never
-    /// `error`: the browser dispatches a server event called `error` to
+    /// Something the user should read (tmux refused a command, a sync
+    /// failed), never a statement about the link. Named `tmux-error`: the
+    /// browser dispatches a server event called `error` to
     /// `EventSource.onerror` as well.
     Error {
         message: String,
@@ -62,8 +59,7 @@ pub enum HostEvent {
         message: String,
     },
     KeyBindings(KeyBindings),
-    /// Theme name/mode + appearance, pushed after the config is sourced so
-    /// option changes apply live.
+    /// Pushed after the config is sourced, so option changes apply live.
     ThemeSettings(Box<ThemeSettings>),
     /// A theme file or `custom.css` under the config dir was saved: the
     /// client re-fetches its stylesheets and the themes list.
@@ -88,15 +84,14 @@ pub enum HostEvent {
         text: String,
     },
     /// A message tmux showed this client (`display-message`). Named
-    /// `tmux-message`, never `message`: that is `EventSource`'s default event
-    /// type, which `onmessage` would receive as well.
+    /// `tmux-message`: `message` is `EventSource`'s default event type, which
+    /// `onmessage` would receive as well.
     Message {
         text: String,
     },
 }
 
 impl HostEvent {
-    /// The name the event travels under, on both transports.
     pub fn name(&self) -> &'static str {
         match self {
             Self::ConnectionInfo(_) => "connection-info",
@@ -120,7 +115,6 @@ impl HostEvent {
     }
 }
 
-/// [`HostEvent::data`]: the event without its name.
 #[derive(Clone, Copy)]
 pub struct EventData<'a>(&'a HostEvent);
 

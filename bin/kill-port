@@ -3,9 +3,7 @@
 # Kill any process listening on a given TCP port.
 #
 # `lsof` where there is one (macOS, most Linux); the /proc scan below is for a
-# minimal container without lsof, fuser or ss. The scan is Linux-only, and on
-# a Mac it used to find nothing and say nothing — so the `predev` hooks that
-# call this started a second dev server on a port the last one still held.
+# minimal container without lsof, fuser or ss, and is Linux-only.
 #
 # Usage: kill-port <port>
 #
@@ -18,14 +16,13 @@ if command -v lsof >/dev/null 2>&1; then
     echo "[kill-port] Killing PID $pid on port $PORT"
     kill "$pid" 2>/dev/null || true
   done
-  # Wait briefly for processes to exit
   [ -n "$PIDS" ] && sleep 1
   exit 0
 fi
 
 HEX=$(printf '%04X' "$PORT")
 
-# Collect socket inodes listening (state 0A = LISTEN) on this port
+# In /proc/net/tcp, state 0A is LISTEN.
 INODES=()
 for proto in /proc/net/tcp /proc/net/tcp6; do
   [ -f "$proto" ] || continue
@@ -38,7 +35,6 @@ done
 
 [ ${#INODES[@]} -eq 0 ] && exit 0
 
-# Find PIDs owning those inodes
 PIDS=()
 for pid_dir in /proc/[0-9]*; do
   pid="${pid_dir##*/}"
@@ -54,7 +50,6 @@ for pid_dir in /proc/[0-9]*; do
   done
 done
 
-# Deduplicate and kill
 declare -A seen
 for pid in "${PIDS[@]}"; do
   if [ -z "${seen[$pid]}" ]; then
@@ -64,5 +59,4 @@ for pid in "${PIDS[@]}"; do
   fi
 done
 
-# Wait briefly for processes to exit
 sleep 1

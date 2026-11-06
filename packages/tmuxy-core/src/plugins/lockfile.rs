@@ -49,7 +49,6 @@ pub struct Entry {
     pub path: Option<std::path::PathBuf>,
 }
 
-/// An entry's source, checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntrySource {
     Repo { source: RepoSource, sha: String },
@@ -109,7 +108,6 @@ impl Entry {
         }
     }
 
-    /// `owner/repo[/subdir]`, or the linked path.
     pub fn describe_source(&self) -> String {
         match (&self.repo, &self.path) {
             (Some(repo), _) => match &self.git_ref {
@@ -164,7 +162,6 @@ impl Lockfile {
         self.plugins.iter().find(|e| e.name == name)
     }
 
-    /// Add or replace the entry of that name.
     pub fn upsert(&mut self, entry: Entry) {
         self.plugins.retain(|e| e.name != entry.name);
         self.plugins.push(entry);

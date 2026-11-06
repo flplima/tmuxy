@@ -13,10 +13,8 @@ use std::path::PathBuf;
 use super::registry::Registry;
 use crate::paths::Layout;
 
-/// The largest stylesheet a plugin theme may be.
 pub const MAX_THEME_BYTES: u64 = 512 * 1024;
 
-/// The theme's name, as the menu stores it.
 pub fn theme_name(plugin: &str, id: &str) -> String {
     format!("{plugin}__{id}")
 }
@@ -43,7 +41,6 @@ pub fn list(dirs: &Layout) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
-/// A plugin theme's stylesheet, by its name.
 pub fn css(dirs: &Layout, name: &str) -> Option<Vec<u8>> {
     if !name.contains("__") {
         return None;

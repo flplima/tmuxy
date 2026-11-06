@@ -1,45 +1,32 @@
-//! The rows tmuxy reads off tmux — one column table per list — and the
-//! other formats the monitor sends. Every `@tmuxy-*` name in them is a
-//! `tmux_options` constant, never a second spelling.
-
 use super::tmux_options;
 use std::sync::LazyLock;
 
 /// The application-set pane title, with tmux's own default filtered out.
 ///
 /// tmux seeds every pane's title with the host name, so `#{pane_title}` is
-/// non-empty even when no application ever emitted an OSC 0/2 title.
-/// Comparing against `#{host}` inside tmux (rather than shipping the host
-/// name to every client to compare there) makes the field EMPTY for "no app
-/// title" — which is what lets the UI fall back to the process name. Both
-/// values come from the same `gethostname()`, so the seed always matches.
-/// Expands to ONE field: the comparison's own comma is consumed by tmux,
-/// never emitted.
-///
-/// The sidebar's sessions poll builds its own format from the same
-/// expression (`serversActor.ts`) and reads the rows back through
-/// `query_tmux`.
+/// non-empty even when no application emitted an OSC 0/2 title. Comparing
+/// against `#{host}` inside tmux (both come from the same `gethostname()`)
+/// makes the field EMPTY for "no app title", so the UI can fall back to the
+/// process name. Expands to ONE field: tmux consumes the comparison's comma.
+/// The sidebar's sessions poll (`serversActor.ts`) uses the same expression.
 pub const APP_PANE_TITLE: &str = "#{?#{==:#{pane_title},#{host}},,#{pane_title}}";
 
 /// Which of tmux's pane modes the pane is in: `1` for copy mode, `2` for
 /// view mode, `0` for none of them or any other.
 ///
-/// `#{pane_in_mode}` is 1 for every pane mode tmux has: copy-mode, but also
-/// view-mode, tree-mode, buffer-mode and client-mode. The client turns copy
-/// mode into its own, which renders the scrollback and hides the live
-/// terminal — so a pane tmux merely put in view-mode disappeared behind a
-/// scrollback view that nothing would close. tmux 3.4 is where this showed
-/// up (a freshly created pane comes up in `view-mode` there, and the pane
-/// rendered as a 0x0 box forever), but the conflation was wrong on every
-/// version: `prefix s` and friends could do the same.
+/// `#{pane_in_mode}` is 1 for every pane mode tmux has (copy, view, tree,
+/// buffer, client), and the client turns copy mode into its own scrollback
+/// view, so a pane tmux merely put in view-mode vanished behind a scrollback
+/// nothing would close. tmux 3.4 showed it (a fresh pane comes up in
+/// `view-mode` there and rendered as a 0x0 box), and `prefix s` and friends
+/// do the same on every version.
 ///
-/// View mode is named on its own because the client does not draw it
-/// either, and it takes every key: a `run-shell -b` that prints opens one
-/// on the current pane, on every version. The aggregator closes it
-/// (`parse_list_panes_line`).
+/// View mode is named on its own because it takes every key and a
+/// `run-shell -b` that prints opens one on the current pane, on every
+/// version; the aggregator closes it (`parse_list_panes_line`).
 ///
-/// Expands to exactly one int-like field: the comparisons' commas are
-/// tmux's, never emitted.
+/// Expands to exactly one int-like field: tmux consumes the comparisons'
+/// commas.
 pub const PANE_MODE_FLAG: &str =
     "#{?#{==:#{pane_mode},copy-mode},1,#{?#{==:#{pane_mode},view-mode},2,0}}";
 
@@ -49,7 +36,6 @@ pub const PANE_MODE_FLAG: &str =
 /// parsed this way; `display-message -p` strips the `%`.
 pub const COMMA_ESCAPE: &str = "%2C";
 
-/// A field back from [`COMMA_ESCAPE`].
 pub fn unescape_commas(field: &str) -> String {
     field.replace(COMMA_ESCAPE, ",")
 }
@@ -69,12 +55,10 @@ pub enum Field {
 }
 
 impl Field {
-    /// Whether the value is free text, sent comma-escaped.
     pub fn is_text(self) -> bool {
         matches!(self, Field::Text(_) | Field::TextFormat(_))
     }
 
-    /// What tmux is asked to expand into this column's field.
     pub fn format(self) -> String {
         match self {
             Field::Var(name) => format!("#{{{name}}}"),
@@ -86,22 +70,13 @@ impl Field {
 }
 
 /// The columns of one kind of row tmux lists, in the order tmux prints them.
-/// Each list has exactly one: the command that asks for the rows, the parser
-/// that reads them ([`Row`]) and the fixtures that stand in for them
-/// ([`RowBuilder`]) are all built from it, so none of them can disagree about
-/// which column is which. A free-text column is comma-escaped, so a row
-/// always has one field per column and a comma in a title or a window name
-/// cannot shift the fields after it.
 pub trait Column: Copy + std::fmt::Debug + 'static {
     /// Every column, in row order.
     const ALL: &'static [Self];
-    /// How tmux expands this column.
     fn field(self) -> Field;
-    /// Where this column's field sits in the comma-split row.
     fn index(self) -> usize;
 }
 
-/// The `-F` format of a row of `C`: every column's format, comma-separated.
 pub fn row_format<C: Column>() -> String {
     C::ALL
         .iter()
@@ -170,9 +145,7 @@ row_table! {
 }
 
 row_table! {
-    /// A column of a `list-windows` row ([`TmuxList::Windows`]). Every column
-    /// after `Active` but the zoom flag and the name is a `@tmuxy-*` user
-    /// option that may be empty.
+    /// A column of a `list-windows` row ([`TmuxList::Windows`]).
     WindowColumn {
         WindowId => Field::Var("window_id"),
         Index => Field::Var("window_index"),
@@ -299,10 +272,9 @@ pub enum TmuxList {
     /// The attached session's windows: one [`WindowColumn`] row each.
     Windows,
     /// The HIDDEN pane-group members parked in [`super::STASH_SESSION`]: one
-    /// [`StashColumn`] row each. A server-wide `-a` scan filtered to the stash
-    /// session by `-f` returns EMPTY (not an error) when the stash session
-    /// doesn't exist yet — which is the common case on every refresh before
-    /// any group is made, so it must not spam `%error` responses.
+    /// [`StashColumn`] row each. A server-wide `-a` scan filtered by `-f`
+    /// returns EMPTY, not `%error`, while the stash session does not exist
+    /// yet (every refresh before the first group).
     Stash,
 }
 
@@ -348,21 +320,16 @@ impl TmuxList {
 /// The control-mode subscription that reports pane metadata tmux does not
 /// announce on its own.
 ///
-/// tmux sends no notification when a title changes — `select-pane -T` from
-/// a script or `tmuxy run`, or a program's OSC 0/2 — nor when a group's
-/// membership or order changes by option alone, so these used to wait for
-/// the idle heartbeat (15 s). A subscription is checked by tmux about once
-/// a second and answered with `%subscription-changed`, whatever made the
-/// change (tmux 3.2+; `%*` is every pane of every window). The group
-/// scripts bump the global `@tmuxy-group-rev`, which every pane inherits,
-/// so a reorder among hidden members is seen too, and a plugin install or
-/// removal writes the global `@tmuxy-plugins-rev` the same way. An agent's
-/// `@tmuxy-pane-state` is written with nothing printed after it as often as
-/// not — the server marking a dialog it read off the screen, a script's
-/// `tmuxy pane state` — and showed only at the heartbeat.
+/// tmux sends no notification when a title changes (`select-pane -T`, a
+/// program's OSC 0/2) or a pane option does, so these would wait for the idle
+/// heartbeat (15 s). tmux checks a subscription about once a second and
+/// answers `%subscription-changed` whatever made the change (tmux 3.2+; `%*`
+/// is every pane of every window). The global `@tmuxy-group-rev` and
+/// `@tmuxy-plugins-rev` are inherited by every pane, so a reorder among
+/// hidden members and a plugin install are seen too. `@tmuxy-pane-state` is
+/// often written with nothing printed after it.
 pub const PANE_TITLE_SUBSCRIPTION_NAME: &str = "tmuxy-pane-meta";
 
-/// The command that subscribes to [`PANE_TITLE_SUBSCRIPTION_NAME`].
 pub fn subscribe_pane_titles_command() -> String {
     let watched = [
         "pane_title",
@@ -380,16 +347,13 @@ pub fn subscribe_pane_titles_command() -> String {
 /// The control-mode subscription that reports the theme and its mode,
 /// `<@tmuxy-theme>:<@tmuxy-theme-mode>`, for the attached session (`::`).
 ///
-/// Both are global user options, and tmux announces no change to an option,
-/// so a theme picked on one client — over this monitor or another one, the
-/// desktop app's — reached no other client until it reconnected. tmux checks
-/// a subscription about once a second and answers with
-/// `%subscription-changed` whatever made the change; the value is the whole
-/// news, so nothing has to be listed again. A theme name is a file stem and
-/// a mode is `dark`/`light`/`auto`, so neither holds a ` : `.
+/// tmux announces no change to a global user option, so a theme picked on one
+/// client (over any monitor) reached no other until it reconnected. tmux
+/// checks a subscription about once a second and answers
+/// `%subscription-changed`; the value is the whole news. A theme name is a
+/// file stem and a mode is `dark`/`light`/`auto`, so neither holds a `:`.
 pub const THEME_SUBSCRIPTION_NAME: &str = "tmuxy-theme";
 
-/// The command that subscribes to [`THEME_SUBSCRIPTION_NAME`].
 pub fn subscribe_theme_command() -> String {
     format!(
         "refresh-client -B '{THEME_SUBSCRIPTION_NAME}::{}:{}'",

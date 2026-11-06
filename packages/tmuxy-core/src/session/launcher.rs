@@ -98,21 +98,13 @@ pub(super) fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Ve
 /// file at `~/.local/bin/tmuxy` is known to be one.
 const WRAPPER_MARK: &str = "# tmuxy — auto-generated shorthand for the desktop app.";
 
-/// The line of the wrapper that names its launcher file.
 const LAUNCHER_LINE: &str = "LAUNCHER_FILE=";
 
-/// The `tmuxy` shell wrapper [`refresh_launcher`] writes, reading the
-/// launcher path from `launcher_file` — the state dir's, baked in when the
-/// wrapper is written, so the shell never re-derives the dir rules
-/// (`paths::Layout` owns them) — and dispatching:
-///   - no args → open the GUI through `open -a` on macOS (LaunchServices
-///     bounces the dock icon and applies the right activation policy)
-///   - any args → exec the binary directly so it runs in CLI mode
-///
-/// Earlier versions always routed through `open -a`, which on macOS
-/// silently swallows args for known apps and never starts a CLI session,
-/// so `tmuxy pane list` etc. just opened a duplicate GUI window instead
-/// of dispatching into the noun-verb shell helper.
+/// The `tmuxy` shell wrapper [`refresh_launcher`] writes: it execs the binary
+/// named in `launcher_file` (baked in, so the shell never re-derives the dir
+/// rules) with its arguments. Never through `open -a`, which on macOS
+/// silently swallows the arguments for a known app, so `tmuxy pane list`
+/// opened a second GUI window.
 pub(super) fn launcher_wrapper(launcher_file: &Path) -> String {
     format!(
         "#!/bin/sh
@@ -156,35 +148,23 @@ fn wrapper_launcher(wrapper: &str) -> Option<PathBuf> {
     }
 }
 
-/// Async-friendly: refresh the `tmuxy` shell shorthand to point at the
-/// currently-running executable. Writes two files:
-///
-///   1. `launcher` in the state dir — a single line: the absolute path to
-///      the .app/binary that launched us. Refreshed every GUI launch so
-///      the shorthand always points at the most-recently-opened build
-///      (handy when juggling Releases.app vs. a debug build). This machine's
-///      own fact, so never in the config dir a dotfiles repo may hold.
-///
-///   2. `~/.local/bin/tmuxy` — the wrapper script ([`launcher_wrapper`]).
-///      Only rewritten when its content drifts, so we don't churn the inode
-///      on every launch, and never over a symlink that resolves (the user's
-///      own). The wrapper is `chmod +x`'d.
-///
-/// Errors are logged and otherwise swallowed; this is a best-effort install
-/// convenience, not a hard prerequisite for app use.
+/// Point the `tmuxy` shell shorthand at the running executable, best effort
+/// (errors are logged). Writes the state dir's `launcher` (the absolute path
+/// of the most recently opened build; this machine's own fact, so never in
+/// the config dir a dotfiles repo may hold) and `~/.local/bin/tmuxy`
+/// ([`launcher_wrapper`]), never over a symlink that resolves (the user's
+/// own).
 pub fn refresh_launcher(exe_path: &Path) {
     refresh_launcher_in(&Layout::current(), exe_path);
 }
 
 /// Heal `~/.local/bin/tmuxy` and the state dir's `launcher` when the wrapper
-/// is already installed, reads this process's launcher file, and either its
-/// script has drifted from [`launcher_wrapper`] or the target recorded in
-/// `launcher` no longer exists
-/// on disk (such as an unmounted `/tmp/.mount_tmuxy*` path or an upgraded
-/// `Cellar/<old-version>` path). Leaves a healthy `launcher` untouched so
-/// running a `target/debug/tmuxy` test binary never clobbers the user's
-/// installed launcher, and never creates `~/.local/bin/tmuxy` on a headless
-/// host that never had one.
+/// is installed, reads this process's launcher file, and has drifted from
+/// [`launcher_wrapper`] or records a target gone from disk (an unmounted
+/// `/tmp/.mount_tmuxy*`, an upgraded `Cellar/<old-version>`). A healthy
+/// `launcher` is left alone, so a `target/debug/tmuxy` test binary never
+/// clobbers the installed one, and a headless host that never had a wrapper
+/// does not get one.
 pub fn refresh_launcher_if_installed(exe_path: &Path) {
     refresh_launcher_if_installed_in(&Layout::current(), exe_path);
 }
@@ -252,7 +232,6 @@ pub(super) fn refresh_launcher_in(layout: &Layout, exe_path: &Path) {
 
     let wrapper_path = bin_dir.join("tmuxy");
 
-    // Probed with symlink_metadata, to see the link rather than its target.
     let is_symlink = std::fs::symlink_metadata(&wrapper_path)
         .map(|m| m.file_type().is_symlink())
         .unwrap_or(false);

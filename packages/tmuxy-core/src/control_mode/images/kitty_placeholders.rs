@@ -6,7 +6,8 @@ use super::*;
 
 impl ImageParser {
     /// Map a kitty id to the store's id, forgetting the oldest once over the
-    /// cap so a loop of images cannot grow the map without bound (SEC-22).
+    /// cap, so a pane printing image after image cannot grow the map without
+    /// bound.
     pub(super) fn remember_kitty_id(&mut self, kitty_id: u32, stored_id: u32) {
         if self.kitty_image_ids.insert(kitty_id, stored_id).is_none() {
             self.kitty_image_order.push_back(kitty_id);
@@ -22,8 +23,8 @@ impl ImageParser {
     }
 
     /// Rebuild Kitty Unicode-placeholder placements from the emulated screen.
-    /// The placeholders are ordinary terminal cells, so the terminal emulator
-    /// has already applied cursor movement, wrapping and scrolling for us.
+    /// The placeholders are ordinary terminal cells, so the emulator has
+    /// already applied cursor movement, wrapping and scrolling.
     ///
     /// Walking the grid costs rows × cols per call, on the path every output
     /// chunk takes, so it runs only when a placement can have changed: the

@@ -4,9 +4,6 @@
 #
 # One list, two environments: the devcontainer image (.devcontainer/Dockerfile)
 # and the cloud agent's ephemeral runner (.github/workflows/copilot-setup-steps.yml).
-# They drifted for as long as each kept its own copy — the runner ended up with
-# the `wasm32` and `i686-musl` targets but not the `wasm-bindgen` that consumes
-# them, and with no browser at all — so both now call this.
 #
 # What stays OUT of here, on purpose: anything only one host can do. The image's
 # base packages, its user, its rust toolchain and its tmux build are the

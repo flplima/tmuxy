@@ -1,24 +1,9 @@
 #!/bin/bash
-# tmuxy pane send — type keys into a pane; into someone else's, only once the
-# user has agreed.
-#
-# Usage: tmuxy pane send [-t <pane>] [--timeout SECONDS] <keys...>
-#
-# Into the caller's own pane (no -t, or -t naming it) the keys go at once. Into
-# any other pane they do not: the target pane is put into the "ask state" — the
-# UI blurs its content and asks "`<caller>` wants to send `<keys>`. Allow?" —
-# and this blocks until the user answers, then sends the keys on yes and
-# nothing on no. A caller therefore knows exactly when the command started and
-# can capture the pane afterwards.
-#
-# This script reads the command line, resolves the target and the caller, and
-# hands the rest to the server binary's `send` verb: the question, the allow
-# options and the wait are the protocol `tmuxy_core::ask` holds, which the MCP
-# endpoint's pane_send_keys speaks too.
-#
-# Exit status: 0 when the keys were sent, 1 when the user declined or the
-# question timed out, 2 when the arguments were wrong, 3 when there is no such
-# pane.
+# Into another pane, the keys wait for the user's answer, so a caller knows
+# exactly when the command started and can capture the pane afterwards. The
+# question, the allow options and the wait are the server binary's `send` verb:
+# the protocol `tmuxy_core::ask` holds, which the MCP endpoint's pane_send_keys
+# speaks too.
 
 set -euo pipefail
 
@@ -129,8 +114,7 @@ if [ -z "$TARGET" ]; then
   fi
 fi
 
-# A label (`tmuxy pane run --label`) or a title names the pane; a pane id is
-# taken as it is. The target has to exist before a question is hung on it —
+# The target has to exist before a question is hung on it —
 # a typo'd pane id would otherwise block forever on an option nothing can
 # ever answer.
 TARGET="$(_resolve_target "$TARGET")" || exit $?

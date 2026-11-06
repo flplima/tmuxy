@@ -12,8 +12,7 @@ const MAX_EARLY_OUTPUT_PANES: usize = 32;
 const MAX_EARLY_OUTPUT_BYTES: usize = 8192;
 
 impl StateAggregator {
-    /// Like `step`, but accepts an explicit `now` so tests can drive the
-    /// settling extension deterministically.
+    /// `step` at an explicit `now`, the clock settling is measured on.
     pub fn step_at(&mut self, event: ControlModeEvent, now: Instant) -> StepResult {
         // A window closing needs the same re-list as one appearing: with
         // renumber-windows on, tmux shifts every later window's index and
@@ -29,13 +28,11 @@ impl StateAggregator {
         let mut effects = Vec::new();
         let send = |batch, commands: Vec<String>| SideEffect::Send { batch, commands };
 
-        // Window setup before anything else so emissions reflect tagged state.
-        // When we tag windows on a step where process_event reported
-        // state_changed=false (e.g. WindowAdd, which intentionally defers its
-        // own emit), promote the step to a window-typed state change. Without
-        // this, the frontend sees an untagged window until the next
-        // state-changing event arrives — which can be 15s+ in CI under tmux
-        // 3.4 when the CC stream is busy with sync_initial_state.
+        // Window setup first, so emissions carry the tagged state. A step that
+        // tags a window but asked for no emission (a WindowAdd defers its
+        // own) becomes a window change: otherwise the frontend showed an
+        // untagged window until the next change, 15s+ in CI under tmux 3.4
+        // while the stream was busy with `sync_initial_state`.
         let setup = self.window_setup_commands();
         if !setup.is_empty() {
             effects.push(send(Batch::WindowSetup, setup));
@@ -86,9 +83,8 @@ impl StateAggregator {
             effects.push(SideEffect::Emit(result.change_type));
         }
 
-        // Extend settling AFTER computing effects — extension is driven by the
-        // computed `change_type`, including the suppressed `state_changed=false`
-        // case where settling still needs to be kept alive.
+        // Driven by `change_type`, so a step whose emission settling held
+        // back still keeps settling alive.
         self.maybe_extend_settling(result.change_type, now);
 
         StepResult {
@@ -97,13 +93,9 @@ impl StateAggregator {
         }
     }
 
-    /// Time-driven transitions. Today this drains the settling deadline: when
-    /// `now` is past `settling_until`, the aggregator clears its settling
-    /// state, unsuppresses window emissions, and (if any events actually
-    /// arrived during the window) returns the change a consolidated state
-    /// emission is due for. If the safety ceiling fires with no events ever
-    /// observed, the suppression flag is cleared silently — no emit, no
-    /// foot-gun for the runtime.
+    /// Ends settling once `now` passes its deadline, returning the change the
+    /// consolidated emission is due for; `None` when no event arrived while
+    /// it was armed.
     pub fn tick(&mut self, now: Instant) -> Option<ChangeType> {
         let deadline = self.settling_until?;
         if now < deadline {
@@ -115,8 +107,6 @@ impl StateAggregator {
         self.settling_awaiting_first_event = false;
         self.suppress_window_emissions = false;
         if was_awaiting {
-            // Safety timeout — no events arrived after the compound command.
-            // Nothing to emit; just leave the aggregator unsuppressed.
             return None;
         }
         Some(ChangeType::Other)
@@ -145,7 +135,6 @@ impl StateAggregator {
         due
     }
 
-    /// Shared body of the `%output` / `%extended-output` arms.
     pub(super) fn output_result(&mut self, pane_id: PaneId, content: &[u8]) -> ProcessEventResult {
         let (changed, new_imgs, clipboard) = self.handle_output(&pane_id, content);
         let new_images = if new_imgs.is_empty() {
@@ -178,42 +167,29 @@ impl StateAggregator {
         pane_id: &PaneId,
         content: &[u8],
     ) -> (bool, Vec<(u32, super::images::StoredImage)>, Option<String>) {
-        // Only process output for panes we know about from list-panes.
-        // This prevents creating panes from other tmux sessions.
-        // Panes are added via parse_list_panes_line() which sets window_id.
+        // Output for a pane no list-panes or layout has placed is another
+        // session's, or a split's that came early.
         if let Some(pane) = self.panes.get_mut(pane_id) {
-            // Suppress output for panes that recently moved between windows
-            // (e.g., break-pane). The VT100 was reset and a capture-pane is
-            // pending — processing %output now would accumulate stale content
-            // from the old window before the authoritative capture arrives.
             if self.panes_moved_window.contains(pane_id) {
                 return (false, Vec::new(), None);
             }
-            // Only process if pane has a valid window_id (was seen in list-panes)
             if pane.window_id.is_some() {
-                // A set, not a Vec: `contains` on the Vec made every chunk of
-                // output O(images²) in a pane that had accumulated them.
                 let store_before: HashSet<u32> = pane.image_store.keys().copied().collect();
                 if pane.output_bytes == 0 {
                     debug!(pane = %pane_id, bytes = content.len(), "pane first output");
                 }
                 pane.output_bytes += content.len() as u64;
                 pane.process_output(content);
-                // Collect newly added images
                 let new_imgs: Vec<(u32, super::images::StoredImage)> = pane
                     .image_store
                     .iter()
                     .filter(|(id, _)| !store_before.contains(id))
                     .map(|(id, img)| (*id, img.clone()))
                     .collect();
-                // Drain any OSC 52 clipboard request the app emitted in this chunk.
                 let clipboard = pane.take_clipboard();
                 return (true, new_imgs, clipboard);
             }
         }
-        // Buffer output for panes not yet created in state.
-        // During split, %output can arrive before %layout-change creates the pane.
-        // Cap per-pane buffer and total entry count to prevent unbounded growth.
         if self.early_output.len() < MAX_EARLY_OUTPUT_PANES
             || self.early_output.contains_key(pane_id)
         {
@@ -230,7 +206,6 @@ impl StateAggregator {
         (false, Vec::new(), None)
     }
 
-    /// Handle layout change and return list of pane IDs that need content refresh.
     pub(super) fn handle_layout_change(
         &mut self,
         window_id: &WindowId,
@@ -241,12 +216,11 @@ impl StateAggregator {
             window.pane_tree = crate::layout::parse(layout).map(|root| root.pane_tree());
         }
 
-        // Parse layout to update pane positions and return panes that were resized
         self.parse_layout(window_id, layout)
     }
 
-    /// Update only the geometry (x, y, width, height) of existing panes from a layout string.
-    /// Does NOT create or remove panes. Used for visible_layout during zoom.
+    /// Geometry only, from a zoomed window's visible layout: no pane is
+    /// created or removed.
     pub(super) fn update_pane_geometry_from_layout(&mut self, window_id: &WindowId, layout: &str) {
         let layout = match layout.find(',') {
             Some(idx) => &layout[idx + 1..],
@@ -265,30 +239,25 @@ impl StateAggregator {
         }
     }
 
-    /// Parse tmux layout string to extract pane positions, creating panes as needed.
-    /// Returns a list of pane IDs that were resized.
+    /// The authoritative pane geometry: a pane the layout names is created
+    /// if new, one of this window's it leaves out is removed. Returns the
+    /// panes that need a capture.
     ///
-    /// Layout format: `checksum,WxH,x,y,pane-id` (leaf) or
-    ///                `checksum,WxH,x,y[children]` (vertical split) or
-    ///                `checksum,WxH,x,y{children}` (horizontal split)
-    ///
-    /// This is the authoritative source for pane geometry. Panes discovered in the
-    /// layout that don't exist in `self.panes` are created with default metadata.
-    /// Panes in this window that are NOT in the layout are removed (reconciliation).
+    /// tmux's layout format: `checksum,WxH,x,y,pane-id` (leaf),
+    /// `checksum,WxH,x,y[children]` (vertical split) or
+    /// `checksum,WxH,x,y{children}` (horizontal split).
     fn parse_layout(&mut self, window_id: &WindowId, layout: &str) -> Vec<PaneId> {
-        // Skip the checksum prefix (e.g., "abc123,")
+        // The checksum prefix.
         let layout = match layout.find(',') {
             Some(idx) => &layout[idx + 1..],
             None => return Vec::new(),
         };
 
-        // Parse all pane geometries from the layout string
         let parsed_panes = parse_layout_panes(layout);
         if parsed_panes.is_empty() {
             return Vec::new();
         }
 
-        // Look up the window's active pane for setting initial active flag on new panes
         let active_pane_id = self
             .windows
             .get(window_id)
@@ -301,17 +270,13 @@ impl StateAggregator {
             seen_panes.insert(lp.id.clone());
 
             if let Some(pane) = self.panes.get_mut(&lp.id) {
-                // Existing pane: update geometry and window assignment
                 pane.x = lp.x;
                 pane.y = lp.y;
                 pane.index = lp.index;
                 let moved_window = !pane.in_window(window_id);
                 let was_resized = pane.resize(lp.width, lp.height);
                 if moved_window {
-                    // A pane moving between windows (break-pane, swap-pane):
-                    // its grid is reset so %output that arrives before the
-                    // capture does not build on the old window's content, and
-                    // handle_output() holds that output until the capture.
+                    // break-pane, swap-pane: see `panes_moved_window`.
                     pane.move_to_window(window_id.clone());
                     self.panes_moved_window.insert(lp.id.clone());
                 }
@@ -319,7 +284,6 @@ impl StateAggregator {
                     resized_panes.push(lp.id.clone());
                 }
             } else {
-                // New pane discovered in layout: create with geometry
                 let mut pane = PaneState::new(lp.id.clone(), lp.width, lp.height);
                 pane.window_id = Some(window_id.clone());
                 pane.index = lp.index;
@@ -328,27 +292,21 @@ impl StateAggregator {
                 pane.active = active_pane_id.as_ref() == Some(&lp.id);
                 pane.replay_early_output(&mut self.early_output);
                 self.panes.insert(lp.id.clone(), pane);
-                // Queue capture for new panes so their content is fetched
-                // authoritatively. Layout dimensions may include the
-                // pane-border-status row, causing a dimension mismatch with
-                // list-panes that triggers a VT100 reset. The capture ensures
-                // content is restored even if %output events are lost.
+                // Captured: output it printed before it existed may have been
+                // dropped (`MAX_EARLY_OUTPUT_BYTES`, `MAX_EARLY_OUTPUT_PANES`).
                 resized_panes.push(lp.id.clone());
             }
         }
 
-        // Reconcile: remove panes from this window that are no longer in the layout
         self.panes.retain(|pane_id, pane| {
             if pane.in_window(window_id) {
                 seen_panes.contains(pane_id)
             } else {
-                true // keep panes from other windows
+                true
             }
         });
 
-        // Prune in-flight captures for panes that no longer exist — their
-        // marker-routed responses are discarded on arrival, and a dead entry
-        // would hold back `initial_state_ready` forever.
+        // A dead pane's entry would hold `initial_state_ready` back forever.
         self.prune_capture_bookkeeping();
 
         resized_panes

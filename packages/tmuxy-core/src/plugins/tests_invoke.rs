@@ -8,8 +8,6 @@ use super::source;
 use super::tests::{dirs_in, plugin_dir, scratch, GOOD};
 use super::*;
 
-// ── Invocation ──────────────────────────────────────────────────────────
-
 fn target() -> Target {
     Target {
         pane: "%3".into(),
@@ -176,8 +174,6 @@ fn the_context_names_the_pane_and_the_selection_file() {
     std::fs::remove_dir_all(base).unwrap();
 }
 
-// ── Scaffold & GC ───────────────────────────────────────────────────────
-
 #[test]
 fn a_new_plugin_passes_its_own_check() {
     let base = scratch("new");
@@ -213,7 +209,6 @@ fn gc_removes_only_unlisted_unused_checkouts() {
     }
     std::fs::create_dir_all(dirs.plugins_root().join("p.state")).unwrap();
 
-    // A process running from the old checkout keeps it.
     let busy_dir = dirs.checkout("p", busy);
     let mut child = std::process::Command::new("sleep")
         .arg("30")
@@ -234,7 +229,6 @@ fn gc_removes_only_unlisted_unused_checkouts() {
         dirs.plugins_root().join("p.state").exists(),
         "not a checkout"
     );
-    // Once its process is gone, the next run removes it.
     assert!(gc::collect(&dirs).busy.is_empty());
     assert!(!busy_dir.exists());
     std::fs::remove_dir_all(base).unwrap();

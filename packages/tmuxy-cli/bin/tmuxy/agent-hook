@@ -1,9 +1,4 @@
 #!/bin/bash
-# tmuxy agent hook <agent> <event> — what `tmuxy agent install` puts in a
-# coding agent's lifecycle hooks. Reads the event's JSON on stdin, asks the
-# server binary what it means (`agent state`, the one place that decides),
-# and sets the pane's @tmuxy-pane-state to it.
-#
 # The agent waits for every hook, on every tool call, so this one never makes
 # it wait for tmux: it records the state it wants and returns, and a
 # background job applies the latest wanted state under a lock. Hooks that

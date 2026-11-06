@@ -7,11 +7,8 @@
 //! the desktop app and the web app alike.
 //!
 //! Attaching to a server means pointing the monitor at its socket and, for a
-//! remote, its SSH tunnel. Both go into the [`crate::session::ConnectTarget`]
-//! that [`crate::session::tmux_argv`] resolves — the same values the
-//! `TMUX_SOCKET` / `TMUXY_SSH` env vars hold at launch — so a saved server maps
-//! cleanly onto the existing invocation path with no special-casing
-//! downstream. See [`Server::connect_env`].
+//! remote, its SSH tunnel: the values `TMUX_SOCKET` / `TMUXY_SSH` hold at
+//! launch ([`Server::connect_env`]).
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -26,24 +23,18 @@ pub use discovery::{
     ServerReachability, LIST_SESSIONS,
 };
 
-/// Where the local machine's server sits in the picker.
 pub const LOCALHOST_ID: &str = "localhost";
 
-/// The picker's entry for the user's OWN tmux server — the one their bare
-/// `tmux` command talks to.
-///
-/// tmuxy runs on a socket of its own, which is what keeps a test run or a dev
-/// server from disturbing real work. The cost is that a tmux user's first
-/// question — "where are my sessions?" — has no answer anywhere in the UI. This
-/// entry is that answer: it appears in the picker only when that server really
-/// does have sessions, so it is never an invitation to an empty room.
+/// The picker's entry for the user's OWN tmux server, the one a bare `tmux`
+/// talks to. tmuxy runs on a socket of its own, so a tmux user's first
+/// question ("where are my sessions?") would have no answer in the UI. The
+/// entry appears only when that server has sessions.
 pub const MY_TMUX_ID: &str = "my-tmux";
 
 fn default_socket() -> String {
     DEFAULT_TMUX_SOCKET.to_string()
 }
 
-/// Whether a saved server is the local machine or a remote SSH host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerKind {
@@ -52,11 +43,8 @@ pub enum ServerKind {
     Ssh,
 }
 
-/// SSH connection details for a remote server. Assembled into the `ssh` argv
-/// tail (`[options…, -p port, user@host]`) that fronts every tmux invocation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshConfig {
-    /// Hostname or IP of the remote box.
     pub host: String,
     /// Login user; omitted uses ssh's own default (current user / ssh_config).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,12 +78,10 @@ impl SshConfig {
     }
 }
 
-/// A saved tmux server: an entry in the sidebar server picker.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Server {
-    /// Stable identifier used as the picker key and reconnect target.
+    /// Stable: the picker key and reconnect target.
     pub id: String,
-    /// Human-readable label shown in the picker (e.g. `localhost`, `user@host`).
     pub label: String,
     #[serde(default)]
     pub kind: ServerKind,
@@ -107,20 +93,20 @@ pub struct Server {
     /// `default`.
     #[serde(default = "default_socket")]
     pub socket: String,
-    /// Optional preferred session to attach to on this server.
+    /// The session to attach to on this server.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
-    /// Unix timestamp (seconds) when this server was last added or connected to.
+    /// Unix seconds when this server was last added or connected to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used: Option<u64>,
-    /// Reachability state computed when listing or probing servers.
+    /// Computed when listing or probing; never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reachable: Option<ServerReachability>,
-    /// Number of non-stash sessions on this server when known.
+    /// Non-stash sessions on this server, when known; never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_count: Option<usize>,
-    /// Preserve unknown keys across roundtrips so a newer build's file isn't
-    /// truncated when read+written by an older one (mirrors `ManagedState`).
+    /// Unknown keys, kept so a newer build's file isn't truncated when an
+    /// older one reads and writes it.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -132,17 +118,11 @@ impl Server {
         Self::localhost_on(&crate::session::tmux_socket())
     }
 
-    /// `localhost` pinned to an explicit socket.
-    ///
-    /// The socket has to follow the live `TMUX_SOCKET` rather than the default
-    /// name: `localhost` is the picker's word for "the server this app is
-    /// attached to", and hardcoding the default made it mean "the server named
-    /// `tmuxy`". An app launched against any other socket then listed a row
-    /// that retargeted the monitor onto a *different* tmux server — including,
-    /// from a sandboxed debug build, the user's real one.
-    ///
-    /// Split from the env-reading wrapper so that resolution can be tested
-    /// without mutating process-wide env vars from a parallel test.
+    /// The socket follows the live `TMUX_SOCKET`, not the default name:
+    /// `localhost` is the picker's word for "the server this app is attached
+    /// to". With the default hardcoded, an app launched against another socket
+    /// listed a row that retargeted the monitor onto a *different* tmux server
+    /// (from a sandboxed debug build, the user's real one).
     pub fn localhost_on(socket: &str) -> Self {
         Server {
             id: LOCALHOST_ID.to_string(),
@@ -158,10 +138,9 @@ impl Server {
         }
     }
 
-    /// The `(socket, ssh)` pair of a connect target for this server — the
-    /// values `TMUX_SOCKET` / `TMUXY_SSH` hold at launch. `ssh` is `None` for
-    /// a local server (and for an SSH server missing its `ssh` block, which we
-    /// then treat as local rather than crash).
+    /// The `(socket, ssh)` pair, as `TMUX_SOCKET` / `TMUXY_SSH` hold them at
+    /// launch. `ssh` is `None` for a local server, and for an SSH server
+    /// missing its `ssh` block (treated as local).
     pub fn connect_env(&self) -> (String, Option<String>) {
         let ssh = match self.kind {
             ServerKind::Ssh => self.ssh.as_ref().map(|s| s.argv_tail().join(" ")),
@@ -182,16 +161,15 @@ fn slug(value: &str) -> String {
         .to_lowercase()
 }
 
-/// Path to the servers file in the state dir: saved servers are machine
-/// state (an ssh host reachable from here, a socket on this machine).
+/// In the state dir, not the config: saved servers are machine state (an
+/// ssh host reachable from here, a socket on this machine).
 pub fn servers_path() -> PathBuf {
     crate::paths::state_dir().join(crate::paths::SERVERS.name)
 }
 
-/// Read and parse the servers file, distinguishing an absent file (`Ok(None)`)
-/// from one that exists but can't be read or parsed (`Err`). Mutating operations
-/// use this so they never overwrite an unparseable file — a transient corruption
-/// must not be silently turned into data loss.
+/// An absent file is `Ok(None)`, one that can't be read or parsed `Err`.
+/// Mutating operations use this so they never overwrite an unparseable file:
+/// a transient corruption must not become data loss.
 fn read_servers_strict() -> std::io::Result<Option<Vec<Server>>> {
     let path = servers_path();
     match std::fs::read_to_string(&path) {
@@ -204,23 +182,16 @@ fn read_servers_strict() -> std::io::Result<Option<Vec<Server>>> {
     }
 }
 
-/// Guarantee a `localhost` entry at the front of the list.
 fn with_localhost(mut servers: Vec<Server>) -> Vec<Server> {
-    // Localhost is implicit and always available; surface it first if the file
-    // didn't include it (e.g. brand-new install or a hand-edited list).
     if !servers.iter().any(|s| s.id == LOCALHOST_ID) {
         servers.insert(0, Server::localhost());
     }
     servers
 }
 
-/// Add the user's own tmux server to the list, when there is one to add.
-///
-/// Three conditions, all of them about not lying to the user:
-///   - tmuxy is not already attached to it (then `localhost` IS that server);
-///   - the list does not already name it;
-///   - it actually has sessions, which is the only thing that makes the entry
-///     worth offering.
+/// Add the user's own tmux server, unless tmuxy is attached to it (then
+/// `localhost` IS that server), the list already names it, or it has no
+/// sessions.
 fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
     if crate::session::on_users_own_server() {
         return servers;
@@ -248,12 +219,10 @@ fn with_users_own_tmux(mut servers: Vec<Server>) -> Vec<Server> {
     servers
 }
 
-/// Read saved servers, always guaranteeing a `localhost` entry at the front,
-/// plus any live local sockets in tmux's socket directory.
-/// A missing, empty, or unparseable file yields just `[localhost]` rather than
-/// erroring — a broken server list should never brick the picker. Callers that
-/// then *write* the list back must instead use [`read_servers_strict`] so a
-/// parse failure aborts the write rather than persisting the empty fallback.
+/// Saved servers with `localhost` at the front, plus any live local sockets
+/// in tmux's socket directory. A missing or unparseable file yields just
+/// `[localhost]`, so a broken list never bricks the picker; a caller that
+/// writes the list back must use [`read_servers_strict`] instead.
 pub fn read_servers() -> Vec<Server> {
     let base = with_users_own_tmux(with_localhost(
         read_servers_strict().ok().flatten().unwrap_or_default(),
@@ -269,8 +238,7 @@ pub fn read_servers() -> Vec<Server> {
     )
 }
 
-/// Overwrite the servers file with the given list (excluding transient runtime
-/// fields `reachable` and `session_count`).
+/// The transient `reachable` and `session_count` are not written.
 pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
     let dir = crate::paths::state_dir();
     std::fs::create_dir_all(&dir)?;
@@ -289,14 +257,12 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Look up a saved server by id.
 pub fn find_server(id: &str) -> Option<Server> {
     read_servers().into_iter().find(|s| s.id == id)
 }
 
 /// The id of the saved server matching the live socket and ssh host, or
-/// [`LOCALHOST_ID`] when none matches. Lets the sidebar picker mark which
-/// server the app is currently attached to.
+/// [`LOCALHOST_ID`] when none matches.
 pub fn current_server_id() -> String {
     let socket = crate::session::tmux_socket();
     let ssh = crate::session::ssh_target().map(|v| v.join(" "));
@@ -313,8 +279,6 @@ pub fn current_server_id() -> String {
         .unwrap_or_else(|| LOCALHOST_ID.to_string())
 }
 
-/// The server picker's answer: every saved server, and which one the app
-/// is attached to.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerList {
@@ -322,9 +286,8 @@ pub struct ServerList {
     pub current_id: String,
 }
 
-/// The saved servers (localhost and every one `tmuxy connect` added), read
-/// fresh, with `live_sessions` — the sessions the attached server holds now,
-/// when they could be read — as the current server's count.
+/// `live_sessions`, the sessions the attached server holds now when they
+/// could be read, becomes the current server's count.
 pub fn list(live_sessions: Option<usize>) -> ServerList {
     let mut servers = read_servers();
     let current_id = current_server_id();
@@ -337,9 +300,8 @@ pub fn list(live_sessions: Option<usize>) -> ServerList {
     }
 }
 
-/// Where a connect to the saved server `id` goes: its socket and ssh host,
-/// and `session` — else the session it was last used with, else this
-/// process's own — which must be a usable session name. The server's
+/// The session is `session`, else the one the server was last used with,
+/// else this process's own, and must be a valid session name. The server's
 /// `last_used` is stamped; failing to write that is logged, not fatal.
 pub fn connect_target(
     id: &str,

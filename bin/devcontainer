@@ -40,9 +40,6 @@ DOCKERFILE=".devcontainer/Dockerfile"
 # Same path Codespaces and VS Code Dev Containers use, so the three hosts agree.
 WORKSPACE="/workspaces/tmuxy"
 
-# ---------------------------------------------------------------------------
-# Parse the global --name flag from anywhere in the args; keep the rest.
-# ---------------------------------------------------------------------------
 OVERRIDE_NAME=""
 ARGS=()
 while [ $# -gt 0 ]; do
@@ -58,11 +55,7 @@ set -- ${ARGS[@]+"${ARGS[@]}"}
 COMMAND="${1:-up}"
 [ $# -gt 0 ] && shift || true
 
-# ---------------------------------------------------------------------------
-# Unique container name + deterministic host port from the workspace dir.
-# The port is derived from the (sanitized) container name via cksum and lands
-# in the 10000-20000 range, so each worktree gets a stable, distinct port.
-# ---------------------------------------------------------------------------
+# A stable, distinct host port per worktree.
 DIR_NAME="$(basename "$(pwd)")"
 CONTAINER_NAME="${DIR_NAME//[^a-zA-Z0-9_.-]/-}"
 [ -n "$OVERRIDE_NAME" ] && CONTAINER_NAME="${CONTAINER_NAME}-${OVERRIDE_NAME}"
@@ -72,9 +65,6 @@ HOST_PORT=$(echo -n "$CONTAINER_NAME" | cksum | awk '{print 10000 + ($1 % 10001)
 TTY_OPTS=(-i)
 [ -t 0 ] && TTY_OPTS=(-i -t)
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
 container_exists()  { docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; }
 container_running() { [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" = "true" ]; }
 
@@ -94,11 +84,6 @@ info() {
     echo ""
 }
 
-# ---------------------------------------------------------------------------
-# Build the docker run argument set: mounts, ports, env, user.
-# Populates the global arrays MOUNTS and COMMON_FLAGS, plus INIT_SCRIPT and
-# SERVER_SCRIPT. Idempotent — safe to call before each docker invocation.
-# ---------------------------------------------------------------------------
 prepare() {
     # Start as root so .devcontainer/entrypoint.sh can align the `user` account
     # with the host uid/gid (keeping the bind mount + credential volumes
@@ -109,7 +94,6 @@ prepare() {
     [ "$(uname)" != "Darwin" ] && HOST_ID_ENV=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
 
     MOUNTS=(
-        # Workspace (each worktree maps its own directory)
         -v "$(pwd):$WORKSPACE"
         # node_modules lives in container-private volumes, NOT the bind mount.
         # npm installs platform-specific binaries (rollup, esbuild, swc); a
@@ -122,8 +106,6 @@ prepare() {
         # Cargo cache (shared across instances — cargo uses file locks)
         -v tmuxy-cargo-registry:/usr/local/cargo/registry
         -v tmuxy-cargo-git:/usr/local/cargo/git
-        # Credentials are NOT mounted from host. Log in once inside the
-        # container — these named volumes persist auth across runs.
         -v tmuxy-gh-config:/home/user/.config/gh
         -v tmuxy-agents-config:/home/user/.agents
         -v tmuxy-ssh:/home/user/.ssh
@@ -178,8 +160,6 @@ prepare() {
         "${HOST_ID_ENV[@]}"
     )
 
-    # Every container command is launched through the entrypoint, which remaps
-    # `user` to the host uid/gid (as root) and then execs the command as `user`.
     ENTRY=("$WORKSPACE/.devcontainer/entrypoint.sh")
 
     # First-run setup, replayed on every (re)start — all steps are idempotent.
@@ -208,9 +188,6 @@ prepare() {
     "
 }
 
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
 cmd_up() {
     local detach=0
     for a in "$@"; do
@@ -237,7 +214,6 @@ cmd_up() {
             bash -lic "${INIT_SCRIPT}${SERVER_SCRIPT}exec tail -f /dev/null" >/dev/null
         echo "Started in background. Enter with:  bin/devcontainer shell"
     else
-        # Foreground: ephemeral (--rm) interactive shell, with servers running.
         exec docker run "${TTY_OPTS[@]}" --rm "${COMMON_FLAGS[@]}" "$IMAGE_NAME" "${ENTRY[@]}" \
             bash -lic "${INIT_SCRIPT}${SERVER_SCRIPT}exec bash -l"
     fi
@@ -283,7 +259,6 @@ cmd_shell() {
 cmd_run() {
     ensure_image
     prepare
-    # Ephemeral one-off: clear any leftover sharing this name, then --rm run.
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
     info
     local custom="$*"
@@ -316,9 +291,6 @@ cmd_help() {
     sed -n '3,31p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-# ---------------------------------------------------------------------------
-# Dispatch
-# ---------------------------------------------------------------------------
 case "$COMMAND" in
     up)               cmd_up "$@" ;;
     down)             cmd_down ;;

@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# tmuxy — AI-first noun-verb CLI for tmux
-#
-# Safety: All mutating commands route through `tmux run-shell` to avoid
-# crashing tmux 3.3a–3.5a when control mode is attached.
-# Read-only commands run as direct subprocesses (safe with control mode).
+# Mutating commands route through `tmux run-shell`: an external mutation
+# crashes tmux 3.3a–3.5a while control mode is attached. Read-only commands
+# run as direct subprocesses.
 
 set -euo pipefail
 
@@ -30,13 +28,6 @@ case "$TMUXY_VERSION" in
     ;;
 esac
 
-# --- Helpers ---
-
-# Socket resolution (explicit TMUX_SOCKET, else the socket of the server whose
-# pane we are in, else the dedicated `tmuxy` socket — never the user's default
-# tmux server), `_tmux`/`_run_safe`, `shquote` and `find_server_cmd` are
-# shared with the bin/tmuxy scripts, so they live in their `_lib`. Every tmux call in this
-# script goes through `_tmux`, every mutation through `_run_safe`.
 source "$SCRIPTS_DIR/_lib"
 
 # The real stdout, for a JSON failure raised inside a `$(…)` (`_json_fd`).
@@ -83,9 +74,8 @@ unset _args _arg _own
 # once, with the same preference the server has (an attached real session,
 # else the first real one) hands tmux an answer it honours for an unattached
 # client the way it does for a pane's own — and `_run_safe` passes it on to
-# the client it spawns inside run-shell. Read-only, and skipped when there
-# is no server to ask. Never for `tmuxy agent`: an agent hook outside any
-# tmuxy pane must change nothing, not some other pane's state.
+# the client it spawns inside run-shell. Never for `tmuxy agent`: an agent
+# hook outside any tmuxy pane must change nothing, not some other pane's state.
 # The caller's own pane, before that: `pane send` asks the user before typing
 # into any other.
 export TMUXY_CALLER_PANE="${TMUX_PANE:-}"
@@ -106,8 +96,7 @@ fi
 # TMUX_PANE on the inner client is not enough: for an unattached client tmux
 # limits itself to the SESSION holding that pane and then takes the session's
 # current window and active pane — so `pane split` from a pane whose tab was
-# not the active one split the active tab. Empty when no pane is known, and
-# the command goes target-less as before.
+# not the active one split the active tab.
 CALLER_T=""
 [ -z "${TMUX_PANE:-}" ] || CALLER_T=" -t $TMUX_PANE"
 
@@ -115,8 +104,6 @@ CALLER_T=""
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-# `pane_title` is APP_PANE_TITLE_FMT (`_options`): filtered against the host
-# name tmux seeds every pane's title with.
 LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t#{@tmuxy-label}'
 LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
 
@@ -367,7 +354,6 @@ source "$SCRIPTS_DIR/cli-commands.sh"
 source "$SCRIPTS_DIR/cli-plugin.sh"
 source "$SCRIPTS_DIR/cli-mcp.sh"
 
-# The verbs below that exec the server binary hand `--json` back to it.
 server_json=()
 [ "$JSON_OUT" != true ] || server_json=(--json)
 
@@ -437,7 +423,6 @@ CEOF
     ;;
   trace)
     shift
-    # Inspect/export a local action-trace file (docs/TRACING.md).
     if [ "${1:-}" = "check" ] || [ "${1:-}" = "health" ]; then
       shift
       find_server_cmd
@@ -482,7 +467,6 @@ CEOF
     usage
     ;;
   "")
-    # `tmuxy --json` is the status, as a bare `tmuxy` is.
     if [ "$JSON_OUT" = true ]; then
       cmd_info
     else

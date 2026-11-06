@@ -254,8 +254,6 @@ fn a_plugin_key_command_prints_back_as_itself() {
     assert_eq!(bound.command, format!("run-shell -b \"{command}\""));
 }
 
-/// The commands that rebind the plugin keys come from the tables as read:
-/// a user's binding keeps its key, every old plugin binding goes first.
 #[test]
 fn key_commands_keep_a_users_binding_and_drop_stale_plugin_ones() {
     let base = scratch("key-commands");

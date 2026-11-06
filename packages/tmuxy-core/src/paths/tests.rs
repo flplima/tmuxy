@@ -1,7 +1,5 @@
 use super::*;
 
-/// The rows of the markdown table under `heading` in `text`, split into
-/// cells with their backticks dropped.
 fn table_rows(text: &str, heading: &str) -> Vec<Vec<String>> {
     text.split(heading)
         .nth(1)
@@ -28,9 +26,6 @@ fn yes(cell: &str) -> bool {
     cell == "yes"
 }
 
-/// The config README (mirrored into the data dir as the user's guide)
-/// lists every file of the table, and only those, with the same dir,
-/// owner and rules.
 #[test]
 fn the_config_readme_lists_every_file_and_no_other() {
     let readme = include_str!("../../assets/config-README.md");
@@ -139,22 +134,19 @@ fn the_fallback_home_is_a_private_dir_the_user_owns_and_never_a_symlink() {
     let dir = base.join(format!("tmuxy-{uid}"));
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
 
-    // Created owner-only when missing.
     assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
     assert_eq!(mode(&dir), 0o700);
 
-    // An existing one of the user's own is tightened.
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(private_uid_dir(&base, uid).unwrap(), dir);
     assert_eq!(mode(&dir), 0o700);
 
-    // Another user's directory under the name is refused (a test cannot
-    // chown, so it asks for the directory as a uid that does not own it).
+    // A test cannot chown, so it asks for the directory as a uid that does
+    // not own it.
     let other = uid.wrapping_add(1);
     std::fs::rename(&dir, base.join(format!("tmuxy-{other}"))).unwrap();
     assert!(private_uid_dir(&base, other).is_err());
 
-    // A symlink under the name is refused, even to a directory the user owns.
     let decoy = base.join("decoy");
     std::fs::create_dir(&decoy).unwrap();
     std::os::unix::fs::symlink(&decoy, &dir).unwrap();
