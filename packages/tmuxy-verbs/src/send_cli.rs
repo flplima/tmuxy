@@ -49,7 +49,7 @@ impl ask::Tmux for CliTmux {
 
     async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
         let argv = commands.join(&";".to_string());
-        tmuxy_core::plugins::job::run(&tmuxy_core::paths::Layout::current(), &argv)
+        tmuxy_core::run_shell::tmux(&tmuxy_core::paths::Layout::current(), &argv)
             .map(drop)
             .map_err(|e| CommandError::tmux(e.to_string()))
     }

@@ -41,7 +41,7 @@ pub fn run(args: ConnectArgs) {
         CONNECT_REQUEST.into(),
         request.encode(),
     ];
-    if let Err(e) = tmuxy_core::plugins::job::run(&tmuxy_core::paths::Layout::current(), &publish) {
+    if let Err(e) = tmuxy_core::run_shell::tmux(&tmuxy_core::paths::Layout::current(), &publish) {
         answer.exit(EXIT_FAILED, &e.to_string());
     }
     let session = request.session.as_deref().unwrap_or_default();

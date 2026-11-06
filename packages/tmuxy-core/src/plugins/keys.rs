@@ -10,13 +10,13 @@
 //! may reset the tables), and taken away when their plugin goes. The server
 //! reads and binds over its control-mode connection, so the reads come after
 //! a `source-file` it queued; a CLI verb, which has none, reads as an
-//! external tmux and binds inside one `run-shell` (`job`).
+//! external tmux and binds inside one `run-shell` (`run_shell`).
 
 use std::collections::BTreeMap;
 
 use super::manifest::KeyTable;
 use super::registry::Registry;
-use super::{job, PluginError, Result};
+use super::{PluginError, Result};
 use crate::paths::Layout;
 
 /// What marks a binding as a plugin's.
@@ -193,7 +193,7 @@ pub fn apply(dirs: &Layout) -> Result<Vec<Planned>> {
     });
     let argv: Vec<String> = cmds.join(&[";".to_string()][..]);
     if !argv.is_empty() {
-        job::run(dirs, &argv)?;
+        crate::run_shell::tmux(dirs, &argv)?;
     }
     Ok(planned)
 }

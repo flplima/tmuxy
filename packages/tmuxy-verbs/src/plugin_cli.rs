@@ -4,7 +4,7 @@
 //! Every verb runs as a plain process, so the gate can ask on the terminal
 //! and `action --wait` waits in the caller's own process. What changes tmux
 //! (opening a surface, publishing the inventory) goes through a `run-shell`
-//! of its own (`plugins::job`, docs/TMUX.md).
+//! of its own (`tmuxy_core::run_shell`, docs/TMUX.md).
 
 use std::path::PathBuf;
 

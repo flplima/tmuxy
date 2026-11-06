@@ -32,6 +32,8 @@ pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
 pub mod program;
+#[cfg(feature = "cli")]
+pub mod run_shell;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]

@@ -9,7 +9,7 @@
 //!    should know (the target pane, its cwd, the selection) and opens the
 //!    action's surface running `tmuxy plugin exec <plugin> <action> <token>`,
 //!    the one tmux command list that changes anything going through
-//!    `run-shell` (`job`).
+//!    `run-shell` (`run_shell`).
 //! 2. [`exec`], the new pane's process, reads the token once (and deletes
 //!    it), puts the selection in a file, sets the plugin's environment and
 //!    runs the declared argv directly (`Command::new`, never a shell), with the

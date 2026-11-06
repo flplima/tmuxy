@@ -101,7 +101,7 @@ fn make(args: FloatArgs) -> Result<String, String> {
         }),
         no_header: args.hide_header,
     };
-    let out = tmuxy_core::plugins::job::run(&tmuxy_core::paths::Layout::current(), &float.argv())
+    let out = tmuxy_core::run_shell::tmux(&tmuxy_core::paths::Layout::current(), &float.argv())
         .map_err(|e| format!("failed to create float pane: {e}"))?;
     out.lines()
         .last()

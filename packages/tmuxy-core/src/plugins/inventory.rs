@@ -115,14 +115,14 @@ pub fn commands(dirs: &Layout) -> Result<Vec<String>> {
         .collect())
 }
 
-/// Publish from a CLI verb, inside `tmux run-shell` (`job`). No server on
+/// Publish from a CLI verb, inside `tmux run-shell` (`run_shell`). No server on
 /// the socket is no error: the next monitor to attach publishes it.
 pub fn publish(dirs: &Layout) -> Result<()> {
     let [option, rev] = argv(dirs)?;
     let mut line = option;
     line.push(";".into());
     line.extend(rev);
-    match super::job::run(dirs, &line) {
+    match crate::run_shell::tmux(dirs, &line).map_err(PluginError::from) {
         Err(PluginError::NoServer(_)) => Ok(()),
         other => other.map(|_| ()),
     }
