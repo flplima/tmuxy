@@ -1,14 +1,12 @@
 import { isTauri, tauriSchemeUrl } from './platform';
-import { parseThemeMode, type ResolvedThemeMode, type ThemeMode } from '../domain/wireSettings';
+import type { ResolvedThemeMode, ThemeMode } from '../domain/wireSettings';
+import { DEFAULT_THEME } from './prefs';
 
 const THEME_LINK_ID = 'tmuxy-theme';
 /** The user's own `custom.css`, loaded after the theme so it wins. */
 const CUSTOM_LINK_ID = 'tmuxy-custom-css';
 /** The `@tmuxy-css-*` options, as one rule between the two links. */
 const VARS_STYLE_ID = 'tmuxy-css-vars';
-
-const LS_THEME_KEY = 'tmuxy-theme-name';
-const LS_MODE_KEY = 'tmuxy-theme-mode';
 
 /**
  * Bumped on every `css-changed` push: the href carries it as a query so the
@@ -97,7 +95,7 @@ function ensureVarsStyle(): HTMLStyleElement {
   return style;
 }
 
-let currentThemeName = 'default';
+let currentThemeName: string = DEFAULT_THEME.theme;
 
 /** Load a theme CSS file by name, then the config variables, then the user's `custom.css`. */
 function loadTheme(name: string): void {
@@ -127,7 +125,7 @@ export function resolveThemeMode(mode: ThemeMode): ResolvedThemeMode {
   return darkScheme()?.matches === false ? 'light' : 'dark';
 }
 
-let currentMode: ThemeMode = 'dark';
+let currentMode: ThemeMode = DEFAULT_THEME.mode;
 let followingSystem = false;
 
 function setModeClass(mode: ResolvedThemeMode): void {
@@ -167,28 +165,4 @@ export function applyCssVars(vars: Readonly<Record<string, string>>): void {
   ensureVarsStyle().textContent = declarations
     ? `:root.theme-dark, :root.theme-light {\n${declarations}\n}\n`
     : '';
-}
-
-/** Save theme name and mode to localStorage. */
-export function saveThemeToStorage(name: string, mode: ThemeMode): void {
-  try {
-    localStorage.setItem(LS_THEME_KEY, name);
-    localStorage.setItem(LS_MODE_KEY, mode);
-  } catch {
-    // localStorage unavailable (e.g. private browsing)
-  }
-}
-
-/** Load saved theme from localStorage. Returns null if nothing saved. */
-export function loadThemeFromStorage(): { theme: string; mode: ThemeMode } | null {
-  try {
-    const theme = localStorage.getItem(LS_THEME_KEY);
-    const mode = localStorage.getItem(LS_MODE_KEY);
-    if (theme) {
-      return { theme, mode: parseThemeMode(mode) };
-    }
-  } catch {
-    // localStorage unavailable
-  }
-  return null;
 }

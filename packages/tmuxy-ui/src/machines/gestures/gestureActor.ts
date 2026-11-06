@@ -19,12 +19,13 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { invoke } from '@tauri-apps/api/core';
 import type { AppMachineContext } from '../types/context';
 import type { GestureFlags } from '../types/domain';
 import { isModelPaneId, type PaneId } from '../../domain/ids';
 import { isTauri } from '../../infra/platform';
 import { failing } from '../../infra/logFailure';
+import { desktopInvoke } from '../../infra/desktop';
+import { TILED_PANE } from '../../infra/dom/terminalDom';
 
 export type GestureActorEvent = { type: 'NOOP' };
 
@@ -81,7 +82,7 @@ interface WebKitGestureEvent extends UIEvent {
 /** The tiled pane under the fingers, by the element the event landed on. */
 function paneIdAt(target: EventTarget | null, x: number, y: number): PaneId | null {
   const el = target instanceof Element ? target : document.elementFromPoint(x, y);
-  const id = el?.closest<HTMLElement>('.pane-layout-item[data-pane-id]')?.dataset.paneId;
+  const id = el?.closest<HTMLElement>(TILED_PANE)?.dataset.paneId;
   return isModelPaneId(id) ? id : null;
 }
 
@@ -216,7 +217,7 @@ export function createGestureActor() {
       if (claims === shellClaims) return;
       shellClaims = claims;
       if (!isTauri()) return;
-      invoke('set_swipe_tabs', { enabled: claims }).catch(failing('set_swipe_tabs'));
+      desktopInvoke('set_swipe_tabs', { enabled: claims }).catch(failing('set_swipe_tabs'));
     };
     const subscription = input.parent.subscribe(tellShell);
     tellShell();

@@ -4,8 +4,7 @@
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx } from './actionTypes';
-import type { Ctx, EnqueueAction } from './actionTypes';
+import { act, assignCtx, type Ctx, type EnqueueAction } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../infra/dom/phoneLayout';
 import { fittedGridCell, gridExtent, releaseKeyboard } from './helpers';
@@ -128,7 +127,7 @@ export const connectionActions = {
 
   connection_tmuxClipboard: act(({ event, enqueue }) => {
     if (event.type !== 'TMUX_CLIPBOARD') return;
-    enqueue(() => writeClipboard(event.text, event.paneId));
+    enqueue(() => void writeClipboard(event.text, event.paneId));
     enqueue.raise({
       type: 'SHOW_STATUS_MESSAGE' as const,
       text: clipboardWriteMessage(event.text, event.paneId),

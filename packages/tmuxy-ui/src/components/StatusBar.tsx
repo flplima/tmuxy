@@ -35,7 +35,7 @@ import { TabOverviewToggle } from './TabOverviewToggle';
 import { NewTabButton } from './NewTabButton';
 import { TabStripScroll } from './TabStripScroll';
 import { SidebarTitle } from './SidebarTitle';
-import { useWindowStyle } from '../infra/guiWindows';
+import { useWindowStyle } from './useWindowStyle';
 import './StatusBar.css';
 
 /** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */

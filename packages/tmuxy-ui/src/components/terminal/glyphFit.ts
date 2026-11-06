@@ -28,6 +28,8 @@
  * its load) does, and clears the cache.
  */
 
+import { TERMINAL_CONTENT } from '../../infra/dom/terminalDom';
+
 /** Above this many cells a one-column glyph is shrunk into its cell. */
 const FAT_THRESHOLD = 1.15;
 
@@ -137,7 +139,7 @@ function measureInk(s: string, font: string): number | null {
 
 function measureRatio(s: string, host: HTMLElement): number | null {
   const probe = document.createElement('pre');
-  probe.className = 'terminal-content';
+  probe.className = TERMINAL_CONTENT;
   probe.style.position = 'absolute';
   probe.style.visibility = 'hidden';
   probe.style.top = '-9999px';

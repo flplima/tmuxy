@@ -1,5 +1,11 @@
-import type { TmuxSnapshot, Patch, ReconcileVerdict } from './types';
-import { FOCUS_CONFIRM_LINGER_MS, FOCUS_SUPERSEDE_GRACE_MS, lingerVerdict } from './types';
+import {
+  type TmuxSnapshot,
+  type Patch,
+  type ReconcileVerdict,
+  FOCUS_CONFIRM_LINGER_MS,
+  FOCUS_SUPERSEDE_GRACE_MS,
+  lingerVerdict,
+} from './types';
 import type { TmuxPane } from '../client';
 import type { TmuxOpOf } from '../commands';
 import {

@@ -11,6 +11,8 @@
  * accepts gets through.
  */
 
+import { decodeBase64Text } from './base64';
+
 /** Which menu offers an action. */
 export type PluginMenu = 'app' | 'pane' | 'selection';
 
@@ -60,20 +62,13 @@ function asAction(raw: unknown): PluginActionInfo | null {
   };
 }
 
-/** Base64 to text, as UTF-8. */
-function decodeBase64(b64: string): string {
-  const binary = atob(b64);
-  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
 /** The inventory from the option's value; `[]` for anything unreadable. */
 export function parseInventory(raw: string): PluginInfo[] {
   const value = raw.trim();
   if (value === '') return [];
   let parsed: unknown;
   try {
-    parsed = JSON.parse(decodeBase64(value));
+    parsed = JSON.parse(decodeBase64Text(value));
   } catch {
     return [];
   }

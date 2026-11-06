@@ -1,6 +1,7 @@
 import './Cursor.css';
 import { cellsToCss } from './terminalShared';
 import { attachCursorAnchor } from './cursorAnchor';
+import { TERMINAL_CURSOR } from '../../infra/dom/terminalDom';
 
 export type CursorMode = 'block' | 'underline' | 'bar';
 
@@ -43,8 +44,8 @@ export function Cursor({
   blink = false,
 }: CursorProps) {
   const className = [
-    'terminal-cursor',
-    `terminal-cursor-${mode}`,
+    TERMINAL_CURSOR,
+    `${TERMINAL_CURSOR}-${mode}`,
     copyMode ? 'terminal-cursor-copy' : '',
     blink ? 'terminal-cursor-blink' : '',
   ]

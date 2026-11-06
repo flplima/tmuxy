@@ -19,6 +19,7 @@ import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from './glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls, sameUrls, type DetectedUrl } from './urlDetect';
 import { openLinkFrom, safeHref } from '../../infra/openUrl';
+import { TERMINAL_LINE } from '../../infra/dom/terminalDom';
 
 /**
  * Compute a numeric key for grouping cells by style.
@@ -365,7 +366,7 @@ export const TerminalLine = memo(
 
     return (
       <LogProfiler id="TerminalLine">
-        <div className="terminal-line" data-wrapped={wrapped ? 'true' : undefined}>
+        <div className={TERMINAL_LINE} data-wrapped={wrapped ? 'true' : undefined}>
           {renderCells()}
         </div>
       </LogProfiler>

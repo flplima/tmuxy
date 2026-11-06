@@ -230,7 +230,7 @@ types the selection into the pane. Either closes the view.
 | `packages/tmuxy-ui/src/machines/app/states/copyMode.ts` | Wires `COPY_MODE_*` events to their actions (idle-only) |
 | `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | Intercepts keydowns in copy mode → `COPY_MODE_KEY` / `COPY_SELECTION`; native clipboard `copy` handler |
 | `packages/tmuxy-ui/src/domain/copyModeKeys.ts` | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit |
-| `packages/tmuxy-ui/src/domain/copyModeOps.ts` | Pure helpers: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
+| `packages/tmuxy-ui/src/domain/copyMode.ts` | The copy-mode state, and the pure helpers on it: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
 | `packages/tmuxy-ui/src/components/terminal/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
 | `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |

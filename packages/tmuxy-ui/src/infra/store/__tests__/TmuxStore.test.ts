@@ -10,13 +10,12 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
-import { OP_ACKED_STALE_TIMEOUT_MS } from '../../../domain/store/types';
+import { OP_ACKED_STALE_TIMEOUT_MS, type TmuxClientModel } from '../../../domain/store/types';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import { TmuxOp } from '../../../domain/commands';
 import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
 import { pid, wid, wireState } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
-import type { TmuxClientModel } from '../../../domain/store/types';
 
 function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
   return wireState({

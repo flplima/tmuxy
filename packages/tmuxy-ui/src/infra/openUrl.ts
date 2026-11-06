@@ -11,6 +11,7 @@
 
 import { isTauri } from './platform';
 import { failing } from './logFailure';
+import { desktopInvoke } from './desktop';
 
 const OPENABLE = /^(https?:\/\/|mailto:)/i;
 
@@ -37,9 +38,7 @@ export function openExternalUrl(url: string): void {
   // What was checked is what is opened.
   const link = url.trim();
   if (isTauri()) {
-    void import('@tauri-apps/api/core').then(({ invoke }) =>
-      invoke('open_url', { url: link }).catch(failing('open_url')),
-    );
+    void desktopInvoke('open_url', { url: link }).catch(failing('open_url'));
     return;
   }
   window.open(link, '_blank', 'noopener,noreferrer');

@@ -19,6 +19,7 @@
  */
 
 import type { TmuxPane } from './client';
+import { decodeBase64Text } from './base64';
 
 /** A send waiting on a pane for the user's answer. */
 export interface SendAsk {
@@ -71,11 +72,7 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
   if (!raw) return null;
   let json: string;
   try {
-    // atob yields one char per BYTE, so a multi-byte character (an accent, an
-    // emoji in the keys) has to be decoded as UTF-8 rather than read off as
-    // Latin-1.
-    const bytes = Uint8Array.from(atob(raw.trim()), (ch) => ch.charCodeAt(0));
-    json = new TextDecoder().decode(bytes);
+    json = decodeBase64Text(raw.trim());
   } catch {
     return null;
   }

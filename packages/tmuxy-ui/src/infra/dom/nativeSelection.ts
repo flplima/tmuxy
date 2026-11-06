@@ -8,6 +8,8 @@
  * hand over directly.
  */
 
+import { dot, TERMINAL_CONTENT, TERMINAL_LINE } from './terminalDom';
+
 /**
  * The selected text, or '' when nothing is selected — read the way a terminal
  * copies it: each screen row's selected text run together, rows joined by a
@@ -34,9 +36,9 @@ export function terminalTextOf(range: Range): string | null {
     range.startContainer.nodeType === Node.ELEMENT_NODE
       ? (range.startContainer as Element)
       : range.startContainer.parentElement;
-  const grid = start?.closest('.terminal-content');
+  const grid = start?.closest(dot(TERMINAL_CONTENT));
   if (!grid) return null;
-  const rows = [...grid.querySelectorAll('.terminal-line')].filter((row) =>
+  const rows = [...grid.querySelectorAll(dot(TERMINAL_LINE))].filter((row) =>
     range.intersectsNode(row),
   );
   if (rows.length === 0) return null;

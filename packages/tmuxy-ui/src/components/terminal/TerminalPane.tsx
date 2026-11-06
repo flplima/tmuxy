@@ -43,10 +43,11 @@ import { AskOverlay } from '../AskOverlay';
 import { OfferBanner } from '../OfferBanner';
 import { paneSendFor } from '../../domain/paneAsk';
 import { isCollapsedPane } from '../../constants/layout';
-import { extractSelectedText } from '../../domain/copyModeOps';
+import { extractSelectedText } from '../../domain/copyMode';
 import { ScrollPositionIndicator } from './TerminalPaneScroll';
 import { usePaneNativeListeners, useTerminalPaneScroll } from './terminalPaneScrollHooks';
 import type { PaneId } from '../../domain/ids';
+import { dot, PANE_HEADER } from '../../infra/dom/terminalDom';
 
 interface TerminalPaneProps {
   paneId: PaneId;
@@ -193,7 +194,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.pane-header')) return;
+      if (target.closest(dot(PANE_HEADER))) return;
       if (pane?.mouseAnyFlag) {
         e.preventDefault();
         return;

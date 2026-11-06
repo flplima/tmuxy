@@ -13,13 +13,18 @@
  * what is selected or copied changes.
  */
 
-const MARK = 'terminal-line-selected-on';
+import {
+  dot,
+  TERMINAL_LINE,
+  TERMINAL_LINE_SELECTED,
+  TERMINAL_SELECTABLE,
+} from '../../infra/dom/terminalDom';
 
 let marked = new Set<Element>();
 
 function rowOf(node: Node | null): Element | null {
   const el = node instanceof Element ? node : (node?.parentElement ?? null);
-  return el?.closest('.terminal-line') ?? null;
+  return el?.closest(dot(TERMINAL_LINE)) ?? null;
 }
 
 /** Mark the rows `selection` runs past, and unmark the rest. */
@@ -29,14 +34,14 @@ export function markSelectedRows(selection: Selection | null): void {
     const range = selection.getRangeAt(0);
     const first = rowOf(range.startContainer);
     const last = rowOf(range.endContainer);
-    const grid = (first ?? last)?.closest('.terminal-selectable');
+    const grid = (first ?? last)?.closest(dot(TERMINAL_SELECTABLE));
     if (grid && first !== last) {
-      for (const row of grid.querySelectorAll('.terminal-line')) {
+      for (const row of grid.querySelectorAll(dot(TERMINAL_LINE))) {
         if (row !== last && range.intersectsNode(row)) next.add(row);
       }
     }
   }
-  for (const row of marked) if (!next.has(row)) row.classList.remove(MARK);
-  for (const row of next) row.classList.add(MARK);
+  for (const row of marked) if (!next.has(row)) row.classList.remove(TERMINAL_LINE_SELECTED);
+  for (const row of next) row.classList.add(TERMINAL_LINE_SELECTED);
   marked = next;
 }

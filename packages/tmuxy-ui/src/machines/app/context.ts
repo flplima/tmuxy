@@ -15,8 +15,7 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { loadFontSizeFromStorage } from '../../infra/fontSizeManager';
-import { loadThemeFromStorage } from '../../infra/themeManager';
+import { loadFontSizePref, loadThemePref } from '../../infra/prefs';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
 
 /**
@@ -178,7 +177,7 @@ export const FIELD_OWNERS = {
  * Build the initial context. Called once at machine setup time.
  *
  * Wrapped in a function (rather than a top-level constant) so that side
- * effects like `loadFontSizeFromStorage()` are deferred to machine creation,
+ * effects like `loadFontSizePref()` are deferred to machine creation,
  * not module load — which matters for tests that stub localStorage.
  */
 export function createInitialContext(): AppMachineContext {
@@ -270,8 +269,8 @@ export function createInitialContext(): AppMachineContext {
     commandMode: null,
     statusMessage: null,
     notifications: [],
-    themeName: loadThemeFromStorage()?.theme ?? 'default',
-    themeMode: loadThemeFromStorage()?.mode ?? 'dark',
+    themeName: loadThemePref().theme,
+    themeMode: loadThemePref().mode,
     availableThemes: [],
     traceSettings: null,
     plugins: [],
@@ -283,6 +282,6 @@ export function createInitialContext(): AppMachineContext {
     keyTable: null,
     keysViewOpen: false,
     renamingPaneId: null,
-    baseFontSize: loadFontSizeFromStorage(),
+    baseFontSize: loadFontSizePref(),
   };
 }

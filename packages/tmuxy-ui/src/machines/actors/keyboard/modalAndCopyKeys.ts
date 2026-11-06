@@ -4,10 +4,9 @@
  */
 
 import type { AnyActorRef } from 'xstate';
-import type { CopyModeState } from '../../../domain/copyMode';
+import { type CopyModeState, extractSelectedText } from '../../../domain/copyMode';
 import type { PaneId, WindowId } from '../../../domain/ids';
 import { decodePaneAsk, type AskAnswer } from '../../../domain/paneAsk';
-import { extractSelectedText } from '../../../domain/copyModeOps';
 import { focusGuiWindow, newGuiWindow } from '../../../infra/guiWindows';
 import { isTauri } from '../../../infra/platform';
 import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';

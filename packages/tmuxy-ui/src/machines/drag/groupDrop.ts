@@ -16,8 +16,7 @@
  *   pane it is dropped on, or as a tab of its own (`pane-group leave`).
  */
 
-import type { TmuxPane } from '../../domain/client';
-import type { PaneGroup } from '../../domain/client';
+import type { TmuxPane, PaneGroup } from '../../domain/client';
 import { paneInsetX } from '../../constants/layout';
 import type { TabDrop } from './tabStripDrop';
 import type { GroupId, PaneId } from '../../domain/ids';

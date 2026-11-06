@@ -2,7 +2,8 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AppProvider } from './machines/AppContext';
-import { applyTheme, loadThemeFromStorage } from './infra/themeManager';
+import { applyTheme } from './infra/themeManager';
+import { loadThemePref } from './infra/prefs';
 import { isTauri } from './infra/platform';
 import { registerPushWorker } from './infra/pushNotifications';
 import './fonts/nerd-font.css';
@@ -18,8 +19,8 @@ if (isTauri()) document.documentElement.dataset.desktop = '';
 registerPushWorker();
 
 // Apply saved theme (or defaults) before first render to avoid FOUC
-const savedTheme = loadThemeFromStorage();
-applyTheme(savedTheme?.theme ?? 'default', savedTheme?.mode ?? 'dark');
+const savedTheme = loadThemePref();
+applyTheme(savedTheme.theme, savedTheme.mode);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <AppErrorBoundary>

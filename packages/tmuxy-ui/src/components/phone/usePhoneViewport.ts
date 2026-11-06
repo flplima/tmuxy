@@ -15,6 +15,7 @@
  */
 
 import { type RefObject, useEffect, useLayoutEffect } from 'react';
+import { dot, TERMINAL_CURSOR } from '../../infra/dom/terminalDom';
 
 const PHONE_CLASS = 'tmuxy-phone';
 
@@ -65,7 +66,8 @@ export function useCursorInView(
     if (!enabled || !box) return;
     const follow = () => {
       const cursor =
-        box.querySelector('.pane-active .terminal-cursor') ?? box.querySelector('.terminal-cursor');
+        box.querySelector(`.pane-active ${dot(TERMINAL_CURSOR)}`) ??
+        box.querySelector(dot(TERMINAL_CURSOR));
       if (!cursor) return;
       const frame = box.getBoundingClientRect();
       const at = cursor.getBoundingClientRect();

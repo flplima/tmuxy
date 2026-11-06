@@ -8,9 +8,8 @@
 
 import { useCallback } from 'react';
 import { useAppSend } from '../../machines/appHooks';
-import { extractSelectedText } from '../../domain/copyModeOps';
+import { extractSelectedText, type CopyModeState } from '../../domain/copyMode';
 import { writeClipboard } from '../../infra/clipboard';
-import type { CopyModeState } from '../../domain/copyMode';
 import type { PaneId } from '../../domain/ids';
 import './TouchSelectionBar.css';
 
@@ -23,7 +22,7 @@ export function TouchSelectionBar({
 }) {
   const send = useAppSend();
   const copy = useCallback(() => {
-    writeClipboard(extractSelectedText(copyState), paneId);
+    void writeClipboard(extractSelectedText(copyState), paneId);
     send({ type: 'COPY_MODE_MOUSE_COPY', paneId });
   }, [send, paneId, copyState]);
   const cancel = useCallback(() => send({ type: 'EXIT_COPY_MODE', paneId }), [send, paneId]);

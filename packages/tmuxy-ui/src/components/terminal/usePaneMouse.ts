@@ -23,6 +23,7 @@ import {
   mouseOp,
   type UsePaneMouseOptions,
 } from './paneMouseHelpers';
+import { dot, PANE_HEADER } from '../../infra/dom/terminalDom';
 
 export function usePaneMouse(send: (event: AppMachineEvent) => void, options: UsePaneMouseOptions) {
   const {
@@ -154,7 +155,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
       // Don't handle clicks on the header (drag is handled separately)
-      if (target.closest('.pane-header')) return;
+      if (target.closest(dot(PANE_HEADER))) return;
 
       // Focus unconditionally — FOCUS_PANE is a no-op when already active.
       // Mouse-tracking panes (vim/htop) used to forward SGR without focusing,
@@ -232,7 +233,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       // Single click (no drag) in copy mode: clear selection and move cursor
       if (!isDraggingForSelectionRef.current && copyModeActive && e.button === 0) {
         const target = e.target as HTMLElement;
-        if (!target.closest('.pane-header')) {
+        if (!target.closest(dot(PANE_HEADER))) {
           const cell = pixelToCell(e);
           send({ type: 'COPY_MODE_SELECTION_CLEAR', paneId });
           send({
@@ -403,7 +404,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.pane-header')) return;
+      if (target.closest(dot(PANE_HEADER))) return;
       if (mouseAnyFlag) return;
       // Skip if this is actually a triple-click (detail >= 3) — handled in handleMouseDown
       if (e.detail >= 3) return;
@@ -423,7 +424,7 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
   const handleTripleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('.pane-header')) return;
+      if (target.closest(dot(PANE_HEADER))) return;
       if (mouseAnyFlag) return;
 
       // Same again: a triple-click selects the line natively. Only copy mode,

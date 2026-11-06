@@ -5,10 +5,9 @@
  */
 
 import type { AppMachineContext } from '../../../machines/types/context';
-import type { TraceLevel } from '../../../domain/wireSettings';
+import type { TraceLevel, ThemeInfo, ThemeMode } from '../../../domain/wireSettings';
 import { renameSessionPrompt, TmuxOp } from '../../../domain/commands';
 import { PINNABLE, pinnedLabel } from '../../../domain/pins';
-import type { ThemeInfo, ThemeMode } from '../../../domain/wireSettings';
 import { keyHint } from '../../../domain/menus/keyHint';
 import type { MenuIconName } from '../../../domain/menus/icons';
 import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';

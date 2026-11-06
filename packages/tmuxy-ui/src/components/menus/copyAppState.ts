@@ -6,6 +6,7 @@
  * the production app, which has no console.
  */
 
+import { writeClipboard } from '../../infra/clipboard';
 import type { AppMachineContext } from '../../machines/types/context';
 
 function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
@@ -51,8 +52,7 @@ export interface ClipboardReport {
 
 export function copyAppState(ctx: AppMachineContext, report: ClipboardReport): void {
   const text = JSON.stringify(appStateSummary(ctx), null, 2);
-  navigator.clipboard.writeText(text).then(
-    () => report.onCopied('Copied app state'),
-    (e: unknown) => report.onFailed(`Clipboard write failed: ${String(e)}`),
+  void writeClipboard(text, null).then((ok) =>
+    ok ? report.onCopied('Copied app state') : report.onFailed('Clipboard write failed'),
   );
 }

@@ -11,6 +11,7 @@ import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
 import { isTauri } from '../../infra/platform';
 import { copyAppState, type ClipboardReport } from './copyAppState';
+import { writeClipboard } from '../../infra/clipboard';
 import {
   closeGuiWindow,
   focusGuiWindow,
@@ -19,9 +20,8 @@ import {
   newGuiWindow,
   quitApp,
   setWindowStyle,
-  type GuiWindowInfo,
-  type WindowStyleSlug,
 } from '../../infra/guiWindows';
+import type { GuiWindowInfo, WindowStyleSlug } from '../../domain/guiWindows';
 import { windowMenuSpec } from './specs/windowMenu';
 import type { AppMenuOptions } from './specs/appMenu';
 import type { MenuEnv } from '../../domain/menus/spec';
@@ -146,8 +146,7 @@ function copyTracePath(path: string | null, report: ClipboardReport): void {
     report.onFailed('No trace file path available');
     return;
   }
-  navigator.clipboard.writeText(path).then(
-    () => report.onCopied(`Copied ${path}`),
-    (e: unknown) => report.onFailed(`Clipboard write failed: ${String(e)}`),
+  void writeClipboard(path, null).then((ok) =>
+    ok ? report.onCopied(`Copied ${path}`) : report.onFailed('Clipboard write failed'),
   );
 }

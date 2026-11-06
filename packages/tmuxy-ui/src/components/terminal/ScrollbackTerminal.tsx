@@ -17,13 +17,18 @@ import { useAppSelector } from '../../machines/appHooks';
 import { selectCharSize } from '../../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
 import { cellsToCss, resolveImageSrc, sameCellStyle } from './terminalShared';
-import { isRowLoaded, isWrappedRow } from '../../domain/copyModeOps';
+import { isRowLoaded, isWrappedRow, type CopyModeState } from '../../domain/copyMode';
 import { continuesInto, detectUrlsAcrossRows, sameUrls, type DetectedUrl } from './urlDetect';
 import { setLinkHot } from './linkHover';
-import type { CopyModeState } from '../../domain/copyMode';
 import type { ImagePlacement } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
 import type { CellLine } from '../../domain/wireCells';
+import {
+  dot,
+  TERMINAL_CONTENT,
+  TERMINAL_LINE,
+  TERMINAL_SELECTABLE,
+} from '../../infra/dom/terminalDom';
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;
@@ -150,7 +155,7 @@ function rowOf(pre: HTMLElement, node: Node, offset: number): number | null {
   const target =
     node === pre ? (pre.childNodes[Math.min(offset, pre.childNodes.length - 1)] ?? null) : node;
   const element = target instanceof Element ? target : (target?.parentElement ?? null);
-  const line = element?.closest<HTMLElement>('.terminal-line') ?? null;
+  const line = element?.closest<HTMLElement>(dot(TERMINAL_LINE)) ?? null;
   if (!line || !pre.contains(line)) return null;
   const row = Number(line.dataset.row);
   return Number.isFinite(row) ? row : null;
@@ -287,7 +292,7 @@ export function ScrollbackTerminal({
         return;
       }
       const el = document.createElement('div');
-      el.className = 'terminal-line';
+      el.className = TERMINAL_LINE;
       el.dataset.row = String(row);
       setWrapped(el, wrapped);
       el.style.position = 'absolute';
@@ -343,7 +348,7 @@ export function ScrollbackTerminal({
       }}
     >
       <pre
-        className={`terminal-content ${isCopyMode ? '' : 'terminal-selectable'}`}
+        className={`${TERMINAL_CONTENT} ${isCopyMode ? '' : TERMINAL_SELECTABLE}`}
         aria-hidden="true"
         onMouseOver={(e) => setLinkHot(e.target, true)}
         onMouseOut={(e) => setLinkHot(e.target, false)}

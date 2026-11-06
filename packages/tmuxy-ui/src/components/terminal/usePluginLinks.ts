@@ -17,6 +17,7 @@ import { isMacPlatform } from '../../infra/platform';
 import { LINK_EVENT, type LinkEventDetail } from '../../infra/openUrl';
 import { pluginLinkHosts } from '../../domain/plugins';
 import type { PaneId } from '../../domain/ids';
+import { dot, TERMINAL_LINE } from '../../infra/dom/terminalDom';
 
 /** The pane an element is drawn in. */
 function paneOf(el: Element | null): PaneId | null {
@@ -27,7 +28,7 @@ function paneOf(el: Element | null): PaneId | null {
 /** The line a click landed on and the column in it, in characters. */
 export function clickedText(e: MouseEvent): { line: string; column: number } | null {
   const target = e.target instanceof Element ? e.target : null;
-  const lineEl = target?.closest('.terminal-line');
+  const lineEl = target?.closest(dot(TERMINAL_LINE));
   if (!lineEl || target?.closest('a')) return null;
   const doc = document as Document & {
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;

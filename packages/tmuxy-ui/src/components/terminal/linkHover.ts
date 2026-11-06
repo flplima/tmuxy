@@ -5,14 +5,14 @@
  * address reads as one link.
  */
 
-export const LINK_HOT_CLASS = 'terminal-link-hot';
+import { dot, TERMINAL_CONTENT, TERMINAL_LINK_HOT } from '../../infra/dom/terminalDom';
 
 export function setLinkHot(target: EventTarget | null, hot: boolean): void {
   const anchor = target instanceof Element ? target.closest('a[href]') : null;
-  const grid = anchor?.closest('.terminal-content');
+  const grid = anchor?.closest(dot(TERMINAL_CONTENT));
   if (!anchor || !grid) return;
   const href = anchor.getAttribute('href');
   for (const a of grid.querySelectorAll('a[href]')) {
-    if (a.getAttribute('href') === href) a.classList.toggle(LINK_HOT_CLASS, hot);
+    if (a.getAttribute('href') === href) a.classList.toggle(TERMINAL_LINK_HOT, hot);
   }
 }

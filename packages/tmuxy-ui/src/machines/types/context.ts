@@ -1,10 +1,10 @@
 import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
 import type { GridCell } from '../../domain/gridFit';
-import type { ThemeInfo, ThemeMode } from '../../domain/wireSettings';
+import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
@@ -22,8 +22,6 @@ import type {
   SessionTreeNode,
   TmuxServer,
 } from '../../domain/servers';
-import type { PaneGroup } from '../../domain/client';
-import type { TraceSettings } from '../../domain/wireSettings';
 
 export interface AppMachineContext {
   connected: boolean;

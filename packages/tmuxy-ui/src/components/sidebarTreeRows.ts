@@ -9,9 +9,8 @@ import {
   summarizeGitContexts,
   type PaneGitContext,
 } from './gitContext';
-import type { TmuxPane, TmuxWindow } from '../domain/client';
+import type { TmuxPane, TmuxWindow, PaneGroup } from '../domain/client';
 import type { selectSessions, selectRepositories } from '../machines/selectors/ui';
-import type { PaneGroup } from '../domain/client';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { inGridOrder } from './gridOrder';
 

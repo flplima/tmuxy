@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { extractSelectedText, firstUnloadedGap, isWrappedRow } from '../copyModeOps';
-import type { CopyModeState } from '../copyMode';
+import {
+  extractSelectedText,
+  firstUnloadedGap,
+  isWrappedRow,
+  type CopyModeState,
+} from '../copyMode';
 import type { CellLine } from '../wireCells';
 
 function makeLine(text: string): CellLine {

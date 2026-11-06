@@ -12,6 +12,7 @@
 
 import { isMacPlatform, isTauri } from './platform';
 import { tracer } from './tracer';
+import { desktopInvoke } from './desktop';
 
 export const isMacTauri = isTauri() && isMacPlatform();
 
@@ -19,18 +20,10 @@ export const isMacTauri = isTauri() && isMacPlatform();
 const actionPrefix = `titlebar-${Date.now().toString(36)}`;
 let actionCounter = 0;
 
-/** Invoke a window command, tracing it under a fresh `action_id`. */
-async function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+/** Invoke a window command, under a fresh `action_id` the shell echoes on its own events. */
+function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const actionId = tracer.isEnabled() ? `${actionPrefix}-${++actionCounter}` : undefined;
-  tracer.event({
-    layer: 'tauri',
-    component: 'desktopWindow',
-    name: cmd,
-    action_id: actionId,
-    ...args,
-  });
-  const core = await import('@tauri-apps/api/core');
-  return core.invoke<T>(cmd, { ...args, actionId });
+  return desktopInvoke<T>(cmd, { ...args, actionId }, { actionId, traced: args });
 }
 
 /** Hand the current mousedown to the OS as a window drag. */

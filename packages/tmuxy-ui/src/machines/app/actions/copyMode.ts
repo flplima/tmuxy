@@ -6,14 +6,14 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
-import type { CopyModeState } from '../../../domain/copyMode';
-import { handleCopyModeKey } from '../../../domain/copyModeKeys';
 import {
+  type CopyModeState,
   clampColToLine,
   isWrappedRow,
   extractSelectedText,
   toAbsoluteRow,
-} from '../../../domain/copyModeOps';
+} from '../../../domain/copyMode';
+import { handleCopyModeKey } from '../../../domain/copyModeKeys';
 import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
@@ -358,7 +358,7 @@ export const copyModeActions = {
     if (!copyState || copyState.mode !== 'copy' || copyState.copiedAt) return;
     if (!copyState.selectionMode || !copyState.selectionAnchor) return;
     const text = extractSelectedText(copyState);
-    if (text) enqueue(() => writeClipboard(text, event.paneId));
+    if (text) enqueue(() => void writeClipboard(text, event.paneId));
     leaveAfterCopy(enqueue, context, event.paneId);
   }),
 

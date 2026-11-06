@@ -1,4 +1,3 @@
-const LS_KEY = 'tmuxy-font-size';
 export const DEFAULT_FONT_SIZE = 15;
 const MIN_FONT_SIZE = 9;
 const MAX_FONT_SIZE = 21;
@@ -14,25 +13,9 @@ export function applyFontSize(size: number): void {
   root.setProperty('--tmuxy-small-font-size', `${smallFontSize(size)}px`);
 }
 
-export function loadFontSizeFromStorage(): number {
-  try {
-    const val = localStorage.getItem(LS_KEY);
-    if (val) {
-      const n = parseInt(val, 10);
-      if (n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n;
-    }
-  } catch {
-    // localStorage unavailable
-  }
-  return DEFAULT_FONT_SIZE;
-}
-
-export function saveFontSizeToStorage(size: number): void {
-  try {
-    localStorage.setItem(LS_KEY, String(size));
-  } catch {
-    // localStorage unavailable
-  }
+/** A size the font menu can reach. */
+export function isFontSize(size: number): boolean {
+  return Number.isInteger(size) && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE;
 }
 
 export function increaseFontSize(current: number): number {

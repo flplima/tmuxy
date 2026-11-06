@@ -1,23 +1,31 @@
 import type { PaneId } from '../domain/ids';
+import { logFailure } from './logFailure';
 
 /**
- * Put text on the system clipboard from inside the app.
+ * Put text on the system clipboard from inside the app: the one place every
+ * copy goes through.
  *
- * Fire-and-forget: a denied permission must not break whatever copied. The
- * last payload is also kept on `window.__tmuxyLastClipboard`, so a test can
- * see what was copied without reading the system clipboard (which needs a
- * permission a headless browser does not grant).
+ * Resolves whether the write took, and never rejects: a denied permission
+ * must not break whatever copied, and is logged here. The last payload is
+ * also kept on `window.__tmuxyLastClipboard`, so a test can see what was
+ * copied without reading the system clipboard (which needs a permission a
+ * headless browser does not grant).
  */
-export function writeClipboard(text: string, paneId: PaneId | null): void {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(text).catch((err) => {
-      console.warn('[clipboard] write rejected:', err);
-    });
-  }
+export function writeClipboard(text: string, paneId: PaneId | null): Promise<boolean> {
   const win = globalThis as unknown as {
     __tmuxyLastClipboard?: { paneId: PaneId | null; text: string };
   };
   win.__tmuxyLastClipboard = { paneId, text };
+  if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+    return Promise.resolve(false);
+  }
+  return navigator.clipboard.writeText(text).then(
+    () => true,
+    (err: unknown) => {
+      logFailure('clipboard', err);
+      return false;
+    },
+  );
 }
 
 /**

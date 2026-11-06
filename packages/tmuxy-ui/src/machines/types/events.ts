@@ -1,7 +1,7 @@
 import type { PushState } from '../../infra/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
-import type { ThemeInfo, ThemeMode } from '../../domain/wireSettings';
+import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
@@ -15,7 +15,6 @@ import type {
   SessionTreeNode,
   TmuxServer,
 } from '../../domain/servers';
-import type { TraceLevel, TraceSettings } from '../../domain/wireSettings';
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =

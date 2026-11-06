@@ -9,14 +9,14 @@
  * disagree and a misspelt id does not compile.
  */
 
-import { restartApp } from '../../../infra/restartApp';
+import { restartApp } from '../../../infra/guiWindows';
 import type { AppMachineEvent } from '../../../machines/types/events';
 import { type PaneId, isPlaceholderId } from '../../../domain/ids';
 import { renameWindowPrompt, TmuxOp } from '../../../domain/commands';
 import type { KeyBindings } from '../../../domain/wire';
 import { keyHint } from '../../../domain/menus/keyHint';
 import type { MenuNode, MenuSpec } from '../../../domain/menus/spec';
-import type { WindowStyleSlug } from '../../../infra/guiWindows';
+import type { WindowStyleSlug } from '../../../domain/guiWindows';
 
 type Send = (event: AppMachineEvent) => void;
 

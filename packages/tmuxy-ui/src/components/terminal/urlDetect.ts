@@ -3,7 +3,7 @@
  * Returns ranges of detected URLs for rendering as clickable links.
  */
 
-import { isWrappedRow } from '../../domain/copyModeOps';
+import { isWrappedRow } from '../../domain/copyMode';
 import type { CellLine } from '../../domain/wireCells';
 
 export interface DetectedUrl {

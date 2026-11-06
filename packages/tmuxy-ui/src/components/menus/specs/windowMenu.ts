@@ -5,7 +5,11 @@
  * not the app's — so the surface fetches them and hands them here.
  */
 
-import { WINDOW_STYLES, type GuiWindowInfo, type WindowStyleSlug } from '../../../infra/guiWindows';
+import {
+  WINDOW_STYLES,
+  type GuiWindowInfo,
+  type WindowStyleSlug,
+} from '../../../domain/guiWindows';
 import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { local, type AppMenuNode } from './actions';
 

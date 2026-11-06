@@ -67,7 +67,7 @@ export function SelectionContextMenu({
   const dispatch = useMenuDispatch({
     onLocal: (local) => {
       if (local.verb === 'copy-selection') {
-        writeClipboard(selectedText, paneId);
+        void writeClipboard(selectedText, paneId);
         flashCopiedRange(selectionRange);
       } else if (local.verb === 'send-selection') {
         send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: paneId, text: selectedText }) });

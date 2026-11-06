@@ -7,16 +7,16 @@
 
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
-import { Cursor } from './Cursor';
+import { Cursor, type CursorMode } from './Cursor';
 import { cellsToCss, resolveImageSrc } from './terminalShared';
 import { cursorShapeToMode } from './cursorShape';
-import { isWrappedRow } from '../../domain/copyModeOps';
+import { isWrappedRow } from '../../domain/copyMode';
 import { detectUrlsAcrossRows } from './urlDetect';
 import { setLinkHot } from './linkHover';
-import type { CursorMode } from './Cursor';
 import type { ImagePlacement } from '../../domain/client';
 import type { PaneContent, CellLine } from '../../domain/wireCells';
 import type { PaneId } from '../../domain/ids';
+import { TERMINAL_CONTENT, TERMINAL_SELECTABLE } from '../../infra/dom/terminalDom';
 
 interface TerminalProps {
   content: PaneContent;
@@ -218,7 +218,7 @@ export const Terminal: React.FC<TerminalProps> = ({
   return (
     <div className="terminal-container" data-testid="terminal" role="log" aria-live="off">
       <pre
-        className={`terminal-content ${selectable ? 'terminal-selectable' : ''}`}
+        className={`${TERMINAL_CONTENT} ${selectable ? TERMINAL_SELECTABLE : ''}`}
         aria-hidden="true"
         onMouseOver={(e) => setLinkHot(e.target, true)}
         onMouseOut={(e) => setLinkHot(e.target, false)}

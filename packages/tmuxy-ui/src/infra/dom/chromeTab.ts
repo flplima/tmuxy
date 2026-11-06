@@ -9,15 +9,10 @@
  * page.
  */
 
+import { PANE_SURFACE } from './terminalDom';
+
 const CHROME_CONTROL =
   'button, a[href], [role="tab"], [role="treeitem"], [role="menuitem"], [role="option"], [tabindex]:not([tabindex="-1"])';
-
-/**
- * A pane's own surface: the wrapper a tiled pane or a widget draws in, and a
- * float's container. Focusable for the pointer, and the terminal's. The tree's
- * pane rows carry a pane id too, but they are chrome.
- */
-export const PANE_SURFACE = '.pane-wrapper[data-pane-id], .float-container[data-pane-id]';
 
 let pointerFocused: EventTarget | null = null;
 

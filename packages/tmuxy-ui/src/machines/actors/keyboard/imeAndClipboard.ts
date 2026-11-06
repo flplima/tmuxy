@@ -22,7 +22,9 @@ import {
 import { flashCopiedRange } from '../../../infra/dom/copyFlash';
 import { terminalSelection, terminalTextOf } from '../../../infra/dom/nativeSelection';
 import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
-import { noteFocus, PANE_SURFACE } from '../../../infra/dom/chromeTab';
+import { noteFocus } from '../../../infra/dom/chromeTab';
+import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
+import { writeClipboard } from '../../../infra/clipboard';
 import { isModelPaneId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
@@ -182,7 +184,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     const wrote = document.execCommand('copy');
     if (!wrote) {
       pendingCopyText = null;
-      void navigator.clipboard?.writeText(selected.text);
+      void writeClipboard(selected.text, null);
     }
     const count = [...selected.text].length;
     deps.parent.send({
