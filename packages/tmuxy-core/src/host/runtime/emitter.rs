@@ -27,11 +27,10 @@ impl StateEmitter for Arc<SessionRuntime> {
     fn emit_state(&self, update: StateUpdate) {
         self.preview.sync_update(&self.preview_scope, &update);
         transport::on_state_update(&update, &self.keeper, |state| {
-            // try_write, so a contended lock never stalls the monitor loop;
-            // the next full state sweeps again.
-            if let Ok(mut images) = self.images.try_write() {
-                images.retain_live_panes(state);
-            }
+            self.images
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain_live_panes(state);
         });
         self.emit(HostEvent::StateUpdate(Box::new(update)));
     }
@@ -46,10 +45,12 @@ impl StateEmitter for Arc<SessionRuntime> {
     }
 
     fn store_images(&self, pane_id: &PaneId, images: Vec<(u32, StoredImage)>) {
-        // A dropped picture is redrawn by the next frame.
-        if let Ok(mut store) = self.images.try_write() {
-            store.insert(pane_id, images);
-        }
+        // The bytes arrive once, when they are decoded: a picture not stored
+        // here is a placement the client can never fetch.
+        self.images
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(pane_id, images);
     }
 
     fn write_clipboard(&self, pane_id: Option<&PaneId>, text: String) {
