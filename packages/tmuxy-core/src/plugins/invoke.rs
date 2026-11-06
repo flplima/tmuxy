@@ -190,8 +190,16 @@ fn exec_inner(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> Res
 /// Spawn and wait, with this process ignoring the interrupt and quit keys
 /// meanwhile: they reach the whole foreground group, and the child decides
 /// what they mean. The exit is still logged after a Ctrl-C.
+///
+/// The disposition is process-wide, which is why this runs only in the
+/// short-lived `tmuxy plugin exec` process a pane runs ([`exec`]), never in
+/// a server. The child is spawned first, so it starts with the default
+/// dispositions rather than inheriting the ignore.
 fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
     let mut child = cmd.spawn()?;
+    // SAFETY: `signal` with `SIG_IGN` installs no handler code, so nothing
+    // runs in signal context; both signal numbers are valid, so neither call
+    // returns `SIG_ERR`.
     #[cfg(unix)]
     let previous = unsafe {
         (
@@ -200,6 +208,9 @@ fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
         )
     };
     let status = child.wait();
+    // SAFETY: puts back exactly the dispositions the calls above replaced
+    // (the default, or an ignore this process was started with), so nothing
+    // is installed that was not there before the wait.
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGINT, previous.0);

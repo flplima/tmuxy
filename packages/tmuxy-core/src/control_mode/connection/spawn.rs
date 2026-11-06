@@ -13,13 +13,10 @@ pub(super) fn build_tmux_args(
     let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
     // tmux only reads `-f` when it forks a new server, so this covers the
     // create path; `sync_initial_state` source-files the same config after an
-    // attach. Skipped over SSH: the local config path does not exist on the
-    // remote host.
-    if crate::session::ssh_target().is_none() {
-        if let Some(path) = crate::session::get_config_path() {
-            tmux_args.push("-f".to_string());
-            tmux_args.push(path.to_string_lossy().into_owned());
-        }
+    // attach.
+    if let Some(path) = crate::session::get_config_path() {
+        tmux_args.push("-f".to_string());
+        tmux_args.push(path.to_string_lossy().into_owned());
     }
     if create_if_missing {
         // `-A` attaches or creates in one step: no clientless gap for the

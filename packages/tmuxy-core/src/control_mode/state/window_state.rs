@@ -263,41 +263,13 @@ impl StateAggregator {
 
     /// Sets up every window of the attached session, once per window and
     /// again only when what it is changes (a window first seen untagged that
-    /// turns out to be a sidebar). Also re-tags, by name, a float or sidebar
-    /// whose `@tmuxy-window-type` went missing: they are tagged atomically on
-    /// creation, so this normally never fires.
+    /// turns out to be a sidebar).
     pub fn window_setup_commands(&mut self) -> Vec<String> {
-        let window_type_opt = crate::constants::tmux_options::WINDOW_TYPE;
         let mut cmds = Vec::new();
-        let ids: Vec<WindowId> = self.windows.keys().cloned().collect();
-        for id in ids {
-            let Some(window) = self.windows.get_mut(&id) else {
-                continue;
-            };
-            if window.window_type.is_none() {
-                let inferred = if window.name == "float" || window.name.starts_with("__float_") {
-                    Some(WindowType::Float)
-                } else {
-                    match window
-                        .name
-                        .strip_prefix(crate::constants::SIDEBAR_WINDOW_PREFIX)
-                    {
-                        Some("left") => Some(WindowType::SidebarLeft),
-                        Some(_) => Some(WindowType::SidebarRight),
-                        None => None,
-                    }
-                };
-                if let Some(kind) = inferred {
-                    window.window_type = Some(kind);
-                    cmds.push(format!(
-                        "set-option -w -t {id} {window_type_opt} {}",
-                        kind.as_str()
-                    ));
-                }
-            }
+        for (id, window) in &self.windows {
             let now = WindowSetup::of(window.window_type);
             let before = self.window_setup.insert(id.clone(), now);
-            cmds.extend(window_setup(&id, before, now));
+            cmds.extend(window_setup(id, before, now));
         }
         cmds
     }
