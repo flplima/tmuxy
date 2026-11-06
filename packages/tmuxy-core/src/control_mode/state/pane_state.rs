@@ -132,17 +132,6 @@ pub struct PaneState {
 #[path = "pane_output.rs"]
 mod output;
 
-#[cfg(test)]
-impl PaneState {
-    pub(crate) fn screen(&self) -> &vt100::Screen {
-        self.terminal.screen()
-    }
-
-    pub(crate) fn placements(&self) -> &[super::images::ImagePlacement] {
-        &self.image_parser.placements
-    }
-}
-
 impl PaneState {
     pub(super) fn set_title(&mut self, title: String) {
         self.title = shown_title(title);
