@@ -68,7 +68,7 @@ pub(super) fn spawn_parser_task(
     tx: mpsc::Sender<ControlModeEvent>,
     ready_tx: tokio::sync::oneshot::Sender<()>,
     recent_output: Arc<Mutex<Vec<String>>>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut buf_reader = BufReader::new(reader);
         let mut parser = Parser::new();
@@ -130,7 +130,7 @@ pub(super) fn spawn_parser_task(
                 }
             }
         }
-    });
+    })
 }
 
 /// The longest control-mode line kept. tmux writes a pane's output a read at
@@ -332,11 +332,11 @@ impl ControlModeConnection {
     /// The 10s ceiling swallows a slow first-time `default-command` startup
     /// while still surfacing a dead tmux server quickly.
     pub(super) async fn wait_for_initial_state(
-        child: &mut tokio::process::Child,
+        &mut self,
         ready_rx: tokio::sync::oneshot::Receiver<()>,
+        reader: tokio::task::JoinHandle<()>,
         session_name: &str,
         shell_desc: &str,
-        recent_output: &Arc<Mutex<Vec<String>>>,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
         tracing::debug!("connect(): waiting for first control mode event (10s timeout)");
@@ -346,56 +346,55 @@ impl ControlModeConnection {
             "waiting for first control mode event (10s timeout)",
         );
 
-        match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
-            Ok(Ok(())) => {
-                // The smoke tests count this line in the desktop app's log
-                // file: more than two in a run is a reconnect loop.
-                tracing::info!("connect(): control mode connected successfully");
-                log_to(log, LogKind::Info, "control mode connected successfully");
-                Ok(())
-            }
-            Ok(Err(_)) => {
-                // Parser hit EOF before sending readiness — tmux exited.
-                let _ = child.kill().await;
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let tail = drain_recent_output(recent_output).await;
-                log_to(
-                    log,
-                    LogKind::Output,
-                    format!(
-                        "control mode died immediately, output: {}",
-                        if tail.is_empty() { "(empty)" } else { &tail }
-                    ),
-                );
-                Err(TmuxError::ProcessExited {
-                    reason: format!(
-                        "control mode died immediately for session '{}' (command: {}, output: {})",
-                        session_name,
-                        shell_desc,
-                        if tail.is_empty() { "(empty)" } else { &tail },
-                    ),
-                })
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let tail = drain_recent_output(recent_output).await;
-                log_to(
-                    log,
-                    LogKind::Output,
-                    format!(
-                        "control mode timed out after 10s, output: {}",
-                        if tail.is_empty() { "(empty)" } else { &tail }
-                    ),
-                );
-                Err(TmuxError::Timeout {
-                    operation: format!("control mode connect to session '{}'", session_name),
-                    after: Duration::from_secs(10),
-                })
-            }
+        let outcome = tokio::time::timeout(CONNECT_TIMEOUT, ready_rx).await;
+        if let Ok(Ok(())) = outcome {
+            // The smoke tests count this line in the desktop app's log
+            // file: more than two in a run is a reconnect loop.
+            tracing::info!("connect(): control mode connected successfully");
+            log_to(log, LogKind::Info, "control mode connected successfully");
+            return Ok(());
         }
+        // A tmux that came up late is attached by now, and killing an
+        // attached control client crashes tmux 3.5a: it is detached, and one
+        // that already exited is only reaped. Its parting words are what the
+        // reader has read once the PTY closes.
+        self.graceful_close().await;
+        if tokio::time::timeout(Duration::from_secs(1), reader)
+            .await
+            .is_err()
+        {
+            tracing::debug!("connect(): the PTY reader is still reading");
+        }
+        let tail = drain_recent_output(&self.recent_output).await;
+        let output = if tail.is_empty() { "(empty)" } else { &tail };
+        let (what, error) = match outcome {
+            Ok(_) => (
+                "died immediately",
+                TmuxError::ProcessExited {
+                    reason: format!(
+                        "control mode died immediately for session '{session_name}' (command: {shell_desc}, output: {output})"
+                    ),
+                },
+            ),
+            Err(_) => (
+                "timed out after 10s",
+                TmuxError::Timeout {
+                    operation: format!("control mode connect to session '{session_name}'"),
+                    after: CONNECT_TIMEOUT,
+                },
+            ),
+        };
+        log_to(
+            log,
+            LogKind::Output,
+            format!("control mode {what}, output: {output}"),
+        );
+        Err(error)
     }
 }
+
+/// How long tmux has to print its first control-mode line.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

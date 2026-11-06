@@ -122,25 +122,18 @@ impl ControlModeConnection {
         let recent_output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(1000);
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
+        let reader = spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
 
-        let mut child = child;
-        Self::wait_for_initial_state(
-            &mut child,
-            ready_rx,
-            session_name,
-            &shell_desc,
-            &recent_output,
-            log,
-        )
-        .await?;
-
-        Ok(Self {
+        let mut connection = Self {
             child,
             pty_writer,
             event_rx: rx,
             recent_output,
-        })
+        };
+        connection
+            .wait_for_initial_state(ready_rx, reader, session_name, &shell_desc, log)
+            .await?;
+        Ok(connection)
     }
 
     /// Append the subprocess's recent output to an io::Error message, so the

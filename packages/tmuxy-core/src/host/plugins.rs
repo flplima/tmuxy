@@ -113,8 +113,9 @@ pub async fn apply_plugin_keys(
         .map_err(|e| CommandError::invalid(e.to_string()))?;
     let mut listings = Vec::new();
     for table in [KeyTable::Prefix, KeyTable::Root] {
-        let listing =
-            crate::list_keys::listing(crate::control_mode::query(tx, &keys::list_command(table)).await)?;
+        let listing = crate::list_keys::listing(
+            crate::control_mode::query(tx, &keys::list_command(table)).await,
+        )?;
         listings.push((table, listing));
     }
     let (planned, cmds) = keys::commands(&registry, |table| {
