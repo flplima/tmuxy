@@ -34,12 +34,11 @@ impl StateAggregator {
                 // included; the visible one holds only the zoomed pane, at
                 // the window's size, and is what gets drawn.
                 let zoomed = flags.contains('Z');
-
-                let resized_panes = self.handle_layout_change(&window_id, &layout);
-
-                if zoomed {
-                    self.update_pane_geometry_from_layout(&window_id, &visible_layout);
-                }
+                let resized_panes = self.handle_layout_change(
+                    &window_id,
+                    &layout,
+                    zoomed.then_some(visible_layout.as_str()),
+                );
 
                 if let Some(window) = self.windows.get_mut(&window_id) {
                     window.zoomed = zoomed;
