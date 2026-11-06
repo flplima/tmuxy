@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — pane and pane-group subcommands.
-# `pane run`, `pane wait` and `pane capture` are in cli-pane-run.sh.
 
-# The pane a command acts on: PANE_ID is the target named (a pane id or a
-# label, `_resolve_target`), else the caller's own pane; PANE_T the same as a
-# `-t` clause for the command line (empty when no pane is known — tmux's own
-# default). A label that resolves to nothing or to several panes ends the
-# command here, before anything has changed.
-# Args: $1=target as written (may be empty)
 _pane_t() {
   PANE_ID="${TMUX_PANE:-}"
   PANE_T="$CALLER_T"
@@ -76,9 +68,8 @@ cmd_pane() {
         esac
       done
       [ -n "$value" ] || _die_usage "state value required"
-      # Default to the calling pane. `set-option -p` with no target resolves
-      # against tmux's idea of the current pane, which under run-shell is the
-      # ACTIVE one, not the caller — so the target is always explicit.
+      # `set-option -p` with no target resolves against tmux's idea of the
+      # current pane, which under run-shell is the ACTIVE one, not the caller.
       if [ -n "$target" ]; then
         target="$(_resolve_target "$target")" || exit $?
       else
@@ -107,8 +98,6 @@ cmd_pane() {
       local scope=(${TMUX_PANE:+-t "$TMUX_PANE"})
       if $all; then scope=(-s); fi
       if [ "$JSON_OUT" = true ]; then
-        # Tab-separated: pane_current_command is free text, so a comma in it
-        # would shift every following field and break the JSON.
         local rows
         rows=$(_tmux_read list-panes ${scope[@]+"${scope[@]}"} -F "$LIST_PANES_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
@@ -283,11 +272,7 @@ FEOF
 
 # --- Pane group subcommands ---
 
-# `tmuxy pane group <verb>`: one run-shell of the pane-group script (or, for
-# `all` and `ungroup`, pane-group-tab), whose verbs and arguments are
-# tmuxy-group's (`packages/tmuxy-group`). What is the CLI's: the caller's pane
-# as the default, given as a format run-shell expands for its target, and the
-# usage errors of a command line missing what the verb needs.
+# The verbs and their arguments are tmuxy-group's (`packages/tmuxy-group`).
 cmd_pane_group() {
   local sub="${1:-}" script=pane-group
   shift 2>/dev/null || true

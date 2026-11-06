@@ -1,12 +1,6 @@
 #!/bin/bash
-# session-connect — Staged server/session connect flow
-#
-# Usage: tmuxy session connect [<dest>] [--socket <name>] [--session <name>]
-#
-# Runs the 4-stage connect sequence (ssh -> tmux <ver> on socket -> listing
-# sessions -> attach), printing each stage's status to stdout/stderr. The
-# last stage is the server binary's `connect --save`: it saves the server to
-# servers.json in the state dir with `last_used`, and publishes the request
+# The last stage is the server binary's `connect --save`: it saves the server
+# to servers.json in the state dir with `last_used`, and publishes the request
 # the desktop app's monitor attaches to (tmuxy_core::servers::connect).
 set -euo pipefail
 source "${0%/*}/_lib"

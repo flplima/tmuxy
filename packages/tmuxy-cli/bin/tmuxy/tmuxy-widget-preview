@@ -22,8 +22,6 @@
 
 set -euo pipefail
 
-# `_run_safe` / `shquote` (mutations go through `tmux run-shell`, docs/TMUX.md),
-# and SCRIPTS_DIR.
 source "${0%/*}/_lib"
 
 usage() {

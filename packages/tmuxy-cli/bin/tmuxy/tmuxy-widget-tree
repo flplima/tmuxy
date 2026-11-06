@@ -1,8 +1,4 @@
 #!/bin/bash
-# Render the tabs+panes tree in a tmuxy widget pane
-#
-# Usage: tmuxy-widget-tree
-#
 # The tree has no content to stream: it is derived entirely from the tmux state
 # the app already holds, so this only has to declare the widget and keep the
 # pane alive so the pane (and therefore the column) stays open.

@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
 
 # A tab to act on: an `@id`, an index or a `session:window` target is handed
 # back as written; anything else is a tab NAME, which must name exactly one
 # window (exit 3 otherwise, with nothing changed).
-# Args: $1=target
 _resolve_tab() {
   local target="$1" rows matches count
   case "$target" in
@@ -25,10 +23,6 @@ _resolve_tab() {
   printf '%s' "${matches%%$'\t'*}"
 }
 
-# The tab a command acts on: TAB_ID the one named (`_resolve_tab`), else
-# empty; TAB_T the matching `-t` clause, which is the caller's own window
-# (through its pane id, `CALLER_T`) when none is named.
-# Args: $1=target as written (may be empty)
 _tab_t() {
   TAB_ID=""
   TAB_T="$CALLER_T"
@@ -52,11 +46,8 @@ cmd_tab() {
         esac
       done
       if [ "$JSON_OUT" = true ]; then
-        # Include @tmuxy-window-type ($6) so we can drop tmuxy's hidden windows
-        # (floats and the sidebars). Keep "tab" and untagged/foreign ("")
-        # windows so this still works in a plain (non-tmuxy) session.
-        # Tab-separated: window_name is user-controlled free text (tmuxy tab
-        # rename), so a comma in it would shift every following field.
+        # Floats and sidebars are tmuxy's hidden windows; an untagged window
+        # is a tab, as in a plain (non-tmuxy) session.
         local rows
         rows=$(_tmux_read list-windows -F "$LIST_WINDOWS_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
@@ -75,14 +66,10 @@ cmd_tab() {
           *) [ -z "$name" ] && name="$arg" ;;
         esac
       done
-      # new-window crashes tmux 3.5a — use splitw+breakp as a single tmux command
-      # list (separated by \;) so it runs atomically through run-shell. Direct
-      # external tmux invocations crash CC; this routes through run-shell safely.
-      # splitw+breakp creates the new window and selects it. Tabs carry no
-      # marker — an untagged window in the session is a tab, so no tagging.
-      # The break names its session: `#{session_id}` is run-shell's, expanded
-      # for the calling pane, where a bare breakp would put the window in
-      # whichever session tmux last touched (see TMUX_PANE above).
+      # new-window crashes tmux 3.5a, so a tab is splitw+breakp in one command
+      # list through run-shell. The break names its session: `#{session_id}`
+      # is run-shell's, expanded for the calling pane, where a bare breakp
+      # would put the window in whichever session tmux last touched.
       local out
       if [ -n "$name" ]; then
         out=$(_run_safe "splitw$CALLER_T \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
@@ -341,9 +328,6 @@ RUN_COMMANDS=(
   unlink-window unlinkw
 )
 
-# What `tmuxy run` will not do, as the reason it says so; nothing when the
-# command may run. Takes the command's words, name first.
-#
 # A name counts only as written: tmux would also take a unique prefix of one
 # (`i` is `if-shell`), so a prefix of an allowed name is not allowed. The
 # arguments reach tmux as they are, so what tmux itself reads in them is
@@ -424,8 +408,6 @@ cmd_run() {
 
     *)
       if [ "$JSON_OUT" = true ]; then
-        # The command's output and status as one object: what tmux printed
-        # is a string, and a failure is `ok:false` with the exit code it had.
         local out status=0
         out=$(_run_safe "$name $(shquote "$@")") || status=$?
         local ok=true
@@ -444,8 +426,6 @@ cmd_connect() {
   case "${1:-}" in
     --help|-h) usage_connect; return ;;
     "")
-      # No socket given → the connect flow, `tmuxy session connect`: it asks
-      # for a destination, probes it, saves it to servers.json and attaches.
       exec bash "$SCRIPTS_DIR/session-connect"
       ;;
   esac
@@ -457,11 +437,8 @@ cmd_connect() {
     _fail "$EXIT_USAGE" "'$socket' is not a valid tmux socket name or absolute path"
   fi
 
-  # Resolve the session when the caller didn't name one: prefer the target
-  # server's first existing session with a safe name (`_first_safe_session`),
-  # otherwise fall back to `tmuxy` (which the app creates on attach). Querying
-  # the target socket directly is read-only and safe even though it's a
-  # different server.
+  # The app creates `tmuxy` on attach. Querying the target socket directly is
+  # read-only, so safe with control mode attached.
   if [ -z "$session" ]; then
     local target_flag="-L"
     case "$socket" in */*) target_flag="-S" ;; esac

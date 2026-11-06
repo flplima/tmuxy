@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — `tmuxy mcp`, the endpoint an MCP
-# client drives the session through (docs/MCP.md).
 
 usage_mcp() {
   cat <<'MEOF'
@@ -35,7 +33,6 @@ cmd_mcp() {
   done
   case "$port" in '' | *[!0-9]*) _die_usage "--port takes a number (got '$port')" ;; esac
   [[ "$host" =~ ^[A-Za-z0-9.:_-]+$|^\[[0-9A-Fa-f:]+\]$ ]] || _die_usage "--host takes an address (got '$host')"
-  # The session this pane is in: the one the user is looking at.
   if [ -z "$session" ] && [ -n "${TMUX:-}" ]; then
     session="$(_tmux display-message -p$CALLER_T '#{session_name}' 2>/dev/null || true)"
   fi
