@@ -20,7 +20,7 @@
  * where it also keeps the cursor's column in the sideways view.
  */
 
-import { type RefObject, useEffect, useLayoutEffect } from 'react';
+import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react';
 
 const PHONE_CLASS = 'tmuxy-phone';
 
@@ -109,10 +109,13 @@ export function useVisualViewport(enabled: boolean): void {
  * row is in view a row above the bottom edge, with as much as fits of what is
  * above it: in a terminal that is the output the line being typed answers.
  * Zoomed, `xRef` is the viewport the doubled grid scrolls sideways in, and it
- * is scrolled too when the cursor's column has left it. Runs when the box
- * resizes (a keyboard coming up) and whenever `cursorKey` (where the cursor
- * is) changes. A terminal that fits has nothing to scroll, and stays at its
- * top.
+ * is scrolled too when the cursor's column has left it — once the cursor has
+ * moved or the box has got shorter (a keyboard), never just because the zoom
+ * came on: a double tap zooms around the point tapped (usePhoneZoomScroll),
+ * and following the cursor then took the view straight back to it. Runs when
+ * the box resizes (a keyboard coming up) and whenever `cursorKey` (where the
+ * cursor is) changes. A terminal that fits has nothing to scroll, and stays
+ * at its top.
  */
 export function useCursorInView(
   ref: RefObject<HTMLElement | null>,
@@ -120,10 +123,16 @@ export function useCursorInView(
   cursorKey: string,
   xRef: RefObject<HTMLElement | null> | null = null,
 ): void {
+  const lastKey = useRef<string | null>(null);
+  const lastHeight = useRef(0);
   useLayoutEffect(() => {
     const box = ref.current;
     if (!enabled || !box) return;
+    const moved = lastKey.current !== null && lastKey.current !== cursorKey;
+    lastKey.current = cursorKey;
     const follow = () => {
+      const shorter = box.clientHeight < lastHeight.current - 1;
+      lastHeight.current = box.clientHeight;
       const cursor =
         box.querySelector('.pane-active .terminal-cursor') ?? box.querySelector('.terminal-cursor');
       if (!cursor) return;
@@ -133,7 +142,7 @@ export function useCursorInView(
       // The browser clamps it to what there is to scroll.
       box.scrollTop = Math.max(0, bottom + at.height - box.clientHeight);
       const sideways = xRef?.current;
-      if (!sideways) return;
+      if (!sideways || !(moved || shorter)) return;
       const view = sideways.getBoundingClientRect();
       if (at.left < view.left) sideways.scrollLeft -= view.left - at.left + at.width * 4;
       else if (at.right > view.right) sideways.scrollLeft += at.right - view.right + at.width * 4;

@@ -118,4 +118,47 @@ describe('useCursorInView', () => {
     renderHook(() => useCursorInView({ current: box }, true, '%1 0 3'));
     expect(box.scrollTop).toBe(0);
   });
+
+  it('leaves the zoom where the tap put it until the cursor moves, then brings its column back', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const box = terminal(800, 40);
+    // The zoomed grid's sideways viewport, scrolled to the point tapped; the
+    // cursor is at the line's start, out of that view to the left.
+    const sideways = document.createElement('div');
+    sideways.getBoundingClientRect = () => ({ left: 0, right: 390 }) as DOMRect;
+    sideways.scrollLeft = 200;
+    const cursor = box.querySelector('.terminal-cursor')!;
+    const at = cursor.getBoundingClientRect();
+    cursor.getBoundingClientRect = () =>
+      ({
+        ...at,
+        left: 14 - sideways.scrollLeft,
+        right: 24 - sideways.scrollLeft,
+        width: 10,
+      }) as DOMRect;
+    let scrolledTo = 200;
+    Object.defineProperty(sideways, 'scrollLeft', {
+      configurable: true,
+      get: () => scrolledTo,
+      set: (v: number) => (scrolledTo = Math.max(0, v)),
+    });
+    const xRef = { current: sideways };
+    const { rerender } = renderHook(
+      ({ key, x }: { key: string; x: typeof xRef | null }) =>
+        useCursorInView({ current: box }, true, key, x),
+      { initialProps: { key: '%1 0 3', x: null as typeof xRef | null } },
+    );
+    // The zoom comes on: the view stays on the point tapped.
+    rerender({ key: '%1 0 3', x: xRef });
+    expect(scrolledTo).toBe(200);
+    // The cursor moves: its column is brought back into view.
+    rerender({ key: '%1 0 4', x: xRef });
+    expect(scrolledTo).toBe(0);
+  });
 });
