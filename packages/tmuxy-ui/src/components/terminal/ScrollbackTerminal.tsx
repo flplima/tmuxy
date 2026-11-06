@@ -3,10 +3,9 @@
  *
  * Renders loaded scrollback content as a positioned <pre> block inside Pane's
  * shared scroll container. Only visible AND loaded lines are rendered.
- * Uses imperative DOM updates via terminalRendering.ts. NOTE: this is a
- * SEPARATE renderer from Terminal's React-based TerminalLine.tsx — the two
- * implementations must be kept in sync manually (styles, selection, cursor).
- * Copy mode's selection is computed client-side from cursor/anchor
+ * Uses imperative DOM updates via terminalRendering.ts, which paints each row
+ * with the live grid's `cellPaint` and selects with `selectionColumns`, so
+ * the two views cannot draw the same cells differently. Copy mode's selection is computed client-side from cursor/anchor
  * positions; the scroll view's is the browser's, and the rows it spans stay
  * mounted for as long as it lasts.
  */
@@ -17,7 +16,12 @@ import { useAppSelector } from '../../machines/appHooks';
 import { selectCharSize } from '../../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
 import { cellsToCss, resolveImageSrc, sameCellStyle } from './terminalShared';
-import { isRowLoaded, isWrappedRow, type CopyModeState } from '../../domain/copyMode';
+import {
+  isRowLoaded,
+  isWrappedRow,
+  selectionColumns,
+  type CopyModeState,
+} from '../../domain/copyMode';
 import { continuesInto, detectUrlsAcrossRows, sameUrls, type DetectedUrl } from './urlDetect';
 import { setLinkHot } from './linkHover';
 import type { ImagePlacement } from '../../domain/client';
@@ -82,49 +86,7 @@ function lineFor(
   return isRowLoaded(loadedRanges, row) ? EMPTY_LINE : PLACEHOLDER_LINE;
 }
 
-/** The only `CopyModeState` fields selection geometry depends on. */
-type SelectionInput = Pick<
-  CopyModeState,
-  'selectionAnchor' | 'selectionMode' | 'cursorRow' | 'cursorCol' | 'width'
->;
-
-/**
- * Compute per-line selection ranges from copy mode state
- */
-function computeScrollbackSelection(
-  state: SelectionInput,
-): (lineIndex: number) => { startCol: number; endCol: number } | null {
-  const { selectionAnchor, selectionMode, cursorRow, cursorCol, width } = state;
-  if (!selectionAnchor || !selectionMode) return () => null;
-
-  const isLineMode = selectionMode === 'line';
-
-  let sy = selectionAnchor.row,
-    sx = selectionAnchor.col;
-  let ey = cursorRow,
-    ex = cursorCol;
-  if (sy > ey || (sy === ey && sx > ex)) {
-    [sy, sx, ey, ex] = [ey, ex, sy, sx];
-  }
-
-  return (absoluteRow: number) => {
-    if (absoluteRow < sy || absoluteRow > ey) return null;
-
-    if (isLineMode) {
-      return { startCol: 0, endCol: width - 1 };
-    }
-
-    if (sy === ey) {
-      return { startCol: sx, endCol: ex };
-    }
-
-    if (absoluteRow === sy) return { startCol: sx, endCol: width - 1 };
-    if (absoluteRow === ey) return { startCol: 0, endCol: ex };
-    return { startCol: 0, endCol: width - 1 };
-  };
-}
-
-type SelRange = ReturnType<ReturnType<typeof computeScrollbackSelection>>;
+type SelRange = ReturnType<ReturnType<typeof selectionColumns>>;
 
 const sameRange = (a: SelRange, b: SelRange): boolean =>
   a === b || (a !== null && b !== null && a.startCol === b.startCol && a.endCol === b.endCol);
@@ -206,13 +168,14 @@ export function ScrollbackTerminal({
   // browser's own selection is simply empty, since select-all cleared it.
   const getSelectionRange = useMemo(
     () =>
-      computeScrollbackSelection({
-        selectionAnchor,
-        selectionMode,
-        cursorRow,
-        cursorCol,
-        width,
-      }),
+      selectionAnchor && selectionMode
+        ? selectionColumns(
+            selectionAnchor,
+            { row: cursorRow, col: cursorCol },
+            width,
+            selectionMode === 'line',
+          )
+        : () => null,
     [selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 

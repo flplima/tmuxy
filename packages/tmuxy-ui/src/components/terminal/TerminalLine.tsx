@@ -11,100 +11,18 @@
  * no longer re-renders lines.
  */
 
-import { memo, useMemo, useCallback, useSyncExternalStore, CSSProperties } from 'react';
+import { memo, useMemo, useSyncExternalStore, CSSProperties } from 'react';
 import { LogProfiler } from '../renderLog';
-import type { CellLine, TerminalCell, CellStyle } from '../../domain/wireCells';
-import { cellColorToCss, cellsToCss, isWideChar, sanitizeTerminalCell } from './terminalShared';
-import { glyphFit, subscribeGlyphFit, getGlyphFitVersion } from './glyphFit';
-import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
-import { detectUrls, sameUrls, type DetectedUrl } from './urlDetect';
+import type { CellLine } from '../../domain/wireCells';
+import { subscribeGlyphFit, getGlyphFitVersion } from './glyphFit';
+import { sameUrls, type DetectedUrl } from './urlDetect';
+import { cellRuns, rowUrlIndex, runPaint, selectionPad, type SelectionCols } from './cellPaint';
 import { openLinkFrom, safeHref } from '../../infra/openUrl';
 import { TERMINAL_LINE } from '../../infra/dom/terminalDom';
 
-/**
- * Compute a numeric key for grouping cells by style.
- * Uses a FNV-1a-inspired hash of the style properties to avoid JSON.stringify.
- */
-function styleKey(s: CellStyle | undefined): number {
-  if (!s) return 0;
-  let h = 0x811c9dc5; // FNV offset basis
-  // fg
-  if (s.fg !== undefined) {
-    if (typeof s.fg === 'number') {
-      h = (h ^ (s.fg + 256)) * 0x01000193;
-    } else {
-      h = (h ^ (s.fg.r + 65536)) * 0x01000193;
-      h = (h ^ (s.fg.g + 65792)) * 0x01000193;
-      h = (h ^ (s.fg.b + 66048)) * 0x01000193;
-    }
-  }
-  // bg
-  if (s.bg !== undefined) {
-    if (typeof s.bg === 'number') {
-      h = (h ^ (s.bg + 512)) * 0x01000193;
-    } else {
-      h = (h ^ (s.bg.r + 66304)) * 0x01000193;
-      h = (h ^ (s.bg.g + 66560)) * 0x01000193;
-      h = (h ^ (s.bg.b + 66816)) * 0x01000193;
-    }
-  }
-  if (s.bold) h = (h ^ 1) * 0x01000193;
-  if (s.italic) h = (h ^ 2) * 0x01000193;
-  if (s.underline) h = (h ^ 4) * 0x01000193;
-  if (s.inverse) h = (h ^ 8) * 0x01000193;
-  if (s.dim) h = (h ^ 16) * 0x01000193;
-  if (s.size === 'dwl') h = (h ^ 32) * 0x01000193;
-  else if (s.size === 'dhl-top') h = (h ^ 64) * 0x01000193;
-  else if (s.size === 'dhl-bottom') h = (h ^ 96) * 0x01000193;
-  if (s.url) {
-    for (let i = 0; i < s.url.length; i++) {
-      h = (h ^ s.url.charCodeAt(i)) * 0x01000193;
-    }
-  }
-  return h | 0;
-}
-
-/**
- * Build CSS style from CellStyle. A selected cell keeps its weight, slant and
- * underline but none of its colours: every selected cell is the selection's
- * (`.terminal-selected`, styles/terminal.css), whatever it was drawn in.
- */
-function buildCellStyle(style: CellStyle, selected: boolean): CSSProperties {
-  const css: CSSProperties = {};
-  if (style.bold) {
-    css.fontWeight = 'bold';
-  }
-  if (style.italic) {
-    css.fontStyle = 'italic';
-  }
-  if (style.underline) {
-    css.textDecoration = 'underline';
-  }
-  if (selected) return css;
-
-  if (style.fg !== undefined) {
-    css.color = cellColorToCss(style.fg);
-  }
-  if (style.bg !== undefined) {
-    css.backgroundColor = cellColorToCss(style.bg);
-  }
-  if (style.dim) {
-    css.opacity = 0.5;
-  }
-  if (style.inverse) {
-    // Swap fg/bg for inverse
-    const fg = css.color;
-    const bg = css.backgroundColor;
-    css.color = bg || 'var(--term-background)';
-    css.backgroundColor = fg || 'var(--term-foreground)';
-  }
-
-  return css;
-}
-
 export interface TerminalLineProps {
   line: CellLine;
-  selectionRange?: { startCol: number; endCol: number } | null;
+  selectionRange?: SelectionCols | null;
   /**
    * Whether this row is a soft-wrapped continuation into the next one — i.e.
    * there is no logical line break between them (see `isWrappedRow`).
@@ -139,228 +57,80 @@ export const TerminalLine = memo(
     // line already drawn has to be drawn again to act on it.
     useSyncExternalStore(subscribeGlyphFit, getGlyphFitVersion, getGlyphFitVersion);
 
-    // Check if a cell index falls within the selection range
-    const isCellSelected = (idx: number): boolean => {
-      if (!selectionRange) return false;
-      return idx >= selectionRange.startCol && idx <= selectionRange.endCol;
-    };
+    // Re-runs only when the line reference changes: mergeContent() keeps
+    // the identity of unchanged lines.
+    const urlIndex = useMemo(() => rowUrlIndex(line, rowUrls), [line, rowUrls]);
 
-    // Memoize URL detection: only re-runs when line reference changes
-    // mergeContent() preserves line identity for unchanged lines → cache hits
-    //
-    // detectUrls reports UTF-16 offsets into the joined text, but callers ask
-    // about CELL indices. A cell can hold more than one code unit (variation
-    // selectors, combining marks), so keep the per-cell offset map to translate
-    // rather than comparing a cell index against a string offset.
-    const { autoUrls, cellOffsets } = useMemo(() => {
-      const offsets = new Array<number>(line.length);
-      let text = '';
-      for (let i = 0; i < line.length; i++) {
-        offsets[i] = text.length;
-        text += sanitizeTerminalCell(line[i].c);
-      }
-      return { autoUrls: rowUrls ?? detectUrls(text), cellOffsets: offsets };
-    }, [line, rowUrls]);
-
-    const urlIdx = useCallback(
-      (i: number): number => {
-        const off = cellOffsets[i];
-        for (let u = 0; u < autoUrls.length; u++) {
-          if (off >= autoUrls[u].start && off < autoUrls[u].end) return u;
-        }
-        return -1;
-      },
-      [autoUrls, cellOffsets],
-    );
-
-    // Group consecutive cells with same style for efficiency
     const renderCells = (): React.ReactNode[] => {
-      const spans: React.ReactNode[] = [];
-
-      let currentGroup: {
-        cells: TerminalCell[];
-        style: CellStyle | undefined;
-        selected: boolean;
-        sk: number;
-        autoUrlIdx: number;
-        wide: boolean;
-        blockCh: string | null;
-        /** `scale()` that fits a fat one-column glyph into its cell (components/terminal/glyphFit). */
-        fit: number | null;
-      } | null = null;
-
-      const flushGroup = () => {
-        if (!currentGroup || currentGroup.cells.length === 0) return;
-
-        const text = currentGroup.cells.map((c) => sanitizeTerminalCell(c.c)).join('');
-        // Pin the span to an exact number of cells (`--cell-w`, the snapped
-        // grid width — see infra/dom/cellMetrics.ts), independent of the actual
-        // glyphs in the run. A glyph whose advance differs from the cell
-        // (emoji, spinner symbols, CJK) then paints within / over its fixed box
-        // instead of pushing the rest of the line — which is what caused the
-        // horizontal jitter when only a few characters changed (e.g. spinners).
-        let style: CSSProperties = currentGroup.style
-          ? buildCellStyle(currentGroup.style, currentGroup.selected)
-          : {};
-        const cellSize = currentGroup.style?.size;
-        style.width = cellsToCss(currentGroup.cells.length * (cellSize ? 2 : 1));
-        const blockCh = currentGroup.blockCh;
-        // OSC 8 explicit URL takes priority over auto-detected
-        const oscUrl = currentGroup.style?.url;
-        const autoUrl =
-          !oscUrl && currentGroup.autoUrlIdx >= 0
-            ? autoUrls[currentGroup.autoUrlIdx].url
-            : undefined;
-        const linkUrl = oscUrl || autoUrl;
-        const linkClass = oscUrl ? 'terminal-hyperlink' : autoUrl ? 'terminal-autolink' : undefined;
-
-        // A one-column glyph wider than its cell shrinks into it instead of
-        // painting over the run that follows (see components/terminal/glyphFit.ts). The
-        // scale goes on an inner element so the span keeps its 1-cell box.
-        const fitClass = currentGroup.fit !== null ? 'terminal-fit' : undefined;
-        const scaledClass = cellSize ? 'terminal-scaled' : undefined;
-        const innerContent =
-          currentGroup.fit !== null ? (
+      const spans: React.ReactNode[] = cellRuns(line, selectionRange, urlIndex).map((run, key) => {
+        const { className, style } = runPaint(run, links);
+        // A one-column glyph wider than its cell shrinks into it on an inner
+        // element, so the span keeps its 1-cell box (glyphFit.ts).
+        const glyph =
+          run.fit !== null ? (
             <span
               className="terminal-fit-glyph"
-              style={{ '--glyph-fit': String(currentGroup.fit) } as CSSProperties}
+              style={{ '--glyph-fit': String(run.fit) } as CSSProperties}
             >
-              {text}
+              {run.text}
             </span>
           ) : (
-            text
+            run.text
           );
-        const content = cellSize ? (
-          <span className="terminal-scaled-text" data-size={cellSize}>
-            {innerContent}
+        const content = run.style?.size ? (
+          <span className="terminal-scaled-text" data-size={run.style.size}>
+            {glyph}
           </span>
         ) : (
-          innerContent
+          glyph
         );
-
-        // Apply selection highlight — override fg/bg via inline style
-        // A wide glyph paints past its 1-cell box into the next cell; lifting
-        // it keeps that cell's background from painting over its right half.
-        const wideClass = currentGroup.wide ? 'terminal-wide' : undefined;
-        const selectedClass =
-          [
-            currentGroup.selected ? 'terminal-selected' : undefined,
-            fitClass,
-            wideClass,
-            scaledClass,
-          ]
-            .filter(Boolean)
-            .join(' ') || undefined;
-        // Block Elements are drawn as CSS rectangles rather than font glyphs so
-        // they fill the cell exactly and stacked rows tile seamlessly. The
-        // character stays as (transparent) text, keeping copy/paste intact.
-        if (blockCh && !currentGroup.selected) {
-          const painted = blockGlyphStyle(
-            blockCh,
-            (style.color as string) ?? 'var(--term-foreground)',
-          );
-          if (painted) {
-            style = { ...style, ...painted, color: 'transparent' };
-          }
-        }
-
-        if (linkUrl && links) {
-          const cls = [linkClass, selectedClass].filter(Boolean).join(' ');
-          const href = safeHref(linkUrl);
-          spans.push(
-            <a
-              key={spans.length}
-              href={href}
-              title={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              draggable={false}
-              // A pointer target only: the pane's text is hidden from
-              // assistive technology, and Tab in a pane belongs to tmux.
-              tabIndex={-1}
-              style={style}
-              className={cls}
-              // Opened through openLinkFrom rather than the anchor's own
-              // navigation: the desktop webview denies new windows, so the
-              // default did nothing there, and a plugin's link handler gets
-              // its turn first (Shift skips it). preventDefault keeps the
-              // browser build from opening it twice.
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                openLinkFrom(e.currentTarget, linkUrl, e.shiftKey);
-              }}
-            >
+        if (!run.link || !links) {
+          return (
+            <span key={key} style={style} className={className}>
               {content}
-            </a>,
-          );
-        } else {
-          spans.push(
-            <span key={spans.length} style={style} className={selectedClass}>
-              {content}
-            </span>,
+            </span>
           );
         }
-        currentGroup = null;
-      };
-
-      for (let i = 0; i < line.length; i++) {
-        const cell = line[i];
-        const cellSK = styleKey(cell.s);
-        const selected = isCellSelected(i);
-        const cellUrlIdx = cell.s?.url ? -1 : urlIdx(i); // skip auto-detect if OSC 8
-        const wide = isWideChar(cell.c);
-        const blockCh = isBlockGlyph(cell.c) ? cell.c : null;
-        const fit = !wide && !blockCh ? glyphFit(cell.c) : null;
-
-        if (
-          currentGroup &&
-          // A wide char is never grouped (with its continuation cell or anything
-          // else): its 2-column glyph must own a 1-cell box so it overflows into
-          // the blank continuation cell rather than shifting a grouped span.
-          !wide &&
-          !currentGroup.wide &&
-          // A fat glyph is shrunk on its own; it never shares a box.
-          fit === null &&
-          currentGroup.fit === null &&
-          // A geometric block run is one repeated glyph: a different block
-          // char (or ordinary text) needs its own box to paint into.
-          blockCh === currentGroup.blockCh &&
-          cellSK === currentGroup.sk &&
-          selected === currentGroup.selected &&
-          cellUrlIdx === currentGroup.autoUrlIdx
-        ) {
-          currentGroup.cells.push(cell);
-        } else {
-          flushGroup();
-          currentGroup = {
-            cells: [cell],
-            style: cell.s,
-            selected,
-            sk: cellSK,
-            autoUrlIdx: cellUrlIdx,
-            wide,
-            blockCh,
-            fit,
-          };
-        }
-      }
-
-      flushGroup();
+        const { url } = run.link;
+        const href = safeHref(url);
+        return (
+          <a
+            key={key}
+            href={href}
+            title={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            draggable={false}
+            // A pointer target only: the pane's text is hidden from
+            // assistive technology, and Tab in a pane belongs to tmux.
+            tabIndex={-1}
+            style={style}
+            className={className}
+            // Opened through openLinkFrom rather than the anchor's own
+            // navigation: the desktop webview denies new windows, so the
+            // default did nothing there, and a plugin's link handler gets
+            // its turn first (Shift skips it). preventDefault keeps the
+            // browser build from opening it twice.
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openLinkFrom(e.currentTarget, url, e.shiftKey);
+            }}
+          >
+            {content}
+          </a>
+        );
+      });
 
       // Pad selection highlight beyond line content (e.g., line mode full-width selection)
-      if (selectionRange && selectionRange.endCol >= line.length) {
-        const padStart = Math.max(selectionRange.startCol, line.length);
-        const padLen = selectionRange.endCol - padStart + 1;
-        if (padLen > 0) {
-          spans.push(
-            <span key="sel-pad" className="terminal-selected">
-              {' '.repeat(padLen)}
-            </span>,
-          );
-        }
+      const pad = selectionPad(line, selectionRange);
+      if (pad > 0) {
+        spans.push(
+          <span key="sel-pad" className="terminal-selected">
+            {' '.repeat(pad)}
+          </span>,
+        );
       }
-
       return spans;
     };
 

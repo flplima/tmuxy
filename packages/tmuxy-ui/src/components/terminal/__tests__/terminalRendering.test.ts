@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { renderLineToDOM, rowEdgeBackground } from '../terminalRendering';
+import { renderLineToDOM } from '../terminalRendering';
+import { rowEdgeBackground } from '../cellPaint';
 import { sanitizeTerminalCell } from '../terminalShared';
 
 /**
