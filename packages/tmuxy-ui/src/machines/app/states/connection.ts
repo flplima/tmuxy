@@ -1,9 +1,8 @@
 /**
  * connection state — the stream to the server, the session it carries, and
- * what the server says about itself (bindings, sessions, servers). The
- * lifecycle transitions are appMachine.ts's; the actions they run are here.
- * Every event is spread into the machine root: bindings pushed during an
- * outage are kept, not dropped.
+ * what the server says about itself (bindings, sessions, servers). Every
+ * event is spread into the machine root: bindings pushed during an outage are
+ * kept, not dropped.
  */
 
 export const connectionGlobalEvents = {
