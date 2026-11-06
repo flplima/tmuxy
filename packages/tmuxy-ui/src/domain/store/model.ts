@@ -187,10 +187,14 @@ export function dropSupersededFocusOps(model: TmuxClientModel, newOp: TmuxOp): T
     newOp._tag === 'KillPane' ||
     newOp._tag === 'KillWindow' ||
     newOp._tag === 'SelectWindow' ||
+    newOp._tag === 'LastWindow' ||
     newOp._tag === 'GroupSwitch';
   if (!paneFocusChanging) return model;
   const windowFocusChanging =
-    newOp._tag === 'SelectWindow' || newOp._tag === 'NewWindow' || newOp._tag === 'KillWindow';
+    newOp._tag === 'SelectWindow' ||
+    newOp._tag === 'LastWindow' ||
+    newOp._tag === 'NewWindow' ||
+    newOp._tag === 'KillWindow';
   const ops = model.ops.filter((o) => {
     if (o.op._tag === 'SelectPane' || o.op._tag === 'Navigate') return false;
     if (windowFocusChanging && o.op._tag === 'SelectWindow') return false;
