@@ -21,7 +21,7 @@ const detectWidget = (content: PaneContent, paneWidget: string | null | undefine
 const MARKER = '__TMUXY_WIDGET__:session';
 
 /**
- * SEC-18. The marker travels in pane OUTPUT — `cat` of a crafted file, a
+ * The marker travels in pane OUTPUT — `cat` of a crafted file, a
  * commit message in `git log`, `curl` output, an ssh MOTD. Without an
  * out-of-band authorisation, any of those could replace the pane with app UI
  * the user never asked for, drawn where the terminal should be.
