@@ -8,7 +8,9 @@
   gap: 2px;
   flex: 1;
   min-width: 0;
-  font-size: calc(var(--tmuxy-font-size, 15px) * 0.9);
+  /* The chrome's small text, as the tab strip beside it; the header keeps its
+     height, so the title sits in more room above and below. */
+  font-size: var(--tmuxy-small-font-size);
   /* Quiet by colour, not by opacity: --text-dimmed is the tier that still
      reads at 4.5:1 on the chrome. */
   color: var(--text-dimmed);

@@ -342,6 +342,9 @@
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
+  /* Every item on the line is the chrome's small text, whatever it is; the
+     rules below say so again only where a font shorthand would reset it. */
+  font-size: var(--tmuxy-small-font-size);
 }
 
 .tmux-status-bar-content {

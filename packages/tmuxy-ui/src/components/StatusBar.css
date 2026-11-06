@@ -11,7 +11,9 @@
   height: var(--statusbar-height);
   background: transparent;
   font-family: var(--font-mono);
-  font-size: var(--tmuxy-font-size, 15px);
+  /* The header's text is the chrome's small text; its height stays the pane
+     font's (--statusbar-height). */
+  font-size: var(--tmuxy-small-font-size);
   user-select: none;
 }
 
