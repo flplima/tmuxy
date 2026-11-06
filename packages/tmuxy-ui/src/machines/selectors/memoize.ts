@@ -1,19 +1,7 @@
 /**
- * Simple memoization utilities for selectors
- *
- * Uses reference equality checking on inputs to avoid recomputation.
- * Designed for use with XState selectors where context objects change on every update.
- */
-
-/**
- * Memoize a selector function based on relevant input properties.
- *
- * The inputSelector extracts the relevant pieces from the context that affect the output.
- * If these pieces haven't changed (shallow equality), the cached result is returned.
- *
- * @param inputSelector - Function that extracts relevant inputs from the context
- * @param resultSelector - Function that computes the result from the context
- * @returns Memoized selector function
+ * Selectors memoized on the inputs `inputSelector` names, compared shallowly:
+ * the machine's context is a new object on every update, so the context itself
+ * cannot be the key.
  */
 export function createMemoizedSelector<TContext, TInput, TResult>(
   inputSelector: (context: TContext) => TInput,
@@ -26,12 +14,10 @@ export function createMemoizedSelector<TContext, TInput, TResult>(
   return (context: TContext): TResult => {
     const currentInput = inputSelector(context);
 
-    // Check if inputs are the same (shallow equality for objects/arrays)
     if (hasCache && shallowEqual(lastInput, currentInput)) {
       return lastResult as TResult;
     }
 
-    // Compute new result
     const result = resultSelector(context);
     lastInput = currentInput;
     lastResult = result;
@@ -41,10 +27,7 @@ export function createMemoizedSelector<TContext, TInput, TResult>(
   };
 }
 
-/**
- * Memoize a selector that takes an additional argument (e.g., paneId).
- * Creates a cache per argument value.
- */
+/** One cache per argument value (a pane id, say); past `maxCacheSize` the oldest goes. */
 export function createMemoizedSelectorWithArg<TContext, TArg, TInput, TResult>(
   inputSelector: (context: TContext, arg: TArg) => TInput,
   resultSelector: (context: TContext, arg: TArg) => TResult,
@@ -62,7 +45,6 @@ export function createMemoizedSelectorWithArg<TContext, TArg, TInput, TResult>(
 
     const result = resultSelector(context, arg);
 
-    // LRU eviction
     if (cache.size >= maxCacheSize && !cache.has(arg)) {
       const firstKey = cache.keys().next().value;
       if (firstKey !== undefined) {
@@ -75,16 +57,11 @@ export function createMemoizedSelectorWithArg<TContext, TArg, TInput, TResult>(
   };
 }
 
-/**
- * Shallow equality check for memoization inputs.
- * Handles primitives, arrays, and plain objects.
- */
 function shallowEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
   if (a == null || b == null) return false;
   if (typeof a !== typeof b) return false;
 
-  // Arrays
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -93,7 +70,6 @@ function shallowEqual<T>(a: T, b: T): boolean {
     return true;
   }
 
-  // Plain objects
   if (typeof a === 'object' && typeof b === 'object') {
     const aObj = a as Record<string, unknown>;
     const bObj = b as Record<string, unknown>;

@@ -10,27 +10,13 @@ import type { GroupDrop } from '../drag/groupDrop';
 import { dragCells, resizedBand } from '../resize/limits';
 import { DEFAULT_CHAR_WIDTH } from '../constants';
 
-// ============================================
-// Pane Selectors
-// ============================================
-
 /**
- * Select panes for display with resize preview.
- * During resize: pane sizes follow cursor position exactly (local preview)
- * During drag: dragged pane stays at original position (before any swaps)
- * After resize: pane sizes match actual tmux state
- *
- * Only returns panes from the active window - panes in hidden group windows
- * are not rendered.
+ * The active window's panes as they are drawn: a resize in progress shows its
+ * local preview, and a dragged pane stays where it started.
  */
 function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   const { panes, resize, drag, charWidth, charHeight, activeWindowId, activePaneId } = context;
 
-  // Group-switch geometry pinning lives in the GroupSwitch op's optimistic
-  // patch (store/ops.ts) — by the time panes reach context they already
-  // reflect the swap, so no per-selector override pass is needed here.
-
-  // Single pass: filter to active window + apply active/drag transforms
   const activePanes: TmuxPane[] = [];
   for (const pane of panes) {
     if (activeWindowId && pane.windowId !== activeWindowId) continue;
@@ -53,30 +39,22 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
     activePanes.push(result);
   }
 
-  // If not resizing, return (potentially drag-adjusted) panes
   if (!resize) {
     return activePanes;
   }
 
-  // During resize: reconstruct the affected BAND from the FROZEN start geometry
-  // (resize.originalGeometry), never the live server panes. Dragging one divider
-  // resizes every pane that shares the target's dragged edge (they grow/shrink
-  // together) plus every pane directly across the line (they move and shrink);
-  // all other panes hold exactly still. tmux's intermediate %layout-change
-  // events during a resize are internally inconsistent — a pane it isn't
-  // resizing briefly reports y=0, which paneBox turns into a dropped
-  // header row and a 1-row content jump — so rendering them is what caused the
-  // wobble. Rebuilding from the snapshot keeps everything stable and monotonic.
+  // The band is rebuilt from the geometry frozen at the start, never the live
+  // panes: tmux's intermediate %layout-change events during a resize are
+  // inconsistent (a pane it is not resizing briefly reports y=0, which paneBox
+  // turns into a dropped header row), and drawing them made the grid wobble.
   const { paneId, handle, originalGeometry, bandGeometry } = resize;
 
   if (!activePanes.some((p) => p.tmuxId === paneId)) {
     return activePanes;
   }
 
-  // The same clamp the machine puts on the commands, so the drawn band and
-  // the layout tmux is being asked for are the same thing. Without it the
-  // pane on the near side kept growing under the pointer while the one across
-  // the line bottomed out at a single cell, and they overlapped.
+  // The same clamp the machine puts on the commands, so the drawn band is the
+  // layout tmux is being asked for.
   const band = resizedBand(bandGeometry, paneId, handle, dragCells(resize, charWidth, charHeight));
 
   return activePanes.map((pane) => {
@@ -97,22 +75,15 @@ export const previewInputs = (ctx: AppMachineContext) => ({
   activePaneId: ctx.activePaneId,
 });
 
-/**
- * Memoized version of selectPreviewPanes.
- * Only recomputes when panes, resize state, drag state, char dimensions, or active window change.
- */
 export const selectPreviewPanes = createMemoizedSelector(previewInputs, selectPreviewPanesUncached);
 
-/**
- * Select raw panes (unmodified server state)
- */
 export function selectPanes(context: AppMachineContext): TmuxPane[] {
   return context.panes;
 }
 
 /**
- * Select the ghost position showing where the dragged pane currently lives in the grid.
- * Starts at the dragged pane's original position, moves to target position on each swap.
+ * Where the dragged pane's ghost is drawn: its original position at first,
+ * the target position after each swap.
  */
 export function selectDropTarget(context: AppMachineContext): {
   x: number;
@@ -129,10 +100,6 @@ export function selectDropTarget(context: AppMachineContext): {
     height: context.drag.ghostHeight,
   };
 }
-
-// ============================================
-// Drag Selectors
-// ============================================
 
 export function selectDraggedPaneId(context: AppMachineContext): string | null {
   return context.drag?.draggedPaneId ?? null;
@@ -158,10 +125,6 @@ export function selectDragOffsetY(context: AppMachineContext): number {
   return context.drag.currentY - context.drag.startY;
 }
 
-// ============================================
-// Container Size Selectors
-// ============================================
-
 /** The content box the pane area lays itself out in. */
 export const selectContainerSize = createMemoizedSelector(
   (context: AppMachineContext) => ({
@@ -173,10 +136,6 @@ export const selectContainerSize = createMemoizedSelector(
     height: context.containerHeight,
   }),
 );
-
-// ============================================
-// Grid Dimension & Cell Metric Selectors
-// ============================================
 
 export const selectGridDimensions = createMemoizedSelector(
   (context: AppMachineContext) => ({
@@ -194,8 +153,8 @@ export const selectGridDimensions = createMemoizedSelector(
 );
 
 /**
- * The dock's cell grid and font: the sidebar font (80% of the pane font,
- * rounded — see fontSizeManager) with the cell width the pane grid's advance
+ * The dock's cell grid and font: the sidebar font (`smallFontSize`) with the
+ * cell width the pane grid's advance
  * scales to. The right column is drawn and its tmux pane sized in these cells.
  */
 export const selectSidebarCellMetrics = createMemoizedSelector(
@@ -300,7 +259,7 @@ export const selectCharSize = createMemoizedSelector(
   }),
 );
 
-/** The phone layout: the whole 80 × 25 terminal, a key row and the tree. */
+/** The phone layout (infra/dom/phoneLayout.ts). */
 export function selectPhoneLayout(context: AppMachineContext): boolean {
   return context.phoneLayout;
 }
