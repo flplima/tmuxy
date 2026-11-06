@@ -43,6 +43,7 @@ import {
   sideOf,
 } from './groupDrop';
 import { paneInsetX } from '../../constants/layout';
+import { gridOrigin } from '../../domain/paneGeometry';
 import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../infra/haptics';
 
@@ -106,7 +107,6 @@ export const dragMachine = setup({
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     containerWidth: 0,
-    containerHeight: 0,
     containerLeft: 0,
     containerTop: 0,
     tabStrip: null,
@@ -156,7 +156,6 @@ export const dragMachine = setup({
                 charWidth: event.charWidth,
                 charHeight: event.charHeight,
                 containerWidth: event.containerWidth,
-                containerHeight: event.containerHeight,
                 containerLeft: event.containerLeft,
                 containerTop: event.containerTop,
               };
@@ -192,19 +191,11 @@ export const dragMachine = setup({
               enqueue('notifyStateUpdate');
             };
 
-            // Compute centering offset (must match PaneLayout's centering).
-            // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so positions are
-            // relative to the content-box. No padding-box arithmetic needed.
+            // Where PaneLayout draws the grid, so the hit test agrees with it.
             const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
-            const totalH = Math.max(...context.panes.map((p) => p.y + p.height));
-            const centerOffsetX = Math.max(
-              0,
-              (context.containerWidth - totalW * context.charWidth) / 2,
-            );
-            const centerOffsetY = Math.max(
-              0,
-              (context.containerHeight - totalH * context.charHeight) / 2,
-            );
+            const origin = gridOrigin(totalW, context.charWidth, context.containerWidth);
+            const centerOffsetX = origin.x;
+            const centerOffsetY = origin.y;
 
             // Use cursor position (container-relative) for hit-testing.
             // This correctly handles dragging large panes onto smaller targets,

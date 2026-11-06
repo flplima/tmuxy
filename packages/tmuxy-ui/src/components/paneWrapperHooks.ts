@@ -1,5 +1,5 @@
 /**
- * Hooks behind AnimatedPaneWrapper: drag/resize listeners and the zoom observer.
+ * Hooks behind AnimatedPaneWrapper: the zoom observer.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -12,60 +12,6 @@ import { MORPH_FALLBACK_MS, MORPH_PROPERTIES, onMorphEnd } from './PaneLayoutMor
 const ZOOM_FLIP_TRANSITION = [...MORPH_PROPERTIES]
   .map((prop) => `${prop} var(--transition-pane-zoom)`)
   .join(', ');
-
-// Handle global mouse/touch events during drag/resize
-export function usePaneDragResizeListeners(
-  isDragging: boolean,
-  isResizing: boolean,
-  send: (event: AppMachineEvent) => void,
-) {
-  useEffect(() => {
-    if (!isDragging && !isResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        send({ type: 'DRAG_MOVE', clientX: e.clientX, clientY: e.clientY });
-      } else if (isResizing) {
-        send({ type: 'RESIZE_MOVE', clientX: e.clientX, clientY: e.clientY });
-      }
-    };
-
-    const handleMouseUp = () => {
-      if (isDragging) {
-        send({ type: 'DRAG_END' });
-      } else if (isResizing) {
-        send({ type: 'RESIZE_END' });
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isDragging) return;
-      e.preventDefault();
-      const t = e.touches[0];
-      send({ type: 'DRAG_MOVE', clientX: t.clientX, clientY: t.clientY });
-    };
-
-    const handleTouchEnd = () => {
-      if (isDragging) {
-        send({ type: 'DRAG_END' });
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-    window.addEventListener('touchend', handleTouchEnd);
-    window.addEventListener('touchcancel', handleTouchEnd);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-      window.removeEventListener('touchcancel', handleTouchEnd);
-    };
-  }, [isDragging, isResizing, send]);
-}
 
 export function usePaneZoomObserver({
   containerRef,

@@ -3,7 +3,7 @@ import { pid, wid } from '../../../../test/wire';
 import { fromCallback } from 'xstate';
 import { copyModeState } from '../copyMode';
 import { copyModeActions } from '../../actions/copyMode';
-import { copyModeExitTimes } from '../../scrollback';
+import { copyModeExitTimes } from '../../actions/copyMode/scrollback';
 import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';

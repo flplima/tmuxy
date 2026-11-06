@@ -258,7 +258,6 @@ export interface DragMachineContext {
   charWidth: number;
   charHeight: number;
   containerWidth: number;
-  containerHeight: number;
   containerLeft: number;
   containerTop: number;
   /** The tab strip's boxes, measured once when the drag started. */
@@ -282,7 +281,6 @@ export type DragMachineEvent =
       charWidth: number;
       charHeight: number;
       containerWidth: number;
-      containerHeight: number;
       containerLeft: number;
       containerTop: number;
       tabStrip: TabStripGeometry | null;

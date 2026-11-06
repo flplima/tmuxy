@@ -1,64 +1,16 @@
 /**
- * Global connection, viewport sizing, session management, and clipboard
- * handlers for appMachine.
+ * Action implementations for the connection state slice: the stream's
+ * lifecycle, the session it carries, and what the server reports.
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx, type Ctx, type EnqueueAction } from './actionTypes';
-import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
-import { PHONE_COLS, PHONE_ROWS } from '../../infra/dom/phoneLayout';
-import { fittedGridCell, gridExtent, takeKeyboard } from './helpers';
-import { PANES_OWN_KEYBOARD } from '../selectors/keyboard';
-import { fixedGridSize } from '../../domain/gridFit';
-import { writeClipboard, clipboardWriteMessage } from '../../infra/clipboard';
-import { TmuxOp } from '../../domain/commands';
-import { memorableSessionName } from '../../domain/sessionNames';
-import { isTauri } from '../../infra/platform';
-
-export const connectionGlobalEvents = {
-  LOG_APPEND: { actions: 'connection_logAppend' },
-  SESSIONS_UPDATED: { actions: 'connection_sessionsUpdated' },
-  SNAPSHOTS_UPDATED: { actions: 'connection_snapshotsUpdated' },
-  RESTORE_SESSION: {
-    actions: 'connection_restoreSession',
-  },
-  SESSION_MENU_OPENED: {
-    actions: 'connection_sessionMenuOpened',
-  },
-  GIT_REPOSITORIES_UPDATED: { actions: 'connection_gitRepositoriesUpdated' },
-  SERVERS_UPDATED: { actions: 'connection_serversUpdated' },
-  TMUX_CLIPBOARD: { actions: 'connection_tmuxClipboard' },
-  SET_CHAR_SIZE: { actions: 'connection_setCharSize' },
-  REFIT_GRID: { actions: 'connection_refitGrid' },
-  SET_PHONE_LAYOUT: { actions: 'connection_setPhoneLayout' },
-  SET_TARGET_SIZE: { actions: 'connection_setTargetSize' },
-  SET_CONTAINER_SIZE: { actions: 'connection_setContainerSize' },
-  SET_BODY_SIZE: { actions: 'connection_setBodySize' },
-  OBSERVE_CONTAINER: {
-    actions: 'connection_observeContainer',
-  },
-  APP_FOCUS: {
-    actions: 'connection_appFocus',
-  },
-  APP_BLUR: {
-    actions: 'connection_appBlur',
-  },
-  CONNECTION_INFO: { actions: 'connection_connectionInfo' },
-  CREATE_TAB: {
-    actions: 'connection_createTab',
-  },
-  CONNECT_SERVER: {
-    actions: 'connection_connectServer',
-  },
-  RECONNECT_NOW: {
-    actions: 'connection_reconnectNow',
-  },
-  DETACH_CLIENT: {
-    actions: 'connection_detachClient',
-  },
-  SWITCH_SESSION: { actions: 'connection_switchSession' },
-  NEW_SESSION: { actions: 'connection_newSession' },
-} as const;
+import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
+import { takeKeyboard } from '../helpers';
+import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
+import { writeClipboard, clipboardWriteMessage } from '../../../infra/clipboard';
+import { TmuxOp } from '../../../domain/commands';
+import { memorableSessionName } from '../../../domain/sessionNames';
+import { isTauri } from '../../../infra/platform';
 
 /** What every freshly opened stream asks the server for. */
 function fetchThemes(enqueue: EnqueueAction): void {
@@ -66,11 +18,13 @@ function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));
 }
 
-/** The state at this client's viewport, once one has been computed. */
+/**
+ * The state at this client's viewport, once it has been measured. (A phone,
+ * or a fixed `@tmuxy-size 80x24`, asks for exactly the default size, so the
+ * size itself cannot tell whether it was measured.)
+ */
 function fetchStateAtViewport(context: Ctx, enqueue: EnqueueAction): void {
-  const hasComputedSize =
-    context.targetCols !== DEFAULT_COLS || context.targetRows !== DEFAULT_ROWS;
-  if (hasComputedSize) {
+  if (context.viewportMeasured) {
     enqueue(
       sendTo('tmux', {
         type: 'FETCH_INITIAL_STATE' as const,
@@ -133,95 +87,6 @@ export const connectionActions = {
       type: 'SHOW_STATUS_MESSAGE' as const,
       text: clipboardWriteMessage(event.text, event.paneId),
     });
-  }),
-
-  connection_setCharSize: assignCtx(({ context, event }) => {
-    if (event.type !== 'SET_CHAR_SIZE') return {};
-    const measuredCell = {
-      charWidth: event.charWidth,
-      charHeight: event.charHeight,
-      cellGap: event.cellGap,
-      gridFontSize: event.gridFontSize ?? null,
-    };
-    return { measuredCell, ...fittedGridCell({ ...context, measuredCell }) };
-  }),
-
-  /** The grid's cell, fitted again: the size policy or the window's size changed. */
-  connection_refitGrid: assignCtx(({ context }) => fittedGridCell(context)),
-
-  connection_setPhoneLayout: assignCtx(({ event }) =>
-    event.type === 'SET_PHONE_LAYOUT'
-      ? { phoneLayout: event.phone, phoneLandscape: event.phone && event.landscape }
-      : {},
-  ),
-
-  connection_setTargetSize: act(({ event, context, enqueue }) => {
-    if (event.type !== 'SET_TARGET_SIZE') return;
-    // A fixed `@tmuxy-size` is what every client asks for, whatever its
-    // container measures: the grid keeps its cols/rows and the cell is
-    // fitted to it instead (domain/gridFit.ts).
-    const fixed = context.phoneLayout ? null : fixedGridSize(context.sizePolicy);
-    const cols = context.phoneLayout ? PHONE_COLS : (fixed?.cols ?? event.cols);
-    const rows = context.phoneLayout ? PHONE_ROWS : (fixed?.rows ?? event.rows);
-    enqueue(
-      assign({
-        targetCols: cols,
-        targetRows: rows,
-      }),
-    );
-    enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
-
-    const needsInitialFetch = context.connected && context.panes.length === 0;
-    if (needsInitialFetch) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'FETCH_INITIAL_STATE' as const,
-          cols,
-          rows,
-        }),
-      );
-    }
-
-    const grid = gridExtent(context.panes, context.activeWindowId, {
-      cols: context.totalWidth,
-      rows: context.totalHeight,
-    });
-    const shouldResize =
-      context.connected && grid.cols > 0 && (cols !== grid.cols || rows !== grid.rows);
-    if (shouldResize) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_client_size',
-          args: { cols, rows },
-        }),
-      );
-    } else if (grid.cols > 0 && !context.enableAnimations && context.lastUpdateQuiet) {
-      // The grid is already the size this client measured, and quiet: the
-      // gate the next update would open (reconcileModelUpdate). With nothing
-      // to resize, an idle session may send no update to open it.
-      enqueue(assign({ enableAnimations: true }));
-    }
-  }),
-
-  connection_setContainerSize: assignCtx(({ context, event }) => {
-    if (event.type !== 'SET_CONTAINER_SIZE') return {};
-    const container = { containerWidth: event.width, containerHeight: event.height };
-    return { ...container, ...fittedGridCell({ ...context, ...container }) };
-  }),
-
-  connection_setBodySize: assignCtx(({ event }) =>
-    event.type === 'SET_BODY_SIZE' ? { bodyWidth: event.width } : {},
-  ),
-
-  connection_observeContainer: act(({ event, enqueue }) => {
-    if (event.type !== 'OBSERVE_CONTAINER') return;
-    enqueue(
-      sendTo('size', {
-        type: 'OBSERVE_CONTAINER' as const,
-        element: event.element,
-      }),
-    );
   }),
 
   connection_appFocus: assignCtx({ appFocused: true }),
@@ -294,6 +159,7 @@ export const connectionActions = {
     // new one, so every surface lets go here.
     takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
     enqueue(
+      // cross-cutting: every slice that mirrors the old session's panes starts empty.
       assign({
         panes: [],
         windows: [],
@@ -304,9 +170,9 @@ export const connectionActions = {
         sessionName: event.sessionName,
         error: null,
         copyModeStates: {},
-        enableAnimations: false,
       }),
     );
+    enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' as const });
     enqueue(sendTo('tmuxStore', { type: 'CLEAR' as const }));
     enqueue(
       sendTo('tmux', {
@@ -327,7 +193,7 @@ export const connectionActions = {
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
   connection_onConnected: act(({ enqueue }) => {
-    enqueue(assign({ connected: true, error: null }));
+    enqueue(assign({ connected: true, error: null, fatalError: null }));
     enqueue(sendTo('size', { type: 'CONNECTED' as const }));
     fetchThemes(enqueue);
   }),
@@ -338,12 +204,28 @@ export const connectionActions = {
   // last frame until a keystroke. The sequencer reopened on the new stream,
   // so the answer is adopted as the starting state.
   connection_onReconnected: act(({ context, enqueue }) => {
-    enqueue(assign({ connected: true, error: null }));
+    enqueue(assign({ connected: true, error: null, fatalError: null }));
     fetchThemes(enqueue);
     fetchStateAtViewport(context, enqueue);
   }),
 
   connection_keybindingsReceived: assignCtx(({ event }) =>
     event.type === 'KEYBINDINGS_RECEIVED' ? { keybindings: event.keybindings } : {},
+  ),
+
+  connection_fatal: assignCtx(({ event }) =>
+    event.type === 'TMUX_FATAL' ? { fatalError: event.message, connected: false } : {},
+  ),
+
+  /** The stream is gone (given up, or this client detached): nothing animates over the dead frame. */
+  connection_lost: act(({ enqueue }) => {
+    enqueue(assign({ connected: false }));
+    enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' as const });
+  }),
+
+  connection_reconnecting: assignCtx({ connected: false }),
+
+  connection_error: assignCtx(({ event }) =>
+    event.type === 'TMUX_ERROR' ? { error: event.error } : {},
   ),
 };

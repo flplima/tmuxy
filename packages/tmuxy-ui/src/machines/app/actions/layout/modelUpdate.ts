@@ -1,28 +1,31 @@
 /**
- * TMUX_MODEL_UPDATE reconciliation handler for the app machine.
+ * TMUX_MODEL_UPDATE: the store's derived snapshot mirrored into the context,
+ * with what follows from the change (groups and floats rebuilt, copy-mode
+ * records reconciled, the columns' lifecycle, the size this client asks for).
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx } from './actionTypes';
-import type { AppMachineContext } from '../types/context';
-import type { PaneCellBox } from '../types/domain';
-import type { PaneId } from '../../domain/ids';
-import type { TmuxClientModel, TmuxSnapshot } from '../../domain/store/types';
-import { dragCells, resizedBand } from '../resize/limits';
-import { isBoxPermutation, samePanes } from './layoutChange';
+import { act, assignCtx } from '../../actionTypes';
+import type { AppMachineContext } from '../../../types/context';
+import type { PaneCellBox } from '../../../types/domain';
+import type { PaneId } from '../../../../domain/ids';
+import type { TmuxClientModel, TmuxSnapshot } from '../../../../domain/store/types';
+import { dragCells, resizedBand } from '../../../resize/limits';
+import { isBoxPermutation, samePanes } from '../../layoutChange';
 import {
   buildGroupsFromPanes,
   buildFloatPanesFromWindows,
   closeScrollViewsIn,
   gridExtent,
   keepLivePanes,
-} from './helpers';
-import { buildScrollbackState, fetchHistory, reconcilePaneMode } from './scrollback';
-import { pruneAskSelections } from './actions/ask';
-import { normalizePaneState } from '../../domain/paneState';
-import { TmuxOp } from '../../domain/commands';
-import { reconcileFloats } from './actions/groupsAndFloats';
-import { reconcileSidebars } from './actions/sidebars';
+} from '../../helpers';
+import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
+import { pruneAskSelections } from '../ask';
+import { normalizePaneState } from '../../../../domain/paneState';
+import { TmuxOp } from '../../../../domain/commands';
+import { reconcileFloats } from '../groupsAndFloats';
+import { reconcileSidebars } from '../sidebars';
+import { syncClientSize } from '../viewport';
 
 /** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
@@ -65,8 +68,8 @@ function updateActivationOrder(order: PaneId[], paneId: PaneId | null): PaneId[]
   return [paneId, ...order.filter((id) => id !== paneId)];
 }
 
-export const reconcileModelActions = {
-  reconcile_reconnectingModelUpdate: assignCtx(({ event }) => {
+export const layoutModelUpdateActions = {
+  layout_reconnectingModelUpdate: assignCtx(({ event }) => {
     if (event.type !== 'TMUX_MODEL_UPDATE') return {};
     const transformed = snapshotFromModel(event.model);
     return {
@@ -79,7 +82,7 @@ export const reconcileModelActions = {
     };
   }),
 
-  reconcile_modelUpdate: act(({ event, context, enqueue }) => {
+  layout_modelUpdate: act(({ event, context, enqueue }) => {
     if (event.type !== 'TMUX_MODEL_UPDATE') return;
     const transformed = snapshotFromModel(event.model);
 
@@ -254,6 +257,7 @@ export const reconcileModelActions = {
     const effectiveActivePaneId = transformed.activePaneId ?? context.activePaneId;
 
     enqueue(
+      // cross-cutting: the store's snapshot is mirrored into every slice that derives from it.
       assign(({ context: ctx }) => ({
         ...transformed,
         activePaneId: effectiveActivePaneId,
@@ -320,28 +324,11 @@ export const reconcileModelActions = {
         enqueue.raise({ type: 'REFIT_GRID' as const });
       }
     }
-    const shouldResize =
-      context.targetCols > 0 &&
-      context.targetRows > 0 &&
-      (context.targetCols !== grid.cols || context.targetRows !== grid.rows);
-    if (shouldResize) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_client_size',
-          args: { cols: context.targetCols, rows: context.targetRows },
-        }),
-      );
-    }
-
-    if (
-      !context.enableAnimations &&
-      context.targetCols > 0 &&
-      !shouldResize &&
-      !hasDimensionChange &&
-      context.lastUpdateQuiet
-    ) {
-      enqueue(assign({ enableAnimations: true }));
-    }
+    syncClientSize(
+      { ...context, ...transformed, connected: true },
+      enqueue,
+      { cols: context.targetCols, rows: context.targetRows },
+      !hasDimensionChange && context.lastUpdateQuiet,
+    );
   }),
 };

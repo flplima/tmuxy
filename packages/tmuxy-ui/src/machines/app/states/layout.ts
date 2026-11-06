@@ -12,6 +12,9 @@ export const layoutState = {
     ZOOM_PANE: { actions: 'layout_zoomPane' },
     WRITE_TO_PANE: { actions: 'layout_writeToPane' },
     SELECT_TAB: { actions: 'layout_selectTab' },
+    SELECT_PANE: { actions: 'layout_selectPane' },
+    DRAG_START: { actions: 'layout_dragStart' },
+    RESIZE_START: { actions: 'layout_resizeStart' },
     MOVE_PANE_TO_TAB: { actions: 'layout_movePaneToTab' },
     KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
     RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },
@@ -22,4 +25,5 @@ export const layoutState = {
 
 export const layoutGlobalEvents = {
   SUPPRESS_ANIMATIONS: { actions: 'layout_suppressAnimations' },
+  ANIMATIONS_SETTLED: { actions: 'layout_enableAnimations' },
 } as const;

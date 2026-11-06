@@ -10,6 +10,7 @@
 
 export const copyModeState = {
   on: {
+    COPY_SELECTION: { actions: 'copyMode_copySelection' },
     ENTER_COPY_MODE: { actions: 'copyMode_enter' },
     EXIT_COPY_MODE: { actions: 'copyMode_exit' },
     ENTER_SCROLL_MODE: { actions: 'copyMode_enterScroll' },

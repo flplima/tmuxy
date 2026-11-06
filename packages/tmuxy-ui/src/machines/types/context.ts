@@ -55,6 +55,11 @@ export interface AppMachineContext {
   askSelections: Record<PaneId, AskAnswer>;
   targetCols: number;
   targetRows: number;
+  /**
+   * The size actor has measured the viewport: `targetCols`/`targetRows` are
+   * this client's, not the defaults. The state is fetched at that size.
+   */
+  viewportMeasured: boolean;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;

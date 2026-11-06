@@ -13,7 +13,7 @@ import {
 } from '../../../domain/copyMode';
 import { handleCopyModeKey } from '../../../domain/copyModeKeys';
 import { selectPaneTakesCopyMode } from '../../selectors/panesAndSidebars';
-import { selectKeyFocusPane } from '../../selectors/keyboard';
+import { selectKeyFocusPane, selectKeyTarget } from '../../selectors/keyboard';
 import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import {
@@ -25,7 +25,7 @@ import {
   leaveAfterCopy,
   selectEveryRow,
   selectWordAt,
-} from '../scrollback';
+} from './copyMode/scrollback';
 
 export const copyModeActions = {
   /**
@@ -399,5 +399,24 @@ export const copyModeActions = {
       );
       fetchNeededChunk(enqueue, context, paneId, updated);
     }
+  }),
+
+  copyMode_copySelection: act(({ context, enqueue }) => {
+    const paneId = selectKeyFocusPane(context);
+    const copyState = paneId ? context.copyModeStates[paneId] : undefined;
+    if (paneId && copyState) {
+      enqueue.raise(
+        copyState.selectionMode
+          ? { type: 'COPY_MODE_YANK', paneId }
+          : { type: 'EXIT_COPY_MODE', paneId },
+      );
+      return;
+    }
+    enqueue(
+      sendTo('tmuxStore', {
+        type: 'DISPATCH_OP' as const,
+        op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
+      }),
+    );
   }),
 };

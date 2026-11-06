@@ -52,15 +52,13 @@ import {
   type ShiftAnim,
 } from './PaneLayoutMorph';
 import { PaneLayoutItem } from './AnimatedPaneWrapper';
-import { usePaneDragResizeListeners, usePaneZoomObserver } from './paneWrapperHooks';
+import { usePaneZoomObserver } from './paneWrapperHooks';
+import { gridOrigin } from '../domain/paneGeometry';
 import { useMorphContentAnchor } from './paneContentAnchor';
 
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
 }
-
-/** The outline every pane draws outside its box (`.pane-layout-item`). */
-const PANE_OUTLINE_PX = 1;
 
 export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
@@ -137,22 +135,13 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // padding, which centers the terminal text within the +1-cell-wide box.
   const hPadding = charWidth / 2;
 
-  // Centre the pane grid across the container, and hang it from the top.
   // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so its dimensions match
-  // containerWidth/Height (content-box from ResizeObserver). No padding-box
-  // arithmetic needed — pane positions are relative to the content area directly.
-  // The rows fill the height in whole cells, and what is left over — up to a
-  // row — goes below the grid: split above and below, it was a band of empty
-  // ground between the tab strip and the panes. One pixel down, for the 1px
-  // outline every pane draws outside its own box (pane-layout.css).
-  const liveCenteringOffset = useMemo(() => {
-    const paneContentWidth = totalWidth * charWidth;
-    // Clamp x so content never overflows the right edge.
-    // This handles transient states where tmux totalWidth > targetCols.
-    const idealX = (containerWidth - paneContentWidth) / 2;
-    const maxX = containerWidth - paneContentWidth;
-    return { x: Math.max(0, Math.min(idealX, maxX)), y: PANE_OUTLINE_PX };
-  }, [totalWidth, charWidth, containerWidth]);
+  // containerWidth/Height (content-box from ResizeObserver): pane positions are
+  // relative to the content area directly (domain/paneGeometry.ts).
+  const liveCenteringOffset = useMemo(
+    () => gridOrigin(totalWidth, charWidth, containerWidth),
+    [totalWidth, charWidth, containerWidth],
+  );
 
   // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
   // the dragged pane is pinned to its original slot while the optimistic swap
@@ -199,8 +188,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const prevViewRef = useRef<Map<string, RenderedPaneView> | null>(null);
   const prevActiveWindowIdRef = useRef<string | null | undefined>(undefined);
   const prevAllPaneIdsRef = useRef<Set<string>>(new Set());
-
-  usePaneDragResizeListeners(isDragging, isResizing, send);
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {

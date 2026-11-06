@@ -4,7 +4,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
-import { connectionActions, connectionGlobalEvents } from '../connection';
+import { viewportActions } from '../actions/viewport';
+import { viewportGlobalEvents } from '../states/viewport';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../states/sidebars';
 import { sidebarsActions } from '../actions/sidebars';
 import { mountState, sendAndGetContext } from '../states/__tests__/testHarness';
@@ -28,8 +29,8 @@ function gridPane(width: number, height: number) {
 /** A 1000x480 container of 10x24 cells holding a `grid`, under `sizePolicy`. */
 function client(sizePolicy: SizePolicy, grid = { cols: 100, rows: 20 }) {
   return mountState(
-    { on: { ...connectionGlobalEvents, ...sidebarsGlobalEvents, ...sidebarsIdleEvents } },
-    { ...connectionActions, ...sidebarsActions },
+    { on: { ...viewportGlobalEvents, ...sidebarsGlobalEvents, ...sidebarsIdleEvents } },
+    { ...viewportActions, ...sidebarsActions },
     {},
     {
       connected: true,

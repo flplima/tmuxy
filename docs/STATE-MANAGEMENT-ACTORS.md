@@ -66,18 +66,16 @@ What one finger does on the terminal is `components/terminal/usePaneTouch.ts` ov
 
 ### How the app machine is split
 
-`appMachine.ts` holds the lifecycle (connecting / idle / reconnecting), the actor wiring and the handlers that cut across concerns, including the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/domain/store/`.
+`appMachine.ts` holds the lifecycle (connecting / idle / reconnecting / detached / disconnected) and the actor wiring; `dispatch.ts` is the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to, helpers in `actions/<concern>/`. `connection` owns the stream and what the server reports, `viewport` the cell and the size this client asks for. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/domain/store/`.
 
 **One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
-`AppMachineContext` field to the concern that owns it (the owner names are the `states/` file names, plus `parent` for the machine itself). The
+`AppMachineContext` field to the slice that owns it. The
 `tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
-reads that map out of `context.ts` itself, so there is one copy, and
-enforces it: any `assign({...})` (or `assignCtx({...})`, the same builder
-bound to the machine's types in `machines/app/actionTypes.ts`) inside a
-`states/<name>.ts` or `actions/<name>.ts` file may only mutate fields owned
-by `<name>`.
-Cross-cutting handlers that legitimately span states opt out with a
-`// cross-cutting: <reason>` comment on the assign.
+reads that map out of `context.ts` itself and enforces it on every file in
+`machines/app/`: an `assign({...})` (or `assignCtx({...})`) in a slice's files
+may only write that slice's fields, and the machine's other files own none.
+A handler that writes across slices (a session switch, the model-update
+mirror) says so: `// cross-cutting: <reason>` on the assign.
 
 Action names are prefixed with the owning state (`uiPrefs_applyTheme`,
 `layout_selectTab`, etc.) so they don't collide when merged into the

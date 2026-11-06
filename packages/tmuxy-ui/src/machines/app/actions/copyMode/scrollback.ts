@@ -4,7 +4,7 @@
  */
 
 import { assign, sendTo } from 'xstate';
-import type { Ctx, Enqueue, EnqueueAction } from './actionTypes';
+import type { Ctx, Enqueue, EnqueueAction } from '../../actionTypes';
 import {
   type CopyModeState,
   type ScrollbackMode,
@@ -12,12 +12,12 @@ import {
   getNeededChunk,
   shiftScrollbackRows,
   mergeScrollbackChunk,
-} from '../../domain/copyMode';
-import type { TmuxPane } from '../../domain/client';
-import type { CellLine } from '../../domain/wireCells';
-import type { PaneId } from '../../domain/ids';
-import { TmuxOp } from '../../domain/commands';
-import { COPY_FLASH_MS } from '../../infra/dom/copyFlash';
+} from '../../../../domain/copyMode';
+import type { TmuxPane } from '../../../../domain/client';
+import type { CellLine } from '../../../../domain/wireCells';
+import type { PaneId } from '../../../../domain/ids';
+import { TmuxOp } from '../../../../domain/commands';
+import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 
 /**
  * Ask for the rows the view at `updated.scrollTop` is missing, when any are

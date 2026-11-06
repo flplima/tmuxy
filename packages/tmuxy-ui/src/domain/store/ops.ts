@@ -19,7 +19,6 @@ import { groupMembers, type TmuxPane } from '../client';
 import type { TmuxOp, TmuxOpOf } from '../commands';
 import type { GroupId, PaneId, WindowId } from '../ids';
 import {
-  predictJoinPane,
   predictKillPane,
   predictNavigate,
   predictSelectPane,
@@ -27,12 +26,12 @@ import {
   predictSwap,
   predictZoomToggle,
   reconcileFocus,
-  reconcileJoinPane,
   reconcileKillPane,
   reconcileSplit,
   reconcileSwap,
   reconcileZoomToggle,
 } from './paneOps';
+import { predictJoinPane, reconcileJoinPane } from './joinPane';
 import {
   predictGroupSwitch,
   predictKillWindow,

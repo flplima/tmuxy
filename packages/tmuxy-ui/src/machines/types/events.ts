@@ -65,8 +65,6 @@ export type AppMachineEvent =
       containerTop: number;
       tabStrip: TabStripGeometry | null;
     }
-  | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
-  | { type: 'DRAG_END' }
 
   // Resize events
   | {
@@ -76,8 +74,6 @@ export type AppMachineEvent =
       startX: number;
       startY: number;
     }
-  | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
-  | { type: 'RESIZE_END' }
 
   // Keyboard events
   | KeyPressEvent
@@ -113,6 +109,8 @@ export type AppMachineEvent =
   | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }
   /** A change about to land must not animate: the next settled update turns animations back on. */
   | { type: 'SUPPRESS_ANIMATIONS' }
+  /** The grid is the size this client asked for and settled: layout changes may animate again. */
+  | { type: 'ANIMATIONS_SETTLED' }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;

@@ -18,12 +18,10 @@ import {
 import { loadFontSizePref, loadThemePref } from '../../infra/prefs';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
 
-/**
- * The name of each state slice (a root-level `on` block under ./states/)
- * plus 'parent' for fields owned by the machine itself (lifecycle,
- * connection, dimensions).
- */
+/** The name of each state slice: its handlers in ./states/<name>.ts, its actions in ./actions/<name>.ts. */
 export type StateName =
+  | 'connection'
+  | 'viewport'
   | 'layout'
   | 'tabOverview'
   | 'phone'
@@ -36,8 +34,7 @@ export type StateName =
   | 'uiPrefs'
   | 'gestures'
   | 'ask'
-  | 'plugins'
-  | 'parent';
+  | 'plugins';
 
 /**
  * Maps every AppMachineContext field to the state slice that owns it.
@@ -45,44 +42,47 @@ export type StateName =
  * The tmuxy/state-field-ownership ESLint rule reads this map from this file
  * (keep it one `field: 'owner',` entry per line) — any `assign({...})` or
  * `assignCtx({...})` in states/<name>.ts or actions/<name>.ts may only mutate
- * fields whose owner is `<name>` ('parent' fields are written by
- * appMachine.ts only).
+ * fields whose owner is `<name>`, and the other files in machines/app/ own
+ * none.
  *
  * The `satisfies` clause guarantees every context field is covered;
  * removing one or adding a new one without updating this map is a type error.
  */
 export const FIELD_OWNERS = {
-  // ---- parent (lifecycle, connection, dimensions, dragging proxies) ----
-  connected: 'parent',
-  error: 'parent',
-  fatalError: 'parent',
-  log: 'parent',
-  sessionName: 'parent',
-  defaultShell: 'parent',
-  serverHostname: 'parent',
-  keybindings: 'parent',
-  appFocused: 'parent',
-  totalWidth: 'parent',
-  totalHeight: 'parent',
-  targetCols: 'parent',
-  targetRows: 'parent',
-  charWidth: 'parent',
-  charHeight: 'parent',
-  cellGap: 'parent',
-  gridFontSize: 'parent',
-  measuredCell: 'parent',
-  phoneLayout: 'parent',
-  phoneLandscape: 'parent',
-  containerWidth: 'parent',
-  containerHeight: 'parent',
-  bodyWidth: 'parent',
-  sessions: 'parent',
-  repositories: 'parent',
-  servers: 'parent',
-  currentServerId: 'parent',
-  restorableSessions: 'parent',
+  // ---- connection ----
+  connected: 'connection',
+  error: 'connection',
+  fatalError: 'connection',
+  log: 'connection',
+  sessionName: 'connection',
+  defaultShell: 'connection',
+  serverHostname: 'connection',
+  keybindings: 'connection',
+  appFocused: 'connection',
+  sessions: 'connection',
+  repositories: 'connection',
+  servers: 'connection',
+  currentServerId: 'connection',
+  restorableSessions: 'connection',
+
+  // ---- viewport ----
+  targetCols: 'viewport',
+  targetRows: 'viewport',
+  viewportMeasured: 'viewport',
+  charWidth: 'viewport',
+  charHeight: 'viewport',
+  cellGap: 'viewport',
+  gridFontSize: 'viewport',
+  measuredCell: 'viewport',
+  phoneLayout: 'viewport',
+  phoneLandscape: 'viewport',
+  containerWidth: 'viewport',
+  containerHeight: 'viewport',
+  bodyWidth: 'viewport',
 
   // ---- layout ----
+  totalWidth: 'layout',
+  totalHeight: 'layout',
   panes: 'layout',
   windows: 'layout',
   activeWindowId: 'layout',
@@ -163,6 +163,7 @@ export const FIELD_OWNERS = {
   // ---- plugins ----
   plugins: 'plugins',
   pluginsRev: 'plugins',
+  // ---- gestures ----
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
@@ -190,6 +191,7 @@ export function createInitialContext(): AppMachineContext {
     askSelections: {},
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
+    viewportMeasured: false,
     drag: null,
     resize: null,
     resizeActive: false,
