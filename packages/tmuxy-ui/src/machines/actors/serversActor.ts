@@ -9,8 +9,11 @@
  * parent machine. This runs on the web build too — a web client attached to a
  * multi-session socket now sees and can switch to its sibling sessions.
  *
- * It only refreshes while the sidebar tree is OPEN (the sole consumer), on a
- * deliberately slow cadence, with reads kept off the mutation serial queue —
+ * It only refreshes while a tree is on screen (the sole consumer: the
+ * desktop's column, or the phone's bottom view), on a deliberately slow
+ * cadence once it has listed — until then it tries again every
+ * {@link WAKE_INTERVAL_MS}, so the tree's cwds and branches come with its
+ * first rows on a page load, not a whole poll later — with reads kept off the mutation serial queue —
  * the external-subprocess reads must not contend with the control-mode command
  * pipeline (which would delay window creation / `@tmuxy-window-type` tagging).
  *
@@ -28,7 +31,7 @@
  */
 import { fromCallback, type AnyActorRef } from 'xstate';
 import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
-import { Effect, Fiber, Schedule } from 'effect';
+import { Effect, Fiber } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type { GitRepository, SessionTreeNode, SessionTreePane, TmuxServer } from '../types/domain';
@@ -45,6 +48,13 @@ export interface ServersActorInput {
 // skipped entirely while the sidebar is closed, and an immediate refresh fires
 // on open (REFRESH_SESSIONS), so this only governs the steady-state refresh.
 const POLL_INTERVAL_MS = 4000;
+
+// Until a listing comes back the poll looks again this soon. On a page load
+// the first look finds the app still connecting and the tree not yet
+// restored open from tmux's state, and waiting the full interval for the next
+// one left the tree's rows without their cwd and branch for seconds. A look
+// with no tree on screen reads only the machine's context, never tmux.
+const WAKE_INTERVAL_MS = 250;
 
 // Worktree discovery runs git once per repository; branches change far less
 // often than panes, so it rides on the poll only every few ticks.
@@ -146,6 +156,29 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
   return nodes;
 }
 
+/** The parts of the app's context the poll's gate reads. */
+interface TreeGateContext {
+  leftSidebarOpen?: boolean;
+  phoneLayout?: boolean;
+  phoneBottomView?: string;
+}
+
+/**
+ * Whether a tree is on screen to show what the poll reads: the desktop's
+ * column, or the phone's bottom view with the tree in front.
+ */
+export function treeOnScreen(ctx: TreeGateContext | undefined): boolean {
+  if (!ctx) return false;
+  return (
+    ctx.leftSidebarOpen === true || (ctx.phoneLayout === true && ctx.phoneBottomView === 'tree')
+  );
+}
+
+/** How long until the next look: the steady cadence once a listing came back. */
+export function nextPollDelay(listed: boolean): number {
+  return listed ? POLL_INTERVAL_MS : WAKE_INTERVAL_MS;
+}
+
 /**
  * Create the sessions-poll actor over the app runtime's transport. While the sidebar tree is
  * open it refreshes every {@link POLL_INTERVAL_MS}; it also polls immediately on
@@ -232,33 +265,24 @@ export function createServersActor(runtime: AppRuntime) {
         );
       });
 
-    // One poll tick as an Effect. Modelling it in Effect means interrupting the
-    // poll fiber (on stop) between a query and its parent.send drops the stale
-    // send — no `cancelled` flag to thread through. suspend() re-reads the
-    // sidebar gate on every repeat.
-    const tick = (force = false): Effect.Effect<void, never, TmuxTransport> =>
+    // One poll tick as an Effect, answering whether the sessions were listed.
+    // Modelling it in Effect means interrupting the poll fiber (on stop)
+    // between a query and its parent.send drops the stale send — no
+    // `cancelled` flag to thread through. suspend() re-reads the gate on
+    // every repeat.
+    const tick = (force = false): Effect.Effect<boolean, never, TmuxTransport> =>
       Effect.suspend(() => {
-        // Only enumerate while the tree is actually visible. The poll's
+        // Only enumerate while a tree is actually on screen. The poll's
         // read-only tmux commands share the control-mode connection; running
-        // them continuously (even with the sidebar closed) contends with the
-        // control-mode pipeline and delays window creation/`@tmuxy-window-type`
-        // tagging. `force` bypasses the check for the REFRESH_SESSIONS nudge
-        // raised as the sidebar opens (whose context commit may not be visible).
+        // them continuously (even with no tree to show them) contends with
+        // the control-mode pipeline and delays window creation and
+        // `@tmuxy-window-type` tagging. `force` bypasses the check for the
+        // REFRESH_SESSIONS nudge raised as the sidebar opens (whose context
+        // commit may not be visible) and as the session menu opens
+        // (SESSION_MENU_OPENED).
         if (!force) {
-          const snap = parent.getSnapshot() as
-            | {
-                context?: {
-                  leftSidebarOpen?: boolean;
-                };
-              }
-            | undefined;
-          const ctx = snap?.context;
-          // The tree sidebar is the one consumer that watches continuously;
-          // the session menu asks for a forced tick as it opens
-          // (SESSION_MENU_OPENED). With the tree closed nothing is watching,
-          // and these are external tmux reads — they should not churn against
-          // the control-mode pipeline.
-          if (ctx?.leftSidebarOpen !== true) return Effect.void;
+          const snap = parent.getSnapshot() as { context?: TreeGateContext } | undefined;
+          if (!treeOnScreen(snap?.context)) return Effect.succeed(false);
         }
 
         // Sessions tree (tmux), servers, snapshots, and git discovery run
@@ -278,24 +302,31 @@ export function createServersActor(runtime: AppRuntime) {
               }),
             ),
           ),
-          Effect.ignore,
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
         );
 
         return Effect.all([listSessions, listServers(), listSnapshots(), discover(force)], {
           concurrency: 'unbounded',
-        }).pipe(Effect.asVoid, Effect.ignore);
+        }).pipe(
+          Effect.map(([listed]) => listed),
+          Effect.orElseSucceed(() => false),
+        );
       });
 
-    // Initial tick (respects the sidebar gate) then repeat while attached. The
-    // repeat cadence governs steady-state refresh; REFRESH_SESSIONS forces one.
+    // A tick, then the next one after `nextPollDelay`, while attached: soon
+    // until a listing comes back, at the steady cadence after.
+    // REFRESH_SESSIONS forces one in between.
     // In-browser sandboxes (demo, v86) are single-session — nothing to
     // enumerate, and nothing to read it with: `query` is the only call that
     // returns tmux output, `run_tmux_command` resolves null everywhere.
     const whileEnumerable = (program: Effect.Effect<void, never, TmuxTransport>) =>
       TmuxTransport.pipe(Effect.flatMap((t) => (t.enumeratesSessions() ? program : Effect.void)));
-    const pollFiber = runtime.runFork(
-      whileEnumerable(Effect.repeat(tick(), Schedule.spaced(POLL_INTERVAL_MS)).pipe(Effect.asVoid)),
+    const poll = tick().pipe(
+      Effect.flatMap((listed) => Effect.sleep(nextPollDelay(listed))),
+      Effect.forever,
     );
+    const pollFiber = runtime.runFork(whileEnumerable(poll));
     receive((event) => {
       if (event.type === 'REFRESH_SESSIONS') runtime.runFork(whileEnumerable(tick(true)));
     });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSessions } from '../serversActor';
+import { nextPollDelay, parseSessions, treeOnScreen } from '../serversActor';
 
 // Rows are tab-joined, matching the `-F` format the actor sends.
 const row = (...fields: string[]) => fields.join('\t');
@@ -90,5 +90,21 @@ describe('parseSessions', () => {
     );
     expect(session.panes.find((p) => p.id === '%1')?.active).toBe(true);
     expect(session.panes.find((p) => p.id === '%0')?.active).toBe(false);
+  });
+});
+
+describe('the poll’s gate and cadence', () => {
+  it('reads tmux only with a tree on screen: the column, or the phone’s tree in front', () => {
+    expect(treeOnScreen({ leftSidebarOpen: true })).toBe(true);
+    expect(treeOnScreen({ leftSidebarOpen: false })).toBe(false);
+    expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'tree' })).toBe(true);
+    expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'dock' })).toBe(false);
+    expect(treeOnScreen({ phoneLayout: false, phoneBottomView: 'tree' })).toBe(false);
+    expect(treeOnScreen(undefined)).toBe(false);
+  });
+
+  it('looks again soon until a listing comes back, then at the steady cadence', () => {
+    expect(nextPollDelay(false)).toBeLessThan(nextPollDelay(true));
+    expect(nextPollDelay(false)).toBeLessThanOrEqual(250);
   });
 });
