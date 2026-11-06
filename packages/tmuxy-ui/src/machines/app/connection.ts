@@ -11,6 +11,7 @@ import { fittedGridCell, gridExtent, releaseKeyboard } from './helpers';
 import { fixedGridSize } from '../../domain/gridFit';
 import { writeClipboard, clipboardWriteMessage } from '../../infra/clipboard';
 import { TmuxOp } from '../../domain/commands';
+import { invokeEvent } from '../actors/tmuxActor';
 import { memorableSessionName } from '../../domain/sessionNames';
 import { isTauri } from '../../infra/platform';
 
@@ -188,13 +189,7 @@ export const connectionActions = {
     const shouldResize =
       context.connected && grid.cols > 0 && (cols !== grid.cols || rows !== grid.rows);
     if (shouldResize) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_client_size',
-          args: { cols, rows },
-        }),
-      );
+      enqueue(sendTo('tmux', { type: 'SET_CLIENT_SIZE' as const, cols, rows }));
     } else if (grid.cols > 0 && !context.enableAnimations && context.lastUpdateQuiet) {
       // The grid is already the size this client measured, and quiet: the
       // gate the next update would open (reconcileModelUpdate). With nothing
@@ -254,11 +249,13 @@ export const connectionActions = {
     // one of them next opens. A refresh that finds the connect failed corrects it.
     enqueue(assign({ currentServerId: event.serverId }));
     enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'connect_server',
-        args: { id: event.serverId, session: event.session ?? null },
-      }),
+      sendTo(
+        'tmux',
+        invokeEvent({
+          cmd: 'connect_server',
+          args: { id: event.serverId, session: event.session ?? null },
+        }),
+      ),
     );
   }),
 
@@ -267,12 +264,7 @@ export const connectionActions = {
   }),
 
   connection_detachClient: act(({ enqueue }) => {
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'detach_client',
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'detach_client', args: {} })));
   }),
 
   // Create a session AND switch to it, so the action has a visible effect. On

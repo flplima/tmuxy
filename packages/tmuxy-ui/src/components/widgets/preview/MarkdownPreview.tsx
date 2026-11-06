@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef } from 'react';
+import { CHAR_HEIGHT } from '../../../constants/layout';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
@@ -118,7 +119,7 @@ function FrontMatter({ yaml }: { yaml: string }) {
   );
 }
 
-const LINE = 24;
+const LINE = CHAR_HEIGHT;
 
 /**
  * The pager keys, while the preview is the pane with the keyboard: what a

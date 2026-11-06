@@ -9,9 +9,12 @@ tmux pane running a real process — it can be focused, navigated into, resized 
 other — but what it draws is a component, not cells.
 
 A pane declares itself a widget by printing a marker line: `__TMUXY_WIDGET__:<name>`, which
-`packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
-it (`components/widgets/registry.ts`), and everything the pane prints after the marker is the
-widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
+`packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend finds
+it in the pane's content once for every surface that asks — the body, its header tab and icon, the
+tree row, the pane menu (`selectPaneWidget`, `machines/selectors/paneWidget.ts`, over
+`domain/paneWidget.ts`) — joining the rows a pane narrower than the marker wraps it over, and
+holding the answer while the pane's content is not captured yet (a resize, a group switch).
+Everything the pane prints after the marker is the widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
 not enough: it is pane output, and anything a pane prints could forge it, so `tmuxy-widget` also
 tags the pane with `@tmuxy-pane-widget` out of band before printing, and the frontend renders a
 widget only when that tag names the same one (see [SECURITY.md](SECURITY.md) and the option

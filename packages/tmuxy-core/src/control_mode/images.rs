@@ -25,7 +25,7 @@ mod sixel_and_iterm;
 use kitty::rgba_to_png;
 use serde::{Deserialize, Serialize};
 pub(crate) use sixel_and_iterm::base64_decode;
-pub(super) use sixel_and_iterm::find_osc_end;
+use sixel_and_iterm::find_osc_end;
 use sixel_and_iterm::{detect_mime_type, ends_pending_escape, last_terminator_start, overlaps};
 
 // `std::time::Instant::now()` panics on wasm32; web-time backs it with

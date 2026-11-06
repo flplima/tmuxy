@@ -43,8 +43,8 @@ function startApp() {
 
 const sizeRequests = (sent: TmuxActorEvent[]) =>
   sent
-    .filter((e) => e.type === 'INVOKE' && e.cmd === 'set_client_size')
-    .map((e) => (e.type === 'INVOKE' ? e.args : undefined));
+    .filter((e) => e.type === 'SET_CLIENT_SIZE')
+    .map((e) => (e.type === 'SET_CLIENT_SIZE' ? { cols: e.cols, rows: e.rows } : undefined));
 
 const initialFetches = (sent: TmuxActorEvent[]) =>
   sent.filter((e) => e.type === 'FETCH_INITIAL_STATE');

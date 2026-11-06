@@ -29,13 +29,16 @@ describe('FixtureAdapter', () => {
     });
     const seen = emittedPanes(adapter);
     await adapter.connect();
-    const initial = await adapter.invoke<{ panes: unknown[] }>('get_initial_state');
+    const initial = (await adapter.send({
+      cmd: 'get_initial_state',
+      args: { cols: 80, rows: 24 },
+    })) as { panes: unknown[] };
     expect(initial.panes).toHaveLength(1);
 
-    await adapter.invoke('run_tmux_command', { command: 'split-window -h' });
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: 'split-window -h' } });
     expect(seen).toEqual([['%0', '%1']]);
     // An unscripted command is accepted and changes nothing.
-    await adapter.invoke('run_tmux_command', { command: 'select-pane -t %0' });
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: 'select-pane -t %0' } });
     expect(seen).toEqual([['%0', '%1']]);
     expect(adapter.commands).toEqual(['split-window -h', 'select-pane -t %0']);
   });
@@ -50,8 +53,8 @@ describe('FixtureAdapter', () => {
       ],
     });
     const seen = emittedPanes(adapter);
-    await adapter.invoke('run_tmux_command', { command: 'toggle' });
-    await adapter.invoke('run_tmux_command', { command: 'toggle' });
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: 'toggle' } });
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: 'toggle' } });
     expect(seen).toEqual([['%0', '%1'], ['%0']]);
   });
 
@@ -64,7 +67,7 @@ describe('FixtureAdapter', () => {
   it('delays every command by commandDelayMs', async () => {
     const adapter = new FixtureAdapter({ fixture, start: 'one', commandDelayMs: 80 });
     const start = performance.now();
-    await adapter.invoke('run_tmux_command', { command: 'split-window -h' });
+    await adapter.send({ cmd: 'run_tmux_command', args: { command: 'split-window -h' } });
     // Generous slack for timer jitter: only that the delay applied matters.
     expect(performance.now() - start).toBeGreaterThanOrEqual(70);
   });
@@ -78,12 +81,12 @@ describe('FixtureAdapter', () => {
     });
     const seen = emittedPanes(adapter);
     await expect(
-      adapter.invoke('run_tmux_command', { command: 'split-window -h' }),
+      adapter.send({ cmd: 'run_tmux_command', args: { command: 'split-window -h' } }),
     ).rejects.toMatchObject({ error: 'no space', kind: 'tmux' });
     // A refused command moves nothing.
     expect(seen).toEqual([]);
     await expect(
-      adapter.invoke('run_tmux_command', { command: 'select-pane -t %0' }),
+      adapter.send({ cmd: 'run_tmux_command', args: { command: 'select-pane -t %0' } }),
     ).resolves.toBeNull();
   });
 

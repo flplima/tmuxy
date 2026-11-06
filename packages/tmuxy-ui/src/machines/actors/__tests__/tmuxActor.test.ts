@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createTmuxActor } from '../tmuxActor';
-import type { TmuxAdapter } from '../../../infra/transport/driver';
+import type { BackendCall } from '../../../domain/backendCalls';
 import type { AppRuntime } from '../../../infra/runtime';
 import { fakeTransport } from '../../../test/transport';
 
@@ -48,7 +48,7 @@ async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
 
 describe('tmuxActor — cancellable scrollback', () => {
   it('FETCH_SCROLLBACK_CELLS success sends COPY_MODE_CHUNK_LOADED to parent', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
+    const invoke = vi.fn(async ({ cmd }: BackendCall) => {
       if (cmd === 'get_scrollback_cells') {
         return {
           cells: [],
@@ -58,9 +58,9 @@ describe('tmuxActor — cancellable scrollback', () => {
           width: 80,
         };
       }
-      return undefined;
+      return null;
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()
@@ -79,8 +79,8 @@ describe('tmuxActor — cancellable scrollback', () => {
     // it was interrupted before it could fire its onSuccess.
     const calls: Array<{ start: number; end: number }> = [];
     let firstResolve: ((value: unknown) => void) | null = null;
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { start: number; end: number; paneId: string };
       calls.push({ start: a.start, end: a.end });
       if (calls.length === 1) {
@@ -100,7 +100,7 @@ describe('tmuxActor — cancellable scrollback', () => {
       };
     });
 
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
 
     actor.getSnapshot().children.tmux!.send({
@@ -143,8 +143,8 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 
   it('different paneId fetches do NOT interrupt each other', async () => {
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { paneId: string; start: number; end: number };
       return {
         cells: [],
@@ -154,7 +154,7 @@ describe('tmuxActor — cancellable scrollback', () => {
         width: 80,
       };
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
 
     actor
@@ -175,13 +175,13 @@ describe('tmuxActor — cancellable scrollback', () => {
     // `%1` is gone; `%2` answers. The failure is sent first, and what it did
     // or did not send the parent is read once the second fetch — which it
     // does not interrupt, being another pane's — has landed behind it.
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { paneId: string; start: number; end: number };
       if (a.paneId === '%1') throw { error: 'pane gone', kind: 'tmux' };
       return { cells: [], historySize: 100, start: a.start, end: a.end, width: 80 };
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()

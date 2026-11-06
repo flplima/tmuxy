@@ -8,7 +8,7 @@
 import { memo } from 'react';
 import { usePane } from '../machines/appHooks';
 import { LogProfiler } from './renderLog';
-import { usePaneWidgetInfo } from './widgets/usePaneWidgetInfo';
+import { paneWidgetOf } from './widgets/registry';
 import { WidgetPane } from './WidgetPane';
 import { TerminalPane } from './terminal/TerminalPane';
 import type { PaneId } from '../domain/ids';
@@ -26,18 +26,16 @@ interface PaneProps {
  */
 export const Pane = memo(function Pane({ paneId }: PaneProps) {
   const pane = usePane(paneId);
-  // Widget-or-terminal, latched across the transient empty content a capture
-  // refresh leaves behind — see usePaneWidgetInfo, which floats share.
-  const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
+  const widget = paneWidgetOf(pane);
 
   // Pane may not exist during transitions
   if (!pane) return null;
   // The Profiler sits INSIDE the memo boundary so a memo bail-out records
   // zero commits — it measures real pane work, not parent churn.
-  if (widgetInfo) {
+  if (widget) {
     return (
       <LogProfiler id={`Pane:${paneId}`}>
-        <WidgetPane paneId={paneId} widgetInfo={widgetInfo} />
+        <WidgetPane paneId={paneId} widget={widget} />
       </LogProfiler>
     );
   }

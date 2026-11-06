@@ -24,7 +24,7 @@ import { formatAdapterError } from '../transport/AdapterError';
 import { TmuxTransport } from '../transport/TmuxTransport';
 import type { ServerState } from '../../domain/wire';
 import { preserveSnapshotIdentity, transformServerState } from '../../domain/store/snapshot';
-import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
+import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import {
   addPendingOp,
   applyServerSnapshot,
@@ -186,6 +186,7 @@ export function makeTmuxStore(): TmuxStore {
   const dispatchRemote = (
     transport: TmuxTransport['Type'],
     opId: OpId,
+    wire: TmuxOp,
     command: string,
   ): Effect.Effect<OpId, OpError> =>
     Effect.suspend(() => {
@@ -193,7 +194,7 @@ export function makeTmuxStore(): TmuxStore {
       // the quick stale sweep, and a swept op would blink the optimistic UI
       // away and remount when the confirm finally lands.
       setStatus(opId, 'in-flight');
-      return transport.invoke('run_tmux_command', { command });
+      return transport.run(wire);
     }).pipe(
       Effect.matchEffect({
         onFailure: (err) => {
@@ -236,7 +237,8 @@ export function makeTmuxStore(): TmuxStore {
         // would only wait out the stale sweep. Done before it starts; its id
         // is never recorded.
         if (command.trim() === '') return Effect.succeed(generateOpId());
-        return dispatchRemote(transport, applyOptimistic(op, command), command);
+        const wire = opts?.command === undefined ? op : TmuxOp.RawCommand({ command });
+        return dispatchRemote(transport, applyOptimistic(op, command), wire, command);
       }),
 
     reconcile: (state) => {

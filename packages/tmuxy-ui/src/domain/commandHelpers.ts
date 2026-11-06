@@ -1,9 +1,10 @@
 import { isPlaceholderId, type PaneId } from './ids';
 import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
+import { CLI_DISPATCHER } from './tmuxyConstants.gen';
 
 /** The bundled CLI dispatcher, beside the scripts. */
-const CLI_PATH = '$TMUXY_DATA_DIR/bin/tmuxy-cli';
+const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
 
 /** Longest literal a single `send-keys -l` carries before the text is split. */
 const LITERAL_CHUNK_SIZE = 500;
@@ -28,8 +29,6 @@ export function script(name: string, ...args: Array<string | number>): string {
  */
 export type ScriptEffect = 'settle' | 'relist-windows';
 
-const EFFECT_MARKER = /^run-shell\s+"?TMUXY_EFFECT=(settle|relist-windows)\s/;
-
 /** {@link script}, marked with the effect the backend must apply. */
 export function scriptWith(
   effect: ScriptEffect,
@@ -37,12 +36,6 @@ export function scriptWith(
   ...args: Array<string | number>
 ): string {
   return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
-}
-
-/** The effect a raw command's script run is marked with, if any. */
-export function scriptEffect(command: string): ScriptEffect | null {
-  const effect = EFFECT_MARKER.exec(command.trim())?.[1];
-  return effect === 'settle' || effect === 'relist-windows' ? effect : null;
 }
 
 /** Commands run as one list (` \; ` between them). */

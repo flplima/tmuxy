@@ -37,6 +37,7 @@ export const HOST_EVENTS = {
     TransportEvent.ConnectionInfo({
       defaultShell: info.default_shell ?? 'bash',
       hostname: info.hostname || null,
+      traceEnabled: info.trace_enabled === true,
     }),
   ),
   // Decoded and sequenced by the stream stage (`stateFeed.ts`).

@@ -1,0 +1,174 @@
+[
+  {
+    "args": {
+      "cols": 120,
+      "rows": 40
+    },
+    "cmd": "get_initial_state"
+  },
+  {
+    "args": {
+      "cols": 120,
+      "rows": 40
+    },
+    "cmd": "set_client_size"
+  },
+  {
+    "args": {
+      "command": "split-window -h"
+    },
+    "cmd": "run_tmux_command"
+  },
+  {
+    "args": {
+      "command": "list-panes -F '#{pane_id}'"
+    },
+    "cmd": "query_tmux"
+  },
+  {
+    "args": {
+      "end": -1,
+      "paneId": "%2",
+      "start": -200
+    },
+    "cmd": "get_scrollback_cells"
+  },
+  {
+    "args": {
+      "paneId": "%2",
+      "path": "img/logo.png"
+    },
+    "cmd": "read_preview"
+  },
+  {
+    "args": {
+      "html": "<p>hi</p>",
+      "paneId": "%2"
+    },
+    "cmd": "stage_preview"
+  },
+  {
+    "cmd": "get_theme_settings"
+  },
+  {
+    "args": {
+      "mode": "dark",
+      "name": "nord"
+    },
+    "cmd": "set_theme"
+  },
+  {
+    "args": {
+      "mode": "light"
+    },
+    "cmd": "set_theme_mode"
+  },
+  {
+    "cmd": "get_themes_list"
+  },
+  {
+    "args": {
+      "enabled": true
+    },
+    "cmd": "set_cursor_blink"
+  },
+  {
+    "args": {
+      "enabled": false
+    },
+    "cmd": "set_send_ask"
+  },
+  {
+    "args": {
+      "enabled": true
+    },
+    "cmd": "set_transparency"
+  },
+  {
+    "cmd": "list_git_worktrees"
+  },
+  {
+    "cmd": "list_snapshots"
+  },
+  {
+    "args": {
+      "session": "work"
+    },
+    "cmd": "restore_session"
+  },
+  {
+    "cmd": "get_trace_settings"
+  },
+  {
+    "args": {
+      "enabled": true
+    },
+    "cmd": "set_trace_enabled"
+  },
+  {
+    "args": {
+      "level": "labeled"
+    },
+    "cmd": "set_trace_level"
+  },
+  {
+    "args": {
+      "events": [
+        {
+          "layer": "ui",
+          "name": "click"
+        }
+      ]
+    },
+    "cmd": "record_trace"
+  },
+  {
+    "cmd": "open_trace_file"
+  },
+  {
+    "args": {
+      "url": "https://example.com"
+    },
+    "cmd": "open_url"
+  },
+  {
+    "cmd": "list_servers"
+  },
+  {
+    "args": {
+      "id": "localhost",
+      "session": "work"
+    },
+    "cmd": "connect_server"
+  },
+  {
+    "cmd": "detach_client"
+  },
+  {
+    "args": {
+      "action": "open",
+      "paneId": "%2",
+      "plugin": "gh",
+      "selection": "selected text"
+    },
+    "cmd": "prepare_plugin_action"
+  },
+  {
+    "args": {
+      "paneId": "%2",
+      "url": "https://github.com/o/r/pull/1"
+    },
+    "cmd": "open_link"
+  },
+  {
+    "args": {
+      "column": 5,
+      "line": "see #12",
+      "paneId": "%2"
+    },
+    "cmd": "open_text"
+  },
+  {
+    "cmd": "greeting"
+  }
+]

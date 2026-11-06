@@ -4,7 +4,7 @@
  */
 
 import type { TmuxOp } from './commands';
-import { scriptEffect } from './commandHelpers';
+import { commandListParts, isLayoutCommand, runShellScript } from './store/parseCommand';
 
 /**
  * Ops that run a multi-step server script or create a window, whose
@@ -20,7 +20,7 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'GroupStep':
       return true;
     case 'RawCommand':
-      return scriptEffect(op.command) === 'settle';
+      return commandListParts(op.command).some((part) => runShellScript(part)?.effect === 'settle');
     default:
       return false;
   }
@@ -29,8 +29,5 @@ export function isMultiStep(op: TmuxOp): boolean {
 /** Ops that re-tile the window (a preset layout), for transient-focus suppression. */
 export function isLayoutChange(op: TmuxOp): boolean {
   if (op._tag === 'SelectLayout') return true;
-  return (
-    op._tag === 'RawCommand' &&
-    /^(next-layout|previous-layout|select-layout|selectl)\b/.test(op.command)
-  );
+  return op._tag === 'RawCommand' && isLayoutCommand(op.command);
 }

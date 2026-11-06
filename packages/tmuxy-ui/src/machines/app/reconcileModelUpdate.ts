@@ -365,9 +365,9 @@ export const reconcileModelActions = {
     if (shouldResize) {
       enqueue(
         sendTo('tmux', {
-          type: 'INVOKE' as const,
-          cmd: 'set_client_size',
-          args: { cols: context.targetCols, rows: context.targetRows },
+          type: 'SET_CLIENT_SIZE' as const,
+          cols: context.targetCols,
+          rows: context.targetRows,
         }),
       );
     }

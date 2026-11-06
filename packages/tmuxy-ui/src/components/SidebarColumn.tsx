@@ -139,10 +139,8 @@ const START_COMMAND = { left: 'tmuxy widget tree', right: 'the default shell' } 
  * Render a sidebar's pane.
  *
  * The LEFT column is the tree by definition: a `sidebar-left` window IS the
- * tree, so `SidebarTree` is rendered directly instead of detecting the `tree`
- * widget from the pane's screen text. (Detection depended on the marker line
- * `__TMUXY_WIDGET__:tree` fitting on one row; below 22 columns it wrapped and
- * the column fell back to a raw terminal.) The registered widget is for a
+ * tree, so `SidebarTree` is rendered directly instead of waiting for the `tree`
+ * widget's marker to reach the screen. The registered widget is for a
  * `tmuxy widget tree` run in an ordinary pane.
  *
  * The RIGHT column is a terminal pane with the same interaction layer a tiled

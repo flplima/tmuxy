@@ -119,6 +119,40 @@ export function isWrappedRow(line: CellLine | undefined, width: number): boolean
   return !!line && line.length >= width;
 }
 
+/** A cell of the grid or the scrollback, by row and column. */
+export interface CellPos {
+  row: number;
+  col: number;
+}
+
+/** A selection's two ends, the earlier first. */
+function orderedEnds(a: CellPos, b: CellPos): [CellPos, CellPos] {
+  return a.row > b.row || (a.row === b.row && a.col > b.col) ? [b, a] : [a, b];
+}
+
+/**
+ * The columns of each row a selection between `anchor` and `cursor` covers,
+ * inclusive, in a grid `width` columns wide: the first row from the earlier
+ * end, the last up to the later end, the rows between whole; every row whole
+ * in line mode. Null for a row outside it.
+ */
+export function selectionColumns(
+  anchor: CellPos,
+  cursor: CellPos,
+  width: number,
+  lineMode = false,
+): (row: number) => { startCol: number; endCol: number } | null {
+  const [start, end] = orderedEnds(anchor, cursor);
+  return (row) => {
+    if (row < start.row || row > end.row) return null;
+    if (lineMode) return { startCol: 0, endCol: width - 1 };
+    return {
+      startCol: row === start.row ? start.col : 0,
+      endCol: row === end.row ? end.col : width - 1,
+    };
+  };
+}
+
 /**
  * Extract selected text from copy mode state.
  * For char mode: first line from anchor col, last line to cursor col, middle lines full.
@@ -132,15 +166,9 @@ export function extractSelectedText(state: CopyModeState): string {
 
   if (!selectionAnchor || !selectionMode) return '';
 
-  // Normalize: start before end
-  let startRow = selectionAnchor.row;
-  let startCol = selectionAnchor.col;
-  let endRow = cursorRow;
-  let endCol = cursorCol;
-
-  if (startRow > endRow || (startRow === endRow && startCol > endCol)) {
-    [startRow, startCol, endRow, endCol] = [endRow, endCol, startRow, startCol];
-  }
+  const [start, end] = orderedEnds(selectionAnchor, { row: cursorRow, col: cursorCol });
+  const { row: startRow, col: startCol } = start;
+  const { row: endRow, col: endCol } = end;
 
   let output = '';
 

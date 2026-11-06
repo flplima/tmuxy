@@ -9,17 +9,18 @@ import { EventHub } from '../infra/eventHub';
 import { makeAppRuntime, type AppRuntime } from '../infra/runtime';
 import { TmuxTransport, makeTransport } from '../infra/transport/TmuxTransport';
 import type { TransportEvent } from '../infra/transport/events';
-import type { TmuxAdapter } from '../infra/transport/driver';
+import type { TransportDriver } from '../infra/transport/driver';
+import type { BackendCall } from '../domain/backendCalls';
 
 type NextResult = { kind: 'ok'; value: unknown } | { kind: 'reject'; error: unknown };
 
 export interface FakeTransport {
-  readonly driver: TmuxAdapter;
+  readonly driver: TransportDriver;
   readonly layer: Layer.Layer<TmuxTransport>;
   readonly runtime: AppRuntime;
-  /** Every invoke, in order. */
-  readonly invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
-  /** What every later invoke the overrides leave alone answers. */
+  /** Every call sent, in order, whoever answered it. */
+  readonly invocations: BackendCall[];
+  /** What every later call the overrides leave alone answers. */
   setNextResult(result: NextResult): void;
   /** Push an event as if the backend had. */
   emit(event: TransportEvent): void;
@@ -27,20 +28,21 @@ export interface FakeTransport {
   run<A, E>(effect: Effect.Effect<A, E, TmuxTransport>): Promise<A>;
 }
 
-export function fakeTransport(overrides: Partial<TmuxAdapter> = {}): FakeTransport {
+export function fakeTransport(overrides: Partial<TransportDriver> = {}): FakeTransport {
   const invocations: FakeTransport['invocations'] = [];
-  let next: NextResult = { kind: 'ok', value: undefined };
+  let next: NextResult = { kind: 'ok', value: null };
   const events = new EventHub<TransportEvent>();
-  const driver: TmuxAdapter = {
+  const driver: TransportDriver = {
     events,
     connect: async () => {},
     disconnect: () => {},
-    invoke: async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
-      invocations.push({ cmd, args });
-      if (next.kind === 'reject') throw next.error;
-      return next.value as T;
-    },
     ...overrides,
+    send: async (call, actionId) => {
+      invocations.push(call);
+      if (overrides.send) return overrides.send(call, actionId);
+      if (next.kind === 'reject') throw next.error;
+      return next.value;
+    },
   };
   const layer = Layer.scoped(TmuxTransport, makeTransport(driver));
   const runtime = makeAppRuntime(layer);

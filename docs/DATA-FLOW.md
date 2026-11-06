@@ -103,29 +103,28 @@ The monitor multiplexes control-mode events with timer-driven flushes (throttle,
 
 ## Command Execution Flow
 
-Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` variant on the server (or routed straight through Tauri IPC). Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
+Every command the client sends is a row of `tmuxy-ui/src/domain/backendCalls.ts` (name, argument schema, answer schema), held to the Rust `ClientCommand` by the protocol fixtures. It goes out as `{ cmd, args }` (`POST /commands`, the desktop's `dispatch`) and both hosts decode it into a `ClientCommand`. Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
 
 Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`tmuxy-core/src/transport.rs`, shared by both transports). Sync helpers in `executor::*` remain only for CLI paths with no client attached.
 
-**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
+**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Both hosts implement both identically (`ClientCommand::RunTmuxCommand`, `ClientCommand::QueryTmux`), and the frontend reaches them as the transport's `run(op)` and `query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
 
 **Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
 
 ```
 Frontend
-    │ adapter.invoke(cmd, args)
-    ▼
+    │ TmuxTransport (one serial lane: commandLane.ts)
+    ▼ driver.send({ cmd, args })
 ┌──────────────────────────────────────────┐
 │  Backend                                 │
 │  ┌──────────────┐    ┌────────────────┐  │
 │  │ Web: POST    │    │ Tauri:         │  │
-│  │ /commands    │    │ invoke()       │  │
+│  │ /commands    │    │ dispatch       │  │
 │  └──────┬───────┘    └─────────┬──────┘  │
-│         ▼                      ▼         │
-│   ClientCommand variant   Tauri command  │
-│         │                      │         │
 │         └──────────┬───────────┘         │
 │                    ▼                     │
+│   ClientCommand variant (host::handle)   │
+│                    │                     │
 │      command_router::route_command       │
 │                    │                     │
 │     monitor channel (mutations and       │
@@ -151,7 +150,7 @@ After the initial full state snapshot, the server sends incremental deltas to mi
 3. If in copy mode: key routed to `COPY_MODE_KEY` handler (handled client-side, see [COPY-MODE.md](COPY-MODE.md))
 4. If prefix key pressed: enters prefix mode, waits for next key to match a binding
 5. Otherwise the keydown is classified as text or chord (see below) and `keyboardActor` sends `SEND_TMUX_COMMAND` — literal text with `send-keys -l`, a chord as a tmux key name
-6. The `KeyBatcher` in the adapter batches rapid keystrokes (e.g., typing "hello") into single `send-keys` commands
+6. The transport's `KeyBatcher` (`keyBatching.ts`, on the lane) joins rapid keystroke ops (typing "hello") into one `SendText` or `SendKeys` op
 7. Command reaches tmux via control mode stdin
 8. tmux processes the keystroke and sends `%output` event back through control mode stdout
 9. Monitor emits a state delta with the updated pane content

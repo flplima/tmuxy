@@ -8,7 +8,7 @@ import type { AppMachineContext } from '../../../machines/types/context';
 import type { TraceLevel, ThemeInfo, ThemeMode } from '../../../domain/wireSettings';
 import { renameSessionPrompt, TmuxOp } from '../../../domain/commands';
 import { PINNABLE, pinnedLabel } from '../../../domain/pins';
-import { keyHint } from '../../../domain/menus/keyHint';
+import { keyHint } from '../../../domain/keyLabels';
 import type { MenuIconName } from '../../../domain/menus/icons';
 import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { paneMenuSpec } from './paneMenu';

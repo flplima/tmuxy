@@ -22,14 +22,18 @@ function isSessionChanged(oldState: ServerState, newState: ServerState): boolean
 }
 
 /**
- * Check if pane content is effectively empty (all lines are empty or whitespace-only).
- * Used to detect panes awaiting capture-pane refresh after resize.
+ * Whether a pane's content is "not captured yet": no rows at all.
+ *
+ * The one rule every holder of pane content applies — the full-state merge
+ * and the initial-state fill here, and the renderer's latches over the grid
+ * and over the widget classification. A screen that has been cleared still
+ * has its rows, full of spaces, so a blank grid is real content (what `clear`
+ * looks like) and must replace what was there; only a pane with no rows is
+ * one whose capture has not landed (a placeholder, a pane before its first
+ * capture, the gap a `swap-pane` leaves).
  */
-function isPaneContentEmpty(content: PaneContent): boolean {
-  if (content.length === 0) return true;
-  return content.every(
-    (line) => line.length === 0 || line.every((cell) => !cell.c || cell.c === ' '),
-  );
+export function notCapturedYet(content: PaneContent | undefined): boolean {
+  return !content || content.length === 0;
 }
 
 /**
@@ -63,7 +67,7 @@ export function adoptInitialState(
   let filled = false;
   const panes = current.panes.map((pane) => {
     const from = answered.get(pane.tmux_id);
-    if (!from || !isPaneContentEmpty(pane.content) || isPaneContentEmpty(from.content)) {
+    if (!from || !notCapturedYet(pane.content) || notCapturedYet(from.content)) {
       return pane;
     }
     filled = true;
@@ -96,10 +100,9 @@ export function handleStateUpdate(
   currentState: ServerState | null,
 ): ServerState | null {
   if (update.type === 'full') {
-    // When replacing existing state with a full update, preserve non-empty pane
-    // content that would be overwritten by empty content: after a pane resize
-    // the vt100 parser is reset (empty) while the capture-pane refill has not
-    // arrived yet.
+    // A full update keeps a pane's content where the update has none captured
+    // yet (`notCapturedYet`), so a resync over a pane whose capture is still
+    // in flight does not blank it.
     //
     // Skip content preservation when the session has changed (kill+recreate):
     // pane IDs are reused across sessions, so old content would leak as ghost lines.
@@ -110,7 +113,7 @@ export function handleStateUpdate(
       const existingPaneMap = new Map(currentState.panes.map((p) => [p.tmux_id, p]));
       const mergedPanes = update.state.panes.map((pane) => {
         const existing = existingPaneMap.get(pane.tmux_id);
-        if (existing && isPaneContentEmpty(pane.content) && !isPaneContentEmpty(existing.content)) {
+        if (existing && notCapturedYet(pane.content) && !notCapturedYet(existing.content)) {
           return {
             ...pane,
             content: existing.content,

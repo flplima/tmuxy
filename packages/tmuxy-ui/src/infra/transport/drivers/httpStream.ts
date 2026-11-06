@@ -2,7 +2,6 @@ import { EventHub } from '../../eventHub';
 import { type DriverEvent } from '../events';
 import { CommandFailure, ConnectionInfo } from '../../../domain/wire';
 import { HOST_EVENT_NAMES, receiveHostEvent, type HostEventHooks } from '../hostEvents';
-import { tracer } from '../../tracer';
 import { Effect, Schedule, Schema } from 'effect';
 
 /**
@@ -129,13 +128,13 @@ export async function probeRefusalReason(
   return null;
 }
 
-export async function postCommandJson<T>(
+export async function postCommandJson(
   session: string,
   connectionId: number,
   cmd: string,
-  args?: Record<string, unknown>,
+  args: unknown,
   actionId?: string,
-): Promise<T> {
+): Promise<unknown> {
   const commandsUrl = buildEndpointUrl('/commands', session);
   const response = await fetch(commandsUrl, {
     method: 'POST',
@@ -145,7 +144,7 @@ export async function postCommandJson<T>(
       // Correlate the request leg in the trace (docs/TRACING.md).
       ...(actionId ? { 'X-Action-Id': actionId } : {}),
     },
-    body: JSON.stringify({ cmd, args: args || {} }),
+    body: JSON.stringify({ cmd, args }),
   });
 
   if (!response.ok) {
@@ -157,8 +156,8 @@ export async function postCommandJson<T>(
     throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
   }
 
-  const data = await response.json();
-  return data.result as T;
+  const data = (await response.json()) as { result?: unknown };
+  return data.result;
 }
 
 /**
@@ -175,30 +174,6 @@ export async function postPreviewPage(url: string, html: string): Promise<void> 
     const body: unknown = await response.json().catch(() => null);
     throw isCommandFailure(body) ? body : new Error(`HTTP ${response.status}`);
   }
-}
-
-export function postCommandFireAndForgetEffect(
-  session: string,
-  connectionId: number,
-  cmd: string,
-  args: Record<string, unknown>,
-  actionId?: string,
-): Effect.Effect<void> {
-  const commandsUrl = buildEndpointUrl('/commands', session);
-  const connId = String(connectionId);
-  return Effect.promise(() =>
-    fetch(commandsUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Connection-Id': connId,
-        ...(actionId ? { 'X-Action-Id': actionId } : {}),
-      },
-      body: JSON.stringify({ cmd, args }),
-    })
-      .then(() => {})
-      .catch(() => {}),
-  );
 }
 
 /** Ship a batch of trace events to the same-origin /trace ingest endpoint.
@@ -229,7 +204,6 @@ export interface SseStreamCallbacks {
   onDisconnected(shouldAnnounceReconnect: boolean): void;
   onFatal(): void;
   onEstablishError(eventsUrl: string): void;
-  shipTrace(events: Record<string, unknown>[]): void;
 }
 
 /**
@@ -283,15 +257,7 @@ export function openSseConnection(
 
     // What this link does on an event besides publishing it.
     const hooks: HostEventHooks = {
-      'connection-info': (data) => {
-        cb.onConnected(data);
-        // Action tracing (docs/TRACING.md): the server tells us whether it
-        // is recording; only then do we ship our own events, and only through
-        // the same-origin /trace sink. The server independently rejects when
-        // off, so this is a hint, not the gate.
-        tracer.setServerEnabled(data.trace_enabled === true);
-        tracer.setSink((events) => cb.shipTrace(events));
-      },
+      'connection-info': (data) => cb.onConnected(data),
       // The backend gave up: terminal state, no more events. The flag the
       // retry loop checks is set first, so the loop stops instead of
       // reconnecting into a dead backend.

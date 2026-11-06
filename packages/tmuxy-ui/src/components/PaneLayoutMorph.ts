@@ -4,13 +4,9 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo } from 'react';
-import {
-  computePaneBox,
-  PANE_ENTER_MS,
-  PANE_LEAVE_MS,
-  PANE_ENTER_FROM_OPACITY,
-  type PaneBox,
-} from '../constants/layout';
+import { PANE_LEAVE_MS, PANE_ENTER_FROM_OPACITY } from '../constants/layout';
+import { cssDurationMs } from '../infra/dom/cssTiming';
+import { paneBox, type PaneBox } from '../domain/paneGeometry';
 import { findEnterFromBox } from './paneTransitions';
 import { parseSwipeNeighbor } from '../machines/gestures/gestures';
 import type { TmuxPane } from '../domain/client';
@@ -79,7 +75,7 @@ export function useRenderedPanesAndView({
         hidden,
         box: hidden
           ? null
-          : computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y),
+          : paneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y),
       });
     }
     return view;
@@ -140,10 +136,20 @@ export const ANIM_TIMER_SLACK_MS = 40;
 // event, not on a clock: under load the transition can start late, and a
 // class dropped mid-flight leaves the panes overlapping for the next paint.
 export const MORPH_PROPERTIES = new Set(['left', 'top', 'width', 'height']);
-// Fallback for a morph that never transitions (from- and to-box coincide, or
-// animations are disabled): long enough that a running transition always
-// ends first, short enough to be invisible — the class only sets timings.
-export const MORPH_FALLBACK_MS = PANE_ENTER_MS * 4;
+/**
+ * Fallback for a morph that never transitions (from- and to-box coincide, or
+ * animations are disabled): long enough that a running transition always
+ * ends first, short enough to be invisible — the class only sets timings.
+ * Four times the longest of the pane transitions as `el` computes them.
+ */
+export function morphFallbackMs(el: Element): number {
+  const longest = Math.max(
+    cssDurationMs(el, '--transition-pane-enter'),
+    cssDurationMs(el, '--transition-pane-zoom'),
+    cssDurationMs(el, '--transition-pane-size'),
+  );
+  return longest * 4;
+}
 
 // A pane that disappears this soon after entering is a transient (e.g. the
 // intermediate split of a CLI float-create) — drop it instantly instead of
@@ -329,6 +335,7 @@ export function usePaneMorphCommit({
   // entries whose panes vanished, and snapshot this render for the next diff.
   useLayoutEffect(() => {
     const container = containerRef.current;
+    const timingRoot = container ?? document.documentElement;
 
     for (const [key, anim] of enterAnimsRef.current) {
       if (!currView.has(key)) {
@@ -383,7 +390,7 @@ export function usePaneMorphCommit({
         bumpAnimTick();
       };
       if (node) anim.unlisten = onMorphEnd(node, finish);
-      anim.timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
+      anim.timer = window.setTimeout(finish, morphFallbackMs(node ?? timingRoot));
     }
 
     for (const [key, shift] of shiftAnimsRef.current) {
@@ -396,15 +403,19 @@ export function usePaneMorphCommit({
       };
       const node = container?.querySelector<HTMLElement>(`[data-pane-key="${key}"]`);
       if (node) shift.unlisten = onMorphEnd(node, finish);
-      shift.timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
+      shift.timer = window.setTimeout(finish, morphFallbackMs(node ?? timingRoot));
     }
 
+    // The collapsed siblings expand on the zoom's own transition.
     const ze = zoomExpandRef.current;
     if (ze && ze.timer === undefined) {
-      ze.timer = window.setTimeout(() => {
-        zoomExpandRef.current = null;
-        bumpAnimTick();
-      }, PANE_ENTER_MS + ANIM_TIMER_SLACK_MS);
+      ze.timer = window.setTimeout(
+        () => {
+          zoomExpandRef.current = null;
+          bumpAnimTick();
+        },
+        cssDurationMs(timingRoot, '--transition-pane-zoom') + ANIM_TIMER_SLACK_MS,
+      );
     }
     prevZoomedRef.current = zoomedPaneId;
     for (const [key, leave] of leavingRef.current) {

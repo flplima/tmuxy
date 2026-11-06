@@ -1,8 +1,9 @@
 /**
  * The HTTP driver against a scripted EventSource and fetch: the stream's
  * lifecycle (connect, drop, reconnect, give up), what each kind of server
- * answer becomes, and the serial queue every `run_tmux_command` goes through
- * — a split fired right after a tab switch must not reach the server first.
+ * answer becomes, and, through the transport the app runs on it, the serial
+ * lane every tmux op takes — a split fired right after a tab switch must not
+ * reach the server first.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -12,6 +13,7 @@ import { TmuxTransport, type TmuxTransportService } from '../../TmuxTransport';
 import { HttpAdapter } from '../HttpAdapter';
 import { installMockEventSource, MockEventSource, openStreams, stream } from './mockEventSource';
 import type { ServerState } from '../../../../domain/wire';
+import { TmuxOp } from '../../../../domain/commands';
 
 describe('HttpAdapter connect() lifecycle', () => {
   let restoreEventSource: () => void;
@@ -210,89 +212,9 @@ describe('HttpAdapter connect() lifecycle', () => {
     expect(fatals[0]).toBe('The server refused this session: too many sessions to create another');
     adapter.disconnect();
   });
-
-  it('runs run_tmux_command through the serial queue in issue order', async () => {
-    const adapter = new HttpAdapter();
-    const c = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await c;
-
-    // Each POST resolves only when the test releases it, so the second command
-    // cannot complete before the first unless the queue reordered them.
-    const posted: string[] = [];
-    const releases: Array<() => void> = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation((_url: string, init: { body: string }) => {
-        const command = JSON.parse(init.body).args.command as string;
-        posted.push(command);
-        return new Promise((resolve) => {
-          releases.push(() =>
-            resolve({ ok: true, json: () => Promise.resolve({ result: command }) }),
-          );
-        });
-      }),
-    );
-
-    const r1 = adapter.invoke<string>('run_tmux_command', { command: 'first' });
-    const r2 = adapter.invoke<string>('run_tmux_command', { command: 'second' });
-
-    // Only the first POST has left the browser; the second waits behind it.
-    await vi.waitFor(() => expect(posted).toEqual(['first']));
-    releases[0]();
-    await vi.waitFor(() => expect(posted).toEqual(['first', 'second']));
-    releases[1]();
-
-    expect(await r1).toBe('first');
-    expect(await r2).toBe('second');
-    adapter.disconnect();
-  });
-
-  it('a key typed while the stream is down is posted once it is back, under the new connection, before later commands', async () => {
-    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const c = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await c;
-
-    const posted: Array<{ command: string; connectionId: string }> = [];
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockImplementation(
-          (_url: string, init: { body: string; headers: Record<string, string> }) => {
-            posted.push({
-              command: JSON.parse(init.body).args.command as string,
-              connectionId: init.headers['X-Connection-Id'],
-            });
-            return Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) });
-          },
-        ),
-    );
-
-    // The stream drops; the user keeps typing, then splits the pane.
-    MockEventSource.instances[0].onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(adapter.isConnected()).toBe(false));
-    const key = "send-keys -t %1 -l -- 'x'";
-    void adapter.invoke('run_tmux_command', { command: key });
-    const split = adapter.invoke('run_tmux_command', { command: 'split-window -h' });
-
-    // Nothing leaves the browser while the stream is down...
-    const second = await stream(1);
-    expect(posted).toEqual([]);
-
-    // ...and once it is back, the key goes first, naming the new connection.
-    second.emit('connection-info', { data: { connection_id: 2 } });
-    await split;
-    expect(posted).toEqual([
-      { command: key, connectionId: '2' },
-      { command: 'split-window -h', connectionId: '2' },
-    ]);
-    adapter.disconnect();
-  });
 });
 
-describe('the HTTP transport: initial state against the live stream', () => {
+describe('the HTTP transport the app runs: initial state and the serial lane', () => {
   let restoreEventSource: () => void;
 
   beforeEach(() => {
@@ -383,7 +305,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }, { c: ' ' }]];
@@ -430,7 +352,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     // still making windows, the stream delivers them, and to the server
     // nothing changes after that — no delta would ever bring them back.
     const { transport, es, answer } = await withPendingAnswer();
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }]];
@@ -446,7 +368,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     const { transport, es, answer } = await withPendingAnswer();
     const prompt = [[{ c: '$' }]];
     // The client's first answer, which also gives the resync its size.
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer(state(prompt));
     await initial;
@@ -460,6 +382,77 @@ describe('the HTTP transport: initial state against the live stream', () => {
     await vi.waitFor(() =>
       expect(transport.lastState()?.windows.map((w) => w.id)).toEqual(['@1', '@5']),
     );
+    await transport.close();
+  });
+
+  /** A connected transport over a fetch that records each POST's command and connection. */
+  const connectedTransport = async (
+    respond: (command: string) => Promise<unknown> = () =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) }),
+  ) => {
+    const posted: Array<{ command: string; connectionId: string }> = [];
+    const transport = openTransport();
+    const connected = transport.call((t) => t.connect);
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
+    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    await connected;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementation(
+          (_url: string, init: { body: string; headers: Record<string, string> }) => {
+            const command = JSON.parse(init.body).args.command as string;
+            posted.push({ command, connectionId: init.headers['X-Connection-Id'] });
+            return respond(command);
+          },
+        ),
+    );
+    return { transport, posted };
+  };
+
+  it('runs every tmux op through the serial lane in issue order', async () => {
+    // Each POST resolves only when the test releases it, so the second op
+    // cannot complete before the first unless the lane reordered them.
+    const releases: Array<() => void> = [];
+    const { transport, posted } = await connectedTransport(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, json: () => Promise.resolve({ result: null }) }));
+        }),
+    );
+
+    const r1 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'first' })));
+    const r2 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'second' })));
+
+    // Only the first POST has left the browser; the second waits behind it.
+    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first']));
+    releases[0]();
+    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first', 'second']));
+    releases[1]();
+    await Promise.all([r1, r2]);
+    await transport.close();
+  });
+
+  it('a key typed while the stream is down is posted once it is back, under the new connection, before later commands', async () => {
+    const { transport, posted } = await connectedTransport();
+
+    // The stream drops; the user keeps typing, then splits the pane.
+    MockEventSource.instances[0].onerror?.(new Event('error'));
+    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    await transport.call((t) => t.run(TmuxOp.SendText({ target: '%1', text: 'x' })));
+    const split = transport.call((t) => t.run(TmuxOp.Split({ direction: 'vertical' })));
+
+    // Nothing leaves the browser while the stream is down...
+    expect(posted).toEqual([]);
+
+    // ...and once it is back, the key goes first, naming the new connection.
+    MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
+    await split;
+    expect(posted).toEqual([
+      { command: "send-keys -t %1 -l -- 'x'", connectionId: '2' },
+      { command: 'split-window -h', connectionId: '2' },
+    ]);
     await transport.close();
   });
 });

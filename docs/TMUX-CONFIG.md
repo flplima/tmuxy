@@ -69,7 +69,7 @@ The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, 
 
 No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). The monitor sets them per session on every connect, and per window as each is first listed (table below), never globally, for a tmux 3.5a crash with global settings under control mode (open whether it still holds: the chain sourced on connect sets a global window option, `pane-border-style`).
 
-OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
+OSC 8 hyperlinks are read by tmuxy's own emulator (the vendored `packages/vt100`), so no `terminal-features` setting is required either.
 
 ### The config chain, and where a user's own `~/.tmux.conf` fits
 

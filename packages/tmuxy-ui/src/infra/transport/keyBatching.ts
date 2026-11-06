@@ -1,248 +1,131 @@
-import { TmuxOp, toTmuxCommand } from '../../domain/commands';
+import { TmuxOp } from '../../domain/commands';
 
-// Batching constants
-const KEY_BATCH_INTERVAL_MS = 16; // Batch keystrokes within ~1 frame
+/** Keystrokes within ~1 frame go out as one send. */
+const KEY_BATCH_INTERVAL_MS = 16;
 
-/** One send of the special keys batched for `target`. */
-const keysCommand = (target: string, keys: string[]): string =>
-  toTmuxCommand(TmuxOp.SendKeys({ target, keys: keys.join(' ') }));
+type Kind = 'keys' | 'text';
 
-/** One send of the literal text batched for `target` (chunked like any `SendText`). */
-const textCommand = (target: string, text: string): string =>
-  toTmuxCommand(TmuxOp.SendText({ target, text }));
+/** One window's worth of one kind of keystroke, per target. */
+class Batch {
+  readonly pending = new Map<string, string[]>();
+  /** The trailing flush, after one frame; a window is open while it is set. */
+  window: ReturnType<typeof setTimeout> | null = null;
 
-/**
- * Unescape literal text from tmux send-keys -l format.
- * Reverses: 'text' → text, 'it'\''s' → it's
- */
-export function unescapeLiteralText(escaped: string): string {
-  if (!escaped.startsWith("'")) return escaped;
-  let result = '';
-  let i = 1; // skip opening quote
-  while (i < escaped.length) {
-    if (escaped[i] === "'" && escaped.substring(i, i + 4) === "'\\''" && i + 4 <= escaped.length) {
-      result += "'";
-      i += 4;
-    } else if (escaped[i] === "'") {
-      break;
-    } else {
-      result += escaped[i];
-      i++;
-    }
+  constructor(readonly kind: Kind) {}
+
+  closeWindow(): void {
+    if (this.window !== null) clearTimeout(this.window);
+    this.window = null;
   }
-  return result;
+
+  hasPending(): boolean {
+    for (const parts of this.pending.values()) if (parts.length > 0) return true;
+    return false;
+  }
 }
 
 /**
- * Function signature for sending a fire-and-forget command.
- */
-export type SendFn = (cmd: string, args: Record<string, unknown>) => void;
-
-/**
- * KeyBatcher rate-limits tmux send-keys commands to at most one per ~frame
- * (16ms) per kind, without delaying isolated keystrokes.
+ * Rate-limits keystroke ops (`SendKeys`, `SendText`) to at most one send per
+ * ~frame (16ms) per kind, without delaying isolated keystrokes.
  *
- * Leading edge: a keystroke arriving with no active batch window is sent
+ * Leading edge: a keystroke arriving with no batch window open is sent
  * IMMEDIATELY — a lone keypress never waits out the 16ms window (that wait
  * was the dominant share of the local input→paint floor, see
  * docs/PERFORMANCE.md). The send opens a window; keys arriving inside it
- * accumulate and flush together when it closes (trailing edge). A non-empty
- * trailing flush re-opens the window, so sustained fast input (paste,
- * key-repeat) still coalesces to ~one send per frame.
+ * accumulate per target and flush together when it closes (trailing edge).
+ * A non-empty trailing flush re-opens the window, so sustained fast input
+ * (paste, key-repeat) still coalesces to ~one send per frame.
  *
- * It handles two types of send-keys:
- * - Literal text: `send-keys -t SESSION -l -- 'TEXT'`
- * - Special keys: `send-keys -t SESSION KEY1 KEY2`
- *
- * Cross-batch ordering is preserved: if literal text is pending and a
- * special key arrives (or vice versa), the pending batch is flushed first.
+ * The batch is made of ops, so what goes out is one `SendKeys` of the joined
+ * key names or one `SendText` of the joined text, quoted by `toTmuxCommand`
+ * like any other. Order is kept across the two kinds: a keystroke of one kind
+ * flushes what its target has pending of the other first.
  */
 export class KeyBatcher {
-  private pendingKeys: Map<string, string[]> = new Map();
-  // The batch window is a timer that runs the trailing flush after one frame;
-  // clearing it (flushAll/destroy) cancels that flush. A pending timer means a
-  // window is open.
-  private keyBatchWindow: ReturnType<typeof setTimeout> | null = null;
-  private pendingLiteralText: Map<string, string> = new Map();
-  private literalBatchWindow: ReturnType<typeof setTimeout> | null = null;
-  private sendFn: SendFn;
+  private readonly keys = new Batch('keys');
+  private readonly text = new Batch('text');
 
-  constructor(sendFn: SendFn) {
-    this.sendFn = sendFn;
-  }
-
-  /** Open a batch window: after one frame, run `flush`. */
-  private openWindow(flush: () => void): ReturnType<typeof setTimeout> {
-    return setTimeout(flush, KEY_BATCH_INTERVAL_MS);
-  }
-
-  private cancelWindow(window: ReturnType<typeof setTimeout> | null): void {
-    if (window !== null) clearTimeout(window);
-  }
+  constructor(private readonly send: (op: TmuxOp) => void) {}
 
   /**
-   * Try to intercept a command for batching.
-   * Returns true if the command was intercepted (caller should return immediately).
-   * Returns false if the command should be sent normally.
+   * Take a keystroke op into the batch (it is then sent, now or with the
+   * window); false for any other op, which the caller sends itself. Key names
+   * that start with a flag (`-X cancel`, `-N 3 Up`) are sent alone: joined
+   * with others, the flag would apply to keys it was never meant for.
    */
-  intercept(cmd: string, args?: Record<string, unknown>): boolean {
-    if (cmd !== 'run_tmux_command' || !args?.command) return false;
-
-    const command = args.command as string;
-
-    // Match literal send-keys: send-keys -t SESSION -l -- 'ESCAPED_TEXT'.
-    // Only a target `target()` leaves bare is batched: a quoted one would be
-    // cut at its first space here and quoted a second time on the way out.
-    const literalMatch = command.match(/^send-keys -t ([\w.@%:-]+) -l (?:-- )?(.+)$/);
-    if (literalMatch) {
-      const [, session, escapedText] = literalMatch;
-      // Double-quoted strings (`tmuxDoubleQuoted` octal escapes for control
-      // characters) cannot be unescaped as single-quoted literals; flush any
-      // pending batch for this target to keep keystroke order, and let the
-      // caller send the command verbatim.
-      if (!escapedText.startsWith("'")) {
-        this.flushKeyBatchForSession(session);
-        this.flushLiteralBatchForSession(session);
-        return false;
-      }
-      const rawText = unescapeLiteralText(escapedText);
-
-      // Cross-batch ordering: flush pending special keys for this session first
-      if (this.pendingKeys.has(session) && this.pendingKeys.get(session)!.length > 0) {
-        this.flushKeyBatchForSession(session);
-      }
-
-      if (!this.literalBatchWindow) {
-        // Leading edge: no window open — send now, open the window.
-        this.sendFn('run_tmux_command', { command });
-        this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
-      } else {
-        const existing = this.pendingLiteralText.get(session) || '';
-        this.pendingLiteralText.set(session, existing + rawText);
-      }
-
-      return true;
+  take(op: TmuxOp): boolean {
+    const taken =
+      op._tag === 'SendText'
+        ? { batch: this.text, other: this.keys, target: op.target, part: op.text }
+        : op._tag === 'SendKeys' && !op.keys.startsWith('-')
+          ? { batch: this.keys, other: this.text, target: op.target, part: op.keys }
+          : null;
+    if (!taken) return false;
+    const { batch, other, target, part } = taken;
+    this.flushTarget(other, target);
+    if (batch.window === null) {
+      this.send(this.opFor(batch.kind, target, [part]));
+      batch.window = this.openWindow(batch);
+    } else {
+      const parts = batch.pending.get(target) ?? [];
+      parts.push(part);
+      batch.pending.set(target, parts);
     }
-
-    // Match special (non-literal) send-keys: send-keys -t SESSION KEYS.
-    // Hex-byte sends (`-H`, e.g. injected SGR mouse reports) must NOT batch:
-    // joining two of them puts a literal `-H` token mid-keys, which tmux
-    // rejects as an unknown key — the whole combined command fails and no
-    // event is delivered (a click's press+release land within one batch
-    // window, so a plain click would deliver nothing at all).
-    const sendKeysMatch = command.match(/^send-keys -t ([\w.@%:-]+) (?!-l )(?!-H )(.+)$/);
-    if (sendKeysMatch) {
-      const [, session, keys] = sendKeysMatch;
-
-      // Cross-batch ordering: flush pending literal text for this session first
-      if (
-        this.pendingLiteralText.has(session) &&
-        this.pendingLiteralText.get(session)!.length > 0
-      ) {
-        this.flushLiteralBatchForSession(session);
-      }
-
-      if (!this.keyBatchWindow) {
-        // Leading edge: no window open — send now, open the window.
-        this.sendFn('run_tmux_command', { command });
-        this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
-      } else {
-        if (!this.pendingKeys.has(session)) {
-          this.pendingKeys.set(session, []);
-        }
-        this.pendingKeys.get(session)!.push(keys);
-      }
-
-      return true;
-    }
-
-    return false;
+    return true;
   }
 
   /** Keys taken in and not yet sent: a window is open with something in it. */
   hasPending(): boolean {
-    for (const keys of this.pendingKeys.values()) if (keys.length > 0) return true;
-    for (const text of this.pendingLiteralText.values()) if (text.length > 0) return true;
-    return false;
+    return this.keys.hasPending() || this.text.hasPending();
   }
 
-  /**
-   * Flush all pending batches. Call before sending non-batched commands.
-   */
+  /** Send everything pending now and close the windows: before an op that must not overtake it. */
   flushAll(): void {
-    this.cancelWindow(this.keyBatchWindow);
-    this.keyBatchWindow = null;
-    this.cancelWindow(this.literalBatchWindow);
-    this.literalBatchWindow = null;
-
-    for (const [session, keys] of this.pendingKeys) {
-      if (keys.length === 0) continue;
-      this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
+    for (const batch of [this.keys, this.text]) {
+      batch.closeWindow();
+      this.flush(batch);
     }
-    this.pendingKeys.clear();
-
-    for (const [session, text] of this.pendingLiteralText) {
-      if (text.length === 0) continue;
-      this.sendFn('run_tmux_command', { command: textCommand(session, text) });
-    }
-    this.pendingLiteralText.clear();
   }
 
-  /**
-   * Clear all pending batches and timers without flushing.
-   */
+  /** Drop everything pending, unsent, and close the windows. */
   destroy(): void {
-    this.cancelWindow(this.keyBatchWindow);
-    this.keyBatchWindow = null;
-    this.cancelWindow(this.literalBatchWindow);
-    this.literalBatchWindow = null;
-    this.pendingKeys.clear();
-    this.pendingLiteralText.clear();
+    for (const batch of [this.keys, this.text]) {
+      batch.closeWindow();
+      batch.pending.clear();
+    }
   }
 
-  private flushKeyBatch(): void {
-    this.keyBatchWindow = null;
+  private openWindow(batch: Batch): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
+      batch.window = null;
+      // Under sustained input the window stays open so the stream keeps
+      // coalescing; an empty one closes and the next key is leading again.
+      if (this.flush(batch)) batch.window = this.openWindow(batch);
+    }, KEY_BATCH_INTERVAL_MS);
+  }
+
+  /** Send every target's pending parts; whether anything went. */
+  private flush(batch: Batch): boolean {
     let sent = false;
-    for (const [session, keys] of this.pendingKeys) {
-      if (keys.length === 0) continue;
-      this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
+    for (const [target, parts] of batch.pending) {
+      if (parts.length === 0) continue;
+      this.send(this.opFor(batch.kind, target, parts));
       sent = true;
     }
-    this.pendingKeys.clear();
-    // Trailing flush under sustained input: keep the window open so the
-    // stream keeps coalescing. An empty window closes (next key is leading).
-    if (sent) {
-      this.keyBatchWindow = this.openWindow(() => this.flushKeyBatch());
-    }
+    batch.pending.clear();
+    return sent;
   }
 
-  private flushKeyBatchForSession(session: string): void {
-    const keys = this.pendingKeys.get(session);
-    if (!keys || keys.length === 0) return;
-    this.sendFn('run_tmux_command', { command: keysCommand(session, keys) });
-    this.pendingKeys.delete(session);
+  private flushTarget(batch: Batch, target: string): void {
+    const parts = batch.pending.get(target);
+    if (!parts || parts.length === 0) return;
+    this.send(this.opFor(batch.kind, target, parts));
+    batch.pending.delete(target);
   }
 
-  private flushLiteralBatch(): void {
-    this.literalBatchWindow = null;
-    let sent = false;
-    for (const [session, text] of this.pendingLiteralText) {
-      if (text.length === 0) continue;
-      this.sendFn('run_tmux_command', { command: textCommand(session, text) });
-      sent = true;
-    }
-    this.pendingLiteralText.clear();
-    // Trailing flush under sustained input: keep the window open so the
-    // stream keeps coalescing. An empty window closes (next key is leading).
-    if (sent) {
-      this.literalBatchWindow = this.openWindow(() => this.flushLiteralBatch());
-    }
-  }
-
-  private flushLiteralBatchForSession(session: string): void {
-    const text = this.pendingLiteralText.get(session);
-    if (!text || text.length === 0) return;
-    this.sendFn('run_tmux_command', { command: textCommand(session, text) });
-    this.pendingLiteralText.delete(session);
+  private opFor(kind: Kind, target: string, parts: string[]): TmuxOp {
+    return kind === 'keys'
+      ? TmuxOp.SendKeys({ target, keys: parts.join(' ') })
+      : TmuxOp.SendText({ target, text: parts.join('') });
   }
 }

@@ -1,19 +1,29 @@
+import type { BackendCall } from '../../domain/backendCalls';
+import type { PaneId } from '../../domain/ids';
 import type { EventHub } from '../eventHub';
 import type { DriverEvent, TransportEvent } from './events';
-import type { StateSequencer, StreamPosition } from './stateSequencer';
+import type { StateSequencer } from './stateSequencer';
 
 /**
- * A transport driver: the Promise-shaped machinery one backend needs (an SSE
- * stream and POSTs, Tauri IPC, an in-browser engine). Nothing outside
- * `infra/transport` talks to one — the `TmuxTransport` service lifts it into
- * Effects with typed errors and publishes its events as a stream.
+ * A transport driver: the Promise-shaped machinery that moves bytes to one
+ * backend and back (an SSE stream and POSTs, Tauri IPC, an in-browser
+ * engine). It knows how to reach its host, not what the calls mean: the
+ * `TmuxTransport` service holds the vocabulary, the serial lane, the key
+ * batching and the decoding, and nothing outside `infra/transport` talks to
+ * a driver.
  */
-export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
+export interface TransportDriver<E extends DriverEvent = TransportEvent> {
   /** Every event the backend pushes, in arrival order. */
   readonly events: EventHub<E>;
   connect(): Promise<void>;
   disconnect(): void;
-  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
+  /**
+   * Hand `call` to the backend and resolve with its raw answer; reject with
+   * the backend's `{ error, kind }` when it refuses. `actionId` correlates
+   * the request in the trace (docs/TRACING.md), where the link can carry it.
+   */
+  send(call: BackendCall, actionId?: string): Promise<unknown>;
+  /** Point the connection at another session, where that is the driver's to do (the web's URL). */
   switchSession?(sessionName: string): Promise<void>;
   /**
    * Retry a dropped connection now instead of at the next backoff tick. For
@@ -29,30 +39,20 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    */
   readonly enumeratesSessions?: boolean;
   /**
-   * How much this client has sent that is not yet done: commands queued or
-   * in flight to the backend, and keystrokes batched but not yet sent. Zero
-   * is one half of "settled" — the question the E2E suite asks through
-   * `window.app.settled()` instead of sleeping (`AppProvider`). Absent on a
-   * sandbox, where nothing is ever outstanding.
+   * Whether calls reach the backend in the order `send` is called, whatever
+   * each one waits for: an in-browser engine writes each to its one line
+   * before it awaits the answer. The lane then sends the next at once
+   * instead of after the previous answer, which over a guest's serial line
+   * would put every op behind the round trip of the one before. False for
+   * the hosts that run each request as its own task (HTTP, Tauri).
    */
-  pendingCommands?(): number;
+  readonly ordersSends?: boolean;
   /**
-   * Where the state stream stands (`StateSequencer.position`): the other
-   * half of settled, once the store holds the state at that number. Absent
-   * where no stream is sequenced (the sandboxes).
+   * Whether `query_tmux` reaches a tmux: the one way to READ from it, since
+   * `run_tmux_command` is fire-and-forget and resolves null on every
+   * transport. False on the stories' recorded fixtures.
    */
-  streamPosition?(): StreamPosition;
-
-  /**
-   * Run a tmux command and resolve with what it printed (`query_tmux`).
-   *
-   * The one way to READ from tmux: `run_tmux_command` is fire-and-forget and
-   * resolves null on every transport. A query rides the same control-mode
-   * connection as mutations and is answered in-band, so it needs no place in
-   * the client-side serial queue — ordering against queued window/pane
-   * commands is tmux's, not ours. Absent on the stories' recorded fixtures.
-   */
-  query?(command: string): Promise<string>;
+  readonly answersQueries?: boolean;
   /**
    * Stage a `preview` pane's composed page and resolve with the URL its frame
    * loads it from — a route on the web, the `tmuxypreview:` scheme on the
@@ -60,7 +60,12 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
    * (`tmuxy_core::preview`). Each call's URL is new, so the frame reloads.
    * Absent on v86, which has no server to stage it on.
    */
-  stagePreview?(paneId: string, html: string): Promise<string>;
+  stagePreview?(paneId: PaneId, html: string): Promise<string>;
+  /**
+   * Where the client tracer's batches go when the host records a trace, if
+   * not `record_trace` (the web's `/trace`, which outlives a closing page).
+   */
+  shipTrace?(events: Record<string, unknown>[]): void;
 }
 
 /**
@@ -68,6 +73,6 @@ export interface TmuxAdapter<E extends DriverEvent = TransportEvent> {
  * emits each payload raw and keeps the sequencer the stream stage applies
  * them with, telling it when a connection opens or the session changes.
  */
-export interface SequencedAdapter extends TmuxAdapter<DriverEvent> {
+export interface SequencedDriver extends TransportDriver<DriverEvent> {
   readonly sequencer: StateSequencer;
 }

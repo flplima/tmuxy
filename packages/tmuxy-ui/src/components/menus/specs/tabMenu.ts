@@ -6,7 +6,7 @@
 import type { AppMachineContext } from '../../../machines/types/context';
 import { TmuxOp } from '../../../domain/commands';
 import type { WindowId } from '../../../domain/ids';
-import { keyHint } from '../../../domain/menus/keyHint';
+import { keyHint } from '../../../domain/keyLabels';
 import { separator, tidy } from '../../../domain/menus/spec';
 import { command, commandHint, local, op, type AppMenuNode, type AppMenuSpec } from './actions';
 
@@ -72,6 +72,7 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Ap
       id: 'tab-stack-toggle',
       label: 'Stacked Panes',
       checked: Boolean(target?.collapsible),
+      keyHint: commandHint(keybindings, 'tab-stack-toggle'),
       action:
         contextMenu && windowId
           ? op(

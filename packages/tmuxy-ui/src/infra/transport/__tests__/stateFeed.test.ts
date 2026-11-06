@@ -12,7 +12,7 @@ import { makeSequencedTransport } from '../stateFeed';
 import { TmuxTransport, type TmuxTransportService } from '../TmuxTransport';
 import { type DriverEvent, TransportEvent } from '../events';
 import { StateSequencer } from '../stateSequencer';
-import type { SequencedAdapter } from '../driver';
+import type { SequencedDriver } from '../driver';
 
 const state = (activePane = '%1', windows = ['@1']) => ({
   session_name: 'tmuxy',
@@ -38,18 +38,18 @@ const delta = (seq: number, extra: Record<string, unknown> = {}) => ({
 /** A driver the test scripts: `push` a raw payload, `answer` the pending initial-state fetch. */
 function scriptedDriver() {
   const events = new EventHub<DriverEvent>();
-  const fetches: Array<Record<string, unknown> | undefined> = [];
+  const fetches: unknown[] = [];
   let answer: (raw: unknown) => void = () => {};
-  const driver: SequencedAdapter = {
+  const driver: SequencedDriver = {
     events,
     sequencer: new StateSequencer(),
     connect: async () => {},
     disconnect: () => {},
-    invoke: <T>(cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_initial_state') return Promise.resolve(null as T);
-      fetches.push(args);
-      return new Promise<T>((resolve) => {
-        answer = (raw) => resolve(raw as T);
+    send: (call) => {
+      if (call.cmd !== 'get_initial_state') return Promise.resolve(null);
+      fetches.push(call.args);
+      return new Promise((resolve) => {
+        answer = resolve;
       });
     },
   };
@@ -115,7 +115,7 @@ describe('the state feed stage', () => {
     const feed = openFeed();
     await feed.ready;
     // The viewport the client reported, which the refetch asks for again.
-    void feed.call((t) => t.invoke('set_client_size', { cols: 120, rows: 40 }));
+    void feed.call((t) => t.setClientSize({ cols: 120, rows: 40 }));
     feed.push(full());
     feed.push(delta(1));
     feed.push(delta(3));
@@ -137,7 +137,7 @@ describe('the state feed stage', () => {
   it('a payload that does not decode is a gap: logged, never published, refetched', async () => {
     const feed = openFeed();
     await feed.ready;
-    void feed.call((t) => t.invoke('set_client_size', { cols: 80, rows: 24 }));
+    void feed.call((t) => t.setClientSize({ cols: 80, rows: 24 }));
     feed.push(full());
     feed.push(delta(1, { active_pane_id: 'not-a-pane' }));
     await vi.waitFor(() => expect(feed.fetches).toHaveLength(1));

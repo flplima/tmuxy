@@ -29,7 +29,7 @@ import {
  * tmux 3.7a runs inside a v86 x86 emulator, and its `tmux -CC` control-mode
  * stream is parsed by tmuxy-core compiled to WASM — the exact code the native
  * server runs. Splits, new windows, and send-keys flow through
- * `invoke('run_tmux_command')` → the emulated tmux → back through the Rust core.
+ * the transport's `run` → the emulated tmux → back through the Rust core.
  * There is no lifo.sh shell simulation and no client-side VT emulator.
  *
  * These boot a real machine (~4s from a state snapshot) and are inherently

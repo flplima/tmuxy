@@ -9,15 +9,6 @@ import { isTauri } from './platform';
 import { logFailure } from './logFailure';
 import { tracer } from './tracer';
 
-/** Per-page-load prefix so ids stay unique across app restarts in one trace file. */
-const actionPrefix = `desktop-${Date.now().toString(36)}`;
-let actionCounter = 0;
-
-/** A fresh action id for a traced call, or undefined while tracing is off. */
-export function nextActionId(): string | undefined {
-  return tracer.isEnabled() ? `${actionPrefix}-${++actionCounter}` : undefined;
-}
-
 /**
  * Call `cmd`, traced. Rejects when the call fails. `traced` adds fields to
  * the trace event (never the arguments themselves, which can carry a URL or
@@ -33,7 +24,7 @@ export function desktopInvoke<T = void>(
     layer: 'tauri',
     component: 'desktop',
     name: cmd,
-    action_id: options.actionId ?? nextActionId(),
+    action_id: options.actionId ?? tracer.actionId(),
     ...options.traced,
   });
   return invoke<T>(cmd, args);
