@@ -13,6 +13,7 @@ import {
   type Actor,
 } from 'xstate';
 import { createInitialContext } from '../../context';
+import type { act, assignCtx } from '../../actionTypes';
 import type { AppMachineContext } from '../../../types/context';
 import type { AllAppMachineEvents } from '../../../types/events';
 
@@ -27,10 +28,13 @@ export interface MountOptions {
   extraActors?: Record<string, ReturnType<typeof fromCallback>>;
 }
 
-export function mountState<TActions extends Record<string, unknown>>(
+/** What a slice's actions are: the app machine's own action creators. */
+type SliceActions = Record<string, ReturnType<typeof act> | ReturnType<typeof assignCtx>>;
+
+export function mountState(
   stateConfig: { on: Record<string, { actions: string }> },
-  actions: TActions,
-  guards: Record<string, unknown> = {},
+  actions: SliceActions,
+  guards: Record<string, never> = {},
   overrideContext: Partial<AppMachineContext> = {},
   options: MountOptions = {},
 ): Actor<AnyStateMachine> {
@@ -46,10 +50,8 @@ export function mountState<TActions extends Record<string, unknown>>(
       size: stubActor,
       ...(options.extraActors ?? {}),
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    actions: actions as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    guards: guards as any,
+    actions,
+    guards,
   }).createMachine({
     context: { ...createInitialContext(), ...overrideContext },
     initial: 'active',

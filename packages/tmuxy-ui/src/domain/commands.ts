@@ -12,7 +12,8 @@
 import { Data } from 'effect';
 import { type PaneId, type WindowId } from './ids';
 import {
-  chromeWindow,
+  openFloat,
+  sidebarWindowCommand,
   list,
   literalText,
   mouseReport,
@@ -188,13 +189,8 @@ export type TmuxOp = Data.TaggedEnum<{
   GroupJoin: { readonly paneId: PaneId; readonly anchorPaneId: PaneId; readonly index: number };
   GroupLeave: { readonly paneId: PaneId; readonly to: LeaveDestination };
 
-  /** A float named `name` running `run`, created at the free window `index`. */
-  OpenFloat: {
-    readonly name: string;
-    readonly run: string;
-    readonly index: number;
-    readonly splitFrom: PaneId | null;
-  };
+  /** A float running `command` (its words), over the tab `splitFrom` is in. */
+  OpenFloat: { readonly command: readonly string[]; readonly splitFrom: PaneId | null };
   OpenSidebar: { readonly side: 'left' | 'right'; readonly splitFrom: PaneId | null };
 
   NewSession: { readonly name: string };
@@ -385,14 +381,13 @@ export function toTmuxCommand(op: TmuxOp): string {
         ? script('pane-group', 'leave', op.paneId, '--tab')
         : script('pane-group', 'leave', op.paneId, '--beside', op.to.target, op.to.side);
     case 'OpenFloat':
-      return chromeWindow('float', op.name, op.run, op.splitFrom, op.index);
+      return openFloat(op);
     case 'OpenSidebar':
-      return chromeWindow(
-        `sidebar-${op.side}`,
+      return sidebarWindowCommand(
+        op.side,
         SIDEBAR_WINDOW_NAME[op.side],
         SIDEBAR_RUN[op.side],
         op.splitFrom,
-        null,
       );
     case 'NewSession':
       return `new-session -d -s ${target(op.name)}`;

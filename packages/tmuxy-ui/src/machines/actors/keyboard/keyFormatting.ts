@@ -1,5 +1,4 @@
 import { getMobileInput } from '../../../infra/dom/mobileKeyboard';
-import { isPlaceholderId, type PaneId } from '../../../domain/ids';
 
 export const KEY_MAP: Record<string, string> = {
   Enter: 'Enter',
@@ -133,15 +132,6 @@ export function keyEventInitOf(name: string): KeyboardEventInit | null {
   const key = DOM_KEY_OF[rest] ?? rest;
   if (key.length !== 1 && !DOM_KEY_OF[rest]) return null;
   return { ...init, key };
-}
-
-/**
- * Placeholder pane ids (`__placeholder_*`) are client-side predictions from the
- * optimistic store — tmux has never heard of them. Until the placeholder
- * reconciles to a real `%N`, fall back to null.
- */
-export function realPaneId(id: PaneId | null): PaneId | null {
-  return id !== null && isPlaceholderId(id) ? null : id;
 }
 
 /**

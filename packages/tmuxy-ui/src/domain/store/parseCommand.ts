@@ -12,7 +12,10 @@
 
 import { TmuxOp, type PaneDirection } from '../commands';
 import { isPaneId, isWindowId } from '../ids';
-import type { ScriptEffect } from '../commandHelpers';
+import { NAV_WORD, type ScriptEffect } from '../commandHelpers';
+import { SCRIPT_EFFECT_TAGS } from '../tmuxyConstants.gen';
+
+const SCRIPT_EFFECTS = Object.keys(SCRIPT_EFFECT_TAGS) as ScriptEffect[];
 
 /**
  * One word of a command as tmux's parser reads it, with where it sits in the
@@ -104,8 +107,8 @@ export function runShellScript(
   const shell = commandWords(words[i]);
   let at = 0;
   let effect: ScriptEffect | null = null;
-  for (let m; at < shell.length && (m = shell[at].match(/^(\w+)=(.*)$/)); at++) {
-    if (m[1] === 'TMUXY_EFFECT' && (m[2] === 'settle' || m[2] === 'relist-windows')) effect = m[2];
+  for (; at < shell.length && /^\w+=/.test(shell[at]); at++) {
+    effect = SCRIPT_EFFECTS.find((e) => SCRIPT_EFFECT_TAGS[e] === shell[at]) ?? effect;
   }
   if (shell[at] === 'bash' || shell[at] === 'sh') at++;
   const path = shell[at];
@@ -116,19 +119,6 @@ export function runShellScript(
     args: shell.slice(at + 1),
     effect,
   };
-}
-
-const LAYOUT_VERBS = new Set([
-  'select-layout',
-  'selectl',
-  'next-layout',
-  'nextl',
-  'previous-layout',
-  'prevl',
-]);
-
-export function isLayoutCommand(command: string): boolean {
-  return commandListParts(command).some((part) => LAYOUT_VERBS.has(commandWords(part)[0]));
 }
 
 /**
@@ -205,8 +195,6 @@ const BARE: ReadonlyArray<[RegExp, () => TmuxOp]> = [
   [/^(previous-layout|prevl)$/, () => TmuxOp.SelectLayout({ layout: 'previous' })],
 ];
 
-const NAV = { left: 'L', right: 'R', up: 'U', down: 'D' } as const;
-
 export function parseCommandToOp(command: string): TmuxOp {
   const trimmed = stripPin(command.trim());
 
@@ -233,9 +221,8 @@ export function parseCommandToOp(command: string): TmuxOp {
   const navWord =
     trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/)?.[1] ??
     (script?.bundled && script.name === 'nav' ? script.args[0] : undefined);
-  if (navWord !== undefined && Object.prototype.hasOwnProperty.call(NAV, navWord)) {
-    return TmuxOp.Navigate({ direction: NAV[navWord as keyof typeof NAV], script: true });
-  }
+  const direction = (Object.keys(NAV_WORD) as PaneDirection[]).find((d) => NAV_WORD[d] === navWord);
+  if (direction) return TmuxOp.Navigate({ direction, script: true });
 
   // Pane-group next/prev: the alias, or its expanded `run-shell` form.
   const alias = trimmed.match(/^tmuxy-pane-group-(next|prev)\b/);

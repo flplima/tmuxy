@@ -98,6 +98,34 @@ export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
  * object when every pane is still alive, so an unchanged record keeps its
  * identity.
  */
+/**
+ * `prev` when `next` holds the same entries (each a flat record, an array
+ * field compared item by item), else `next`: a rebuilt record that changed
+ * nothing keeps its identity, so what reads it does not re-render.
+ */
+export function keepIfSame<K extends string, V extends object>(
+  prev: Record<K, V>,
+  next: Record<K, V>,
+): Record<K, V> {
+  const keys = Object.keys(next) as K[];
+  if (keys.length !== Object.keys(prev).length) return next;
+  const same = (a: unknown, b: unknown) =>
+    a === b ||
+    (Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, i) => item === b[i]));
+  for (const key of keys) {
+    const was = prev[key] as Record<string, unknown> | undefined;
+    const is = next[key] as Record<string, unknown>;
+    if (!was) return next;
+    const fields = Object.keys(is);
+    if (fields.length !== Object.keys(was).length) return next;
+    if (!fields.every((f) => same(was[f], is[f]))) return next;
+  }
+  return prev;
+}
+
 export function keepLivePanes<V>(
   record: Record<PaneId, V>,
   live: ReadonlySet<PaneId>,

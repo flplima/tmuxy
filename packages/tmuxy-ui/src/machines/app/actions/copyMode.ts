@@ -405,11 +405,9 @@ export const copyModeActions = {
       );
       return;
     }
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
+    });
   }),
 };

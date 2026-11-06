@@ -3,7 +3,6 @@ import {
   boundAction,
   commandListParts,
   commandWords,
-  isLayoutCommand,
   runShellScript,
   stripPin,
   tabPosition,
@@ -66,14 +65,6 @@ describe('runShellScript', () => {
       runShellScript(`run-shell "TMUXY_EFFECT=settle bash ${S}/float-create > /dev/null"`),
     ).toMatchObject({ name: 'float-create', effect: 'settle' });
     expect(runShellScript('split-window -h')).toBeNull();
-  });
-});
-
-describe('isLayoutCommand', () => {
-  it('finds a layout verb in any command of a list', () => {
-    expect(isLayoutCommand('select-layout -t @1 tiled')).toBe(true);
-    expect(isLayoutCommand('kill-pane \\; nextl')).toBe(true);
-    expect(isLayoutCommand('split-window -h')).toBe(false);
   });
 });
 

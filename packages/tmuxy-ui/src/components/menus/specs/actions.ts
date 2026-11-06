@@ -6,7 +6,7 @@
 
 import { restartApp } from '../../../infra/guiWindows';
 import type { AppMachineEvent } from '../../../machines/types/events';
-import { type PaneId, isPlaceholderId } from '../../../domain/ids';
+import { type PaneId, realId } from '../../../domain/ids';
 import { renameWindowPrompt, TmuxOp } from '../../../domain/commands';
 import type { KeyBindings } from '../../../domain/wire';
 import { clientKeyHint, keyHint } from '../../../domain/keyLabels';
@@ -125,6 +125,5 @@ export function activeCloseTarget(
   activePaneId: PaneId | null,
   focusedFloat: PaneId | null,
 ): PaneId | undefined {
-  const realActive = activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null;
-  return focusedFloat ?? realActive ?? undefined;
+  return focusedFloat ?? realId(activePaneId) ?? undefined;
 }

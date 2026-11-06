@@ -22,13 +22,14 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import type { GestureFlags } from '../types/domain';
 import { isModelPaneId, type PaneId } from '../../domain/ids';
 import { TILED_PANE } from '../../infra/dom/terminalDom';
+import type { ContextView } from '../contextView';
 
 export type GestureActorEvent = { type: 'NOOP' };
 
-const ALL_ON: GestureFlags = { swipeTabs: true, pinchZoom: true, pinchOverview: true };
-
-interface GestureActorInput {
+export interface GestureActorInput {
   parent: AnyActorRef;
+  /** The appearance's gesture switches, read as each gesture starts. */
+  flags: ContextView<GestureFlags>;
 }
 
 /** Pinch deltas arrive further apart than a slide's; a pause this long ends it. */
@@ -85,7 +86,7 @@ function paneIdAt(target: EventTarget | null, x: number, y: number): PaneId | nu
 export function createGestureActor() {
   return fromCallback<GestureActorEvent, GestureActorInput>(({ input }) => {
     const send = (event: object) => input.parent.send(event);
-    const flags = (): GestureFlags => input.parent.getSnapshot()?.context?.gestureFlags ?? ALL_ON;
+    const flags = () => input.flags.get();
     const pinchAllowed = () => {
       const f = flags();
       return f.pinchZoom || f.pinchOverview;

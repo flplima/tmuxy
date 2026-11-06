@@ -18,7 +18,6 @@ import { applyAppearance } from '../../../infra/appearanceManager';
 import { DEFAULT_THEME, saveFontSizePref, saveThemePref } from '../../../infra/prefs';
 import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../domain/gridFit';
 import { PINNABLE } from '../../../domain/pins';
-import type { PaneId } from '../../../domain/ids';
 import {
   disablePush,
   enablePush,
@@ -88,7 +87,7 @@ export const uiPrefsActions = {
     // notifications stand, and let a tapped one bring its pane forward.
     if (context.pushState === 'unknown') {
       void readPushState().then((state) => self.send({ type: 'PUSH_STATE', state }));
-      onNotificationFocus((paneId) => self.send({ type: 'SELECT_PANE', paneId: paneId as PaneId }));
+      onNotificationFocus((paneId) => self.send({ type: 'SELECT_PANE', paneId }));
     }
     const sizePolicy = event.appearance?.size ?? DEFAULT_SIZE_POLICY;
     if (!sameSizePolicy(sizePolicy, context.sizePolicy)) {

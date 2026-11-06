@@ -1,6 +1,7 @@
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { PaneId, WindowId } from '../domain/ids';
-import type { TmuxClientModel, TmuxSnapshot } from '../domain/store/types';
+import { recomputeDerived } from '../domain/store/model';
+import { EMPTY_SNAPSHOT, type TmuxClientModel, type TmuxSnapshot } from '../domain/store/types';
 
 /** A pane of `windowId`, `width`×`height` cells at the window's origin. */
 export const modelPane = (
@@ -91,3 +92,13 @@ export const sidebarsOpen = (open: { left?: boolean; right?: boolean }) => ({
   left: { open: open.left ?? false, starting: false, startFailed: false },
   right: { open: open.right ?? false, starting: false, startFailed: false },
 });
+
+/** A model holding `snapshot` as committed, with no op pending. */
+export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
+  return recomputeDerived({
+    committed: snapshot,
+    ops: [],
+    derived: EMPTY_SNAPSHOT,
+    paneKeyOverrides: {},
+  });
+}

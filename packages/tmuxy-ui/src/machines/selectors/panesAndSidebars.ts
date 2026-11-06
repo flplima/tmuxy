@@ -11,30 +11,13 @@ import { createMemoizedSelector, createMemoizedSelectorWithArg } from './memoize
 import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';
+import { sidebarWindow, stripTabs } from '../../domain/windows';
 import { previewInputs, selectPreviewPanes, selectSidebarCellMetrics } from './layout';
 
-/**
- * Windows with `active` derived from context.activeWindowId. The snapshot's
- * own `active` lags an optimistic tab switch: one taken before tmux ran the
- * `select-window` still marks the old window, and the tab highlight would
- * blink new → old → new as those snapshots arrive.
- */
-export const selectWindows = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
-  (context: AppMachineContext) =>
-    context.windows.map((w) => {
-      const shouldBeActive = w.id === context.activeWindowId;
-      return w.active === shouldBeActive ? w : { ...w, active: shouldBeActive };
-    }),
-);
-
-/** Windows visible in the status bar. Only tab-typed windows show as tabs;
- *  group and float windows are hidden, and foreign (untagged) windows are
- *  ignored entirely. */
+/** The tabs the strip shows (`isStripTab`). */
 export const selectVisibleWindows = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
-  (context: AppMachineContext) =>
-    selectWindows(context).filter((w) => w.windowType === 'tab' && w.name !== ''),
+  (ctx: AppMachineContext) => [ctx.windows] as const,
+  (context: AppMachineContext) => stripTabs(context.windows),
 );
 
 /**
@@ -47,7 +30,7 @@ export const selectVisibleWindows = createMemoizedSelector(
  * selectors are the only way the UI reaches it.
  */
 function sidebarPane(context: AppMachineContext, side: 'left' | 'right'): TmuxPane | null {
-  const window = context.windows.find((w) => w.windowType === `sidebar-${side}`);
+  const window = sidebarWindow(context.windows, side);
   if (!window) return null;
   return context.panes.find((p) => p.windowId === window.id) ?? null;
 }
@@ -92,7 +75,7 @@ export const selectSidebarLayout = createMemoizedSelector(
     const draggedCols = (side: 'left' | 'right') => {
       const preview = context.sidebarColsPreview;
       if (preview && preview.side === side) return preview.cols;
-      return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
+      return sidebarWindow(context.windows, side)?.sidebarCols ?? null;
     };
     return {
       leftOpen: context.sidebars.left.open,
@@ -117,7 +100,7 @@ export function selectSidebarPane(context: AppMachineContext, side: SidebarSide)
 
 /** Whether `side`'s window is hidden (`@tmuxy-sidebar-hidden`): closed for every client. */
 export function selectSidebarHidden(context: AppMachineContext, side: SidebarSide): boolean {
-  return Boolean(context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarHidden);
+  return Boolean(sidebarWindow(context.windows, side)?.sidebarHidden);
 }
 
 /**
@@ -131,13 +114,20 @@ export function selectTreeVisible(context: AppMachineContext): boolean {
 
 /** The member of a group shown in the active window. */
 export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): PaneId | null {
-  for (const paneId of group.paneIds) {
-    const pane = context.panes.find((p) => p.tmuxId === paneId);
-    if (pane?.windowId === context.activeWindowId) {
-      return paneId;
-    }
-  }
-  return null;
+  const shown = groupMemberInTab(context, group.paneIds);
+  return shown?.windowId === context.activeWindowId ? shown.tmuxId : null;
+}
+
+/** The member of a group drawn in a tab, on screen or not (the others are parked in the stash). */
+export function groupMemberInTab(
+  context: Pick<AppMachineContext, 'panes' | 'windows'>,
+  members: readonly PaneId[],
+): TmuxPane | null {
+  const tabs = new Set(context.windows.filter((w) => w.windowType === 'tab').map((w) => w.id));
+  return (
+    context.panes.find((p) => members.includes(p.tmuxId) && p.windowId && tabs.has(p.windowId)) ??
+    null
+  );
 }
 
 /** The group members parked out of view: every member but the one in the active window. */

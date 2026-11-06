@@ -11,7 +11,6 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'NewWindow':
     case 'GroupAdd':
     case 'GroupClose':
-    case 'GroupSwitch':
     case 'GroupStep':
       return true;
     case 'RawCommand':
