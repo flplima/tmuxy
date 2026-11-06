@@ -47,6 +47,8 @@ pub enum Verb {
     /// `tmuxy session connect`, which probe the server first.
     #[command(hide = true)]
     Connect(connect_cli::ConnectArgs),
+    /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
+    Skill,
 }
 
 /// Run one verb to completion.
@@ -60,5 +62,6 @@ pub async fn run(verb: Verb) {
         Verb::Config(args) => config_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         Verb::Connect(args) => connect_cli::run(args),
+        Verb::Skill => print!("{}", agents::SKILL),
     }
 }

@@ -6,50 +6,21 @@
 # The directories come from _lib (tmuxy_config_dir, tmuxy_data_dir,
 # tmuxy_state_dir), resolved as tmuxy-core resolves them.
 
-# Read one boolean out of tmuxy.state.json without a JSON parser: the file is
-# written by serde_json's pretty printer, so a key sits on its own line.
-state_bool() {
-  local key="$1" file
-  file="$(tmuxy_state_dir)/tmuxy.state.json"
-  [ -f "$file" ] || return 1
-  grep -Eq "\"$key\"[[:space:]]*:[[:space:]]*true" "$file"
-}
-
-# Set one boolean in tmuxy.state.json, keeping every other key: replaced where
-# the key is, else added as the object's first member (with no comma when the
-# object is empty), else the file becomes that one key. node and jq are not
-# dependencies of the CLI, and a `\n` in a sed replacement is GNU-only (BSD
-# sed writes a literal `n`), so this is POSIX awk over the whole file, written
-# beside it and renamed over it.
-set_state_bool() {
-  local key="$1" value="$2" file src tmp
-  file="$(tmuxy_state_dir)/tmuxy.state.json"
-  tmp="$file.tmp.$$"
-  src="$file"
-  [ -f "$src" ] || src=/dev/null
-  (umask 077 && awk -v key="$key" -v val="$value" '
-    { text = text (NR > 1 ? "\n" : "") $0 }
-    END {
-      pair = "\"" key "\": " val
-      if (match(text, "\"" key "\"[[:space:]]*:[[:space:]]*(true|false|null)")) {
-        text = substr(text, 1, RSTART - 1) pair substr(text, RSTART + RLENGTH)
-      } else if (match(text, /^[[:space:]]*\{[[:space:]]*\}/)) {
-        text = "{\n  " pair "\n}" substr(text, RLENGTH + 1)
-      } else if (match(text, /^[[:space:]]*\{/)) {
-        text = substr(text, 1, RLENGTH) "\n  " pair "," substr(text, RLENGTH + 1)
-      } else {
-        text = "{\n  " pair "\n}"
-      }
-      print text
-    }' "$src" > "$tmp") || { rm -f "$tmp"; return 1; }
-  mv "$tmp" "$file"
+# `reload`, `use-tmux-conf` and `paths` are the server binary's: the files
+# they read and write are tmuxy-core's, which also says what they mean.
+config_verb() {
+  find_server_cmd || exit "$EXIT_FAILED"
+  if [ "$JSON_OUT" = true ]; then
+    exec "${SERVER_CMD[@]}" config "$@" --json
+  fi
+  exec "${SERVER_CMD[@]}" config "$@"
 }
 
 cmd_config() {
   local setting="${1:-}"
   case "$setting" in
     reload)
-      cmd_config_reload
+      config_verb reload
       ;;
     use-tmux-conf)
       shift
@@ -96,60 +67,19 @@ EOF
   esac
 }
 
-# The app watches tmuxy.conf, and a marker in the state dir beside it, and
-# sources the config chain on its own control-mode connection when either
-# changes, then pushes the bindings and settings to every client. Touching the
-# marker is the whole request: a raw `source-file` from here would apply the
-# config to tmux but tell no client about it, and touching tmuxy.conf itself
-# would write into the config dir, which may be a dotfiles checkout.
-cmd_config_reload() {
-  local marker
-  marker="$(tmuxy_state_dir)/config-reload"
-  mkdir -m 700 -p "${marker%/*}" || _fail "$EXIT_FAILED" "cannot create ${marker%/*}"
-  (umask 077 && touch "$marker") || _fail "$EXIT_FAILED" "cannot touch $marker"
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "file=$(json_string "$(tmuxy_config_dir)/tmuxy.conf")"
-    return 0
-  fi
-  echo "Reloading $(tmuxy_config_dir)/tmuxy.conf — the app re-applies it within a second."
-}
+# `tmuxy config reload`: the app watches tmuxy.conf, and a marker in the
+# state dir beside it, and sources the config chain on its own control-mode
+# connection when either changes, then pushes the bindings and settings to
+# every client. Touching the marker is the whole request: a raw `source-file`
+# from here would apply the config to tmux but tell no client about it.
 
 cmd_config_use_tmux_conf() {
-  local dir state_file value="${1:-}"
-  dir="$(tmuxy_state_dir)"
-  state_file="$dir/tmuxy.state.json"
-
-  if [ -z "$value" ]; then
-    local on=false
-    state_bool use_tmux_conf && on=true
-    if [ "$JSON_OUT" = true ]; then
-      json_ok "useTmuxConf=$on"
-    elif $on; then
-      echo "use-tmux-conf: on  (~/.tmux.conf is sourced, then tmuxy.essentials.conf on top)"
-    else
-      echo "use-tmux-conf: off (tmuxy uses its own config only)"
-    fi
-    return 0
-  fi
-
-  case "$value" in
-    on|true|1) value=true ;;
-    off|false|0) value=false ;;
+  case "${1:-}" in
+    "") config_verb use-tmux-conf ;;
+    on|true|1) config_verb use-tmux-conf on ;;
+    off|false|0) config_verb use-tmux-conf off ;;
     *) _die_usage "Usage: tmuxy config use-tmux-conf [on|off]" ;;
   esac
-
-  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
-  set_state_bool use_tmux_conf "$value" || _fail "$EXIT_FAILED" "cannot write $state_file"
-
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "useTmuxConf=$value"
-    return 0
-  elif [ "$value" = true ]; then
-    echo "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."
-  else
-    echo "use-tmux-conf: off — tmuxy will use its own config only."
-  fi
-  echo "Restart tmuxy for this to take effect (the config chain is read when it connects)."
 }
 
 # The starter tmuxy.conf: the copy the app mirrors into its data dir, less the
@@ -195,41 +125,6 @@ cmd_config_init() {
   echo "Wrote $conf"
 }
 
-# Every file tmuxy reads or writes, one per line:
-#   dir|relative path|owner|safe to edit|safe to symlink|what it is
-# The same table as tmuxy-core's paths::FILES, which a Rust test holds this
-# copy and the config README (packages/tmuxy-core/assets/config-README.md) to.
-config_paths_table() {
-  cat <<'EOF'
-config|tmuxy.conf|user|yes|yes|Your overrides; tmuxy sources its defaults before it and its essentials after it.
-config|custom.css|user|yes|yes|Your CSS, loaded last.
-config|themes/|user|yes|yes|Your themes; a built-in's name replaces that built-in.
-config|icons/|user|yes|yes|SVG icons an @tmuxy-icon-<process> option names.
-config|tmuxy-plugin.toml|user|yes|yes|Your own actions and verbs: the `user` plugin, re-read by `tmuxy config reload`.
-config|plugins.json|user|yes|yes|The plugins installed and their commits; `tmuxy plugin install` writes it and installs what it lists.
-config|plugins/|user|yes|yes|Each plugin's own config (TMUXY_PLUGIN_CONFIG_DIR); kept on update and on remove unless --purge.
-data|tmuxy.defaults.conf|tmuxy|no|no|tmuxy's taste: prefix, status line, bindings, the @tmuxy-* defaults.
-data|tmuxy.essentials.conf|tmuxy|no|no|The settings tmuxy cannot work without, sourced first and last.
-data|tmuxy.conf.example|tmuxy|no|no|The starter tmuxy.conf; `tmuxy config init` copies it.
-data|themes/|tmuxy|no|no|The built-in themes, to read or copy.
-data|bin/|tmuxy|no|no|The tmuxy CLI and its helper scripts.
-data|README.md|tmuxy|no|no|The guide to these files.
-state|tmuxy.entry.conf|tmuxy|no|no|The chain tmux starts with, built from your files and this machine's choices.
-state|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the old defaults: a copy without that line.
-state|tmuxy.state.json|tmuxy|no|no|Choices made in the app's menus.
-state|servers.json|tmuxy|yes|no|The servers `tmuxy session connect` saved.
-state|trace.json|tmuxy|yes|no|The Debug menu's trace switch.
-state|trace.ndjson|tmuxy|no|no|The action trace, when tracing is on (docs/TRACING.md).
-state|tmuxy.log|tmuxy|no|no|The desktop app's log, for a bug report (Help > Reveal Log File).
-state|launcher|tmuxy|no|no|The desktop app the ~/.local/bin/tmuxy shorthand runs.
-state|tmuxy.pid|tmuxy|no|no|The running web server's pid (tmuxy-<port>.pid on another port).
-state|config-reload|tmuxy|no|no|Touched by `tmuxy config reload`.
-state|plugins/|tmuxy|no|no|Plugin checkouts (<name>@<commit>), their logs and state, launch tokens.
-state|sessions/|tmuxy|no|no|Session snapshots, per tmux socket, that a restart restores.
-state|push/|tmuxy|no|no|The web server's push key and the devices subscribed to notifications.
-EOF
-}
-
 cmd_config_paths() {
   for arg in "$@"; do
     case "$arg" in
@@ -241,41 +136,5 @@ cmd_config_paths() {
       *) _die_usage "invalid argument '$arg'" ;;
     esac
   done
-  local config data state
-  config="$(tmuxy_config_dir)"
-  data="$(tmuxy_data_dir)"
-  state="$(tmuxy_state_dir)"
-
-  local dir rel owner edit link about base path exists
-  if [ "$JSON_OUT" = true ]; then
-    local files="" sep=""
-    while IFS='|' read -r dir rel owner edit link about; do
-      case "$dir" in config) base="$config" ;; data) base="$data" ;; *) base="$state" ;; esac
-      path="$base/$rel"
-      path="${path%/}"
-      exists=false
-      { [ -e "$path" ] || [ -L "$path" ]; } && exists=true
-      files="$files$sep{\"name\":$(json_string "$rel"),\"dir\":\"$dir\",\"path\":$(json_string "$path"),\"owner\":\"$owner\",\"safeToEdit\":$([ "$edit" = yes ] && echo true || echo false),\"safeToSymlink\":$([ "$link" = yes ] && echo true || echo false),\"exists\":$exists,\"about\":$(json_string "$about")}"
-      sep=","
-    done < <(config_paths_table)
-    printf '{"dirs":{"config":%s,"data":%s,"state":%s},"files":[%s]}\n' \
-      "$(json_string "$config")" "$(json_string "$data")" "$(json_string "$state")" "$files"
-    return 0
-  fi
-
-  echo "config  $config"
-  echo "        yours: safe to edit, safe to symlink; tmuxy writes it only on the first run"
-  echo "data    $data"
-  echo "        tmuxy's: mirrored on every launch, read-only; read or copy, never edit"
-  echo "state   $state"
-  echo "        this machine's: not config, never shared between machines"
-  echo
-  printf '%-6s  %-5s  %-4s  %-7s  %s\n' OWNER EDIT LINK EXISTS PATH
-  while IFS='|' read -r dir rel owner edit link about; do
-    case "$dir" in config) base="$config" ;; data) base="$data" ;; *) base="$state" ;; esac
-    path="$base/$rel"
-    exists=no
-    { [ -e "${path%/}" ] || [ -L "${path%/}" ]; } && exists=yes
-    printf '%-6s  %-5s  %-4s  %-7s  %s\n' "$owner" "$edit" "$link" "$exists" "$path"
-  done < <(config_paths_table)
+  config_verb paths
 }

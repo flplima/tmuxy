@@ -55,7 +55,7 @@ See [ARCHITECTURE-WIDGETS.md](ARCHITECTURE-WIDGETS.md) for this section: Widgets
 
 ## The user's config directory
 
-tmuxy's files live in three directories, split by owner so each has one rule. `tmuxy-core/src/paths.rs` is the one map of them: it resolves the directories, lists every file in `FILES` (dir, name, whether it is safe to edit), and `Layout` turns an entry into a path, so nothing else spells a file name. `tmuxy server config paths` prints that table; tests hold the config README's table and the CLI's shell copy of it (`config_paths_table` in `cli-config.sh`) to it, and the migration names the state files it moves by their entries:
+tmuxy's files live in three directories, split by owner so each has one rule. `tmuxy-core/src/paths.rs` is the one map of them: it resolves the directories, lists every file in `FILES` (dir, name, whether it is safe to edit), and `Layout` turns an entry into a path, so nothing else spells a file name. `tmuxy config paths` prints that table through the server binary (`tmuxy-verbs/src/config_cli.rs`); a test holds the config README's table to it, and the migration names the state files it moves by their entries:
 
 | Dir | Default | Owner | Rule |
 | --- | --- | --- | --- |

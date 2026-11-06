@@ -1,8 +1,8 @@
 //! `tmuxy-server config …`: the config verbs whose work is a file tmuxy-core
-//! owns, so the CLI's `tmuxy config` can call them instead of keeping its own
-//! copy of the file's format.
+//! owns, and what `tmuxy config` says about them, so the CLI keeps no copy of
+//! the files' names or formats.
 //!
-//! - `paths [--json]`: every file tmuxy keeps, from the one table of them
+//! - `paths`: every file tmuxy keeps, from the one table of them
 //!   (`tmuxy_core::paths::FILES`), resolved on this machine.
 //! - `reload`: touch the marker every running app watches.
 //! - `use-tmux-conf [on|off]`: read or set the menu-state choice to source
@@ -10,20 +10,22 @@
 
 use tmuxy_core::paths::{Layout, FILES};
 
+use crate::cli_json::{self, Answer, EXIT_FAILED};
+
 #[derive(clap::Args, Debug)]
 pub struct ConfigArgs {
     #[command(subcommand)]
     verb: ConfigVerb,
+    /// Answer in JSON.
+    #[arg(long, global = true)]
+    json: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
 enum ConfigVerb {
     /// Every file tmuxy reads or writes: owner, location, safe to edit, safe
     /// to symlink.
-    Paths {
-        #[arg(long)]
-        json: bool,
-    },
+    Paths,
     /// Ask every running app to re-source the config chain.
     Reload,
     /// Print whether `~/.tmux.conf` is sourced, or set it.
@@ -35,35 +37,56 @@ enum ConfigVerb {
 
 pub fn run(args: ConfigArgs) {
     let layout = Layout::current();
+    let answer = Answer::new(args.json);
     match args.verb {
-        ConfigVerb::Paths { json } => {
-            if json {
-                println!("{}", layout.report());
-            } else {
-                print!("{}", paths_text(&layout));
-            }
-        }
+        ConfigVerb::Paths if args.json => println!("{}", layout.report()),
+        ConfigVerb::Paths => print!("{}", paths_text(&layout)),
         ConfigVerb::Reload => {
             if let Err(e) = tmuxy_core::session::request_reload(&layout) {
-                eprintln!("tmuxy config reload: {e}");
-                std::process::exit(1);
+                std::process::exit(answer.fail(EXIT_FAILED, &format!("config reload: {e}")));
             }
+            let conf = layout.config.join("tmuxy.conf");
+            answer.done(
+                &[("file", cli_json::string(&conf.display().to_string()))],
+                &format!(
+                    "Reloading {} — the app re-applies it within a second.",
+                    conf.display()
+                ),
+            );
         }
         ConfigVerb::UseTmuxConf { value: None } => {
             let on = tmuxy_core::session::read_managed_state()
                 .use_tmux_conf
                 .unwrap_or(false);
-            println!("{}", if on { "on" } else { "off" });
+            answer.done(
+                &[("useTmuxConf", on.to_string())],
+                if on {
+                    "use-tmux-conf: on  (~/.tmux.conf is sourced, then tmuxy.essentials.conf on top)"
+                } else {
+                    "use-tmux-conf: off (tmuxy uses its own config only)"
+                },
+            );
         }
         ConfigVerb::UseTmuxConf { value: Some(value) } => {
+            let on = value == "on";
             let changes = tmuxy_core::session::ManagedState {
-                use_tmux_conf: Some(value == "on"),
+                use_tmux_conf: Some(on),
                 ..Default::default()
             };
             if let Err(e) = tmuxy_core::session::write_managed_state(changes) {
-                eprintln!("tmuxy config use-tmux-conf: {e}");
-                std::process::exit(1);
+                std::process::exit(answer.fail(EXIT_FAILED, &format!("config use-tmux-conf: {e}")));
             }
+            let said = if on {
+                "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."
+            } else {
+                "use-tmux-conf: off — tmuxy will use its own config only."
+            };
+            answer.done(
+                &[("useTmuxConf", on.to_string())],
+                &format!(
+                    "{said}\nRestart tmuxy for this to take effect (the config chain is read when it connects)."
+                ),
+            );
         }
     }
 }
@@ -119,5 +142,28 @@ mod tests {
         assert!(text.contains("user    yes    yes   no       /c/tmuxy.conf\n"));
         assert!(text.contains("tmuxy   no     no    no       /s/sessions/\n"));
         assert_eq!(text.lines().count(), 8 + FILES.len());
+    }
+
+    /// The JSON the CLI prints for `config paths --json`: the dirs, and every
+    /// file with its owner and whether it is the user's to edit and to link.
+    #[test]
+    fn the_report_names_every_file_and_only_the_users_are_theirs() {
+        let layout = Layout {
+            config: "/c".into(),
+            data: "/d".into(),
+            state: "/s".into(),
+            home: "/h".into(),
+        };
+        let report = layout.report();
+        assert_eq!(report["dirs"]["state"], "/s");
+        let files = report["files"].as_array().unwrap_or(&Vec::new()).clone();
+        assert_eq!(files.len(), FILES.len());
+        for file in &files {
+            let users = file["owner"] == "user";
+            assert_eq!(file["safeToSymlink"], users, "{file}");
+        }
+        assert!(files
+            .iter()
+            .any(|f| f["path"] == "/c/tmuxy.conf" && f["safeToEdit"] == true));
     }
 }

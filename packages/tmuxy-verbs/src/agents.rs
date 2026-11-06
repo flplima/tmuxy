@@ -13,6 +13,7 @@ use std::io::{IsTerminal, Read};
 use serde_json::Value;
 
 mod config;
+pub(crate) use config::SKILL;
 use config::*;
 
 #[cfg(test)]
