@@ -14,7 +14,10 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="tmuxy" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- The status bar above the page, not over it: drawn over it
+         (black-translucent), iOS 26 blurs the top of the app and never runs
+         the check that leaves an opaque top edge alone (standalone.css). -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>

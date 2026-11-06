@@ -155,7 +155,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
   // Touch handling for mobile scroll — and, in the phone layout, the taps,
   // holds and slides a finger means on a tiled pane. The dock (chrome none)
-  // is drawn by the phone too, but a slide on it is not a slide between tabs.
+  // is drawn by the phone too, but a slide on it is not a slide between tabs,
+  // and a tap on it brings the keyboard up for it.
   const phoneLayout = useAppSelector(selectPhoneLayout);
   const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
   const phoneGestures = phoneLayout && chrome === 'header';
@@ -175,6 +176,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     phoneLayout: phoneGestures,
     phoneZoomed: phoneGestures && phoneZoomed,
     holdsKeyboard,
+    tapRaisesKeyboard: phoneLayout && chrome === 'none',
     forwardScrollToParent,
   });
 
