@@ -23,21 +23,12 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { surfacePortalTarget } from './floating/useFloatingSurface';
 import './Tooltip.css';
 
 export const TOOLTIP_DELAY_MS = 400;
 
 const GAP_PX = 6;
-
-/**
- * Out of the trigger's subtree, so no pane's `overflow: hidden` clips it and
- * no transformed ancestor becomes its containing block — but inside the app's
- * element, so the `@tmuxy-animations off` gate reaches it. A story mounting
- * one component has no `.app-container`; the body places a fixed box the same.
- */
-function portalTarget(): HTMLElement {
-  return document.querySelector<HTMLElement>('.app-container') ?? document.body;
-}
 
 interface TriggerProps {
   onPointerEnter?: PointerEventHandler<HTMLElement>;
@@ -151,7 +142,7 @@ export function Tooltip({ label, placement = 'bottom', children }: TooltipProps)
           >
             {label}
           </div>,
-          portalTarget(),
+          surfacePortalTarget(),
         )}
     </>
   );

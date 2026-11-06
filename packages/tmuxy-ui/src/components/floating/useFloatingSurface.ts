@@ -70,6 +70,13 @@ export function positionSurface(
   place(clampLeft(preferredLeft), fitsBelow ? below : Math.max(EDGE_PX, above - box.height));
 }
 
+/**
+ * Where a floating surface is portalled: out of its trigger's subtree, so no
+ * pane's `overflow: hidden` clips it and no transformed ancestor becomes its
+ * containing block, but inside the app's element, so the `@tmuxy-animations
+ * off` gate reaches it. A story mounting one component has no
+ * `.app-container`; the body places a fixed box the same.
+ */
 export function surfacePortalTarget(): HTMLElement {
   return document.querySelector<HTMLElement>('.app-container') ?? document.body;
 }
