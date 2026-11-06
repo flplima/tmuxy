@@ -8,36 +8,27 @@ This document covers what's supported, how the pipeline works, and how to test e
 
 | Protocol | DCS / OSC / APC | Backend | Frontend | Notes |
 | --- | --- | --- | --- | --- |
-| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed. Clicks open through `infra/openUrl.ts`, not the anchor's own navigation: `window.open` on the web, the `open_url` Tauri command (system browser, http(s)/mailto only) on the desktop, whose webview denies new windows. Auto-detected URLs (`components/terminal/urlDetect.ts`) use the same path and are live only while the platform link modifier is held |
+| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `packages/vt100` (link on the cell) → `extract_cells_from_screen` (`CellStyle.url`) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed. Clicks open through `infra/openUrl.ts`, not the anchor's own navigation: `window.open` on the web, the `open_url` Tauri command (system browser, http(s)/mailto only) on the desktop, whose webview denies new windows. Auto-detected URLs (`components/terminal/urlDetect.ts`) use the same path and are live only while the platform link modifier is held |
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC \_G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfers whose final packet sets `m=0` or omits `m`, formats `f=24`/`f=32`/`f=100` (the bytes of an `f=100` image are kept as they came and typed by their signature, so a GIF sent that way animates — what the demo's nyan cat does, `packages/tmuxy-demo/public/guest/icat`), ZLIB compression (`o=z`), and Unicode placeholders (`U=1`) used by Kitty's tmux passthrough mode |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving. Only a DCS whose bytes before `q` are digits and `;` is Sixel: other DCS strings holding a `q`, such as nvim's XTGETTCAP query (`ESC P + q`), are not pictures |
-| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `control_mode/osc.rs` parser → `StateEmitter::write_clipboard` → the `clipboard` host event (an SSE frame on the web, a Tauri event on the desktop) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
-| **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_with_urls` (`CellStyle.size`) | `TerminalLine.tsx` & `terminalRendering.ts` → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
-| **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `control_mode/osc.rs` (`emit_osc66`, `sized_cells`) | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto row `r+1`; `w=2` (`s=1:w=2`) emits `dwl` |
+| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `packages/vt100` → `control_mode/osc.rs` (`OscRequests`, its callbacks) → `StateEmitter::write_clipboard` → the `clipboard` host event (an SSE frame on the web, a Tauri event on the desktop) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
+| **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_from_screen` (`CellStyle.size`) | `TerminalLine.tsx` & `terminalRendering.ts` → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
+| **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `packages/vt100` (`TextSize` on the cell) + `extract_cells_from_screen` | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto the blank cell below it on row `r+1`; `w=2` (`s=1:w=2`) emits `dwl`. Preserved across `capture-pane` refreshes while the cell's character matches |
 
-**Where the cell -> URL mapping comes from.** The link is recorded against the
-cells vt100 reports as it writes them: `OscParser::process` strips the escapes
-and hands back the byte ranges a link was open over, and `PaneState` feeds those
-ranges to vt100 one character at a time, marking whatever cell the cursor
-actually landed on. The marks then travel with their line, driven by the vt100
-screen's own scroll counter. (The parser used to derive coordinates from a
-private cursor it advanced on newlines and printable ASCII only — blind to every
-CSI cursor move, so the URL drifted onto unrelated text.) Because tmux strips
-OSC 8 from `capture-pane` history, the map is cleared on a capture refresh and
-repopulates from live output — a link is not restored by reloading the page.
-
-**A mark is only good while its text is.** Each mark also records the character
-that was under it, and the map is read back a row at a time
-(`OscParser::row_urls`), never by coordinate alone: a run of adjacent cells
-sharing one URL was written as one label, so it is validated as one — if any
-character under it has changed, the whole run goes. vt100 carries no per-cell
-hyperlink attribute, so a cell being overwritten is invisible to a coordinate
-map; without the check, an application that repaints in place (Claude Code,
-vim, htop) scrolled nothing and cleared nothing, and every frame's text
-inherited the last frame's link — a long underline over unrelated text. The
-run, not the cell, is the unit, or a redraw that happens to refill a cell with
-the same character leaves a stray underline under it.
+**A link is an attribute of the cell its text was written to.** The vendored
+vt100 (`packages/vt100`, see its `PATCHES.md`) reads OSC 8 itself and writes
+each character under the link that was open, the way it writes colours, so a
+link moves, reflows, scrolls and is overwritten with its text: an application
+that repaints in place (Claude Code, vim, htop) leaves no link on the text it
+redrew, and an erase paints none. The URLs live in a per-screen table that,
+as tmux's does, forgets the oldest past 5000 links (or 1 MiB of URLs), so a
+cell under a forgotten link reads as plain text. A colour reset (`SGR 0`)
+does not close a link. tmux strips OSC 8 from `capture-pane` history, so a
+capture refresh starts the screen without links and they come back from live
+output — a link is not restored by reloading the page. (tmuxy used to strip
+OSC 8 before vt100 and keep its own map of cells to URLs; the map had to
+follow every scroll and check the text under each mark, and still drifted.)
 
 **Auto-detected URLs stop where a URL must.** `components/terminal/urlDetect.ts` matches the
 characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for
@@ -51,7 +42,7 @@ every row it covers, each opening the whole address. OSC 8 links already arrive
 whole on every row from the server. Either kind is one `<a>` per row, so
 hovering any row marks every anchor with the same target (`components/terminal/linkHover.ts`).
 
-OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
+OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — the images are parsed in `tmuxy-core/src/control_mode/images.rs`, the other sequences by the vendored vt100, whose title and clipboard callbacks are `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 
 ## How tmux preserves the sequences
 
@@ -133,7 +124,7 @@ Each `ImagePlacement` carries:
 
 The frontend positions the `<img>` absolutely inside `.terminal-images` in cell units — `--cell-w` horizontally, `--line-height-terminal` vertically — so the image stays aligned to the same cell grid as the surrounding text. This is the same grid the rows and the cursor use; see [The cell grid invariant](RICH-RENDERING-CELL-GRID.md). When `width=auto` / `height=auto` is requested, the parser converts pixels to cells using the pane's current cell size estimate.
 
-**Content-tracked scrolling and scroll/copy mode.** `PaneState::sync_url_scroll` reads `vt100::Screen::scroll_delta()` as terminal output is processed and calls `ImageParser::shift_rows_up` / `shift_rows_down` to shift each placement's `row` in lockstep with the surrounding text. Placements that scroll above the live viewport (`row < 0`) are retained until their bottom edge (`row + height_cells`) passes the scrollback limit (`IMAGE_HISTORY_ROWS`), and `ScrollbackTerminal.tsx` renders `.terminal-images` at `top: calc((historySize + row) * var(--line-height-terminal))` so images remain visible when scrolling back in scroll or copy mode. Primary-screen placements also survive pane zoom and resize (`ImageParser::reset_for_resize` only clears placements on the alternate screen, where full-screen apps redraw on `SIGWINCH`).
+**Content-tracked scrolling and scroll/copy mode.** `PaneState::sync_image_scroll` reads `vt100::Screen::scroll_delta()` as terminal output is processed and calls `ImageParser::shift_rows_up` / `shift_rows_down` to shift each placement's `row` in lockstep with the surrounding text. Placements that scroll above the live viewport (`row < 0`) are retained until their bottom edge (`row + height_cells`) passes the scrollback limit (`IMAGE_HISTORY_ROWS`), and `ScrollbackTerminal.tsx` renders `.terminal-images` at `top: calc((historySize + row) * var(--line-height-terminal))` so images remain visible when scrolling back in scroll or copy mode. Primary-screen placements also survive pane zoom and resize (`ImageParser::reset_for_resize` only clears placements on the alternate screen, where full-screen apps redraw on `SIGWINCH`).
 
 See [RICH-RENDERING-CELL-GRID.md](RICH-RENDERING-CELL-GRID.md) for this section: The cell grid invariant.
 

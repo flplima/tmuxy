@@ -10,7 +10,7 @@
 //! - `state` - Aggregate events into coherent state
 //! - `monitor_core` - The sans-IO client core every host runs
 //! - `monitor` - The tokio host of that core
-//! - `osc` - OSC (Operating System Command) sequence parser
+//! - `osc` - The title and clipboard requests vt100 reads from pane output
 
 // Sans-IO parse + state layer (wasm-safe).
 pub mod images;
@@ -37,7 +37,6 @@ pub use log::{LogKind, LogSink};
 pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
 pub use monitor_core::{Action, AttachConfig, CommandReply, MonitorCore, Outgoing};
 pub use octal::decode_octal;
-pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub(crate) use state::normalize_capture_bytes;
 pub use state::{

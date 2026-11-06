@@ -1,6 +1,7 @@
 use unicode_width::UnicodeWidthChar as _;
 
-// chosen to make the size of the cell struct 32 bytes
+// chosen to make the size of the cell struct 32 bytes before the 4-byte
+// hyperlink id joined the attributes
 const CONTENT_BYTES: usize = 22;
 
 const IS_WIDE: u8 = 0b1000_0000;
@@ -14,7 +15,7 @@ pub struct Cell {
     len: u8,
     attrs: crate::attrs::Attrs,
 }
-const _: () = assert!(std::mem::size_of::<Cell>() == 32);
+const _: () = assert!(std::mem::size_of::<Cell>() == 36);
 
 impl PartialEq<Self> for Cell {
     fn eq(&self, other: &Self) -> bool {
@@ -133,6 +134,21 @@ impl Cell {
 
     pub(crate) fn attrs(&self) -> &crate::attrs::Attrs {
         &self.attrs
+    }
+
+    pub(crate) fn link(&self) -> crate::attrs::LinkId {
+        self.attrs.link
+    }
+
+    pub(crate) fn set_text_size(&mut self, size: crate::TextSize) {
+        self.attrs.set_text_size(size);
+    }
+
+    /// Returns the size the cell's text was drawn at with the kitty text
+    /// sizing protocol (`OSC 66`).
+    #[must_use]
+    pub fn text_size(&self) -> crate::TextSize {
+        self.attrs.text_size()
     }
 
     /// Returns the foreground color of the cell.

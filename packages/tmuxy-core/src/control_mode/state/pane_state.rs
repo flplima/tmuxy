@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    extract_cells_from_screen, extract_cells_with_urls, GroupId, PaneContent, PaneId, TmuxPane,
-    WindowId,
-};
+use crate::{extract_cells_from_screen, GroupId, PaneContent, PaneId, TmuxPane, WindowId};
 
 /// State of a single pane with terminal emulation
 pub struct PaneState {
@@ -16,23 +13,21 @@ pub struct PaneState {
     /// `list-panes` report places it.
     pub window_id: Option<WindowId>,
 
-    /// Terminal emulator for this pane. It, the two parsers beside it, the
-    /// scroll baseline and the content cache are the pane's own: they change
-    /// together (`reset` in `pane_output.rs`), never from the aggregator.
-    terminal: vt100::Parser,
-
-    /// OSC sequence parser for hyperlinks and clipboard
-    osc_parser: super::osc::OscParser,
+    /// Terminal emulator for this pane, with the title and clipboard requests
+    /// it read. It, the image parser beside it, the scroll baseline and the
+    /// content cache are the pane's own: they change together (`reset` in
+    /// `pane_output.rs`), never from the aggregator.
+    terminal: vt100::Parser<super::osc::OscRequests>,
 
     /// Last `vt100::Screen::scroll_delta` this pane observed. The difference
     /// against the current value is how far the visible grid moved, which is
-    /// what keeps the OSC 8 cell->URL marks on the lines they were written on.
+    /// what keeps image placements on the lines they were drawn on.
     ///
     /// The counter belongs to one grid, so it MUST be re-based whenever the
     /// grid underneath it is replaced — a capture refresh builds a fresh
     /// parser, and the alternate screen is a different grid with its own
     /// counter. Comparing across either yields a nonsense delta that shifts
-    /// every mark off the screen.
+    /// every placement off the screen.
     last_scroll_delta: i64,
 
     /// Which grid `last_scroll_delta` was read from: the alternate screen has
@@ -158,8 +153,6 @@ pub struct PaneState {
     cached_content: Option<std::sync::Arc<PaneContent>>,
 }
 
-#[path = "pane_links.rs"]
-mod links;
 #[path = "pane_output.rs"]
 mod output;
 
@@ -172,10 +165,6 @@ impl PaneState {
 
     pub(crate) fn placements(&self) -> &[super::images::ImagePlacement] {
         &self.image_parser.placements
-    }
-
-    pub(crate) fn osc(&self) -> &super::osc::OscParser {
-        &self.osc_parser
     }
 }
 
@@ -194,15 +183,16 @@ impl PaneState {
         // Guard: vt100 panics on zero dimensions
         let w = (width as u16).max(1);
         let h = (height as u16).max(1);
-        let mut osc_parser = super::osc::OscParser::new();
-        osc_parser.set_viewport_height(height);
         Self {
             id,
             index: 0,
             window_id: None,
-            terminal: vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS),
-
-            osc_parser,
+            terminal: vt100::Parser::new_with_callbacks(
+                h,
+                w,
+                crate::constants::REFLOW_SCROLLBACK_ROWS,
+                super::osc::OscRequests::default(),
+            ),
             last_scroll_delta: 0,
             scroll_baseline_alt: false,
             image_parser: super::images::ImageParser::new(),
@@ -278,7 +268,7 @@ impl PaneState {
             screen.set_scrollback(asked);
             // What the grid granted, which is where this window really starts.
             let granted = screen.scrollback() as i64;
-            let window = extract_cells_with_urls(self.terminal.screen(), None);
+            let window = extract_cells_from_screen(self.terminal.screen());
             let first = -granted;
             for (i, line) in window.into_iter().enumerate() {
                 let row = first + i as i64;
@@ -308,10 +298,7 @@ impl PaneState {
                 return std::sync::Arc::clone(cached);
             }
         }
-        let content = std::sync::Arc::new(extract_cells_with_urls(
-            self.terminal.screen(),
-            Some(&self.osc_parser),
-        ));
+        let content = std::sync::Arc::new(extract_cells_from_screen(self.terminal.screen()));
         self.cached_content = Some(std::sync::Arc::clone(&content));
         self.content_dirty = false;
         content

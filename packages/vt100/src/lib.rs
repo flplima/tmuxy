@@ -46,14 +46,16 @@ mod attrs;
 mod callbacks;
 mod cell;
 mod grid;
+mod hyperlinks;
 mod parser;
 mod perform;
 mod row;
 mod screen;
 
-pub use attrs::Color;
+pub use attrs::{Color, TextSize};
 pub use callbacks::Callbacks;
 pub use cell::Cell;
+pub use hyperlinks::{MAX_HYPERLINKS, MAX_HYPERLINK_BYTES, MAX_HYPERLINK_URL_BYTES};
 pub use parser::Parser;
 pub use row::LineSize;
 pub use screen::{MouseProtocolEncoding, MouseProtocolMode, Screen, Scrollback};
