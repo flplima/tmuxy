@@ -368,3 +368,28 @@ fn only_the_attached_sessions_rename_names_it() {
     }
     assert_eq!(agg.to_tmux_state().session_name, "tmuxy");
 }
+
+/// A window tmux has just made current, its panes not listed yet, has no
+/// active pane to name. Naming the last window's sent the keys typed into a
+/// tab just opened to a pane of a hidden one.
+#[test]
+fn a_current_window_with_no_panes_listed_names_no_active_pane() {
+    let mut agg = StateAggregator::new();
+    listed(&mut agg, TmuxList::Panes, &pane_row("%0", "@0", false));
+    listed(
+        &mut agg,
+        TmuxList::Windows,
+        &window_row("@0", 0, true, "shell").build(),
+    );
+    assert_eq!(agg.to_tmux_state().active_pane_id, Some(pid("%0")));
+    agg.process_event(ControlModeEvent::WindowAdd {
+        window_id: wid("@1"),
+    });
+    agg.process_event(ControlModeEvent::SessionWindowChanged {
+        session_id: "$0".to_string(),
+        window_id: wid("@1"),
+    });
+    let state = agg.to_tmux_state();
+    assert_eq!(state.active_window_id, Some(wid("@1")));
+    assert_eq!(state.active_pane_id, None);
+}

@@ -284,12 +284,14 @@ impl StateAggregator {
         let total_width = extent(|p| p.x + p.width, 80);
         let total_height = extent(|p| p.y + p.height, 24);
 
-        // Find the active pane ID from the active window
-        // (each window has its own active pane, we want the one in the active window)
+        // The active pane is the active window's: each window has its own,
+        // and a window whose panes are not listed yet has none to name.
+        // Naming another window's sent the keys typed into a tab just
+        // opened to a pane of a hidden one; with none named, a client's keys
+        // go to tmux's current pane.
         let active_pane_id = panes
             .iter()
-            .find(|p| p.active && active_window == Some(&p.window_id))
-            .or_else(|| panes.iter().find(|p| p.active))
+            .find(|p| p.active && in_active_window(p))
             .map(|p| p.tmux_id.clone());
 
         TmuxState {
