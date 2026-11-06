@@ -276,8 +276,15 @@ fn write_entry(layout: &Layout) -> PathBuf {
 
 /// The entry file tmux is started with (`-f`) and the monitor sources on
 /// every connect and reload, rebuilt first so it follows the user's file and
-/// the `use-tmux-conf` choice. `None` when it could not be written.
+/// the `use-tmux-conf` choice. `None` when it could not be written, and over
+/// SSH ([`super::ssh_target`]): the path is this machine's, and the remote
+/// tmux answers a `source-file` of it with `No such file or directory` (or
+/// reads whatever file has that path over there). Every caller that hands
+/// the config to tmux asks here, so none of them repeats that check.
 pub fn get_config_path() -> Option<PathBuf> {
+    if super::ssh_target().is_some() {
+        return None;
+    }
     let path = write_entry(&Layout::current());
     path.exists().then_some(path)
 }
