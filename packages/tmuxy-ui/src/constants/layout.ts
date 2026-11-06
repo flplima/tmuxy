@@ -20,9 +20,6 @@ export function containerPaddingX(phone: boolean): number {
   return phone ? PHONE_CONTAINER_PADDING : CONTAINER_PADDING_X;
 }
 
-// How long the survivors take to grow into a closed pane's space. Closing
-// itself is instant: what animates is the space opening up.
-export const PANE_LEAVE_MS = 160;
 export const PANE_ENTER_FROM_OPACITY = 0.4;
 
 export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border

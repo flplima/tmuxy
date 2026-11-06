@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo } from 'react';
-import { PANE_LEAVE_MS, PANE_ENTER_FROM_OPACITY } from '../constants/layout';
+import { PANE_ENTER_FROM_OPACITY } from '../constants/layout';
 import { cssDurationMs } from '../infra/dom/cssTiming';
 import { paneBox, type PaneBox } from '../domain/paneGeometry';
 import { findEnterFromBox } from './paneTransitions';
@@ -98,9 +98,9 @@ export interface ShiftAnim {
 }
 
 /**
- * A pane that has just gone. Nothing of it is drawn, but the entry holds the
- * shift lifecycle open for PANE_LEAVE_MS so the survivors grow into its space
- * instead of snapping into it.
+ * A pane that has just gone. Nothing of it is drawn (closing is instant), but
+ * the entry holds the shift lifecycle open for `--transition-pane-size`, the
+ * transition the survivors grow into its space with, instead of snapping.
  */
 export interface LeaveAnim {
   pane: TmuxPane;
@@ -394,10 +394,13 @@ export function usePaneMorphCommit({
     prevZoomedRef.current = zoomedPaneId;
     for (const [key, leave] of leavingRef.current) {
       if (leave.timer !== undefined) continue;
-      leave.timer = window.setTimeout(() => {
-        leavingRef.current.delete(key);
-        bumpAnimTick();
-      }, PANE_LEAVE_MS + ANIM_TIMER_SLACK_MS);
+      leave.timer = window.setTimeout(
+        () => {
+          leavingRef.current.delete(key);
+          bumpAnimTick();
+        },
+        cssDurationMs(timingRoot, '--transition-pane-size') + ANIM_TIMER_SLACK_MS,
+      );
     }
 
     prevViewRef.current = currView;
