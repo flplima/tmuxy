@@ -130,12 +130,12 @@ async function buildBundle({ fetchBinaries }) {
     }
   }
 
-  // The pane-group operations the pane-group script runs (`tmuxy-group`),
+  // The verbs the CLI runs in Rust, there being no server (`tmuxy-verbs`),
   // the CLI dispatcher with its helper scripts, and the config the app ships
   // (the essentials hold the `tmuxy-*` command-aliases; without them every
   // Ctrl+h/j/k/l was "unknown command") — all flat in the bundle, placed by
   // GUEST_INSTALL.
-  await crossCompileGuestBinaries(['tmuxy-group'], WORK);
+  await crossCompileGuestBinaries(['tmuxy-verbs'], WORK);
   await stageTmuxyScripts(join(WORK, 'bin'));
   for (const conf of GUEST_CONF_ASSETS) {
     await cp(join(GUEST_CONF_ASSETS_DIR, conf), join(WORK, conf));
@@ -160,7 +160,7 @@ const GUEST_INSTALL = [
   'ln -sf /tmp/tb/bash /bin/bash',
   'ln -sf /tmp/tb/tmux /usr/bin/tmux',
   'ln -sf /tmp/tb/bin/tmuxy-cli /usr/bin/tmuxy',
-  'ln -sf /tmp/tb/tmuxy-group /usr/bin/tmuxy-group',
+  'ln -sf /tmp/tb/tmuxy-verbs /usr/bin/tmuxy-verbs',
   `mkdir -p ${GUEST_CONFIG_DIR} ${GUEST_DATA_DIR}/bin ${GUEST_STATE_DIR}`,
   // busybox's ln has no -n; with it the link was never made, and the
   // essentials' `$TMUXY_DATA_DIR/bin/tmuxy/...` scripts did not exist.

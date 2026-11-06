@@ -181,14 +181,6 @@ describe('CLI pane group subcommands', () => {
       expect(stdout).toBe('mock-server-started server group close %5');
     });
 
-    // The v86 guest has no server, only the standalone binary. nav's group
-    // step goes through the same `find_group_cmd`, so it lands here too.
-    test('uses the standalone tmuxy-group binary where one is installed', () => {
-      const { stdout, exitCode } = runGroupScript('next', ['%1'], {}, { standalone: true });
-      expect(exitCode).toBe(0);
-      expect(stdout).toBe(`standalone next %1 [scripts=${SCRIPTS_DIR}]`);
-    });
-
     // A dev tree with nothing installed (CI): the server build is found from
     // where the scripts sit in the repo.
     test("finds the dev tree's own server build, from the scripts' place in the repo", () => {
@@ -200,7 +192,7 @@ describe('CLI pane group subcommands', () => {
   });
 
   // A tab's worth of group work: the `group` verb's `all` and `ungroup`
-  // (packages/tmuxy-group; against a real tmux in
+  // (packages/tmuxy-verbs/src/group_cli.rs; against a real tmux in
   // packages/tmuxy-server/tests/pane_groups.rs).
   describe('pane group all / ungroup', () => {
     test.each(['all', 'ungroup'])('%s runs pane-group on the caller pane', (verb) => {

@@ -19,8 +19,8 @@ cd "$ROOT"
 # Every crate `cargo fmt` keeps in shape. Clippy runs over the host crates;
 # tmuxy-wasm is clippy'd for its own target below, since the host build of it
 # is not the one that ships.
-FMT_CRATES=(tmuxy-core tmuxy-server tmuxy-verbs tmuxy-tauri-app tmuxy-group tmuxy-pty tmuxy-wasm)
-CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-verbs tmuxy-tauri-app tmuxy-group tmuxy-pty)
+FMT_CRATES=(tmuxy-core tmuxy-server tmuxy-verbs tmuxy-tauri-app tmuxy-pty tmuxy-wasm)
+CLIPPY_CRATES=(tmuxy-core tmuxy-server tmuxy-verbs tmuxy-tauri-app tmuxy-pty)
 
 # What Prettier owns. A file outside these globs is formatted by nothing, so a
 # new directory of scripts is added here, not formatted by hand.
@@ -106,6 +106,9 @@ check_clippy() {
   mkdir -p packages/tmuxy-ui/dist
   # shellcheck disable=SC2046
   cargo clippy $(pkgs "${CLIPPY_CRATES[@]}") -- -D warnings
+  # The verbs as the in-browser guests build them (scripts/lib/guest.mjs):
+  # a verb gated on `native` that the guest build still reaches fails here.
+  cargo clippy -p tmuxy-verbs --no-default-features -- -D warnings
 }
 
 check_knip() {

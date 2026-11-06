@@ -68,7 +68,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add rustfmt clippy \
     # wasm32 for tmuxy-wasm (npm run build:wasm; its wasm-bindgen CLI is
-    # install-dev-tools'), i686-musl for the guests' tmuxy-group binary
+    # install-dev-tools'), i686-musl for the guests' tmuxy-verbs binary
     && rustup target add $(/tmp/toolchain rust-targets) \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R user:user /usr/local/cargo /usr/local/rustup

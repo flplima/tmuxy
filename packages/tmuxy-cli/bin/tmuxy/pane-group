@@ -1,7 +1,8 @@
 #!/bin/bash
 # pane-group <verb> <args...>: a pane-group operation, run inside tmux
 # run-shell. The rules are tmuxy_core::groups; the verbs and their arguments
-# are the server binary's `group` (`tmuxy-group --help`, packages/tmuxy-group).
+# are the verbs binary's `group` (`tmuxy-server group --help`,
+# packages/tmuxy-verbs/src/group_cli.rs).
 set -euo pipefail
 source "${0%/*}/_lib"
 

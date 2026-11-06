@@ -272,7 +272,8 @@ FEOF
 
 # --- Pane group subcommands ---
 
-# The verbs and their arguments are tmuxy-group's (`packages/tmuxy-group`).
+# The verbs and their arguments are the `group` verb's
+# (`packages/tmuxy-verbs/src/group_cli.rs`).
 cmd_pane_group() {
   local sub="${1:-}"
   shift 2>/dev/null || true

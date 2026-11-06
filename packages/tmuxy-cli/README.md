@@ -25,8 +25,12 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
   — is a `tmuxy-verbs` verb (`tmuxy-server <verb>`, the desktop app's `tmuxy
   server <verb>`); the script resolves its target and caller and forwards.
   `--json` is handed on, and the verb answers through the contract below
-  (`tmuxy_core::cli_contract`). The v86 guest ships `tmuxy-group` and no
-  server, so of these only the pane groups work there.
+  (`tmuxy_core::cli_contract`). `find_server_cmd` in `bin/tmuxy/_lib` is
+  the one place a script finds the binary, on every host; the in-browser
+  guests have no server and ship `tmuxy-verbs` instead, which runs every
+  verb but the ones on tmuxy-core's async transport (`session save|…`,
+  `session connect`, `connect`, `plugin`, `trace`) and answers those as not
+  available here, under the contract.
 
 - **Mutations go through `tmux run-shell`.** An external `tmux` command that
   mutates while control mode is attached crashes tmux 3.3a–3.5a. `_run_safe`
@@ -51,7 +55,9 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
   target-less command from the CLI's unattached client to the session's
   current window, not the caller's.
 - **Tests:** `npm run test:cli` (`tests/cli/`, against mock `tmux` and
-  `tmuxy-server` binaries; `cli-contract.test.js` holds the contract above).
+  `tmuxy-server` binaries; `cli-contract.test.js` holds the contract above,
+  and `cli-guest-verbs.test.js` runs the guests' real `tmuxy-verbs`, which it
+  builds with cargo, as the only verbs binary).
   A verb is tested in Rust: its logic in `tmuxy-verbs`, and against a real
   tmux in `packages/tmuxy-server/tests/` (`cli_verbs.rs`, `pane_groups.rs`).
 - **Dev install:** the repo root's `bin/bootstrap` links this `bin/tmuxy-cli` as

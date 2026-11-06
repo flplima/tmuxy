@@ -1,5 +1,5 @@
-//! The pane-group operations, as `tmuxy-group <verb>` and `tmuxy-server group
-//! <verb>`. The `packages/tmuxy-cli/bin/tmuxy/pane-group` script is their name:
+//! The pane-group operations, the `group` verb. The
+//! `packages/tmuxy-cli/bin/tmuxy/pane-group` script is their name:
 //! the UI, the key bindings and session restore call it inside
 //! `tmux run-shell`, where these tmux calls are tmux-internal (see
 //! `tmuxy_core::session::tmux_output`). A refusal prints
