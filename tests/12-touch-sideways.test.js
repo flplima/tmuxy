@@ -1,8 +1,8 @@
 /**
  * A phone held sideways, finger only
  *
- * The landscape half of the phone layout (infra/dom/phoneLayout.ts): the terminal
- * on the right at the height its 25 rows fit, the tab strip, key row and tree
+ * The landscape half of the phone layout (infra/dom/phoneLayout.ts): the
+ * terminal on the right at the height its 25 rows fit, the key row and tree
  * in the column left of it — and, with the keyboard up, the terminal cut
  * short and scrolled so the row being typed on stays in view above it
  * (components/phone/usePhoneViewport.ts). The portrait half is tests/12-touch.test.js.

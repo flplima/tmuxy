@@ -79,7 +79,7 @@ describe('Phone width (390px) with a touchscreen: the prefix key, and arrows tha
         };
       });
     const tabCount = () =>
-      ctx.page.evaluate(() => document.querySelectorAll('.phone-tab-strip [role="tab"]').length);
+      ctx.page.evaluate(() => document.querySelectorAll('.phone-tree .sidebar-tree-tab').length);
 
     // 1. Two lines of history to walk.
     await openKeyboard();

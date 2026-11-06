@@ -75,6 +75,29 @@ export function buildTreeRows(
   return out;
 }
 
+/** A tab row and the pane rows under it. */
+export interface TabGroup {
+  tab: Extract<Row, { kind: 'tab' }>;
+  panes: Row[];
+}
+
+/**
+ * The rows of every tab, open or not, grouped under their tab rows, each tab
+ * marked collapsed as `collapsed` says: what the tree draws, where a collapsed
+ * tab's panes are folded away rather than left out.
+ */
+export function groupByTab(all: readonly Row[], collapsed: ReadonlySet<WindowId>): TabGroup[] {
+  const out: TabGroup[] = [];
+  for (const row of all) {
+    if (row.kind === 'tab') {
+      out.push({ tab: { ...row, collapsed: collapsed.has(row.window.id) }, panes: [] });
+    } else {
+      out[out.length - 1]?.panes.push(row);
+    }
+  }
+  return out;
+}
+
 /** An open right-click menu targeting a tree row, positioned at the cursor. */
 export type MenuState =
   | { kind: 'pane'; paneId: PaneId; x: number; y: number }
