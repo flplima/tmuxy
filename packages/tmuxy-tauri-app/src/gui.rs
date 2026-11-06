@@ -16,7 +16,6 @@ pub fn run() {
     // state dir: an app launched from Finder has no stderr anyone sees, and
     // the file is what Help ▸ Reveal Log File shows and the smoke tests read.
     tmuxy_core::logging::init_logging_to_file(&tmuxy_core::paths::log_file());
-    tmuxy_core::trace::init(None, cfg!(debug_assertions));
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
@@ -88,6 +87,11 @@ pub fn run() {
             window_setup::handle_tmuxypreview(ctx.app_handle(), request)
         })
         .setup(|app| {
+            let started = tmuxy_core::host::start(
+                std::sync::Arc::new(monitor::Windows(app.handle().clone())),
+                None,
+                cfg!(debug_assertions),
+            );
             // The environment, for telling a Finder launch from a CLI one.
             let env = |key: &str| std::env::var(key).unwrap_or_else(|_| "(unset)".to_string());
             tracing::info!(
@@ -140,24 +144,9 @@ pub fn run() {
             // command resolves its monitor through the window registry.
             windows::open_main(app.handle());
             tauri::async_runtime::spawn(monitor::poll_connect_requests(app.handle().clone()));
-            // Every pane on the socket, read for the agent-dialog correction
-            // (`host::socket_watch`).
-            let (panes, _) = tmuxy_core::host::socket_watch::channel();
-            tauri::async_runtime::spawn(tmuxy_core::host::socket_watch::run(panes));
-            // Watch the config dir for the user's edits: a saved stylesheet
-            // is announced to the webviews, a saved tmuxy.conf is sourced.
-            let config_watch_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                tmuxy_core::host::watch_config(|change| {
-                    let app = config_watch_app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        for window in windows::list_all(&app) {
-                            window.monitor.runtime.config_changed(change).await;
-                        }
-                    });
-                })
-                .await;
-            });
+            // The socket watch (the agent-dialog correction) and the config
+            // watch, for as long as the app runs.
+            tauri::async_runtime::spawn(started.background);
 
             Ok(())
         })
@@ -189,7 +178,7 @@ pub fn run() {
         }
     };
     // Quitting, from any menu: the last snapshot of every window's session
-    // first (`monitor::save_snapshots`), then the exit asked for.
+    // first (`host::save_final_snapshots`), then the exit asked for.
     let saved = std::sync::atomic::AtomicBool::new(false);
     app.run(move |handle, event| {
         if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
@@ -199,7 +188,7 @@ pub fn run() {
             api.prevent_exit();
             let handle = handle.clone();
             tauri::async_runtime::spawn(async move {
-                monitor::save_snapshots(&handle).await;
+                tmuxy_core::host::save_final_snapshots(&monitor::Windows(handle.clone())).await;
                 handle.exit(code.unwrap_or(0));
             });
         }

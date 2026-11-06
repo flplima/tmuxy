@@ -1,6 +1,35 @@
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+/// What makes a session, whichever client asks tmux for it (this
+/// connection's `-CC new-session -A`, or another session's control-mode
+/// client): its name, the group it joins, and its first window.
+///
+/// A second GUI window on the same session joins the base session's group
+/// (`-t <base>`), sharing every window and pane but keeping its own current
+/// window. A session about to be rebuilt from a snapshot gets its first
+/// window made here, by name and directory, so the rebuild has a window 0 to
+/// build onto. With `-A` tmux ignores all three when the session exists.
+pub fn new_session_flags(
+    session: &str,
+    group_target: Option<&str>,
+    first_window: Option<&(String, String)>,
+) -> Vec<String> {
+    let mut flags = vec!["-s".to_string(), session.to_string()];
+    if let Some(base) = group_target {
+        flags.extend(["-t".to_string(), base.to_string()]);
+    }
+    if let Some((name, cwd)) = first_window {
+        flags.extend([
+            "-n".to_string(),
+            name.clone(),
+            "-c".to_string(),
+            cwd.clone(),
+        ]);
+    }
+    flags
+}
+
 /// The argv that launches `tmux -CC`, led by its program (the tmux path, or
 /// `ssh -tt <dest> tmux`), and the same argv joined, for the log.
 pub(super) fn build_tmux_args(
@@ -21,30 +50,8 @@ pub(super) fn build_tmux_args(
     if create_if_missing {
         // `-A` attaches or creates in one step: no clientless gap for the
         // macOS launchd reaper to hit.
-        tmux_args.extend([
-            "-CC".to_string(),
-            "new-session".to_string(),
-            "-A".to_string(),
-            "-s".to_string(),
-            session_name.to_string(),
-        ]);
-        // A second GUI window on the same session: `-t <base>` joins the base
-        // session's group, sharing every window and pane but keeping its own
-        // current window. With `-A` the flag is inert when the session exists.
-        if let Some(base) = group_target {
-            tmux_args.extend(["-t".to_string(), base.to_string()]);
-        }
-        // A session about to be rebuilt from a snapshot gets its first window
-        // made right here, by name and directory, so the rebuild has a
-        // window 0 to build onto. tmux ignores both when the session exists.
-        if let Some((name, cwd)) = first_window {
-            tmux_args.extend([
-                "-n".to_string(),
-                name.clone(),
-                "-c".to_string(),
-                cwd.clone(),
-            ]);
-        }
+        tmux_args.extend(["-CC", "new-session", "-A"].map(String::from));
+        tmux_args.extend(new_session_flags(session_name, group_target, first_window));
     } else {
         tmux_args.extend([
             "-CC".to_string(),

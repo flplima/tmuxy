@@ -19,6 +19,7 @@ pub mod prepare;
 mod requests;
 mod runtime;
 pub mod socket_watch;
+mod start;
 mod supervise;
 
 #[cfg(test)]
@@ -28,17 +29,49 @@ mod protocol_fixtures;
 #[cfg(test)]
 pub(crate) use bindings::parse_bindings;
 pub use bindings::{
-    watch_config, ConfigChange, ImageStore, KeyBinding, KeyBindings, MAX_PANE_IMAGE_BYTES,
-    SOURCE_ENTRY_CONF,
+    ConfigChange, ImageStore, KeyBinding, KeyBindings, MAX_PANE_IMAGE_BYTES, SOURCE_ENTRY_CONF,
 };
 pub use command::{handle, ClientCommand, HostCtx};
 pub use event::{ConnectionInfo, EventData, HostEvent};
 pub use plugins::PluginToken;
 pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings};
 pub use runtime::{ClientId, RuntimeConfig, SessionRuntime, Sink, MONITOR_READY_TIMEOUT};
+pub use start::{save_final_snapshots, start, Sessions, Started, FINAL_SNAPSHOT_TIMEOUT};
 pub use supervise::*;
 
 use crate::control_mode::MonitorConfig;
+
+/// Create `config`'s session through another session's control-mode client
+/// `via`, waiting for tmux's answer: an external `tmux new-session` while a
+/// control-mode client is attached crashes tmux 3.5a. Detached, at the size
+/// a fresh connection starts at, in the session's start directory unless
+/// its first window names one.
+pub async fn create_session_via(
+    via: &crate::control_mode::MonitorCommandSender,
+    config: &MonitorConfig,
+) -> Result<(), crate::CommandError> {
+    use crate::control_mode::{new_session_flags, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
+    let mut words: Vec<String> = ["new-session", "-d", "-x"]
+        .map(String::from)
+        .into_iter()
+        .chain([
+            INITIAL_PTY_COLS.to_string(),
+            "-y".to_string(),
+            INITIAL_PTY_ROWS.to_string(),
+        ])
+        .collect();
+    if let (None, Some(dir)) = (&config.first_window, &config.working_dir) {
+        words.extend(["-c".to_string(), dir.display().to_string()]);
+    }
+    words.extend(new_session_flags(
+        &config.session,
+        config.group_target.as_deref(),
+        config.first_window.as_ref(),
+    ));
+    crate::control_mode::query(via, &crate::argv::control_line(&words))
+        .await
+        .map(|_| ())
+}
 
 /// Whether tmux has a session called `session`. Asked with a subprocess, so
 /// only before the host's own control-mode connection attaches (docs/TMUX.md).
@@ -117,6 +150,7 @@ pub fn host_name() -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::session_start_dir_from;
     use std::path::PathBuf;
@@ -145,5 +179,38 @@ mod tests {
     fn with_no_home_the_cwd_is_what_is_left() {
         let dir = session_start_dir_from(None, None, Some(PathBuf::from("/")));
         assert_eq!(dir, PathBuf::from("/"));
+    }
+
+    /// The courier's `new-session` is the direct path's, plus what a session
+    /// made from another client needs (detached, a size, a directory), and it
+    /// is answered: it was queued fire-and-forget and polled for with
+    /// `has-session` fifty times.
+    #[tokio::test]
+    async fn a_session_made_through_another_client_is_waited_for_by_its_answer() {
+        use crate::control_mode::{CommandReply, MonitorCommand};
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let asked = tokio::spawn(async move {
+            match rx.recv().await {
+                Some(MonitorCommand::RunCommandWithReply { command, reply }) => {
+                    let _ = reply.send(CommandReply {
+                        output: String::new(),
+                        error: None,
+                    });
+                    command
+                }
+                _ => panic!("expected a command with a reply"),
+            }
+        });
+        let config = crate::control_mode::MonitorConfig {
+            session: "work".to_string(),
+            group_target: Some("base".to_string()),
+            working_dir: Some(PathBuf::from("/home/u")),
+            ..Default::default()
+        };
+        super::create_session_via(&tx, &config).await.unwrap();
+        assert_eq!(
+            asked.await.unwrap(),
+            "new-session -d -x 200 -y 50 -c /home/u -s work -t base"
+        );
     }
 }

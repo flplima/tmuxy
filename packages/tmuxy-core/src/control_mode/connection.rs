@@ -5,6 +5,7 @@ mod spawn;
 use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::error::TmuxError;
+pub use spawn::new_session_flags;
 use spawn::{build_tmux_args, spawn_parser_task};
 use std::sync::Arc;
 use std::time::Duration;

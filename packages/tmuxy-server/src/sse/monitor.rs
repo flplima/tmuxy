@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommandSender, MonitorConfig};
 use tmuxy_core::host::{self, Attempt, Ended, GaveUp, Host, HostEvent, SessionRuntime, Task};
-use tmuxy_core::{tmux_quote, TmuxError};
+use tmuxy_core::TmuxError;
 use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
@@ -107,8 +107,7 @@ impl Host for ServerHost {
         let session = &self.session;
         // Only a peer whose tmux session actually EXISTS can run the command:
         // the map also holds sessions that are themselves still being created,
-        // and two of those pick each other as courier and both wait out the
-        // full poll below, every round, forever.
+        // and two of those pick each other as courier, every round, forever.
         //
         // Nor a peer nobody is watching: its last client left and it is in the
         // grace period before its monitor detaches, and a session made through
@@ -147,46 +146,16 @@ impl Host for ServerHost {
         };
         debug!(%session, via = "courier", viewers, "session creation path");
 
-        let working_dir = config
-            .working_dir
-            .as_ref()
-            .map(|d| format!(" -c {}", tmux_quote(&d.display().to_string())))
-            .unwrap_or_default();
-        let first_window = config
-            .first_window
-            .as_ref()
-            .map(|(name, cwd)| format!(" -n {} -c {}", tmux_quote(name), tmux_quote(cwd)))
-            .unwrap_or_default();
-        let create_cmd = format!(
-            "new-session -d -s {} -x {} -y {}{}{}",
-            tmux_quote(session),
-            tmuxy_core::control_mode::INITIAL_PTY_COLS,
-            tmuxy_core::control_mode::INITIAL_PTY_ROWS,
-            working_dir,
-            first_window
-        );
         info!(%session, %via_session, "creating session via existing CC client");
-        if tx
-            .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
-                command: create_cmd,
-            })
-            .await
-            .is_err()
-        {
-            warn!(%session, %via_session, "the courier's monitor is gone, creating directly");
-            return;
-        }
-        // The RunCommand is queued through the courier's event loop: poll
-        // until tmux has made the session.
-        for _ in 0..50 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            if host::session_exists(session).await {
+        match host::create_session_via(&tx, config).await {
+            Ok(()) => {
                 info!(%session, "session created successfully via CC");
                 config.create_session = false;
-                return;
+            }
+            Err(e) => {
+                warn!(%session, %via_session, error = %e, "session creation via CC failed, creating directly");
             }
         }
-        warn!(%session, "session creation via CC timed out, falling back to direct creation");
     }
 
     /// The session may have been cleaned up between the connect and now.

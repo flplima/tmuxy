@@ -217,19 +217,15 @@ impl Host for DesktopHost {
     }
 }
 
-/// The app is going: the last snapshot of every window's session, before
-/// the process ends — a change still on the autosave's debounce would be
-/// lost otherwise.
-pub async fn save_snapshots(app: &AppHandle) {
-    for window in crate::windows::list_all(app) {
-        window
-            .monitor
-            .runtime
-            .save_snapshot_now(FINAL_SNAPSHOT_TIMEOUT)
-            .await;
+/// Every window's session: what the desktop serves, for `host::start` and
+/// `host::save_final_snapshots`.
+pub struct Windows(pub AppHandle);
+
+impl host::Sessions for Windows {
+    async fn runtimes(&self) -> Vec<Arc<SessionRuntime>> {
+        crate::windows::list_all(&self.0)
+            .into_iter()
+            .map(|window| Arc::clone(&window.monitor.runtime))
+            .collect()
     }
 }
-
-/// How long the last snapshot of a session may take before quitting goes on
-/// without it.
-const FINAL_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);

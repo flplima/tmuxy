@@ -22,7 +22,9 @@ mod monitor;
 #[cfg(feature = "native")]
 pub use channel::{query, run};
 #[cfg(feature = "native")]
-pub use connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
+pub use connection::{
+    new_session_flags, ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS,
+};
 pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use log::{LogKind, LogSink};
 #[cfg(feature = "native")]

@@ -270,6 +270,17 @@ impl Default for AppState {
     }
 }
 
+impl tmuxy_core::host::Sessions for AppState {
+    async fn runtimes(&self) -> Vec<Arc<tmuxy_core::host::SessionRuntime>> {
+        self.sessions
+            .read()
+            .await
+            .values()
+            .map(|conns| Arc::clone(&conns.runtime))
+            .collect()
+    }
+}
+
 impl AppState {
     pub fn claim_stream_slot(self: &Arc<Self>) -> Option<StreamSlot> {
         let limit = MAX_LIVE_STREAMS;
