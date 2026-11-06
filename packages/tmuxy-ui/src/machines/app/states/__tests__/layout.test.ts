@@ -1,52 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
-import { pid, wid } from '../../../../test/wire';
+import { pid } from '../../../../test/wire';
 import { placeholderPaneId } from '../../../../domain/ids';
-import { fromCallback } from 'xstate';
 import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 import { act } from '../../actionTypes';
-const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
-import type { ResizeState, DragState } from '../../../types/domain';
+import type { ResizeState } from '../../../types/domain';
 
 describe('layout state', () => {
-  it('SELECT_TAB hands the switch to the store, which predicts it', () => {
-    const sent: unknown[] = [];
-    const tmuxStore = fromCallback(({ receive }) => {
-      receive((event) => void sent.push(event));
-    });
-    const actor = mountState(
-      layoutState,
-      layoutActions,
-      {},
-      { activeWindowId: wid('@0') },
-      {
-        extraActors: { tmuxStore },
-      },
-    );
-    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@1') });
-    expect(sent).toEqual([
-      { type: 'STORE_DISPATCH', op: TmuxOp.SelectWindow({ target: wid('@1') }) },
-    ]);
-    // The machine assigns nothing itself: the store's model update does.
-    expect(ctx.activeWindowId).toBe(wid('@0'));
-  });
-
-  it('SELECT_TAB is a no-op when already on the target window', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@5'),
-      windows: [],
-    });
-    const ctx = sendAndGetContext(actor, {
-      type: 'SELECT_TAB',
-      windowId: wid('@5'),
-    });
-    expect(ctx.activeWindowId).toBe(wid('@5'));
-  });
-
   it('RESIZE_STATE_UPDATE writes resize and resizeActive flag', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
+    const actor = mountState(layoutState, layoutActions, {
       resize: null,
       resizeActive: false,
     });
@@ -58,23 +22,10 @@ describe('layout state', () => {
     expect(ctx.resizeActive).toBe(false);
   });
 
-  it('DRAG_STATE_UPDATE assigns the drag field directly', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      drag: null,
-    });
-    // A real payload: null → null would pass with the handler deleted.
-    const drag = { paneId: pid('%2'), currentX: 10, currentY: 20 } as unknown as DragState;
-    let ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag });
-    expect(ctx.drag).toEqual(drag);
-    // ...and null clears it again.
-    ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
-    expect(ctx.drag).toBeNull();
-  });
-
   it('the 2s RESIZE_COMPLETED fallback clears a stale preview when no server update arrives', () => {
     vi.useFakeTimers();
     try {
-      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+      const actor = mountState(layoutState, layoutActions, {
         resize: null,
         resizeActive: false,
       });
@@ -92,7 +43,7 @@ describe('layout state', () => {
   it('the 2s RESIZE_COMPLETED fallback does not clobber a newer resize started within the window', () => {
     vi.useFakeTimers();
     try {
-      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+      const actor = mountState(layoutState, layoutActions, {
         resize: null,
         resizeActive: false,
       });
@@ -123,7 +74,6 @@ describe('layout state', () => {
             if (event.type === 'DISPATCH_OP') raised.push(event.op);
           }),
         },
-        {},
         context,
       );
       actor.send({ type: 'CLOSE_PANE', paneId: null });

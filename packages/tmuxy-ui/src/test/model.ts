@@ -1,4 +1,5 @@
 import type { TmuxPane, TmuxWindow } from '../domain/client';
+import type { CellLine } from '../domain/wireCells';
 import type { PaneId, WindowId } from '../domain/ids';
 import { recomputeDerived } from '../domain/store/model';
 import { EMPTY_SNAPSHOT, type TmuxClientModel, type TmuxSnapshot } from '../domain/store/types';
@@ -102,3 +103,6 @@ export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
     paneKeyOverrides: {},
   });
 }
+
+/** A row of cells reading `text`, one character a cell. */
+export const cellLine = (text: string): CellLine => [...text].map((c) => ({ c }));

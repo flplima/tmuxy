@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { fromCallback } from 'xstate';
 import { uiPrefsState } from '../uiPrefs';
 import { uiPrefsActions } from '../../actions/uiPrefs';
-const uiPrefsGuards = {};
 
 /** What the browser does when a pending theme sheet arrives (jsdom fetches none). */
 const loadPendingSheets = () =>
@@ -13,7 +12,7 @@ import { mountState, sendAndGetContext } from './testHarness';
 
 describe('uiPrefs state', () => {
   it('SET_THEME updates themeName', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       themeName: 'default',
     });
     const ctx = sendAndGetContext(actor, { type: 'SET_THEME', name: 'dracula' });
@@ -21,7 +20,7 @@ describe('uiPrefs state', () => {
   });
 
   it('SET_THEME_MODE updates themeMode', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       themeMode: 'dark',
     });
     const ctx = sendAndGetContext(actor, { type: 'SET_THEME_MODE', mode: 'light' });
@@ -29,7 +28,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEME_SETTINGS_RECEIVED updates both name and mode', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const actor = mountState(uiPrefsState, uiPrefsActions);
     const ctx = sendAndGetContext(actor, {
       type: 'THEME_SETTINGS_RECEIVED',
       theme: 'monokai',
@@ -51,7 +50,7 @@ describe('uiPrefs state', () => {
     localStorage.setItem('tmuxy-theme-name', 'nord');
     localStorage.setItem('tmuxy-theme-mode', 'light');
     try {
-      const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+      const actor = mountState(uiPrefsState, uiPrefsActions);
       const ctx = sendAndGetContext(actor, {
         type: 'THEME_SETTINGS_RECEIVED',
         theme: 'dracula',
@@ -82,7 +81,6 @@ describe('uiPrefs state', () => {
     const actor = mountState(
       uiPrefsState,
       uiPrefsActions,
-      uiPrefsGuards,
       {},
       {
         extraActors: { tmux },
@@ -109,7 +107,7 @@ describe('uiPrefs state', () => {
   it('a theme tmuxy.conf pins is drawn, and a menu pick does not move it', () => {
     localStorage.clear();
     try {
-      const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+      const actor = mountState(uiPrefsState, uiPrefsActions);
       let ctx = sendAndGetContext(actor, {
         type: 'THEME_SETTINGS_RECEIVED',
         theme: 'nord',
@@ -128,7 +126,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEME_SETTINGS_RECEIVED applies the appearance as CSS variables', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const actor = mountState(uiPrefsState, uiPrefsActions);
     sendAndGetContext(actor, {
       type: 'THEME_SETTINGS_RECEIVED',
       theme: 'default',
@@ -152,7 +150,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEME_SETTINGS_RECEIVED with transparency off paints the surfaces opaque, and keeps the text dim', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const actor = mountState(uiPrefsState, uiPrefsActions);
     const appearance = {
       opacity: 0.5,
       activePaneOpacity: 0.8,
@@ -188,7 +186,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEME_SETTINGS_RECEIVED carries the config’s animation switch', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const actor = mountState(uiPrefsState, uiPrefsActions);
     const appearance = {
       opacity: 0.7,
       activePaneOpacity: 1,
@@ -223,7 +221,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEMES_LIST_RECEIVED populates availableThemes', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
+    const actor = mountState(uiPrefsState, uiPrefsActions);
     const themes = [
       { name: 'dark', displayName: 'Dark', modes: ['dark'] },
       { name: 'light', displayName: 'Light', modes: ['dark', 'light'] },
@@ -233,7 +231,7 @@ describe('uiPrefs state', () => {
   });
 
   it('THEME_SETTINGS_RECEIVED declares the config CSS variables, and CSS_CHANGED re-fetches the sheets', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       themeName: 'nord',
       themeMode: 'dark',
     });
@@ -262,7 +260,7 @@ describe('uiPrefs state', () => {
   });
 
   it('INCREASE_FONT_SIZE bumps baseFontSize', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       baseFontSize: 14,
     });
     const ctx = sendAndGetContext(actor, { type: 'INCREASE_FONT_SIZE' });
@@ -270,7 +268,7 @@ describe('uiPrefs state', () => {
   });
 
   it('DECREASE_FONT_SIZE drops baseFontSize', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       baseFontSize: 14,
     });
     const ctx = sendAndGetContext(actor, { type: 'DECREASE_FONT_SIZE' });
@@ -279,7 +277,7 @@ describe('uiPrefs state', () => {
 
   it('RESET_FONT_SIZE resets to DEFAULT_FONT_SIZE', async () => {
     const { DEFAULT_FONT_SIZE } = await import('../../../../infra/fontSizeManager');
-    const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
+    const actor = mountState(uiPrefsState, uiPrefsActions, {
       baseFontSize: 22,
     });
     const ctx = sendAndGetContext(actor, { type: 'RESET_FONT_SIZE' });
