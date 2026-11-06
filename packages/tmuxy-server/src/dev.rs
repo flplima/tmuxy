@@ -88,10 +88,22 @@ fn bad_gateway(e: &reqwest::Error) -> Response {
         .unwrap_or_else(|_| Response::new(Body::empty()))
 }
 
+/// The npm workspace Vite runs in: the nearest ancestor of the cwd whose
+/// package.json declares "workspaces" (a package's own does not).
+fn workspace_root() -> Option<std::path::PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    cwd.ancestors()
+        .find(|dir| {
+            std::fs::read_to_string(dir.join("package.json"))
+                .is_ok_and(|json| json.contains("\"workspaces\""))
+        })
+        .map(std::path::Path::to_path_buf)
+}
+
 /// Vite, from the checkout, and once it listens on [`VITE_PORT`].
 pub async fn spawn_vite() -> Option<ViteChild> {
     let label = "vite";
-    let Some(workspace_root) = tmuxy_core::host::checkout_root() else {
+    let Some(workspace_root) = workspace_root() else {
         error!("--dev runs Vite from a checkout, and none is above the current directory");
         return None;
     };

@@ -1,8 +1,7 @@
 //! The one routing policy for commands a client asks tmuxy to run.
 //!
 //! Both transports reach it through `host::command` (the `RunTmuxCommand` and
-//! `QueryTmux` client commands, via `transport::route` and
-//! `transport::route_query`) and only write the answer to their monitor's
+//! `QueryTmux` client commands) and only write the answer to their monitor's
 //! command channel. A policy duplicated per transport drifts: the desktop's
 //! copy once ran single-line commands as external subprocesses with a
 //! session-target rewrite that overrode the frontend's window/pane pin.
@@ -105,6 +104,13 @@ fn plain_lines(command: &str) -> impl Iterator<Item = Cow<'_, str>> {
 /// `size` is the viewport a freshly created window should be sized to, when
 /// one client has reported one.
 pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
+    // The verb only: the full command is admitted at trace level `full`
+    // (docs/TRACING.md).
+    tracing::debug!(
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
     let mut lines = Vec::new();
     for line in plain_lines(command) {
         let list = tmux_command::parse(&line);
@@ -128,6 +134,10 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
 /// Refused unless every command in it reads; then as it came but for its `\;`
 /// separators.
 pub fn route_query(command: &str) -> Route {
+    tracing::debug!(
+        verb = command.split_whitespace().next().unwrap_or(""),
+        "run query"
+    );
     let lines: Vec<String> = plain_lines(command).map(Cow::into_owned).collect();
     let lists: Vec<_> = lines.iter().map(|line| tmux_command::parse(line)).collect();
     let mut verbs = lists.iter().flat_map(|list| list.every().map(|c| c.verb()));

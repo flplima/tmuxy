@@ -2,14 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommandSender, MonitorConfig};
 use tmuxy_core::host::{self, Attempt, Ended, GaveUp, Host, HostEvent, SessionRuntime, Task};
-use tmuxy_core::{tmux_quote, TmuxError};
+use tmuxy_core::TmuxError;
 use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
-
-/// How long a courier's monitor may take to answer the `new-session` it was
-/// handed before the session is created directly.
-const COURIER_CREATE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Run the session's monitor until its last client leaves, its session is
 /// destroyed, the server shuts down, or tmux refuses it too many times
@@ -111,8 +107,7 @@ impl Host for ServerHost {
         let session = &self.session;
         // Only a peer whose tmux session actually EXISTS can run the command:
         // the map also holds sessions that are themselves still being created,
-        // and two of those pick each other as courier and both wait out the
-        // full timeout below, every round, forever.
+        // and two of those pick each other as courier, every round, forever.
         //
         // Nor a peer nobody is watching: its last client left and it is in the
         // grace period before its monitor detaches, and a session made through
@@ -151,41 +146,14 @@ impl Host for ServerHost {
         };
         debug!(%session, via = "courier", viewers, "session creation path");
 
-        let working_dir = config
-            .working_dir
-            .as_ref()
-            .map(|d| format!(" -c {}", tmux_quote(&d.display().to_string())))
-            .unwrap_or_default();
-        let first_window = config
-            .first_window
-            .as_ref()
-            .map(|(name, cwd)| format!(" -n {} -c {}", tmux_quote(name), tmux_quote(cwd)))
-            .unwrap_or_default();
-        let create_cmd = format!(
-            "new-session -d -s {} -x {} -y {}{}{}",
-            tmux_quote(session),
-            tmuxy_core::control_mode::INITIAL_PTY_COLS,
-            tmuxy_core::control_mode::INITIAL_PTY_ROWS,
-            working_dir,
-            first_window
-        );
         info!(%session, %via_session, "creating session via existing CC client");
-        // Answered once tmux has made the session (or refused to).
-        match tokio::time::timeout(
-            COURIER_CREATE_TIMEOUT,
-            tmuxy_core::transport::query(&tx, &create_cmd),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
+        match host::create_session_via(&tx, config).await {
+            Ok(()) => {
                 info!(%session, "session created successfully via CC");
                 config.create_session = false;
             }
-            Ok(Err(e)) => {
-                warn!(%session, %via_session, error = %e, "the courier could not create the session, creating directly");
-            }
-            Err(_) => {
-                warn!(%session, "session creation via CC timed out, falling back to direct creation");
+            Err(e) => {
+                warn!(%session, %via_session, error = %e, "session creation via CC failed, creating directly");
             }
         }
     }
@@ -207,16 +175,13 @@ impl Host for ServerHost {
     /// `tmux kill-session`) means the user intentionally tore it down: stop
     /// instead of looping forever trying to attach. Everything else is counted
     /// and retried.
-    async fn connect_failed(&mut self, error: &TmuxError, ever_ran: bool) -> Option<Attempt> {
-        if !matches!(error, TmuxError::SessionNotFound { .. }) {
-            return None;
+    async fn connect_failed(&mut self, error: &TmuxError, ever_ran: bool) -> bool {
+        if !ever_ran || !matches!(error, TmuxError::SessionNotFound { .. }) {
+            return false;
         }
-        if ever_ran {
-            info!(session = %self.session, %error, "session destroyed externally, stopping monitor loop");
-            self.forget_session().await;
-            return Some(Attempt::Stop);
-        }
-        None
+        info!(session = %self.session, %error, "session destroyed externally, stopping monitor loop");
+        self.forget_session().await;
+        true
     }
 
     async fn gave_up(&mut self, message: String) -> GaveUp {

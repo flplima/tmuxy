@@ -285,7 +285,10 @@ fn action(
         }
     };
     if wait {
-        let status = invoke::wait(dirs, &opened.token, opened.pane.as_deref());
+        let status = match &opened.pane {
+            Some(pane) => invoke::wait(dirs, &opened.token, pane),
+            None => 1,
+        };
         if json {
             println!(
                 "{}",
@@ -319,12 +322,5 @@ fn run_cli_verb(dirs: &Layout, words: &[String]) -> Outcome {
         use std::os::unix::process::CommandExt;
         let e = cmd.exec();
         Err(PluginError::io(format!("running tmuxy plugin {verb}"), e).into())
-    }
-    #[cfg(not(unix))]
-    {
-        let status = cmd.status().map_err(|e| {
-            Failure::from(PluginError::io(format!("running tmuxy plugin {verb}"), e))
-        })?;
-        std::process::exit(status.code().unwrap_or(1));
     }
 }

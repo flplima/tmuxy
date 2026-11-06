@@ -21,7 +21,7 @@ The `TmuxMonitor` (in `tmuxy-core/src/control_mode/monitor.rs`) maintains a pers
 
 Running external `tmux` commands (as separate subprocesses) while a control mode client is attached can **crash the tmux server**. Observed in tmux 3.3a and 3.5a. The [tmux Control Mode wiki](https://github.com/tmux/tmux/wiki/Control-Mode) states that commands should be sent through the control mode client.
 
-All HTTP command handlers in the web server route through `send_via_control_mode()` in `tmuxy-server/src/sse.rs`, which looks up the session's `monitor_command_tx` and sends `MonitorCommand::RunCommand` through the channel.
+Every client command, on both hosts, goes through `host::command::handle` (`tmuxy-core/src/host/command.rs`), which routes it and writes it to the session's monitor channel (`control_mode::run` / `control_mode::query`, `tmuxy-core/src/control_mode/channel.rs`).
 
 ## Command Routing Rules
 

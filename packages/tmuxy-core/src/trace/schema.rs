@@ -45,7 +45,7 @@ impl Layer {
         match path.as_slice() {
             ["tmuxy_core", "control_mode", "state", ..] => Layer::Aggregator,
             ["tmuxy_core", "control_mode", ..] => Layer::Monitor,
-            ["tmuxy_core", "transport", ..] => Layer::Tmux,
+            ["tmuxy_core", "command_router", ..] => Layer::Tmux,
             _ if path.contains(&"emitter") || target == "tmuxy_core::emit" => Layer::Emitter,
             [krate, ..]
                 if krate.starts_with("tmuxy_server") || krate.starts_with("tmuxy_tauri") =>
@@ -181,7 +181,7 @@ mod tests {
             ),
             ("tmuxy_core::control_mode::monitor", Layer::Monitor),
             ("tmuxy_core::control_mode::connection", Layer::Monitor),
-            ("tmuxy_core::transport", Layer::Tmux),
+            ("tmuxy_core::command_router", Layer::Tmux),
             ("tmuxy_core::emit", Layer::Emitter),
             ("tmuxy_server::sse::emitter", Layer::Emitter),
             ("tmuxy_tauri_app::monitor::emitter", Layer::Emitter),

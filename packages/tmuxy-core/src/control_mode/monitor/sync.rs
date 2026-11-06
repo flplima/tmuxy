@@ -82,7 +82,7 @@ fn attach_config() -> Vec<String> {
 /// server has none until something writes them). A server over SSH is
 /// another machine's, whose own tmuxy publishes its plugins. The plugin keys
 /// need the tables read back, which only the running loop answers: the host
-/// binds them once this sync is done (`transport::apply_plugin_keys`).
+/// binds them once this sync is done (`host`'s `apply_plugin_keys`).
 fn attach_host() -> Vec<String> {
     let mut commands = crate::session::server_command_env();
     if crate::session::ssh_target().is_none() {

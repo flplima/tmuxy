@@ -138,7 +138,7 @@ control mode has no key handling to give it — so the prefix and every table
 beyond it run in the client's keyboard actor
 (`tmuxy-ui/src/machines/actors/keyboardActor.ts`), from the bindings the server
 reads with one `list-keys` and sends whole (`KeyBindings` in
-`tmuxy-core/src/transport.rs`: prefix, root, and every other table by name;
+`tmuxy-core/src/host/bindings.rs`: prefix, root, and every other table by name;
 copy mode's tables stay out, copy mode being the client's too).
 
 A binding enters a table the tmux way, with `switch-client -T <table>`

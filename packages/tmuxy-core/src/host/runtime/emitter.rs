@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use super::SessionRuntime;
-use crate::control_mode::{LogKind, LogSink, StateEmitter, StoredImage};
+use crate::control_mode::{LogKind, LogSink, StateEmitter, StoredImage, MAX_CLIPBOARD_BYTES};
 use crate::host::HostEvent;
-use crate::transport;
+use crate::session_snapshot as snapshot;
 use crate::{PaneId, StateUpdate};
 
 impl LogSink for SessionRuntime {
@@ -24,15 +24,32 @@ impl LogSink for SessionRuntime {
 }
 
 impl StateEmitter for Arc<SessionRuntime> {
+    /// A full state names every live pane, so it is when the pictures of
+    /// dead ones are forgotten. The keeper follows a change of SHAPE (a
+    /// split, a closed pane, a tag, a program starting; never bytes
+    /// arriving), which is what a snapshot records. The emit is traced by the
+    /// DELTA seq, so the return leg joins to the client's applied `seq`
+    /// (docs/TRACING.md).
     fn emit_state(&self, update: StateUpdate) {
         self.preview.sync_update(&self.preview_scope, &update);
-        transport::on_state_update(&update, &self.keeper, |state| {
-            // try_write, so a contended lock never stalls the monitor loop;
-            // the next full state sweeps again.
-            if let Ok(mut images) = self.images.try_write() {
-                images.retain_live_panes(state);
+        match &update {
+            StateUpdate::Full { state } => {
+                self.images
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .retain_live_panes(state);
+                if self.autosave {
+                    self.keeper.note_change();
+                }
+                tracing::debug!(target: "tmuxy_core::emit", kind = "full", "emit state");
             }
-        });
+            StateUpdate::Delta { delta } => {
+                if self.autosave && snapshot::is_structural(delta) {
+                    self.keeper.note_change();
+                }
+                tracing::debug!(target: "tmuxy_core::emit", seq = delta.seq, kind = "delta", "emit state");
+            }
+        }
         self.emit(HostEvent::StateUpdate(Box::new(update)));
     }
 
@@ -46,14 +63,19 @@ impl StateEmitter for Arc<SessionRuntime> {
     }
 
     fn store_images(&self, pane_id: &PaneId, images: Vec<(u32, StoredImage)>) {
-        // A dropped picture is redrawn by the next frame.
-        if let Ok(mut store) = self.images.try_write() {
-            store.insert(pane_id, images);
-        }
+        // The bytes arrive once, when they are decoded: a picture not stored
+        // here is a placement the client can never fetch.
+        self.images
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(pane_id, images);
     }
 
     fn write_clipboard(&self, pane_id: Option<&PaneId>, text: String) {
-        if !transport::clipboard_write_allowed(&text) {
+        // The aggregator caps both producers (OSC 52 and the paste-buffer
+        // mirror); checked again where the text leaves the process, so a new
+        // producer cannot slip past the cap.
+        if text.len() > MAX_CLIPBOARD_BYTES {
             tracing::debug!(
                 ?pane_id,
                 bytes = text.len(),

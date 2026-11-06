@@ -236,8 +236,6 @@ pub async fn run(args: ServerArgs) {
                     }
                 };
             prepare();
-            // Gated per docs/TRACING.md.
-            tmuxy_core::trace::init(args.trace.clone(), dev_mode);
             let frontend = if dev_mode {
                 Frontend::Dev
             } else {
@@ -247,7 +245,7 @@ pub async fn run(args: ServerArgs) {
                 restore: !args.no_restore,
                 ..AppState::default()
             };
-            serve(frontend, args.port, listen, password, state).await
+            serve(frontend, args.port, listen, password, state, args.trace).await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
@@ -268,6 +266,7 @@ async fn serve(
     listen: Listen,
     password: Option<String>,
     state: AppState,
+    trace: Option<Option<String>>,
 ) {
     // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server
     // takes it, Vite fails silently and the dev proxy loops back to
@@ -282,10 +281,11 @@ async fn serve(
         std::process::exit(1);
     }
 
+    let state = Arc::new(state);
+    let started = tmuxy_core::host::start(state.clone(), trace, frontend == Frontend::Dev);
     if frontend == Frontend::Embedded {
         write_pid_file(port);
     }
-    let state = Arc::new(state);
 
     let vite = match frontend {
         Frontend::Embedded => None,
@@ -298,20 +298,17 @@ async fn serve(
         }
     };
 
-    crate::sse::watch_config_dir(state.clone()).await;
-    // Every pane on the socket, read once for everything that follows them:
-    // the agent-dialog correction and push.
-    let (panes_tx, panes) = tmuxy_core::host::socket_watch::channel();
     let shutdown = state.shutdown.clone();
+    let background = started.background;
     state
         .spawn(async move {
             tokio::select! {
-                _ = tmuxy_core::host::socket_watch::run(panes_tx) => {}
+                _ = background => {}
                 _ = shutdown.cancelled() => {}
             }
         })
         .await;
-    crate::push::watch(state.clone(), panes).await;
+    crate::push::watch(state.clone(), started.panes).await;
     let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),

@@ -18,7 +18,7 @@
 
 use super::{ConnectionInfo, HostEvent};
 use crate::control_mode::LogKind;
-use crate::transport::{KeyBinding, KeyBindings};
+use crate::host::{KeyBinding, KeyBindings};
 use crate::{CommandError, StateUpdate};
 
 mod canonical;

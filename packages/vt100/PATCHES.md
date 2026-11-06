@@ -148,6 +148,16 @@ about 1,300 lines no caller reached. `Screen::contents`, `rows`,
   a stale wide flag at the edge clears nothing instead of panicking.
   Covered by `tests/degenerate_size.rs` in tmuxy-core.
 
+## DEC line sizes
+
+- **`ESC # 3`..`ESC # 6`** (DECDHL top and bottom, DECSWL, DECDWL) set a
+  per-row `LineSize` (`row.rs`, re-exported from `lib.rs`), dispatched in
+  `perform.rs`'s `esc_dispatch` beside DECALN; upstream ignored them.
+  `Screen::row_line_size`, `set_row_line_size` and `dec_line_size` read and
+  write it. tmux keeps the size but strips it from a `capture-pane`, so
+  tmuxy-core puts it back after a capture and draws the row at its size
+  (`control_mode/state/pane_output.rs`).
+
 ## `cell.rs`
 
 - `Cell::can_append` makes the fixed content buffer's capacity check exact (the

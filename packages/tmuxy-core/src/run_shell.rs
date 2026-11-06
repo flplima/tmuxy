@@ -11,7 +11,6 @@
 //! in view mode swallows every key typed into it.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::argv::{run_shell_line, run_shell_word};
 use crate::paths::Layout;
@@ -54,16 +53,9 @@ pub fn tmux(dirs: &Layout, argv: &[String]) -> Result<String, RunShellError> {
 /// `#` meant literally doubled), with `target` as `run-shell -t`: the pane
 /// its formats expand for.
 pub fn shell(dirs: &Layout, line: &str, target: Option<&str>) -> Result<Ran, RunShellError> {
-    static JOBS: AtomicU32 = AtomicU32::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    let dir = dirs.run_dir().join(format!(
-        "job-{}-{nanos}-{}",
-        std::process::id(),
-        JOBS.fetch_add(1, Ordering::Relaxed)
-    ));
+    let dir = dirs
+        .run_dir()
+        .join(format!("job-{}", crate::random::token()));
     crate::private_files::create_dir_all(&dir)
         .map_err(|e| RunShellError::NotRun(format!("creating {}: {e}", dir.display())))?;
     let result = shell_in(&dir, line, target);

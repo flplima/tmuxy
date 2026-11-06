@@ -15,7 +15,7 @@
 //! - typed text cut at every `#{` (3.7a expands `send-keys -l`):
 //!   [`split_format_literals`], applied by the router too;
 //! - every mutation from a script through `run-shell`, never a second client
-//!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
+//!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `control_mode/channel.rs`, `theme.rs`;
 //! - session- and window-scoped rather than global option writes while
 //!   attached (3.5a crash): `control_mode/monitor_core/attach.rs`,
 //!   `control_mode/state/window_state.rs` (`window_setup_commands`);

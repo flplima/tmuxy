@@ -206,37 +206,20 @@ impl StateAggregator {
         (false, Vec::new(), None)
     }
 
+    /// `visible` is a zoomed window's visible layout: the panes it names are
+    /// drawn at its geometry, every other pane keeps the full layout's.
     pub(super) fn handle_layout_change(
         &mut self,
         window_id: &WindowId,
         layout: &str,
+        visible: Option<&str>,
     ) -> Vec<PaneId> {
         if let Some(window) = self.windows.get_mut(window_id) {
             window.layout = layout.to_string();
             window.pane_tree = crate::layout::parse(layout).map(|root| root.pane_tree());
         }
 
-        self.parse_layout(window_id, layout)
-    }
-
-    /// Geometry only, from a zoomed window's visible layout: no pane is
-    /// created or removed.
-    pub(super) fn update_pane_geometry_from_layout(&mut self, window_id: &WindowId, layout: &str) {
-        let layout = match layout.find(',') {
-            Some(idx) => &layout[idx + 1..],
-            None => return,
-        };
-
-        let parsed_panes = parse_layout_panes(layout);
-        for lp in &parsed_panes {
-            if let Some(pane) = self.panes.get_mut(&lp.id) {
-                if pane.in_window(window_id) {
-                    pane.x = lp.x;
-                    pane.y = lp.y;
-                    let _ = pane.resize(lp.width, lp.height);
-                }
-            }
-        }
+        self.parse_layout(window_id, layout, visible)
     }
 
     /// The authoritative pane geometry: a pane the layout names is created
@@ -246,17 +229,26 @@ impl StateAggregator {
     /// tmux's layout format: `checksum,WxH,x,y,pane-id` (leaf),
     /// `checksum,WxH,x,y[children]` (vertical split) or
     /// `checksum,WxH,x,y{children}` (horizontal split).
-    fn parse_layout(&mut self, window_id: &WindowId, layout: &str) -> Vec<PaneId> {
-        // The checksum prefix.
-        let layout = match layout.find(',') {
-            Some(idx) => &layout[idx + 1..],
-            None => return Vec::new(),
-        };
-
-        let parsed_panes = parse_layout_panes(layout);
+    fn parse_layout(
+        &mut self,
+        window_id: &WindowId,
+        layout: &str,
+        visible: Option<&str>,
+    ) -> Vec<PaneId> {
+        let parsed_panes = layout_panes(layout);
         if parsed_panes.is_empty() {
             return Vec::new();
         }
+        let mut drawn: HashMap<PaneId, LayoutPane> = visible
+            .map(layout_panes)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|lp| (lp.id.clone(), lp))
+            .collect();
+        let parsed_panes: Vec<LayoutPane> = parsed_panes
+            .into_iter()
+            .map(|lp| drawn.remove(&lp.id).unwrap_or(lp))
+            .collect();
 
         let active_pane_id = self
             .windows
@@ -311,4 +303,12 @@ impl StateAggregator {
 
         resized_panes
     }
+}
+
+/// The panes of a tmux layout string, past its checksum prefix.
+fn layout_panes(layout: &str) -> Vec<LayoutPane> {
+    layout
+        .split_once(',')
+        .map(|(_, rest)| parse_layout_panes(rest))
+        .unwrap_or_default()
 }

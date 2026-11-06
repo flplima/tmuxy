@@ -1,6 +1,5 @@
 mod clients;
 mod commands;
-mod config_watch;
 mod monitor;
 mod preview;
 
@@ -27,7 +26,6 @@ use tmuxy_core::host::ClientCommand;
 
 pub(crate) use commands::has_json_content_type;
 pub use commands::{commands_handler, trace_handler};
-pub use config_watch::watch_config_dir;
 pub use monitor::start_monitoring;
 pub use preview::{preview_page_handler, stage_preview_handler};
 

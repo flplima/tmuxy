@@ -9,7 +9,7 @@ use tmuxy_core::command_router::Route;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::session::SessionName;
-use tmuxy_core::{tmux_quote, transport, CommandError, PaneId, WindowType};
+use tmuxy_core::{tmux_quote, CommandError, PaneId, WindowType};
 
 use crate::state::AppState;
 
@@ -64,15 +64,17 @@ impl Tmux {
     }
 
     pub(super) async fn read(&self, command: &str) -> Result<String, CommandError> {
-        match transport::route_query(command) {
+        match tmuxy_core::command_router::route_query(command) {
             Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
-            Route::ControlMode(command) => transport::query(&self.tx, &command).await,
+            Route::ControlMode(command) => {
+                tmuxy_core::control_mode::query(&self.tx, &command).await
+            }
         }
     }
 
     pub(super) async fn mutate(&self, command: &str) -> Result<String, CommandError> {
         let size = crate::sse::new_window_client_size(&self.state, &self.session).await;
-        transport::run_with_output(&self.tx, command, &self.session, size).await
+        tmuxy_core::host::run_with_output(&self.tx, command, &self.session, size).await
     }
 
     /// The session as a `-t` target: `=` so a prefix never matches another.

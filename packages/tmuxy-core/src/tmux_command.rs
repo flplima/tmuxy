@@ -186,6 +186,11 @@ pub const SWAP_PANE: TmuxCommand = TmuxCommand {
     alias: "swapp",
     unique_prefix: "swap-p",
 };
+pub const SOURCE_FILE: TmuxCommand = TmuxCommand {
+    name: "source-file",
+    alias: "source",
+    unique_prefix: "so",
+};
 pub const SELECT_PANE: TmuxCommand = TmuxCommand {
     name: "select-pane",
     alias: "selectp",

@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::control_mode::{MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
+use crate::control_mode::{query, run, MonitorCommandSender, StoredImage};
 use crate::tmux_quote;
 use crate::{CommandError, PaneId};
 
-use super::{query, run};
-
 // ============================================
-// Images and the clipboard
+// Images
 // ============================================
 
 /// The most a single pane's images may hold in memory.
@@ -72,16 +70,6 @@ impl ImageStore {
             }
         }
     }
-}
-
-/// Whether a clipboard write may be handed to the client.
-///
-/// The aggregator already caps both producers — an OSC 52 write and a
-/// paste-buffer mirror — at `MAX_CLIPBOARD_BYTES`; the server and the desktop
-/// check again here, where the text leaves the process, so a new producer of
-/// `WriteClipboard` cannot slip past the cap.
-pub fn clipboard_write_allowed(text: &str) -> bool {
-    text.len() <= MAX_CLIPBOARD_BYTES
 }
 
 // ============================================
@@ -231,12 +219,11 @@ impl KeyBindings {
     }
 }
 
-/// Whether a client command sources a config, which may change the prefix,
-/// the bindings, the theme and the appearance options — so both transports
-/// push fresh copies of each after it.
+/// Whether a client command list sources a config anywhere in it, which may
+/// change the prefix, the bindings, the theme and the appearance options — so
+/// the host pushes fresh copies of each after it.
 pub fn is_source_file(command: &str) -> bool {
-    let command = command.trim_start();
-    command.starts_with("source-file") || command.starts_with("source ")
+    crate::tmux_command::parse(command).runs(&crate::tmux_command::SOURCE_FILE)
 }
 
 /// What a client sends to reload the config chain (Reload Config): the entry
@@ -292,7 +279,7 @@ pub(super) async fn after_source_file(tx: &MonitorCommandSender) -> Result<(), C
     for cmd in crate::session::current_managed_state_commands() {
         run(tx, &cmd).await?;
     }
-    super::reload_plugins(tx).await?;
+    super::plugins::reload_plugins(tx).await?;
     tokio::time::sleep(SOURCE_FILE_SETTLE).await;
     Ok(())
 }

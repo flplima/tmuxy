@@ -44,7 +44,7 @@ One per CLI command, each the same operation (`packages/tmuxy-server/src/mcp/too
 - **`pane_capture`** answers plain text, wrapped lines joined and trailing blanks dropped, with the cursor position and the pane's size, read in one command list so they describe the same moment. Colours are left out: a model reads text.
 - **`pane_wait_for`** waits until a pane's screen matches a regular expression, polling a few times a second, up to a timeout. `^` and `$` match at each line. A timeout answers the screen's last lines, which is usually why.
 - **Nothing moves the user's focus.** A split, a tab and a float open beside what the user is doing, without taking the keyboard.
-- **`pane_float` and `open_preview`** run the CLI's own `float-create` script (with `--detach`) inside `run-shell`, so a float made over MCP is the one `tmuxy pane float` makes. The monitor relays that `run-shell` (`control_mode/monitor/run_shell.rs`) so its output reaches the tool, and never opens tmux 3.4's view mode.
+- **`pane_float` and `open_preview`** run the CLI's own `float-create` script (with `--detach`) inside `run-shell`, so a float made over MCP is the one `tmuxy pane float` makes. The monitor relays that `run-shell` (`control_mode/monitor_core/run_shell.rs`) so its output reaches the tool, and never opens tmux 3.4's view mode.
 
 ## The defaults
 
