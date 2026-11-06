@@ -1,13 +1,9 @@
 /**
- * ScrollbackTerminal - Virtual-scrolling renderer for a pane's scrollback
- *
- * Renders loaded scrollback content as a positioned <pre> block inside Pane's
- * shared scroll container. Only visible AND loaded lines are rendered.
- * Uses imperative DOM updates via terminalRendering.ts, which paints each row
- * with the live grid's `cellPaint` and selects with `selectionColumns`, so
- * the two views cannot draw the same cells differently. Copy mode's selection is computed client-side from cursor/anchor
- * positions; the scroll view's is the browser's, and the rows it spans stay
- * mounted for as long as it lasts.
+ * The scroll view draws no cursor: selecting there is the browser's, the way it
+ * is in a native terminal. Copy mode keeps the cursor, because it IS the
+ * selection's moving end. The painted selection belongs to both — select-all
+ * (Cmd+A) puts a client selection on the scroll view, where the browser has no
+ * nodes to select for the history that is off screen.
  */
 
 import { useRef, useLayoutEffect, useMemo } from 'react';
@@ -36,29 +32,16 @@ import {
 
 interface ScrollbackTerminalProps {
   copyState: CopyModeState;
-  /** Whether the pane holds the keyboard; only then is the copy cursor drawn. */
   isActive: boolean;
-  /** Image placements on this pane (live rows >= 0, scrollback rows < 0). */
+  /** Live rows >= 0, scrollback rows < 0. */
   images?: ImagePlacement[];
-  /** Pane tmux ID (e.g., "%0") for image URL construction. */
   paneId?: PaneId;
 }
 
-/**
- * The scroll view draws no cursor: selecting there is the browser's, the way it
- * is in a native terminal. Copy mode keeps the cursor, because it IS the
- * selection's moving end. The painted selection belongs to both — select-all
- * (Cmd+A) puts a client selection on the scroll view, where the browser has no
- * nodes to select for the history that is off screen.
- */
-
 const EMPTY_LINE: CellLine = [];
 
-// Dim "loading" placeholder for rows that exist in `totalLines` but haven't
-// been fetched yet. Distinguishing this from a genuinely blank scrollback row
-// (`EMPTY_LINE`) is critical — without it, a slow or failed
-// FETCH_SCROLLBACK_CELLS makes the entire history look empty, which is the
-// reported symptom of "scrolling up shows only what was already visible".
+// A row not fetched yet must not look like a blank row, or a slow or failed
+// fetch makes the whole history look empty.
 const PLACEHOLDER_LINE: CellLine = [
   { c: '·', s: { dim: true } },
   { c: ' ' },
@@ -67,15 +50,6 @@ const PLACEHOLDER_LINE: CellLine = [
   { c: '·', s: { dim: true } },
 ];
 
-/**
- * Pick the line to render for a row. A row is one of three things:
- *   1. Loaded with content     → render `lines.get(row)`
- *   2. Loaded but blank        → render `EMPTY_LINE`
- *   3. Not yet loaded (in flight or queued) → render `PLACEHOLDER_LINE`
- * The third case used to render as case 2, indistinguishable from a real
- * blank line; users assumed there was no scrollback when in fact a fetch
- * was still pending. `isRowLoaded` checks the `loadedRanges` intervals.
- */
 function lineFor(
   row: number,
   lines: Map<number, CellLine>,
@@ -91,16 +65,14 @@ type SelRange = ReturnType<ReturnType<typeof selectionColumns>>;
 const sameRange = (a: SelRange, b: SelRange): boolean =>
   a === b || (a !== null && b !== null && a.startCol === b.startCol && a.endCol === b.endCol);
 
-/** Mirror a row's soft-wrap flag onto the element the copy path reads. */
 function setWrapped(el: HTMLElement, wrapped: 'true' | null): void {
   if (wrapped) el.setAttribute('data-wrapped', wrapped);
   else el.removeAttribute('data-wrapped');
 }
 
 /**
- * Same content, cell for cell. A scrollback chunk that overlaps rows already
- * loaded hands them over as new arrays with the same cells; repainting a row
- * for that alone would replace the nodes a selection endpoint sits in.
+ * A chunk overlapping loaded rows hands them over as new arrays with the same
+ * cells; repainting for that would replace the nodes a selection endpoint sits in.
  */
 function sameLine(a: CellLine, b: CellLine): boolean {
   if (a === b) return true;
@@ -111,9 +83,8 @@ function sameLine(a: CellLine, b: CellLine): boolean {
   return true;
 }
 
-/** The absolute row a selection endpoint sits in, if it is one of ours. */
 function rowOf(pre: HTMLElement, node: Node, offset: number): number | null {
-  // A range that starts or ends on the <pre> itself addresses a child by index.
+  // A DOM Range boundary on the <pre> itself addresses a child by index.
   const target =
     node === pre ? (pre.childNodes[Math.min(offset, pre.childNodes.length - 1)] ?? null) : node;
   const element = target instanceof Element ? target : (target?.parentElement ?? null);
@@ -123,10 +94,6 @@ function rowOf(pre: HTMLElement, node: Node, offset: number): number | null {
   return Number.isFinite(row) ? row : null;
 }
 
-/**
- * The rows the browser's selection spans inside this scrollback, or null
- * when nothing of ours is selected.
- */
 function selectedRowSpan(pre: HTMLElement): { start: number; end: number } | null {
   if (typeof window === 'undefined') return null;
   const selection = window.getSelection();
@@ -146,12 +113,9 @@ export function ScrollbackTerminal({
 }: ScrollbackTerminalProps) {
   const { charHeight } = useAppSelector(selectCharSize);
   const preRef = useRef<HTMLPreElement>(null);
-  // Mounted rows by absolute row, with what each was last painted with.
-  // Every row is positioned at its own `row * charHeight`, so any subset can
-  // be mounted and a row is never repainted because the window moved — only
-  // when its content changes. That is what keeps the browser's selection
-  // alive in the scroll view: its endpoints live in these nodes, and a node
-  // that is replaced takes the selection with it.
+  // Each row is positioned at its own `row * charHeight` and repainted only
+  // when its content changes: the browser's selection has its endpoints in
+  // these nodes, and a replaced node takes the selection with it.
   const rowsRef = useRef(
     new Map<
       number,
@@ -163,9 +127,6 @@ export function ScrollbackTerminal({
   const { selectionAnchor, selectionMode, width, mode, historySize } = copyState;
   const isCopyMode = mode === 'copy';
 
-  // A client selection paints in either view. Copy mode is where one usually
-  // comes from, but Cmd+A puts one on the scroll view too — and there the
-  // browser's own selection is simply empty, since select-all cleared it.
   const getSelectionRange = useMemo(
     () =>
       selectionAnchor && selectionMode
@@ -179,23 +140,19 @@ export function ScrollbackTerminal({
     [selectionAnchor, selectionMode, cursorRow, cursorCol, width],
   );
 
-  // Visible line range with overscan buffer (1 screen above + 1 screen below)
   const renderStart = Math.max(0, scrollTop - height);
   const renderEnd = Math.min(totalLines - 1, scrollTop + 2 * height - 1);
 
   const isCursorVisible =
     isCopyMode && isActive && cursorRow >= renderStart && cursorRow <= renderEnd;
 
-  // Imperative DOM update
   useLayoutEffect(() => {
     const pre = preRef.current;
     if (!pre) return;
     const rows = rowsRef.current;
 
-    // In the scroll view the selection is the browser's: every row it spans
-    // stays mounted while the window moves on, so the selection survives the
-    // scroll and still reads back whole (selection text is document order,
-    // and an unmounted row would simply be missing from it).
+    // Every row the browser's selection spans stays mounted: its text is read
+    // in document order, and an unmounted row would be missing from it.
     const held = isCopyMode ? null : selectedRowSpan(pre);
     const wanted = (row: number) =>
       (row >= renderStart && row <= renderEnd) ||
@@ -208,9 +165,7 @@ export function ScrollbackTerminal({
       }
     }
 
-    // The row's links, detected over the logical line it is part of: up
-    // through every row that ran on into it, down through what it runs into
-    // (`continuesInto`: a terminal wrap, or a program's own).
+    // Links are detected over the whole logical line the row is part of.
     const runsOn = (row: number) =>
       continuesInto(
         lineFor(row, lines, loadedRanges),
@@ -233,10 +188,8 @@ export function ScrollbackTerminal({
       const selRange = getSelectionRange(row);
       const urls = urlsFor(row, line);
       const top = `${row * charHeight}px`;
-      // A row that reached the last column ran on into the next with no logical
-      // line break. The scroll view's selection is the BROWSER's, and its copy
-      // path reads this attribute to join those rows rather than break the text
-      // at the pane's width (see infra/dom/nativeSelection.ts).
+      // The browser selection's copy path (infra/dom/nativeSelection.ts) reads
+      // this to join soft-wrapped rows rather than break at the pane's width.
       const wrapped = isWrappedRow(line, width) ? 'true' : null;
       const entry = rows.get(row);
       if (entry) {
@@ -263,7 +216,7 @@ export function ScrollbackTerminal({
       el.style.left = '0';
       el.style.right = '0';
       renderLineToDOM(el, line, selRange, urls);
-      // Document order is selection order: keep the rows ascending.
+      // The browser's selection follows document order: keep rows ascending.
       let next: Element | null = null;
       for (const child of pre.children) {
         if (Number((child as HTMLElement).dataset.row) > row) {
@@ -289,7 +242,6 @@ export function ScrollbackTerminal({
     totalLines,
   ]);
 
-  // Cursor character
   const cursorChar = useMemo(() => {
     if (!isCursorVisible) return ' ';
     const line = lines.get(cursorRow);
@@ -318,7 +270,7 @@ export function ScrollbackTerminal({
         data-testid="scrollback-terminal"
         data-copy-mode={isCopyMode ? 'true' : undefined}
         data-scroll-mode={isCopyMode ? undefined : 'true'}
-        // The selection was just copied: styles.css blinks it (infra/dom/copyFlash).
+        // The copy blink: styles/pane-layout.css (infra/dom/copyFlash.ts).
         data-copied={copyState.copiedAt ? 'true' : undefined}
         ref={preRef}
         style={{ position: 'relative', height: '100%' }}

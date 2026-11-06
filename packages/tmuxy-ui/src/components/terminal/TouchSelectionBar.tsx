@@ -1,10 +1,4 @@
-/**
- * TouchSelectionBar — Copy and Cancel over a pane while a finger's hold has
- * a selection in copy mode (components/terminal/usePaneTouch.ts). A phone has no right
- * click and no `y`: these two buttons are how the selection ends. Copy puts
- * the text on the clipboard, blinks the copied cells and leaves copy mode;
- * Cancel leaves it with nothing copied.
- */
+/** A phone has no right click and no `y`: these buttons end a hold's selection. */
 
 import { useCallback } from 'react';
 import { useAppSend } from '../../machines/appHooks';

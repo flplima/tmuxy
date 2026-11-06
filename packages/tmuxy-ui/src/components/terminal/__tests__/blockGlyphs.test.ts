@@ -22,13 +22,11 @@ describe('blockGlyphs', () => {
   it('fills the whole cell for a full block', () => {
     const s = blockGlyphStyle('█', 'rgb(1, 2, 3)');
     expect(s).not.toBeNull();
-    // A gradient with no stops covers the entire box.
     expect(s!.backgroundImage).toBe('linear-gradient(rgb(1, 2, 3), rgb(1, 2, 3))');
     expect(s!.backgroundSize).toBe('var(--cell-w, 1ch) 100%');
   });
 
   it('splits the cell at the right edge and fraction for half blocks', () => {
-    // Upper half paints from the top down, so the gradient runs "to bottom".
     expect(blockGlyphStyle('▀', 'red')!.backgroundImage).toBe(
       'linear-gradient(to bottom, red 50%, transparent 50%)',
     );
@@ -50,8 +48,6 @@ describe('blockGlyphs', () => {
   });
 
   it('places quadrants in their corners', () => {
-    // A quadrant is a half-height tile against one edge, filling one side of
-    // the cell it is drawn in.
     const ul = blockGlyphStyle('▘', 'red')!;
     expect(ul.backgroundSize).toBe('var(--cell-w, 1ch) 50%');
     expect(ul.backgroundPosition).toBe('left top');
@@ -61,7 +57,6 @@ describe('blockGlyphs', () => {
     expect(lr.backgroundPosition).toBe('left bottom');
     expect(lr.backgroundImage).toBe('linear-gradient(to left, red 50%, transparent 50%)');
 
-    // Three-quadrant glyphs are one half filled whole over the other half's side.
     const three = blockGlyphStyle('▙', 'red')!;
     expect(three.backgroundPosition).toBe('left top, left bottom');
     expect(three.backgroundSize).toBe('var(--cell-w, 1ch) 50%, var(--cell-w, 1ch) 50%');

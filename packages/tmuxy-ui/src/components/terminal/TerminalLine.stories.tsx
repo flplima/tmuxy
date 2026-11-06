@@ -39,7 +39,6 @@ export const Plain: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     expect(canvas.getByText(/ls -la \/home\/user/)).toBeInTheDocument();
-    // The cursor is a Terminal-level overlay — a line never renders one.
     expect(canvasElement.querySelector('.terminal-cursor')).toBeNull();
   },
 };
@@ -65,15 +64,10 @@ export const Selection: Story = {
     selectionRange: { startCol: 4, endCol: 14 },
   },
   play: async ({ canvasElement }) => {
-    // At least one span should carry the selection highlight class.
     const selected = canvasElement.querySelectorAll('.terminal-selected');
     expect(selected.length).toBeGreaterThan(0);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Cell grid: text advance is snapped to --cell-w
-// ---------------------------------------------------------------------------
 
 export const SnappedAdvance: Story = {
   args: {
@@ -91,7 +85,6 @@ export const SnappedAdvance: Story = {
     await cellGridReady();
     const cellW = cellWidthOf(grid(canvasElement));
     expect(cellW).toBeGreaterThan(0);
-    // The snapped width is a whole number of device pixels.
     expect(Math.round(cellW * devicePixelRatio)).toBeCloseTo(cellW * devicePixelRatio, 3);
 
     const first = runCells(spanWithText(canvasElement, 'abcdefghij'), cellW);
@@ -100,17 +93,12 @@ export const SnappedAdvance: Story = {
 
     expect(first.start).toBeCloseTo(0, 1);
     expect(first.box).toBeCloseTo(10, 1);
-    // Glyph advance == box: the text really does advance one cell per char.
     expect(Math.abs(first.ink - 10)).toBeLessThan(CELL_TOLERANCE);
     expect(bold.start).toBeCloseTo(10, 1);
     expect(last.start).toBeCloseTo(20, 1);
     expect(Math.abs(last.ink - 10)).toBeLessThan(CELL_TOLERANCE);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Wide characters: one glyph, two columns
-// ---------------------------------------------------------------------------
 
 export const WideCJK: Story = {
   args: {
@@ -133,14 +121,11 @@ export const WideCJK: Story = {
     // The continuation cell of 文 (cell 4) groups with the ASCII that follows.
     const tail = runCells(spanWithText(canvasElement, ' b END'), cellW);
 
-    // Own 1-cell box at its own column…
     expect(zhong.start).toBeCloseTo(1, 1);
     expect(zhong.box).toBeCloseTo(1, 1);
-    // …painted as a double-width glyph (ink spills into the continuation cell).
     expect(zhong.ink).toBeGreaterThan(1.5);
     expect(zhong.ink).toBeLessThan(2.5);
     expect(wen.start).toBeCloseTo(3, 1);
-    // The text after the wide run is back on the grid, not pushed by the glyphs.
     expect(tail.start).toBeCloseTo(4, 1);
     expect(tail.box).toBeCloseTo(6, 1);
   },
@@ -205,12 +190,10 @@ export const EmojiSequences: Story = {
     expect(heart.box).toBeCloseTo(1, 1);
     expect(coder.start).toBeCloseTo(3, 1);
     expect(coder.box).toBeCloseTo(1, 1);
-    // A ZWJ sequence must render as ONE glyph, not woman + laptop side by side
-    // (which would be ~4 cells of ink).
+    // A ZWJ sequence is ONE glyph, not woman + laptop side by side (~4 cells of ink).
     expect(coder.ink).toBeLessThan(3);
     expect(thumbs.start).toBeCloseTo(5, 1);
-    // A flag is two regional indicators in ONE cell; it must not be split
-    // across two 1-cell boxes (which would draw two letters, not a flag).
+    // Split across two boxes, a flag's regional indicators draw two letters.
     expect(flag.start).toBeCloseTo(7, 1);
     expect(flag.box).toBeCloseTo(1, 1);
     expect(flag.ink).toBeGreaterThan(1.2);
@@ -249,7 +232,6 @@ export const FullwidthAndCombining: Story = {
 
     expect(f.box).toBeCloseTo(1, 1);
     expect(f.ink).toBeGreaterThan(1.5);
-    // Narrow: one cell of box AND of ink, the accent stacks on the base.
     expect(acute.start).toBeCloseTo(5, 1);
     expect(acute.box).toBeCloseTo(1, 1);
     expect(acute.ink).toBeLessThan(1.5);
@@ -258,11 +240,9 @@ export const FullwidthAndCombining: Story = {
 };
 
 /**
- * `⎿` (U+23BF) is one column to tmux — Claude Code draws it before every tool
- * result — but ~1.6 cells in FiraCode Nerd Font. Laid out as part of the run
- * it pushed the rest of the text past its box and over the dim hint that
- * follows: text drawn on top of text. It now gets its own 1-cell box and is
- * scaled into it, so the run after it starts on its own cell.
+ * `⎿` (U+23BF) is one column to tmux (Claude Code draws it before every tool
+ * result) but ~1.6 cells in FiraCode Nerd Font: in a run, it pushed the text
+ * over the dim hint that follows.
  */
 export const FatNarrowGlyph: Story = {
   args: {
@@ -283,10 +263,8 @@ export const FatNarrowGlyph: Story = {
 
     expect(elbow.start).toBeCloseTo(2, 1);
     expect(elbow.box).toBeCloseTo(1, 1);
-    // Painted inside its cell, not over the label.
     expect(elbow.ink).toBeLessThanOrEqual(1 + CELL_TOLERANCE);
     expect(label.start).toBeCloseTo(3, 1);
-    // The label's glyphs end where its box ends, so the hint is not overdrawn.
     expect(label.ink).toBeLessThanOrEqual(label.box + CELL_TOLERANCE);
     expect(hint.start).toBeCloseTo(19, 1);
   },

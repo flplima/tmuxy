@@ -11,29 +11,14 @@ interface CursorProps {
   char?: string;
   mode?: CursorMode;
   copyMode?: boolean;
-  /**
-   * Whether this cursor should blink. It is a class rather than an animation
-   * here because the pane's cursor is only the anchor: SmoothCursor paints
-   * what the user sees and reads the flag off this element.
-   */
+  /** A class, not an animation: SmoothCursor paints the cursor and reads the flag off this element. */
   blink?: boolean;
 }
 
 /**
- * Terminal cursor component.
- *
- * The cursor is always an absolutely positioned overlay addressed by CELL
- * coordinates — never spliced into the line's text. Splicing made its position
- * depend on the natural advance of the glyphs before it and on UTF-16 indexing
- * of the cell run, so a cell holding more than one code unit (variation
- * selectors, combining marks) or a glyph whose advance differs from the cell
- * pushed the cursor off the grid.
- *
- * It is placed in grid units — `--cell-w` horizontally (the snapped cell width
- * the style-group spans are pinned to; see infra/dom/cellMetrics.ts) and
- * `--line-height-terminal` vertically — so it lands on exactly the same grid
- * the content uses in both renderers (Terminal and ScrollbackTerminal),
- * independent of glyph advance, font fallback and webfont load timing.
+ * An overlay addressed by cell, never spliced into the line's text: there its
+ * position depended on the glyphs' advance and on UTF-16 offsets, and a cell
+ * holding several code units pushed it off the grid.
  */
 export function Cursor({
   x,
@@ -59,11 +44,8 @@ export function Cursor({
     height: 'var(--line-height-terminal)',
   };
 
-  // Only a filled block repaints the character. Its background is opaque, so it
-  // hides the glyph the line already drew and has to draw it back in the cursor
-  // colour. The underline and bar shapes are transparent decorations layered
-  // over that glyph, so painting the character again would double-draw it, in
-  // the container's colour rather than the cell's.
+  // A block's opaque background hides the glyph, so it draws it back; an
+  // underline or bar over the glyph would double-draw it.
   const paintsChar = mode === 'block';
 
   return (

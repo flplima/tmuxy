@@ -6,15 +6,8 @@ import { CellGridDecorator } from '../../stories/cellGrid';
 import { cellGridReady, cellWidthOf } from '../../stories/cellGridHelpers';
 
 /**
- * One row, every kind of glyph that does not fit its cell.
- *
- * `TerminalLine.stories` asserts the two shrink-to-fit cases one at a time.
- * This is the other half of the contract, and the half a user would notice
- * first: with all of them on ONE row, the ASCII text after them has to start
- * on the cell tmux counted — because the failure of any of them is the same
- * failure, a line that quietly runs long and no longer lines up with anything.
- *
- * The cases, and why each is here:
+ * One row, every kind of glyph that does not fit its cell: the ASCII text
+ * after them all has to start on the cell tmux counted.
  *
  * | Glyph | Columns | How it breaks a row                                   |
  * | ----- | ------- | ----------------------------------------------------- |
@@ -30,14 +23,10 @@ import { cellGridReady, cellWidthOf } from '../../stories/cellGridHelpers';
  * | 你    | 2       | Wide: one cell of box, two cells of glyph, and the     |
  * | 😀    | 2       | blank continuation cell tmux sends beside it.          |
  *
- * Measured with ranges over the row's own characters rather than over spans,
- * because grouping is an implementation detail: the renderer breaks a run
- * wherever a glyph needs its own box, and this has to hold whatever it
- * decides. A range measures ADVANCE — the ink case is asserted by
- * `TerminalLine`'s `FatInkIcon` story, with a canvas.
- *
- * The fonts are the bundled webfont (src/fonts), so this runs the same way on
- * every machine the deterministic probe runs on.
+ * Measured with ranges over the row's characters, not spans, so it holds
+ * however the renderer groups runs. A range measures ADVANCE; the ink case is
+ * `TerminalLine`'s `FatInkIcon` story. The fonts are the bundled webfont
+ * (src/fonts), so every probe machine measures the same.
  */
 const meta: Meta<typeof TerminalLine> = {
   title: 'Components/GlyphGrid',
@@ -70,11 +59,7 @@ const GLYPHS: Array<{ c: string; cols: 1 | 2; name: string }> = [
 
 const MARKER = 'END_OF_ROW';
 
-/**
- * The row as the backend sends it: one entry per tmux CELL, so a wide glyph is
- * its character plus the blank continuation cell beside it, and an entry's
- * index in this array IS its column.
- */
+/** As the backend sends it: one entry per tmux cell, a wide glyph plus its blank continuation. */
 function buildRow(): { line: CellLine; at: Map<string, number>; markerAt: number } {
   const line: CellLine = [];
   const at = new Map<string, number>();
@@ -91,10 +76,7 @@ function buildRow(): { line: CellLine; at: Map<string, number>; markerAt: number
 
 const ROW = buildRow();
 
-/**
- * The rectangle the row's own characters `[from, to)` are laid out in, counted
- * in code points — which is one per cell, wide glyphs included.
- */
+/** `[from, to)` in code points, which is one per cell here. */
 function rectForCells(line: HTMLElement, from: number, to: number): DOMRect {
   const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
@@ -130,10 +112,7 @@ function rectForCells(line: HTMLElement, from: number, to: number): DOMRect {
 /** Cell boxes are pinned to whole cells; allow a sixth of a cell of rounding. */
 const TOLERANCE = 0.15;
 
-/**
- * Above this ratio `glyphFit` shrinks a one-column glyph into its cell, so a
- * one-column glyph measuring fatter than this was NOT corrected.
- */
+/** glyphFit's own threshold: a one-column glyph fatter than this was not corrected. */
 const FAT_THRESHOLD = 1.15;
 
 export const EveryOversizedGlyphOnOneRow: Story = {
@@ -144,10 +123,8 @@ export const EveryOversizedGlyphOnOneRow: Story = {
     const cellW = cellWidthOf(grid);
     const line = canvasElement.querySelector('.terminal-line') as HTMLElement;
 
-    // The component and this play function have to be looking at the same
-    // typeface. A canvas never fetches a face itself, so ask the document for
-    // the ones these glyphs need and let the fit cache invalidate before
-    // measuring anything.
+    // A canvas never fetches a face itself: load the faces these glyphs need,
+    // so the component and this play function measure the same typeface.
     const style = getComputedStyle(grid.querySelector('.terminal-content')!);
     const font =
       style.font || `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
@@ -165,23 +142,18 @@ export const EveryOversizedGlyphOnOneRow: Story = {
         const start = (r.left - left) / cellW;
         const advance = r.width / cellW;
 
-        // It starts on its own column: nothing before it moved the row.
         expect({ glyph: glyph.name, onItsCell: Math.abs(start - cell) < TOLERANCE }).toEqual({
           glyph: glyph.name,
           onItsCell: true,
         });
 
         if (glyph.cols === 1) {
-          // One column means one cell of room. A glyph too fat for it is
-          // shrunk (components/terminal/glyphFit); one that was not shrunk is drawn over
-          // the run beside it and pushes the rest of the row along.
           expect({ glyph: glyph.name, fitsItsCell: advance <= FAT_THRESHOLD }).toEqual({
             glyph: glyph.name,
             fitsItsCell: true,
           });
         } else {
-          // Two columns: the glyph is drawn at full size, spilling into the
-          // continuation cell tmux sent beside it — not squeezed into one.
+          // Drawn at full size into its continuation cell, not squeezed into one.
           expect({ glyph: glyph.name, wide: advance > 1.2 && advance < 3 }).toEqual({
             glyph: glyph.name,
             wide: true,
@@ -189,15 +161,11 @@ export const EveryOversizedGlyphOnOneRow: Story = {
         }
       }
 
-      // The row's own verdict: the ASCII after all of that starts on the cell
-      // tmux counted, and takes exactly one cell per character.
       const marker = rectForCells(line, ROW.markerAt, ROW.markerAt + MARKER.length);
       expect(Math.abs((marker.left - left) / cellW - ROW.markerAt)).toBeLessThan(TOLERANCE);
       expect(Math.abs(marker.width / cellW - MARKER.length)).toBeLessThan(TOLERANCE);
     });
 
-    // Whatever the renderer decided to shrink, it shrank by a real amount:
-    // a `.terminal-fit` box with a scale of 1 corrects nothing.
     const fitted = [...canvasElement.querySelectorAll<HTMLElement>('.terminal-fit-glyph')];
     for (const el of fitted) {
       const scale = Number(getComputedStyle(el).getPropertyValue('--glyph-fit'));

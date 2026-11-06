@@ -1,13 +1,7 @@
 /**
- * Where the terminal cursor is on the page.
- *
- * The pane holding the keyboard renders a `Cursor` at its cursor cell; that
- * element is registered here as the ANCHOR, and `SmoothCursor` — the one
- * cursor the user actually sees — measures it and glides to it. Registering
- * on every commit (the ref callback below is recreated per render, so React
- * re-attaches it each time) is what lets the overlay learn about a move,
- * and the anchor going away (another pane took the keyboard, the pane was
- * closed) is what lets it fly to the next one.
+ * The `Cursor` element of the pane holding the keyboard, which `SmoothCursor`
+ * measures and glides to. It re-registers on every commit (its ref callback is
+ * recreated per render), which is how the overlay learns about a move.
  */
 
 let anchor: HTMLElement | null = null;
@@ -19,7 +13,6 @@ function bump() {
   for (const listener of listeners) listener();
 }
 
-/** Ref callback for the anchor element; returns the detach cleanup React calls. */
 export function attachCursorAnchor(el: HTMLElement): () => void {
   anchor = el;
   bump();
@@ -30,9 +23,8 @@ export function attachCursorAnchor(el: HTMLElement): () => void {
 }
 
 /**
- * The anchor did not change but the DOM under it moved in a way no pane
- * render announces (the Tab Overview dragging the current tab's card, and
- * the live grid inside it): tell the overlay to look again.
+ * For DOM moves no pane render announces (the Tab Overview dragging the
+ * current tab's card).
  */
 export function nudgeCursorAnchor(): void {
   bump();

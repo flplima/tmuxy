@@ -1,6 +1,5 @@
-/* TouchSelectionBar — Copy / Cancel over a pane with a finger's selection.
-   Pinned to the pane's top edge, in the chrome's type: the selection is in
-   the rows below, and a thumb reaches the bar without covering them. */
+/* Pinned to the pane's top edge: a thumb reaches it without covering the
+   selected rows below. */
 
 .touch-selection-bar {
   position: absolute;

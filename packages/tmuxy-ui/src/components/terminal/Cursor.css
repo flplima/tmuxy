@@ -1,5 +1,3 @@
-/* Absolutely positioned overlay on the cell grid (left/top/width/height are
-   set inline in cell units by Cursor.tsx). */
 .terminal-cursor {
   position: absolute;
   pointer-events: none;

@@ -2,10 +2,8 @@ import { useEffect } from 'react';
 import { markSelectedRows } from './selectionRows';
 
 /**
- * Keep the rows the browser's selection runs past marked (components/terminal/selectionRows).
- * On every selection change, and on scroll too: the scroll view builds the
- * rows that come into view afresh, and a selection that stays put fires no
- * change while they do.
+ * On scroll too: the scroll view builds the rows coming into view afresh, and
+ * a selection that stays put fires no `selectionchange` while they do.
  */
 export function useSelectionRows(): void {
   useEffect(() => {
