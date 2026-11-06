@@ -99,6 +99,14 @@ function runCLIFull(args, opts = {}) {
       timeout: 10000,
       input: opts.input,
     });
+    // A CLI that hangs (killed at the timeout) or never started is no exit
+    // status at all: reported as one, it would pass every "exits 1" test.
+    if (result.error || result.status === null) {
+      throw new Error(
+        `tmuxy ${args.join(' ')} did not exit: ${result.error?.message ?? `killed by ${result.signal}`}` +
+          `\nstderr: ${result.stderr || ''}`,
+      );
+    }
 
     const log = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').trim() : '';
     const recorded = log ? log.split('\n').map((line) => JSON.parse(line)) : [];
@@ -106,7 +114,7 @@ function runCLIFull(args, opts = {}) {
     return {
       stdout: result.stdout || '',
       stderr: result.stderr || '',
-      exitCode: result.status ?? 1,
+      exitCode: result.status,
       tmuxCalls: withoutRunShellWrap(withoutPaneResolution(allCalls)),
       rawRunShells: allCalls.filter((call) => call.args[0] === 'run-shell'),
       paneResolution: allCalls.find(isPaneResolution) ?? null,
