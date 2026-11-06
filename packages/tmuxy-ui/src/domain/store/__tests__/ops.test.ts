@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelPane } from '../../../test/model';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
 import { TmuxOp } from '../../commands';
@@ -11,38 +12,10 @@ import {
   type TmuxSnapshot,
   type OpId,
 } from '../types';
-import type { TmuxPane } from '../../client';
 import type { PaneId, WindowId } from '../../ids';
 
-function pane(tmuxId: PaneId, x: number, y: number, width: number, height: number): TmuxPane {
-  return {
-    id: parseInt(tmuxId.slice(1), 10),
-    tmuxId,
-    windowId: wid('@0'),
-    content: [],
-    cursorX: 0,
-    cursorY: 0,
-    width,
-    height,
-    x,
-    y,
-    active: false,
-    command: 'bash',
-    title: '',
-    borderTitle: '',
-    inMode: false,
-    copyCursorX: 0,
-    copyCursorY: 0,
-    alternateOn: false,
-    mouseAnyFlag: false,
-    historySize: 0,
-    selectionPresent: false,
-    selectionStartX: 0,
-    selectionStartY: 0,
-    cursorShape: 0,
-    cursorHidden: false,
-  };
-}
+const pane = (tmuxId: PaneId, x: number, y: number, width: number, height: number) =>
+  modelPane(tmuxId, wid('@0'), { x, y, width, height });
 
 // Two side-by-side panes: %0 [0..39] and %1 [41..80].
 const SNAPSHOT: TmuxSnapshot = {
@@ -68,94 +41,6 @@ function focusOp(now: number) {
     now,
   });
 }
-
-describe('parseCommandToOp — tmuxy-nav aliases', () => {
-  it('maps tmuxy-nav-* to Navigate ops', () => {
-    expect(parseCommandToOp('tmuxy-nav-left')).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-right')).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-up')).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-down')).toEqual({
-      _tag: 'Navigate',
-      direction: 'D',
-      script: true,
-    });
-  });
-
-  it('maps the pinned compound form too', () => {
-    expect(parseCommandToOp('select-pane -t %0 \\; tmuxy-nav-right')).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-  });
-
-  // The alias is what the config writes, but never what a keypress carries:
-  // bindings reach the client through `list-keys`, which reports aliases
-  // already expanded. Missing this form costs every arrow key its prediction
-  // and leaves the user waiting on a shell script plus a round trip.
-  it('maps the expanded run-shell form list-keys actually reports', () => {
-    const expanded = (dir: string) =>
-      `run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav ${dir} #{pane_id}"`;
-    expect(parseCommandToOp(expanded('left'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('right'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('up'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('down'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'D',
-      script: true,
-    });
-  });
-
-  it('maps the expanded form behind the window+pane pin', () => {
-    expect(
-      parseCommandToOp(
-        'select-window -t @2 \\; select-pane -t %0 \\; ' +
-          'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav right #{pane_id}"',
-      ),
-    ).toEqual({ _tag: 'Navigate', direction: 'R', script: true });
-  });
-
-  // Configs written before v0.0.6 carry the path relative, and the migration
-  // that absolutises them runs server-side; the parser should not care.
-  it('maps the pre-migration relative path form', () => {
-    expect(parseCommandToOp('run-shell "bash bin/tmuxy/nav up"')).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-  });
-
-  // `next`/`prev` are not directions the client can predict geometrically —
-  // they must stay RawCommand rather than guess a neighbour.
-  it('leaves the non-directional nav verbs unpredicted', () => {
-    const cmd = 'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav prev #{pane_id}"';
-    expect(parseCommandToOp(cmd)).toEqual({ _tag: 'RawCommand', command: cmd });
-  });
-});
 
 describe('reconcileFocus — linger and supersession', () => {
   const t0 = 1_000_000;

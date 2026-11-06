@@ -1,30 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { fromCallback } from 'xstate';
-import { dispatchActions } from '../../dispatch';
 import { TmuxOp } from '../../../../domain/commands';
 import { placeholderPaneId, placeholderWindowId } from '../../../../domain/ids';
+import { recorder, startApp } from '../../../../test/app';
 import type { AppMachineContext } from '../../../types/context';
-import { mountState } from './testHarness';
 
-const dispatchState = {
-  on: {
-    DISPATCH_OP: { actions: 'dispatch_op' },
-    SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
-  },
-};
-
-/** The dispatch slice over a recording store; returns what reached the store. */
+/** The app over `context` and a recording store; returns what reached the store. */
 function mountDispatch(context: Partial<AppMachineContext>) {
-  const sent: Array<{ op: TmuxOp; wire?: string }> = [];
-  const tmuxStore = fromCallback(({ receive }) => {
-    receive((event) => {
-      const { op, wire } = event as unknown as { op: TmuxOp; wire?: string };
-      sent.push({ op, wire });
-    });
-  });
-  const actor = mountState(dispatchState, dispatchActions, {}, context, {
-    extraActors: { tmuxStore },
-  });
+  const store = recorder();
+  const actor = startApp({ context, actors: { tmuxStoreActor: store.logic } });
+  const sent = () => store.received as unknown as Array<{ op: TmuxOp; wire?: string }>;
   return { actor, sent };
 }
 
@@ -43,14 +27,14 @@ describe('dispatch while a split or new tab is still predicted', () => {
     actor.send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t :.+' });
     actor.send({ type: 'SEND_TMUX_COMMAND', command: 'run-shell "x #{pane_id}"' });
 
-    expect(sent.map((s) => s.op)).toEqual([
+    expect(sent().map((s) => s.op)).toEqual([
       TmuxOp.CyclePane({ windowId: null }),
       TmuxOp.GroupAdd({ pane: null }),
       expect.anything(),
       expect.anything(),
     ]);
-    expect(sent[2].wire).toBe('select-pane -t :.+');
-    expect(sent[3].wire).toBe('run-shell "x #{pane_id}"');
+    expect(sent()[2].wire).toBe('select-pane -t :.+');
+    expect(sent()[3].wire).toBe('run-shell "x #{pane_id}"');
   });
 
   it('once tmux has confirmed them, names the client’s own active window and pane', () => {
@@ -59,8 +43,8 @@ describe('dispatch while a split or new tab is still predicted', () => {
     actor.send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t :.+' });
     actor.send({ type: 'SEND_TMUX_COMMAND', command: 'run-shell "x #{pane_id}"' });
 
-    expect(sent[0].op).toEqual(TmuxOp.CyclePane({ windowId: '@2' as never }));
-    expect(sent[1].wire).toBe('select-pane -t @2.+');
-    expect(sent[2].wire).toBe('run-shell "x %3"');
+    expect(sent()[0].op).toEqual(TmuxOp.CyclePane({ windowId: '@2' as never }));
+    expect(sent()[1].wire).toBe('select-pane -t @2.+');
+    expect(sent()[2].wire).toBe('run-shell "x %3"');
   });
 });

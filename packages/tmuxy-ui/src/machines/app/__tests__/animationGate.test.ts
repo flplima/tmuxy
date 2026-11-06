@@ -22,7 +22,6 @@ function connected(overrides = {}) {
   return mountState(
     { on: { ...viewportGlobalEvents, ...layoutGlobalEvents } },
     { ...viewportActions, ...layoutActions },
-    {},
     {
       connected: true,
       panes: [pane],

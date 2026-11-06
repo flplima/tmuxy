@@ -6,16 +6,14 @@
  * still in flight. The pane this client had was held through that from the
  * window left behind, so the keys went to a pane of a hidden tab and nothing
  * on screen showed them.
- *
- * `appMachine` is exported with stub actors, so it starts standalone.
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor } from 'xstate';
-import { appMachine } from '../appMachine';
 import { pid, wid } from '../../../test/wire';
-import type { TmuxPane, TmuxWindow } from '../../../domain/client';
-import type { OpId, TmuxClientModel, TmuxSnapshot } from '../../../domain/store/types';
+import { modelPane, modelUpdate, modelWindow } from '../../../test/model';
+import { startApp } from '../../../test/app';
+import type { TmuxPane } from '../../../domain/client';
+import type { OpId } from '../../../domain/store/types';
 import { makePendingOp } from '../../../domain/store/model';
 import { TmuxOp } from '../../../domain/commands';
 import type { PaneId, WindowId } from '../../../domain/ids';
@@ -23,47 +21,11 @@ import type { PaneId, WindowId } from '../../../domain/ids';
 const ONE = wid('@1');
 const TWO = wid('@2');
 
-const pane = (tmuxId: PaneId, windowId: WindowId, width = 80): TmuxPane => ({
-  id: Number(tmuxId.slice(1)),
-  tmuxId,
-  windowId,
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width,
-  height: 23,
-  x: 0,
-  y: 1,
-  active: true,
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 500,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-});
+const pane = (tmuxId: PaneId, windowId: WindowId, width = 80) =>
+  modelPane(tmuxId, windowId, { width, height: 23, y: 1, active: true, historySize: 500 });
 
-const tab = (id: WindowId, index: number, active: boolean): TmuxWindow => ({
-  id,
-  index,
-  name: `tab${index}`,
-  active,
-  windowType: 'tab',
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-});
+const tab = (id: WindowId, index: number, active: boolean) =>
+  modelWindow(id, index, { name: `tab${index}`, active });
 
 /** A new tab tmux has not confirmed yet. */
 const newTab = makePendingOp({
@@ -80,31 +42,16 @@ const update = (
   activePaneId: PaneId | null,
   panes: TmuxPane[],
   inFlight = false,
-) => {
-  const snapshot: TmuxSnapshot = {
+) =>
+  modelUpdate(
     panes,
-    windows: [tab(ONE, 0, activeWindowId === ONE), tab(TWO, 1, activeWindowId === TWO)],
-    activePaneId,
-    activeWindowId,
-    totalWidth: 80,
-    totalHeight: 24,
-    sessionName: 'main',
-    focusRequest: '',
-    pluginsRev: '',
-    themeRev: '',
-  };
-  const model: TmuxClientModel = {
-    committed: snapshot,
-    ops: inFlight ? [newTab] : [],
-    derived: snapshot,
-    paneKeyOverrides: {},
-  };
-  return { type: 'TMUX_MODEL_UPDATE' as const, model };
-};
+    [tab(ONE, 0, activeWindowId === ONE), tab(TWO, 1, activeWindowId === TWO)],
+    { paneId: activePaneId, windowId: activeWindowId },
+    { ops: inFlight ? [newTab] : [] },
+  );
 
 const onTabOne = () => {
-  const actor = createActor(appMachine).start();
-  actor.send({ type: 'TMUX_CONNECTED' });
+  const actor = startApp();
   actor.send(update(ONE, pid('%1'), [pane(pid('%1'), ONE)]));
   expect(actor.getSnapshot().context.activePaneId).toBe(pid('%1'));
   return actor;
@@ -125,8 +72,7 @@ describe('the active pane across a window switch', () => {
   });
 
   it('is the one tmux names in the window it switched to, while panes resize', () => {
-    const actor = createActor(appMachine).start();
-    actor.send({ type: 'TMUX_CONNECTED' });
+    const actor = startApp();
     actor.send(update(ONE, pid('%1'), [pane(pid('%1'), ONE), pane(pid('%2'), TWO)]));
     // The same panes, one of them resized.
     actor.send(update(TWO, pid('%2'), [pane(pid('%1'), ONE, 40), pane(pid('%2'), TWO)], true));

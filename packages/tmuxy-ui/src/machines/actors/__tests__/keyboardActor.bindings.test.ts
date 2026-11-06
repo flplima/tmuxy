@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { pid, wid } from '../../../test/wire';
 import { placeholderPaneId, placeholderWindowId } from '../../../domain/ids';
-import { spawnKeyboardActor as spawnWith } from './keyboardHarness';
+import {
+  lastSendCommand,
+  pressKey,
+  sendCommands,
+  spawnKeyboardActor as spawnWith,
+} from './keyboardHarness';
 import type { AppMachineContext } from '../../types/context';
-import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 
 function spawnKeyboardActor(
   activePaneId = pid('%3'),
@@ -12,27 +16,6 @@ function spawnKeyboardActor(
   return spawnWith(activePaneId, {
     copyModeStates: copyModeStates as AppMachineContext['copyModeStates'],
   });
-}
-
-function pressKey(init: KeyboardEventInit) {
-  window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
-}
-
-function wireCommand(event: { type: string; [k: string]: unknown }): string | undefined {
-  if (event.type === 'SEND_TMUX_COMMAND') return event.command as string;
-  if (event.type === 'DISPATCH_OP') return toTmuxCommand(event.op as TmuxOp);
-  return undefined;
-}
-
-function sendCommands(events: Array<{ type: string; [k: string]: unknown }>): string[] {
-  return events.map(wireCommand).filter((command): command is string => command !== undefined);
-}
-
-function lastSendCommand(
-  events: Array<{ type: string; [k: string]: unknown }>,
-): string | undefined {
-  const commands = sendCommands(events);
-  return commands[commands.length - 1];
 }
 
 describe('keyboardActor — Tab / Shift-Tab', () => {

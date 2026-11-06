@@ -7,16 +7,10 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { pid } from '../../../test/wire';
-import { spawnKeyboardActor } from './keyboardHarness';
-import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import { pressKey, sendCommands, spawnKeyboardActor } from './keyboardHarness';
 import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 
 const { getMobileInput } = mobileKeyboard;
-
-const sendCommands = (events: Array<{ type: string; [k: string]: unknown }>) =>
-  events
-    .map((event) => (event.type === 'DISPATCH_OP' ? toTmuxCommand(event.op as TmuxOp) : undefined))
-    .filter((command): command is string => command !== undefined);
 
 /** The browser giving the page its focus back, with `element` restored. */
 function pageGetsFocusWith(element: HTMLElement) {
@@ -42,7 +36,6 @@ describe('keyboardActor — the page gets the focus with no pane clicked', () =>
 
   afterEach(() => {
     vi.restoreAllMocks();
-    handle.actor.stop();
     chrome.remove();
     field.remove();
   });
@@ -50,9 +43,7 @@ describe('keyboardActor — the page gets the focus with no pane clicked', () =>
   it('takes the keyboard from a chrome control the browser restored, and a key reaches the pane', () => {
     pageGetsFocusWith(chrome);
     expect(document.activeElement).toBe(getMobileInput());
-    window.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    );
+    pressKey({ key: 'Enter' });
     expect(sendCommands(handle.events)).toEqual(['send-keys -t %3 Enter']);
   });
 

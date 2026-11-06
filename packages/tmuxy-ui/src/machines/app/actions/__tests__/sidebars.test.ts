@@ -6,81 +6,24 @@
  * more hidden window that lived on for good.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createActor, fromCallback } from 'xstate';
-import { appMachine } from '../../appMachine';
 import { SIDEBAR_START_TIMEOUT_MS } from '../sidebars';
 import { pid, wid } from '../../../../test/wire';
-import type { TmuxOp } from '../../../../domain/commands';
+import { modelPane, modelUpdate as update, modelWindow } from '../../../../test/model';
+import { recorder, startApp } from '../../../../test/app';
 import type { TmuxPane, TmuxWindow } from '../../../../domain/client';
-import type { TmuxClientModel, TmuxSnapshot } from '../../../../domain/store/types';
 import type { PaneId, WindowId } from '../../../../domain/ids';
 
 const TAB = wid('@0');
 const TREE = wid('@1');
 
-const pane = (tmuxId: PaneId, windowId: WindowId): TmuxPane => ({
-  id: Number(tmuxId.slice(1)),
-  tmuxId,
-  windowId,
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 23,
-  x: 0,
-  y: 1,
-  active: tmuxId === pid('%0'),
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-});
+const pane = (tmuxId: PaneId, windowId: WindowId): TmuxPane =>
+  modelPane(tmuxId, windowId, { height: 23, y: 1, active: tmuxId === pid('%0') });
 
-const window = (id: WindowId, windowType: 'tab' | 'sidebar-left'): TmuxWindow => ({
-  id,
-  index: Number(id.slice(1)),
-  name: windowType,
-  active: id === TAB,
-  windowType,
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-});
+const window = (id: WindowId, windowType: 'tab' | 'sidebar-left'): TmuxWindow =>
+  modelWindow(id, Number(id.slice(1)), { name: windowType, active: id === TAB, windowType });
 
-const modelUpdate = (panes: TmuxPane[], windows: TmuxWindow[]) => {
-  const snapshot: TmuxSnapshot = {
-    panes,
-    windows,
-    activePaneId: pid('%0'),
-    activeWindowId: TAB,
-    totalWidth: 80,
-    totalHeight: 24,
-    sessionName: 'main',
-    focusRequest: '',
-    pluginsRev: '',
-    themeRev: '',
-  };
-  const model: TmuxClientModel = {
-    committed: snapshot,
-    ops: [],
-    derived: snapshot,
-    paneKeyOverrides: {},
-  };
-  return { type: 'TMUX_MODEL_UPDATE' as const, model };
-};
+const modelUpdate = (panes: TmuxPane[], windows: TmuxWindow[]) =>
+  update(panes, windows, { paneId: pid('%0'), windowId: TAB });
 
 const noTree = modelUpdate([pane(pid('%0'), TAB)], [window(TAB, 'tab')]);
 const withTree = modelUpdate(
@@ -90,17 +33,13 @@ const withTree = modelUpdate(
 
 /** The app machine over a tmux actor that records the ops it is sent. */
 function connected() {
-  const sent: TmuxOp[] = [];
-  const tmuxActor = fromCallback(({ receive }) => {
-    receive((event) => {
-      const e = event as unknown as { type: string; op?: TmuxOp };
-      if (e.type === 'SEND_OP' && e.op) sent.push(e.op);
-    });
-  });
-  const actor = createActor(appMachine.provide({ actors: { tmuxActor } } as never)).start();
-  actor.send({ type: 'TMUX_CONNECTED' });
+  const tmux = recorder();
+  const actor = startApp({ actors: { tmuxActor: tmux.logic } });
   actor.send(noTree);
-  return { actor, sent, opens: () => sent.filter((op) => op._tag === 'OpenSidebar').length };
+  return {
+    actor,
+    opens: () => tmux.ops().filter((op) => op._tag === 'OpenSidebar').length,
+  };
 }
 
 describe('the sidebar start timeout', () => {

@@ -6,29 +6,38 @@
  * ahead of a kill-window, also stops the kill.
  */
 import { describe, it, expect } from 'vitest';
-import { fromCallback } from 'xstate';
+import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 import { TmuxOp } from '../../../../domain/commands';
 import { placeholderPaneId, placeholderWindowId } from '../../../../domain/ids';
 import { pid, wid } from '../../../../test/wire';
+import { recorder } from '../../../../test/app';
 import type { AppMachineContext } from '../../../types/context';
-import { mountState } from './testHarness';
+import { mountState, sendAndGetContext } from './testHarness';
 
-const selectTabState = { on: { SELECT_TAB: { actions: 'layout_selectTab' } } };
-
-/** The tab-select action over a recording store; returns the ops that reached it. */
+/** The layout slice over a recording store; returns it and the ops that reached the store. */
 function mountSelectTab(context: Partial<AppMachineContext>) {
-  const sent: TmuxOp[] = [];
-  const tmuxStore = fromCallback(({ receive }) => {
-    receive((event) => {
-      sent.push((event as unknown as { op: TmuxOp }).op);
-    });
+  const store = recorder();
+  const actor = mountState(layoutState, layoutActions, context, {
+    extraActors: { tmuxStore: store.logic },
   });
-  const actor = mountState(selectTabState, layoutActions, {}, context, {
-    extraActors: { tmuxStore },
-  });
-  return { actor, sent };
+  return { actor, sent: store.ops };
 }
+
+describe('SELECT_TAB', () => {
+  it('hands the switch to the store, which predicts it; the machine assigns nothing itself', () => {
+    const { actor, sent } = mountSelectTab({ activeWindowId: wid('@0') });
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@1') });
+    expect(sent()).toEqual([TmuxOp.SelectWindow({ target: wid('@1') })]);
+    expect(ctx.activeWindowId).toBe(wid('@0'));
+  });
+
+  it('sends nothing when already on the target window', () => {
+    const { actor, sent } = mountSelectTab({ activeWindowId: wid('@5'), windows: [] });
+    actor.send({ type: 'SELECT_TAB', windowId: wid('@5') });
+    expect(sent()).toEqual([]);
+  });
+});
 
 describe('SELECT_TAB while a new tab is still predicted', () => {
   const placeholder = placeholderWindowId('op1');
@@ -58,7 +67,7 @@ describe('SELECT_TAB while a new tab is still predicted', () => {
       panes,
     } as never);
     actor.send({ type: 'SELECT_TAB', windowId: placeholder });
-    expect(sent).toEqual([]);
+    expect(sent()).toEqual([]);
   });
 
   it('names a real tab to tmux as before', () => {
@@ -69,6 +78,6 @@ describe('SELECT_TAB while a new tab is still predicted', () => {
       panes,
     } as never);
     actor.send({ type: 'SELECT_TAB', windowId: wid('@1') });
-    expect(sent).toEqual([TmuxOp.SelectWindow({ target: wid('@1') })]);
+    expect(sent()).toEqual([TmuxOp.SelectWindow({ target: wid('@1') })]);
   });
 });

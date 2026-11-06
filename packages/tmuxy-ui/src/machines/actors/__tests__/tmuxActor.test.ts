@@ -32,13 +32,9 @@ function spawnTmuxActor(runtime: AppRuntime) {
   return { actor, events };
 }
 
-async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error('timeout waiting for predicate');
+/** Resolves once `pred` holds; the test's own timeout is the only limit. */
+async function waitFor(pred: () => boolean): Promise<void> {
+  while (!pred()) await new Promise((r) => setTimeout(r, 5));
 }
 
 describe('tmuxActor — cancellable scrollback', () => {

@@ -3,58 +3,9 @@ import { makeTmuxStore } from '../TmuxStore';
 import { OP_ACKED_STALE_TIMEOUT_MS, type TmuxClientModel } from '../../../domain/store/types';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import { TmuxOp } from '../../../domain/commands';
-import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
-import { pid, wid, wireState } from '../../../test/wire';
+import type { ServerState } from '../../../domain/wire';
+import { pid, wid, wireSession, wireState } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
-
-function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
-  return wireState({
-    session_name: 'tmuxy',
-    active_window_id: wid('@0'),
-    active_pane_id: pid('%0'),
-    panes: [
-      {
-        id: 0,
-        tmux_id: pid('%0'),
-        window_id: wid('@0'),
-        content: [],
-        cursor_x: 0,
-        cursor_y: 0,
-        width: 80,
-        height: 24,
-        x: 0,
-        y: 0,
-        active: true,
-        command: 'bash',
-        title: '',
-        border_title: '',
-        in_mode: false,
-        copy_cursor_x: 0,
-        copy_cursor_y: 0,
-        alternate_on: false,
-        mouse_any_flag: false,
-        history_size: 0,
-        selection_present: false,
-        selection_start_x: 0,
-        selection_start_y: 0,
-        cursor_shape: 0,
-        cursor_hidden: false,
-      },
-    ],
-    windows: [
-      {
-        id: wid('@0'),
-        index: 0,
-        name: 'main',
-        active: true,
-        window_type: 'tab',
-      },
-    ],
-    total_width: 80,
-    total_height: 24,
-    ...over,
-  });
-}
 
 describe('TmuxStore (integration)', () => {
   it('subscribe fires on initial state, local dispatch, and reconcile', async () => {
@@ -67,7 +18,7 @@ describe('TmuxStore (integration)', () => {
     });
     expect(snaps).toHaveLength(1);
 
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(snaps[snaps.length - 1].committed.panes).toHaveLength(1);
 
@@ -84,7 +35,7 @@ describe('TmuxStore (integration)', () => {
   it('dispatch rolls back the op on TmuxError', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
     expect(store.getModel().committed.panes).toHaveLength(1);
 
@@ -107,7 +58,7 @@ describe('TmuxStore (integration)', () => {
   it('reconcile drops matched ops and surfaces rollback entries for stale ones', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
     const exit = await fake.runtime.runPromiseExit(
@@ -119,11 +70,11 @@ describe('TmuxStore (integration)', () => {
     expect(store.getModel().ops).toHaveLength(1);
 
     store.reconcile(
-      blankServerState({
+      wireSession({
         panes: [
-          ...blankServerState().panes,
+          ...wireSession().panes,
           {
-            ...blankServerState().panes[0],
+            ...wireSession().panes[0],
             tmux_id: pid('%1'),
             x: 41,
             width: 39,
@@ -142,7 +93,7 @@ describe('TmuxStore (integration)', () => {
   it('TransportError surfaces as OpTransportError and rolls back', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
     fake.setNextResult({ kind: 'reject', error: 'network down' });
     const exit = await fake.runtime.runPromiseExit(
@@ -162,7 +113,7 @@ describe('TmuxStore (integration)', () => {
   ])('%s sends nothing and records no op', async (_name, op) => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
     const before = store.getModel();
 
     const exit = await fake.runtime.runPromiseExit(store.dispatch(op));
@@ -192,7 +143,7 @@ describe('rollback reporting', () => {
     store.subscribeRollbacks((entries) => {
       for (const e of entries) reported.push(`${e.op._tag}:${e.reason}`);
     });
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
     const exit = await fake.runtime.runPromiseExit(
@@ -237,7 +188,7 @@ describe('notify granularity', () => {
 describe('what the predictions read', () => {
   // Three tabs, one pane each; `active` names the tab in front.
   function threeTabs(active: 0 | 1 | 2): ServerState {
-    const base = blankServerState();
+    const base = wireSession();
     const [pane] = base.panes;
     const [window] = base.windows;
     return {
