@@ -5435,12 +5435,11 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tmuxy-core",
- "tmuxy-group",
+ "tmuxy-verbs",
  "tokio",
  "tokio-util",
  "tower",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5470,6 +5469,22 @@ dependencies = [
  "tokio",
  "tracing",
  "window-vibrancy",
+]
+
+[[package]]
+name = "tmuxy-verbs"
+version = "0.1.4"
+dependencies = [
+ "base64 0.22.1",
+ "clap",
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tmuxy-core",
+ "tmuxy-group",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

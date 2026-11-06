@@ -22,9 +22,9 @@
 
 set -euo pipefail
 
-SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
-# `_run_safe` / `shquote` (mutations go through `tmux run-shell`, docs/TMUX.md).
-source "$SCRIPTS_DIR/_lib"
+# `_run_safe` / `shquote` (mutations go through `tmux run-shell`, docs/TMUX.md),
+# and SCRIPTS_DIR.
+source "${0%/*}/_lib"
 
 usage() {
   sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'

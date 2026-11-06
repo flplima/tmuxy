@@ -5,11 +5,12 @@
  */
 
 import type { TmuxOp } from './commands';
+import { scriptEffect } from './commandHelpers';
 
 /**
  * Ops that run a multi-step server script or create a window, whose
- * intermediate geometry must not animate. A raw string is classified by the
- * scripts it names.
+ * intermediate geometry must not animate. A raw string (a key binding's,
+ * an essentials alias expanded) by the effect its script run is marked with.
  */
 export function isMultiStep(op: TmuxOp): boolean {
   switch (op._tag) {
@@ -20,10 +21,7 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'GroupStep':
       return true;
     case 'RawCommand':
-      return (
-        /^run-shell\b/.test(op.command) &&
-        /pane-group'? (add|close|switch|next|prev)|float-create/.test(op.command)
-      );
+      return scriptEffect(op.command) === 'settle';
     default:
       return false;
   }

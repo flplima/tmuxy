@@ -173,6 +173,8 @@ const GUEST_INSTALL = [
   // busybox's ln has no -n; with it the link was never made, and the
   // essentials' `$TMUXY_DATA_DIR/bin/tmuxy/...` scripts did not exist.
   `ln -sf /tmp/tb/bin/tmuxy ${GUEST_DATA_DIR}/bin/tmuxy`,
+  // The CLI where the chain's @tmuxy-cli names it, as the app mirrors it.
+  `ln -sf /tmp/tb/bin/tmuxy-cli ${GUEST_DATA_DIR}/bin/tmuxy-cli`,
   `cp /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf ${GUEST_DATA_DIR}/`,
   `cp /tmp/tb/tmuxy.entry.conf ${GUEST_STATE_DIR}/`,
   `cp /tmp/tb/tmuxy.conf ${GUEST_CONFIG_DIR}/`,

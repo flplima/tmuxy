@@ -2,6 +2,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::host::{HostEvent, Sink};
+use tmuxy_core::servers::connect::{ConnectRequest, CONNECT_REQUEST};
 use tmuxy_core::theme::ThemeSettings;
 
 use super::{request_reconnect, ConnectTarget};
@@ -43,11 +44,11 @@ impl Sink for TauriSink {
 const CONNECT_POLL: Duration = Duration::from_secs(2);
 
 /// Watch for `tmuxy connect` requests and reconnect the app when one
-/// arrives. `tmuxy connect <socket> [session]` sets the `TMUXY_CONNECT_TO`
-/// (and optional `TMUXY_CONNECT_SESSION` / `TMUXY_CONNECT_SSH`) tmux global env
-/// vars on the current server; this task reads them and, when the target
-/// differs from the current server, clears them and moves every window
-/// there (`request_reconnect`). Runs for the app's lifetime.
+/// arrives. `tmuxy connect <socket> [session]` and `tmuxy session connect`
+/// write one request (`tmuxy_core::servers::connect`) into the current
+/// server's global environment; this task reads it and, when the target
+/// differs from the current server, clears it and moves every window there
+/// (`request_reconnect`). Runs for the app's lifetime.
 ///
 /// The reads and the clears ride a window's live control-mode connection —
 /// the first one that has one; with none there is nothing to read from, and
@@ -69,29 +70,24 @@ pub async fn poll_connect_requests(app: AppHandle) {
             continue;
         };
 
-        let Some(socket) = take_global_env(&tx, "TMUXY_CONNECT_TO").await else {
+        let Some(value) = take_global_env(&tx, CONNECT_REQUEST).await else {
             continue;
         };
-        let session = take_global_env(&tx, "TMUXY_CONNECT_SESSION")
-            .await
-            .unwrap_or_else(tmuxy_core::session::session_name);
-        // Optional SSH tunnel for the target (absent → a local server).
-        let ssh = take_global_env(&tx, "TMUXY_CONNECT_SSH").await;
-
-        // Anything on the server it is attached to can write these: a
-        // request is followed only when each part is a plain name, so none
-        // of it can turn into an ssh option or a command.
-        if !tmuxy_core::session::is_safe_socket(&socket)
-            || !tmuxy_core::session::is_safe_session_name(&session)
-            || ssh
-                .as_deref()
-                .is_some_and(|d| !tmuxy_core::session::is_ssh_destination(d))
-        {
+        // Anything on the server it is attached to can write the request: it
+        // is followed only when each part is a plain name, so none of it can
+        // turn into an ssh option or a command.
+        let Some(request) = ConnectRequest::decode(&value) else {
             tracing::warn!(
                 "ignoring a connect request that is not a plain socket, session and host"
             );
             continue;
-        }
+        };
+        let ConnectRequest {
+            socket,
+            session,
+            ssh,
+        } = request;
+        let session = session.unwrap_or_else(tmuxy_core::session::session_name);
 
         // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));

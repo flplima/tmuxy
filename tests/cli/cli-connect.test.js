@@ -1,24 +1,18 @@
 const { runCLI } = require('./helpers/run-cli');
 
 describe('CLI connect subcommand', () => {
-  test('publishes TMUXY_CONNECT_TO/_SESSION via run-shell (explicit session)', () => {
-    // Explicit session skips the target-socket `list-sessions` probe (which is
-    // legitimately a DIFFERENT socket and would trip the harness's dedicated-
-    // socket invariant), leaving just the two env-set publishes.
-    const { exitCode, tmuxCalls } = runCLI(['connect', 'default', 'work']);
+  /**
+   * The request itself — one variable, checked where the desktop app reads it
+   * — is the server binary's `connect` verb (tmuxy_core::servers::connect,
+   * tested there); the mock server prints the command line it was given.
+   */
+  test('hands the socket and session to the connect verb (explicit session)', () => {
+    // An explicit session skips the target-socket `list-sessions` probe (a
+    // DIFFERENT socket, which would trip the harness's dedicated-socket check).
+    const { exitCode, stdout, tmuxCalls } = runCLI(['connect', 'default', 'work']);
     expect(exitCode).toBe(0);
-    expect(tmuxCalls).toHaveLength(2);
-    // Order matters: the desktop app's watcher polls TMUXY_CONNECT_TO, so the
-    // session must be published FIRST. Publishing _TO first lets the 2s poll
-    // fire between the two writes and attach the default session instead.
-    expect(tmuxCalls[0].args).toEqual([
-      'run-shell',
-      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'work'",
-    ]);
-    expect(tmuxCalls[1].args).toEqual([
-      'run-shell',
-      "tmux -L tmuxy set-environment -g TMUXY_CONNECT_TO 'default'",
-    ]);
+    expect(tmuxCalls).toHaveLength(0);
+    expect(stdout).toContain('mock-server-started connect --socket default --session work\n');
   });
 
   test('--help documents both the connect flow and the reconnect', () => {
@@ -52,7 +46,7 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
   const os = require('os');
   const path = require('path');
 
-  test('runs the 4 connect stages, persists last_used to servers.json, and publishes TMUXY_CONNECT_*', () => {
+  test('runs the 4 connect stages, and saves and publishes through the connect verb', () => {
     const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-connect-cfg-'));
     try {
       const { exitCode, stdout, tmuxCalls } = runCLI(
@@ -69,30 +63,10 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
         '✓ ssh felipe@prod',
         '✓ tmux 3.5a on the socket work',
         '✓ listing sessions',
+        'mock-server-started connect --save --socket work --session dev --ssh felipe@prod',
         '✓ attach',
       ]);
-      expect(tmuxCalls).toEqual([
-        {
-          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SSH 'felipe@prod'"],
-        },
-        {
-          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'dev'"],
-        },
-        {
-          args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_TO 'work'"],
-        },
-      ]);
-
-      const servers = JSON.parse(fs.readFileSync(path.join(tmpCfg, 'servers.json'), 'utf8'));
-      expect(servers).toHaveLength(1);
-      expect(servers[0]).toMatchObject({
-        id: 'ssh-felipe-prod-work',
-        label: 'felipe@prod',
-        kind: 'ssh',
-        socket: 'work',
-        ssh: { host: 'prod', user: 'felipe' },
-      });
-      expect(typeof servers[0].last_used).toBe('number');
+      expect(tmuxCalls).toEqual([]);
     } finally {
       fs.rmSync(tmpCfg, { recursive: true, force: true });
     }
@@ -130,16 +104,14 @@ describe('tmuxy session connect <dest> [--socket NAME]', () => {
   test('attaches the first listed session with a safe name, skipping the stash', () => {
     const tmpCfg = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-connect-cfg-'));
     try {
-      const { exitCode, tmuxCalls } = runCLI(['session', 'connect', 'felipe@prod'], {
+      const { exitCode, stdout } = runCLI(['session', 'connect', 'felipe@prod'], {
         env: {
           TMUXY_STATE_DIR: tmpCfg,
           MOCK_SSH_SESSIONS: '__tmuxy_stash\n-x\nmy work\ndev\nother\n',
         },
       });
       expect(exitCode).toBe(0);
-      expect(tmuxCalls).toContainEqual({
-        args: ['run-shell', "tmux -L tmuxy set-environment -g TMUXY_CONNECT_SESSION 'dev'"],
-      });
+      expect(stdout).toContain('connect --save --socket tmuxy --session dev --ssh felipe@prod');
     } finally {
       fs.rmSync(tmpCfg, { recursive: true, force: true });
     }

@@ -127,7 +127,7 @@ describe('tmuxy pane restore-cmd', () => {
 describe('tmuxy session switch: new', () => {
   /** What `new` made, from the run-shell that made it. */
   const created = (taken, snapshots = []) => {
-    const { exitCode, tmuxCalls, stdout } = runCLI(['session', 'switch', '--float'], {
+    const { exitCode, tmuxCalls, stdout } = runCLI(['session', 'switch'], {
       input: 'new\n',
       env: {
         MOCK_TMUX_LIST_SESSIONS: taken.join('\\n'),
@@ -140,7 +140,7 @@ describe('tmuxy session switch: new', () => {
     const create = tmuxCalls.find((call) => /new-session/.test(call.args[1] ?? ''));
     expect(create.args[0]).toBe('run-shell');
     const name = create.args[1].match(/new-session -d -s '([^']+)'$/)[1];
-    // The float hands the switch on by the same name.
+    // The switch names the session it made.
     expect(stdout).toContain(name);
     return name;
   };

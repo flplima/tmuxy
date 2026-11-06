@@ -43,7 +43,7 @@ fn each_surface_is_one_command_list() {
     assert!(float.contains("@tmuxy-float-width 160"), "{float}");
     assert!(float.contains("@tmuxy-float-height 35"), "{float}");
     assert!(!float.contains("noheader"), "{float}");
-    assert!(float.ends_with("select-pane -t %3"), "{float}");
+    assert!(float.contains("; select-pane -t %3 ;"), "{float}");
 
     let sized = Size {
         width: Some(Dim::Cells(300)),
@@ -85,13 +85,6 @@ fn the_exec_line_carries_names_and_a_token_only() {
         "exec '/opt/tmuxy app/tmuxy' server plugin exec p a 0123456789abcdef0123456789abcdef"
     );
     assert!(invoke::exec_command_line(Path::new("/a#b"), None, "p", "a", "t").is_err());
-}
-
-#[test]
-fn the_free_index_is_the_first_gap_from_the_lowest() {
-    assert_eq!(invoke::free_index("1\n2\n4\n"), 3);
-    assert_eq!(invoke::free_index("0\n"), 1);
-    assert_eq!(invoke::free_index(""), 0);
 }
 
 #[test]

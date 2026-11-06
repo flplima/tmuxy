@@ -61,17 +61,13 @@ export const groupsAndFloatsActions = {
 /**
  * The floats against a model update (`prev` → the `next` floats): one that
  * comes into view takes the keyboard (and its entrance is not animated), one
- * that holds it and goes hands it on. A float closing may be the session
- * switcher's, which leaves its choice in tmux for this client to act on.
+ * that holds it and goes hands it on.
  */
 export function reconcileFloats(
   prev: Ctx,
   next: Pick<Ctx, 'floatPanes' | 'windows' | 'activeWindowId'>,
   enqueue: Enqueue,
 ) {
-  if (Object.keys(next.floatPanes).length < Object.keys(prev.floatPanes).length) {
-    enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
-  }
   const shown = (c: typeof next) =>
     visibleFloats(c.floatPanes, c.windows, c.activeWindowId).map((f) => f.paneId);
   const before = shown(prev);
