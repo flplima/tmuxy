@@ -1,52 +1,40 @@
-/** Client-side scrollback views: what a pane in scroll or copy mode is showing. */
-
 import type { CellLine } from './wireCells';
 
 /**
- * Which of the two scrollback views a pane is showing.
+ * `scroll`: the view a wheel gesture opens, with the browser's own selection.
+ * tmux is told nothing — the pane is not `in_mode` — so the application keeps
+ * running.
  *
- * `scroll` is the native-like one a wheel gesture opens: scrollback rendered
- * and selectable with the browser's own selection, no cursor, no vi keys, and
- * tmux never told anything — the pane is not in `in_mode`, so the application
- * keeps running as if nothing happened.
- *
- * `copy` is tmux's copy mode as reached by `prefix [`: the pane really is in
- * `in_mode`, and the client draws a block cursor and resolves vi motions and
- * cell selection against it.
- *
- * Both share this record, and a pane has at most one, so the two can never be
- * live at once. See docs/COPY-MODE.md.
+ * `copy`: tmux's copy mode (`prefix [`), the pane really `in_mode`; the client
+ * draws the cursor and resolves vi motions against it. See docs/COPY-MODE.md.
  */
 export type ScrollbackMode = 'scroll' | 'copy';
 
 export interface CopyModeState {
-  /** Which view this is — see ScrollbackMode. */
   mode: ScrollbackMode;
-  /** Loaded lines of scrollback content, keyed by absolute line index */
+  /** Keyed by absolute row. */
   lines: Map<number, CellLine>;
-  /** Total lines available (historySize + height) */
+  /** historySize + height */
   totalLines: number;
-  /** Number of history lines above the visible area */
   historySize: number;
-  /** Loaded ranges: [startLine, endLine] pairs (inclusive) */
+  /** [startRow, endRow] pairs, inclusive. */
   loadedRanges: Array<[number, number]>;
-  /** Whether a chunk is currently being fetched */
   loading: boolean;
   width: number;
   height: number;
-  /** Absolute row (0 = first history line) */
+  /** Absolute row (0 = first history line). */
   cursorRow: number;
   cursorCol: number;
   selectionMode: 'char' | 'line' | null;
   selectionAnchor: { row: number; col: number } | null;
-  /** Absolute row at top of viewport */
+  /** Absolute row at the top of the viewport. */
   scrollTop: number;
-  /** Pending selection to apply on first chunk load (visible-relative row) */
+  /** Applied on the first chunk load; visible-relative row. */
   pendingSelection?: { mode: 'char' | 'line'; row: number; col: number };
   /**
-   * A word to select once its row has loaded (visible-relative row): a
-   * finger's hold selects the word under it in the same breath as it opens
-   * copy mode, before any line is there to read.
+   * A word to select once its row has loaded (visible-relative row): a finger's
+   * hold selects the word under it as it opens copy mode, before any line is
+   * there to read.
    */
   pendingWordSelection?: { row: number; col: number; broad?: boolean };
   /**
@@ -57,9 +45,9 @@ export interface CopyModeState {
    */
   pendingSelectAll?: boolean;
   /**
-   * When the selection was copied, while the view is on its way out. tmux has
-   * already left its mode; the view stays for the copy flash (COPY_FLASH_MS)
-   * so the copied text blinks where it was, then closes.
+   * When the selection was copied. tmux has already left its mode; the view
+   * stays for the copy flash (COPY_FLASH_MS) so the copied text blinks where it
+   * was, then closes.
    */
   copiedAt?: number;
   /**
@@ -76,10 +64,6 @@ export interface CopyModeState {
   tmuxSeen?: boolean;
 }
 
-// ============================================
-// Operations on the copy-mode state
-// ============================================
-
 /**
  * The scrollback row a pointer event names. A row inside the viewport is
  * counted from the top of the screen and lands at `scrollTop + row`; one at
@@ -91,11 +75,7 @@ export function toAbsoluteRow(state: CopyModeState, row: number, relative?: bool
   return relative || row < state.height ? state.scrollTop + row : row;
 }
 
-/**
- * `col` held inside the text on `row`, its trailing blanks not counted: the
- * cursor never sits past the last character, and sits at 0 on an empty or
- * unloaded row.
- */
+/** As vi does, the cursor never sits past a row's last character (0 on an empty row). */
 export function clampColToLine(state: CopyModeState, row: number, col: number): number {
   const line = state.lines.get(row);
   const text = line
@@ -119,23 +99,16 @@ export function isWrappedRow(line: CellLine | undefined, width: number): boolean
   return !!line && line.length >= width;
 }
 
-/** A cell of the grid or the scrollback, by row and column. */
 export interface CellPos {
   row: number;
   col: number;
 }
 
-/** A selection's two ends, the earlier first. */
 function orderedEnds(a: CellPos, b: CellPos): [CellPos, CellPos] {
   return a.row > b.row || (a.row === b.row && a.col > b.col) ? [b, a] : [a, b];
 }
 
-/**
- * The columns of each row a selection between `anchor` and `cursor` covers,
- * inclusive, in a grid `width` columns wide: the first row from the earlier
- * end, the last up to the later end, the rows between whole; every row whole
- * in line mode. Null for a row outside it.
- */
+/** The inclusive columns a selection covers on each row; null for a row outside it. */
 export function selectionColumns(
   anchor: CellPos,
   cursor: CellPos,
@@ -154,12 +127,8 @@ export function selectionColumns(
 }
 
 /**
- * Extract selected text from copy mode state.
- * For char mode: first line from anchor col, last line to cursor col, middle lines full.
- * For line mode: all selected lines are full width (trailing spaces trimmed).
- *
- * Rows that wrapped (filled the full width) are joined to the next row without
- * a newline, so a selection spanning a wrapped logical line copies as one line.
+ * Rows that wrapped are joined to the next without a newline, so a selection
+ * spanning a wrapped logical line copies as one line.
  */
 export function extractSelectedText(state: CopyModeState): string {
   const { selectionAnchor, selectionMode, cursorRow, cursorCol, lines, width } = state;
@@ -187,8 +156,6 @@ export function extractSelectedText(state: CopyModeState): string {
       segment = lineText.slice(0, endCol + 1);
     }
 
-    // A wrapped row continues onto the next with no line break; trim trailing
-    // blanks and emit a newline only at a true logical line boundary.
     if (row < endRow && isWrappedRow(line, width)) {
       output += segment;
     } else {
@@ -200,10 +167,6 @@ export function extractSelectedText(state: CopyModeState): string {
   return output;
 }
 
-/**
- * Merge a loaded chunk of cells into the copy mode lines map.
- * Returns a new Map with the merged data and updated loadedRanges.
- */
 export function mergeScrollbackChunk(
   existingLines: Map<number, import('./wireCells').CellLine>,
   existingRanges: Array<[number, number]>,
@@ -217,10 +180,9 @@ export function mergeScrollbackChunk(
 } {
   const newLines = new Map(existingLines);
 
-  // Convert tmux line offsets to absolute line indices
-  // tmux uses: negative = history (from visible top), 0 = first visible line
-  // Our absolute: 0 = first history line, historySize = first visible line
-  // tmux clamps -S to the start of history, so actual start may differ from requested
+  // tmux offsets: negative = history, 0 = first visible line. Absolute rows:
+  // 0 = first history line. tmux clamps -S to the start of history, so the
+  // actual start may differ from the requested one.
   const actualTmuxStart = Math.max(tmuxStart, -(historySize as number));
   for (let i = 0; i < cells.length; i++) {
     const tmuxOffset = actualTmuxStart + i;
@@ -230,17 +192,14 @@ export function mergeScrollbackChunk(
     }
   }
 
-  // Compute the absolute range we just loaded
   const absStart = Math.max(0, historySize + actualTmuxStart);
   const absEnd = Math.min(historySize + tmuxEnd, absStart + cells.length - 1);
 
-  // Merge into loadedRanges
   const newRanges = mergeRanges([...existingRanges, [absStart, absEnd]]);
 
   return { lines: newLines, loadedRanges: newRanges };
 }
 
-/** Merge overlapping/adjacent ranges */
 function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
   if (ranges.length === 0) return [];
   const sorted = ranges.sort((a, b) => a[0] - b[0]);
@@ -258,22 +217,14 @@ function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
   return merged;
 }
 
-/**
- * Check if a row is within any loaded range.
- */
 export function isRowLoaded(ranges: Array<[number, number]>, row: number): boolean {
   return ranges.some(([start, end]) => row >= start && row <= end);
 }
 
 /**
- * Re-key loaded rows after tmux reports a different `history_size`.
- *
- * A row's absolute index is `history_size + <tmux offset>`, so everything
- * already merged was keyed against the size known at the time. When that size
- * turns out to be larger — a view opened before `history_size` finished syncing
- * starts at nearly zero — every stored row belongs `diff` rows further down. Left
- * unshifted, the screen rows sit on top of the oldest history and a copy of the
- * whole scrollback comes back with the tail at the front.
+ * Re-key loaded rows after tmux reports a different `history_size`. A row's
+ * absolute index is `history_size + <tmux offset>`, and a view opened before
+ * `history_size` finished syncing keyed its rows against nearly zero.
  */
 export function shiftScrollbackRows(
   lines: Map<number, CellLine>,
@@ -294,13 +245,9 @@ export function shiftScrollbackRows(
 }
 
 /**
- * The first span of rows in `0..totalLines-1` that no loaded range covers, or
- * null when every row is loaded.
- *
- * Lazy loading leaves holes on purpose — chunks are fetched around the viewport
- * — but a selection over the whole scrollback has to be backed by rows
- * everywhere, or the copy comes back with the middle missing. Select-all uses
- * this to keep asking until there are no holes left.
+ * The first span of rows in `0..totalLines-1` no loaded range covers, or null.
+ * Select-all keeps asking until there is none: a selection over the whole
+ * scrollback has to be backed by rows everywhere, or the copy loses its middle.
  */
 export function firstUnloadedGap(
   loadedRanges: Array<[number, number]>,
@@ -317,10 +264,7 @@ export function firstUnloadedGap(
   return row <= totalLines - 1 ? [row, totalLines - 1] : null;
 }
 
-/**
- * Check if we need to load more content based on scroll position.
- * Returns the tmux start/end offsets to fetch, or null if no fetch needed.
- */
+/** The tmux start/end offsets of the chunk to fetch next, or null. */
 export function getNeededChunk(
   scrollTop: number,
   height: number,
@@ -333,8 +277,7 @@ export function getNeededChunk(
   const viewStart = scrollTop;
   const viewEnd = scrollTop + height - 1;
 
-  // Check if the current viewport is in an unloaded gap (e.g. user dragged
-  // scrollbar to middle). Load a chunk centered on the viewport.
+  // A viewport in an unloaded gap (the scrollbar dragged to the middle).
   if (!isViewportLoaded(loadedRanges, viewStart, viewEnd)) {
     const center = Math.floor((viewStart + viewEnd) / 2);
     const halfChunk = Math.floor(chunkSize / 2);
@@ -346,21 +289,17 @@ export function getNeededChunk(
     };
   }
 
-  // Check if we're near the top of loaded content
   if (loadedRanges.length > 0) {
     const firstLoaded = loadedRanges[0][0];
     if (scrollTop < firstLoaded + THRESHOLD && firstLoaded > 0) {
-      // Need to load above
       const newStart = Math.max(0, firstLoaded - chunkSize);
       const newEnd = firstLoaded - 1;
-      // Convert back to tmux offsets
       return {
         start: newStart - historySize,
         end: newEnd - historySize,
       };
     }
 
-    // Check if we're near the bottom of loaded content
     const lastLoaded = loadedRanges[loadedRanges.length - 1][1];
     if (scrollTop + height > lastLoaded - THRESHOLD && lastLoaded < totalLines - 1) {
       const newStart = lastLoaded + 1;
@@ -375,19 +314,17 @@ export function getNeededChunk(
   return null;
 }
 
-/** Check if the entire viewport range [viewStart, viewEnd] is covered by loaded ranges */
 function isViewportLoaded(
   loadedRanges: Array<[number, number]>,
   viewStart: number,
   viewEnd: number,
 ): boolean {
   if (loadedRanges.length === 0) return false;
-  // Walk through sorted ranges and check full coverage
   let cursor = viewStart;
   for (const [start, end] of loadedRanges) {
-    if (start > cursor) return false; // gap before this range
-    if (end >= viewEnd) return true; // this range covers the rest
-    if (end >= cursor) cursor = end + 1; // advance past this range
+    if (start > cursor) return false;
+    if (end >= viewEnd) return true;
+    if (end >= cursor) cursor = end + 1;
   }
   return cursor > viewEnd;
 }

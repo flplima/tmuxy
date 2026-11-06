@@ -1,15 +1,11 @@
-/**
- * Helper functions for drag operations
- */
-
 import type { TmuxPane } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
 import { paneInsetX } from '../../domain/paneGeometry';
 
 /**
- * Find swap target pane using mouse position (in pixels relative to pane container)
- * Bounds match PaneLayout.tsx getPaneStyle: top includes header row (y-1),
- * height is (height+1) charHeights (content + header).
+ * The pane under the pointer (px, container-relative), in the bounds
+ * PaneLayout.tsx's getPaneStyle draws: a pane below the top edge includes its
+ * header row above it.
  */
 export function findSwapTarget(
   panes: TmuxPane[],
@@ -26,7 +22,6 @@ export function findSwapTarget(
   for (const pane of panes) {
     if (pane.tmuxId === draggedId) continue;
 
-    // Calculate pixel bounds matching PaneLayout.tsx getPaneStyle
     const headerY = Math.max(0, pane.y - 1);
     const left = centerOffsetX + pane.x * charWidth - insetX;
     const top = centerOffsetY + headerY * charHeight;

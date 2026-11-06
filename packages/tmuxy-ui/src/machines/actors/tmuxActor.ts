@@ -68,13 +68,10 @@ export interface TmuxActorInput {
 }
 
 /**
- * Create the tmux actor over the app runtime's transport.
- *
- * Subscribes to the transport's event stream before connecting, forwards
- * each event to the parent, and runs the parent's requests as Effects. A
- * failure carries the AdapterError ADT: the actor branches on the tag (a
- * read-only refusal becomes a notice) and tunnels the rest back to the
- * parent as { type: 'TMUX_ERROR', error: <display string> }.
+ * The tmux actor over the app runtime's transport: forwards the transport's
+ * events to the parent and runs the parent's requests as Effects. A failed
+ * request reaches the parent as TMUX_ERROR with the AdapterError's display
+ * string, unless it is `silentFail`.
  */
 export function createTmuxActor(runtime: AppRuntime) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
@@ -139,15 +136,10 @@ export function createTmuxActor(runtime: AppRuntime) {
     };
 
     /**
-     * In-flight scrollback fetches keyed by paneId. Fast-scroll sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
-     * cancellation, the responses race and stale results overwrite fresh
-     * ones (or just waste bandwidth). Interrupting the previous fiber
-     * before forking a new one keeps only the latest scroll position's
-     * fetch alive — its result is the only one that reaches the parent.
-     *
-     * Promise cancellation isn't real (fetch in flight still completes),
-     * but Fiber.interrupt stops the Effect from emitting onSuccess, so
-     * the parent never sees the stale chunk.
+     * The in-flight scrollback fetch of each pane. A new fetch interrupts the
+     * last one, so answers racing in out of order never put a stale chunk
+     * over a fresher one: the request itself still completes, but its
+     * interrupted fiber reports nothing to the parent.
      */
     const scrollbackFibers = new Map<PaneId, Fiber.RuntimeFiber<unknown>>();
 
@@ -262,8 +254,6 @@ export function createTmuxActor(runtime: AppRuntime) {
           },
         );
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
-        // Interrupt any in-flight fetch for this pane so its eventual
-        // success doesn't fire onSuccess and clobber fresher data.
         const existing = scrollbackFibers.get(event.paneId);
         if (existing) runtime.runFork(Fiber.interrupt(existing));
 
@@ -287,12 +277,9 @@ export function createTmuxActor(runtime: AppRuntime) {
               });
             }),
           ),
-          // Clear the slot whether we succeed, fail, or get interrupted.
           Effect.ensuring(
             Effect.sync(() => {
-              // Only clear if this fiber is still the registered one — a
-              // newer FETCH might have already replaced it before this
-              // finalizer ran.
+              // A newer fetch may already have replaced this fiber.
               if (scrollbackFibers.get(event.paneId) === fiber) {
                 scrollbackFibers.delete(event.paneId);
               }

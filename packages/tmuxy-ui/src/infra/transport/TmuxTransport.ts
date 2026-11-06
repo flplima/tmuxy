@@ -65,7 +65,6 @@ export interface TmuxTransportService {
   readonly run: (op: TmuxOp) => Effect.Effect<void, AdapterError>;
   /** The session's state at `viewport`, which is also the size this client reports. */
   readonly fetchState: (viewport: Viewport) => Effect.Effect<ServerState, AdapterError>;
-  /** Tell the backend the grid this client shows. */
   readonly setClientSize: (viewport: Viewport) => Effect.Effect<void, AdapterError>;
   /** Read from tmux: what the command printed. A TransportError where nothing answers (recorded fixtures). */
   readonly query: (command: string) => Effect.Effect<string, AdapterError>;
@@ -102,7 +101,6 @@ export class TmuxTransport extends Context.Tag('tmuxy/TmuxTransport')<
   TmuxTransportService
 >() {}
 
-/** A PubSub for the service's events, shut down with the scope. */
 export const openEventPubSub = Effect.acquireRelease(
   PubSub.unbounded<TransportEvent>(),
   PubSub.shutdown,
@@ -127,7 +125,6 @@ function followHostTrace(driver: TransportDriver<DriverEvent>, enabled: boolean)
   );
 }
 
-/** Forward a driver's hub into `offer` until the scope closes. */
 export const forwardDriverEvents = <E extends DriverEvent>(
   driver: TransportDriver<E>,
   offer: (event: E) => void,
@@ -171,7 +168,6 @@ export function serviceOver(
     });
   const unsupported = (what: string, context: string) =>
     Effect.fail(new TransportError({ cause: `${what} not supported by this adapter`, context }));
-  /** `cmd` on the lane, behind every op before it; its answer decoded. */
   const sendDecoded = <K extends CommandName>(
     cmd: K,
     args: CommandArgs<K>,

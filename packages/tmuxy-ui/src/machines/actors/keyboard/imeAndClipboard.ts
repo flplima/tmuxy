@@ -1,13 +1,9 @@
 /**
- * IME composition, clipboard paste/copy, copy-on-select, and hidden-input
- * focus restoration listeners for keyboardActor.
- *
  * Copy on select, as the Claude Code TUI does it: the mouse release that
  * ends a selection over terminal text puts that text on the clipboard at
  * once and says in the snackbar how many characters went — the notice is the
- * sign, the selection does not blink. The
- * selection stays on screen; the next key clears it (keyboardActor) and is
- * processed as typed. A release that leaves the same text selected — a click
+ * sign, the selection does not blink. The selection stays on screen; the next
+ * key clears it (keyboardActor) and is processed as typed. A release that leaves the same text selected — a click
  * inside it, a drag that ends where it began — copies nothing twice.
  */
 

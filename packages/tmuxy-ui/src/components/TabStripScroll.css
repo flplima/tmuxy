@@ -1,7 +1,3 @@
-/* The ‹ › pair that pages an overflowing tab strip. Sized and coloured like
-   the "+" beside them — they are the same kind of quiet header control — and
-   the one at its end is dimmed rather than removed, so reaching an edge does
-   not shuffle the buttons next to it. */
 .tab-scroll {
   display: flex;
   align-items: center;

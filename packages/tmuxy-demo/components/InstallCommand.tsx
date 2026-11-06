@@ -25,8 +25,6 @@ function detectOs(): Os {
   return /mac|iphone|ipad/i.test(platform) ? 'mac' : 'linux';
 }
 
-/** A copy icon that puts an OS's install command on the clipboard, and shows
- *  a check for a moment once it is there. */
 export function CopyButton({ os }: { os: Os }) {
   const [copied, setCopied] = useState(false);
 

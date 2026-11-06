@@ -1,8 +1,3 @@
-/**
- * Key formatting, key-table classification, and text-vs-chord detection for
- * keyboardActor.
- */
-
 import { getMobileInput } from '../../../infra/dom/mobileKeyboard';
 import { isPlaceholderId, type PaneId } from '../../../domain/ids';
 

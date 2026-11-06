@@ -27,7 +27,6 @@ export const TauriTransportLive = Layer.scoped(
 export const GuestTransportLive = (guest: GuestTmuxAdapter) =>
   Layer.scoped(TmuxTransport, makeTransport(guest));
 
-/** The desktop app's IPC, the web server otherwise. */
 export function transportForEnvironment(): Layer.Layer<TmuxTransport> {
   return isTauri() ? TauriTransportLive : HttpTransportLive;
 }

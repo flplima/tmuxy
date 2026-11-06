@@ -1,31 +1,18 @@
 /**
- * Glyph fit — symbols that are one column to tmux but wider than one cell in
- * the font.
+ * Symbols that are one column to tmux but wider than one cell in the font.
  *
- * tmux sizes a cell by wcwidth, the font by its own metrics, and for most
- * symbols the two agree closely enough that the cell box hides the difference.
- * Some do not: `⎿` (U+23BF, the elbow Claude Code draws before tool output)
- * is 1 column to wcwidth but ~1.6 cells in FiraCode Nerd Font, and a Nerd
- * Font icon in the private-use area can be nearly 2. A run that starts with
- * such a glyph is laid out ~0.6 cell too long: its box stays pinned to the
- * cell count, but the text inside paints past it and over whatever run comes
- * next — text drawn on top of text.
+ * tmux sizes a cell by wcwidth, the font by its own metrics. `⎿` (U+23BF, the
+ * elbow Claude Code draws before tool output) is 1 column to wcwidth but ~1.6
+ * cells in FiraCode Nerd Font, and a Nerd Font icon in the private-use area
+ * can be nearly 2, so the text paints past its box and over the next run.
  *
- * A glyph can be fat in two different ways, and both have to be measured.
- * Its ADVANCE — how far the cursor moves — is what pushes the rest of the run
- * along, and `⎿` advances ~1.6 cells. Its INK — what is actually painted — can
- * overflow a perfectly ordinary advance: the Nerd Font icons mostly advance
- * exactly one cell and then paint a third of a cell past it, so nothing shifts
- * and the glyph still lands on top of its neighbour. The bigger of the two
- * ratios is what has to fit.
- *
- * Both are measured once, from a probe laid out with the real terminal styles,
- * and cached by cell string. A glyph that measures fat gets its own 1-cell box
- * and a `scale()` that shrinks it into the cell (see `.terminal-fit`), so the
- * rest of the line stays on the grid — which is what a terminal emulator does
- * with an icon too big for its cell. Ratios are size-independent, so a
- * font-size change needs no re-measurement; a font swap (the webfont finishing
- * its load) does, and clears the cache.
+ * A glyph can be fat two ways. Its ADVANCE pushes the rest of the run along
+ * (`⎿` advances ~1.6 cells). Its INK can overflow an ordinary advance: Nerd
+ * Font icons mostly advance one cell and paint a third of a cell past it. The
+ * bigger ratio is what has to fit; such a glyph gets its own 1-cell box and a
+ * `scale()` into it (`.terminal-fit`), as a terminal emulator does with an
+ * icon too big for its cell. Ratios are size-independent, so only a font swap
+ * (the webfont finishing its load) clears the cache.
  */
 
 import { TERMINAL_CONTENT } from '../../infra/dom/terminalDom';
@@ -33,24 +20,16 @@ import { TERMINAL_CONTENT } from '../../infra/dom/terminalDom';
 /** Above this many cells a one-column glyph is shrunk into its cell. */
 const FAT_THRESHOLD = 1.15;
 
-/** Cell string → how many cells it needs, the larger of advance and ink. */
 const ratios = new Map<string, number>();
 
 /**
- * Glyphs that were measured and could not be answered for — no layout, or ink
- * the canvas cannot speak for yet. They are not asked about again until the
- * fonts change: every ask is a forced layout, there is one per cell per render,
- * and nothing about the answer moves until a font does.
+ * Glyphs with no answer yet (no layout, or ink the canvas cannot measure yet),
+ * not asked about again until the fonts change: every ask forces a layout,
+ * once per cell per render.
  */
 const unanswered = new Set<string>();
 
-/**
- * Measurements are cached, so a caller that already drew a line has no reason
- * to ask again — but the answer changes when the fonts do, and a line drawn
- * with a stale one keeps its stale layout until something re-renders it. This
- * is that something: the cache clears and everything measuring against it is
- * told, once.
- */
+/** Bumped when the fonts change, so a line drawn with a stale answer re-renders. */
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -98,7 +77,6 @@ export function needsMeasure(s: string): boolean {
   return cp !== undefined && cp > 0x7f;
 }
 
-/** The font shorthand an element paints with, for a canvas probe. */
 function fontOf(el: HTMLElement): string {
   const style = getComputedStyle(el);
   return (
@@ -106,19 +84,15 @@ function fontOf(el: HTMLElement): string {
   );
 }
 
-/** One canvas for every measurement — creating one per glyph is not free. */
 let inkCanvas: CanvasRenderingContext2D | null | undefined;
 
 /**
- * How wide the glyph is PAINTED, which is not how far it advances. Null when
- * there is nothing trustworthy to measure with.
+ * How wide the glyph is PAINTED, or null when nothing can be trusted.
  *
- * A canvas draws with the fonts the document has ALREADY loaded and never
- * fetches one itself, so it can be a step behind the page: at first paint the
- * terminal is laid out in the webfont while a canvas asked the same question
- * still answers from the fallback. That answer is not merely imprecise, it is
- * about a different typeface — so it is refused rather than cached, and the
- * question is asked again on a later render.
+ * A canvas draws only with fonts the document has ALREADY loaded and never
+ * fetches one itself: at first paint it can answer from the fallback while the
+ * terminal is laid out in the webfont. That answer is about another typeface,
+ * so it is refused rather than cached.
  */
 function measureInk(s: string, font: string): number | null {
   if (typeof document.fonts?.check === 'function' && !document.fonts.check(font, s)) return null;
@@ -156,24 +130,19 @@ function measureRatio(s: string, host: HTMLElement): number | null {
   const advanceRatio = advance / cell;
   const ink = measureInk(s, font);
   if (ink !== null) return Math.max(advanceRatio, ink / cell);
-  // The ink is unknown for now. An advance that is already fat is answer
-  // enough — it came from the DOM, in the font the terminal is really using —
-  // but a glyph that merely advances one cell might still paint past it, and
-  // saying "it fits" would cache exactly the wrong answer. A canvas never
-  // fetches a face itself, so ask for the one this glyph needs: when it lands,
-  // `loadingdone` clears the cache and everything drawing is told to come back.
+  // Ink unknown: a fat advance (from the DOM, in the real font) is answer
+  // enough, but a one-cell advance may still paint past it, so it is not
+  // cached as fitting. A canvas never fetches a face itself, so ask for it;
+  // its `loadingdone` clears the cache.
   requestFace(font, s);
   return advanceRatio > FAT_THRESHOLD ? advanceRatio : null;
 }
 
 /**
- * Ask the document to load whatever face covers `s`. Deliberately not a wait
- * on `document.fonts.ready`: once the fonts have settled that promise is
- * already resolved, so clearing the cache on it re-rendered every terminal,
- * which measured the same glyph, got the same non-answer and asked again —
- * forever, with the page never idle. A load that brings a face in fires
- * `loadingdone`; one that has nothing to bring fires nothing, and the glyph
- * stays unanswered until some other font change.
+ * Ask the document to load whatever face covers `s`. Not `document.fonts.ready`:
+ * once the fonts have settled that promise is already resolved, and clearing
+ * the cache on it re-rendered and re-asked forever. A load that brings a face
+ * in fires `loadingdone`; one with nothing to bring fires nothing.
  */
 function requestFace(font: string, s: string): void {
   if (typeof document.fonts?.load !== 'function') return;

@@ -24,16 +24,14 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * The right pane holds a group of two; click the left pane, then the tab of
- * the member the group shows. The focus goes there and stays: a line typed
- * after the first one's output — the output is what brings tmux's next
- * state — still lands in the group, never in the left pane.
+ * Clicking the left pane, then the tab of the member a group shows: the focus
+ * goes there and stays, so a line typed after the first one's output (which
+ * brings tmux's next state) still lands in the group.
  */
 export const ClickingTheShownMembersTabTakesTheFocus: Story = {
   args: {
-    // `group add` groups the pane it is typed in: the right one, `%1`. (It
-    // used to group the ACTIVE pane whatever pane typed it, which is the bug
-    // ee39ce0b fixed; a line typed in `%0` would now group `%0`.)
+    // `group add` groups the pane it is typed in (fixed in ee39ce0b; it used
+    // to group the active pane).
     initCommands: [
       'send-keys -t %1 -l "tmuxy pane group add && tmux set -g @tmuxy-story-ready 1"',
       'send-keys -t %1 Enter',

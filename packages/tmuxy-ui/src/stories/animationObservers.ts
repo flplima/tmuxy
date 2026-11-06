@@ -1,24 +1,7 @@
 /**
- * DOM observation helpers for the animation integration stories.
- *
- * The animation stories assert that the *mutations and CSS animations that
- * drive each transition* actually fire in the browser — not merely that the
- * post-animation end state is reached. Two complementary mechanisms:
- *
- *  - LayoutMutationRecorder — a MutationObserver over `.pane-layout` that
- *    records pane nodes being inserted / removed (split, close, optimistic
- *    rollback) and pane geometry (the inline `style` rewrite) being changed
- *    (resize, re-layout). These are the exact DOM changes the CSS layout
- *    transition animates between.
- *  - observeChildList — a MutationObserver used for float overlays portaled
- *    into `document.body`, capturing the overlay being added (open) and
- *    removed (close).
- *  - waitForCssAnimation — resolves when a real `animationstart` event fires
- *    for a matching element, proving the keyframe (float-appear / slide-in-*)
- *    was exercised, not just that the node mounted.
- *
- * Pure DOM only — no Storybook / testing-library imports — so it can be used
- * from any play function without coupling to a test runner.
+ * For the animation stories, which assert that the mutations and CSS
+ * animations driving each transition fire in the browser, not merely that the
+ * end state is reached.
  */
 
 export const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -28,18 +11,11 @@ function paneIdOf(node: Node): string | null {
   return node.getAttribute('data-pane-id');
 }
 
-/**
- * Watches a `.pane-layout` subtree and accumulates the layout mutations that
- * the pane-layout CSS transition animates: pane insert/remove and inline
- * geometry (`style`) rewrites, plus class changes on the layout root (used to
- * detect the `pane-layout-no-animations` toggle).
- */
+/** The mutations the pane-layout CSS transition animates between. */
 export class LayoutMutationRecorder {
   readonly addedPaneIds = new Set<string>();
   readonly removedPaneIds = new Set<string>();
-  /** Count of inline-`style` rewrites on `.pane-layout-item` elements. */
   geometryRewrites = 0;
-  /** `className` snapshots captured each time the layout root's class changes. */
   readonly rootClassChanges: string[] = [];
 
   private readonly observer: MutationObserver;
@@ -87,11 +63,6 @@ export interface ChildListRecorder {
   disconnect(): void;
 }
 
-/**
- * Records direct-child elements matching `selector` being added to / removed
- * from `root`. Used to watch a float's overlay (`.modal-overlay`) coming and
- * going inside the pane container.
- */
 export function observeChildList(root: HTMLElement, selector: string): ChildListRecorder {
   const added: Element[] = [];
   const removed: Element[] = [];
@@ -109,12 +80,7 @@ export function observeChildList(root: HTMLElement, selector: string): ChildList
   return { added, removed, disconnect: () => observer.disconnect() };
 }
 
-/**
- * Resolves with the first `animationstart` whose target matches `selector`
- * (and, if given, whose `animationName` matches). Rejects on timeout. The
- * listener is registered in the capture phase so it sees the event even
- * though `animationstart` is dispatched at the animating element.
- */
+/** A real `animationstart` proves the keyframe ran, not just that the node mounted. */
 export function waitForCssAnimation(
   selector: string,
   opts: { animationName?: string; timeout?: number } = {},

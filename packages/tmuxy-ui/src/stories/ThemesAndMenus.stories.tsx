@@ -34,7 +34,6 @@ type ThemeApp = {
 };
 const app = () => (window as unknown as { app: ThemeApp }).app;
 
-/** The theme list is fetched on connect: the picker has entries to show. */
 async function waitForThemeList() {
   await waitFor(
     () => expect(app().getSnapshot().context.availableThemes.length).toBeGreaterThan(0),
@@ -52,10 +51,8 @@ function restoreDefaultTheme() {
 }
 
 /**
- * Theme picker via the menu — entirely by mouse: hamburger → View → Theme →
- * Dracula, then Light Mode. The stylesheet link switches to dracula.css, the
- * document root's mode class flips, and a theme variable the whole UI is
- * painted from takes a different value.
+ * Hamburger → View → Theme → Dracula, then Light Mode, by mouse: the
+ * stylesheet link, the root's mode class and a theme variable all change.
  */
 export const ThemePickerViaMenu: Story = {
   play: async ({ canvasElement }) => {
@@ -82,7 +79,6 @@ export const ThemePickerViaMenu: Story = {
         timeout: 10000,
         interval: 200,
       });
-      // The dark sheet has landed once its variables are read.
       await waitFor(() => expect(bg()).not.toBe(''), { timeout: 10000, interval: 200 });
       const darkBg = bg();
 
@@ -103,11 +99,7 @@ export const ThemePickerViaMenu: Story = {
   },
 };
 
-/**
- * Menu-driven pane ops: hamburger → Pane → "Split Pane Below" — a mouse-only
- * split through menuActions → run_tmux_command, answered with the pane tmux
- * split below.
- */
+/** Hamburger → Pane → "Split Pane Below", answered with the pane tmux split below. */
 export const MenuPaneOps: Story = {
   args: { transitions: [{ match: /^split-window -v$/, to: 'three' }] },
   play: async ({ canvasElement }) => {
@@ -128,16 +120,14 @@ export const MenuPaneOps: Story = {
   },
 };
 
-/** The adapter of the story on screen, to read what the app sent. */
 let adapter: FixtureAdapter | null = null;
 function keepAdapter(a: FixtureAdapter) {
   adapter = a;
 }
 
 /**
- * Status bar gestures are a browser no-op (drag/maximize are Tauri-only):
- * pressing and double-clicking the empty status bar sends tmux nothing and
- * leaves the layout as it was.
+ * Status bar drag and maximize are Tauri-only: in a browser, pressing and
+ * double-clicking the empty status bar sends tmux nothing.
  */
 export const StatusBarNoOpGestures: Story = {
   render: (args) => <FixtureApp {...args} onAdapterReady={keepAdapter} />,
@@ -159,9 +149,8 @@ export const StatusBarNoOpGestures: Story = {
 };
 
 /**
- * Theme switch is one clean swap: flipping the theme via the app menu
- * rewrites one stylesheet href — the pane grid sees NO node flicker, at most
- * a bounded class churn, and zero geometry movement.
+ * A theme switch rewrites one stylesheet href: no node flicker in the pane
+ * grid, bounded class churn, no geometry movement.
  */
 export const ThemeSwitchChurn: Story = {
   play: async ({ canvasElement }) => {

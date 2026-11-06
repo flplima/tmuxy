@@ -39,12 +39,8 @@ export function AppProvider({
   transport?: Layer.Layer<TmuxTransport>;
   config?: AppConfig;
 }) {
-  // Create the runtime, store, and actors once, from the props of the first
-  // render: a provider never swaps its backend underneath a running machine.
-  // The runtime is built from the transport Layer and every actor runs its
-  // effects on it. The TmuxStore is the client model — owns optimistic patches
-  // and reconciliation; the tmuxStoreActor bridges it into XState so the
-  // appMachine context stays a passive mirror of the store's derived snapshot.
+  // Built once, from the props of the first render: a provider never swaps its
+  // backend underneath a running machine.
   const [{ runtime, store, actors }] = useState(() => {
     const runtime = makeAppRuntime(transport ?? transportForEnvironment());
     const store = makeTmuxStore();

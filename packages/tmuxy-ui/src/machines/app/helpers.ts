@@ -1,7 +1,3 @@
-/**
- * Helper functions for the app machine
- */
-
 import { raise } from 'xstate';
 import { groupMembers, type PaneGroup, type TmuxPane, type TmuxWindow } from '../../domain/client';
 import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
@@ -93,10 +89,8 @@ export function fittedGridCell(
 
 export const STATUS_MESSAGE_DURATION = 5000;
 
-// Shared id for the delayed CLEAR_STATUS_MESSAGE raise. Re-scheduling with the
-// same id (after cancel) means a newer status message restarts the window
-// instead of the previous message's timer clearing it early — the actor owns
-// the timer, so it is cancelled automatically when the machine stops.
+// The delayed CLEAR_STATUS_MESSAGE raise's id: a newer message cancels and
+// re-schedules it, so the previous message's timer never clears it early.
 export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
 
 /**
@@ -159,8 +153,6 @@ export function scrollViewsIn(
 }
 
 /**
- * Build pane groups from panes.
- *
  * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —
  * the visible member (a real pane in the active session) and each hidden member
  * (a stub emitted from the stash session) all carry the same id. A group is any
@@ -181,11 +173,9 @@ export function buildGroupsFromPanes(panes: TmuxPane[]): Record<GroupId, PaneGro
 }
 
 /**
- * Build float pane states from float-typed windows.
- * Float metadata (drawer, backdrop, no-header) is sourced from @tmuxy-float-*
- * options on the window; each float window contains exactly one pane.
+ * Float metadata (drawer, backdrop, no-header) comes from the window's
+ * `@tmuxy-float-*` options; each float window holds exactly one pane.
  */
-
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
@@ -200,7 +190,6 @@ export function buildFloatPanesFromWindows(
   for (const window of windows) {
     if (window.windowType !== 'float') continue;
 
-    // A float window contains exactly one pane.
     const pane = panes.find((p) => p.windowId === window.id);
     if (!pane) continue;
     const paneId = pane.tmuxId;

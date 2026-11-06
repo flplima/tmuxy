@@ -1,12 +1,7 @@
 /**
- * The in-app renderer for a menu spec (`domain/menus/spec.ts`): the floating
- * menu every surface draws on the web, in the demo and under Storybook, and
- * the fallback on the desktop when a native popup is not to be had.
- *
- * `useMenuDispatch` is the one place an item's action becomes something
- * happening: an op goes to the store, a command through `MENU_COMMANDS`, an
- * event to the machine, and a `local` verb back to the surface that owns the
- * menu.
+ * The in-app renderer for a menu spec (`domain/menus/spec.ts`): what every
+ * menu draws on the web, in the demo and under Storybook, and the desktop's
+ * fallback when a native popup is refused.
  */
 
 import { useCallback } from 'react';
@@ -63,13 +58,11 @@ export function useMenuDispatch(options: MenuDispatchOptions = {}): AppMenuDispa
   );
 }
 
-/** A spec item's `data` as the `data-*` attributes its element carries. */
 export function dataAttributes(data?: Record<string, string>): Record<string, string> {
   if (!data) return {};
   return Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]));
 }
 
-/** The spec as floating-menu elements. */
 export function renderSpec(spec: AppMenuSpec, dispatch: AppMenuDispatch): React.ReactNode[] {
   return spec.map((node, index) => renderNode(node, index, dispatch));
 }

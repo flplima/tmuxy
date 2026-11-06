@@ -1,7 +1,3 @@
-/**
- * PaneTab - Individual tab inside a PaneHeader tablist.
- */
-
 import { memo, type ReactNode } from 'react';
 import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
@@ -12,24 +8,20 @@ import type { TmuxPane } from '../domain/client';
 
 interface PaneTabInteraction {
   isSelectedTab: boolean;
-  /** This pane's title is being edited in place. */
   renaming: boolean;
-  /** The new title, or null if the edit was abandoned. */
+  /** null when the edit was abandoned. */
   onRenameEnd: (name: string | null) => void;
 
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   /**
-   * The member's own ⋮ and ✕, drawn at the right of ITS share of the header.
-   * A group's header is divided between its members, so a single pair of
-   * buttons at the far right would have belonged to whichever member happened
-   * to be showing — and there is no way to tell that by looking. Null for an
-   * ungrouped pane, whose buttons stay at the header's own right edge.
+   * The member's own ⋮ and ✕, in its share of a group's header: one pair at
+   * the far right would belong to whichever member happened to be showing.
+   * Null for an ungrouped pane.
    */
   controls: ReactNode;
   /** Where a pane being dragged over this header would land, against this tab. */
   dropMark: 'onto' | 'before' | 'after' | null;
-  /** This member is the pane being dragged. */
   dragging: boolean;
 }
 
@@ -46,7 +38,6 @@ type PaneTabProps = {
 export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
   const { pane, isActivePane, titleOverride } = props;
   const text = getTabLabel(pane, titleOverride);
-  // What the pane is doing takes the icon's place while it is anything but idle.
   const state = paneStateFor(pane);
 
   const face =
@@ -85,7 +76,7 @@ export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
       onClick={onClick}
       onContextMenu={onContextMenu}
       role="tab"
-      // The strip's one tab stop is the tab it shows.
+      // Roving tabindex: the strip's one tab stop is the tab it shows.
       tabIndex={isSelectedTab ? 0 : -1}
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}

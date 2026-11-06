@@ -42,7 +42,6 @@ export const MarkdownWithMermaid: Story = {
   play: async () => {
     const user = userEvent.setup();
 
-    // The document is drawn in the pane, in the theme's colours.
     await waitFor(
       () => {
         const heading = pane('%0')?.querySelector('.preview-markdown h1') ?? null;
@@ -54,10 +53,8 @@ export const MarkdownWithMermaid: Story = {
     const heading = pane('%0')!.querySelector('.preview-markdown h1')!;
     const primary = getComputedStyle(document.documentElement).getPropertyValue('--text-primary');
     expect(channels(getComputedStyle(heading).color)).toEqual(channels(primary));
-    // The pane is named after the file.
     expect(pane('%0')!.querySelector('.pane-header')?.textContent).toContain('notes.md');
 
-    // The mermaid fence is a diagram, with its labels.
     await waitFor(
       () => {
         const svg = pane('%0')!.querySelector('.preview-mermaid svg');

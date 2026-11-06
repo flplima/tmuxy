@@ -1,6 +1,6 @@
 import type { CursorMode } from './Cursor';
 
-/** Convert DECSCUSR value (0-6) to CursorMode and blink */
+/** DECSCUSR (0-6). */
 export function cursorShapeToMode(shape: number): { mode: CursorMode; blink: boolean } {
   switch (shape) {
     case 3:
@@ -15,7 +15,7 @@ export function cursorShapeToMode(shape: number): { mode: CursorMode; blink: boo
       return { mode: 'block', blink: true };
     case 2:
       return { mode: 'block', blink: false };
-    default: // 0 = default (blinking block)
+    default: // 0: the terminal's default, a blinking block
       return { mode: 'block', blink: true };
   }
 }

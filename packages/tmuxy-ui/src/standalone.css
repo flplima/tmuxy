@@ -1,5 +1,4 @@
-/* Standalone-only styles — imported by main.tsx, NOT by library consumers.
-   These set body/root for when tmuxy-ui is the full-page app. */
+/* The full-page app's body and root: main.tsx imports it, library consumers do not. */
 
 /* The page root is opaque so nothing behind the browser shows; the desktop
    app (html[data-desktop], set in main.tsx) makes it transparent so the OS

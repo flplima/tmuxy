@@ -1,14 +1,7 @@
 /**
- * Test harness for isolating a single state slice.
- *
- * Mounts a minimal machine that contains just the state's on: handlers and
- * its action/guard implementations, with the full AppMachineContext + Event
- * types so type-narrowing inside handlers still works.
- *
- * Usage:
- *   const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
- *   actor.send({ type: 'SET_THEME', name: 'dracula' });
- *   expect(actor.getSnapshot().context.themeName).toBe('dracula');
+ * Mounts one state slice — its `on` handlers and their actions — in a minimal
+ * machine typed with the full AppMachineContext and events, with no-op actors
+ * under the ids the slices send to.
  */
 
 import {
@@ -27,13 +20,6 @@ import type { AllAppMachineEvents } from '../../../types/events';
 // when declared inside test files. Tests requiring stubbed side-effect
 // modules should declare their own vi.mock at the top of the .test.ts file.
 
-/**
- * No-op stub actor — swallows any event sent to 'tmux', 'keyboard', 'size'
- * so handlers that use sendTo('tmux', ...) don't crash the test machine.
- *
- * Tests that need to assert on actor sends can replace these via the
- * `extraActors` option below.
- */
 const stubActor = fromCallback<{ type: string }>(() => () => {});
 
 export interface MountOptions {
@@ -89,9 +75,6 @@ export function mountState<TActions extends Record<string, unknown>>(
   return createActor(machine).start() as Actor<AnyStateMachine>;
 }
 
-/**
- * Send an event and return the resulting context for a fluent assert style.
- */
 export function sendAndGetContext(
   actor: Actor<AnyStateMachine>,
   event: AnyEventObject,

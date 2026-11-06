@@ -1,8 +1,3 @@
-/**
- * Action implementations for the sidebars state slice: the two columns,
- * written once for either side.
- */
-
 import { assign, sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
@@ -116,9 +111,6 @@ export const sidebarsActions = {
     enqueue(assign({ dockSizeSent: { windowId: dock.id, ...size } }));
   }),
 
-  /**
-   * Collapse or expand one tab in the sidebar tree.
-   */
   sidebars_toggleTabCollapse: act(({ context, event, enqueue }) => {
     if (event.type !== 'TOGGLE_TAB_COLLAPSE') return;
     const { windowId } = event;
@@ -176,9 +168,9 @@ export const sidebarsActions = {
 
   /**
    * Break the column's pane out (`OpenSidebar`) unless it exists or a start is
-   * already on its way: one window per column. A toggle that landed while the
-   * first open's window was still being made used to ask for a second, and
-   * every extra one lived on in tmux, hidden, for good.
+   * already on its way: one window per column. Every extra window a toggle
+   * asked for while the first was still being made would live on in tmux,
+   * hidden, for good.
    */
   sidebars_start: act(({ context, event, enqueue }) => {
     if (event.type !== 'START_SIDEBAR') return;
@@ -245,7 +237,7 @@ export const sidebarsActions = {
    * its toggle. Nothing is re-tiled and nothing is unhidden: the column's
    * window keeps `@tmuxy-sidebar-hidden`, so no other client sees it open.
    * A column whose pane was never made is started here, and arrives hidden
-   * (sidebars_reconcile: a start this client no longer has open).
+   * (reconcileSidebar: a start this client no longer has open).
    */
   sidebars_peekSidebar: act(({ context, event, enqueue }) => {
     if (event.type !== 'PEEK_SIDEBAR') return;

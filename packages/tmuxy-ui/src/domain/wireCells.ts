@@ -18,7 +18,6 @@ export type CellColor = Schema.Schema.Type<typeof CellColor>;
 export const CellSize = Schema.Literal('dwl', 'dhl-top', 'dhl-bottom');
 export type CellSize = Schema.Schema.Type<typeof CellSize>;
 
-/** A cell's style; every attribute optional. */
 export const CellStyle = Schema.mutable(
   Schema.Struct({
     fg: Schema.optional(CellColor),
@@ -31,23 +30,19 @@ export const CellStyle = Schema.mutable(
     inverse: Schema.optional(Schema.Boolean),
     /** OSC 8 hyperlink. */
     url: Schema.optional(Schema.String),
-    /** Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`). */
     size: Schema.optional(CellSize),
   }),
 );
 export type CellStyle = Schema.Schema.Type<typeof CellStyle>;
 
-/** One terminal cell: its character and, when styled, its style. */
 export const TerminalCell = Schema.Struct({
   c: Schema.String,
   s: Schema.optional(CellStyle),
 });
 export type TerminalCell = Schema.Schema.Type<typeof TerminalCell>;
 
-/** One row of cells. */
 export const CellLine = Schema.mutable(Schema.Array(TerminalCell));
 export type CellLine = Schema.Schema.Type<typeof CellLine>;
-/** A pane's visible grid: its rows, top to bottom. */
 export type PaneContent = CellLine[];
 
 /** The cell grid, checked for its outer shape only (see the module note). */
@@ -55,10 +50,9 @@ export const PaneContent = Schema.declare((u: unknown): u is PaneContent => Arra
   identifier: 'PaneContent',
 });
 
-/** Changed rows of a pane, keyed by row index (JSON object keys are strings). */
+/** Keyed by row index (JSON object keys are strings). */
 export type SparseContent = Record<number, CellLine>;
 
-/** A delta's changed rows, checked for its outer shape only. */
 export const SparseContent = Schema.declare(
   (u: unknown): u is SparseContent => typeof u === 'object' && u !== null && !Array.isArray(u),
   { identifier: 'SparseContent' },

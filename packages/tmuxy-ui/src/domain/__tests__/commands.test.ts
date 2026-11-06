@@ -23,7 +23,6 @@ import { pid, wid } from '../../test/wire';
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';
 
 const cases: Array<[TmuxOp, string]> = [
-  // Panes
   [TmuxOp.Split({ direction: 'vertical' }), 'split-window -h'],
   [TmuxOp.Split({ direction: 'horizontal' }), 'split-window -v'],
   [TmuxOp.Navigate({ direction: 'L', script: false }), 'select-pane -L'],
@@ -100,7 +99,6 @@ const cases: Array<[TmuxOp, string]> = [
     'set-option -pu -t %3 @tmuxy-ask',
   ],
 
-  // Windows
   [TmuxOp.NewWindow(), 'new-window'],
   [TmuxOp.SelectWindow({ target: wid('@2') }), 'select-window -t @2'],
   [TmuxOp.SelectWindow({ target: 3 }), 'select-window -t 3'],
@@ -136,7 +134,6 @@ const cases: Array<[TmuxOp, string]> = [
     'set-option -u -w -t @2 @tmuxy-sidebar-hidden',
   ],
 
-  // Pane groups
   [
     TmuxOp.GroupAdd({ pane: null }),
     `run-shell "TMUXY_EFFECT=settle ${S}/pane-group add #{pane_id} #{pane_width} #{pane_height}"`,
@@ -185,7 +182,6 @@ const cases: Array<[TmuxOp, string]> = [
     `run-shell "${S}/pane-group leave %3 --beside @2 right"`,
   ],
 
-  // Chrome windows
   [
     TmuxOp.OpenFloat({
       name: 'connect',
@@ -207,7 +203,6 @@ const cases: Array<[TmuxOp, string]> = [
       'set-option -w -t :__sidebar-right @tmuxy-window-type sidebar-right',
   ],
 
-  // Sessions
   [TmuxOp.NewSession({ name: 'tmuxy_17' }), 'new-session -d -s tmuxy_17'],
   [TmuxOp.KillSession({ name: null }), 'kill-session'],
   [TmuxOp.KillSession({ name: 'my work' }), "kill-session -t 'my work'"],
@@ -216,7 +211,6 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.SourceConfig(), 'source-file $TMUXY_ENTRY_CONF'],
   [TmuxOp.ClearFocusRequest({ session: 'tmuxy' }), 'set-option -u -t tmuxy @tmuxy-focus-request'],
 
-  // Client-side
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],
   [renameSessionPrompt(), 'command-prompt -I "#S" "rename-session -- \\"%%%\\""'],
   [TmuxOp.RawCommand({ command: 'choose-tree' }), 'choose-tree'],

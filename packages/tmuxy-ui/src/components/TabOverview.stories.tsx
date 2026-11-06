@@ -1,9 +1,5 @@
 /**
- * Tab Overview stories, over recordings of real tmux.
- *
- * ctrl+0 zooms the current tab out into a grid of every tab; a slot click
- * zooms that tab back in, the trailing "+" creates a tab and a slot's ✕
- * closes one. Opening, clicking, "+", ✕ and dragging a slot are
+ * Opening, clicking, "+", ✕ and dragging a slot are
  * tests/2-layout-navigation-overview.test.js, end to end; these are the
  * layout of the grid and the motion out of a card.
  */
@@ -63,14 +59,12 @@ const APPEARANCE = {
 
 const cards = (grid: HTMLElement) => [...grid.querySelectorAll<HTMLElement>('.tab-overview-slot')];
 
-/** How many cards share the first card's row. */
 function firstRowCount(grid: HTMLElement): number {
   const all = cards(grid);
   const top = all[0].getBoundingClientRect().top;
   return all.filter((c) => Math.abs(c.getBoundingClientRect().top - top) < 2).length;
 }
 
-/** Whether a card is inside the grid's visible box (not clipped by its scroll). */
 function onScreen(card: HTMLElement, grid: HTMLElement): boolean {
   const c = card.getBoundingClientRect();
   const g = grid.getBoundingClientRect();
@@ -98,11 +92,10 @@ export const ColumnsFromConfigAndScrolling: Story = {
     const overview = (await waitForOverview(true)) as HTMLElement;
     const grid = overview.querySelector('.tab-overview-grid') as HTMLElement;
 
-    // No appearance has been pushed yet, so this is the default.
+    // No appearance has been pushed yet: the default.
     await waitFor(() => expect(firstRowCount(grid)).toBe(3));
 
-    // 13 cards (12 tabs and "+") in rows of three overflow the view,
-    // and the view opened on the current tab, which is the last one.
+    // 13 cards (12 tabs and "+") in rows of three; the current tab is the last.
     expect(getComputedStyle(grid).overflowY).toBe('auto');
     expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight + 100);
     const current = overview.querySelector('.tab-overview-slot.is-active') as HTMLElement;
@@ -114,8 +107,6 @@ export const ColumnsFromConfigAndScrolling: Story = {
     });
     expect(onScreen(first, grid)).toBe(false);
 
-    // The live pane grid is drawn over the current tab's card wherever the
-    // cards have scrolled to.
     const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
     const frame = current.querySelector('.tab-overview-frame') as HTMLElement;
     const followsCard = () =>
@@ -128,7 +119,6 @@ export const ColumnsFromConfigAndScrolling: Story = {
       });
     await followsCard();
 
-    // Walking the cursor up three rows scrolls the grid back to the top.
     await user.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
     await waitFor(() => {
       expect(grid.scrollTop).toBeLessThan(2);
@@ -138,7 +128,6 @@ export const ColumnsFromConfigAndScrolling: Story = {
     expect(onScreen(current, grid)).toBe(false);
     await followsCard();
 
-    // More or fewer cards a row, straight from the config push.
     for (const cols of [5, 2]) {
       actor().send({
         type: 'THEME_SETTINGS_RECEIVED',
@@ -190,7 +179,6 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       expect(Math.abs(l.left - f.left)).toBeLessThan(2);
     });
 
-    // The other tab's card, which is the one being clicked.
     const other = tabs().find((w) => w.id !== current)!;
     const otherCard = overview.querySelector(
       `[data-testid="tab-overview-slot-${other.id}"] .tab-overview-frame`,
@@ -214,10 +202,8 @@ export const OpensOutOfTheSlotYouClicked: Story = {
     await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
     sampling = false;
 
-    // The grow starts at the frame before the width first climbs; that frame
-    // is where it grew OUT of, and it has to be the card that was clicked
-    // rather than the one being left. Both cards are the same size, so only
-    // the position tells them apart.
+    // The frame before the width first climbs is where the grid grew out of.
+    // Both cards are the same size, so only the position tells them apart.
     const growthAt = boxes.findIndex((b) => b.width > otherBox.width + 8);
     expect(growthAt, 'the grid never grew').toBeGreaterThan(0);
     const origin = boxes[growthAt - 1];
@@ -226,7 +212,6 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       `grew from x=${Math.round(origin.left)}, clicked card is at x=${Math.round(otherBox.left)}`,
     ).toBeLessThan(6);
 
-    // ...and it grew rather than jumping: drawn at sizes in between on the way.
     const full = boxes[boxes.length - 1].width;
     expect(full).toBeGreaterThan(otherBox.width * 2);
     const between = boxes.filter((b) => b.width > otherBox.width + 8 && b.width < full - 8);

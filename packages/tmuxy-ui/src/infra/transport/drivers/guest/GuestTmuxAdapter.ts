@@ -252,9 +252,8 @@ export class GuestTmuxAdapter implements TransportDriver {
     const reply = await this.engine.ask(wire);
     // Reject the way the real transports do when tmux refuses a command,
     // so it is typed a TmuxError (with tmux's message), not a generic
-    // TransportError. Whatever part of it ran is converged by a re-list.
+    // TransportError.
     if (reply.error !== null) {
-      this.engine.resync();
       throw {
         error: reply.error || `tmux rejected: ${command}`,
         kind: 'tmux',

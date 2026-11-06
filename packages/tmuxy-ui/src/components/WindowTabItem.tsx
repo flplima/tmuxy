@@ -1,8 +1,3 @@
-/**
- * WindowTabItem — individual tab item and active-tab scroll-into-view hook
- * for WindowTabs.
- */
-
 import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
@@ -19,11 +14,7 @@ import { type PaneStateName } from '../domain/paneState';
 import type { AppMachineEvent } from '../machines/types/events';
 import type { selectTabDrop } from '../machines/selectors/layout';
 
-/**
- * The tab's mark: what its busiest pane is doing — the tree's marks, with a
- * question or a failure ahead of work in progress — and while all of them are
- * idle, the tab's icon (`tabIcon`).
- */
+/** What the tab's busiest pane is doing; while all are idle, the tab's icon. */
 function TabMark({ icon, state }: { icon: string; state: PaneStateName }) {
   if (state !== 'idle') return <PaneStateMark state={state} className="tab-mark" />;
   return (
@@ -72,9 +63,6 @@ export function WindowTabItem({
   const { dragging, dropMarkerAt } = reorder;
   const visualIndex = idx + 1;
   const isDragged = dragging?.windowId === window.id;
-  // The strip shows the order the drop would make while the drag is
-  // on: every tab the dragged one has passed slides out of its way by
-  // the dragged tab's width, so the drop only confirms what is seen.
   const shift = dragging && !isDragged ? siblingShift(dragging, idx) : 0;
   const style = isDragged
     ? { transform: `translateX(${dragging!.dx}px)` }
@@ -130,8 +118,7 @@ export function WindowTabItem({
           );
         })()
       )}
-      {/* What this tab is doing that its name does not say. Both are
-          window state, so a background tab shows them too. */}
+      {/* Window state, so a background tab shows them too. */}
       {window.collapsible && (
         <Tooltip label={withKeyHint('Stacked Panes', commandHint(keybindings, 'tab-stack-toggle'))}>
           <span className="tab-flag" aria-label="Stacked Panes">

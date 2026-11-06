@@ -24,7 +24,6 @@ function toProtocolError(what: string, raw: unknown, error: ParseResult.ParseErr
   return new ProtocolError({ reason: `${what}: ${describeMismatch(error)}`, raw });
 }
 
-/** Decode `raw` against `schema`, naming the payload `what` in the error. */
 export function decodeWire<A, I>(
   schema: Schema.Schema<A, I>,
   what: string,
@@ -33,13 +32,11 @@ export function decodeWire<A, I>(
   return (raw) => Either.mapLeft(decode(raw), (error) => toProtocolError(what, raw, error));
 }
 
-/** One `state-update` payload (full or delta). */
 export const decodeStateUpdate = decodeWire(StateUpdate, 'state-update');
 
 /** A full state (the `get_initial_state` answer, a sandbox engine's snapshot). */
 export const decodeServerState = decodeWire(ServerState, 'server state');
 
-/** Report a payload that failed its decode; the caller then drops or resyncs. */
 export function logProtocolError(error: ProtocolError): void {
   console.error(`[tmuxy] ${error.reason}`, error.raw);
 }
@@ -63,7 +60,6 @@ export function decodeEvent<A, I>(
     });
 }
 
-/** A full state for a listener, or null (logged) when it does not decode. */
 export const decodeStateForListener = decodeEvent(ServerState, 'server state');
 
 /** A full state as a command's answer: rejects with the ProtocolError when it does not decode. */

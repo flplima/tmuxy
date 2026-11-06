@@ -83,8 +83,6 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Ap
       keyHint: commandHint(keybindings, 'tab-stack-toggle'),
       action: event({ type: 'TOGGLE_STACKED_PANES', ...(windowId ? { windowId } : {}) }),
     },
-    // Renaming happens in the tab itself — the strip owns the field, because
-    // that is where the name is.
     {
       kind: 'item',
       id: 'tab-rename',

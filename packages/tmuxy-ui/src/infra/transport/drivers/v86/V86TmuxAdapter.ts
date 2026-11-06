@@ -11,9 +11,6 @@ import { GuestTmuxAdapter, type GuestTmuxAdapterOptions } from '../guest/GuestTm
 import { getSharedEngine, V86Engine } from './V86Engine';
 
 export interface V86TmuxAdapterOptions extends GuestTmuxAdapterOptions {
-  /** Reuse a single process-wide v86 engine across adapters (opt-in). Each
-   *  connect restores the pinned snapshot for a clean start instead of a cold
-   *  boot. Leave unset for a private, torn-down-on-disconnect engine. */
   shared?: boolean;
 }
 

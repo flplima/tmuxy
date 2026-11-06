@@ -1,30 +1,16 @@
 /**
- * Sidebar peek — rest the mouse on a closed sidebar's header toggle and the
- * column comes out over the panes; move off the toggle and the column, and it
- * goes. A click on the toggle docks it as before. This is how a collapsed
- * sidebar behaves in the Claude desktop app, with the things its users report
- * going wrong there designed out:
+ * The toggle and the column are one hover area, and leaving it only starts a
+ * grace period that coming back cancels. The tree's context menus render in a
+ * portal, outside the column's box, so the pointer on a menu counts as on the
+ * column, and an open menu or a focused field in the column keeps the peek.
  *
- *  - The flyout closing while the pointer travels from the button to the
- *    panel. The toggle and the column are one hover area, and leaving it
- *    only starts a short grace period that coming back cancels.
- *  - A menu opened from the panel closing under the pointer. The tree's
- *    context menus render in a portal, outside the column's box: the pointer
- *    on a menu counts as on the column, and an open menu, or a field in the
- *    column with the focus (a rename), keeps the peek.
+ * Every mouse move over the page is checked against the hover area, because
+ * an element removed from under the pointer (a menu closed by Escape) never
+ * reports a leave.
  *
- * Where the pointer is, not which element last heard an enter or a leave,
- * decides it: while a column peeks, every mouse move over the page is checked
- * against the hover area. Enter and leave events are not enough, because an
- * element removed from under the pointer (a menu closed by Escape) never
- * reports a leave, and the peek would stay out until the next pass over it.
- *
- * Mouse only. A touch or a pen has no hover to rest, and a tap on the toggle
- * is the click that docks the column.
- *
- * The timers are the module's, not a component's: the toggle (in the header)
- * opens a peek and the column (in the body) holds it. One column peeks at a
- * time.
+ * Mouse only: a touch or a pen has no hover to rest. The timers are the
+ * module's, since the toggle (in the header) opens a peek and the column (in
+ * the body) holds it.
  */
 
 import { useCallback, useEffect, type PointerEvent } from 'react';
@@ -48,7 +34,6 @@ function clearClose() {
   closeTimer = null;
 }
 
-/** The peek's hover area: its column, its toggle, and any menu open over them. */
 function inPeekArea(target: EventTarget | null, side: 'left' | 'right'): boolean {
   return (
     target instanceof Element &&
@@ -56,7 +41,6 @@ function inPeekArea(target: EventTarget | null, side: 'left' | 'right'): boolean
   );
 }
 
-/** Something the user is in the middle of keeps the peek: a menu, or a field with the focus. */
 function peekIsBusy(): boolean {
   if (document.querySelector('[role="menu"]')) return true;
   const active = document.activeElement;
@@ -67,11 +51,7 @@ function peekIsBusy(): boolean {
   );
 }
 
-/**
- * The toggle's half: a rest on it opens the peek, a pass over it does not.
- * `enabled` is false while the column is docked: the toggle is then only the
- * button that shuts it.
- */
+/** `enabled` is false while the column is docked. */
 export function useSidebarPeekToggle(side: 'left' | 'right', enabled: boolean) {
   const send = useAppSend();
 
@@ -92,11 +72,6 @@ export function useSidebarPeekToggle(side: 'left' | 'right', enabled: boolean) {
   return { onPointerEnter, onPointerLeave };
 }
 
-/**
- * The column's half, while it peeks: follow the mouse over the whole page and
- * end the peek once it has been out of the hover area for the grace period,
- * or has left the window.
- */
 export function useSidebarPeekHold(side: 'left' | 'right', peeking: boolean) {
   const send = useAppSend();
 

@@ -1,12 +1,7 @@
 /**
- * What choosing an app menu item does, as a typed union, and the app's menu
- * commands in one table.
- *
- * An item that is a tmux intent carries its op, which is also what its key
- * hint is looked up by. An item that is one of the app's own verbs names a
- * `MenuCommandId`: its entry in `MENU_COMMANDS` says what it runs and which
- * binding its hint names, side by side, so the item and its hint cannot
- * disagree and a misspelt id does not compile.
+ * What choosing an app menu item does. An app verb's `MENU_COMMANDS` entry holds
+ * both what it runs and the binding its key hint names, so the two cannot
+ * disagree.
  */
 
 import { restartApp } from '../../../infra/guiWindows';
@@ -41,11 +36,8 @@ export type MenuLocal =
   | { verb: 'plugin-selection'; plugin: string; action: string };
 
 export type AppMenuAction =
-  /** A tmux op, dispatched through the store. */
   | { kind: 'op'; op: TmuxOp }
-  /** One of the app's own verbs (`MENU_COMMANDS`). */
   | { kind: 'command'; id: MenuCommandId }
-  /** An event sent to the app machine as is. */
   | { kind: 'event'; event: AppMachineEvent }
   | { kind: 'local'; local: MenuLocal };
 
@@ -73,11 +65,9 @@ const sendEvent =
 
 export const MENU_COMMANDS = {
   'pane-close': {
-    // Group members and floats need the group-aware close script: closing a
-    // group member has to swap a sibling into view (or tidy the stash window)
-    // and degroup the survivor, which a raw kill-pane skips. Route through
-    // CLOSE_PANE when we know which pane to close; otherwise fall back to
-    // tmux's server-active pane.
+    // Group members and floats need the group-aware close (CLOSE_PANE), which
+    // swaps a sibling into view and degroups the survivor; a raw kill-pane
+    // does neither. Without a target, tmux's active pane is killed.
     run: (send, target) =>
       send(
         target
@@ -91,18 +81,16 @@ export const MENU_COMMANDS = {
   // The item renames in the strip, where the name is; the binding (`prefix ,`)
   // still opens tmux's prompt, and the hint names the binding.
   'tab-rename': { run: sendEvent({ type: 'RENAME_ACTIVE_TAB' }), keyOp: renameWindowPrompt() },
-  // The binding (`prefix p S`) runs the stack script, which reshapes the
-  // rows as it flips the tag; the hint names it.
+  // The binding (`prefix p S`) runs the stack script; the hint names it.
   'tab-stack-toggle': {
     run: sendEvent({ type: 'TOGGLE_STACKED_PANES' }),
     keyOp: TmuxOp.RawCommand({ command: script('stack', 'toggle', '#{window_id}') }),
   },
   'restart-app': { run: () => restartApp() },
   'session-new': { run: sendEvent({ type: 'NEW_SESSION' }) },
-  // DETACH_CLIENT, not a raw `detach-client`: the backend has to know the
-  // detach was deliberate or its monitor treats the ended connection as a
-  // flap and reattaches, dropping the user straight back into the session
-  // they just left.
+  // DETACH_CLIENT, not a raw `detach-client`: the backend must know the detach
+  // was deliberate, or its monitor treats the ended connection as a flap and
+  // reattaches.
   'session-detach': {
     run: sendEvent({ type: 'DETACH_CLIENT' }),
     keyOp: TmuxOp.RawCommand({ command: 'detach-client' }),
@@ -128,12 +116,10 @@ export function commandHint(
 }
 
 /**
- * Resolve the pane a menu "Close Pane" should target when the menu isn't
- * anchored to a specific pane (the hamburger AppMenu and the Tauri native
- * menu): the focused float, else the real active pane, else undefined so the
- * caller falls back to tmux's server-active pane. Mirrors the focus-target
- * resolution the keyboard uses (the float holding the keyboard, else the
- * real active pane), so close hits the pane the user sees as active.
+ * The pane "Close Pane" targets from a menu not anchored to a pane (the
+ * hamburger AppMenu, the Tauri native menu): the keyboard's own target, so
+ * close hits the pane the user sees as active. Undefined lets the caller fall
+ * back to tmux's server-active pane.
  */
 export function activeCloseTarget(
   activePaneId: PaneId | null,

@@ -1,47 +1,31 @@
 /**
- * ResizeGlitchRecorder — catches the two pane-resize glitches that a plain
- * size-jump recorder misses:
+ * Catches the two pane-resize glitches a size-jump recorder misses, both
+ * A→B→A value reversals:
  *
- *   A. During a *monotonic* drag, a pane's `top`/`height` reverses direction —
- *      e.g. the whole grid shifts up then back down by a row (the centering
- *      offset re-rounding mid-resize). On a monotonic drag the geometry must be
- *      monotonic too; any A→B→A bounce is the glitch.
+ *   A. During a monotonic drag, a pane's `top`/`height` reverses direction
+ *      (the grid shifts up and back down a row as the centering offset
+ *      re-rounds mid-resize).
+ *   B. After mouse-up, a pane's size briefly reverts to an earlier value
+ *      before settling: the optimistic preview cleared by a stale server
+ *      snapshot.
  *
- *   B. After mouse-up, a pane's size briefly reverts to an EARLIER value before
- *      settling on the new one — the optimistic preview cleared by a stale
- *      server snapshot. Also an A→B→A bounce, in the post-release phase.
- *
- * Both are value *reversals*, invisible to a threshold-on-consecutive-frames
- * detector but obvious in the full ordered value sequence. We capture that
- * sequence two ways and merge them:
- *   - a MutationObserver on each `.pane-layout-item` inline `style` (with
- *     attributeOldValue) — catches every React commit, including a 1-frame
- *     revert that never gets its own paint;
- *   - a requestAnimationFrame sampler of `getBoundingClientRect` — catches
- *     painted motion even if it came from CSS/transform rather than an inline
- *     style write.
- *
- * A "bounce" is an index i in the de-duplicated value sequence where
- * value[i] === value[i-2] && value[i] !== value[i-1] — the value left and came
- * back. Sub-pixel noise is filtered by rounding and a per-dimension minimum
- * amplitude (default ~half a cell), so only real ≥~1-cell reversals count.
+ * The style observer catches a one-frame revert that never gets its own
+ * paint; the rAF sampler catches painted motion from CSS or a transform.
  */
 
 const STYLE_DIMS = ['top', 'left', 'width', 'height'] as const;
-// `contentTop` is the top of the pane's terminal content ([role=log]); it moves
-// when the header row appears/disappears, which the outer box (top/height)
-// hides. Sampled via rAF only — it isn't an inline style on the pane element.
+// `contentTop` (the top of [role=log]) moves when the header row appears or
+// disappears, which the outer box hides. Not an inline style: rAF only.
 const RAF_DIMS = [...STYLE_DIMS, 'contentTop'] as const;
 type Dim = (typeof RAF_DIMS)[number];
 
 export interface ResizeBounce {
   paneId: string;
   dim: Dim;
-  /** The three de-duplicated values that form the A→B→A reversal. */
   values: [number, number, number];
-  /** ms since recorder start when the reversal completed. */
+  /** ms since recorder start. */
   ts: number;
-  /** true if it happened after the named mark (e.g. 'mouseup'). */
+  /** After the 'mouseup' mark. */
   afterMark: boolean;
   source: 'style' | 'raf';
 }
@@ -65,8 +49,8 @@ export interface ResizeGlitchOptions {
 }
 
 const DEFAULT_MIN: Record<Dim, number> = {
-  // ~half a 24px row / ~half a ~9px column: filters sub-pixel jitter, catches
-  // any real 1-cell reversal.
+  // About half a 24px row / a ~9px column: above sub-pixel jitter, below a
+  // 1-cell reversal.
   top: 10,
   height: 10,
   left: 4,
@@ -91,7 +75,6 @@ export class ResizeGlitchRecorder {
   private readonly observer: MutationObserver;
   private readonly startTime = performance.now();
   private readonly marks = new Map<string, number>();
-  /** paneId -> ordered samples (style + raf interleaved by ts). */
   private readonly byPane = new Map<string, Sample[]>();
   private rafId = 0;
   private stopped = false;
@@ -100,7 +83,6 @@ export class ResizeGlitchRecorder {
     this.scope = scope;
     this.opts = { ...DEFAULT_MIN, ...options.minAmplitude };
 
-    // Seed with the current geometry so the very first change is comparable.
     this.sampleRaf();
 
     this.observer = new MutationObserver((records) => {
@@ -111,9 +93,7 @@ export class ResizeGlitchRecorder {
         if (!el.classList?.contains('pane-layout-item')) continue;
         const id = el.dataset.paneId;
         if (!id) continue;
-        // The batch already applied by callback time, so the live style IS the
-        // net value; oldValue gives the pre-batch value (a 1-frame revert shows
-        // as old != live across two batches).
+        // The batch has applied by callback time: the live style is its net value.
         this.push(id, { ts, values: parseStyleDims(el.getAttribute('style')), source: 'style' });
       }
     });
@@ -132,7 +112,6 @@ export class ResizeGlitchRecorder {
     this.rafId = requestAnimationFrame(loop);
   }
 
-  /** Timestamp a phase boundary (e.g. mark('mouseup') right before dispatch). */
   mark(label: string): void {
     this.marks.set(label, performance.now() - this.startTime);
   }
@@ -142,7 +121,7 @@ export class ResizeGlitchRecorder {
     this.scope.querySelectorAll<HTMLElement>('.pane-layout-item[data-pane-id]').forEach((el) => {
       const id = el.dataset.paneId!;
       const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return; // hidden/transitional
+      if (r.width === 0 || r.height === 0) return;
       const log = el.querySelector('[role="log"]');
       const values: Partial<Record<Dim, number>> = {
         top: Math.round(r.top),
@@ -166,7 +145,6 @@ export class ResizeGlitchRecorder {
     this.stopped = true;
     this.observer.disconnect();
     cancelAnimationFrame(this.rafId);
-    // One final read so a settle after the last rAF is included.
     this.sampleRaf();
 
     const mark = this.marks.get('mouseup') ?? Infinity;
@@ -178,7 +156,6 @@ export class ResizeGlitchRecorder {
           const seq = samples
             .filter((s) => s.source === source && s.values[dim] !== undefined)
             .map((s) => ({ v: s.values[dim]!, ts: s.ts }));
-          // De-duplicate consecutive equal values.
           const dedup: Array<{ v: number; ts: number }> = [];
           for (const p of seq) {
             if (dedup.length === 0 || dedup[dedup.length - 1].v !== p.v) dedup.push(p);
@@ -188,7 +165,6 @@ export class ResizeGlitchRecorder {
             const a = dedup[i - 2].v;
             const b = dedup[i - 1].v;
             const c = dedup[i].v;
-            // A→B→A reversal, with both legs above the noise floor.
             if (c === a && Math.abs(b - a) >= minAmp) {
               bounces.push({
                 paneId,
@@ -204,8 +180,7 @@ export class ResizeGlitchRecorder {
       }
     }
 
-    // Dedupe style/raf reports of the same reversal (same pane/dim/values within
-    // a frame) — keep the earliest.
+    // The style and rAF sources report the same reversal within a frame.
     bounces.sort((x, y) => x.ts - y.ts);
     const seen = new Set<string>();
     const unique = bounces.filter((b) => {
@@ -224,12 +199,10 @@ export class ResizeGlitchRecorder {
   }
 
   /**
-   * Stop and throw if any pane's painted geometry turned back on itself. A
-   * morph is one transition per pane, so each dimension travels one way from
-   * start to end. `assertNoBounces` only sees a turn that lands back on its
-   * exact start in one step — what a runner that drops frames shows of it;
-   * one that paints every frame shows the same turn with the way back in
-   * between, which this catches too.
+   * A morph is one transition per pane, so each dimension travels one way.
+   * `assertNoBounces` only sees a turn that lands back on its exact start in
+   * one step, which is what a runner dropping frames shows of it; a runner
+   * painting every frame shows the way back in between, caught here.
    */
   assertMonotonicMorph(): ResizeGlitchReport {
     const report = this.assertNoBounces();
@@ -264,7 +237,6 @@ export class ResizeGlitchRecorder {
     return report;
   }
 
-  /** Stop and throw if any reversal was recorded. */
   assertNoBounces(): ResizeGlitchReport {
     const report = this.stop();
     if (report.bounces.length > 0) {

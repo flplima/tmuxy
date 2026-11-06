@@ -1,18 +1,9 @@
-/* ============================================
-   StatusBar - Top tab bar
-   ============================================
-   The bar and its three clusters. What sits in them has a stylesheet of its
-   own beside its component: SidebarTitle.css, SidebarToggle.css,
-   WindowTabs.css, NewTabButton.css, TabStripScroll.css. */
-
 .statusbar {
   display: flex;
   align-items: center;
   height: var(--statusbar-height);
   background: transparent;
   font-family: var(--font-mono);
-  /* The header's text is the chrome's small text; its height stays the pane
-     font's (--statusbar-height). */
   font-size: var(--tmuxy-small-font-size);
   user-select: none;
 }
@@ -25,10 +16,8 @@
   flex-shrink: 0;
 }
 
-/* Spans the window; the three clusters below carve it into the same columns
-   the body has, so the bar's dividers line up with the sidebars'. The 12px
-   inset matches .pane-container's, which is what keeps the tab strip aligned
-   with the pane grid. */
+/* The inset matches .pane-container's, which keeps the tab strip aligned with
+   the pane grid. */
 .statusbar-inner {
   display: flex;
   align-items: center;
@@ -39,11 +28,8 @@
   box-sizing: border-box;
 }
 
-/* One header cluster per sidebar. While its column is docked the cluster is
-   pinned to that column's exact width (set inline) and ends on the column's
-   divider — so it carries the same 1px line the column draws, and the title and
-   toggle inside it sit over the panel they belong to. Closed, it shrinks to just
-   its buttons and the line disappears with the column. */
+/* While its column is docked, a cluster is pinned to the column's exact width
+   (set inline) and carries the same 1px divider the column draws. */
 .statusbar-cluster {
   display: flex;
   align-items: center;
@@ -64,7 +50,6 @@
   padding-left: var(--spacing-lg);
 }
 
-/* The divider's upper half lights with the column it belongs to. */
 .statusbar-cluster-left.is-docked.is-focused {
   border-right-color: var(--pane-focus-border);
 }
@@ -73,7 +58,6 @@
   border-left-color: var(--pane-focus-border);
 }
 
-/* The strip's right-end actions: the "+" and the Tab Overview button. */
 .statusbar-actions {
   display: flex;
   align-items: center;

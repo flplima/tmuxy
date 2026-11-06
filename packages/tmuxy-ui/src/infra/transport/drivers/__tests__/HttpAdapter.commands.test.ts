@@ -1,9 +1,3 @@
-/**
- * Additional HTTP driver tests covering error frames, fatal recovery on
- * session switch, non-JSON error responses, tmux command refusals, network
- * online hints, and invalid state-update frames.
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Cause, Effect, Exit, ManagedRuntime, Option, Schedule, Stream } from 'effect';
 import { HttpTransportLive } from '../../layers';
@@ -32,7 +26,6 @@ describe('HttpAdapter commands and recovery', () => {
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await first;
 
-    // Drop: onerror closes ES1, marks disconnected; the fiber schedules a reopen.
     const es1 = MockEventSource.instances[0];
     es1.onerror?.(new Event('error'));
     expect(es1.closed).toBe(true);
@@ -43,7 +36,6 @@ describe('HttpAdapter commands and recovery', () => {
     const a = adapter.connect();
     const b = adapter.connect();
 
-    // Exactly one NEW stream opens (total 2); ES1 stays closed.
     await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
     expect(openStreams().length).toBe(1);
 
@@ -90,8 +82,8 @@ describe('HttpAdapter commands and recovery', () => {
     (await stream(0)).emit('fatal', { data: { message: 'dead session' } });
     await expect(p).rejects.toThrow('dead session');
 
-    // Pre-fix, switchSession left this.fatal set and connect() rejected forever,
-    // so recovering by switching to a live session needed a page reload.
+    // A fatal that survived switchSession made connect() reject forever, so
+    // recovering by switching to a live session needed a page reload.
     const switchP = adapter.switchSession('other');
     const newEs = await stream(1);
     expect(newEs.url).toContain('session=other');

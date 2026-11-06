@@ -1,10 +1,6 @@
 /**
- * The keys view (`prefix ?`): every binding the config has, table by table —
- * the prefix, each sticky table (PANE, TAB, …) and the chords that need no
- * prefix. The status line shows a handful per mode; this is the rest.
- *
- * Drawn over the pane area on a blurred scrim. `esc` or `q` closes it (the
- * keyboard actor), as does a click outside the list.
+ * The keys view (`prefix ?`): every binding the config has, table by table.
+ * `esc` or `q` closes it (the keyboard actor), as does a click outside the list.
  */
 
 import { useAppSelector, useAppSend } from '../machines/appHooks';
@@ -16,11 +12,7 @@ import './KeysView.css';
 
 type Binding = KeyBindings['prefix_bindings'][number];
 
-/**
- * What a binding does, in words: the server's description when it has one of
- * its own, else the command — with a sticky table's `switch-client -T` left
- * out, since every key of a table has it.
- */
+/** The server's description, else the command without the sticky table's `switch-client -T`, which every key of a table has. */
 function bindingText(binding: Binding): string {
   if (binding.description && binding.description !== binding.command) return binding.description;
   const { command, table } = splitTableSwitch(binding.command);

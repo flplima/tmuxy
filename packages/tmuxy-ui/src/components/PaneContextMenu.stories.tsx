@@ -7,11 +7,6 @@ import { asFixture } from '../stories/fixtures/FixtureAdapter';
 import panes from '../stories/fixtures/gen/panes.json';
 import { PaneId } from '../domain/ids';
 
-/**
- * Hosts the controlled menu the way TerminalPane does on right-click: open at
- * an anchor point, closed via the menu's own onClose. The marker div lets the
- * play function observe the close callback without reaching into state.
- */
 function ContextMenuHost({ paneId = PaneId.make('%0') }: { paneId?: PaneId }) {
   const [open, setOpen] = useState(true);
   return (
@@ -39,8 +34,7 @@ export const SinglePane: Story = {
     </FixtureProvider>
   ),
   play: async () => {
-    // The menu is portalled out of the story's tree (components/floating), so
-    // its items live on the document.
+    // The menu is portalled out of the story's tree (components/floating).
     const menu = within(document.body);
     const closeItem = await waitFor(() => menu.getByRole('menuitem', { name: /close pane/i }));
 
@@ -75,14 +69,13 @@ export const MultiPane: Story = {
     const canvas = within(canvasElement);
     const menu = within(document.body);
 
-    // With a second pane beside it, the menu offers the pane's own items.
+    // With a second pane beside it, the pane's own items are enabled.
     await waitFor(() => {
       expect(menu.getByRole('menuitem', { name: /move to new tab/i })).not.toHaveAttribute(
         'aria-disabled',
       );
     });
 
-    // Selecting an item fires the host's onClose (menu dismissed).
     await userEvent.click(menu.getByRole('menuitem', { name: /copy mode/i }));
     await waitFor(() => {
       expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed');

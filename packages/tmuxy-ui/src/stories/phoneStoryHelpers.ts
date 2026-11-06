@@ -1,9 +1,3 @@
-/**
- * What the phone stories share: the app snapshot a story reads, a box on
- * screen, and one finger's touch sequences as the browser would dispatch
- * them (PhoneLayout.stories.tsx, PhoneBottomView.stories.tsx).
- */
-
 interface Snap {
   context: {
     targetCols: number;

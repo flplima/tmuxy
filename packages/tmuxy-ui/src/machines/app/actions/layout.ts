@@ -1,6 +1,3 @@
-/**
- * Action implementations for the layout state slice.
- */
 import { assign, raise, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../../domain/ids';
@@ -9,9 +6,8 @@ import { scrollViewsIn, takeKeyboard } from '../helpers';
 import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
 
-// Fallback for clearing the optimistic resize preview if the server-confirmed
-// TMUX_STATE_UPDATE never arrives. Scheduled as a delayed self-event by id and
-// cancelled when a fresh preview supersedes it (see layout_applyResizeState).
+// A finished resize keeps its preview until a model update shows tmux's sizes
+// settled on it (layout/modelUpdate.ts); this clears it if that never comes.
 const RESIZE_PREVIEW_CLEAR_ID = 'resizePreviewClear';
 const RESIZE_PREVIEW_FALLBACK_MS = 2000;
 
@@ -221,18 +217,11 @@ export const layoutActions = {
   layout_applyResizeState: act(({ event, enqueue }) => {
     if (event.type !== 'RESIZE_STATE_UPDATE') return;
     enqueue.assign({ resize: event.resize, resizeActive: event.resize !== null });
-    // A fresh preview supersedes any pending fallback-clear of the previous
-    // one, so it never nulls the newer preview mid-drag.
     if (event.resize !== null) enqueue.cancel(RESIZE_PREVIEW_CLEAR_ID);
   }),
 
   layout_resizeCompleted: act(({ enqueue }) => {
     enqueue(assign({ resizeActive: false }));
-    // Keep resize state as an optimistic preview until the next
-    // TMUX_STATE_UPDATE arrives with server-confirmed pane sizes. Fallback: a
-    // delayed self-event clears it if that update is delayed. The raise is
-    // cancelled/re-scheduled by id, and cancelled when a new preview arrives,
-    // so a stale timer never nulls a newer preview.
     enqueue.cancel(RESIZE_PREVIEW_CLEAR_ID);
     enqueue.raise(
       { type: 'RESIZE_STATE_UPDATE', resize: null },

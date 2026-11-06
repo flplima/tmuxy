@@ -21,7 +21,6 @@ export const TERMINAL_CURSOR = 'terminal-cursor';
 /** A pane's header strip: its tabs and buttons, not the terminal. */
 export const PANE_HEADER = 'pane-header';
 
-/** `.name`, for `closest` and `querySelector`. */
 export const dot = (className: string): string => `.${className}`;
 
 /**
@@ -31,5 +30,4 @@ export const dot = (className: string): string => `.${className}`;
  */
 export const PANE_SURFACE = '.pane-wrapper[data-pane-id], .float-container[data-pane-id]';
 
-/** A tiled pane's box in the grid (not a float), by its pane id. */
 export const TILED_PANE = '.pane-layout-item[data-pane-id]';

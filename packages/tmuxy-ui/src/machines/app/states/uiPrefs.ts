@@ -1,13 +1,3 @@
-/**
- * uiPrefs state — the `on` slice for theme, font size, animations, and the
- * local action-trace switch (docs/TRACING.md).
- *
- * Action implementations live in ../actions/uiPrefs.ts.
- *
- * All events here are global (work in any top-level state): uiPrefsState.on
- * is spread into the machine's root on:.
- */
-
 export const uiPrefsState = {
   on: {
     SET_THEME: { actions: 'uiPrefs_applyTheme' },

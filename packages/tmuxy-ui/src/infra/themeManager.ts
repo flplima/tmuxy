@@ -97,7 +97,6 @@ function ensureVarsStyle(): HTMLStyleElement {
 
 let currentThemeName: string = DEFAULT_THEME.theme;
 
-/** Load a theme CSS file by name, then the config variables, then the user's `custom.css`. */
 function loadTheme(name: string): void {
   currentThemeName = name;
   ensureLink(THEME_LINK_ID, cssHref(`themes/${name}.css`), ensureVarsStyle());
@@ -135,7 +134,7 @@ function setModeClass(mode: ResolvedThemeMode): void {
   syncThemeColor();
 }
 
-/** Set theme-dark or theme-light class on <html>; `auto` follows the OS from here on. */
+/** `auto` follows the OS from here on. */
 export function applyThemeMode(mode: ThemeMode): void {
   currentMode = mode;
   setModeClass(resolveThemeMode(mode));
@@ -147,7 +146,6 @@ export function applyThemeMode(mode: ThemeMode): void {
   }
 }
 
-/** Load theme CSS and apply mode class. */
 export function applyTheme(name: string, mode: ThemeMode): void {
   loadTheme(name);
   applyThemeMode(mode);

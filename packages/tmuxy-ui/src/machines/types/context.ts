@@ -36,7 +36,7 @@ export interface AppMachineContext {
    * will arrive on this monitor.
    */
   fatalError: string | null;
-  /** Recent commands sent and errors received (debug log shown on status screen) */
+  /** Recent commands sent and errors received: the connection overlay's Details. */
   log: LogEntry[];
   sessionName: string;
   activeWindowId: WindowId | null;
@@ -84,7 +84,7 @@ export interface AppMachineContext {
   measuredCell: GridCell;
   /** `@tmuxy-size`, from the config: how tmux sizes the session across clients. */
   sizePolicy: SizePolicy;
-  /** The phone layout: the whole 80 × 25 terminal, a key row and the tree below it. */
+  /** The phone layout (infra/dom/phoneLayout.ts): the terminal, a key row and the tree below it. */
   phoneLayout: boolean;
   /** The phone layout held sideways: the terminal right, the strip, keys and tree left of it. */
   phoneLandscape: boolean;
@@ -93,10 +93,8 @@ export interface AppMachineContext {
   /** The server machine's name, from its greeting; null until it says. */
   serverHostname: string | null;
 
-  /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;
-  /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<PaneId, FloatPaneState>;
   /**
    * Who holds the keyboard. A float or the dock takes the keystrokes typed;
@@ -160,7 +158,6 @@ export interface AppMachineContext {
   tabOverviewSelected: number;
   /** The tab whose rename field is open, and where: the strip or the tree. */
   renamingTab: { windowId: WindowId; surface: 'strip' | 'tree' } | null;
-  /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /**
    * The config's say (`@tmuxy-animations`): false strips every layout
@@ -215,9 +212,7 @@ export interface AppMachineContext {
   nativeMenus: boolean;
   /** The trackpad gesture being drawn right now, or null with the fingers off the pad. */
   gesture: GestureState | null;
-  /** Keybindings received from the server */
   keybindings: KeyBindings | null;
-  /** Client-side copy mode state per pane */
   copyModeStates: Record<PaneId, CopyModeState>;
   /**
    * When this client last left copy mode on each pane: tmux can still report
@@ -239,11 +234,11 @@ export interface AppMachineContext {
    */
   lastUpdateQuiet: boolean;
   /**
-   * Pane IDs involved in in-flight GroupSwitch store ops — mirrored from
+   * Pane IDs involved in in-flight GroupSwitch store ops, mirrored from
    * `model.ops` on every TMUX_MODEL_UPDATE so selectors can suppress CSS
    * transitions on the swapped panes while the swap is unconfirmed. The
-   * geometry/window pinning itself lives in the op's optimistic patch
-   * (see store/ops.ts predictGroupSwitch); no timers, no overrides.
+   * geometry itself is the op's optimistic patch (`predictGroupSwitch` in
+   * domain/store/windowOps.ts).
    */
   groupSwitchPaneIds: PaneId[];
   /** Command mode state (tmux command prompt) */
@@ -256,11 +251,9 @@ export interface AppMachineContext {
   statusMessage: { text: string; timestamp: number } | null;
   /** Snackbar entries on screen, oldest first (see AppNotification) */
   notifications: AppNotification[];
-  /** Current theme name */
   themeName: string;
   /** Current theme mode: a palette, or `auto` for the operating system's */
   themeMode: ThemeMode;
-  /** Available themes from server */
   availableThemes: ThemeInfo[];
   /**
    * Local action tracing as the backend last reported it, or null before the

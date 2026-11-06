@@ -265,7 +265,19 @@ export const layoutModelUpdateActions = {
       samePanes(context.panes, transformed.panes) &&
       !isBoxPermutation(context.panes, transformed.panes);
 
-    const effectiveActivePaneId = transformed.activePaneId ?? context.activePaneId;
+    // tmux names no active pane while the window it has just made current has
+    // none listed yet. The pane this client had is held through that only if
+    // it is in that window: held from another, the keys typed into a tab
+    // just opened went to a pane of a hidden one; with none, they go to
+    // tmux's current pane.
+    const heldActivePaneId =
+      transformed.activeWindowId === null ||
+      transformed.panes.some(
+        (p) => p.tmuxId === context.activePaneId && p.windowId === transformed.activeWindowId,
+      )
+        ? context.activePaneId
+        : null;
+    const effectiveActivePaneId = transformed.activePaneId ?? heldActivePaneId;
 
     enqueue(
       // cross-cutting: the store's snapshot is mirrored into every slice that derives from it.

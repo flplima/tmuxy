@@ -34,15 +34,12 @@ export function createDetachedScreen(): HTMLElement {
 }
 
 /**
- * Construct WITHOUT `initial_state` and WITHOUT autostart: v86 does NOT
- * zstd-decompress an `initial_state` URL (it skips decompression for that
- * resource specifically — build/libv86 `f.url.endsWith(".zst") && "initial_state"
- * !== f.name`), so handing it the .zst fed raw compressed bytes to
- * restore_state, which failed and silently fell back to a full kernel cold
- * boot (~30s, and flaky). Instead we replicate v86's own initial_state
- * sequence — init → restore_state → run — but restore the snapshot OURSELVES
- * from correctly-inflated bytes (fetchGuestSnapshot: .gz via DecompressionStream,
- * or the raw .bin), the same path the warm reset() already uses.
+ * Constructed without `initial_state` and without autostart: v86 does not
+ * decompress an `initial_state` URL (build/libv86: `f.url.endsWith(".zst") &&
+ * "initial_state" !== f.name`), so restore_state got compressed bytes and
+ * silently fell back to a ~30s cold boot. The caller replays v86's own
+ * sequence — init → restore_state → run — with bytes `fetchGuestSnapshot`
+ * inflated.
  */
 export async function createV86Emulator(
   screen: HTMLElement,
@@ -104,7 +101,7 @@ export async function fetchGuestSnapshot(): Promise<ArrayBuffer> {
  * Enqueue as UTF-8: v86's serial0_send writes one byte per JS char
  * (charCode & 0xFF), so multibyte characters (CJK from IME composition,
  * emoji in pasted text) must be expanded to their UTF-8 bytes here — and
- * the FIFO pacing must count BYTES, not UTF-16 units.
+ * the pacing must count bytes, not UTF-16 units.
  */
 export function encodeUtf8SerialBytes(cmd: string): string {
   const text = cmd.endsWith('\n') ? cmd : `${cmd}\n`;

@@ -1,12 +1,4 @@
 import { pushSupported } from '../../infra/pushNotifications';
-/**
- * Initial context and field-ownership registry for appMachine.
- *
- * The AppMachineContext type itself stays defined in ../types.ts (it's
- * imported across the codebase). This file owns the *initial value* and the
- * runtime mapping of each field to its owning state slice.
- */
-
 import type { AppMachineContext } from '../types/context';
 import {
   DEFAULT_SESSION_NAME,
@@ -50,7 +42,6 @@ export type StateName =
  * removing one or adding a new one without updating this map is a type error.
  */
 export const FIELD_OWNERS = {
-  // ---- connection ----
   connected: 'connection',
   error: 'connection',
   fatalError: 'connection',
@@ -66,7 +57,6 @@ export const FIELD_OWNERS = {
   currentServerId: 'connection',
   restorableSessions: 'connection',
 
-  // ---- viewport ----
   targetCols: 'viewport',
   targetRows: 'viewport',
   viewportMeasured: 'viewport',
@@ -81,7 +71,6 @@ export const FIELD_OWNERS = {
   containerHeight: 'viewport',
   bodyWidth: 'viewport',
 
-  // ---- layout ----
   totalWidth: 'layout',
   totalHeight: 'layout',
   panes: 'layout',
@@ -99,38 +88,30 @@ export const FIELD_OWNERS = {
   lastUpdateQuiet: 'layout',
   enableAnimations: 'layout',
 
-  // ---- ask ----
   askSelections: 'ask',
 
-  // ---- copyMode ----
   copyModeStates: 'copyMode',
   copyModeExitedAt: 'copyMode',
 
-  // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
 
-  // ---- keyboard ----
   keyboardOwner: 'keyboard',
 
-  // ---- sidebars ----
   sidebars: 'sidebars',
   sidebarColsPreview: 'sidebars',
   dockSizeSent: 'sidebars',
   collapsedTabIds: 'sidebars',
   sidebarPeek: 'sidebars',
 
-  // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
   renamingTab: 'tabOverview',
 
-  // ---- phone ----
   phoneZoom: 'phone',
   phoneBottomView: 'phone',
   phoneDockView: 'phone',
 
-  // ---- commandUi ----
   commandMode: 'commandUi',
   statusMessage: 'commandUi',
   prefixActive: 'commandUi',
@@ -139,10 +120,8 @@ export const FIELD_OWNERS = {
   keysViewOpen: 'commandUi',
   renamingPaneId: 'commandUi',
 
-  // ---- notifications ----
   notifications: 'notifications',
 
-  // ---- uiPrefs ----
   themeName: 'uiPrefs',
   themeMode: 'uiPrefs',
   availableThemes: 'uiPrefs',
@@ -162,19 +141,15 @@ export const FIELD_OWNERS = {
   sizePolicy: 'uiPrefs',
   themeRev: 'uiPrefs',
 
-  // ---- plugins ----
   plugins: 'plugins',
   pluginsRev: 'plugins',
-  // ---- gestures ----
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
 /**
- * Build the initial context. Called once at machine setup time.
- *
- * Wrapped in a function (rather than a top-level constant) so that side
- * effects like `loadFontSizePref()` are deferred to machine creation,
- * not module load — which matters for tests that stub localStorage.
+ * A function, not a constant, so the saved preferences (`loadFontSizePref()`)
+ * are read when a machine is made, not at module load: tests stub
+ * localStorage in between.
  */
 export function createInitialContext(): AppMachineContext {
   return {

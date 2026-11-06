@@ -1,9 +1,3 @@
-/**
- * copyModeKeys - Pure function for client-side vi keybindings in copy mode
- *
- * Returns updated state and an optional action ('yank' | 'exit' | null).
- */
-
 import type { CopyModeState } from './copyMode';
 import type { CellLine } from './wireCells';
 
@@ -14,18 +8,15 @@ interface CopyModeKeyResult {
   action: CopyModeAction;
 }
 
-/** Get the text content of a cell line (for word motion scanning) */
 function lineText(line: CellLine | undefined): string {
   if (!line) return '';
   return line.map((c) => c.c).join('');
 }
 
-/** Check if character is a word character (non-whitespace, non-punctuation) */
 function isWordChar(ch: string): boolean {
   return /\w/.test(ch);
 }
 
-/** Get effective line length (trimmed trailing spaces) */
 function getLineLength(lines: Map<number, CellLine>, row: number): number {
   const line = lines.get(row);
   if (!line || line.length === 0) return 0;
@@ -33,7 +24,6 @@ function getLineLength(lines: Map<number, CellLine>, row: number): number {
   return text.trimEnd().length;
 }
 
-/** Find next word start position */
 function findNextWord(
   lines: Map<number, CellLine>,
   row: number,
@@ -44,14 +34,11 @@ function findNextWord(
   let c = col;
   const text = lineText(lines.get(r));
 
-  // Skip current word
   while (c < text.length && isWordChar(text[c])) c++;
-  // Skip whitespace/punctuation
   while (c < text.length && !isWordChar(text[c])) c++;
 
   if (c < text.length) return { row: r, col: c };
 
-  // Move to next line
   r++;
   while (r < totalLines) {
     const nextText = lineText(lines.get(r));
@@ -63,7 +50,6 @@ function findNextWord(
   return { row, col };
 }
 
-/** Find previous word start position */
 function findPrevWord(
   lines: Map<number, CellLine>,
   row: number,
@@ -81,9 +67,7 @@ function findPrevWord(
 
   const text = lineText(lines.get(r));
 
-  // Skip whitespace/punctuation backward
   while (c >= 0 && !isWordChar(text[c])) c--;
-  // Skip word chars backward
   while (c > 0 && isWordChar(text[c - 1])) c--;
 
   if (c >= 0) return { row: r, col: c };
@@ -91,7 +75,6 @@ function findPrevWord(
   return { row: r, col: 0 };
 }
 
-/** Find end of current word */
 function findWordEnd(
   lines: Map<number, CellLine>,
   row: number,
@@ -102,14 +85,11 @@ function findWordEnd(
   let c = col + 1;
   const text = lineText(lines.get(r));
 
-  // Skip whitespace
   while (c < text.length && !isWordChar(text[c])) c++;
-  // Go to end of word
   while (c < text.length - 1 && isWordChar(text[c + 1])) c++;
 
   if (c < text.length) return { row: r, col: c };
 
-  // Move to next line
   r++;
   while (r < totalLines) {
     const nextText = lineText(lines.get(r));
@@ -125,7 +105,6 @@ function findWordEnd(
   return { row, col };
 }
 
-// Track 'g' key for 'gg' sequence
 let lastKeyWasG = false;
 
 export function handleCopyModeKey(
@@ -134,8 +113,7 @@ export function handleCopyModeKey(
   shiftKey: boolean,
   state: CopyModeState,
 ): CopyModeKeyResult {
-  // Browsers may send lowercase key with shiftKey=true (e.g. key='v', shiftKey=true for 'V')
-  // Normalize to uppercase for single-letter keys when shift is held
+  // Browsers may send a lowercase key with shiftKey (key='v' for 'V').
   const effectiveKey = shiftKey && key.length === 1 && /[a-z]/.test(key) ? key.toUpperCase() : key;
 
   const {
@@ -156,23 +134,21 @@ export function handleCopyModeKey(
   let newSelectionAnchor = selectionAnchor;
   let action: CopyModeAction = null;
 
-  // Handle 'gg' sequence
   const wasG = lastKeyWasG;
   lastKeyWasG = false;
 
-  // Ctrl key combos
   if (ctrlKey) {
     switch (effectiveKey) {
-      case 'u': // Half page up
+      case 'u':
         newRow = Math.max(0, cursorRow - Math.floor(height / 2));
         break;
-      case 'd': // Half page down
+      case 'd':
         newRow = Math.min(totalLines - 1, cursorRow + Math.floor(height / 2));
         break;
-      case 'b': // Full page up
+      case 'b':
         newRow = Math.max(0, cursorRow - height);
         break;
-      case 'f': // Full page down
+      case 'f':
         newRow = Math.min(totalLines - 1, cursorRow + height);
         break;
       default:
@@ -180,7 +156,6 @@ export function handleCopyModeKey(
     }
   } else {
     switch (effectiveKey) {
-      // Cursor movement
       case 'h':
       case 'ArrowLeft':
         newCol = Math.max(0, cursorCol - 1);
@@ -198,7 +173,6 @@ export function handleCopyModeKey(
         newCol = Math.min(width - 1, cursorCol + 1);
         break;
 
-      // Line start/end
       case '0':
       case 'Home':
         newCol = 0;
@@ -210,7 +184,6 @@ export function handleCopyModeKey(
         break;
       }
 
-      // Word motions
       case 'w': {
         const pos = findNextWord(lines, cursorRow, cursorCol, totalLines);
         newRow = pos.row;
@@ -230,7 +203,7 @@ export function handleCopyModeKey(
         break;
       }
 
-      // Selection (Space starts char selection, matching tmux vi copy mode)
+      // Space starts a char selection, as in tmux's vi copy mode.
       case ' ':
       case 'v':
         if (selectionMode === 'char') {
@@ -251,21 +224,18 @@ export function handleCopyModeKey(
         }
         break;
 
-      // Yank
       case 'y':
         if (selectionMode) {
           action = 'yank';
         }
         break;
-      // Enter = copy-selection-and-cancel: yank if selection active, else exit
+      // tmux's Enter is copy-selection-and-cancel.
       case 'Enter':
         action = selectionMode ? 'yank' : 'exit';
         break;
 
-      // Go to top/bottom
       case 'g':
         if (wasG) {
-          // gg - go to top
           newRow = 0;
           newCol = 0;
         } else {
@@ -274,12 +244,10 @@ export function handleCopyModeKey(
         }
         break;
       case 'G':
-        // Go to bottom
         newRow = totalLines - 1;
         newCol = 0;
         break;
 
-      // Viewport relative
       case 'H':
         newRow = scrollTop;
         break;
@@ -290,7 +258,6 @@ export function handleCopyModeKey(
         newRow = scrollTop + height - 1;
         break;
 
-      // Exit
       case 'q':
       case 'Escape':
         action = 'exit';
@@ -301,13 +268,11 @@ export function handleCopyModeKey(
     }
   }
 
-  // Clamp cursor to terminal bounds (matching real tmux copy mode behavior).
-  // Row/column clamping uses the full terminal dimensions, not content boundaries,
-  // so the cursor can move freely across empty lines and trailing whitespace.
+  // As in tmux, the cursor is clamped to the terminal, not the content: it moves
+  // freely across empty lines and trailing whitespace.
   newRow = Math.max(0, Math.min(totalLines - 1, newRow));
   newCol = Math.max(0, Math.min(width - 1, newCol));
 
-  // Auto-scroll to keep cursor visible
   if (newRow < newScrollTop) {
     newScrollTop = newRow;
   } else if (newRow >= newScrollTop + height) {

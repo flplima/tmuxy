@@ -182,7 +182,6 @@ describe('applyDelta — window order', () => {
       ['@0', 2],
       ['@1', 1],
     ]);
-    // A window's own active pane travels in the same delta.
     expect(next.windows.find((w) => w.id === '@1')?.active_pane_id).toBe('%9');
   });
 });

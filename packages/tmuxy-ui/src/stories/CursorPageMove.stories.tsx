@@ -1,13 +1,8 @@
 /**
- * The cursor on a page that moves under the app, over a pane recorded from
- * real tmux.
- *
- * What the user sees is the SmoothCursor overlay, fixed to the viewport and
- * drawn at the pane's own cursor element (its anchor). The page the app is
- * embedded in — the demo site — moves the anchor without a render when it
- * scrolls, or when a resized window lays it out again, so the overlay has to
- * follow the page itself: it once stayed put while the terminal moved away
- * under it.
+ * The SmoothCursor overlay is fixed to the viewport and drawn at the pane's
+ * cursor element. A page embedding the app (the demo site) moves that anchor
+ * without a render when it scrolls or re-lays out, so the overlay has to
+ * follow the page itself; it once stayed put while the terminal moved away.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -25,7 +20,6 @@ const meta: Meta<typeof FixtureApp> = {
     (Story) => (
       <div className="moving-page">
         <Story />
-        {/* Page below the app, so the page itself scrolls. */}
         <div style={{ height: 2000 }} />
       </div>
     ),
@@ -34,7 +28,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-/** The overlay's top-left corner, once it is showing. */
 function overlayCorner(canvasElement: HTMLElement): { x: number; y: number } {
   const shape = canvasElement.ownerDocument.querySelector<HTMLElement>('.smooth-cursor-shape');
   const root = shape?.closest<HTMLElement>('.smooth-cursor');
@@ -44,7 +37,6 @@ function overlayCorner(canvasElement: HTMLElement): { x: number; y: number } {
   return { x: Number(m[1]), y: Number(m[2]) };
 }
 
-/** Whether the overlay sits on a pane's cursor cell. */
 function onACursorCell(canvasElement: HTMLElement): boolean {
   const corner = overlayCorner(canvasElement);
   return [...canvasElement.querySelectorAll<HTMLElement>('.terminal-cursor')].some((el) => {
@@ -53,8 +45,7 @@ function onACursorCell(canvasElement: HTMLElement): boolean {
   });
 }
 
-/** The overlay on its cell, then idle: past its re-measuring after the last
- *  render, so only the page moving can move it. */
+/** Past the overlay's re-measuring after the last render, so only the page moving can move it. */
 async function settled(canvasElement: HTMLElement): Promise<{ x: number; y: number }> {
   await waitFor(() => expect(onACursorCell(canvasElement)).toBe(true), { timeout: 8000 });
   await new Promise((r) => setTimeout(r, 1000));

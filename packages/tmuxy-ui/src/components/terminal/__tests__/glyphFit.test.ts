@@ -68,7 +68,6 @@ describe('glyphFit with settled fonts and ink the canvas cannot answer for', () 
     const redraw = vi.fn();
     fit.subscribeGlyphFit(redraw);
 
-    // A screenful of the same symbol, drawn over several renders.
     for (let render = 0; render < 5; render++) {
       for (let cell = 0; cell < 50; cell++) expect(fit.glyphFit('●')).toBeNull();
       await Promise.resolve();

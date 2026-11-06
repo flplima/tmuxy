@@ -13,7 +13,6 @@
 
 import { decodeBase64Text } from './base64';
 
-/** Which menu offers an action. */
 export type PluginMenu = 'app' | 'pane' | 'selection';
 
 export interface PluginActionInfo {
@@ -33,10 +32,8 @@ export interface PluginInfo {
   readonly textLinks: boolean;
 }
 
-/** The option the inventory is read from. */
 export const PLUGINS_OPTION = '@tmuxy-plugins';
 
-/** The query that reads it. */
 export const READ_PLUGINS_COMMAND = `show-options -gqv ${PLUGINS_OPTION}`;
 
 /** A plugin or action name, as the server validates one. */
@@ -91,13 +88,11 @@ export function parseInventory(raw: string): PluginInfo[] {
   return plugins;
 }
 
-/** One menu entry: a plugin's action. */
 export interface PluginMenuEntry {
   readonly plugin: string;
   readonly action: PluginActionInfo;
 }
 
-/** The actions a menu offers, in inventory order. */
 export function pluginMenuEntries(
   plugins: ReadonlyArray<PluginInfo>,
   menu: PluginMenu,
@@ -114,7 +109,6 @@ export function pluginItemId(plugin: string, action: string): string {
   return `plugin:${plugin}:${action}`;
 }
 
-/** Every host a URL handler takes, and whether any plugin has text handlers. */
 export function pluginLinkHosts(plugins: ReadonlyArray<PluginInfo>): {
   hosts: ReadonlySet<string>;
   text: boolean;

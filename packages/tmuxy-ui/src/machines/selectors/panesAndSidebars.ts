@@ -13,18 +13,11 @@ import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';
 import { previewInputs, selectPreviewPanes, selectSidebarCellMetrics } from './layout';
 
-// ============================================
-// Window & Sidebar Selectors
-// ============================================
-
 /**
- * Windows with `active` derived from context.activeWindowId.
- *
- * The server snapshot also carries an `active` boolean per window, but it
- * lags our optimistic SELECT_TAB flip — a snapshot captured before tmux
- * processed `select-window` still marks the old window active, which would
- * make the tab highlight blink (new → old → new) as those snapshots arrive.
- * Deriving from activeWindowId here makes the UI a single source of truth.
+ * Windows with `active` derived from context.activeWindowId. The snapshot's
+ * own `active` lags an optimistic tab switch: one taken before tmux ran the
+ * `select-window` still marks the old window, and the tab highlight would
+ * blink new → old → new as those snapshots arrive.
  */
 export const selectWindows = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
@@ -49,11 +42,9 @@ export const selectVisibleWindows = createMemoizedSelector(
  * exist yet.
  *
  * Each sidebar is a `sidebar-left` / `sidebar-right`-typed window holding
- * exactly one pane — the same shape a float window has, created by the same
- * `break-pane` + tag command list. It lives outside the active window, so it is
- * invisible to `selectPreviewPanes` (which filters to the active window) and to
- * the tab strip (`selectVisibleWindows` keeps only tabs); these selectors are
- * the only way the UI reaches it.
+ * exactly one pane, the shape a float window has. It lives outside the active
+ * window, so neither `selectPreviewPanes` nor the tab strip sees it: these
+ * selectors are the only way the UI reaches it.
  */
 function sidebarPane(context: AppMachineContext, side: 'left' | 'right'): TmuxPane | null {
   const window = context.windows.find((w) => w.windowType === `sidebar-${side}`);
@@ -138,13 +129,7 @@ export function selectTreeVisible(context: AppMachineContext): boolean {
   return context.sidebars.left.open || context.sidebarPeek === 'left';
 }
 
-// ============================================
-// Pane Group, Visible Panes & Float Selectors
-// ============================================
-
-/**
- * Get the active pane ID in a group (derived from which pane is in the active window)
- */
+/** The member of a group shown in the active window. */
 export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): PaneId | null {
   for (const paneId of group.paneIds) {
     const pane = context.panes.find((p) => p.tmuxId === paneId);
@@ -167,10 +152,7 @@ function hiddenGroupPaneIds(context: AppMachineContext): Set<PaneId> {
   return hidden;
 }
 
-/**
- * Select visible panes - filters out hidden group panes
- * For groups, only the pane in the active window is visible.
- */
+/** The tiled panes on screen: no floats, and of a group only its shown member. */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   let previewPanes = selectPreviewPanes(context);
 
@@ -254,9 +236,6 @@ export const selectHiddenWindowPanes = createMemoizedSelector(
   selectHiddenWindowPanesUncached,
 );
 
-/**
- * Find the group that contains a given pane (if any)
- */
 export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
   (ctx: AppMachineContext, _paneId: PaneId) => ctx.paneGroups,
   (context: AppMachineContext, paneId: PaneId): PaneGroup | undefined => {
@@ -264,18 +243,11 @@ export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
   },
 );
 
-/**
- * Get all panes in a group (resolved from pane IDs)
- */
 export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGroup): TmuxPane[] {
   return group.paneIds
     .map((id) => context.panes.find((p) => p.tmuxId === id))
     .filter((p): p is TmuxPane => p !== undefined);
 }
-
-// ============================================
-// Single Pane & Active Tree Selectors
-// ============================================
 
 const selectPreviewPaneMap = createMemoizedSelector(
   previewInputs,

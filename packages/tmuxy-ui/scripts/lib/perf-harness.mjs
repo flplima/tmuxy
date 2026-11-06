@@ -1,21 +1,11 @@
 /**
- * Shared interaction-latency harness.
- *
- * The *what* of the Axis-C measurement — which interactions are timed, what
- * observable stops each clock, how a run is summarized into a report — lives
- * here once. The *how* of driving a UI lives in a driver adapter, because the
- * web app is driven by Playwright over CDP and the desktop app by WebdriverIO
- * over tauri-driver, and those two have irreconcilable APIs.
- *
- * Keeping the interaction list in one place is the point: a budget in
- * `compare-interactions.mjs` then means the same thing on both surfaces, and a
- * regression that only shows up on the desktop transport (Tauri IPC instead of
- * POST + SSE) lands in the same table as a web one.
+ * The interaction-latency harness both surfaces share: which interactions are
+ * timed, what stops each clock, and the report. Driving a UI is a driver
+ * adapter's job, because the web app is driven by Playwright over CDP and the
+ * desktop app by WebdriverIO over tauri-driver.
  *
  * ## The driver adapter contract
  *
- * An adapter is an object with these methods. Everything here is written
- * against it and nothing else:
  *
  * | method | contract |
  * | --- | --- |
@@ -35,10 +25,7 @@
  */
 import { execSync } from 'node:child_process';
 
-/**
- * A sample slower than this is recorded as a timeout, not a datapoint — a
- * stuck interaction must not masquerade as a slow one.
- */
+/** A sample slower than this is a timeout, not a datapoint. */
 export const SAMPLE_TIMEOUT_MS = 5000;
 
 /**
@@ -62,8 +49,6 @@ export const shortSha = () => {
     return null;
   }
 };
-
-// ==================== In-page instrumentation ====================
 
 /**
  * Installed into the page by {@link installProbes}. Must be self-contained:
@@ -146,12 +131,9 @@ function probeInstaller() {
   };
 }
 
-/** Install the probes and the armer into the page under test. */
 export async function installProbes(adapter) {
   await adapter.install(probeInstaller);
 }
-
-// ==================== Measuring ====================
 
 /**
  * Run one interaction `samples` times.
@@ -209,8 +191,6 @@ export function summarize(result) {
   };
 }
 
-// ==================== Session shaping ====================
-
 /** The configured prefix key, as a Playwright-style modifier + key. */
 export async function readPrefix(adapter) {
   const raw = await adapter.evaluate(
@@ -222,7 +202,6 @@ export async function readPrefix(adapter) {
   return { modifier: 'Control', key: 'b' };
 }
 
-/** Send `prefix` then `key`, as a user does. */
 export async function prefixKey(adapter, prefix, key) {
   await adapter.press(`${prefix.modifier}+${prefix.key}`);
   await adapter.wait(60);
@@ -245,10 +224,8 @@ export async function ensurePanes(adapter, prefix, want) {
     await adapter.type('exit\n');
     await adapter.wait(1200);
   }
-  // Loudly, rather than measuring whatever is there. An interaction that needs
-  // two panes and gets one does not fail — it times out on every sample and
-  // then reports a flattering p50 from the one that slipped through, which is
-  // a far more expensive thing to debug than a clear message here.
+  // Loudly: an interaction that needs two panes and gets one times out on every
+  // sample and reports a flattering p50 from the one that slipped through.
   const got = await paneCount(adapter);
   if (got !== want) {
     throw new Error(
@@ -305,31 +282,22 @@ export async function waitForReady(adapter, { timeout = 30000 } = {}) {
   await adapter.wait(1500);
 }
 
-// ==================== The interaction suite ====================
-
 /**
- * Drive every measured interaction once, in order, and return raw results.
- *
- * The order matters and is not arbitrary: `key-echo` runs first because every
- * other number is divided by it, and each interaction leaves the session in
- * the shape the next one expects.
+ * `key-echo` runs first because every other number is divided by it, and each
+ * interaction leaves the session in the shape the next one expects.
  */
 export async function runInteractions(adapter, { samples }) {
   await installProbes(adapter);
 
   const prefix = await readPrefix(adapter);
-  // The ACTIVE pane, never simply the first one in the DOM. Panes of inactive
-  // windows stay in the tree with `display: none`, so `.first()` selects a
-  // 0x0 element as soon as the session has more than one tab — and this suite
-  // creates a second tab itself, for `tab-switch`. Clicking a hidden pane
-  // times out and takes the whole run with it.
+  // The ACTIVE pane, never the first in the DOM: panes of inactive windows stay
+  // in the tree with `display: none`, and clicking a hidden one times out.
   await adapter.clickActivePane();
   await adapter.press('Control+u');
   await adapter.wait(500);
 
   const results = [];
 
-  // --- keystroke echo: the reference every other number is divided by ---
   results.push(
     await measure(adapter, {
       name: 'key-echo',
@@ -342,7 +310,6 @@ export async function runInteractions(adapter, { samples }) {
   await adapter.press('Control+u');
   await adapter.wait(500);
 
-  // --- pane navigation: the interaction this harness exists for ---
   await ensurePanes(adapter, prefix, 2);
   results.push(
     await measure(adapter, {
@@ -353,7 +320,6 @@ export async function runInteractions(adapter, { samples }) {
     }),
   );
 
-  // --- zoom toggle ---
   results.push(
     await measure(adapter, {
       name: 'pane-zoom-toggle',
@@ -368,7 +334,6 @@ export async function runInteractions(adapter, { samples }) {
     await adapter.wait(600);
   }
 
-  // --- split: timed create, untimed teardown back to two panes ---
   results.push(
     await measure(adapter, {
       name: 'pane-split',
@@ -383,7 +348,6 @@ export async function runInteractions(adapter, { samples }) {
   );
   await ensurePanes(adapter, prefix, 2);
 
-  // --- tab switch ---
   await ensureTabs(adapter, prefix, 2);
   results.push(
     await measure(adapter, {
@@ -398,11 +362,9 @@ export async function runInteractions(adapter, { samples }) {
 }
 
 /**
- * Shape raw results into the report `compare-interactions.mjs` reads.
- *
- * `platform` is passed in rather than derived, because the desktop harness
- * measures a different product on the same machine and must not be compared
- * against the web baseline.
+ * The report `compare-interactions.mjs` reads. `platform` is passed in, not
+ * derived: the desktop harness measures a different product on the same
+ * machine and must not be compared against the web baseline.
  */
 export function buildReport({ results, label, platform, target, url, samplesRequested }) {
   const summaries = results.map(summarize);
@@ -418,9 +380,8 @@ export function buildReport({ results, label, platform, target, url, samplesRequ
     target,
     url,
     samplesRequested,
-    // Every interaction as a multiple of the keystroke round trip measured on
-    // this same machine in this same run. Machine-speed-independent, which is
-    // what makes a CI budget possible at all.
+    // A multiple of this run's keystroke round trip: machine-speed-independent,
+    // which is what makes a CI budget possible.
     reference: 'key-echo',
     interactions: summaries.map((s) => ({
       ...s,

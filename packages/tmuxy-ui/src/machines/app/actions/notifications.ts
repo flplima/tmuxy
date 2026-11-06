@@ -1,7 +1,5 @@
 /**
- * Action implementations for the notifications state slice.
- *
- * Owns notifications. A notification ages out after NOTIFICATION_DURATION
+ * A notification ages out after NOTIFICATION_DURATION
  * through a delayed DISMISS_NOTIFICATION raise keyed by its id, so closing it
  * early cancels the timer and a stack never dismisses the wrong entry. The
  * same text arriving while it is still on screen refreshes the existing entry

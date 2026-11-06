@@ -18,7 +18,6 @@ import {
   shipTraceBatch,
 } from './httpStream';
 
-/** A connect() caller waiting for the channel to (re)reach the connected state. */
 interface ConnectWaiter {
   resolve: () => void;
   reject: (reason: unknown) => void;
@@ -32,22 +31,17 @@ export class HttpAdapter implements SequencedDriver {
   readonly enumeratesSessions = true;
   readonly answersQueries = true;
   private eventSource: EventSource | null = null;
-  // The supervised reconnect fiber. One Effect.retry loop owns opening the
-  // EventSource and reopening it with backoff, so there is never a rival
-  // stream to orphan and no hand-maintained timer to forget to reschedule.
-  // Null when no channel is running.
+  // The one loop that opens the EventSource and reopens it with backoff;
+  // null when no channel is running.
   private channelFiber: Fiber.RuntimeFiber<void, never> | null = null;
-  // connect() callers waiting for the channel to next reach the connected
-  // state. Resolved on connection-info, rejected on fatal / disconnect /
-  // session switch — so a connect() issued during a reconnect window waits
-  // for the real reconnection instead of resolving against a dead stream.
+  // Resolved on connection-info, rejected on fatal / disconnect / session
+  // switch: a connect() issued during a reconnect window waits for the real
+  // reconnection instead of resolving against a dead stream.
   private connectWaiters: ConnectWaiter[] = [];
   private readonly reconnectSchedule: Schedule.Schedule<unknown>;
   private connectionId: number = 0;
   private connected = false;
   private reconnecting = false;
-  // Session-name override set by switchSession. Instance-scoped (not a module
-  // global) so multiple adapters — or a re-created one — don't share/leak it.
   private sessionOverride: string | null = null;
   private intentionalDisconnect = false;
 
@@ -61,15 +55,10 @@ export class HttpAdapter implements SequencedDriver {
   /** The client's copy of the state the stream stage sequences; a new connection or session restarts it. */
   readonly sequencer = new StateSequencer();
 
-  /**
-   * @param opts.reconnectSchedule override the backoff policy — tests inject a
-   *   zero-delay schedule so reconnection is synchronous instead of real-time.
-   */
   constructor(opts: { reconnectSchedule?: Schedule.Schedule<unknown> } = {}) {
     this.reconnectSchedule = opts.reconnectSchedule ?? RECONNECT_SCHEDULE;
   }
 
-  /** Effective session name: the switchSession override, else the URL param. */
   private getEffectiveSession(): string {
     return this.sessionOverride || getSessionFromUrl();
   }
@@ -81,10 +70,6 @@ export class HttpAdapter implements SequencedDriver {
 
     this.intentionalDisconnect = false;
 
-    // One supervised fiber owns the stream and its reconnect loop. A second
-    // caller (e.g. an auto-connect from invoke() during a reconnect window)
-    // does NOT open a rival EventSource — it just waits for the same connected
-    // transition, so a stream can never be orphaned.
     if (!this.channelFiber) this.startChannel();
     if (!this.networkHints) {
       this.networkHints = installNetworkHints(() => this.reconnectNow());
@@ -102,10 +87,6 @@ export class HttpAdapter implements SequencedDriver {
     this.closeChannel(new Error('disconnected'));
   }
 
-  /**
-   * Interrupt the reconnect fiber (its scoped finalizer closes the stream)
-   * and reject anyone still awaiting connect() with `reason`.
-   */
   private closeChannel(reason: Error): void {
     if (this.channelFiber) {
       Effect.runFork(Fiber.interrupt(this.channelFiber));
@@ -121,20 +102,9 @@ export class HttpAdapter implements SequencedDriver {
     this.failConnectWaiters(reason);
   }
 
-  /**
-   * Fork the supervised reconnect loop. `openConnection` fails whenever the
-   * stream ends (establish failure OR mid-session drop — the same to the loop),
-   * and `Effect.retry` reopens it on the backoff schedule until connected or
-   * the fiber is interrupted. A fatal event flips `this.fatal`, which the retry
-   * `while` predicate reads to STOP retrying and surface the terminal error to
-   * any waiting connect() callers. There is no reschedule call to forget, so
-   * the establish-failure dead-loop the old imperative path had is impossible.
-   */
   private startChannel(): void {
-    // Resolve the events URL here, on the caller's stack, rather than inside the
-    // fiber: `window` is only reliably bound synchronously. The URL is fixed for
-    // the channel's lifetime (a session change tears the channel down and starts
-    // a new one), so reconnect attempts reuse it.
+    // Resolved on the caller's stack, not inside the fiber: `window` is only
+    // reliably bound synchronously.
     const eventsUrl = buildEndpointUrl('/events', this.getEffectiveSession());
 
     // The backoff belongs to ONE outage. A connection that was established and
@@ -201,7 +171,6 @@ export class HttpAdapter implements SequencedDriver {
         this.connectionId = data.connection_id;
         this.connected = true;
 
-        // Clear reconnecting state if was reconnecting
         if (this.reconnecting) {
           this.reconnecting = false;
           this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
@@ -226,7 +195,6 @@ export class HttpAdapter implements SequencedDriver {
     });
   }
 
-  /** Ask why the event stream would not open (see probeRefusalReason in httpStream.ts). */
   private async explainRefusal(eventsUrl: string): Promise<void> {
     if (this.refusalProbe || this.fatal) return;
     const probe = new AbortController();
@@ -256,14 +224,12 @@ export class HttpAdapter implements SequencedDriver {
     if (created) this.reconnectNow();
   }
 
-  /** Resolve everyone awaiting connect() — a connection-info arrived. */
   private resolveConnectWaiters(): void {
     const waiters = this.connectWaiters;
     this.connectWaiters = [];
     for (const w of waiters) w.resolve();
   }
 
-  /** Reject everyone awaiting connect() (fatal / disconnect / session switch). */
   private failConnectWaiters(reason: unknown): void {
     const waiters = this.connectWaiters;
     this.connectWaiters = [];
@@ -310,15 +276,13 @@ export class HttpAdapter implements SequencedDriver {
     this.sessionOverride = newSession;
     this.sequencer.reset();
 
-    // Switching sessions is a fresh start — clear a prior fatal so the switch
-    // isn't permanently rejected by connect()'s fatal guard (recovering from a
-    // dead session by switching to a live one must be possible without reload).
+    // Recovering from a dead session by switching to a live one must work
+    // without a reload, so a prior fatal is cleared.
     this.fatal = false;
 
     // A fresh loop for the new session; the old session's connect() callers are rejected.
     this.closeChannel(new Error('switching session'));
 
-    // Reconnect to new session
     await this.connect();
   }
 }

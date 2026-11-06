@@ -1,16 +1,6 @@
 /**
- * App Machine - Parent orchestrator for the tmuxy application
- *
- * Coordinates:
- * - Actors (fromCallback, injected via factory):
- *   - tmuxActor: SSE/HTTP lifecycle, state updates
- *   - tmuxStoreActor: optimistic TmuxStore bridge
- *   - keyboardActor: keydown → formatTmuxKey → send-keys
- *   - sizeActor: window.resize, ResizeObserver, char measurement
- *   - linkModifierActor, gestureActor, serversActor
- * - Child Machines (stateful, no DOM access):
- *   - dragMachine: idle/dragging, spawns pointer listener
- *   - resizeMachine: idle/resizing, spawns pointer listener
+ * The app machine. Its actors are stubs here; AppContext.tsx provides the
+ * real ones, built over the app runtime.
  */
 
 import { RECONNECT_NOTICE_DELAY_MS } from '../constants';

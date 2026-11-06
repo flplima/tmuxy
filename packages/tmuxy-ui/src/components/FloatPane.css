@@ -1,9 +1,4 @@
-/* ============================================
-   Float Pane Overlay
-   ============================================ */
-
-/* Float modal container — green border + shadow on the outer modal-container
-   so overflow:hidden doesn't clip borders */
+/* Border on the outer modal-container so its overflow:hidden doesn't clip it. */
 .float-modal .modal-container {
   border: 1px solid var(--accent-green);
   box-shadow: var(--shadow-lg);
@@ -23,8 +18,8 @@
   overflow: hidden;
   background: var(--bg-black);
   box-sizing: border-box;
-  /* The anchor for anything drawn over the float's body — today the `tmuxy
-     ask` overlay, which covers the terminal but not the float's header. */
+  /* The anchor for anything drawn over the float's body, such as the ask
+     overlay, which covers the terminal but not the float's header. */
   position: relative;
 }
 
@@ -39,11 +34,6 @@
   }
 }
 
-/* ============================================
-   Drawer - Edge-docked float with slide animation
-   ============================================ */
-
-/* Drawer container: no border-radius on docked edge */
 .drawer .modal-container {
   border-radius: 0;
   animation-duration: 200ms;

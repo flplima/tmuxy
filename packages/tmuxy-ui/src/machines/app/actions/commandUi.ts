@@ -1,13 +1,3 @@
-/**
- * Action implementations for the commandUi slice (a root-level `on` block).
- *
- * Owns commandMode, statusMessage, prefixActive, keyTable, keysViewOpen,
- * renamingPaneId.
- *
- * A submitted command is raised as SEND_TMUX_COMMAND: it is a string the
- * user typed, parsed and routed like a binding (see ../dispatch.ts).
- */
-
 import { assign, cancel, raise, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
@@ -117,9 +107,8 @@ export const commandUiActions = {
 
     if (!finalCommand.trim()) return;
 
-    // The same path as a key binding or a menu item: the intercepts
-    // (copy-mode, nested command-prompt, tab/group nav)
-    // and the store's optimistic prediction.
+    // The same path as a key binding or a menu item (../dispatch.ts): the
+    // intercepts and the store's optimistic prediction.
     enqueue(raise({ type: 'SEND_TMUX_COMMAND', command: finalCommand }));
   }),
 
@@ -143,9 +132,6 @@ export const commandUiActions = {
     );
   }),
 
-  // The delayed CLEAR_STATUS_MESSAGE raise is cancelled and re-scheduled by id
-  // whenever a new message is shown, so whatever reaches here is the current
-  // message's own expiry — no timestamp guard needed.
   commandUi_clearStatusMessage: assignCtx({
     statusMessage: null,
   }),

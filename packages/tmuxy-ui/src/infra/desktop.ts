@@ -1,8 +1,4 @@
-/**
- * The one way the page calls a command of the desktop shell (Tauri's
- * `invoke`, outside the transport): every call is traced (docs/TRACING.md)
- * under an `action_id`, and a failure is reported through `logFailure`.
- */
+// The one way the page calls a desktop-shell command outside the transport (docs/TRACING.md).
 
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './platform';

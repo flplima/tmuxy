@@ -1,17 +1,7 @@
 /**
- * useReorderDrag — the press-and-drag that reorders tabs, shared by the tab
- * strip (WindowTabs) and the Tab Overview's card grid.
- *
- * A press captures the pointer and remembers where it began. A mouse turns the
- * press into a drag after a few pixels of travel; a finger after a long press,
- * and a finger that moves first is scrolling, so the press is dropped. While a
- * drag is active the card follows the pointer (`dx`/`dy`) and the index it
- * would land at is re-read from the OTHER cards' centres on every move. The
- * release reports the drop to the caller and returns the press, so the caller
- * can tell a drag that ended from a click that never became one.
- *
- * The drag is transient pointer state and stays here; the reorder itself is
- * the caller's event.
+ * A mouse turns a press into a drag after a few pixels of travel; a finger
+ * after a long press, and a finger that moves first is scrolling, so the
+ * press is dropped.
  */
 
 import {
@@ -45,12 +35,11 @@ export interface ReorderDragState {
   pointerId: number;
   startX: number;
   startY: number;
-  /** Current pointer offset from the press, for the dragged card's transform. */
+  /** px from the press */
   dx: number;
   dy: number;
   /** Where the card would land, as an index among the OTHER cards. */
   overIndex: number;
-  /** True once the threshold / long-press turned the press into a drag. */
   active: boolean;
   /**
    * The room the card takes along the axis, gap included: what a sibling
@@ -76,7 +65,6 @@ export function siblingShift(drag: ReorderDragState, index: number): number {
 }
 
 interface UseReorderDragOptions {
-  /** The element holding the cards; the drop index is read from its cards' centres. */
   containerRef: RefObject<HTMLElement | null>;
   /** Selects the cards inside the container; each carries `data-window-id`. */
   cardSelector: string;
@@ -109,7 +97,6 @@ export function useReorderDrag({
 
   useEffect(() => clearLongPress, [clearLongPress]);
 
-  /** The card's width along the axis plus the gap to its neighbour. */
   const cardExtent = (card: HTMLElement): number => {
     const cards = Array.from(
       containerRef.current?.querySelectorAll<HTMLElement>(cardSelector) ?? [],
@@ -222,7 +209,6 @@ export function useReorderDrag({
     setDrag(null);
   };
 
-  /** The drag in progress, once the press has become one. */
   const dragging = drag?.active ? drag : null;
   /**
    * Strip index of the card the dragged one would be inserted before; equal

@@ -1,15 +1,8 @@
 /**
- * What the status line says in each mode: the hints, and the mode's name.
- *
- * Every line is written to fit 80 columns — the narrowest pty tmuxy is
- * designed around — with 1ch of padding either side, and the test beside
- * this file holds each one to that. A hint is `[key] label`; hints are joined
- * by ` · `. No line says how to leave a mode: `esc` leaves every one.
- *
- * Normal mode shows the three chords used constantly; a mode replaces the
- * whole left side with its name and a handful of its keys, read from the
- * bindings so the line names the keys the config actually binds. The rest
- * of a table is in the keys view (`prefix ?`).
+ * Every line fits 80 columns — the narrowest pty tmuxy is designed around —
+ * with 1ch of padding either side (the test beside this file holds each one
+ * to that). No line says how to leave a mode: `esc` leaves every one. Keys
+ * are read from the bindings, so the line names what the config binds.
  */
 
 import type { KeyBindings } from '../domain/wire';
@@ -45,7 +38,6 @@ const bound =
   (keybindings, table) =>
     ops.map((op) => tableKeysFor(keybindings, table, op)[0]);
 
-/** The table's own keys for client keys (`CLIENT_KEYS`). */
 const client =
   (...keys: ClientKey[]): HintSpec['keys'] =>
   (_, table) =>
@@ -53,7 +45,6 @@ const client =
       (key) => Object.entries(CLIENT_KEYS[table] ?? {}).find(([, bound]) => bound === key)?.[0],
     );
 
-/** The keys that enter a sticky table. */
 const entering =
   (target: string): HintSpec['keys'] =>
   (keybindings) => [
@@ -79,7 +70,6 @@ const SPLITS = [
   TmuxOp.Split({ direction: 'vertical' }),
 ] as const;
 
-/** The modes the status line names, by the key table they are. */
 const MODE_HINTS: Readonly<Record<string, readonly HintSpec[]>> = {
   prefix: [
     { keys: bound(...SPLITS), label: 'split' },
@@ -121,7 +111,7 @@ const COPY_HINTS: readonly Hint[] = [
   { key: '/', label: 'search' },
 ];
 
-/** The hints of a mode, keyed by what its table binds; none for a table the line knows nothing about. */
+/** None for a table the line knows nothing about. */
 export function modeHints(keybindings: KeyBindings | null, mode: string): Hint[] {
   if (mode === 'copy') return [...COPY_HINTS];
   const specs = MODE_HINTS[mode];
@@ -148,11 +138,7 @@ function navHintKey(keybindings: KeyBindings): string | null {
   return null;
 }
 
-/**
- * Normal mode: the prefix, pane navigation and tab selection, named by
- * whatever keys the config binds (a user's own config may move them); the
- * tab chord is the client's own.
- */
+/** The tab chord is the client's own; the rest are the config's keys. */
 export function normalHints(keybindings: KeyBindings): Hint[] {
   const navKey = navHintKey(keybindings);
   return [

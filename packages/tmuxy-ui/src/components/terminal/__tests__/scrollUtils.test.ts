@@ -180,7 +180,6 @@ describe('sendScrollLines', () => {
       cellY: 0,
     });
     expect(events).toHaveLength(2);
-    // All commands should be SGR wheel events, NOT synthetic arrow keys
     for (const ev of events) {
       const cmd = wire(ev);
       expect(cmd).not.toMatch(/send-keys -t \S+ (Up|Down)/);

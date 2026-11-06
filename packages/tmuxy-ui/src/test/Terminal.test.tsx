@@ -5,12 +5,10 @@ import { Terminal } from '../components/terminal/Terminal';
 import { cellsToCss } from '../components/terminal/terminalShared';
 import type { PaneContent, CellLine, TerminalCell } from '../domain/wireCells';
 
-// Helper to create a simple cell line from a string
 function createLine(text: string): CellLine {
   return text.split('').map((c): TerminalCell => ({ c }));
 }
 
-// Helper to create content from string array
 function createContent(lines: string[]): PaneContent {
   return lines.map(createLine);
 }
@@ -28,7 +26,6 @@ describe('Terminal', () => {
     const pre = terminal.querySelector('.terminal-content');
     const lines = pre?.querySelectorAll('.terminal-line');
 
-    // Should have 5 lines (1 content + 4 padding)
     expect(lines?.length).toBe(5);
   });
 
@@ -119,9 +116,7 @@ describe('Terminal', () => {
     const terminal = screen.getByTestId('terminal');
     const cursor = terminal.querySelector('.terminal-cursor') as HTMLElement;
     expect(cursor).toBeInTheDocument();
-    // Never a descendant of a rendered line.
     expect(cursor.closest('.terminal-line')).toBeNull();
-    // Positioned in grid units (--cell-w), so glyph advance can't shift it.
     expect(cursor.style.left).toBe(cellsToCss(6));
     expect(cursor.style.width).toBe(cellsToCss(1));
     expect(cursor.textContent).toBe('w');
@@ -192,7 +187,6 @@ describe('Terminal', () => {
     const spans = screen.getByTestId('terminal').querySelectorAll('.terminal-line > span');
     const widthSpan = Array.from(spans).find((s) => s.textContent === 'hello world');
     expect(widthSpan).toBeDefined();
-    // 'hello world' is 11 characters → 11 cells wide.
     expect((widthSpan as HTMLElement).style.width).toBe(cellsToCss(11));
   });
 
@@ -212,7 +206,6 @@ describe('Terminal', () => {
     expect(wideSpan).toBeDefined();
     // Own 1-cell box; the glyph (≈2 cells) overflows into the next, blank cell.
     expect(wideSpan!.style.width).toBe(cellsToCss(1));
-    // It must not have been merged with the neighbouring 'a' or trailing text.
     expect(spans.some((s) => s.textContent === 'a中')).toBe(false);
     expect(spans.some((s) => s.textContent?.includes('中 '))).toBe(false);
   });

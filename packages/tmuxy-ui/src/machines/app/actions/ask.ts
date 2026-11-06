@@ -19,7 +19,6 @@ import { TmuxOp } from '../../../domain/commands';
 import { selectVisibleSendAsks } from '../../selectors/keyboard';
 import type { PaneId } from '../../../domain/ids';
 
-/** The highlighted option for a pane — `yes` until the user moves it. */
 export function askSelectionFor(context: Ctx, paneId: PaneId): AskAnswer {
   return context.askSelections[paneId] ?? 'yes';
 }
@@ -81,12 +80,7 @@ export const askActions = {
     }
   }),
 
-  /**
-   * A plain key typed into a pane with a question on it. A send's question
-   * takes every key: Up/1 and Down/2 move the highlight, Enter gives the
-   * highlighted answer, Escape says no. An offer is answered by any key: yes
-   * by Enter, no by anything else.
-   */
+  /** A plain key typed into a pane with a question on it. */
   ask_key: act(({ context, event, enqueue }) => {
     if (event.type !== 'ASK_KEY') return;
     const { paneId, key } = event;

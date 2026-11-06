@@ -1,9 +1,3 @@
-/**
- * ConnectionOverlay stories — the three looks of the pane area while nothing
- * live is on it: first load, a dropped channel over the last frame, and a
- * fatal with the log behind "Details".
- */
-
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent } from 'storybook/test';
 import { ConnectionOverlay } from './ConnectionOverlay';
@@ -83,7 +77,6 @@ export const Fatal: Story = {
     expect(canvas.getByTestId('fatal-display')).toHaveAttribute('data-mode', 'fatal');
     expect(canvas.getByText('tmux server exited (control mode closed)')).toBeVisible();
     expect(canvas.getByRole('button', { name: 'Retry' })).toBeVisible();
-    // The log is there but collapsed until the user asks for it.
     const details = canvasElement.querySelector('details') as HTMLDetailsElement;
     expect(details.open).toBe(false);
     await userEvent.click(canvas.getByText('Details'));

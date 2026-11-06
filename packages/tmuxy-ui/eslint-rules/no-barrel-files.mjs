@@ -38,7 +38,6 @@ export default {
     const basename = filename.slice(filename.lastIndexOf('/') + 1);
     const isIndexFile = /^index\.tsx?$/.test(basename);
 
-    /** Map of local identifier name -> import source for non-asset imports */
     const importedBindings = new Map();
 
     return {

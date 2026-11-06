@@ -1,8 +1,3 @@
-/**
- * TerminalPaneScroll — scroll container synchronization, native wheel/touch
- * listeners, and scroll position indicator for TerminalPane.
- */
-
 import type { useCopyModeState } from '../../machines/appHooks';
 
 type CopyModeState = NonNullable<ReturnType<typeof useCopyModeState>>;
@@ -16,7 +11,6 @@ export function ScrollPositionIndicator({
   copyState: CopyModeState;
   paneHeight: number;
 }) {
-  // Scroll indicator geometry (only meaningful in copy mode)
   const totalLines = copyState.totalLines;
   const scrollTop = copyState.scrollTop;
   const thumbPct = totalLines > 0 ? Math.max(5, (paneHeight / totalLines) * 100) : 100;

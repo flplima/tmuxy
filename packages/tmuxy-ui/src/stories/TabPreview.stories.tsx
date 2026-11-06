@@ -1,17 +1,10 @@
 /**
- * The picture of a tab that appears when you rest on its button, over a
- * recording of real tmux: three tabs, `alpha`, `bravo` and `charlie` (current).
- *
- * Chrome-style, and for the same reason: a strip of names does not tell you
- * which tab has the thing you are after, and switching to find out costs you
- * the tab you were on.
- *
- * The behaviour worth pinning down is the browsing: the FIRST preview waits a
- * second, so a pointer crossing the strip shows nothing, but once one is up,
- * moving along the strip slides the SAME card to the next button and swaps its
- * picture at once. These stories check that it is literally the same DOM node
- * that moves — a card that unmounted and remounted would look almost the same
- * in a screenshot and be completely wrong to use.
+ * The tab preview, over a recording of real tmux: three tabs, `alpha`, `bravo`
+ * and `charlie` (current). The first preview waits a second, so a pointer
+ * crossing the strip shows nothing; once one is up, moving along the strip
+ * slides the SAME card to the next button. These stories check it is literally
+ * the same DOM node: a remounted card looks the same in a screenshot and is
+ * wrong to use.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -53,10 +46,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-// ---------------------------------------------------------------------------
-// Resting opens it; moving along the strip carries the same card
-// ---------------------------------------------------------------------------
-
 export const RestOpensItAndBrowsingCarriesIt: Story = {
   parameters: {
     docs: {
@@ -77,13 +66,11 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
     const alpha = tabButton(canvasElement, 'alpha');
     const bravo = tabButton(canvasElement, 'bravo');
 
-    // Nothing yet — the pointer has not been anywhere.
     expect(preview()).toBeNull();
 
     await userEvent.hover(alpha);
     const card = await waitForPreview(alpha.dataset.windowId);
 
-    // It is drawn, under the tab it belongs to, and inside the window.
     const box = card.getBoundingClientRect();
     const tab = alpha.getBoundingClientRect();
     expect(box.width).toBeGreaterThan(100);
@@ -91,13 +78,8 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
     expect(box.top).toBeGreaterThanOrEqual(tab.bottom - 1);
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(window.innerWidth);
-    // It shows that tab's screen rather than a wireframe of it, and names
-    // each pane the way that pane's own header does.
     await waitFor(() => expect(card.querySelector('.tab-overview-shot')).not.toBeNull());
 
-    // Each pane wears its real header, scaled with its screen rather than
-    // redrawn at miniature size: the same element the pane itself uses, so it
-    // cannot drift from the real thing.
     const header = card.querySelector<HTMLElement>('.tab-shot-header .pane-header');
     expect(header, 'the preview drew no pane header').not.toBeNull();
     const scaled = header!.getBoundingClientRect();
@@ -105,38 +87,28 @@ export const RestOpensItAndBrowsingCarriesIt: Story = {
       getComputedStyle(document.documentElement).getPropertyValue('--pane-header-height'),
     );
     expect(scaled.height).toBeGreaterThan(0);
-    // Smaller than the real thing, because the whole picture is.
     expect(scaled.height).toBeLessThan(natural);
-    // ...and it is showing the pane's title, not an invented caption.
     expect(header!.querySelector('.pane-tab-title')?.textContent ?? '').toMatch(/\S/);
 
-    // The tab it belongs to stays lit while its card is up, so the card is
-    // visibly about that tab.
     expect(alpha).toHaveClass('is-previewing');
 
-    // Move along the strip: the SAME node follows, showing the next tab.
     await userEvent.hover(bravo);
     await waitFor(() => expect(preview()?.dataset.windowId).toBe(bravo.dataset.windowId), {
       timeout: 1000,
     });
     expect(preview(), 'a new card was created instead of moving the old one').toBe(card);
-    // The lit tab moves along with it.
     expect(bravo).toHaveClass('is-previewing');
     expect(alpha).not.toHaveClass('is-previewing');
     await waitFor(() => {
       const moved = card.getBoundingClientRect();
       const target = bravo.getBoundingClientRect();
-      // Centred on its new button, give or take the viewport clamp.
+      // Give or take the viewport clamp.
       expect(
         Math.abs(moved.left + moved.width / 2 - (target.left + target.width / 2)),
       ).toBeLessThan(moved.width);
     });
   },
 };
-
-// ---------------------------------------------------------------------------
-// Leaving the strip ends it, and the next one waits again
-// ---------------------------------------------------------------------------
 
 export const LeavingTheStripEndsIt: Story = {
   parameters: {
@@ -159,23 +131,17 @@ export const LeavingTheStripEndsIt: Story = {
     await userEvent.hover(alpha);
     await waitForPreview();
 
-    // Off the strip entirely: the card goes.
     const pane = canvasElement.querySelector<HTMLElement>('.pane-layout-item');
     await userEvent.unhover(alpha);
     if (pane) await userEvent.hover(pane);
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
 
-    // Pressing a tab dismisses it as well.
     await userEvent.hover(alpha);
     await waitForPreview();
     await userEvent.click(alpha);
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
-
-// ---------------------------------------------------------------------------
-// The card takes the pointer, and closes the tab from its own corner
-// ---------------------------------------------------------------------------
 
 export const TheCardCanBeReachedAndClosesTheTab: Story = {
   parameters: {
@@ -199,18 +165,15 @@ export const TheCardCanBeReachedAndClosesTheTab: Story = {
     await userEvent.hover(bravo);
     const card = await waitForPreview(doomed);
 
-    // Room to breathe: the frame is not pressed against the card's edge.
     const style = getComputedStyle(card);
     expect(parseFloat(style.paddingTop)).toBeGreaterThanOrEqual(8);
     expect(parseFloat(style.paddingLeft)).toBeGreaterThanOrEqual(8);
 
-    // Leave the tab for the card: it stays, because the card takes the pointer.
     await userEvent.unhover(bravo);
     await userEvent.hover(card);
     await new Promise((r) => setTimeout(r, 600));
     expect(preview(), 'the card went away as the pointer reached it').not.toBeNull();
 
-    // Its ✕ sits in the card's padding above the picture, not over it.
     const close = canvasElement.ownerDocument.querySelector<HTMLElement>(
       '[data-testid="tab-preview-close"]',
     );
@@ -234,10 +197,6 @@ export const TheCardCanBeReachedAndClosesTheTab: Story = {
     );
   },
 };
-
-// ---------------------------------------------------------------------------
-// It fades and slides, both ways, unless the config says not to
-// ---------------------------------------------------------------------------
 
 export const ItFadesAndSlidesBothWays: Story = {
   tags: ['nightly'],
@@ -263,30 +222,21 @@ export const ItFadesAndSlidesBothWays: Story = {
     void userEvent.hover(alpha);
     const card = await inserted;
     expect(animationNames(card)).toContain('floating-surface-in');
-    // The node stays, so the entrance can be watched to its end.
     await runningAnimation(card, 'floating-surface-in').finished;
     await waitForPreview();
 
-    // Out: the same, in reverse — the node is kept while it goes, and what it
-    // carries then is the exit animation, which must run to its end before
-    // the node is gone.
     const leaving = waitForCardLeaving(card);
     void userEvent.unhover(alpha);
     if (pane) void userEvent.hover(pane);
     await leaving;
     expect(animationNames(card)).toContain('floating-surface-out');
-    // Not awaited to its end: the node is held for exactly the exit's length
-    // and its removal cancels the animation, so `finished` can reject on the
-    // very frame the exit completes. Running with a real duration, then gone,
-    // is the whole of what "leaves the same way" means.
+    // Not awaited: the node is held for exactly the exit's length and its
+    // removal cancels the animation, so `finished` can reject on the very frame
+    // the exit completes.
     runningAnimation(card, 'floating-surface-out');
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
-
-// ---------------------------------------------------------------------------
-// Clicking the card opens its tab
-// ---------------------------------------------------------------------------
 
 export const ClickingTheCardOpensThatTab: Story = {
   parameters: {
@@ -321,10 +271,6 @@ export const ClickingTheCardOpensThatTab: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// The preview turns INTO the context menu
-// ---------------------------------------------------------------------------
-
 export const RightClickTurnsThePreviewIntoTheMenu: Story = {
   tags: ['nightly'],
   parameters: {
@@ -346,19 +292,16 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
     const tab = tabButton(canvasElement, 'bravo');
     const windowId = tab.dataset.windowId as string;
 
-    // Rest on it until the picture is up — and settled: its box is measured
-    // here and compared with the menu's below, so it is read once the entrance
-    // has stopped moving it rather than somewhere along the slide.
+    // Settled: its box is compared with the menu's below, so it is read once
+    // the entrance has stopped moving it.
     await userEvent.hover(tab);
     const card = await waitForPreview(windowId);
     await Promise.all(card.getAnimations().map((a) => a.finished.catch(() => undefined)));
     const cardBox = card.getBoundingClientRect();
     expect(cardBox.height).toBeGreaterThan(0);
 
-    // Then right-click the same tab.
     await userEvent.pointer({ target: tab, keys: '[MouseRight]' });
 
-    // The menu is up...
     const menu = await waitFor(
       () => {
         const el = document.querySelector<HTMLElement>('.floating-menu');
@@ -369,9 +312,8 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
     );
     expect(menu.getBoundingClientRect().height).toBeGreaterThan(0);
 
-    // ...and the card is gone, rather than sitting behind it. Checked as a
-    // BOX, not merely as a missing node: a card left in the DOM at zero
-    // opacity is still a card the pointer can hit.
+    // Checked as a box, not a missing node: a card left at zero opacity is
+    // still a card the pointer can hit.
     await waitFor(
       () => {
         const still = preview();
@@ -384,28 +326,21 @@ export const RightClickTurnsThePreviewIntoTheMenu: Story = {
       { timeout: 3000 },
     );
 
-    // The menu is the card, changed: it is placed under the same tab, and it
-    // is drawn from where the card was and animated to where it belongs. The
-    // offsets are asserted rather than the frames — a 150ms animation is over
-    // before a busy runner can sample it, while the distance it was told to
-    // travel is there for as long as the menu is.
+    // The offsets are asserted rather than the frames: a 150ms animation is
+    // over before a busy runner can sample it.
     expect(menu.classList.contains('is-morphing'), 'the menu did not morph').toBe(true);
-    // Read from the placement the surface WROTE, not from a measured box: the
-    // morph is a transform, so a box read while it plays is the box on the way
-    // rather than the one it is heading for.
+    // From the placement the surface wrote: the morph is a transform, so a
+    // measured box is the box on the way.
     const left = parseFloat(menu.style.left);
     const top = parseFloat(menu.style.top);
     const morphX = parseFloat(menu.style.getPropertyValue('--morph-x'));
     const morphY = parseFloat(menu.style.getPropertyValue('--morph-y'));
-    // Named in the failure, because "off by 50" only means something next to
-    // where each of the three boxes actually was.
     const where =
       `menu placed at (${left},${top}), morph offset (${morphX},${morphY}), ` +
       `card was at (${Math.round(cardBox.left)},${Math.round(cardBox.top)})`;
     expect(Math.abs(left + morphX - cardBox.left), `x: ${where}`).toBeLessThanOrEqual(2);
     expect(Math.abs(top + morphY - cardBox.top), `y: ${where}`).toBeLessThanOrEqual(2);
 
-    // And it hangs off the tab, not off the pointer: the card's own anchor.
     expect(top).toBeGreaterThanOrEqual(tab.getBoundingClientRect().bottom - 1);
   },
 };

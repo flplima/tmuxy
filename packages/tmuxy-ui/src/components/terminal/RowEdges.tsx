@@ -1,26 +1,12 @@
 /**
- * RowEdges — paints the pane's horizontal padding row by row.
+ * Paints the pane's horizontal padding (`--pane-h-padding-left/right`, half a
+ * separator column) row by row, in the first and last cell's backgrounds, so
+ * a status line or an editor gutter reaches the border. The strips hang from
+ * the same edge as `.pane-live-screen` (`paneContentAnchor.ts`).
  *
- * Each pane reaches half a separator column past its cells (`.pane-content`'s
- * `--pane-h-padding-left/right`), and a row painted edge to edge — a status
- * line, an editor gutter — stopped that half cell short of the border. The
- * rows cannot paint the padding themselves: the touch-scroll container they
- * live in clips at its own box. This layer is a sibling of that container
- * inside the padded box, so its strips sit in the padding: the left strip in
- * the first cell's background, the right one in the last cell's.
- *
- * The strips are laid out over the terminal's own rows and hang from the same
- * edge it does (`.pane-live-screen`): the bottom, or the top while a growing
- * pane's height is in flight (`paneContentAnchor.ts`). Strip `i` counts up
- * from the last row.
- *
- * The RIGHT strip is painted only for a row that reaches the last column. A
- * row's last CELL is not the same thing as its right EDGE: tmux reports a row
- * as long as its content, so the last cell of `▀▀▀▀` drawn eight columns into
- * a 76-column pane is artwork, not a bar running off the side. Extending it
- * ran the colour of an ASCII-art logo's last pixel across the rest of the row
- * (and, before this, across the whole line). A status line does reach the
- * last column, which is the case the padding was painted for.
+ * The right strip is painted only for a row that reaches the last column:
+ * tmux reports a row as long as its content, so the last cell of `▀▀▀▀` drawn
+ * eight columns into a pane is artwork, not a bar running off the side.
  */
 
 import { memo } from 'react';
@@ -29,7 +15,6 @@ import { rowEdgeBackground } from './cellPaint';
 
 interface RowEdgesProps {
   lines: CellLine[];
-  /** The grid's width; a row shorter than this does not reach the right edge. */
   cols: number;
 }
 

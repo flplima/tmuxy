@@ -251,7 +251,6 @@ function asRecorded(state) {
   };
 }
 
-/** Every line of every pane's screen, as text. */
 export function screenText(state) {
   return state.panes
     .flatMap((pane) => pane.content ?? [])

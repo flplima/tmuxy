@@ -57,7 +57,6 @@ export interface Transition {
 
 export interface FixtureAdapterOptions {
   fixture: Fixture;
-  /** The state the session is in when the app connects. */
   start: string;
   transitions?: ReadonlyArray<Transition>;
   /**
@@ -186,7 +185,6 @@ export class FixtureAdapter implements TransportDriver {
         }
         return null;
       }
-      // The client leaves the session; tmux runs on.
       case 'detach_client':
         this.events.emit(TransportEvent.Detached({ reason: null }));
         return null;

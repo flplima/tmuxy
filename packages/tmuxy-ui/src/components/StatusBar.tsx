@@ -1,18 +1,12 @@
 /**
- * StatusBar - Top bar with the app menu, the two sidebar controls, and the tabs.
+ * The bar is divided into the same three columns as the body below it — a
+ * cluster as wide as each sidebar, the tabs over the pane grid — so the
+ * dividers line up.
  *
- * The bar spans the full window and is divided into the same three columns the
- * body below it has: a left cluster exactly as wide as the left sidebar, the tab
- * list over the pane grid, and a right cluster exactly as wide as the right
- * sidebar. So each sidebar's title and toggle sit above its own column and the
- * dividers line up, and the tab strip stays aligned with the panes.
- *
- * In the desktop app the bar is also the window's title bar (see
- * tmux/desktopWindow.ts): empty space drags the window on every desktop
- * platform, and double-clicking it performs the native title-bar gesture. On
- * macOS the hamburger menu is hidden (the native menu bar is used instead), room
- * is reserved for the traffic-light buttons, and the bar reports its height so
- * those buttons stay centred on it.
+ * In the desktop app the bar is also the window's title bar
+ * (infra/desktopWindow.ts). On macOS the native menu bar replaces the app
+ * menu, room is kept for the traffic-light buttons, and the bar reports its
+ * height so those buttons stay centred on it.
  */
 
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
@@ -63,36 +57,22 @@ export const StatusBar = memo(function StatusBar({
   const leftFocused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'left'));
   const rightFocused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'right'));
 
-  // On the desktop, mousedown on empty bar space hands the click to the OS as
-  // a window drag via startDragging(). That swallows the native dblclick before
-  // it reaches onDoubleClick — so the second mousedown of a double-click
-  // (e.detail === 2) performs the title-bar gesture instead. macOS and Linux
-  // share the path (on Linux the window keeps its native decorations, so this
-  // is an extra drag handle, not the only one); the Rust side maps the
-  // double-click gesture per OS.
+  // Tauri's startDragging() swallows the native dblclick, so the second
+  // mousedown of a double-click (e.detail === 2) performs the title-bar
+  // gesture instead; the Rust side maps that gesture per OS.
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!isTauri() || e.buttons !== 1 || isControl(e.target)) return;
     if (e.detail === 2) titlebarDoubleClick();
     else startWindowDrag();
   }, []);
 
-  // Each cluster spans exactly its sidebar's width, so the divider it ends on
-  // is the same divider the column below draws — the title then sits over the
-  // panel it belongs to (mock 1b/1d). The toggles do NOT ride the cluster's
-  // width: the left one stays at the header's left end (right after the menu)
-  // and the right one at its right end, whatever is open, so the same click
-  // that opened a column closes it. The "+" and the overview button sit
-  // between the strip and the dock's cluster, over the pane area. An open
-  // column takes its width out of the tab list, which is what keeps the strip
-  // aligned with the pane grid.
   const dockedLeft = leftOpen;
   const windowStyle = useWindowStyle();
   const dockedRight = rightOpen;
-  // A cluster spans its column minus whatever sits between the window's edge
-  // and the cluster: the bar's own 12px inset, and anything an embedder's
-  // `renderTabline` puts there (the demo's traffic lights) — so it ends
-  // exactly on the column's divider. Neither depends on the clusters' widths,
-  // so measuring them once laid out cannot feed back.
+  // A cluster spans its column minus what sits between the window's edge and
+  // the cluster: the bar's inset and anything an embedder's `renderTabline`
+  // puts there (the demo's traffic lights). Neither depends on the clusters'
+  // widths, so measuring them cannot feed back.
   const innerRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);

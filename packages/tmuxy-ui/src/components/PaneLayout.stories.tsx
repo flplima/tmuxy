@@ -1,10 +1,7 @@
 /**
- * PaneLayout stories, over recordings of real tmux.
- *
- * The active tiled pane carries a 1px outline in the theme's focus colour —
- * the classic tmux green on the default and gruvbox themes. Green means "the
- * keyboard is in this pane": the cue leaves while the tree, the dock or a
- * float holds the keyboard, even though tmux's active pane is unchanged.
+ * The active pane's outline means "the keyboard is in this pane": it leaves
+ * while the tree, the dock or a float holds the keyboard, even though tmux's
+ * active pane is unchanged.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -46,17 +43,14 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });
 
-    // Default theme: the active pane's outline is the terminal green, the
-    // inactive pane's is the dim frame colour.
     app().send({ type: 'SET_THEME', name: 'default' });
     await waitFor(() => expect(activeOutline()).toBe('rgb(0, 205, 0)'), { timeout: 8000 });
     const inactivePane = () =>
       document.querySelector<HTMLElement>('.pane-layout-item.pane-inactive')!;
     expect(getComputedStyle(inactivePane()).outlineColor).not.toBe('rgb(0, 205, 0)');
 
-    // Clicking the other pane moves the green with the keyboard. The node is
-    // looked up at click time: the theme change above re-renders the layout,
-    // and clicking a node captured before it can land on a replaced element.
+    // Looked up at click time: the theme change above re-renders the layout,
+    // and a node captured before it can be a replaced element.
     const before = app().getSnapshot().context.activePaneId;
     await userEvent.click(inactivePane().querySelector('[role="group"]')!);
     await waitFor(() => expect(app().getSnapshot().context.activePaneId).not.toBe(before), {
@@ -103,7 +97,6 @@ const colorOf = (value: string) => {
   return { rgb, alpha: numbers.length > 3 ? numbers[3] : 1 };
 };
 
-/** What a CSS colour expression resolves to in the page. */
 const resolve = (css: string) => {
   const probe = document.createElement('span');
   probe.style.color = css;
@@ -116,7 +109,6 @@ const resolve = (css: string) => {
 const near = (got: number[], want: number[]) =>
   got.every((channel, i) => Math.abs(channel - want[i]) <= 1);
 
-/** Every pane header's bar, and the active header's title colour. */
 const headers = () => {
   const bars = [...document.querySelectorAll<HTMLElement>('.pane-layout-item .pane-header')].map(
     (el) => colorOf(getComputedStyle(el).backgroundColor),
@@ -150,12 +142,11 @@ export const PaneHeaderGrayAndGruvboxAccent: Story = {
       return title!;
     };
 
-    // Default, dark: its dark gray.
     app().send({ type: 'SET_THEME', name: 'default' });
     app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
     await waitFor(() => expectBars(resolve('var(--border-medium)')), { timeout: 8000 });
 
-    // Gruvbox, dark: bg1, with the yellow accent on the active header.
+    // Gruvbox's bg1.
     app().send({ type: 'SET_THEME', name: 'gruvbox' });
     await waitFor(
       () => {

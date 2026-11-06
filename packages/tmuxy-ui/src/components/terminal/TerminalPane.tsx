@@ -1,15 +1,3 @@
-/**
- * TerminalPane - Renders a pane with terminal content.
- *
- * Contains a shared scroll container that wraps both Terminal and
- * ScrollbackTerminal. In normal mode the terminal is pinned to the bottom
- * of a spacer div whose height equals the full scrollback height.
- *
- * Wheel events use the proxy pattern: the pane-wrapper (non-scrollable)
- * intercepts wheel via a native { passive: false } listener, calls
- * preventDefault(), and manually adjusts scrollTop on the scroll container.
- */
-
 import { useRef, useState, useCallback } from 'react';
 import { Terminal } from './Terminal';
 import { ScrollbackTerminal } from './ScrollbackTerminal';
@@ -50,24 +38,17 @@ import { dot, PANE_HEADER } from '../../infra/dom/terminalDom';
 
 interface TerminalPaneProps {
   paneId: PaneId;
-  /**
-   * `none` drops the pane header. The pinned dock renders through here so it
-   * gets the same wheel/drag/copy-mode layer a tiled pane has, but its title
-   * lives in the app header instead.
-   */
+  /** `none` for the pinned dock, whose title lives in the app header. */
   chrome?: 'header' | 'none';
   /**
-   * Overrides the derived cursor/active state. A dock pane is never tmux's
-   * active pane (it lives in another window), so its column tells it when it
-   * holds the keyboard.
+   * Overrides the derived active state: a dock pane is never tmux's active
+   * pane (it lives in another window), so its column says when it holds the
+   * keyboard.
    */
   isActive?: boolean;
   /**
-   * The cell the pane is drawn in, when it is not the pane grid's. The dock
-   * runs in the smaller sidebar font, and every pixel-to-cell conversion here
-   * (a click, a drag, the wheel, the scrollback height) has to use the cell
-   * the user sees: with the grid's larger one, a click in the dock reached
-   * tmux cells up and to the left of where it landed.
+   * The cell the pane is drawn in, when it is not the grid's (the dock runs in
+   * the smaller sidebar font). Every pixel-to-cell conversion uses it.
    */
   cellSize?: { width: number; height: number };
 }
@@ -75,17 +56,13 @@ interface TerminalPaneProps {
 export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: TerminalPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
-  // The grid to draw: the pane's own, or the last real one while a capture
-  // refresh leaves it momentarily empty. A pane-group switch does `swap-pane`,
-  // which is exactly that gap — and drawing it blinked the pane.
+  // A capture refresh leaves the grid momentarily empty — a pane-group switch's
+  // `swap-pane` does — and drawing that gap blinks the pane.
   const content = useLatchedContent(pane?.content);
   const isSinglePane = useIsSinglePane();
   const gridCell = useAppSelector(selectCharSize);
   const charWidth = cellSize?.width ?? gridCell.charWidth;
   const charHeight = cellSize?.height ?? gridCell.charHeight;
-  // The pane holds the keyboard: tmux's active pane in the active window with
-  // nothing (float, dock, tree) focused over it — or whatever the dock's column
-  // says about its own pane.
   const paneHoldsKeyboard = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const holdsKeyboard = isActive ?? paneHoldsKeyboard;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -93,16 +70,14 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const copyState = useCopyModeState(paneId);
   const { forwardScrollToParent } = useAppConfig();
-  // The screen the live grid draws: held still while the browser has a
-  // selection on it, so new output cannot slide other text under the
-  // highlight. The scroll view holds its own rows by absolute line.
+  // Held still while the browser has a selection on it, so new output cannot
+  // slide other text under the highlight.
   const shown = useHeldWhileSelected(
     { content, cursorX: pane?.cursorX ?? 0, cursorY: pane?.cursorY ?? 0 },
     contentRef,
     !copyState,
   );
 
-  // Selection context menu state
   const [selectionMenu, setSelectionMenu] = useState<{
     x: number;
     y: number;
@@ -110,14 +85,11 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     /** The browser's selection the menu is about; null for copy mode's own. */
     range: Range | null;
   } | null>(null);
-  // The pane's own menu, opened by a right-click with nothing selected.
   const [paneMenu, setPaneMenu] = useState<{ x: number; y: number } | null>(null);
   const historySize = pane?.historySize ?? 0;
   const paneHeight = pane?.height ?? 24;
-  // In copy mode, use copyState.totalLines for scroll container height so it
-  // stays consistent with the copy mode content bounds. The live pane historySize
-  // can diverge from copyState.historySize when new output arrives after entering
-  // copy mode, causing scroll position / content misalignment.
+  // The live historySize moves on as output arrives after the view opened;
+  // the view's own extent is what the scroll container must match.
   const totalHeight = (copyState ? copyState.totalLines : historySize + paneHeight) * charHeight;
 
   const { scrollIndicatorRef, handleContainerScroll } = useTerminalPaneScroll({
@@ -128,7 +100,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     send,
   });
 
-  // Mouse handling with context-aware behavior
   const {
     handleMouseDown,
     handleMouseUp,
@@ -153,10 +124,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     forwardScrollToParent,
   });
 
-  // Touch handling for mobile scroll — and, in the phone layout, the taps,
-  // holds and slides a finger means on a tiled pane. The dock (chrome none)
-  // is drawn by the phone too, but a slide on it is not a slide between tabs,
-  // and a tap on it brings the keyboard up for it.
+  // The phone's taps, holds and slides are for a tiled pane. The dock (chrome
+  // none) is drawn by the phone too, but a slide on it is not a slide between
+  // tabs, and a tap on it brings the keyboard up for it.
   const phoneLayout = useAppSelector(selectPhoneLayout);
   const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
   const phoneGestures = phoneLayout && chrome === 'header';
@@ -189,7 +159,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     handleTouchCancel,
   });
 
-  // Handle right-click context menu for text selection
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -201,8 +170,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
       e.preventDefault();
 
-      // With text selected, the menu is about the text. Copy mode keeps its
-      // own cell selection; everywhere else the browser's is the real one.
       // The range is taken now, not when the menu mounts: by then the menu has
       // focus, and WebKit has collapsed the selection it is about.
       const copyText =
@@ -213,7 +180,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
         setSelectionMenu({ x: e.clientX, y: e.clientY, text, range });
         return;
       }
-      // With nothing selected, it is about the pane: the header's own menu.
       setPaneMenu({ x: e.clientX, y: e.clientY });
     },
     [pane?.mouseAnyFlag, copyState],
@@ -221,11 +187,8 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
 
   if (!pane) return null;
 
-  // Collapsed pane (zellij-style stack): tmux has shrunk it to a single row, so
-  // there is nothing useful to show. The pane still occupies 2 rows (header +
-  // one content row); render the header bar (the "tab") and leave the content
-  // row blank. Selecting the pane expands it again (the after-select-pane hook
-  // re-lays out the stack).
+  // A collapsed pane of a stack (zellij-style) is one row: only its header
+  // is drawn, and selecting the pane expands it.
   const collapsed = isCollapsedPane(pane);
 
   return (
@@ -240,8 +203,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
       data-pane-command={pane.command}
       data-alternate-on={pane.alternateOn}
       data-mouse-any-flag={pane.mouseAnyFlag}
-      // Focusable for the pointer, which hands the focus on to the keyboard
-      // input; not a Tab stop, since Tab inside a pane is the terminal's.
+      // Not a Tab stop: Tab inside a pane is the terminal's.
       tabIndex={-1}
       onMouseDown={(e) => {
         if (e.detail >= 3 && e.button === 0) {
@@ -268,7 +230,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
           onClose={() => setSelectionMenu(null)}
         />
       )}
-      {/* A finger's hold has a selection: Copy and Cancel over the pane. */}
       {!collapsed && phoneGestures && copyState?.mode === 'copy' && copyState.selectionMode && (
         <TouchSelectionBar paneId={paneId} copyState={copyState} />
       )}
@@ -283,8 +244,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
       )}
       {!collapsed && (
         <div className="pane-content" ref={contentRef} style={{ flex: 1 }}>
-          {/* The padding columns, row by row, in the first / last cell's colours.
-              Beside the scroll container on purpose: it would clip them. */}
+          {/* Beside the scroll container, which would clip them. */}
           {!copyState && <RowEdges lines={content} cols={pane.width} />}
           <div
             ref={scrollRef}
@@ -305,25 +265,19 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   paneId={pane.tmuxId}
                 />
               )}
-              {/* The live screen stays MOUNTED behind an open scroll view,
-                  hidden rather than replaced. Chrome cancels a touch sequence
-                  the moment its target leaves the document, and the target of
-                  the swipe that opens the view is one of these rows: taking
-                  them away killed the gesture at its first row, so the view
-                  opened one line above the live screen and the finger had to
-                  start again. */}
+              {/* Hidden, not unmounted, behind an open scroll view: Chrome
+                  cancels a touch sequence the moment its target leaves the
+                  document, and the swipe that opens the view targets these rows. */}
               {
                 <div hidden={!!copyState} className="pane-live-screen">
                   <Terminal
                     content={shown.content}
                     cursorX={shown.cursorX}
                     cursorY={shown.cursorY}
-                    // Kept mounted but not the live pane while a view is open:
-                    // an active Terminal registers the app's single cursor
-                    // anchor, and a hidden one would take it from the copy
-                    // cursor the user is actually looking at. A pane asking
-                    // whether to allow a send draws none either: the cursor
-                    // paints above every pane and would sit on the blur.
+                    // An active Terminal registers the app's single cursor
+                    // anchor: a hidden one would take it from the copy cursor,
+                    // and on a pane asking whether to allow a send the cursor
+                    // would paint above the blur.
                     isActive={holdsKeyboard && !copyState && !paneSendFor(pane)}
                     width={pane.width}
                     height={pane.height}
@@ -344,14 +298,11 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
               }
             </div>
           </div>
-          {/* The question `tmuxy pane send -t` hung on this pane, over its content.
-              Last inside `.pane-content` so it stacks above the terminal, and
-              inside it (not over the whole pane) so the header stays legible
-              — that is where the pane's title and its close button live. */}
+          {/* Inside `.pane-content`, not over the whole pane, so the header
+              (title, close button) stays legible. */}
           <AskOverlay paneId={paneId} />
           <OfferBanner paneId={paneId} />
 
-          {/* Scroll position indicator — flashes on scroll in copy mode */}
           {copyState && (
             <ScrollPositionIndicator
               indicatorRef={scrollIndicatorRef}

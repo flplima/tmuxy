@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 export const BLOB_BASE = 'https://github.com/flplima/tmuxy/blob/main/';
 const SITE = 'https://tmuxy.sh';
 
-/** The GitHub URL a repo path is read at. */
 export const canonicalUrl = (repoPath) => BLOB_BASE + repoPath;
 
 /** The anchor GitHub gives a heading: its rendered text, lowercased, with
@@ -102,7 +101,6 @@ export function readDocs(docsDir) {
   }));
 }
 
-/** The text of /llms-full.txt. */
 export function buildLlmsFull(docs) {
   const parts = docs.map(({ path, markdown }) =>
     [RULE, path, canonicalUrl(path), RULE, '', absolutizeLinks(markdown, path).trim(), ''].join(
@@ -112,7 +110,6 @@ export function buildLlmsFull(docs) {
   return [INTRO, ...parts].join('\n');
 }
 
-/** The value of /search.json. */
 export function buildSearchIndex(docs) {
   return {
     about: `tmuxy's docs, one entry per section. Every doc in one file: ${SITE}/llms-full.txt`,
@@ -128,7 +125,6 @@ export function buildSearchIndex(docs) {
   };
 }
 
-/** Writes both files into the site's public/ directory. */
 export function writeAgentDocs(docsDir, publicDir) {
   const docs = readDocs(docsDir);
   mkdirSync(publicDir, { recursive: true });

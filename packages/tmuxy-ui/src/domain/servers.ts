@@ -8,17 +8,12 @@
 import { Schema } from 'effect';
 import type { PaneId, WindowId } from './ids';
 
-/**
- * A lightweight window in another session's subtree (sidebar sessions tree).
- * Only the fields needed to render and switch — not a full {@link TmuxWindow}.
- */
 export interface SessionTreeWindow {
   id: WindowId;
   index: number;
   name: string;
 }
 
-/** A lightweight pane in another session's subtree. */
 export interface SessionTreePane {
   id: PaneId;
   windowId: WindowId;
@@ -85,13 +80,10 @@ export const TmuxServer = Schema.Struct({
   ssh: Schema.optional(Schema.NullOr(TmuxSshConfig)),
   /** tmux socket name (`-L`), or a path when it contains a `/` (`-S`). */
   socket: Schema.String,
-  /** Preferred session to attach to on this server, if any. */
   session: Schema.optional(Schema.NullOr(Schema.String)),
-  /** Last time this server was connected or probed (unix seconds). */
+  /** Last connected or probed, in unix seconds. */
   last_used: Schema.optional(Schema.NullOr(Schema.Number)),
-  /** Reachability status reported by the server list or probe. */
   reachable: Schema.optional(Schema.NullOr(ServerReachability)),
-  /** Number of sessions discovered on this server, if known. */
   session_count: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 export type TmuxServer = Schema.Schema.Type<typeof TmuxServer>;
@@ -104,13 +96,9 @@ export const ServerList = Schema.Struct({
 export type ServerList = Schema.Schema.Type<typeof ServerList>;
 
 /**
- * One tmux session as shown in the sidebar's sessions→tabs→panes tree.
- *
- * Populated by the `serversActor` poll (`list-windows -a` / `list-panes -a`) on
- * both the web and desktop builds, so a client attached to a multi-session
- * socket lists all of them. Empty on the single-session in-browser sandboxes
- * (demo, v86), which render the classic flat tab/pane tree. The active
- * session's subtree is drawn from live state, not this summary.
+ * Empty on the single-session in-browser sandboxes (demo, v86), which render
+ * the flat tab/pane tree. The active session's subtree is drawn from live
+ * state, not this summary.
  */
 export interface SessionTreeNode {
   sessionName: string;

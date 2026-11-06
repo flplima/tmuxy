@@ -15,7 +15,6 @@ import './components/widgets/init';
 // stays opaque (standalone.css).
 if (isTauri()) document.documentElement.dataset.desktop = '';
 
-// The worker web push notifications are shown by (infra/pushNotifications.ts).
 registerPushWorker();
 
 // Apply saved theme (or defaults) before first render to avoid FOUC

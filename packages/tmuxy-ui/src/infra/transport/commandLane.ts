@@ -17,7 +17,6 @@ import { latencyTracker } from '../latencyTracker';
 import { tracer } from '../tracer';
 import { KeyBatcher } from './keyBatching';
 
-/** Move one call to the backend and bring back its raw answer. */
 export type SendCall = (call: BackendCall, actionId: string | undefined) => Promise<unknown>;
 
 export interface CommandLane {

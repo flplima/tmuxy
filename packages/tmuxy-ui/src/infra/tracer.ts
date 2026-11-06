@@ -121,7 +121,7 @@ class Tracer {
         window.localStorage?.setItem('tmuxyTrace', on ? '1' : '0');
       }
     } catch {
-      // ignore storage failures
+      // localStorage can throw in sandboxed frames and when full.
     }
     if (!on) {
       this.buffer = [];
@@ -133,7 +133,6 @@ class Tracer {
     this.sink = sink;
   }
 
-  /** Record one content-free action event. Unknown keys are dropped. */
   event(ev: TraceEvent): void {
     if (!this.enabled) return;
     const clean: Record<string, unknown> = {
@@ -160,7 +159,6 @@ class Tracer {
   }
 
   flush(): void {
-    // Materialize coalesced counters into discrete count events first.
     if (this.counts.size > 0) {
       const tsWall = Date.now();
       const tsMono = Math.round(now() * 1000);

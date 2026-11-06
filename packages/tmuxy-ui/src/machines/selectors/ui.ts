@@ -5,10 +5,6 @@ import type { KeyBindings } from '../../domain/wire';
 import type { WindowId } from '../../domain/ids';
 import { selectVisibleWindows } from './panesAndSidebars';
 
-// ============================================
-// Session & Connection Selectors
-// ============================================
-
 export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
   return context.sessions;
 }
@@ -36,10 +32,6 @@ export function selectSessionName(context: AppMachineContext): string {
 export function selectKeyBindings(context: AppMachineContext): KeyBindings | null {
   return context.keybindings;
 }
-
-// ============================================
-// Animation & Gesture Selectors
-// ============================================
 
 /** Layout animations right now: settled after a change, and allowed by the config. */
 export function selectEnableAnimations(context: AppMachineContext): boolean {
@@ -101,10 +93,6 @@ export function selectSuppressLayoutTransition(context: AppMachineContext): bool
 export function selectPaneKeyOverrides(context: AppMachineContext): Record<string, string> {
   return context.paneKeyOverrides;
 }
-
-// ============================================
-// Command Mode, Notifications & Focus Selectors
-// ============================================
 
 export function selectCommandMode(context: AppMachineContext) {
   return context.commandMode;

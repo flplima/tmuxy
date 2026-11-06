@@ -1,6 +1,6 @@
 import type { PaneId } from '../../domain/ids';
 /**
- * mobileKeyboard - Manages the hidden text input used by desktop IMEs and touch keyboards.
+ * The hidden text input that desktop IMEs and touch keyboards type into.
  *
  * Ownership:
  *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
@@ -115,7 +115,6 @@ export function touchIsPrimary(): boolean {
   return window.matchMedia('(pointer: coarse)').matches;
 }
 
-/** Called by keyboardActor at startup to register the character-forwarding handler. */
 export function setupMobileKeyboard(
   handler: (text: string, paneId: PaneId | null) => void,
 ): () => void {
@@ -142,12 +141,10 @@ export function setupMobileKeyboard(
   };
 }
 
-/** Returns the hidden input element so keyboardActor can identify it via event.target. */
 export function getMobileInput(): HTMLInputElement | null {
   return input;
 }
 
-/** Updates the pane target without changing DOM focus. */
 export function setKeyboardInputTarget(paneId: PaneId | null): void {
   activePaneId = paneId;
 }
@@ -173,12 +170,10 @@ function focusInput(paneId: PaneId): void {
   }
 }
 
-/** Moves mouse or keyboard input to the hidden editable element. */
 export function focusKeyboardInput(paneId: PaneId): void {
   focusInput(paneId);
 }
 
-/** Whether the phone's keyboard is up: the hidden input has the focus. */
 export function isMobileKeyboardOpen(): boolean {
   return input !== null && document.activeElement === input;
 }
@@ -198,19 +193,11 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
   }
 }
 
-/**
- * Called by usePaneTouch on a tap on the phone's side pane: the keyboard
- * comes up for it, or, already up, follows it there.
- */
 export function raiseMobileKeyboard(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   focusInput(paneId);
 }
 
-/**
- * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
- * up, follows the pane; if it is down it stays down.
- */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   if (isMobileKeyboardOpen()) focusInput(paneId);

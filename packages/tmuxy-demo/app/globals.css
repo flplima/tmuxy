@@ -17,7 +17,6 @@ body {
     color 0.3s;
 }
 
-/* Spacing around pane container inside the MacWindow */
 .pane-container {
   margin: 4px 4px !important;
 }

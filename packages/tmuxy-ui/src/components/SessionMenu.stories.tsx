@@ -1,18 +1,7 @@
 /**
- * SessionMenu stories, over a recording of real tmux: two panes, and the tree
- * column tmux opened beside them when the toggle asked for it.
- *
- * The switcher is a dropdown hanging off the control that opened it, not a
- * float running a widget in a real tmux pane: a filter box over the list it
- * narrows. These drive it the way a user does — click the chevron beside the
- * session name, type, pick one — and assert it is really on screen rather
- * than merely mounted.
- *
- * The recording is of one session, `demo`, so what is asserted here is the
- * shape of the switcher and the fact that it hangs off its button. A dozen
- * sessions, scrolling and filtering among them, is the E2E suite's
- * (`tests/4-session-connectivity-multi.test.js`): the list comes from the
- * `serversActor` poll of a real tmux.
+ * The recording holds one session, `demo`. A dozen sessions, scrolling and
+ * filtering among them, is the E2E suite's
+ * (`tests/4-session-connectivity-multi.test.js`).
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -98,28 +87,21 @@ export const TheSwitcherIsADropdown: Story = {
     const menu = await waitForSwitcher();
     expect(switcher.getAttribute('aria-expanded')).toBe('true');
 
-    // It hangs off the button rather than landing somewhere of its own.
     const button = switcher.getBoundingClientRect();
     const box = menu.getBoundingClientRect();
     expect(Math.abs(box.left - button.left)).toBeLessThan(40);
     expect(box.top).toBeGreaterThanOrEqual(button.top - 2);
 
-    // The attached session is listed and marked as the current one.
     const sessionName = currentSession();
     const row = menu.querySelector(`[data-session-name="${sessionName}"]`) as HTMLElement;
     expect(row).not.toBeNull();
     expect(row.textContent).toContain(sessionName);
     expect(row.getAttribute('data-current')).toBe('true');
 
-    // Picking the session you are already on is a no-op that closes it.
     await user.click(row);
     await switcherClosed();
   },
 };
-
-// ---------------------------------------------------------------------------
-// Typing filters, the keyboard picks
-// ---------------------------------------------------------------------------
 
 export const TypingFiltersTheList: Story = {
   parameters: {
@@ -136,7 +118,6 @@ export const TypingFiltersTheList: Story = {
     const menu = await waitForSwitcher();
     const sentBefore = adapter!.commands.length;
     const filter = within(menu).getByRole('combobox', { name: /filter sessions/i });
-    // The keyboard is already in the box: typing needs no click first.
     await waitFor(() => expect(document.activeElement).toBe(filter));
 
     const sessionName = currentSession();
@@ -149,28 +130,24 @@ export const TypingFiltersTheList: Story = {
     expect(visible(row())).toBe(true);
     expect(row()?.getAttribute('aria-selected')).toBe('true');
 
-    // A filter that names nothing leaves no rows and says why.
     await user.keyboard('zzqx');
     await waitFor(() => expect(row()).toBeNull());
     expect(visible(within(menu).getByText(/No session matches “zzqx”/))).toBe(true);
 
-    // Case does not matter; the session is back, highlighted.
     await user.clear(filter);
     await user.keyboard(sessionName.slice(0, 2).toUpperCase());
     await waitFor(() => expect(visible(row())).toBe(true));
     expect(row()?.getAttribute('aria-selected')).toBe('true');
     expect(filter.getAttribute('aria-activedescendant')).toBe(row()?.id);
 
-    // Keys typed into the box are the box's, never the terminal's.
+    // Keys typed into the box never reach the terminal.
     expect(adapter!.commands.slice(sentBefore).filter((c) => c.startsWith('send-keys'))).toEqual(
       [],
     );
 
-    // Enter on the session you are on changes nothing and closes it…
     await user.keyboard('{Enter}');
     await switcherClosed();
 
-    // …and Escape closes it too.
     await user.click(await within(canvasElement).findByRole('button', { name: /switch session/i }));
     await waitForSwitcher();
     await user.keyboard('{Escape}');
@@ -195,9 +172,7 @@ export const LeftOpenWithAFilter: Story = {
     const row = menu.querySelector(`[data-session-name="${currentSession()}"]`);
     expect(row?.getAttribute('aria-selected')).toBe('true');
 
-    // It holds still, inside the window: the box pins its own minimum size
-    // so typing cannot move it, and a pin that grew it would chase itself
-    // across the screen.
+    // A minimum-size pin that grew the box would chase itself across the screen.
     const before = menu.getBoundingClientRect();
     await new Promise((resolve) => setTimeout(resolve, 300));
     const after = menu.getBoundingClientRect();
@@ -207,10 +182,6 @@ export const LeftOpenWithAFilter: Story = {
     expect(after.height).toBeLessThan(window.innerHeight / 2);
   },
 };
-
-// ---------------------------------------------------------------------------
-// The SSH item is the desktop app's
-// ---------------------------------------------------------------------------
 
 export const ConnectingOverSshIsDesktopOnly: Story = {
   parameters: {
@@ -225,7 +196,6 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     const user = userEvent.setup({ delay: 5 });
     const switcher = await findChevron(canvasElement, user);
 
-    // On the web build there is nothing to offer.
     await user.click(switcher);
     let menu = await waitForSwitcher();
     expect(menu.querySelector('[data-testid="session-menu-connect"]')).toBeNull();
@@ -256,7 +226,6 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
 
       await user.click(connect);
       await switcherClosed();
-      // The form is a pane, so the switcher asks for one rather than drawing it.
       expect(raised).toContain('OPEN_CONNECT_FLOAT');
       app.send = realSend;
     } finally {

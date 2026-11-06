@@ -15,9 +15,7 @@ interface ModalProps {
   /** Its place among the floats open over the tab, lowest first: lifts it on the float rung. */
   stack?: number;
   containerStyle?: React.CSSProperties;
-  /** Backdrop style: 'dim' (default), 'blur', or 'none' */
   backdrop?: 'dim' | 'blur' | 'none';
-  /** Hide the header bar (title + close button) */
   hideHeader?: boolean;
   /** Whether it can be dismissed at all: false drops the close button, and a click on the backdrop does nothing. */
   closable?: boolean;
@@ -51,11 +49,9 @@ export function Modal({
 
   const showHeader = !hideHeader && title !== undefined;
 
-  // Rendered in place, NOT portaled to the body: the overlay is absolutely
-  // positioned against its nearest positioned ancestor, and a float's ancestor
-  // is the pane container. That is what keeps the backdrop over the tab's
-  // content only — portaled to the body it resolved against the viewport and
-  // dimmed the sidebars, the tab strip and the status line with it.
+  // Rendered in place, not portaled: the overlay is positioned against the
+  // pane container, which keeps the backdrop over the tab's content only.
+  // Portaled to the body it dimmed the sidebars, tab strip and status line.
   return (
     <div
       className={`modal-overlay${className ? ` ${className}` : ''}`}

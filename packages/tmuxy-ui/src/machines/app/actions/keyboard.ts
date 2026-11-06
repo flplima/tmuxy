@@ -1,7 +1,3 @@
-/**
- * Action implementations for the keyboard state slice.
- */
-
 import { assignCtx } from '../actionTypes';
 import { visibleFloats } from '../../selectors/panesAndSidebars';
 import { ownerAfterFloats, PANES_OWN_KEYBOARD } from '../../selectors/keyboard';

@@ -13,7 +13,6 @@ export function applyFontSize(size: number): void {
   root.setProperty('--tmuxy-small-font-size', `${smallFontSize(size)}px`);
 }
 
-/** A size the font menu can reach. */
 export function isFontSize(size: number): boolean {
   return Number.isInteger(size) && size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE;
 }

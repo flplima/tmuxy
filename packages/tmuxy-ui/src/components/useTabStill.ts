@@ -1,21 +1,13 @@
 /**
- * A still of every pane, re-taken once a second.
- *
- * Both places that draw a picture of a tab — the Tab Overview's cards and the
- * hover preview — want the same compromise. Following the live panes makes a
- * tab that keeps printing churn its thumbnail on every frame of output, which
- * is unreadable and expensive; freezing them the moment the picture opens
- * makes it go stale while you are looking at it. Once a second is slow enough
- * to read and fast enough to be true.
- *
- * Returns null while it is not sampling, which is the caller's cue to draw
- * the live panes (nothing is being watched, so nothing can churn).
+ * A still of every pane, re-taken once a second: followed live, a tab that
+ * keeps printing churns its picture on every frame; frozen on open, the
+ * picture goes stale while you look. Null while not sampling, the caller's cue
+ * to draw the live panes.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import type { TmuxPane } from '../domain/client';
 
-/** How often a tab picture re-reads the panes behind it. */
 const TAB_STILL_REFRESH_MS = 1000;
 
 export function useTabStill(

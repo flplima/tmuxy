@@ -1,6 +1,5 @@
 import { TmuxOp } from '../../domain/commands';
 
-/** Keystrokes within ~1 frame go out as one send. */
 const KEY_BATCH_INTERVAL_MS = 16;
 
 type Kind = 'keys' | 'text';
@@ -74,7 +73,6 @@ export class KeyBatcher {
     return true;
   }
 
-  /** Keys taken in and not yet sent: a window is open with something in it. */
   hasPending(): boolean {
     return this.keys.hasPending() || this.text.hasPending();
   }
@@ -87,7 +85,6 @@ export class KeyBatcher {
     }
   }
 
-  /** Drop everything pending, unsent, and close the windows. */
   destroy(): void {
     for (const batch of [this.keys, this.text]) {
       batch.closeWindow();

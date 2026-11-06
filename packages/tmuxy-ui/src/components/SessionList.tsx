@@ -1,12 +1,6 @@
 /**
- * SessionList — the way back in once detached: the session switcher's own
- * body (SessionPicker), laid on the overlay rather than hung from a control,
- * since there is no status line to hang it from. Picking a session attaches
- * to it, a restorable one is rebuilt first, and a server is connected to —
- * the switcher's own events, through the menus' dispatch.
- *
- * Connecting to a new server opens a float, which takes an attached session,
- * so that item is the status line's switcher's alone.
+ * The session switcher's body on the detached overlay. No "connect" item:
+ * connecting to a new server opens a float, which needs an attached session.
  */
 
 import { useMenuDispatch } from './menus/SpecMenu';

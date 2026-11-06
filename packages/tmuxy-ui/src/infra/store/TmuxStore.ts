@@ -1,24 +1,3 @@
-/**
- * TmuxStore — the client model, its optimistic dispatch and reconciliation.
- *
- * Responsibilities:
- *  - Hold the model. Subscribers are notified whenever `derived` changes
- *    shape. Everything here is synchronous except the send to tmux, which is
- *    why only `dispatch` is an Effect (it needs the transport).
- *  - `dispatch(op)` runs predict → apply optimistic patch → send command →
- *    on tmux error: rollback. The matching server delta clears the op via
- *    `reconcile`.
- *  - `reconcile(snapshot)` is the entry point for fresh server state. Runs
- *    every pending op's reconciler, drops matched/failed ones, recomputes
- *    `derived`. Rollbacks — from a snapshot or from the idle sweep that
- *    stands in for one — reach `subscribeRollbacks` listeners.
- *
- * The store does NOT own React subscriptions directly — it exposes a plain
- * subscribe API; the appMachine bridges them so XState `context` stays the
- * single source consumed by the rest of the codebase. That keeps every
- * existing selector and hook working without modification.
- */
-
 import { Effect } from 'effect';
 import { formatAdapterError } from '../transport/AdapterError';
 import { TmuxTransport } from '../transport/TmuxTransport';
@@ -59,7 +38,6 @@ export type StoreListener = (model: TmuxClientModel) => void;
 export type RollbackListener = (entries: ReadonlyArray<RollbackEntry>) => void;
 
 export interface TmuxStore {
-  /** Current model snapshot. */
   readonly getModel: () => TmuxClientModel;
 
   /**
@@ -84,8 +62,8 @@ export interface TmuxStore {
 
   /**
    * Apply a fresh server snapshot. Reconciles every pending op, drops
-   * matched/stale ones, recomputes `derived`. This is the single entry
-   * point from the SSE/Tauri state stream.
+   * matched/stale ones, recomputes `derived`. The single entry point from
+   * the state stream.
    */
   readonly reconcile: (state: ServerState) => void;
 
@@ -97,21 +75,18 @@ export interface TmuxStore {
   readonly clear: () => void;
 
   /**
-   * Subscribe to model changes. The listener fires after every committed
-   * mutation — both server reconciliations and local dispatches. Returns
-   * an unsubscribe function. Listeners are invoked synchronously by the
-   * mutation.
+   * The listener fires at once with the current model, then synchronously
+   * after every committed mutation — server reconciliations and local
+   * dispatches alike.
    */
   readonly subscribe: (listener: StoreListener) => () => void;
 
-  /** Update the default PredictContext (called when defaultShell / MRU change). */
   readonly setPredictContext: (ctx: PredictContext) => void;
 
   /**
    * Hear every op a reconcile pass rolled back, whether the pass was driven
    * by a server snapshot or by the idle sweep. Fires after the subscribers
    * have seen the model it rolled back from; never with an empty list.
-   * Returns an unsubscribe function.
    */
   readonly subscribeRollbacks: (listener: RollbackListener) => () => void;
 }
@@ -122,7 +97,6 @@ export function makeTmuxStore(): TmuxStore {
   const listeners = new Set<StoreListener>();
   const rollbackListeners = new Set<RollbackListener>();
 
-  /** Replace the model and tell every subscriber. */
   const commit = (next: TmuxClientModel): void => {
     model = next;
     for (const l of listeners) {
@@ -135,7 +109,6 @@ export function makeTmuxStore(): TmuxStore {
     scheduleIdleReconcile(next);
   };
 
-  /** Commit a reconcile pass and report what it rolled back. */
   const commitReconciled = (result: ReturnType<typeof applyServerSnapshot>): void => {
     commit(result.model);
     if (result.rolledBack.length === 0) return;
@@ -155,12 +128,10 @@ export function makeTmuxStore(): TmuxStore {
   };
 
   // Age-based verdicts (stale sweeps, focus-linger release, supersession)
-  // are computed inside reconcile passes — which are normally driven by
-  // server snapshots. On an IDLE control stream no snapshot ever arrives,
-  // so a wrong pin (a zoomed-geometry patch after a rapid re-toggle, a
-  // superseded focus op) would wedge forever. While ops are pending,
-  // re-reconcile against the unchanged committed snapshot on a timer so
-  // time-based verdicts fire even with nothing on the wire.
+  // run inside reconcile passes, normally driven by server snapshots. An
+  // idle control stream sends none, so a wrong pin would wedge forever:
+  // while ops are pending, re-reconcile against the unchanged committed
+  // snapshot on a timer.
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   const IDLE_RECONCILE_MS = 500;
   const scheduleIdleReconcile = (current: TmuxClientModel): void => {
@@ -209,8 +180,6 @@ export function makeTmuxStore(): TmuxStore {
               : new OpTransportError({ opId, command, cause: err }),
           );
         },
-        // Sent — reconcile() drops it when a matching delta arrives, or the
-        // stale-timeout sweeps it.
         onSuccess: () =>
           Effect.sync(() => {
             commit(setStatus(opId, 'awaiting-confirm'));
@@ -227,10 +196,6 @@ export function makeTmuxStore(): TmuxStore {
 
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        // Prefer the caller's explicit command string (preserves keyboardActor's
-        // `select-pane -t %N \;` prefix-pin and tmux format strings like
-        // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
-        // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
         const command = opts?.command ?? toTmuxCommand(op);
         // Nothing to send (a paste that was all controls): an empty line on
         // the control-mode connection detaches it, and a pending op for it
@@ -258,7 +223,6 @@ export function makeTmuxStore(): TmuxStore {
 
     subscribe: (listener) => {
       listeners.add(listener);
-      // Fire once on subscribe so the bridge can sync immediately.
       try {
         listener(model);
       } catch (err) {

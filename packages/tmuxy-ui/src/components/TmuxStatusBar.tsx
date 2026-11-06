@@ -1,17 +1,7 @@
 /**
- * TmuxStatusBar - Bottom status bar with keybinding hints, host, and session
- *
- * Layout: [left: hints] [center: status messages] [right: host + session]
- *
- * - The left side follows the mode: normal-mode hints, or a mode's name as an
- *   inverse chip and its keys (PREFIX, COPY, and the sticky PANE and TAB
- *   tables). In a mode the host and session are hidden — the line is the
- *   mode's until it ends (statusLineHints.ts).
- * - Command mode replaces the whole bar with a full-width prompt input (like tmux prefix+:)
- * - Center shows only the client's own temporary status ("Copied …"); the raw
- *   tmux status line is NOT rendered — hardcoded hints (left) and host/session
- *   (right) stand in. tmux's `display-message` output goes to the snackbar.
- * - Host is clickable (desktop: open the connect float); session opens the session float
+ * tmux's own status line is not rendered: the hints (left) and host/session
+ * (right) stand in, the centre shows only the client's own temporary status
+ * ("Copied …"), and tmux's `display-message` output goes to the snackbar.
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
@@ -41,11 +31,7 @@ function Separator() {
   return <span className="statusline-separator">{HINT_SEPARATOR}</span>;
 }
 
-/**
- * One line of hints: in a mode, its name as an inverse chip and then its
- * keys; in normal mode, the keys alone. See statusLineHints.ts for what each
- * mode says and the 80-column rule.
- */
+/** See statusLineHints.ts for what each mode says and the 80-column rule. */
 function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null }) {
   return (
     <span
@@ -135,7 +121,6 @@ export function TmuxStatusBar() {
 
   const gridPixelWidth = gridPixelSize(totalWidth, totalHeight, charWidth, charHeight).width;
 
-  // Command mode: full-width input replaces everything
   if (commandMode) {
     return (
       <CommandModeInput
@@ -149,11 +134,8 @@ export function TmuxStatusBar() {
 
   const hostname = serverHostLabel(servers, currentServerId, isDemo, serverHostname);
 
-  // Both ends of the status line open the same switcher (components/
-  // SessionMenu): the host and the session name are two halves of "where am
-  // I", so they answer with one menu rather than two prompts that knew nothing
-  // of each other. It hangs from the pair and opens UPWARD — the status line
-  // is the window's last row, so a menu below it would be off the screen.
+  // Host and session open the same switcher, hung from the pair; it opens
+  // upward, since the status line is the window's last row.
   const handleSwitcherClick = isDemo
     ? undefined
     : () => {
@@ -161,15 +143,10 @@ export function TmuxStatusBar() {
         setMenuOpen(!menuOpen);
       };
 
-  // Center area: only the client's own temporary status ("Copied …").
-  // The tmux status line content is not displayed — we use hardcoded hints (left)
-  // and hostname/session (right) instead.
   const centerContent = statusMessage ? (
     <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
   ) : null;
 
-  // The mode in force, by the table it is: a sticky table (PANE, TAB), else
-  // the prefix, else copy mode. While one is on the line is the mode's.
   const mode = keyTable ?? (prefixActive ? 'prefix' : inCopyMode ? 'copy' : null);
   const hints = mode ? modeHints(keybindings, mode) : keybindings ? normalHints(keybindings) : null;
 

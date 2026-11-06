@@ -1,16 +1,8 @@
 /**
- * SidebarToggle - header icon-button that opens/closes one of the two sidebars.
- *
- * Each toggle lives in its own sidebar's cluster but keeps a fixed place in
- * the header: the left one right after the menu, the right one at the far
- * right end. Opening a column widens the cluster around the title, not the
- * toggle, so the click that opened the column closes it from the same spot.
- *
- * Each reflects its sidebar's open flag as a pressed state, and dispatches the
- * same event its key sends (`prefix s` for the tree, `prefix S` for the
- * terminal, by default). Resting the mouse on a closed column's toggle shows the column
- * over the panes until the pointer leaves it (useSidebarPeek); the click
- * docks it.
+ * Each toggle keeps a fixed place in the header (the left one after the menu,
+ * the right one at the far end): opening a column widens the cluster around
+ * the title, not the toggle, so the click that opened it closes it from the
+ * same spot.
  */
 
 import { useAppSend, useAppSelector } from '../machines/appHooks';

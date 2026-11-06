@@ -1,9 +1,3 @@
-/**
- * What the app does around an op, read off the op itself: whether its
- * intermediate geometry may animate, and whether its rollback is a change
- * the user sees.
- */
-
 import type { TmuxOp } from './commands';
 import { commandListParts, runShellScript } from './store/parseCommand';
 

@@ -17,12 +17,9 @@ const meta: Meta<typeof V86AppHarness> = {
 export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
-// ───────────────────────── §9 Sessions & connection lifecycle ─────────────────────────
-
 /**
- * Session round-trip state: split inside a second session, hop back and forth —
- * each session keeps its own pane set and the client reconstructs both
- * faithfully after every switch.
+ * Splitting inside a second session and hopping back and forth: each session
+ * keeps its own pane set after every switch.
  */
 export const SessionRoundTrip: Story = {
   play: async ({ canvasElement }) => {
@@ -33,7 +30,6 @@ export const SessionRoundTrip: Story = {
       window as unknown as { app: { send(e: { type: string; sessionName: string }): void } }
     ).app;
     const panesOnM = paneIds(canvas).length;
-    // The marker prints once the session exists: typed line and output.
     pasteLine('tmux new-session -d -s rt && echo RT_MADE');
     await waitFor(
       () =>
@@ -50,14 +46,12 @@ export const SessionRoundTrip: Story = {
       timeout: 20000,
       interval: 500,
     });
-    // Split inside rt (via the guest CLI in rt's own pane).
     await focusFirstPane(canvas, user).catch(() => {});
     pasteLine('tmuxy pane split');
     await waitFor(() => expect(paneGroups(canvas).length).toBe(2), {
       timeout: 30000,
       interval: 500,
     });
-    // Back to m: original pane count intact.
     app.send({ type: 'SWITCH_SESSION', sessionName: 'm' });
     await waitFor(
       () => {
@@ -66,7 +60,6 @@ export const SessionRoundTrip: Story = {
       },
       { timeout: 30000, interval: 500 },
     );
-    // And rt still has its split.
     app.send({ type: 'SWITCH_SESSION', sessionName: 'rt' });
     await waitFor(
       () => {
@@ -79,10 +72,9 @@ export const SessionRoundTrip: Story = {
 };
 
 /**
- * Fatal: killing the tmux server in the guest ends the control stream (`%exit`);
- * the engine surfaces it as a fatal and the app must show its non-recoverable
- * status screen — not a blank or frozen UI. Reached by actually killing the
- * server, not by synthesizing the event.
+ * Killing the tmux server in the guest ends the control stream (`%exit`): the
+ * app shows its non-recoverable status screen, not a blank or frozen UI.
+ * Reached by really killing the server.
  */
 export const FatalScreen: Story = {
   play: async ({ canvasElement }) => {

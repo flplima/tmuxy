@@ -1,40 +1,10 @@
 /**
- * WindowTabs - the tmux window tabs in the status bar.
+ * No tab carries a ✕: a strip of accidental targets is a strip you cannot
+ * click confidently, and closing lives in the tab's context menu, its card in
+ * the all-tabs view and the hover preview.
  *
- * Tabs sit left-aligned at their natural width, so the rest of the strip stays
- * empty — and on the desktop that empty header is what drags the OS window
- * (see StatusBar). A lone tab sits in that same left-aligned position with the
- * `+` directly after it, takes no hover background, and is itself a drag handle
- * for the window: with nothing to switch to, it is a label on the window
- * rather than a control.
- *
- * No tab carries a ✕. A strip of buttons each with a target you can hit by
- * accident is a strip you cannot click confidently, and closing has three
- * unhurried homes already: the tab's context menu, its card in the all-tabs
- * view, and the hover preview.
- *
- * The active tab is marked by BRIGHTNESS alone — full opacity and pure white
- * against the others' dimmed grey — with no pill or background behind it.
- *
- * A click selects; a press that travels (a mouse after a few pixels, a finger
- * after a long press) drags the tab along the strip and drops it at a new
- * position, reordering tmux's windows the way the Tab Overview does. The drag
- * is transient pointer state and stays here; the click the browser fires after
- * a drop is swallowed so a drop never doubles as a select.
- *
- * Right-click opens a context menu with tab operations.
- *
- * Resting on a tab shows a picture of it (TabPreview). The first one waits a
- * second, because a pointer crossing the strip on its way somewhere else is
- * not asking for anything; after that, moving along the strip slides the same
- * card from tab to tab, so browsing is browsing rather than a second's wait at
- * every stop. Leaving the strip ends it.
- *
- * The strip is also where a dragged PANE is dropped to leave its tab. That
- * gesture belongs to the drag machine, which owns the pointer for its whole
- * life; all the strip does is read where the drop would land and say so — the
- * tab under the pointer lights up, and past the last tab a dashed "New Tab"
- * placeholder appears in the empty space.
+ * A pane dragged onto the strip belongs to the drag machine, which owns the
+ * pointer; the strip only shows where the drop would land.
  */
 
 import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
@@ -65,9 +35,8 @@ interface TabContextMenuState {
   x: number;
   y: number;
   windowId: WindowId | null;
-  /** The tab's button, when the menu is taking a preview card's place. */
+  /** Set when the menu is taking a preview card's place. */
   anchorEl: HTMLElement | null;
-  /** That card's box, for the menu to grow out of. */
   morphFrom: DOMRect | null;
 }
 
@@ -89,24 +58,18 @@ export const WindowTabs = memo(function WindowTabs() {
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef(false);
-  // The tab being renamed, if any: the field takes the label's place. Opened
-  // by the tab's context menu, or by Rename Tab in the app menu and the
-  // native menu bar, which name the active tab.
+  // Set by the tab's context menu, and by Rename Tab in the app menu and the
+  // native menu bar (the active tab).
   const renamingId = useAppSelector((c) =>
     c.renamingTab?.surface === 'strip' ? c.renamingTab.windowId : null,
   );
-  // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
   const dismissPreviewRef = useRef<() => void>(() => {});
   /**
-   * The card that was on screen when the current press began, and its box.
-   *
-   * Read at `pointerdown` rather than at `contextmenu`, because the press
-   * itself puts the card away (a press is an action on the tab, and the
-   * picture is in the way of seeing what it did) — by the time the context
-   * menu is asked for, the card is already playing its exit. This is what the
-   * menu grows out of.
+   * The card on screen when the current press began, which the context menu
+   * grows out of. Read at `pointerdown`, not `contextmenu`: the press itself
+   * puts the card away, so by `contextmenu` it is already leaving.
    */
   const pressedPreviewRef = useRef<{ windowId: WindowId; rect: DOMRect } | null>(null);
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>({
@@ -118,7 +81,7 @@ export const WindowTabs = memo(function WindowTabs() {
     morphFrom: null,
   });
 
-  // Dedup safety net: ensure no duplicate window IDs reach the DOM
+  // Guard: no duplicate window ids reach the DOM as React keys.
   const visibleWindows = useMemo(
     () => [...new Map(rawWindows.map((w) => [w.id, w])).values()],
     [rawWindows],
@@ -139,13 +102,8 @@ export const WindowTabs = memo(function WindowTabs() {
   const handleContextMenu = useCallback((e: React.MouseEvent, windowId: WindowId) => {
     e.preventDefault();
     e.stopPropagation();
-    // The preview TURNS INTO the menu. Right-clicking a tab you are already
-    // looking at used to draw the menu on top of its own preview — two cards
-    // about the same tab, overlapping, one of them now unreachable. Now the
-    // card's box is handed to the menu, which opens under the same tab and
-    // grows out of it: one surface about one tab, and one object rather than
-    // a disappearance and an appearance. With no card up (a tab crossed on
-    // the way past) the menu opens at the pointer, as any context menu does.
+    // The preview turns into the menu, rather than the menu drawing over its
+    // own preview; with no card up it opens at the pointer.
     const pressed = pressedPreviewRef.current;
     const morphFrom = pressed?.windowId === windowId ? pressed.rect : null;
     const anchorEl = morphFrom ? (e.currentTarget as HTMLElement) : null;
@@ -162,7 +120,6 @@ export const WindowTabs = memo(function WindowTabs() {
 
   useShowActiveTab(listRef, activeWindowId, animationsAllowed, visibleWindows.length);
 
-  // ---- hover: the tab picture -----------------------------------------------
   const clearPreviewTimer = () => {
     if (previewTimerRef.current !== null) {
       window.clearTimeout(previewTimerRef.current);
@@ -174,7 +131,6 @@ export const WindowTabs = memo(function WindowTabs() {
     // A finger on a tab is pressing it, not asking about it.
     if (e.pointerType !== 'mouse') return;
     cancelClose();
-    // Already browsing: keep up with the pointer instead of waiting again.
     if (previewId !== null) {
       clearPreviewTimer();
       setPreviewId(windowId);
@@ -187,13 +143,8 @@ export const WindowTabs = memo(function WindowTabs() {
     }, TAB_PREVIEW_DELAY_MS);
   };
 
-  // Leaving the STRIP ends the browse; leaving one tab for the next does not,
-  // which is what lets the same card slide along instead of blinking out.
-  //
-  // Not at once, though: the card sits just below the strip, and the pointer
-  // has to cross the gap to reach it. A grace period covers that crossing, and
-  // the card cancels it on the way in — otherwise a card you are reaching for
-  // is a card that closes as you reach.
+  // Leaving the strip ends the browse after a grace period, so the pointer can
+  // cross the gap to the card below; the card cancels it on the way in.
   const closeTimerRef = useRef<number | null>(null);
   const cancelClose = () => {
     if (closeTimerRef.current !== null) {
@@ -214,8 +165,6 @@ export const WindowTabs = memo(function WindowTabs() {
     scheduleClose();
   };
 
-  // A press is an action on the tab, and the picture is in the way of seeing
-  // what it did.
   const dismissPreview = () => {
     clearPreviewTimer();
     cancelClose();
@@ -236,8 +185,6 @@ export const WindowTabs = memo(function WindowTabs() {
   const previewWindow = visibleWindows.find((w) => w.id === previewId) ?? null;
   const previewIndex = visibleWindows.findIndex((w) => w.id === previewId) + 1;
 
-  // ---- pointer: drag to reorder --------------------------------------------
-  // The strip is one row, so only the x axis decides where a tab lands.
   const reorder = useReorderDrag({
     containerRef: listRef,
     cardSelector: '.tab-name[data-window-id]',
@@ -263,14 +210,12 @@ export const WindowTabs = memo(function WindowTabs() {
     const tab = visibleWindows[index];
     // A lone tab is the desktop window's drag handle, not a control.
     if (!tab || isSingleTab || e.button !== 0) return;
-    // A tab being renamed is a field, not a thing to drag.
     if (renamingId === tab.id) return;
     if ((e.target as HTMLElement).closest('button')) return;
     reorder.handlePointerDown(e, tab.id, index);
   };
 
-  // A drop never doubles as a select: the click the browser fires after it is
-  // swallowed by `handleWindowClick`.
+  // The browser fires a click after a drop; `handleWindowClick` swallows it.
   const handlePointerUp = (e: React.PointerEvent<HTMLSpanElement>) => {
     if (reorder.handlePointerUp(e)?.active) suppressClickRef.current = true;
   };
@@ -307,18 +252,14 @@ export const WindowTabs = memo(function WindowTabs() {
             send={send}
           />
         ))}
-        {/* Where a pane dropped past the last tab would go. It sits in the
-            strip's own flow so it takes the space it would occupy. */}
         {tabDrop?.kind === 'new' && (
           <span className="tab-new-drop" aria-hidden="true">
             New Tab
           </span>
         )}
-        {/* Mounted except while the context menu is up: the card owns its own
-            exit, and unmounting it would normally take that animation with it —
-            but the menu IS this card, and the two must never be on screen
-            together. Going in the same commit the menu arrives in is what makes
-            that structural rather than a race between two timers. */}
+        {/* Unmounted in the same commit the menu arrives in, so the card and
+            the menu it becomes are never on screen together — structural
+            rather than a race between two timers. */}
         {!contextMenu.visible && (
           <TabPreview
             windowId={previewWindow?.id ?? null}
@@ -331,8 +272,6 @@ export const WindowTabs = memo(function WindowTabs() {
               dismissPreview();
               send({ type: 'SELECT_TAB', windowId: id });
             }}
-            // Another floating surface took the layer (the app menu, a pane's
-            // context menu). The card is not a peer that argues; it goes.
             onDismiss={dismissPreview}
           />
         )}

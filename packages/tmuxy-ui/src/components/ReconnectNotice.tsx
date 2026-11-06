@@ -1,12 +1,7 @@
 /**
- * ReconnectNotice — the channel dropped while a session was on screen, and
- * has stayed down past RECONNECT_NOTICE_DELAY_MS (machines/constants.ts):
- * a card at the top of the snackbar stack with a spinner, the word, and a
- * "Retry now" that opens a stream at once instead of waiting out the
- * backoff. Nothing covers the panes: they keep their last frame, stay in
- * view and take the pointer, and the notice leaves on its own the moment the
- * channel is back (`reconnecting` → `idle`). A drop that heals inside the
- * delay is never seen at all.
+ * Shown once the channel has stayed down past RECONNECT_NOTICE_DELAY_MS;
+ * "Retry now" skips the backoff. Nothing covers the panes: they keep their
+ * last frame and take the pointer.
  */
 
 import { useAppSend, useAppState } from '../machines/appHooks';

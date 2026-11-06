@@ -112,7 +112,6 @@ export const MENU_ICONS = {
 
 export type MenuIconName = keyof typeof MENU_ICONS;
 
-/** An icon as a standalone SVG document, stroked in `color`, `size` pixels square. */
 export function menuIconSvg(name: MenuIconName, color: string, size: number): string {
   const shapes = (MENU_ICONS[name] as readonly Shape[]).map((shape) => {
     switch (shape[0]) {

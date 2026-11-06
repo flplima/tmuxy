@@ -73,9 +73,8 @@ export default tseslint.config(
     files: ['scripts/**/*.mjs', 'eslint-rules/*.mjs', '.storybook/*.ts'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
-  // `jest/no-disabled-tests` (eslint.config.mjs) covers tests/ only, so a
-  // skipped Vitest test under src/ was blocked by nothing but review. Same
-  // rule, same severity, for the Vitest half of the suite.
+  // The root eslint.config.mjs applies `jest/no-disabled-tests` to tests/ only;
+  // the same rule, same severity, for the Vitest half of the suite.
   {
     files: [
       'src/**/__tests__/**/*.{ts,tsx}',

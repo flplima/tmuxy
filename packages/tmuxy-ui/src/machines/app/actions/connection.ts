@@ -1,8 +1,3 @@
-/**
- * Action implementations for the connection state slice: the stream's
- * lifecycle, the session it carries, and what the server reports.
- */
-
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { takeKeyboard } from '../helpers';
@@ -13,7 +8,6 @@ import { invokeEvent } from '../../actors/tmuxActor';
 import { memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
 
-/** What every freshly opened stream asks the server for. */
 function fetchThemes(enqueue: EnqueueAction): void {
   enqueue(sendTo('tmux', { type: 'FETCH_THEME_SETTINGS' as const }));
   enqueue(sendTo('tmux', { type: 'FETCH_THEMES_LIST' as const }));

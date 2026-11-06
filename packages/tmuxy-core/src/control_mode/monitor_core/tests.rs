@@ -6,9 +6,9 @@ use crate::control_mode::state::{
     REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 
-type Core = MonitorCore<&'static str>;
+pub(super) type Core = MonitorCore<&'static str>;
 
-fn core(session: &str) -> (Core, Instant) {
+pub(super) fn core(session: &str) -> (Core, Instant) {
     let now = Instant::now();
     (MonitorCore::new(session, "tmux", now), now)
 }
@@ -22,7 +22,7 @@ fn initial_resize(session: &str) -> String {
         .expect("the attach sizes the session")
 }
 
-fn response(output: &str) -> ControlModeEvent {
+pub(super) fn response(output: &str) -> ControlModeEvent {
     ControlModeEvent::CommandResponse {
         output: output.to_string(),
         success: true,
@@ -30,11 +30,11 @@ fn response(output: &str) -> ControlModeEvent {
 }
 
 /// A marker block of the core's own: `name` with its token, then `arg`.
-fn marked(core: &Core, name: &str, arg: &str) -> ControlModeEvent {
+pub(super) fn marked(core: &Core, name: &str, arg: &str) -> ControlModeEvent {
     response(format!("{} {arg}", core.aggregator().markers().tag(name)).trim_end())
 }
 
-fn sent<W>(actions: &[Action<W>]) -> Vec<&str> {
+pub(super) fn sent<W>(actions: &[Action<W>]) -> Vec<&str> {
     actions
         .iter()
         .filter_map(|a| match a {
@@ -178,7 +178,7 @@ fn only_keystrokes_skip_failure_reporting() {
 }
 
 /// A pane `%0` in window `@0` the core knows, as an initial sync leaves it.
-fn with_a_pane(core: &mut Core, now: Instant) {
+pub(super) fn with_a_pane(core: &mut Core, now: Instant) {
     let window = RowBuilder::<WindowColumn>::new()
         .set(WindowColumn::WindowId, "@0")
         .set(WindowColumn::Index, 0)

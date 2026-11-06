@@ -21,7 +21,6 @@ const visible = (el: Element) => {
   return r.width > 0 && r.height > 0;
 };
 
-/** What the app shows: its tabs, and each pane's box. */
 const frame = () =>
   [
     ...[...document.querySelectorAll('[role=tab]')]
@@ -35,18 +34,16 @@ const frame = () =>
       }),
   ].join(' | ');
 
-/** Every distinct frame the app showed since the story's loader ran, before
- *  the app mounted. */
+/** Every distinct frame shown since the story's loader ran, before the app mounted. */
 let frames: string[] = [];
 let recorder: MutationObserver | null = null;
 const lastFrame = () => frames[frames.length - 1];
 
 /**
- * A start whose init does its work on a shell's time: a second tab whose
- * shell, a second later, switches back to the first tab and only then says it
- * is done. The app shows only the start it ends at: the first tab, at the
- * size its box measures (narrower than the guest starts at) — never the
- * second tab, a lone tab, or a layout of another size on the way.
+ * An init that works on a shell's time: a second tab whose shell, a second
+ * later, switches back to the first and only then says it is done. The app
+ * shows only the start it ends at (the first tab, at its box's size), never
+ * the second tab, a lone tab or another size on the way.
  */
 export const ShowsOnlyTheFinishedStart: Story = {
   args: {

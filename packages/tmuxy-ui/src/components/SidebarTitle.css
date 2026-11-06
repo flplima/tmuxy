@@ -1,5 +1,3 @@
-/* Sidebar title — the column's label, since a docked column has no header of
-   its own. Brightness is the focus cue (see SidebarTitle.tsx). */
 .sidebar-title {
   cursor: pointer;
   display: flex;
@@ -8,18 +6,14 @@
   gap: 2px;
   flex: 1;
   min-width: 0;
-  /* The chrome's small text, as the tab strip beside it; the header keeps its
-     height, so the title sits in more room above and below. */
   font-size: var(--tmuxy-small-font-size);
-  /* Quiet by colour, not by opacity: --text-dimmed is the tier that still
-     reads at 4.5:1 on the chrome. */
+  /* Quiet by colour, not opacity: --text-dimmed still reads at 4.5:1 on the chrome. */
   color: var(--text-dimmed);
   transition: color var(--transition-fast);
 }
 
-/* The column with the keyboard takes the theme's accent — the same colour the
-   active pane's outline wears when the keyboard is in the panes. Only one
-   surface can have it at a time, which is what makes it mean "here". */
+/* The same accent the active pane's outline wears: one surface at a time has
+   it, which is what makes it mean "the keyboard is here". */
 .sidebar-title.is-focused {
   color: var(--theme-accent);
 }

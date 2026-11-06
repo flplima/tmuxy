@@ -1,35 +1,28 @@
-/* ============================================
-   Modal - Generic reusable modal
-   ============================================ */
-
-/* Full-screen overlay container, on the float rung: a float lifts itself
-   above the ones under it by its place in the stack (`--float-stack`, set by
-   Modal from its `stack` prop). */
+/* On the float rung: a float lifts itself above the ones under it by its place
+   in the stack (`--float-stack`, set by Modal from its `stack` prop). */
 .modal-overlay {
   position: absolute;
   inset: 0;
   z-index: calc(var(--z-float) + var(--float-stack, 0));
 }
 
-/* Semi-transparent backdrop (default: dim) */
 .modal-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
 }
 
-/* Blur backdrop variant */
 .modal-backdrop-blur {
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(6px);
 }
 
-/* No backdrop variant (transparent, still captures clicks) */
+/* Transparent, and still captures clicks. */
 .modal-backdrop-none {
   background: transparent;
 }
 
-/* Modal container - centered via JS positioning */
+/* Placed by the caller's `containerStyle`. */
 .modal-container {
   position: absolute;
   background: var(--bg-black);
@@ -41,7 +34,6 @@
   pointer-events: auto;
 }
 
-/* Modal header */
 .modal-header {
   display: flex;
   align-items: center;
@@ -61,7 +53,6 @@
   white-space: nowrap;
 }
 
-/* Modal close button */
 .modal-close {
   display: flex;
   align-items: center;

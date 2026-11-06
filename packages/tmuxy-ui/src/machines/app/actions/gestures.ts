@@ -1,6 +1,4 @@
 /**
- * Action implementations for the gestures state slice.
- *
  * A gesture is drawn from `context.gesture` while the fingers move, and turned
  * into the thing it stands for when they lift - through the same events a key
  * or a click sends (SELECT_TAB, ZOOM_PANE, TOGGLE_TAB_OVERVIEW,
