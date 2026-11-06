@@ -92,7 +92,7 @@ function withoutRunShellWrap(tmuxCalls) {
 function buildEnv(logFile, opts = {}) {
   const env = {
     ...process.env,
-    PATH: `${MOCKS_DIR}:${process.env.PATH}`,
+    PATH: opts.path ?? `${MOCKS_DIR}:${process.env.PATH}`,
     MOCK_TMUX_LOG: logFile,
     ...opts.env,
   };
@@ -122,6 +122,8 @@ function buildEnv(logFile, opts = {}) {
  * @param {object} [opts] - Options
  * @param {Record<string, string>} [opts.env] - Extra environment variables
  * @param {string} [opts.input] - Stdin input
+ * @param {string} [opts.cli] - The dispatcher to run, when not the repo's
+ * @param {string} [opts.path] - PATH in place of the mocks' directory and the inherited one
  * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}>, paneResolution: {args: string[]} | null }}
  */
 function runCLIFull(args, opts = {}) {
@@ -132,7 +134,7 @@ function runCLIFull(args, opts = {}) {
 
   const env = buildEnv(logFile, opts);
 
-  const result = spawnSync(CLI_PATH, args, {
+  const result = spawnSync(opts.cli ?? CLI_PATH, args, {
     env,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],

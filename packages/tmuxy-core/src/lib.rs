@@ -1,5 +1,5 @@
 pub mod argv;
-#[cfg(feature = "native")]
+#[cfg(feature = "cli")]
 pub mod ask;
 pub mod cli_contract;
 pub mod client_size;

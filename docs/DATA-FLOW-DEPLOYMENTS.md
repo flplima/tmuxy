@@ -156,6 +156,8 @@ No server at all. Real tmux runs inside an in-browser guest machine, and its `tm
 - **v86** — an x86 emulator running a small buildroot Linux restored from a pre-booted state snapshot; the control client is on its UART.
 - **CheerpX** — an x86-to-WebAssembly JIT running 32-bit Alpine binaries from an ext2 image streamed over HTTP; the control client is on its console, through the guest's `tmuxy-console` relay. Faster and with no kernel to boot, but it needs a cross-origin isolated page (COOP + COEP headers), and its kernel lacks enough that the guest's tmux is patched and every pane runs under `tmuxy-pty` (see `packages/tmuxy-ui/cheerpx/README.md`).
 
+Both guests carry the `tmuxy` CLI and its scripts, the config the app ships, and `tmuxy-verbs` in place of a server: the CLI's Rust verbs (floats, tabs, `run`, sends, pane groups, config, agents) cross-compiled for i686-musl from `tmuxy-verbs` without its `native` feature (`packages/tmuxy-ui/scripts/lib/guest.mjs`). A command that needs the server (`session save|restore|…`, `session connect`, `plugin`, `trace`) answers there as not available, under the CLI's contract.
+
 ```
 TmuxyApp ──run(op)──> GuestTmuxAdapter ──> GuestEngine (V86Engine | CheerpXEngine)
    ▲                                                              │ send
@@ -175,7 +177,7 @@ Key pieces (under `tmuxy-ui/src/infra/transport/drivers/`):
 
 The public demo site (`packages/tmuxy-demo`) runs CheerpX where the page is cross-origin isolated and v86 elsewhere; `?guest=v86` asks for v86. Its dev server sends the isolation headers; GitHub Pages, which hosts the static export, cannot, so a service worker adds them to the site's own responses (`public/coi-sw.js`), reloading a page it does not serve yet (a first visit, a hard reload) once to put it under the worker. A browser without service workers gets v86. The Storybook `v86` stories run v86. Assets (kernel, BIOS, state snapshot, ext2 image, wasm bindings) are served statically; nothing leaves the browser.
 
-The v86 guest is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (the `v86-guest` action, cached on everything the guest is built from: its build scripts, the CLI and shipped confs, and the `tmuxy-group` it cross-compiles), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests. The CheerpX guest has no automated test yet.
+The v86 guest is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (the `v86-guest` action, cached on everything the guest is built from: its build scripts, the CLI and shipped confs, and the `tmuxy-verbs` it cross-compiles), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests. The CheerpX guest has no automated test yet.
 
 ## Additional API Endpoints
 

@@ -40,8 +40,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Rust for the one suite that builds a real binary: the guests'
+      # tmuxy-verbs (tests/cli/cli-guest-verbs.test.js).
       - uses: ./.github/actions/setup-node-rust
-        with:
-          rust: none
       - name: CLI suite
         run: npm run test:cli
