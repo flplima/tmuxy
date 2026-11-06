@@ -16,11 +16,13 @@ pub struct PaneState {
     /// `list-panes` report places it.
     pub window_id: Option<WindowId>,
 
-    /// Terminal emulator for this pane
-    pub terminal: vt100::Parser,
+    /// Terminal emulator for this pane. It, the two parsers beside it, the
+    /// scroll baseline and the content cache are the pane's own: they change
+    /// together (`reset` in `pane_output.rs`), never from the aggregator.
+    terminal: vt100::Parser,
 
     /// OSC sequence parser for hyperlinks and clipboard
-    pub osc_parser: super::osc::OscParser,
+    osc_parser: super::osc::OscParser,
 
     /// Last `vt100::Screen::scroll_delta` this pane observed. The difference
     /// against the current value is how far the visible grid moved, which is
@@ -31,14 +33,14 @@ pub struct PaneState {
     /// parser, and the alternate screen is a different grid with its own
     /// counter. Comparing across either yields a nonsense delta that shifts
     /// every mark off the screen.
-    pub(super) last_scroll_delta: i64,
+    last_scroll_delta: i64,
 
     /// Which grid `last_scroll_delta` was read from: the alternate screen has
     /// its own counter and its own text.
-    pub(super) scroll_baseline_alt: bool,
+    scroll_baseline_alt: bool,
 
     /// Image protocol parser (iTerm2, Sixel)
-    pub image_parser: super::images::ImageParser,
+    image_parser: super::images::ImageParser,
 
     /// Stored images keyed by image ID (for HTTP retrieval)
     pub image_store: HashMap<u32, super::images::StoredImage>,
@@ -102,9 +104,6 @@ pub struct PaneState {
     /// use it.
     pub marked: bool,
 
-    /// Whether this pane's output is paused due to flow control
-    pub paused: bool,
-
     /// Whether a selection is active in copy mode
     pub selection_present: bool,
 
@@ -151,15 +150,41 @@ pub struct PaneState {
     pub cursor_hidden: bool,
 
     /// Whether terminal content has changed since last extraction
-    pub(super) content_dirty: bool,
+    content_dirty: bool,
 
     /// Cached extracted content (avoids re-extracting when content hasn't changed).
     /// `Arc`-shared with every snapshot that includes it, so handing it out is a
     /// refcount bump, not a per-cell deep copy.
-    pub(super) cached_content: Option<std::sync::Arc<PaneContent>>,
+    cached_content: Option<std::sync::Arc<PaneContent>>,
+}
+
+#[path = "pane_links.rs"]
+mod links;
+#[path = "pane_output.rs"]
+mod output;
+
+/// What the tests read of a pane's emulator.
+#[cfg(test)]
+impl PaneState {
+    pub(crate) fn screen(&self) -> &vt100::Screen {
+        self.terminal.screen()
+    }
+
+    pub(crate) fn placements(&self) -> &[super::images::ImagePlacement] {
+        &self.image_parser.placements
+    }
+
+    pub(crate) fn osc(&self) -> &super::osc::OscParser {
+        &self.osc_parser
+    }
 }
 
 impl PaneState {
+    /// Set the title tmux or the program reported (see [`shown_title`]).
+    pub(super) fn set_title(&mut self, title: String) {
+        self.title = shown_title(title);
+    }
+
     /// Whether the pane currently sits in `window`.
     pub fn in_window(&self, window: &WindowId) -> bool {
         self.window_id.as_ref() == Some(window)
@@ -203,7 +228,6 @@ impl PaneState {
             alternate_on: false,
             mouse_any_flag: false,
             marked: false,
-            paused: false,
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
@@ -361,7 +385,6 @@ impl PaneState {
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
             marked: self.marked,
-            paused: self.paused,
             history_size: self.history_size,
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,

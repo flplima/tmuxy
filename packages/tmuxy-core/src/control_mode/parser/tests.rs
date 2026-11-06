@@ -96,14 +96,7 @@ fn test_parse_command_response() {
     let event = parser.parse_line("%end 1234567890 0 0");
 
     match event {
-        Some(ControlModeEvent::CommandResponse {
-            timestamp,
-            command_num,
-            output,
-            success,
-        }) => {
-            assert_eq!(timestamp, 1234567890);
-            assert_eq!(command_num, 0);
+        Some(ControlModeEvent::CommandResponse { output, success }) => {
             assert_eq!(output, "line 1\nline 2");
             assert!(success);
         }
@@ -130,7 +123,7 @@ fn test_parse_command_error() {
 #[test]
 fn stray_end_without_begin_is_ignored() {
     // A %end/%error with no matching %begin must not emit a bogus
-    // CommandResponse (stale timestamp/command_num, empty body).
+    // CommandResponse (an empty body).
     let mut parser = Parser::new();
     assert!(parser.parse_line("%end 1234567890 0 0").is_none());
     assert!(parser.parse_line("%error 1234567890 1 0").is_none());
@@ -264,26 +257,20 @@ fn test_parse_paste_buffer_changed() {
     }
 }
 
-/// `%extended-output` carries a pane's bytes with the age of the data, and
-/// nothing tested it at all: `cargo mutants` turned `parts.len() < 2` into
+/// `%extended-output` carries a pane's bytes, and nothing tested it at all: `cargo mutants` turned `parts.len() < 2` into
 /// `<= 2`, which makes the function return None for every line tmux can
 /// send — `splitn(2, …)` never yields more than two parts — and the whole
 /// suite still passed. A pane whose output arrives this way would have gone
 /// silent with no test failing.
 #[test]
-fn extended_output_carries_the_panes_bytes_and_their_age() {
+fn extended_output_carries_the_panes_bytes() {
     let mut parser = Parser::new();
     match parser.parse_line(r"%extended-output %3 142 : \033[0mhi") {
-        Some(ControlModeEvent::ExtendedOutput {
-            pane_id,
-            age_ms,
-            content,
-        }) => {
+        Some(ControlModeEvent::Output { pane_id, content }) => {
             assert_eq!(pane_id, "%3");
-            assert_eq!(age_ms, 142);
             assert_eq!(content, b"\x1b[0mhi");
         }
-        other => panic!("expected ExtendedOutput, got {other:?}"),
+        other => panic!("expected Output, got {other:?}"),
     }
 }
 
@@ -293,19 +280,11 @@ fn extended_output_carries_the_panes_bytes_and_their_age() {
 fn extended_output_without_a_readable_age_still_delivers_its_bytes() {
     let mut parser = Parser::new();
     match parser.parse_line("%extended-output %3 notanumber : hi") {
-        Some(ControlModeEvent::ExtendedOutput {
-            pane_id,
-            age_ms,
-            content,
-        }) => {
+        Some(ControlModeEvent::Output { pane_id, content }) => {
             assert_eq!(pane_id, "%3");
-            assert_eq!(
-                age_ms, 0,
-                "an unreadable age reads as 0, not as a dropped event"
-            );
             assert_eq!(content, b"hi");
         }
-        other => panic!("expected ExtendedOutput, got {other:?}"),
+        other => panic!("expected Output, got {other:?}"),
     }
 }
 

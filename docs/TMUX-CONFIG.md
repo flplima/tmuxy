@@ -67,7 +67,7 @@ The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, 
 
 ## tmux Configuration
 
-No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
+No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). The monitor sets them per session on every connect, and per window as each is first listed (table below), never globally, for a tmux 3.5a crash with global settings under control mode (open whether it still holds: the chain sourced on connect sets a global window option, `pane-border-style`).
 
 OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
 
@@ -99,17 +99,18 @@ The menus change five options — `@tmuxy-theme`, `@tmuxy-theme-mode`, `@tmuxy-t
 
 Config beats menu state. An option the user's `tmuxy.conf` sets is **pinned**: the remembered choice is not put back over it, the menu cannot change it (the backend refuses a change made only of pinned options, and leaves a pinned one out of a mixed one), and the theme settings every client receives list it under `pinned`, so the menu greys it out and labels the item in effect "set in tmuxy.conf".
 
-The theme is the session's: each client draws the one tmux holds and hears of a pick via the `tmuxy-theme` subscription (`SUBSCRIBE_THEME_CMD`).
+The theme is the session's: each client draws the one tmux holds and hears of a pick via the `tmuxy-theme` subscription (`subscribe_theme_command`).
 
 The backend learns the pins by reading the user's file, not tmux: tmux cannot say which layer of the chain set an option. It reads the file the way tmux does — comments dropped, continued lines joined, commands split on `;`, `\;` and newlines (the command-list scanner the router uses) — and in order: a `set` or `set-option` of one of the five as a global session option (`-g`, with no `-w`, `-p` or `-s`, which name other tables the app does not read) pins it, whatever its value, and a later `-u` of it lets it go. A command in a `{ … }` block (a binding's) pins nothing, since it does not run when the file is read (`pinned_options_in` in `tmuxy-core/src/session/state.rs`). The file is read each time the settings are, so adding or removing a pin takes effect with the reload that saving the file triggers.
 
 ### What a user's config can break, and what protects it
 
-Three layers protect the app, and they cover different things:
+Four layers protect the app, covering different things:
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| `enforce_settings()` | `control_mode/monitor.rs`, every connect, per-session | `pane-border-status`/`-format`, `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `window-size manual`, `aggressive-resize off` |
+| `enforce_settings()` | `control_mode/monitor/sync.rs`, every connect, per-session | `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `set-clipboard off` |
+| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
 | `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
 

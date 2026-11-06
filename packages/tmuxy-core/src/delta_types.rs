@@ -108,9 +108,6 @@ pub struct PaneDelta {
     /// Marked pane flag (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marked: Option<bool>,
-    /// Flow control pause state (only if changed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub paused: Option<bool>,
     /// History size (only if changed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_size: Option<u64>,

@@ -1,5 +1,6 @@
 use super::tests::*;
 use super::*;
+use crate::constants::tmux_formats::{TmuxList, WindowColumn};
 use crate::ids::test_ids::{pid, wid};
 use crate::{WindowId, WindowType};
 
@@ -12,10 +13,26 @@ fn window_ids_by_sizing_splits_both_sidebars_off() {
     use crate::constants::sidebar_dock;
 
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,,0,shell");
-    agg.parse_list_windows_line("@2,1,0,float,,,,,,,,,,,0,float");
-    agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,,,,0,tree");
-    agg.parse_list_windows_line("@4,3,0,sidebar-right,,,,,,,,,,,0,term");
+    agg.parse_list_windows_line(
+        &window_row("@1", 0, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
+    agg.parse_list_windows_line(
+        &window_row("@2", 1, false, "float")
+            .set(WindowColumn::WindowType, "float")
+            .build(),
+    );
+    agg.parse_list_windows_line(
+        &window_row("@3", 2, false, "tree")
+            .set(WindowColumn::WindowType, "sidebar-left")
+            .build(),
+    );
+    agg.parse_list_windows_line(
+        &window_row("@4", 3, false, "term")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .build(),
+    );
 
     let (mut viewport, mut sidebars) = agg.window_ids_by_sizing();
     viewport.sort_by_key(WindowId::number);
@@ -53,7 +70,12 @@ fn sidebar_width_honours_the_user_drag_within_limits() {
     use crate::constants::sidebar_dock;
 
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@3,2,0,sidebar-left,,,,,,,,48,,,0,tree");
+    agg.parse_list_windows_line(
+        &window_row("@3", 2, false, "tree")
+            .set(WindowColumn::WindowType, "sidebar-left")
+            .set(WindowColumn::SidebarCols, "48")
+            .build(),
+    );
     let (_, sidebars) = agg.window_ids_by_sizing();
     assert_eq!(sidebars, vec![(wid("@3"), 48, None)]);
 
@@ -81,8 +103,12 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
     // The window as `%window-add` / the first list-windows sees it: no
     // marker yet, because the create command's `set-option` has not been
     // read back.
-    agg.parse_list_windows_line("@4,2,0,,,,,,,,,,,0,side");
-    let adopted = agg.collect_window_tag_commands();
+    agg.parse_list_windows_line(
+        &window_row("@4", 2, false, "side")
+            .set(WindowColumn::Collapsible, "0")
+            .build(),
+    );
+    let adopted = agg.window_setup_commands();
     assert!(
         adopted
             .iter()
@@ -91,8 +117,12 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
     );
 
     // The list-windows response carries the marker the create command set.
-    agg.parse_list_windows_line("@4,2,0,sidebar-right,,,,,,,,,,,0,side");
-    let corrected = agg.collect_window_tag_commands();
+    agg.parse_list_windows_line(
+        &window_row("@4", 2, false, "side")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .build(),
+    );
+    let corrected = agg.window_setup_commands();
     assert!(
         corrected
             .iter()
@@ -100,24 +130,28 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
         "the border must be taken back once the type lands: {corrected:?}"
     );
     // ...exactly once, and never re-enforced afterwards.
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 }
 
 /// The monitor re-lists windows right behind a create command, so a
-/// sidebar can be typed before it was ever adopted as a tab. The global
-/// `pane-border-status top` still applies to it, so the border must come
-/// off in that case too — it used to be skipped, leaving the pane a row short.
+/// sidebar can be typed before it was ever adopted as a tab. The border
+/// must come off in that case too — it used to be skipped, leaving the pane
+/// a row short when the window was made with one.
 #[test]
 fn sidebar_typed_on_arrival_still_loses_the_pane_border() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@4,2,0,sidebar-left,,,,,,,,,,,0,__sidebar-left");
-    let cmds = agg.collect_window_tag_commands();
+    agg.parse_list_windows_line(
+        &window_row("@4", 2, false, "__sidebar-left")
+            .set(WindowColumn::WindowType, "sidebar-left")
+            .build(),
+    );
+    let cmds = agg.window_setup_commands();
     assert!(
         cmds.iter()
             .any(|c| c == "set-option -w -t @4 pane-border-status off"),
         "a sidebar typed on arrival must still drop the border row: {cmds:?}"
     );
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 }
 
 #[test]
@@ -226,14 +260,15 @@ fn list_windows_still_corrects_a_wrong_provisional_index() {
     assert_eq!(agg.windows.get("@1").unwrap().index, 2);
 
     // tmux reports @1 actually at index 5 — drive the correction through
-    // the real parser (a list-windows line arriving as a command
-    // response), not by hand-assigning the field.
-    agg.process_event(ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
-        output: "@1,5,1,tab,,,,,,,,,,,shell".to_string(),
-        success: true,
-    });
+    // the real parser (the aggregator's own list-windows, answered), not by
+    // hand-assigning the field.
+    listed(
+        &mut agg,
+        TmuxList::Windows,
+        &window_row("@1", 5, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
     assert_eq!(
         agg.windows.get("@1").unwrap().index,
         5,
@@ -241,43 +276,37 @@ fn list_windows_still_corrects_a_wrong_provisional_index() {
     );
 }
 
-/// The stream opens with the picture `GetState` waits for. Every unmarked ack
-/// of the initial sync (`set window-size manual` is the first) reports a Full
-/// change, and a Full emitted on one of those has no panes, no windows and no
-/// content: a client reconnecting to a restarted monitor had its page blanked
-/// by it until the deltas and captures landed.
+/// The stream opens with the picture `GetState` waits for. A state emitted
+/// before the initial sync's lists and captures land has no panes, no
+/// windows and no content: a client reconnecting to a restarted monitor had
+/// its page blanked by it until the deltas and captures landed.
 #[test]
 fn the_first_emission_waits_for_the_initial_sync_and_its_captures() {
     let mut agg = StateAggregator::new();
-
-    // The ack of the first sync command reports a Full change...
-    let ack = agg.step(response("", true));
-    assert!(
-        ack.effects
-            .iter()
-            .any(|e| matches!(e, SideEffect::EmitState { .. })),
-        "an unmarked ack reports a state change ({:?})",
-        ack.effects
-    );
-    // ...and nothing goes out on it.
     assert!(agg.to_state_update().is_none(), "nothing to show yet");
 
     // list-panes lists a new pane, which asks for its capture; list-windows
     // follows. Neither is the whole picture while that capture is in flight.
-    let listed = agg.step(response(&pane_row("%0", "@0", false), true));
+    let panes = listed(&mut agg, TmuxList::Panes, &pane_row("%0", "@0", false));
     assert!(
-        listed.effects.iter().any(
+        panes.effects.iter().any(
             |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
         ),
         "a new pane is captured ({:?})",
-        listed.effects
+        panes.effects
     );
     agg.queue_captures(&[pid("%0")]);
     assert!(
         agg.to_state_update().is_none(),
         "panes listed, capture pending"
     );
-    agg.step(response("@0,0,1,tab,,,,,,,,,,,0,shell\n", true));
+    listed(
+        &mut agg,
+        TmuxList::Windows,
+        &window_row("@0", 0, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
     assert!(
         agg.to_state_update().is_none(),
         "windows listed, capture pending"

@@ -36,10 +36,9 @@ pub use monitor::{
 pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
+pub(crate) use state::normalize_capture_bytes;
 pub use state::{
-    accepted_clipboard_write, control_mode_lines, normalize_capture_bytes, window_relist_commands,
-    ChangeType, Markers, SideEffect, StateAggregator, StepResult, BUFFER_BEGIN_MARKER,
-    BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, CLIENTS_BEGIN_MARKER,
-    CLIENTS_END_MARKER, LIST_CLIENTS_FORMAT, MAX_CLIPBOARD_BYTES, REPLY_BEGIN_MARKER,
-    REPLY_END_MARKER,
+    control_mode_lines, ChangeType, Markers, SideEffect, StateAggregator, StepResult,
+    BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER,
+    LIST_BEGIN_MARKER, LIST_END_MARKER, MAX_CLIPBOARD_BYTES, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };

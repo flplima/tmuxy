@@ -1,4 +1,6 @@
+use super::markers::Read;
 use super::*;
+use crate::constants::tmux_formats::TmuxList;
 use crate::{PaneId, WindowId};
 
 /// A reply-wrapped command's output, being collected between its markers.
@@ -9,19 +11,6 @@ pub(super) struct ReplyInFlight {
     pub(super) error: Option<String>,
 }
 
-/// The re-list a window add or close needs, and the initial sync sends:
-/// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted before
-/// its panes are listed is a window with panes missing; the stash list is
-/// independent of that order and goes last. The native monitor and the wasm
-/// host both send exactly this.
-pub fn window_relist_commands() -> [String; 3] {
-    [
-        crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
-        crate::constants::tmux_formats::LIST_WINDOWS_CMD.to_string(),
-        crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-    ]
-}
-
 impl StateAggregator {
     pub(super) fn on_command_response_event(
         &mut self,
@@ -30,30 +19,11 @@ impl StateAggregator {
     ) -> ProcessEventResult {
         let marker_line = output.trim_end_matches(['\r', '\n']);
 
-        // The block right after a capture's or a buffer read's BEGIN marker
-        // is that read's output (each command of a list gets its own block,
-        // in order), so it is taken by position, never by what it says: a
-        // pane can show anything, a marker's words included.
-        if let Some(pane_id) = self.capture_armed.take() {
-            return self.on_capture(pane_id, &output, success);
-        }
-        if let Some(pane_id) = self.clients_read_armed.take() {
-            return self.on_clients_listed(&pane_id, &output, success);
-        }
-        if self.buffer_read_armed {
-            self.buffer_read_armed = false;
-            self.pending_buffer_reads.pop_front();
-            let text = marker_line.to_string();
-            // The buffer can hold anything a pane's program put there, so it
-            // gets the same cap as an OSC 52 write, here where every
-            // consumer of the effect (the in-browser engine included) sees it.
-            if success && !text.is_empty() && text.len() <= MAX_CLIPBOARD_BYTES {
-                return ProcessEventResult {
-                    clipboard_writes: vec![(None, text)],
-                    ..Default::default()
-                };
-            }
-            return ProcessEventResult::default();
+        // The block right after a read's BEGIN marker is that read's output
+        // (see `Read`): a pane can show anything, a marker's words included,
+        // and a reply can print rows shaped exactly like a list's.
+        if let Some(read) = self.armed.take() {
+            return self.on_read(read, &output, success);
         }
 
         // Reply-wrapped commands (see reply_wrapped_lines). Everything
@@ -118,77 +88,68 @@ impl StateAggregator {
             return ProcessEventResult::default();
         }
 
-        // Marker-wrapped show-buffer responses (copy-mode yank mirror).
-        // Each command in a control-mode command list gets its OWN
-        // %begin/%end block, so the wrap arrives as three consecutive
-        // responses: BEGIN marker → buffer content → END marker.
-        if self.markers.is(marker_line, BUFFER_BEGIN_MARKER) {
-            self.buffer_read_armed = !self.pending_buffer_reads.is_empty();
-            return ProcessEventResult::default();
-        }
-        if self.markers.is(marker_line, BUFFER_END_MARKER) {
-            return ProcessEventResult::default();
-        }
-
-        // Marker-wrapped list-clients responses (view-mode close), bracketed
-        // the way a capture is.
-        if let Some(rest) = self.markers.after(marker_line, CLIENTS_BEGIN_MARKER) {
-            if let Ok(number) = rest.trim_start_matches('%').parse() {
-                self.clients_read_armed = Some(PaneId::from_number(number));
+        if let Some(read) = self.markers.read_begun(marker_line) {
+            // A buffer read nobody is waiting on is not ours to mirror.
+            if read != Read::Buffer || self.pending_buffer_reads > 0 {
+                self.armed = Some(read);
             }
             return ProcessEventResult::default();
         }
-        if self.markers.is(marker_line, CLIENTS_END_MARKER) {
-            return ProcessEventResult::default();
-        }
 
-        // Marker-routed capture-pane responses: every self-issued
-        // capture is bracketed BEGIN(pane)/END (see capture_command),
-        // so the block between the markers is attributed to its pane
-        // exactly — never by arrival order or output-shape guessing.
-        if let Some(rest) = self.markers.after(marker_line, CAPTURE_BEGIN_MARKER) {
-            // The id travels as bare digits (see capture_command).
-            if let Ok(number) = rest.trim_start_matches('%').parse() {
-                self.capture_armed = Some(PaneId::from_number(number));
+        // Anything else — a read's END marker, the ack of a keystroke or of
+        // any command sent without a marker — changes nothing tmux will not
+        // announce on its own: the state is kept from notifications and the
+        // marked reads above.
+        ProcessEventResult::default()
+    }
+
+    /// A read's block, routed by the BEGIN marker before it.
+    fn on_read(&mut self, read: Read, output: &str, success: bool) -> ProcessEventResult {
+        match read {
+            Read::Capture(pane_id) => self.on_capture(pane_id, output, success),
+            Read::Clients(pane_id) => self.on_clients_listed(&pane_id, output, success),
+            Read::Buffer => {
+                self.pending_buffer_reads = self.pending_buffer_reads.saturating_sub(1);
+                let text = output.trim_end_matches(['\r', '\n']);
+                // The buffer can hold anything a pane's program put there, so
+                // it gets the same cap as an OSC 52 write, here where every
+                // consumer of the effect (the in-browser engine included)
+                // sees it.
+                if success && !text.is_empty() && text.len() <= MAX_CLIPBOARD_BYTES {
+                    return ProcessEventResult {
+                        clipboard_writes: vec![(None, text.to_string())],
+                        ..Default::default()
+                    };
+                }
+                ProcessEventResult::default()
             }
-            return ProcessEventResult::default();
-        }
-        if self.markers.is(marker_line, CAPTURE_END_MARKER) {
-            return ProcessEventResult::default();
-        }
-
-        // NOTE: every unmarked SUCCESSFUL response — including the
-        // empty ack of each send-keys batch — intentionally falls
-        // through to a Full change below. An attempted optimization
-        // (return None for empty acks, sparing a full TmuxState
-        // rebuild per keystroke) regressed keystroke routing after a
-        // pane-group tab click: the compound run-shell's empty ack is
-        // one of the signals the frontend's optimistic-swap
-        // convergence rides on, and suppressing it sent the first
-        // post-click keystroke to the stale pane (7-regression
-        // group-click E2E). Revisit only after the self-issued
-        // list-panes/list-windows commands are marker-routed like
-        // captures, so command completions can be classified exactly
-        // instead of by ack shape.
-
-        // Not a capture-pane response - parse list-panes/list-windows responses to update state
-        let resized_panes = if success {
-            self.handle_command_response(&output)
-        } else {
-            Vec::new()
-        };
-        let mut commands = self.collapsible_layout_commands(None);
-        commands.extend(
-            self.view_mode_opened
-                .drain(..)
-                .map(|pane_id| self.markers.clients_read_command(&pane_id)),
-        );
-        ProcessEventResult {
-            state_changed: true,
-            panes_needing_refresh: resized_panes,
-            change_type: ChangeType::Full, // Command responses may update many things,
-            commands,
-            ..Default::default()
+            Read::List(_) if !success => ProcessEventResult::default(),
+            Read::List(list) => {
+                let resized_panes = match list {
+                    TmuxList::Panes => self.apply_pane_list(output),
+                    TmuxList::Windows => {
+                        self.apply_window_list(output);
+                        Vec::new()
+                    }
+                    TmuxList::Stash => {
+                        self.rebuild_stash_members(output);
+                        Vec::new()
+                    }
+                };
+                let mut commands = self.collapsible_layout_commands(None);
+                commands.extend(
+                    self.view_mode_opened
+                        .drain(..)
+                        .map(|pane_id| self.markers.clients_read_command(&pane_id)),
+                );
+                ProcessEventResult {
+                    state_changed: true,
+                    panes_needing_refresh: resized_panes,
+                    change_type: ChangeType::Full,
+                    commands,
+                    ..Default::default()
+                }
+            }
         }
     }
 
@@ -279,18 +240,7 @@ impl StateAggregator {
                 lines = output.lines().filter(|l| !l.trim().is_empty()).count(),
                 "pane captured"
             );
-            // Normal mode: reset and reprocess the main terminal
-            pane.reset_and_process_capture(output.as_bytes());
-
-            // After processing capture output, the vt100 cursor
-            // is at the end of the content (last row). Reposition
-            // it to tmux's actual cursor position.
-            let cursor_seq = format!(
-                "\x1b[{};{}H",
-                pane.tmux_cursor_y + 1,
-                pane.tmux_cursor_x + 1
-            );
-            pane.terminal.process(cursor_seq.as_bytes());
+            pane.apply_capture(output.as_bytes());
         }
         ProcessEventResult {
             state_changed: true,
@@ -300,91 +250,53 @@ impl StateAggregator {
         }
     }
 
-    /// Handle command response (list-panes, list-windows) and return list of panes that were resized.
-    pub(super) fn handle_command_response(&mut self, output: &str) -> Vec<PaneId> {
-        // A stash-members response (LIST_STASH_PANES_CMD) is a self-contained
-        // block: rebuild the hidden-member map from it and return, so its rows
-        // never reach the active-session pane/window parsers below. An empty
-        // block (no rows) can't be told apart from an errored/absent stash
-        // session, so leave the map as-is on empty; `to_tmux_state` prunes any
-        // member whose group no longer has a visible pane.
-        if output.lines().any(is_stash_member_line) {
-            self.rebuild_stash_members(output);
-            return Vec::new();
-        }
-
-        // Track which panes we see in this response
+    /// Apply a `list-panes` answer and return the panes that need a capture
+    /// (new, resized, or just out of copy mode).
+    pub(super) fn apply_pane_list(&mut self, output: &str) -> Vec<PaneId> {
         let mut seen_panes: HashSet<PaneId> = HashSet::new();
         let mut resized_panes: Vec<PaneId> = Vec::new();
-        let mut is_list_panes_response = false;
-
-        // Try to parse as list-panes output. Require the shape tmux actually
-        // emits — `%<digits>,` at the start of the line — rather than "contains
-        // a % and a comma" anywhere, so arbitrary RunCommand output flowing
-        // through this same channel can't be mistaken for pane records and
-        // conjure ghost panes into the aggregator.
         for line in output.lines() {
-            if is_list_panes_line(line) {
-                if let Some((pane_id, was_resized)) = self.parse_list_panes_line(line) {
-                    seen_panes.insert(pane_id.clone());
-                    if was_resized {
-                        resized_panes.push(pane_id);
-                    }
-                    is_list_panes_response = true;
+            if let Some((pane_id, was_resized)) = self.parse_list_panes_line(line) {
+                seen_panes.insert(pane_id.clone());
+                if was_resized {
+                    resized_panes.push(pane_id);
                 }
             }
         }
-
-        if is_list_panes_response {
-            self.pane_reports = self.pane_reports.wrapping_add(1);
-            self.panes_synced = true;
+        if seen_panes.is_empty() {
+            return resized_panes;
         }
+        self.pane_reports = self.pane_reports.wrapping_add(1);
+        self.panes_synced = true;
 
-        // If this was a list-panes response, remove panes that weren't seen
-        // (they were deleted in tmux)
-        if is_list_panes_response && !seen_panes.is_empty() {
-            self.panes.retain(|pane_id, pane| {
-                // Keep panes that were seen in this response
-                if seen_panes.contains(pane_id) {
-                    return true;
-                }
-                // Keep panes with empty window_id (from other sessions' output events)
-                // They'll be filtered out in to_tmux_state anyway
-                if pane.window_id.is_none() {
-                    return true;
-                }
-                // Remove panes that have a window_id but weren't in the list-panes response
-                // (they were deleted)
-                debug!(pane = %pane_id, "pane gone");
-                false
-            });
-            self.prune_capture_bookkeeping();
-        }
-
-        // Try to parse as list-windows output
-        let mut is_list_windows_response = false;
-        let mut seen_windows: HashSet<WindowId> = HashSet::new();
-        for line in output.lines() {
-            if line.contains('@') && line.contains(',') {
-                // Extract window_id before parsing (first field is `@N`)
-                if let Some(Ok(wid)) = line.split(',').next().map(|w| WindowId::parse(w.trim())) {
-                    seen_windows.insert(wid);
-                }
-                self.parse_list_windows_line(line);
-                is_list_windows_response = true;
+        // Remove panes that weren't seen (they were deleted in tmux).
+        self.panes.retain(|pane_id, pane| {
+            if seen_panes.contains(pane_id) {
+                return true;
             }
-        }
-
-        // Remove windows that weren't in the list-windows response (deleted in tmux).
-        if is_list_windows_response && !seen_windows.is_empty() {
-            self.windows
-                .retain(|window_id, _| seen_windows.contains(window_id));
-        }
-
-        if is_list_windows_response {
-            self.windows_synced = true;
-        }
-
+            // Keep panes with empty window_id (from other sessions' output events)
+            // They'll be filtered out in to_tmux_state anyway
+            if pane.window_id.is_none() {
+                return true;
+            }
+            debug!(pane = %pane_id, "pane gone");
+            false
+        });
+        self.prune_capture_bookkeeping();
         resized_panes
+    }
+
+    /// Apply a `list-windows` answer: every window in it, and none other.
+    pub(super) fn apply_window_list(&mut self, output: &str) {
+        let seen_windows: HashSet<WindowId> = output
+            .lines()
+            .filter_map(|line| self.parse_list_windows_line(line))
+            .collect();
+        if seen_windows.is_empty() {
+            return;
+        }
+        self.windows
+            .retain(|window_id, _| seen_windows.contains(window_id));
+        self.windows_synced = true;
     }
 }
