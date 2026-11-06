@@ -13,7 +13,7 @@ import { pid } from '../../../test/wire';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createKeyboardActor } from '../keyboardActor';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
-import * as mobileKeyboard from '../../../utils/mobileKeyboard';
+import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 
 type Ev = { type: string; [k: string]: unknown };
 

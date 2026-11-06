@@ -31,11 +31,12 @@ import {
   selectActivePaneCopyMode,
 } from '../machines/selectors/ui';
 import { selectGridDimensions } from '../machines/selectors/layout';
-import { formatPrefixKey } from './menus/keybindingLabel';
+import { formatPrefixKey } from '../domain/menus/keyHint';
 import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
 import { serverHostLabel } from './paneTabDisplay';
 import { SessionMenu } from './SessionMenu';
 import type { KeyBindings } from '../domain/wire';
+import './TmuxStatusBar.css';
 
 function Separator() {
   return <span className="statusline-separator">{HINT_SEPARATOR}</span>;

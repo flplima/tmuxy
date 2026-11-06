@@ -30,12 +30,12 @@ import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/a
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes, selectContainerSize, selectCharSize } from '../machines/selectors/layout';
 import { selectTabOverviewCols } from '../machines/selectors/ui';
-import { overviewSlots, stillPanes } from '../utils/tabOverview';
-import { LogProfiler } from '../utils/renderLog';
+import { overviewSlots, stillPanes } from '../domain/tabOverview';
+import { LogProfiler } from './renderLog';
 import { TabOverviewSlots } from './TabOverviewSlot';
-import { useTabStill } from '../hooks/useTabStill';
-import { useReorderDrag } from '../hooks/useReorderDrag';
-import { nudgeCursorAnchor } from './cursorAnchor';
+import { useTabStill } from './useTabStill';
+import { useReorderDrag } from './useReorderDrag';
+import { nudgeCursorAnchor } from './terminal/cursorAnchor';
 import type { WindowId } from '../domain/ids';
 
 export const TabOverview = memo(function TabOverview() {

@@ -6,7 +6,7 @@ import { memo, type ReactNode } from 'react';
 import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { PaneStateMark } from './PaneStateMark';
-import { paneStateFor } from '../utils/paneState';
+import { paneStateFor } from '../domain/paneState';
 import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 

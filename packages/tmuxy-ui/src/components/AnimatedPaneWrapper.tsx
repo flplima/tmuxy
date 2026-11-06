@@ -5,7 +5,7 @@
 
 import React, { type ReactNode } from 'react';
 import type { TmuxPane } from '../domain/client';
-import { swipeOffsetPx } from '../utils/gestures';
+import { swipeOffsetPx } from '../machines/gestures/gestures';
 import type { RenderItem } from './PaneLayoutMorph';
 
 // ============================================

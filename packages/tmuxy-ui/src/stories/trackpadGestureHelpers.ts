@@ -1,5 +1,5 @@
 import { expect, within, waitFor } from 'storybook/test';
-import type { NativeSlidePhase } from '../machines/actors/gestureActor';
+import type { NativeSlidePhase } from '../machines/gestures/gestureActor';
 
 export interface AppActor {
   getSnapshot(): {

@@ -26,7 +26,7 @@ if (typeof localStorage === 'undefined') {
 afterEach(() => {
   cleanup();
   // localStorage persists across tests in the same file; clear it so state
-  // read at mount (e.g. createInitialContext → loadThemeFromStorage) doesn't
+  // read at mount (e.g. createInitialContext → loadThemePref) doesn't
   // leak a previous test's writes into the next one.
   localStorage.clear();
 });

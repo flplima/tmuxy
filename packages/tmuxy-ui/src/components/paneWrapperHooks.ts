@@ -5,7 +5,7 @@
 import React, { useEffect, useRef } from 'react';
 import { isModelPaneId } from '../domain/ids';
 import type { PaneBox } from '../constants/layout';
-import { takeZoomHandoff } from '../utils/zoomHandoff';
+import { takeZoomHandoff } from './gestures/zoomHandoff';
 import type { AppMachineEvent } from '../machines/types/events';
 import { MORPH_FALLBACK_MS, MORPH_PROPERTIES, onMorphEnd } from './PaneLayoutMorph';
 

@@ -1,5 +1,5 @@
 import { useAppSelector } from '../../machines/appHooks';
-import { isMacPlatform, isTauri } from '../../utils/platform';
+import { isMacPlatform, isTauri } from '../../infra/platform';
 
 /**
  * Who draws a menu.

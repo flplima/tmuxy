@@ -15,6 +15,7 @@ import { usePreviewTheme } from './previewTheme';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { WidgetProps } from '../registry';
 import { parsePreviewLines } from '../../../domain/preview';
+import './preview.css';
 import { useBindingOwnsKey, useIsPaneInActiveWindow, usePane } from '../../../machines/appHooks';
 
 /**

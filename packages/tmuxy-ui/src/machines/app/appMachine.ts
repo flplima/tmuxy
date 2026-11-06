@@ -54,7 +54,7 @@ import { askActions } from './actions/ask';
 import { connectionGlobalEvents, connectionActions } from './connection';
 import { focusAndDragIdleEvents, focusAndDragActions } from './focusAndDrag';
 import { reconcileModelActions } from './reconcileModelUpdate';
-import { applyFontSize } from '../../utils/fontSizeManager';
+import { applyFontSize } from '../../infra/fontSizeManager';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
@@ -63,7 +63,7 @@ import type { KeyboardActorEvent } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
-import type { GestureActorEvent } from '../actors/gestureActor';
+import type { GestureActorEvent } from '../gestures/gestureActor';
 import type { ServersActorEvent } from '../actors/serversActor';
 
 export const appMachine = setup({

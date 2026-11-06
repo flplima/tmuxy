@@ -1,5 +1,4 @@
-import type { TmuxSnapshot, Patch, ReconcileVerdict } from './types';
-import { lingerVerdict } from './types';
+import { type TmuxSnapshot, type Patch, type ReconcileVerdict, lingerVerdict } from './types';
 import type { TmuxPane, TmuxWindow } from '../client';
 import type { TmuxOpOf } from '../commands';
 import {

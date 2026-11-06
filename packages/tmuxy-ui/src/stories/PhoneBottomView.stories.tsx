@@ -2,7 +2,7 @@
  * The phone's bottom view, under the key row: the tabs/panes tree, or, after
  * a sideways swipe, the side pane — the pinned terminal the desktop keeps in
  * its right column. The swipe is a slide like the one between tabs
- * (components/PhoneBottomView.tsx, utils/bottomSlide.ts).
+ * (components/phone/PhoneBottomView.tsx, components/phone/bottomSlide.ts).
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -12,7 +12,7 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, swipeTimed, touch } from './phoneStoryHelpers';
-import { SWIPE_SETTLE_MAX_MS } from '../utils/gestures';
+import { SWIPE_SETTLE_MAX_MS } from '../machines/gestures/gestures';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Bottom View',

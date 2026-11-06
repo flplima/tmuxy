@@ -15,7 +15,7 @@ const invoke = vi.fn(
     }),
 );
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
-vi.mock('../../utils/platform', () => ({ isTauri: () => true, isMacPlatform: () => false }));
+vi.mock('../platform', () => ({ isTauri: () => true, isMacPlatform: () => false }));
 
 const { fitWindowToSidebar } = await import('../desktopWindow');
 

@@ -93,6 +93,6 @@ Split and kill morphs are deliberately **not** machine state — the lifecycle l
 - **Leave** (kill): the closed pane's node goes away in the same commit that drops it from the model; only the survivors animate, growing into the freed space (`pane-shifting`).
 - **Shift**: pre-existing panes whose geometry changed alongside an enter/leave animate on the same clock (`pane-shifting`) so converging edges track.
 
-The from/to geometry is inferred generically from previous-render pixel boxes (`tmuxy-ui/src/utils/paneTransitions.ts`), so splits/kills initiated from the CLI or another client animate identically to optimistic local ones. The lifecycle classes intentionally out-specify the `enableAnimations`/`suppressLayoutTransition` container gates in CSS; detection is skipped on initial load, window switches, and during drag/resize.
+The from/to geometry is inferred generically from previous-render pixel boxes (`tmuxy-ui/src/components/paneTransitions.ts`), so splits/kills initiated from the CLI or another client animate identically to optimistic local ones. The lifecycle classes intentionally out-specify the `enableAnimations`/`suppressLayoutTransition` container gates in CSS; detection is skipped on initial load, window switches, and during drag/resize.
 
 ---

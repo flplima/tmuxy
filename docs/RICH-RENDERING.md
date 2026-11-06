@@ -8,7 +8,7 @@ This document covers what's supported, how the pipeline works, and how to test e
 
 | Protocol | DCS / OSC / APC | Backend | Frontend | Notes |
 | --- | --- | --- | --- | --- |
-| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed. Clicks open through `utils/openUrl.ts`, not the anchor's own navigation: `window.open` on the web, the `open_url` Tauri command (system browser, http(s)/mailto only) on the desktop, whose webview denies new windows. Auto-detected URLs (`utils/urlDetect.ts`) use the same path and are live only while the platform link modifier is held |
+| **OSC 8 — Hyperlinks** | `ESC ] 8 ; … ; <url> ST` | `control_mode/osc.rs` (style on cell) | `TerminalLine.tsx` → `<a href>` | Parsed from the control-mode stream; no `terminal-features` setting needed. Clicks open through `infra/openUrl.ts`, not the anchor's own navigation: `window.open` on the web, the `open_url` Tauri command (system browser, http(s)/mailto only) on the desktop, whose webview denies new windows. Auto-detected URLs (`components/terminal/urlDetect.ts`) use the same path and are live only while the platform link modifier is held |
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC \_G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfers whose final packet sets `m=0` or omits `m`, formats `f=24`/`f=32`/`f=100` (the bytes of an `f=100` image are kept as they came and typed by their signature, so a GIF sent that way animates — what the demo's nyan cat does, `packages/tmuxy-demo/public/guest/icat`), ZLIB compression (`o=z`), and Unicode placeholders (`U=1`) used by Kitty's tmux passthrough mode |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving. Only a DCS whose bytes before `q` are digits and `;` is Sixel: other DCS strings holding a `q`, such as nvim's XTGETTCAP query (`ESC P + q`), are not pictures |
@@ -39,7 +39,7 @@ inherited the last frame's link — a long underline over unrelated text. The
 run, not the cell, is the unit, or a redraw that happens to refill a cell with
 the same character leaves a stray underline under it.
 
-**Auto-detected URLs stop where a URL must.** `utils/urlDetect.ts` matches the
+**Auto-detected URLs stop where a URL must.** `components/terminal/urlDetect.ts` matches the
 characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for
 internationalised addresses. It is an allowlist on purpose: terminal UIs butt
 their text against separators with no space in between, and a class defined by
@@ -49,7 +49,7 @@ rows that only soft-wrapped (the same full-width rule the copy path uses,
 `isWrappedRow`) are joined first, so a URL longer than the pane is one link on
 every row it covers, each opening the whole address. OSC 8 links already arrive
 whole on every row from the server. Either kind is one `<a>` per row, so
-hovering any row marks every anchor with the same target (`utils/linkHover.ts`).
+hovering any row marks every anchor with the same target (`components/terminal/linkHover.ts`).
 
 OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — all parsing lives in `tmuxy-core/src/control_mode/images.rs` and `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
 

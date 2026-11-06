@@ -6,9 +6,9 @@
  */
 
 import type { TmuxPane } from '../domain/client';
-import type { TmuxServer } from '../machines/types/domain';
+import type { TmuxServer } from '../domain/servers';
 import { detectWidget, getWidget } from './widgets/registry';
-import { circledNumber } from '../utils/paneState';
+import { circledNumber } from '../domain/paneState';
 import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
 
 /**

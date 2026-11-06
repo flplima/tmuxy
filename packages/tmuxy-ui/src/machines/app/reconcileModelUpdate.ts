@@ -19,7 +19,7 @@ import {
 } from './helpers';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from './scrollback';
 import { pruneAskSelections } from './actions/ask';
-import { normalizePaneState } from '../../utils/paneState';
+import { normalizePaneState } from '../../domain/paneState';
 import { TmuxOp } from '../../domain/commands';
 import { reconcileFloatAndSidebarLifecycle } from './reconcileSidebars';
 

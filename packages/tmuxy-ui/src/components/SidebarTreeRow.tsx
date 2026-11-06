@@ -8,10 +8,10 @@ import { paneRowLines, paneWidgetName, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
 import { PaneStateMark } from './PaneStateMark';
-import { paneStateFor, type tabPaneStates } from '../utils/paneState';
+import { paneStateFor, type tabPaneStates } from '../domain/paneState';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
-import type { useReorderDrag } from '../hooks/useReorderDrag';
+import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
 

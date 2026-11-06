@@ -6,9 +6,9 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import type { MenuSpec } from '../../domain/menus/spec';
+import type { AppMenuSpec } from './specs/actions';
 import { popupNativeMenu } from '../../infra/menus/nativeMenu';
-import type { MenuDispatch } from './SpecMenu';
+import type { AppMenuDispatch } from './SpecMenu';
 import { useMenuHost } from './menuHost';
 
 export interface NativeMenuPoint {
@@ -22,8 +22,8 @@ export interface NativeMenuPoint {
  * live view, and the gesture is over by the time it closes.
  */
 export function useNativeMenu(
-  spec: MenuSpec,
-  dispatch: MenuDispatch,
+  spec: AppMenuSpec,
+  dispatch: AppMenuDispatch,
   at: NativeMenuPoint,
   onClose: () => void,
 ): boolean {

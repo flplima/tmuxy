@@ -3,13 +3,13 @@
  * dispatches prefix, sticky key-table, root, and literal/keystroke ops.
  */
 
-import { clearNativeSelection, terminalSelection } from '../../utils/nativeSelection';
+import { clearNativeSelection, terminalSelection } from '../../infra/dom/nativeSelection';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
-import { getMobileInput, markKeyboardTarget } from '../../utils/mobileKeyboard';
+import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
-import { tabWalksChrome } from '../../utils/chromeTab';
+import { tabWalksChrome } from '../../infra/dom/chromeTab';
 import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import {
   bindingKeyOf,
@@ -24,7 +24,7 @@ import {
 } from './keyboard/keyFormatting';
 import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
-import { isReplayedPreviewKey } from '../../components/widgets/preview/previewBridge';
+import { isReplayedPreviewKey } from '../../infra/dom/replayedKeys';
 
 const PREVIEW_SAFE_ROOT_COMMAND =
   /^(?:tmuxy-nav-(?:left|right|up|down)|select-pane|selectp|select-window|selectw|previous-window|prev|next-window|next)(?:\s|$)/;

@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { drawMermaid } from './drawMermaid';
 import { sanitizeSvg } from './sanitizeSvg';
 import type { PreviewTheme } from './previewTheme';
-import { openExternalUrl, safeHref } from '../../../utils/openUrl';
+import { openExternalUrl, safeHref } from '../../../infra/openUrl';
 
 /**
  * A click on a link in the diagram, left or middle: a web link opens in the

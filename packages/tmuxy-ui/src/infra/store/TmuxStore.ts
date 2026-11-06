@@ -34,10 +34,15 @@ import {
   rollbackOp,
   type RollbackEntry,
 } from '../../domain/store/model';
-import type { PredictContext } from '../../domain/store/ops';
-import { predict } from '../../domain/store/ops';
-import type { OpError, OpId, TmuxClientModel } from '../../domain/store/types';
-import { EMPTY_MODEL, OpRejectedByTmux, OpTransportError } from '../../domain/store/types';
+import { type PredictContext, predict } from '../../domain/store/ops';
+import {
+  type OpError,
+  type OpId,
+  type TmuxClientModel,
+  EMPTY_MODEL,
+  OpRejectedByTmux,
+  OpTransportError,
+} from '../../domain/store/types';
 
 export interface DispatchOptions {
   /**

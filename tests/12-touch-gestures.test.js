@@ -1,5 +1,5 @@
 /**
- * One finger on the phone's terminal (hooks/usePaneTouch.ts): a double tap
+ * One finger on the phone's terminal (components/terminal/usePaneTouch.ts): a double tap
  * zooms the grid in the browser and a finger pans it; a hold selects the word
  * under it, with Copy and Cancel over the pane; a sideways swipe switches
  * tabs. The layout itself is tests/12-touch.test.js.

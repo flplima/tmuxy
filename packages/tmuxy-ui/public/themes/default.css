@@ -1,75 +1,9 @@
-/* Default theme - matches the base styles.css exactly */
+/* Default theme: the base styles.css palette (dark) and its light face */
 
 :root.theme-dark {
-  /* Terminal Colors - xterm colorscheme */
-  --term-black: #000000;
-  --term-red: #cd0000;
-  --term-green: #00cd00;
-  --term-yellow: #cdcd00;
-  --term-blue: #0000ee;
-  --term-magenta: #cd00cd;
-  --term-cyan: #00cdcd;
-  --term-white: #e5e5e5;
-  --term-bright-black: #7f7f7f;
-  --term-bright-red: #ff0000;
-  --term-bright-green: #00ff00;
-  --term-bright-yellow: #ffff00;
-  --term-bright-blue: #5c5cff;
-  --term-bright-magenta: #ff00ff;
-  --term-bright-cyan: #00ffff;
-  --term-bright-white: #ffffff;
-
-  --term-foreground: var(--term-white);
-  --term-background: var(--term-black);
-
-  --bg-black: var(--term-black);
-  --window-bg-rgb: 30, 30, 30;
-  --bg-dark: #1e1e1e;
-  --bg-dark-alt: #252526;
-  --bg-medium: #252526;
-  --bg-elevated-alt: #3d3d3d;
-  --bg-highlight: #434343;
-  --bg-highlight-alt: #5a5a5a;
-
-  --text-primary: var(--term-white);
-  --text-secondary: #cccccc;
-  --text-muted: #a0a0a0;
-  --text-dimmed: #8c8c8c;
-  --text-subtle: #6a6a6a;
-  --text-dark: #1e1e1e;
-
-  --border-medium: #3d3d3d;
-  --border-light: #4a4a4a;
-
-  --pane-header-text-active: var(--term-bright-white);
-  --pane-header-text-inactive: var(--text-dimmed);
-
-  --accent-green: var(--term-green);
-  --theme-accent: var(--accent-green);
-  --accent-orange: #f0883e;
-  --accent-green-bg: #1a3d1a;
-
-  --accent-blue-light: rgba(100, 150, 255, 0.8);
-  --accent-blue-bg: rgba(100, 150, 255, 0.1);
-  --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
-  --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
-
-  --link-color: var(--term-bright-blue);
-  --link-hover: var(--term-bright-cyan);
-  --link-active: var(--term-blue);
-
-  --error-color: var(--term-bright-red);
-  --error-light: #f48771;
-
-  --cursor-bg: var(--term-white);
-  --cursor-text: var(--term-black);
+  /* The base styles.css :root is this face: only what it does not declare is
+     here. The block also tells the server the theme has a dark palette. */
   --cursor-inactive: var(--term-bright-black);
-
-  --tmux-status-bg: var(--term-green);
-
-  --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
-  --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
-  --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 }
 
 :root.theme-light {

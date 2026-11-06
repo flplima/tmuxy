@@ -6,9 +6,17 @@
  * spinning up Effect at all.
  */
 
-import type { TmuxClientModel, TmuxSnapshot, PendingOp, OpId, Patch } from './types';
+import {
+  type TmuxClientModel,
+  type TmuxSnapshot,
+  type PendingOp,
+  type OpId,
+  type Patch,
+  EMPTY_SNAPSHOT,
+  OP_STALE_TIMEOUT_MS,
+  OP_ACKED_STALE_TIMEOUT_MS,
+} from './types';
 import type { TmuxOp } from '../commands';
-import { EMPTY_SNAPSHOT, OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from './types';
 import { reconcile as opReconcile } from './ops';
 import type { PaneId, WindowId } from '../ids';
 

@@ -1,11 +1,10 @@
 @import './styles/terminal.css';
 @import './styles/pane-layout.css';
-@import './styles/pane-header-and-status.css';
-@import './styles/modals-and-widgets.css';
-@import './styles/preview.css';
+@import './styles/pane-header.css';
 @import './styles/sidebars.css';
 @import './styles/sidebar-tree.css';
-@import './styles/tab-overview-and-phone.css';
+@import './styles/tab-overview.css';
+@import './styles/phone.css';
 
 /**
  * Tmuxy UI Styles
@@ -66,7 +65,7 @@
   --text-secondary: #cccccc;
   --text-muted: #a0a0a0;
   /* Every text tier reads at 4.5:1 on the chrome, the panes and --bg-medium
-     (utils/__tests__/themeFaces.test.ts holds each face to it). */
+     (infra/__tests__/themeFaces.test.ts holds each face to it). */
   --text-dimmed: #8c8c8c;
   /* The tabs that are not current, in the strip and the tree: the quietest
      tier that still reads at 4.5:1 on the chrome, so they stand back from
@@ -245,7 +244,8 @@
   /* The connection overlay covers the whole app; the snackbar speaks over it. */
   --z-connection-overlay: 1300;
   --z-snackbar: 1400;
-  /* Above the menus (10000): a tooltip can describe a menu item. */
+  /* Menus, the tab preview and tooltips (components/floating), over
+     everything but the edge bands. */
   --z-tooltip: 10001;
   /* The installed phone app's edge bands (App.tsx, standalone.css): over
      the safe areas only, where nothing else is drawn, so above everything. */

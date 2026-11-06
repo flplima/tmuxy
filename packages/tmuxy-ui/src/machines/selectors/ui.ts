@@ -1,5 +1,6 @@
 import type { AppMachineContext } from '../types/context';
-import type { GitRepository, LogEntry, SessionTreeNode } from '../types/domain';
+import type { LogEntry } from '../types/domain';
+import type { GitRepository, SessionTreeNode } from '../../domain/servers';
 import type { KeyBindings } from '../../domain/wire';
 import type { WindowId } from '../../domain/ids';
 import { selectVisibleWindows } from './panesAndSidebars';

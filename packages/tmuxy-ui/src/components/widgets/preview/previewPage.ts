@@ -23,14 +23,13 @@
 import { previewResourcePath, type PreviewResource } from '../../../domain/preview';
 import { bridgeScript, type BridgeChannel } from './previewBridge';
 import type { PreviewTheme } from './previewTheme';
+import { decodeBase64Text } from '../../../domain/base64';
 
 export type ReadResource = (path: string) => Promise<PreviewResource>;
 
 /** The page's text from a resource's base64 bytes. */
 function resourceText(resource: PreviewResource): string {
-  const binary = atob(resource.data);
-  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return decodeBase64Text(resource.data);
 }
 
 function dataUrl(resource: PreviewResource): string {

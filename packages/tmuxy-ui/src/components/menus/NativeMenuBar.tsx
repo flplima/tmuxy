@@ -13,10 +13,10 @@
 
 import { useEffect, useRef } from 'react';
 import { useAppSelector } from '../../machines/appHooks';
-import { menuBarSpec } from '../../domain/menus/menuBar';
-import { itemIds, type MenuSpec } from '../../domain/menus/spec';
+import { menuBarSpec } from './specs/menuBar';
+import { itemIds, submenuOpeners, type MenuSpec } from '../../domain/menus/spec';
 import { setNativeAppMenu } from '../../infra/menus/nativeMenu';
-import { failing } from '../../utils/logFailure';
+import { failing } from '../../infra/logFailure';
 import { useMenuEnv } from './menuEnv';
 import { useMenuHost } from './menuHost';
 import { useAppMenuSurface } from './useAppMenuSurface';
@@ -24,14 +24,14 @@ import { useAppMenuSurface } from './useAppMenuSurface';
 const REBUILD_DEBOUNCE_MS = 120;
 
 /** The spec with its actions left out: what decides whether the bar must be rebuilt. */
-function shapeOf(spec: MenuSpec): string {
+function shapeOf<A>(spec: MenuSpec<A>): string {
   return JSON.stringify(spec, (key, value: unknown) => (key === 'action' ? undefined : value));
 }
 
 export function NativeMenuBar() {
   const host = useMenuHost();
   const env = useMenuEnv();
-  const { dispatch, options, refreshWindows, dialogs } = useAppMenuSurface(env);
+  const { dispatch, options, dialogs } = useAppMenuSurface(env);
   const spec = useAppSelector((ctx) => menuBarSpec(ctx, env, options));
   const shape = shapeOf(spec);
 
@@ -47,8 +47,17 @@ export function NativeMenuBar() {
     return () => window.clearTimeout(timer);
   }, [host, shape]);
 
+  // A native submenu says nothing when it opens, so what the submenus read
+  // on opening (the Window lists, the trace settings) is read when the bar
+  // is first set and whenever this window takes focus.
+  useEffect(() => {
+    if (host !== 'native-bar') return;
+    const { spec, dispatch } = latest.current;
+    submenuOpeners(spec).forEach(dispatch);
+  }, [host]);
+
   // The bar belongs to the focused window: on focus this window sets it so
-  // the callbacks act here, and the Window submenu's lists are re-read.
+  // the callbacks act here.
   useEffect(() => {
     if (host !== 'native-bar') return;
     let unlisten: (() => void) | null = null;
@@ -57,8 +66,8 @@ export function NativeMenuBar() {
       getCurrentWindow()
         .onFocusChanged(({ payload: focused }) => {
           if (!focused) return;
-          refreshWindows();
           const { spec, dispatch } = latest.current;
+          submenuOpeners(spec).forEach(dispatch);
           void setNativeAppMenu(spec, dispatch).catch(() => {});
         })
         .then((off) => {
@@ -70,7 +79,7 @@ export function NativeMenuBar() {
       gone = true;
       unlisten?.();
     };
-  }, [host, refreshWindows]);
+  }, [host]);
 
   // The bar's icons are drawn in the system's menu text colour
   // (`infra/menus/nativeIcons.ts`): a change of appearance draws them again.

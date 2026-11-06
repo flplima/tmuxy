@@ -14,12 +14,12 @@ import {
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
-import { tauriSchemeUrl } from '../../../utils/platform';
+import { tauriSchemeUrl } from '../../platform';
 
 /**
  * Every client command goes to the desktop's one `dispatch` IPC command as
  * the `{ cmd, args }` the web build POSTs to `/commands`; only window chrome
- * has IPC commands of its own (`infra/desktopWindow.ts`, `utils/guiWindows.ts`).
+ * has IPC commands of its own (`infra/desktopWindow.ts`, `infra/guiWindows.ts`).
  */
 function dispatch<T>(
   invoke: typeof import('@tauri-apps/api/core').invoke,

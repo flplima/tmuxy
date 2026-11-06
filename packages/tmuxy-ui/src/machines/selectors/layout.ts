@@ -1,11 +1,11 @@
-import { DEFAULT_FONT_SIZE, smallFontSize } from '../../utils/fontSizeManager';
-import { sidebarCellMetrics } from '../../utils/cellMetrics';
+import { DEFAULT_FONT_SIZE, smallFontSize } from '../../infra/fontSizeManager';
+import { sidebarCellMetrics } from '../../infra/dom/cellMetrics';
 import { CHAR_HEIGHT } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
 import type { TmuxPane } from '../../domain/client';
-import { createMemoizedSelector } from '../../utils/memoize';
-import type { TabDrop } from '../../utils/tabStripDrop';
-import type { GroupDrop } from '../../utils/groupDrop';
+import { createMemoizedSelector } from './memoize';
+import type { TabDrop } from '../drag/tabStripDrop';
+import type { GroupDrop } from '../drag/groupDrop';
 import { dragCells, resizedBand } from '../resize/limits';
 import { DEFAULT_CHAR_WIDTH } from '../constants';
 
@@ -274,7 +274,7 @@ export function selectDockRows(context: AppMachineContext): number {
 
 /**
  * The cell the font measures, before the grid is fitted to the window
- * (utils/gridFit.ts): what the sidebar columns are laid out in.
+ * (domain/gridFit.ts): what the sidebar columns are laid out in.
  */
 export function selectMeasuredCell(context: AppMachineContext) {
   return context.measuredCell;
@@ -319,7 +319,7 @@ export const selectGridType = createMemoizedSelector(
 
 /**
  * The cell grid published to CSS: `--cell-w` / `--cell-gap` on the app root.
- * See utils/cellMetrics.ts.
+ * See infra/dom/cellMetrics.ts.
  */
 export const selectCellMetrics = createMemoizedSelector(
   (context: AppMachineContext) => ({
