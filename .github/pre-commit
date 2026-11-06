@@ -5,67 +5,40 @@ set -e
 # clippy are the pre-push hook's (once per push, not once per commit), and
 # both hooks and CI's lint job run the same list — bin/lint-gate.
 
-# Snapshot what is staged BEFORE any formatter runs.
+# Snapshot what is staged BEFORE any formatter runs, so that what goes back
+# into the index is a formatter's rewrite of a file the author staged, and
+# nothing else: not an unrelated work in progress elsewhere in the tree, and
+# not the hunks the author held back from a file staged in part.
 #
-# `restage` below puts a formatter's rewrites back into the index, but only for
-# files the author actually staged. It used to be `git add -u <dir>`, which
-# stages every tracked modification under <dir> — so an unrelated work in
-# progress elsewhere in that tree got swept into the commit, and a file staged
-# in part lost the hunks the author deliberately held back.
-#
-# Both lists have to be captured up front: formatting a staged file creates
-# unstaged changes, after which every file would look partially staged.
+# Formatting a staged file creates unstaged changes, after which every file
+# would look partially staged, so the lists are taken first. A partially
+# staged file's working copy is fingerprinted too: it differs from the index
+# already, and only the fingerprint tells a formatter's rewrite from that.
 HOOK_TMP=$(mktemp -d)
 trap 'rm -rf "$HOOK_TMP"' EXIT
 git diff --cached --name-only --diff-filter=ACM | LC_ALL=C sort > "$HOOK_TMP/staged"
 git diff --name-only | LC_ALL=C sort > "$HOOK_TMP/unstaged"
 LC_ALL=C comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/unstaged" > "$HOOK_TMP/partial"
-
-# restage <path-prefix>...
-# Re-add the staged files under those prefixes. A partially staged file is
-# never re-added — that would commit the very hunks the author kept back — so
-# say so instead and let them decide.
-restage() {
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    for p in "$@"; do
-      case "$f" in
-        "$p"*)
-          if grep -Fxq "$f" "$HOOK_TMP/partial"; then
-            if ! git diff --quiet -- "$f"; then
-              echo "  ! $f is partially staged and was reformatted — left alone."
-              echo "    Re-stage the formatting yourself if you want it in this commit."
-            fi
-          else
-            git add -- "$f"
-          fi
-          break
-          ;;
-      esac
-    done
-  done < "$HOOK_TMP/staged"
-}
+while IFS= read -r f; do
+  printf '%s %s\n' "$(git hash-object -- "$f")" "$f"
+done < "$HOOK_TMP/partial" > "$HOOK_TMP/partial-before"
 
 # Prettier, eslint --fix and cargo fmt over everything the gate owns.
 bin/lint-gate format
 
-# Re-stage any staged files the formatters rewrote: the gate's whole scope.
-restage packages/tmuxy-ui/src packages/tmuxy-ui/scripts packages/tmuxy-ui/.storybook \
-  packages/tmuxy-ui/eslint-rules tests bin perf eslint.config.mjs packages/tmuxy-demo \
-  packages/tmuxy-core packages/tmuxy-server packages/tmuxy-tauri-app packages/tmuxy-group \
-  packages/tmuxy-wasm
-
-echo "Checking ESLint config integrity..."
-# Prevent weakening ESLint rules: no-restricted-syntax must ban tmuxExec/tmuxRun
-# in test interaction helpers (pane-ops.js, keyboard.js), and tmuxRun, tmuxCmd
-# and execSync in test files.
-for banned in tmuxExec tmuxRun tmuxCmd execSync; do
-  if ! grep -q "callee.name='$banned'" eslint.config.mjs; then
-    echo "ERROR: eslint.config.mjs must ban $banned (no-restricted-syntax)."
-    echo "Tests must verify via DOM, not tmux CLI. See docs/TESTS.md."
-    exit 1
+# A fully staged file that differs from the index now was rewritten by a
+# formatter: re-stage it. A partially staged one never is — that would commit
+# the very hunks the author kept back — so say so instead and let them decide.
+git diff --name-only | LC_ALL=C sort > "$HOOK_TMP/rewritten"
+LC_ALL=C comm -12 "$HOOK_TMP/staged" "$HOOK_TMP/rewritten" \
+  | LC_ALL=C comm -23 - "$HOOK_TMP/partial" \
+  | while IFS= read -r f; do git add -- "$f"; done
+while read -r hash f; do
+  if [ "$(git hash-object -- "$f")" != "$hash" ]; then
+    echo "  ! $f is partially staged and was reformatted — left alone."
+    echo "    Re-stage the formatting yourself if you want it in this commit."
   fi
-done
+done < "$HOOK_TMP/partial-before"
 
 # Run only the unit tests related to the staged tmuxy-ui changes. `vitest
 # related` runs a staged test file directly and any tests that transitively

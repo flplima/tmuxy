@@ -1,8 +1,9 @@
 name: ci lint
 
 # The lint gate, step by step. WHAT is checked lives in bin/lint-gate — the
-# same list the pre-commit and pre-push hooks run — so this job cannot drift
-# from them; it is split into steps here only so a red run names the step.
+# same list the pre-commit and pre-push hooks run — and so does the list of
+# steps: the job asks the gate for it, so a step added there runs here too.
+# Each runs even after one fails, and a red run names every failed step.
 
 on:
   workflow_call:
@@ -26,26 +27,15 @@ jobs:
         with:
           profile: lint
 
-      - name: Repo policy checks
-        run: bin/lint-gate check policy
-
-      - name: Prettier
-        run: bin/lint-gate check prettier
-
-      - name: Rust format
-        run: bin/lint-gate check rustfmt
-
-      - name: ESLint
-        run: bin/lint-gate check eslint
-
-      - name: Type checks (tmuxy-ui, tmuxy-demo)
-        run: bin/lint-gate check types
-
-      - name: Unused exports, files and dependencies (knip)
-        run: bin/lint-gate check knip
-
-      - name: Clippy
-        run: bin/lint-gate check clippy
-
-      - name: Clippy (tmuxy-wasm)
-        run: bin/lint-gate check clippy-wasm
+      - name: Lint gate
+        run: |
+          failed=""
+          for step in $(bin/lint-gate steps); do
+            echo "::group::bin/lint-gate check $step"
+            bin/lint-gate check "$step" || failed="$failed $step"
+            echo "::endgroup::"
+          done
+          for step in $failed; do
+            echo "::error title=lint-gate $step::bin/lint-gate check $step failed"
+          done
+          [ -z "$failed" ]

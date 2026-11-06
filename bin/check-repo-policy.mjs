@@ -68,6 +68,20 @@ function checkControlModeEnforcement() {
   }
 }
 
+// The E2E suites verify through the DOM, not the tmux CLI (docs/TESTS.md):
+// eslint.config.mjs bans these calls in the interaction helpers and the test
+// files, and a config that stops banning one has weakened a rule.
+function checkEslintBans() {
+  const config = fs.readFileSync(path.join(root, 'eslint.config.mjs'), 'utf8');
+  for (const banned of ['tmuxExec', 'tmuxRun', 'tmuxCmd', 'execSync']) {
+    if (!config.includes(`callee.name='${banned}'`)) {
+      addError(
+        `[eslint] eslint.config.mjs must ban ${banned} (no-restricted-syntax): tests verify via the DOM, not the tmux CLI. See docs/TESTS.md.`,
+      );
+    }
+  }
+}
+
 function checkWorkflowInvariants() {
   const workflowsDir = path.join(root, '.github/workflows');
   const workflows = fs
@@ -406,6 +420,7 @@ function checkBlindWaitRatchet() {
 }
 
 checkControlModeEnforcement();
+checkEslintBans();
 checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
