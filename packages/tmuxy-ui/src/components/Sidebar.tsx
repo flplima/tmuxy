@@ -20,6 +20,9 @@
  * — never `select-pane`, which would switch the active tmux window and blank
  * the tab behind it.
  *
+ * A closed column can also PEEK: shown over the panes, undocked, while the
+ * mouse rests on its header toggle or on the column (useSidebarPeek).
+ *
  * See SidebarColumn for the frame the two columns share.
  */
 
@@ -32,6 +35,7 @@ import {
   selectSidebarLayout,
 } from '../machines/selectors/panesAndSidebars';
 import { LogProfiler } from '../utils/renderLog';
+import { useSidebarPeekHold } from '../hooks/useSidebarPeek';
 
 /** What differs between the two columns, by side. */
 const SIDES = {
@@ -72,22 +76,40 @@ function SidebarInner({ side }: { side: 'left' | 'right' }) {
     side === 'left' ? ctx.leftSidebarStartFailed : ctx.rightSidebarStartFailed,
   );
   const pane = useAppSelector(selectPane);
+  const peeking = useAppSelector((ctx) => ctx.sidebarPeek === side) && !open;
+  useSidebarPeekHold(side, peeking);
 
   const handleFocus = useCallback(() => send({ type: focusEvent }), [send, focusEvent]);
   const handleClose = useCallback(() => send({ type: toggleEvent }), [send, toggleEvent]);
 
-  if (!open) return null;
+  if (!open && !peeking) return null;
 
-  return (
+  const column = (
     <SidebarColumn
       side={side}
       width={width}
       focused={focused}
       pane={pane}
       startFailed={startFailed}
+      peek={peeking}
       onFocus={handleFocus}
       onClose={handleClose}
       testId={testId}
     />
+  );
+  if (!peeking) return column;
+  // A peek covers the panes rather than docking beside them: the column and a
+  // backdrop that dims the rest of the body float over the pane container,
+  // which keeps its size, so tmux re-tiles nothing. The backdrop takes no
+  // pointer events: the pointer leaving the column is what ends the peek.
+  return (
+    <>
+      <div
+        className="sidebar-peek-backdrop"
+        aria-hidden="true"
+        data-testid="sidebar-peek-backdrop"
+      />
+      {column}
+    </>
   );
 }

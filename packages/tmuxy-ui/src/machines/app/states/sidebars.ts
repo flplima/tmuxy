@@ -4,7 +4,7 @@
  * Owns context fields: leftSidebarOpen, leftSidebarFocused, rightSidebarOpen,
  * rightSidebarFocused, leftSidebarStartFailed, rightSidebarStartFailed,
  * leftSidebarStarting, rightSidebarStarting, sidebarColsPreview, dockRowsSent,
- * collapsedTabIds.
+ * collapsedTabIds, sidebarPeek.
  */
 
 export const sidebarsGlobalEvents = {
@@ -22,6 +22,8 @@ export const sidebarsGlobalEvents = {
     actions: 'sidebars_sidebarResizeCommit',
   },
   SIDEBAR_PREVIEW_EXPIRE: { actions: 'sidebars_sidebarPreviewExpire' },
+  PEEK_SIDEBAR: { actions: 'sidebars_peekSidebar' },
+  END_SIDEBAR_PEEK: { actions: 'sidebars_endSidebarPeek' },
 } as const;
 
 export const sidebarsIdleEvents = {

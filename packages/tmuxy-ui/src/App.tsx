@@ -80,6 +80,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const cursorBlink = useAppSelector(selectCursorBlink);
   const sidebarFocused = useAppSelector(selectSidebarFocused);
+  const sidebarPeek = useAppSelector((ctx) => ctx.sidebarPeek !== null);
   const phone = useAppSelector(selectPhoneLayout);
   const landscape = useAppSelector(selectPhoneLandscape);
   const gridType = useAppSelector(selectGridType);
@@ -253,8 +254,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     <div
       ref={appContainerRef}
       className={`app-container has-smooth-cursor${sidebarFocused ? ' has-sidebar-focus' : ''}${
-        cursorBlink ? ' app-cursor-blink' : ''
-      }${animationsAllowed ? '' : ' app-no-animations'}`}
+        sidebarPeek ? ' has-sidebar-peek' : ''
+      }${cursorBlink ? ' app-cursor-blink' : ''}${animationsAllowed ? '' : ' app-no-animations'}`}
       // Publish the measured cell grid (--cell-w / --cell-gap) to every
       // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}

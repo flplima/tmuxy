@@ -7,8 +7,9 @@
  * a shell; everything else about them — width, focus cue, the pane rendering
  * below — is the same, and lives here.
  *
- * The column is always docked: a real flex sibling of the pane area, whatever
- * the window's size. Because the pane container flexes into the remaining
+ * An open column is docked: a real flex sibling of the pane area, whatever
+ * the window's size. (A closed one can peek over the panes for a hover — see
+ * Sidebar.tsx — at the same width, so its pane needs no other size.) Because the pane container flexes into the remaining
  * width, its ResizeObserver reports the reduced size and tmux re-tiles the
  * panes to fit; panes never render underneath a sidebar. The column carries no
  * header of its own — its title lives in the app header, aligned to the same
@@ -40,6 +41,8 @@ interface SidebarColumnProps {
   pane: TmuxPane | null;
   /** The column was asked to open but its pane never appeared (see SIDEBAR_START_TIMEOUT). */
   startFailed: boolean;
+  /** Shown over the panes for a hover, not docked beside them (useSidebarPeek). */
+  peek?: boolean;
   /** Focus request from a click anywhere in the column. */
   onFocus: () => void;
   /** The failure state's close button. */
@@ -53,6 +56,7 @@ export const SidebarColumn = memo(function SidebarColumn({
   focused,
   pane,
   startFailed,
+  peek = false,
   onFocus,
   onClose,
   testId,
@@ -80,7 +84,9 @@ export const SidebarColumn = memo(function SidebarColumn({
 
   return (
     <aside
-      className={`sidebar-column sidebar-column-${side}${focused ? ' is-focused' : ''}`}
+      className={`sidebar-column sidebar-column-${side}${focused ? ' is-focused' : ''}${
+        peek ? ' is-peek' : ''
+      }`}
       // The width is a custom property, not the width itself, so the
       // stylesheet can pin the column to it on all four axes: `flex: 0 0`
       // alone still lets a wide child stretch the column, silently desyncing

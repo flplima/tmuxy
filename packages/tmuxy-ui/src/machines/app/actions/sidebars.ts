@@ -47,6 +47,31 @@ function retileFor(context: Ctx, enqueue: Enqueue, side: 'left' | 'right', willO
   enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size });
 }
 
+/**
+ * Break the tree's pane out (`OpenSidebar`) unless a start is already on its
+ * way: one window per column. A toggle that landed while the first open's
+ * window was still being made used to ask for a second, and every extra one
+ * lived on in tmux, hidden, for good.
+ */
+function startLeftSidebar(context: Ctx, enqueue: Enqueue) {
+  if (context.leftSidebarStarting) return;
+  enqueue(
+    sendTo('tmux', {
+      type: 'SEND_OP' as const,
+      op: TmuxOp.OpenSidebar({ side: 'left', splitFrom: context.activePaneId }),
+    }),
+  );
+  enqueue(assign({ leftSidebarStarting: true }));
+  enqueue.raise(
+    { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'left' as const },
+    { delay: SIDEBAR_START_TIMEOUT_MS, id: sidebarStartTimeoutId('left') },
+  );
+}
+
+/** A toggle docks or shuts the column it names; a peek of that column is over. */
+const endPeekOf = (context: Ctx, side: 'left' | 'right') =>
+  context.sidebarPeek === side ? { sidebarPeek: null } : {};
+
 export const sidebarsActions = {
   /**
    * The dock runs in the sidebar font, whose rows are shorter than the pane
@@ -84,7 +109,13 @@ export const sidebarsActions = {
 
   sidebars_toggleLeftSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.leftSidebarOpen;
-    enqueue(assign({ leftSidebarOpen: willOpen, leftSidebarStartFailed: false }));
+    enqueue(
+      assign({
+        leftSidebarOpen: willOpen,
+        leftSidebarStartFailed: false,
+        ...endPeekOf(context, 'left'),
+      }),
+    );
     retileFor(context, enqueue, 'left', willOpen);
 
     if (willOpen) {
@@ -102,21 +133,8 @@ export const sidebarsActions = {
           }),
         );
         enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' as const });
-      } else if (!context.leftSidebarStarting) {
-        // One window per column: a toggle that lands while the first open's
-        // window is still being made used to ask for a second, and every
-        // extra one lived on in tmux, hidden, for good.
-        enqueue(
-          sendTo('tmux', {
-            type: 'SEND_OP' as const,
-            op: TmuxOp.OpenSidebar({ side: 'left', splitFrom: context.activePaneId }),
-          }),
-        );
-        enqueue(assign({ leftSidebarStarting: true }));
-        enqueue.raise(
-          { type: 'SIDEBAR_START_TIMEOUT' as const, side: 'left' as const },
-          { delay: SIDEBAR_START_TIMEOUT_MS, id: sidebarStartTimeoutId('left') },
-        );
+      } else {
+        startLeftSidebar(context, enqueue);
       }
       return;
     }
@@ -134,11 +152,16 @@ export const sidebarsActions = {
   }),
 
   sidebars_focusLeftSidebar: act(({ context, enqueue }) => {
+    // A peeking column takes the keyboard where it is: over the panes, not
+    // docked. It gives it back when the peek ends.
+    const peeking = context.sidebarPeek === 'left';
     if (!selectLeftSidebarPane(context)) {
-      if (!context.leftSidebarOpen) enqueue.raise({ type: 'TOGGLE_LEFT_SIDEBAR' as const });
+      if (!context.leftSidebarOpen && !peeking) {
+        enqueue.raise({ type: 'TOGGLE_LEFT_SIDEBAR' as const });
+      }
       return;
     }
-    if (!context.leftSidebarOpen) enqueue(assign({ leftSidebarOpen: true }));
+    if (!context.leftSidebarOpen && !peeking) enqueue(assign({ leftSidebarOpen: true }));
     enqueue(assign({ leftSidebarFocused: true }));
     enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: true }));
 
@@ -152,7 +175,13 @@ export const sidebarsActions = {
 
   sidebars_toggleRightSidebar: act(({ context, enqueue }) => {
     const willOpen = !context.rightSidebarOpen;
-    enqueue(assign({ rightSidebarOpen: willOpen, rightSidebarStartFailed: false }));
+    enqueue(
+      assign({
+        rightSidebarOpen: willOpen,
+        rightSidebarStartFailed: false,
+        ...endPeekOf(context, 'right'),
+      }),
+    );
     retileFor(context, enqueue, 'right', willOpen);
 
     if (willOpen) {
@@ -210,12 +239,18 @@ export const sidebarsActions = {
     if (event.type !== 'SIDEBAR_START_TIMEOUT') return;
     if (event.side === 'left') {
       enqueue(assign({ leftSidebarStarting: false }));
-      if (context.leftSidebarOpen && !selectLeftSidebarPane(context)) {
+      if (
+        (context.leftSidebarOpen || context.sidebarPeek === 'left') &&
+        !selectLeftSidebarPane(context)
+      ) {
         enqueue(assign({ leftSidebarStartFailed: true }));
       }
     } else {
       enqueue(assign({ rightSidebarStarting: false }));
-      if (context.rightSidebarOpen && !selectRightSidebarPane(context)) {
+      if (
+        (context.rightSidebarOpen || context.sidebarPeek === 'right') &&
+        !selectRightSidebarPane(context)
+      ) {
         enqueue(assign({ rightSidebarStartFailed: true }));
       }
     }
@@ -259,7 +294,7 @@ export const sidebarsActions = {
     const pane = selectRightSidebarPane(context);
     if (!pane) return;
     // On a phone the dock is the bottom view, not a column to open.
-    if (!context.rightSidebarOpen && !context.phoneLayout) {
+    if (!context.rightSidebarOpen && !context.phoneLayout && context.sidebarPeek !== 'right') {
       enqueue(assign({ rightSidebarOpen: true }));
     }
     enqueue(assign({ rightSidebarFocused: true }));
@@ -272,5 +307,39 @@ export const sidebarsActions = {
 
   sidebars_blurRightSidebar: act(({ context, enqueue }) => {
     releaseKeyboard(context, enqueue, 'right');
+  }),
+
+  /**
+   * Show a closed column over the panes while the pointer rests on it or on
+   * its toggle. Nothing is re-tiled and nothing is unhidden: the column's
+   * window keeps `@tmuxy-sidebar-hidden`, so no other client sees it open.
+   * A column whose pane was never made is started here, and arrives hidden
+   * (reconcileSidebars: a start this client no longer has open).
+   */
+  sidebars_peekSidebar: act(({ context, event, enqueue }) => {
+    if (event.type !== 'PEEK_SIDEBAR') return;
+    const { side } = event;
+    const open = side === 'left' ? context.leftSidebarOpen : context.rightSidebarOpen;
+    if (open || context.phoneLayout || context.sidebarPeek === side) return;
+    if (context.sidebarPeek) releaseKeyboard(context, enqueue, context.sidebarPeek);
+    enqueue(assign({ sidebarPeek: side }));
+    if (side === 'left') {
+      if (selectLeftSidebarPane(context)) return;
+      enqueue(assign({ leftSidebarStartFailed: false }));
+      startLeftSidebar(context, enqueue);
+    } else {
+      if (selectRightSidebarPane(context)) return;
+      enqueue(assign({ rightSidebarStartFailed: false }));
+      enqueue.raise({ type: 'START_RIGHT_SIDEBAR' as const });
+    }
+  }),
+
+  /** The pointer left the peek: the column goes, and takes the keyboard with it. */
+  sidebars_endSidebarPeek: act(({ context, enqueue }) => {
+    const side = context.sidebarPeek;
+    if (!side) return;
+    enqueue(assign({ sidebarPeek: null }));
+    const open = side === 'left' ? context.leftSidebarOpen : context.rightSidebarOpen;
+    if (!open) releaseKeyboard(context, enqueue, side);
   }),
 };

@@ -123,6 +123,7 @@ export const FIELD_OWNERS = {
   sidebarColsPreview: 'sidebars',
   dockRowsSent: 'sidebars',
   collapsedTabIds: 'sidebars',
+  sidebarPeek: 'sidebars',
 
   // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
@@ -235,6 +236,7 @@ export function createInitialContext(): AppMachineContext {
     sidebarColsPreview: null,
     dockRowsSent: null,
     collapsedTabIds: [],
+    sidebarPeek: null,
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     renamingTabId: null,

@@ -163,6 +163,14 @@ export interface AppMachineContext {
    */
   collapsedTabIds: WindowId[];
   /**
+   * The closed column shown for a moment over the panes while the pointer
+   * rests on its header toggle or on the column itself (a peek, the way
+   * a collapsed sidebar comes out on hover in the Claude desktop app). It
+   * covers the panes rather than docking beside them, so the grid keeps its
+   * size and tmux re-tiles nothing. Null when no column is peeking.
+   */
+  sidebarPeek: 'left' | 'right' | null;
+  /**
    * The Tab Overview (ctrl+0): every tab as a slot over the pane area, the
    * current one zoomed out into its slot. `tabOverviewSelected` is the keyboard
    * cursor over the slots in strip order, the last index being the "+" slot.

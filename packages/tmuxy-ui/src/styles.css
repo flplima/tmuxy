@@ -235,6 +235,10 @@
   /* The Tab Overview, and the live grid lifted over it while it is open. */
   --z-tab-overview: 1200;
   --z-tab-overview-grid: 1201;
+  /* A closed sidebar peeking over everything in the body, and the backdrop
+     dimming the rest of it (Sidebar.tsx, useSidebarPeek). */
+  --z-sidebar-peek-backdrop: 1210;
+  --z-sidebar-peek: 1211;
   /* The one cursor and the copy blink: on whatever surface holds the keyboard. */
   --z-cursor: 1250;
   --z-copy-flash: 1260;

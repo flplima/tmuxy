@@ -8,12 +8,15 @@
  *
  * Each reflects its sidebar's open flag as a pressed state, and dispatches the
  * same event its `prefix` keybinding sends (`t` for the tree, `T` for the
- * terminal).
+ * terminal). Resting the mouse on a closed column's toggle shows the column
+ * over the panes until the pointer leaves it (useSidebarPeek); the click
+ * docks it.
  */
 
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
+import { useSidebarPeekToggle } from '../hooks/useSidebarPeek';
 import './SidebarToggle.css';
 
 interface SidebarToggleProps {
@@ -30,14 +33,20 @@ export function SidebarToggle({ side }: SidebarToggleProps) {
   const shown = useAppSelector((ctx) =>
     side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
   );
+  const peeking = useAppSelector((ctx) => ctx.sidebarPeek === side);
   const labels = LABELS[side];
+  const peek = useSidebarPeekToggle(side, !shown);
 
   return (
-    <Tooltip label={labels.title}>
+    // The peeking column already answers what the button does, and the
+    // tooltip would sit over its first rows.
+    <Tooltip label={peeking ? '' : labels.title}>
       <button
         className={`sidebar-toggle sidebar-toggle-${side}${shown ? ' sidebar-toggle-active' : ''}`}
         aria-label={labels.aria}
         aria-pressed={shown}
+        onPointerEnter={peek.onPointerEnter}
+        onPointerLeave={peek.onPointerLeave}
         onClick={() =>
           send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
         }

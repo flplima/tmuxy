@@ -160,6 +160,8 @@ export type AppMachineEvent =
   | { type: 'SIDEBAR_RESIZE_PREVIEW'; side: 'left' | 'right'; cols: number | null }
   | { type: 'SIDEBAR_RESIZE_COMMIT'; side: 'left' | 'right'; cols: number | null }
   | { type: 'SIDEBAR_PREVIEW_EXPIRE'; side: 'left' | 'right' }
+  | { type: 'PEEK_SIDEBAR'; side: 'left' | 'right' }
+  | { type: 'END_SIDEBAR_PEEK' }
   | { type: 'SET_BODY_SIZE'; width: number }
 
   // Tab Overview and position-based tab keys

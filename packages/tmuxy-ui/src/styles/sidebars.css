@@ -9,9 +9,84 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  /* Containing block for an OVERLAYING sidebar column and its backdrop, which
-     are absolutely positioned to cover the tab strip above them too. */
+  /* Containing block for a PEEKING sidebar column and its backdrop, which
+     are absolutely positioned over the pane container (see .is-peek). */
   position: relative;
+}
+
+/* ---- A closed column peeking over the panes (Sidebar.tsx) ---- */
+/* The dark backdrop over the rest of the body: the panes, and the other
+   column if it is docked. It takes no pointer events, so the pane under it
+   is still the pane the pointer is on, and leaving the column is all it
+   takes to end the peek. */
+.sidebar-peek-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-sidebar-peek-backdrop);
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: sidebar-peek-fade 120ms ease-out;
+}
+
+/* The column itself, out of the row: it floats over the pane container at its
+   docked width rather than taking that width from it, so the grid keeps its
+   size. Unlike a docked column it paints the chrome's ground, because there
+   are panes under it now. */
+.sidebar-column.is-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: var(--z-sidebar-peek);
+  background: rgb(var(--window-bg-rgb));
+  animation: sidebar-peek-slide-left 120ms ease-out;
+}
+
+.sidebar-column-left.is-peek {
+  left: 0;
+}
+
+.sidebar-column-right.is-peek {
+  right: 0;
+  animation-name: sidebar-peek-slide-right;
+}
+
+@keyframes sidebar-peek-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sidebar-peek-slide-left {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+
+@keyframes sidebar-peek-slide-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+.app-no-animations .sidebar-peek-backdrop,
+.app-no-animations .sidebar-column.is-peek {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-peek-backdrop,
+  .sidebar-column.is-peek {
+    animation: none;
+  }
+}
+
+/* The gliding cursor sits above every surface, so it would draw the active
+   pane's cursor on top of a peek. Unless the peek has the keyboard (its own
+   cursor is then the one to show), the cursor waits under the peek. */
+.app-container.has-sidebar-peek:not(.has-sidebar-focus) .smooth-cursor {
+  visibility: hidden;
 }
 
 /* ---- The frame both columns share (see SidebarColumn.tsx) ---- */
