@@ -1,6 +1,6 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { Cause, Effect, Exit, Fiber, Schema, Stream } from 'effect';
-import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/wire';
+import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
+import type { ThemeSettings } from '../../domain/wire';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
 import type { PaneId } from '../../domain/ids';
@@ -8,12 +8,8 @@ import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
 import { TransportEvent } from '../../infra/transport/events';
-import {
-  parseThemeMode,
-  ThemeInfo,
-  TraceSettings,
-  type TraceLevel,
-} from '../../domain/wireSettings';
+import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
+import type { PlainCall } from '../../domain/backendCalls';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
 import { openExternalUrl } from '../../infra/openUrl';
 
@@ -29,8 +25,11 @@ export type TmuxActorEvent =
    * that nothing on screen waits for.
    */
   | { type: 'SEND_OP'; op: TmuxOp }
-  | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
+  /** A backend command whose answer nothing reads. */
+  | ({ type: 'INVOKE' } & PlainCall)
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
+  /** The grid this client shows, for the backend to size the session to. */
+  | { type: 'SET_CLIENT_SIZE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
@@ -47,13 +46,11 @@ export type TmuxActorEvent =
    * Ask the server whether a plugin's link handler takes a click; launch its
    * action, else open `fallbackUrl` (if any) in the browser.
    */
-  | {
+  | ({
       type: 'OPEN_PLUGIN_LINK';
-      cmd: 'open_link' | 'open_text';
-      args: Record<string, unknown>;
       paneId: PaneId;
       fallbackUrl: string | null;
-    }
+    } & Extract<PlainCall, { readonly cmd: 'open_link' | 'open_text' }>)
   /** Run a plugin's action, preparing a token for the selection first. */
   | {
       type: 'RUN_PLUGIN_ACTION';
@@ -62,6 +59,9 @@ export type TmuxActorEvent =
       paneId: PaneId;
       selection: string | null;
     };
+
+/** The tmux actor's event for a plain command, typed where `sendTo` is not. */
+export const invokeEvent = (call: PlainCall): TmuxActorEvent => ({ type: 'INVOKE', ...call });
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -224,19 +224,25 @@ export function createTmuxActor(runtime: AppRuntime) {
         const command = toTmuxCommand(event.op);
         logCommand(command);
         run(
-          withTransport((t) => t.invoke('run_tmux_command', { command })),
+          withTransport((t) => t.run(event.op)),
           { logPrefix: command },
         );
       } else if (event.type === 'INVOKE') {
-        logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
+        logCommand(`${event.cmd} ${JSON.stringify(event.args)}`);
         run(
-          withTransport((t) => t.invoke(event.cmd, event.args || {})),
+          withTransport((t) => t.send(event)),
           { logPrefix: event.cmd },
+        );
+      } else if (event.type === 'SET_CLIENT_SIZE') {
+        logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
+        run(
+          withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
+          { logPrefix: 'set_client_size' },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);
         run(
-          withTransport((t) => t.invoke('restore_session', { session: event.sessionName })),
+          withTransport((t) => t.call('restore_session', { session: event.sessionName })),
           {
             logPrefix: 'restore_session',
             // The session exists only once the rebuild has answered.
@@ -247,11 +253,9 @@ export function createTmuxActor(runtime: AppRuntime) {
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
-          // The adapter decodes the answer: wire-format drift rejects with a
+          // The transport decodes the answer: wire-format drift rejects with a
           // ProtocolError, distinguishable from network/tmux failures.
-          withTransport((t) =>
-            t.invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows }),
-          ),
+          withTransport((t) => t.fetchState({ cols: event.cols, rows: event.rows })),
           {
             onSuccess: (state) => parent.send({ type: 'TMUX_STATE_UPDATE', state }),
             logPrefix: 'get_initial_state',
@@ -264,7 +268,7 @@ export function createTmuxActor(runtime: AppRuntime) {
         if (existing) runtime.runFork(Fiber.interrupt(existing));
 
         const program = withTransport((t) =>
-          t.decodingInvoke('get_scrollback_cells', ScrollbackCells, {
+          t.call('get_scrollback_cells', {
             paneId: event.paneId,
             start: event.start,
             end: event.end,
@@ -321,16 +325,17 @@ export function createTmuxActor(runtime: AppRuntime) {
         // an unknown level normalises to `shape` server-side.
         const write =
           event.type === 'SET_TRACE_ENABLED'
-            ? withTransport((t) => t.invoke('set_trace_enabled', { enabled: event.enabled }))
+            ? withTransport((t) =>
+                Effect.asVoid(t.call('set_trace_enabled', { enabled: event.enabled })),
+              )
             : event.type === 'SET_TRACE_LEVEL'
-              ? withTransport((t) => t.invoke('set_trace_level', { level: event.level }))
+              ? withTransport((t) =>
+                  Effect.asVoid(t.call('set_trace_level', { level: event.level })),
+                )
               : null;
-        const read = withTransport((t) =>
-          t.decodingInvoke('get_trace_settings', Schema.NullOr(TraceSettings), {}),
-        );
+        const read = withTransport((t) => t.call('get_trace_settings', {}));
         run(write ? Effect.flatMap(write, () => read) : read, {
           onSuccess: (settings) => {
-            if (!settings) return;
             // The backend is the authority for the tracer's own switch too, so
             // the client stops/starts shipping in step with the menu.
             tracer.setServerEnabled(!!settings.enabled);
@@ -346,7 +351,7 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.query(READ_PLUGINS_COMMAND)),
           {
             onSuccess: (raw) =>
-              parent.send({ type: 'PLUGINS_RECEIVED', plugins: parseInventory(raw ?? '') }),
+              parent.send({ type: 'PLUGINS_RECEIVED', plugins: parseInventory(raw) }),
             logPrefix: 'plugins',
             silentFail: true,
           },
@@ -358,26 +363,24 @@ export function createTmuxActor(runtime: AppRuntime) {
         runtime.runFork(
           Effect.match(
             withTransport((t) =>
-              t.invoke<{ plugin: string; action: string; token: string } | null>(
-                event.cmd,
-                event.args,
-              ),
+              event.cmd === 'open_link'
+                ? t.call('open_link', event.args)
+                : t.call('open_text', event.args),
             ),
             {
               onFailure: fallback,
               onSuccess: (prepared) => {
                 if (!prepared) return fallback();
-                const command = toTmuxCommand(
-                  TmuxOp.PluginAction({
-                    plugin: prepared.plugin,
-                    action: prepared.action,
-                    paneId: event.paneId,
-                    token: prepared.token,
-                  }),
-                );
+                const op = TmuxOp.PluginAction({
+                  plugin: prepared.plugin,
+                  action: prepared.action,
+                  paneId: event.paneId,
+                  token: prepared.token,
+                });
+                const command = toTmuxCommand(op);
                 logCommand(command);
                 run(
-                  withTransport((t) => t.invoke('run_tmux_command', { command })),
+                  withTransport((t) => t.run(op)),
                   { logPrefix: command },
                 );
               },
@@ -386,17 +389,16 @@ export function createTmuxActor(runtime: AppRuntime) {
         );
       } else if (event.type === 'RUN_PLUGIN_ACTION') {
         const launch = (token: string | null) => {
-          const command = toTmuxCommand(
-            TmuxOp.PluginAction({
-              plugin: event.plugin,
-              action: event.action,
-              paneId: event.paneId,
-              token,
-            }),
-          );
+          const op = TmuxOp.PluginAction({
+            plugin: event.plugin,
+            action: event.action,
+            paneId: event.paneId,
+            token,
+          });
+          const command = toTmuxCommand(op);
           logCommand(command);
           run(
-            withTransport((t) => t.invoke('run_tmux_command', { command })),
+            withTransport((t) => t.run(op)),
             { logPrefix: command },
           );
         };
@@ -407,7 +409,7 @@ export function createTmuxActor(runtime: AppRuntime) {
           // invocation token; only the token's id rides the command.
           run(
             withTransport((t) =>
-              t.invoke<{ token: string } | null>('prepare_plugin_action', {
+              t.call('prepare_plugin_action', {
                 plugin: event.plugin,
                 action: event.action,
                 paneId: event.paneId,
@@ -415,21 +417,19 @@ export function createTmuxActor(runtime: AppRuntime) {
               }),
             ),
             {
-              onSuccess: (prepared) => {
-                if (prepared?.token) launch(prepared.token);
-              },
+              onSuccess: (prepared) => launch(prepared.token),
               logPrefix: 'prepare_plugin_action',
             },
           );
         }
       } else if (event.type === 'OPEN_TRACE_FILE') {
         run(
-          withTransport((t) => t.invoke('open_trace_file', {})),
+          withTransport((t) => t.call('open_trace_file', {})),
           { logPrefix: 'open_trace_file' },
         );
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
         run(
-          withTransport((t) => t.decodingInvoke('get_theme_settings', ThemeSettings, {})),
+          withTransport((t) => t.call('get_theme_settings', {})),
           {
             onSuccess: themeSettingsReceived,
             logPrefix: 'get_theme_settings',
@@ -438,12 +438,9 @@ export function createTmuxActor(runtime: AppRuntime) {
         );
       } else if (event.type === 'FETCH_THEMES_LIST') {
         run(
-          withTransport((t) =>
-            t.decodingInvoke('get_themes_list', Schema.NullOr(Schema.Array(ThemeInfo)), {}),
-          ),
+          withTransport((t) => t.call('get_themes_list', {})),
           {
-            onSuccess: (themes) =>
-              parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),
+            onSuccess: (themes) => parent.send({ type: 'THEMES_LIST_RECEIVED', themes }),
             logPrefix: 'get_themes_list',
             silentFail: true,
           },

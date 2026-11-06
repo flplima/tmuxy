@@ -15,6 +15,7 @@ const { execFileSync } = require('child_process');
 const { TMUXY_PORT } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
+const { tmuxEnv } = require('./tmux-socket');
 
 // Clear of the suite's port.
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
@@ -49,10 +50,14 @@ async function startConfigServer() {
   return startExtraServer(CONFIG_PORT, [], DIRS);
 }
 
-/** The tmuxy CLI against the scratch dirs; returns what it printed. */
+/**
+ * The tmuxy CLI against the scratch dirs; returns what it printed. Through
+ * the suite's environment (`tmuxEnv`), so a run from inside tmuxy calls the
+ * server verbs of the build under test, not of the tmuxy it runs in.
+ */
 const configCli = (...args) =>
   execFileSync(TMUXY_CLI, ['config', ...args], {
-    env: { ...process.env, ...DIRS },
+    env: { ...tmuxEnv(), ...DIRS },
     encoding: 'utf8',
   });
 

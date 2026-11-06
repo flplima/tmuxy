@@ -128,7 +128,7 @@ output. On entry the client fetches the full backlog; as the user scrolls, `getN
 200-line chunks around the viewport and `mergeScrollbackChunk` merges them into the `lines` map
 (tracked by `loadedRanges`). Rows that exist but aren't loaded yet render as dim placeholders.
 
-The fetch is a single adapter call — `adapter.invoke('get_scrollback_cells', { paneId, start, end })` —
+The fetch is a single transport call — `call('get_scrollback_cells', { paneId, start, end })` —
 implemented per transport:
 
 - **HTTP/SSE server** — `ClientCommand::GetScrollbackCells` runs `capture-pane -p -e -S start -E end`
@@ -232,7 +232,7 @@ types the selection into the pane. Either closes the view.
 | `packages/tmuxy-ui/src/domain/copyModeKeys.ts` | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit |
 | `packages/tmuxy-ui/src/domain/copyMode.ts` | The copy-mode state, and the pure helpers on it: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
 | `packages/tmuxy-ui/src/components/terminal/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
-| `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `adapter.invoke('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
+| `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `call('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
 | `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |
 | `packages/tmuxy-ui/src/infra/transport/drivers/guest/GuestEngine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment |
 

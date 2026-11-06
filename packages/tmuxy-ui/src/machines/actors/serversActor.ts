@@ -31,12 +31,7 @@ import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
-import type {
-  GitRepository,
-  SessionTreeNode,
-  SessionTreePane,
-  TmuxServer,
-} from '../../domain/servers';
+import type { SessionTreeNode, SessionTreePane } from '../../domain/servers';
 import {
   APP_PANE_TITLE,
   CHROME_WINDOW_TYPES,
@@ -173,22 +168,18 @@ export function createServersActor(runtime: AppRuntime) {
     /**
      * The saved servers, on the same cadence as worktree discovery.
      *
-     * `list_servers` is a desktop-only Tauri command; on web the invoke simply
-     * fails and the `ignore()` below leaves the list empty, which is the
-     * correct answer there — a web client always uses its launch socket.
+     * Only the desktop switches servers; the web answers `list_servers`
+     * unavailable, and the `ignore()` below leaves the list empty, which is
+     * the correct answer there — a web client always uses its launch socket.
      */
     const listServers = (): Effect.Effect<void, never, TmuxTransport> =>
-      TmuxTransport.pipe(
-        Effect.flatMap((t) =>
-          t.invoke<{ servers: TmuxServer[]; currentId: string | null } | null>('list_servers', {}),
-        ),
-      ).pipe(
+      TmuxTransport.pipe(Effect.flatMap((t) => t.call('list_servers', {}))).pipe(
         Effect.flatMap((result) =>
           Effect.sync(() =>
             parent.send({
               type: 'SERVERS_UPDATED',
-              servers: result?.servers ?? [],
-              currentServerId: result?.currentId ?? null,
+              servers: result.servers,
+              currentServerId: result.currentId,
             }),
           ),
         ),
@@ -200,16 +191,12 @@ export function createServersActor(runtime: AppRuntime) {
      * by both hosts (`list_snapshots`); an empty list is the ordinary answer.
      */
     const listSnapshots = (): Effect.Effect<void, never, TmuxTransport> =>
-      TmuxTransport.pipe(
-        Effect.flatMap((t) =>
-          t.invoke<Array<{ name: string; savedAt: number }> | null>('list_snapshots', {}),
-        ),
-      ).pipe(
+      TmuxTransport.pipe(Effect.flatMap((t) => t.call('list_snapshots', {}))).pipe(
         Effect.flatMap((result) =>
           Effect.sync(() =>
             parent.send({
               type: 'SNAPSHOTS_UPDATED',
-              restorableSessions: result ?? [],
+              restorableSessions: result,
             }),
           ),
         ),
@@ -220,13 +207,9 @@ export function createServersActor(runtime: AppRuntime) {
       Effect.suspend(() => {
         if (!force && Date.now() - lastDiscovery < DISCOVERY_INTERVAL_MS) return Effect.void;
         lastDiscovery = Date.now();
-        return TmuxTransport.pipe(
-          Effect.flatMap((t) => t.invoke<GitRepository[] | null>('list_git_worktrees', {})),
-        ).pipe(
+        return TmuxTransport.pipe(Effect.flatMap((t) => t.call('list_git_worktrees', {}))).pipe(
           Effect.flatMap((repositories) =>
-            Effect.sync(() =>
-              parent.send({ type: 'GIT_REPOSITORIES_UPDATED', repositories: repositories ?? [] }),
-            ),
+            Effect.sync(() => parent.send({ type: 'GIT_REPOSITORIES_UPDATED', repositories })),
           ),
           Effect.ignore,
         );
@@ -274,7 +257,7 @@ export function createServersActor(runtime: AppRuntime) {
             Effect.sync(() =>
               parent.send({
                 type: 'SESSIONS_UPDATED',
-                sessions: parseSessions(windowsOut ?? '', panesOut ?? ''),
+                sessions: parseSessions(windowsOut, panesOut),
               }),
             ),
           ),
@@ -289,8 +272,7 @@ export function createServersActor(runtime: AppRuntime) {
     // Initial tick (respects the sidebar gate) then repeat while attached. The
     // repeat cadence governs steady-state refresh; REFRESH_SESSIONS forces one.
     // In-browser sandboxes (demo, v86) are single-session — nothing to
-    // enumerate, and nothing to read it with: `query` is the only call that
-    // returns tmux output, `run_tmux_command` resolves null everywhere.
+    // enumerate.
     const whileEnumerable = (program: Effect.Effect<void, never, TmuxTransport>) =>
       TmuxTransport.pipe(Effect.flatMap((t) => (t.enumeratesSessions() ? program : Effect.void)));
     const pollFiber = runtime.runFork(

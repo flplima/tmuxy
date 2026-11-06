@@ -25,6 +25,7 @@ use crate::transport::{self, to_json};
 use crate::{CommandError, PaneId};
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(tag = "cmd", content = "args", rename_all = "snake_case")]
 pub enum ClientCommand {
     /// The session's state at the client's viewport, which it reports here

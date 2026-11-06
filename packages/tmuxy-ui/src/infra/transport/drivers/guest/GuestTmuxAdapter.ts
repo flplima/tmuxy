@@ -1,14 +1,14 @@
 /**
- * A fully client-side `TmuxAdapter` backed by REAL tmux in an in-browser
+ * A fully client-side `TransportDriver` backed by REAL tmux in an in-browser
  * guest machine; its `tmux -CC` control-mode stream is parsed by the
  * tmuxy-core Rust engine compiled to WASM — the SAME code the native server
  * runs. No simulation, no client-side VT emulator.
  *
- *   TmuxyApp --invoke(run_tmux_command)--> engine.send --> real tmux -CC
+ *   TmuxyApp --run(op)--> send(run_tmux_command) --> engine --> real tmux -CC
  *     --guest stream--> tmuxy-wasm (parse + aggregate) --> ServerState --> onStateChange
  *
  * The machine and the wasm core live in a `GuestEngine` (`V86Engine`,
- * `CheerpXEngine`); this class is the `TmuxAdapter` facade over one. An
+ * `CheerpXEngine`); this class is the driver over one. An
  * adapter that owns its engine tears it down on disconnect; one handed a
  * shared engine leaves it running for the next.
  *
@@ -16,12 +16,13 @@
  * public): /wasm (tmuxy_wasm), plus what the engine's machine loads.
  * Browser-only.
  */
-import type { TmuxAdapter } from '../../driver';
+import type { TransportDriver } from '../../driver';
+import { noAnswer, type BackendCall } from '../../../../domain/backendCalls';
 import { EventHub } from '../../../eventHub';
 import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
 import type { CommandFailure } from '../../../../domain/wire';
-import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
+import { decodeStateForListener } from '../../wireDecode';
 import { loadThemePref, saveThemePref } from '../../../prefs';
 import { parseThemeMode } from '../../../../domain/wireSettings';
 import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
@@ -87,7 +88,9 @@ export async function loadGuestFiles(files: Record<string, string | URL>): Promi
   return loaded.filter((file): file is GuestFile => file !== null);
 }
 
-export class GuestTmuxAdapter implements TmuxAdapter {
+export class GuestTmuxAdapter implements TransportDriver {
+  readonly answersQueries = true;
+  readonly ordersSends = true;
   private readonly initCommands: string[];
   private readonly initDoneOption: string | null;
   private readonly files: Record<string, string | URL>;
@@ -164,109 +167,104 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     if (this.ownsEngine) this.engine.destroy();
   }
 
-  async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    switch (cmd) {
+  async send(call: BackendCall): Promise<unknown> {
+    switch (call.cmd) {
       case 'get_initial_state': {
         // Sized to the client's viewport first, as the native server does, so
         // the first frame is drawn at the size it stays at.
-        const cols = args?.cols;
-        const rows = args?.rows;
-        if (typeof cols === 'number' && typeof rows === 'number' && cols > 0 && rows > 0) {
-          await this.engine.resize(cols, rows);
-        }
-        return decodeServerStateOrThrow(this.engine.getLastState()) as T;
+        const { cols, rows } = call.args;
+        if (cols > 0 && rows > 0) await this.engine.resize(cols, rows);
+        return this.engine.getLastState();
       }
-      case 'set_client_size': {
-        const cols = (args?.cols as number) || GUEST_DEFAULT_COLS;
-        const rows = (args?.rows as number) || GUEST_DEFAULT_ROWS;
-        this.engine.setClientSize(cols, rows);
-        return null as T;
-      }
-      case 'run_tmux_command': {
-        const command = args?.command as string | undefined;
-        if (!command) return null as T;
-        const route = this.engine.route(command, 'command');
-        if ('blocked' in route) throw forbidden(route.blocked);
-        const wire = route.routed;
-        // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
-        // everything else is tracked so failures reject like the server adapter
-        // (surfacing TMUX_ERROR and rolling back optimistic ops). A compound is
-        // hot only if EVERY ` ; `-joined segment is — the keyboardActor pins
-        // `select-pane -t %N ; <binding>` to every binding, and classifying by
-        // prefix alone made a rejected split fire-and-forget: the rejection
-        // never surfaced, nothing rolled the placeholder back, and (with no
-        // further state emission) the optimistic pane wedged forever.
-        const isHot =
-          !wire.includes('\n') &&
-          wire
-            .split(' ; ')
-            .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
-        if (wire.includes('\n') || isHot) {
-          this.engine.run(wire);
-          return null as T;
-        }
-        const reply = await this.engine.ask(wire);
-        // Reject the way the real transports do when tmux refuses a command,
-        // so it is typed a TmuxError (with tmux's message), not a generic
-        // TransportError. Whatever part of it ran is converged by a re-list.
-        if (reply.error !== null) {
-          this.engine.resync();
-          throw {
-            error: reply.error || `tmux rejected: ${command}`,
-            kind: 'tmux',
-          } satisfies CommandFailure;
-        }
-        return null as T;
-      }
+      case 'set_client_size':
+        this.engine.setClientSize(
+          call.args.cols || GUEST_DEFAULT_COLS,
+          call.args.rows || GUEST_DEFAULT_ROWS,
+        );
+        return null;
+      case 'run_tmux_command':
+        await this.runCommand(call.args.command);
+        return null;
+      case 'query_tmux':
+        return this.query(call.args.command);
       case 'set_theme': {
-        const name = (args?.name as string) || loadThemePref().theme;
-        saveThemePref(name, parseThemeMode(args?.mode));
+        const name = call.args.name || loadThemePref().theme;
+        saveThemePref(name, parseThemeMode(call.args.mode));
         this.engine.send(`set -g @tmuxy-theme ${name}`);
-        return null as T;
+        return null;
       }
-      case 'set_theme_mode': {
-        saveThemePref(loadThemePref().theme, parseThemeMode(args?.mode));
-        return null as T;
-      }
-      case 'set_cursor_blink': {
-        this.engine.send(`set -g @tmuxy-cursor-blink ${args?.enabled ? 'on' : 'off'}`);
-        return null as T;
-      }
-      case 'set_send_ask': {
-        this.engine.send(`set -g @tmuxy-send-ask ${args?.enabled ? 'on' : 'off'}`);
-        return null as T;
-      }
+      case 'set_theme_mode':
+        saveThemePref(loadThemePref().theme, parseThemeMode(call.args.mode));
+        return null;
+      case 'set_cursor_blink':
+        this.engine.send(`set -g @tmuxy-cursor-blink ${call.args.enabled ? 'on' : 'off'}`);
+        return null;
+      case 'set_send_ask':
+        this.engine.send(`set -g @tmuxy-send-ask ${call.args.enabled ? 'on' : 'off'}`);
+        return null;
       case 'get_scrollback_cells': {
-        const paneId = args?.paneId as string;
-        const start = (args?.start as number | undefined) ?? -100;
-        const end = (args?.end as number | undefined) ?? -1;
-        const state = this.engine.getLastState();
-        const pane = state.panes.find((p) => p.tmux_id === paneId);
+        const { paneId, start, end } = call.args;
+        const pane = this.engine.getLastState().panes.find((p) => p.tmux_id === paneId);
         const width = pane?.width ?? 80;
         const historySize = pane?.history_size ?? 0;
         const text = await this.engine.captureScrollback(paneId, start, end);
         const cells = this.engine.parseScrollback(text, width);
-        return { cells, historySize, start, end, width } as T;
+        return { cells, historySize, start, end, width };
       }
       case 'read_preview':
-        return (await readGuestPreview(
+        return readGuestPreview(
           (command) => this.engine.query(command),
-          String(args?.paneId ?? ''),
-          args?.path as string | undefined,
-        )) as T;
+          call.args.paneId,
+          call.args.path ?? undefined,
+        );
       case 'get_theme_settings':
-        return loadThemePref() as T;
+        return loadThemePref();
       case 'get_themes_list':
-        return BUNDLED_THEMES as T;
+        return BUNDLED_THEMES;
       default:
-        // ping / theme / keybindings-snapshot / … — no-op for a guest adapter.
-        return null as T;
+        return noAnswer(call.cmd);
+    }
+  }
+
+  /** A mutation, under the routing policy every transport applies. */
+  private async runCommand(command: string): Promise<void> {
+    if (!command) return;
+    const route = this.engine.route(command, 'command');
+    if ('blocked' in route) throw forbidden(route.blocked);
+    const wire = route.routed;
+    // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
+    // everything else is tracked so failures reject like the server adapter
+    // (surfacing TMUX_ERROR and rolling back optimistic ops). A compound is
+    // hot only if EVERY ` ; `-joined segment is — the keyboardActor pins
+    // `select-pane -t %N ; <binding>` to every binding, and classifying by
+    // prefix alone made a rejected split fire-and-forget: the rejection
+    // never surfaced, nothing rolled the placeholder back, and (with no
+    // further state emission) the optimistic pane wedged forever.
+    const isHot =
+      !wire.includes('\n') &&
+      wire
+        .split(' ; ')
+        .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
+    if (wire.includes('\n') || isHot) {
+      this.engine.run(wire);
+      return;
+    }
+    const reply = await this.engine.ask(wire);
+    // Reject the way the real transports do when tmux refuses a command,
+    // so it is typed a TmuxError (with tmux's message), not a generic
+    // TransportError. Whatever part of it ran is converged by a re-list.
+    if (reply.error !== null) {
+      this.engine.resync();
+      throw {
+        error: reply.error || `tmux rejected: ${command}`,
+        kind: 'tmux',
+      } satisfies CommandFailure;
     }
   }
 
   /** Read from tmux, under the query policy every transport applies: the
    *  command's output, or tmux's refusal. */
-  async query(command: string): Promise<string> {
+  private async query(command: string): Promise<string> {
     const route = this.engine.route(command, 'query');
     if ('blocked' in route) throw forbidden(route.blocked);
     const reply = await this.engine.ask(route.routed);
