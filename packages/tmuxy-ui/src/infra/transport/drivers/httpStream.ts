@@ -12,6 +12,7 @@ import {
   TmuxMessageEvent,
 } from '../../../domain/wire';
 import { decodeEvent } from '../wireDecode';
+import { buildEndpointUrl } from '../endpoint';
 import { tracer } from '../../tracer';
 import { Effect, Schedule, Schema } from 'effect';
 
@@ -66,23 +67,6 @@ export function parseFrame(type: string, event: MessageEvent): unknown {
     console.error(`Failed to parse ${type} frame:`, e);
     return undefined;
   }
-}
-
-/**
- * Get the session name from URL query parameters.
- * Falls back to 'tmuxy' if not specified.
- */
-export function getSessionFromUrl(): string {
-  if (typeof window === 'undefined') return 'tmuxy';
-  const params = new URLSearchParams(window.location.search);
-  return params.get('session') || 'tmuxy';
-}
-
-export function buildEndpointUrl(path: string, session?: string): string {
-  const protocol = window.location.protocol;
-  const host = window.location.host || 'localhost:3853';
-  const query = session !== undefined ? `?session=${encodeURIComponent(session)}` : '';
-  return `${protocol}//${host}${path}${query}`;
 }
 
 /** The browser's own hints that a retry is worth making now rather than at the next backoff tick. */

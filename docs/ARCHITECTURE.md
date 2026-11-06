@@ -96,6 +96,16 @@ A report is taken no smaller than a floor (`MIN_CLIENT_COLS` × `MIN_CLIENT_ROWS
 
 The desktop app has one client per window, so only a fixed size changes anything there.
 
+## The e-ink page (`/?kindle`)
+
+A second, minimal client for a browser the app cannot run in: the Kindle Scribe's Silk is Chrome 80, which loads the app's bundle and stops at the first syntax it does not know, leaving a black page. `?kindle` on any app URL sends the browser to `kindle.html` before the bundle runs (`tmuxy-ui/public/kindle-redirect.js`, a classic script the app's `index.html` loads first), keeping the rest of the query, `session=` included.
+
+The page (`tmuxy-ui/src/kindle/`) is built on its own for that engine (`vite.kindle.config.ts`, target `chrome80`, run by the UI's `build` after the app) into the same `dist/`, so the server embeds it beside the app. It reuses the app's wire decoding, client model and `toTmuxCommand`, and nothing of its machines or React.
+
+It keeps no model of its own and never applies a delta. The event stream keeps the session's monitor alive and gives the page its connection id; each `state-update` is answered by a `get_initial_state` for the whole state, drawn again at most once every 700 ms, and only the rows that changed reach the screen, since every repaint is an e-ink refresh. The active tab is one character grid — the panes at their places, box-drawing dividers between them, the cursor inverted — in black on white: colour is dropped, bold, underline, inverse and faint are kept. Text goes in through a box and Send (Enter appended), keys through a row of buttons, a tap on a pane gives it the keyboard, and the tab buttons switch tabs.
+
+The page reports its size like any client (`set_client_size` under its connection id), from the cells its font holds, so under the default `@tmuxy-size smallest` the session follows the Kindle's screen while it is connected. A− and A+ change the font, and with it the size reported. It does not scale the grid: under a larger session size the screen scrolls.
+
 ## Key Design Decisions
 
 1. **One monitor per session** — Avoids duplicate control mode connections and ensures resize commands work reliably.

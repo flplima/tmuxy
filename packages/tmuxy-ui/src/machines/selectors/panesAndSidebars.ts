@@ -1,7 +1,7 @@
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
 import type { FloatPaneState, PaneGroup } from '../types/domain';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import { isTabWindow, type TmuxPane, type TmuxWindow } from '../../domain/client';
 import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../../utils/memoize';
 import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
@@ -35,8 +35,7 @@ export const selectWindows = createMemoizedSelector(
  *  ignored entirely. */
 export const selectVisibleWindows = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
-  (context: AppMachineContext) =>
-    selectWindows(context).filter((w) => w.windowType === 'tab' && w.name !== ''),
+  (context: AppMachineContext) => selectWindows(context).filter(isTabWindow),
 );
 
 /**

@@ -6,10 +6,9 @@ import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
 import { Effect, Fiber, Queue, Schedule } from 'effect';
+import { buildEndpointUrl, getSessionFromUrl } from '../endpoint';
 import {
-  buildEndpointUrl,
   ConnectionDropped,
-  getSessionFromUrl,
   installNetworkHints,
   openSseConnection,
   postCommandFireAndForgetEffect,

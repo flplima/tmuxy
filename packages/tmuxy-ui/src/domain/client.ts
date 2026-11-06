@@ -198,6 +198,15 @@ export const TmuxWindow = Schema.mutable(
 );
 export type TmuxWindow = Schema.Schema.Type<typeof TmuxWindow>;
 
+/**
+ * A window the user knows as a tab. Floats, sidebars and the windows parked
+ * group members wait in are chrome or hidden; foreign (untagged) windows are
+ * not tmuxy's to show; a tab without a name is one still being created.
+ */
+export function isTabWindow(w: Pick<TmuxWindow, 'windowType' | 'name'>): boolean {
+  return w.windowType === 'tab' && w.name !== '';
+}
+
 /** The session's own fields as the client holds them; its panes and windows are decoded per record. */
 const ClientSession = Schema.Struct({
   sessionName: from('session_name', Schema.String),

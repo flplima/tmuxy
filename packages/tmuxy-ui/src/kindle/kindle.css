@@ -1,0 +1,129 @@
+/* The e-ink page: black on white, no motion, targets a finger can hit. */
+:root {
+  --kindle-font: 16px;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #fff;
+  color: #000;
+  font-family: sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  font: inherit;
+  color: #000;
+  background: #fff;
+  border: 2px solid #000;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 3px;
+  min-height: 44px;
+}
+
+.kindle-header {
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid #000;
+}
+
+.kindle-tabs {
+  flex: 1;
+  display: flex;
+  overflow-x: auto;
+}
+
+.kindle-tab {
+  white-space: nowrap;
+}
+
+.kindle-tab.active {
+  background: #000;
+  color: #fff;
+}
+
+.kindle-screen,
+.kindle-probe {
+  font-family: 'DejaVu Sans Mono', 'Droid Sans Mono', monospace;
+  font-size: var(--kindle-font);
+  line-height: 1.2;
+}
+
+.kindle-screen {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  white-space: pre;
+}
+
+/* Measures one cell of the screen's font; never seen. */
+.kindle-probe {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
+}
+
+/* One drawn row; an empty one keeps its line. */
+.kindle-screen .row {
+  min-height: 1.2em;
+}
+
+.kindle-screen .b {
+  font-weight: bold;
+}
+
+.kindle-screen .u {
+  text-decoration: underline;
+}
+
+.kindle-screen .i {
+  background: #000;
+  color: #fff;
+}
+
+.kindle-screen .d {
+  color: #666;
+}
+
+.kindle-footer {
+  border-top: 2px solid #000;
+  padding: 3px;
+}
+
+.kindle-keys {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.kindle-key {
+  flex: 1 0 auto;
+  min-width: 52px;
+}
+
+.kindle-input {
+  display: flex;
+}
+
+.kindle-text {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 18px;
+  border: 2px solid #000;
+  border-radius: 6px;
+  padding: 8px;
+  margin: 3px;
+}
+
+.kindle-status {
+  padding: 4px 6px;
+}
