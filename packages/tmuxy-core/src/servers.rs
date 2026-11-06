@@ -185,7 +185,7 @@ fn slug(value: &str) -> String {
 /// Path to the servers file in the state dir: saved servers are machine
 /// state (an ssh host reachable from here, a socket on this machine).
 pub fn servers_path() -> PathBuf {
-    crate::paths::state_dir().join("servers.json")
+    crate::paths::state_dir().join(crate::paths::SERVERS.name)
 }
 
 /// Read and parse the servers file, distinguishing an absent file (`Ok(None)`)
@@ -285,7 +285,7 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
         })
         .collect();
     let body = serde_json::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
-    std::fs::write(&path, format!("{body}\n"))?;
+    crate::private_files::replace(&path, format!("{body}\n"))?;
     Ok(path)
 }
 

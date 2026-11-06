@@ -6,12 +6,12 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use super::Dirs;
+use crate::paths::Layout;
 
 /// Past this the log is rotated to `log.1`, replacing the previous one.
 const MAX_LOG_BYTES: u64 = 512 * 1024;
 
-pub fn path(dirs: &Dirs, name: &str) -> PathBuf {
+pub fn path(dirs: &Layout, name: &str) -> PathBuf {
     dirs.plugin_state(name).join("log")
 }
 
@@ -24,7 +24,7 @@ fn timestamp() -> String {
 }
 
 /// Append one line. A log that cannot be written costs only the line.
-pub fn append(dirs: &Dirs, name: &str, line: &str) {
+pub fn append(dirs: &Layout, name: &str, line: &str) {
     let file = path(dirs, name);
     if super::private_dir(&dirs.plugin_state(name)).is_err() {
         return;

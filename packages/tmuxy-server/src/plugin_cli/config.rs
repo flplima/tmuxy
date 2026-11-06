@@ -3,13 +3,14 @@
 //! it is set; setting one without a value reads it from the terminal with
 //! echo off, so it lands in neither the shell history nor `ps`.
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::registry::Registry;
-use tmuxy_core::plugins::{settings, Dirs, PluginError};
+use tmuxy_core::plugins::{settings, PluginError};
 
 use super::{say, usage, Failure, Outcome};
 
 pub(super) fn config(
-    dirs: &Dirs,
+    dirs: &Layout,
     name: &str,
     key: Option<String>,
     value: Option<String>,

@@ -10,6 +10,7 @@ use super::config::ensure_config_in;
 use super::migrate::OLD_BUILT_IN_THEME_HEADER;
 use super::state::{read_managed_state_in, write_managed_state_in};
 use super::*;
+use crate::paths::Layout;
 
 pub(super) const V014_CONF: &str = include_str!("fixtures/v0.1.4/tmuxy.conf");
 const V014_DEFAULTS: &str = include_str!("fixtures/v0.1.4/tmuxy.defaults.conf");

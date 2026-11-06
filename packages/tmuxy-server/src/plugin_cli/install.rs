@@ -3,13 +3,12 @@
 
 use std::path::{Path, PathBuf};
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::lockfile::{Entry, EntrySource, Lockfile};
 use tmuxy_core::plugins::manifest::Manifest;
 use tmuxy_core::plugins::registry::{self, Kind, Registry};
 use tmuxy_core::plugins::source::{self, InstallSource, RepoSource};
-use tmuxy_core::plugins::{
-    fetch, satisfies_min_tmuxy, Dirs, PluginError, RESERVED_VERBS, USER_PLUGIN,
-};
+use tmuxy_core::plugins::{fetch, satisfies_min_tmuxy, PluginError, RESERVED_VERBS, USER_PLUGIN};
 
 use super::gate::{self, Answer, Subject};
 use super::graph;
@@ -108,7 +107,7 @@ pub(super) fn admissible(
 /// A fresh checkout of `source` at `sha` in a staging directory, and the
 /// plugin root inside it.
 pub(super) fn stage(
-    dirs: &Dirs,
+    dirs: &Layout,
     source: &RepoSource,
     sha: &str,
 ) -> Result<(PathBuf, PathBuf), Failure> {
@@ -178,7 +177,7 @@ fn intact_checkout(checkout: &Path, source: &RepoSource, name: &str) -> Result<(
 
 /// Move a staged checkout to its permanent place.
 pub(super) fn commit_checkout(
-    dirs: &Dirs,
+    dirs: &Layout,
     staging: &Path,
     name: &str,
     sha: &str,
@@ -208,7 +207,7 @@ pub(super) fn declined() -> Failure {
 // ── install ─────────────────────────────────────────────────────────────
 
 pub(super) fn install(
-    dirs: &Dirs,
+    dirs: &Layout,
     spec: Option<String>,
     path: Option<PathBuf>,
     answer: &Answer,
@@ -293,7 +292,7 @@ pub(super) fn install(
     Ok(serde_json::json!({ "name": manifest.name, "sha": sha }))
 }
 
-fn install_path(dirs: &Dirs, path: &Path, answer: &Answer, json: bool) -> Outcome {
+fn install_path(dirs: &Layout, path: &Path, answer: &Answer, json: bool) -> Outcome {
     let root = path.canonicalize().map_err(|e| Failure {
         code: 3,
         message: format!("{}: {e}", path.display()),
@@ -343,7 +342,7 @@ fn install_path(dirs: &Dirs, path: &Path, answer: &Answer, json: bool) -> Outcom
 /// The dependencies `manifest` brings, fetched and checked, with no verb
 /// claimed twice among them and it.
 pub(super) fn with_dependencies(
-    dirs: &Dirs,
+    dirs: &Layout,
     registry: &Registry,
     manifest: &Manifest,
 ) -> Result<Vec<graph::Staged>, Failure> {
@@ -371,7 +370,7 @@ pub(super) fn with_dependencies(
 
 /// Install what the lockfile lists, at its commits: a synced plugins.json
 /// on a fresh machine.
-fn install_lockfile(dirs: &Dirs, answer: &Answer, json: bool) -> Outcome {
+fn install_lockfile(dirs: &Layout, answer: &Answer, json: bool) -> Outcome {
     let lock = Lockfile::load(dirs)?;
     let mut installed = Vec::new();
     for entry in &lock.plugins {

@@ -191,7 +191,7 @@ pub fn snapshot_dir(state_dir: &Path) -> PathBuf {
     let socket = crate::session::tmux_socket();
     // A socket path (`-S /x/y.sock`) keys by its file name, like `tmux -L`.
     let name = socket.rsplit('/').next().unwrap_or(&socket).to_string();
-    state_dir.join("sessions").join(name)
+    state_dir.join(crate::paths::SESSIONS.name).join(name)
 }
 
 /// `<name>.<stamp>.json` — the stamp sorts lexically in time order.
@@ -285,17 +285,10 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
     }
 
     let target = dir.join(snapshot_file_name(&snapshot.session, snapshot.saved_at));
-    let tmp = dir.join(format!(
-        ".{}.tmp",
-        snapshot_file_name(&snapshot.session, snapshot.saved_at)
-    ));
-    crate::private_files::write(&tmp, &json).map_err(io)?;
-    std::fs::rename(&tmp, &target).map_err(io)?;
+    crate::private_files::replace(&target, &json).map_err(io)?;
     // `latest` is a copy rather than a symlink: a symlink survives nothing on
     // a filesystem that has none, and a copy is one more atomic rename.
-    let tmp_latest = dir.join(format!(".{}.latest.tmp", snapshot.session));
-    crate::private_files::write(&tmp_latest, &json).map_err(io)?;
-    std::fs::rename(&tmp_latest, &latest).map_err(io)?;
+    crate::private_files::replace(&latest, &json).map_err(io)?;
     prune(dir, &snapshot.session, snapshot.saved_at);
     Ok(Some(target))
 }

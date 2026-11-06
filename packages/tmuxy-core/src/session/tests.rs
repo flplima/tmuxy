@@ -87,7 +87,7 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     let _ = std::fs::remove_dir_all(&root);
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let layout = config::Layout {
+    let layout = crate::paths::Layout {
         config: home.join(".config/tmuxy"),
         data: root.join("data"),
         state: root.join("state"),

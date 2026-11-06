@@ -9,11 +9,12 @@
 
 use std::path::PathBuf;
 
+use tmuxy_core::paths::Layout;
+use tmuxy_core::plugins::fetch;
 use tmuxy_core::plugins::lockfile::{Entry, Lockfile};
 use tmuxy_core::plugins::manifest::Manifest;
 use tmuxy_core::plugins::registry::{Kind, Registry};
 use tmuxy_core::plugins::source::{self, RepoSource};
-use tmuxy_core::plugins::{fetch, Dirs};
 
 use super::gate::Subject;
 use super::install::{admissible, commit_checkout, load_manifest, stage};
@@ -46,7 +47,7 @@ fn refuse(message: String) -> Failure {
 /// The dependencies `manifest` brings that are not installed, deepest first,
 /// appended to `out`. `chain` is the path from the plugin installed to here.
 pub(super) fn resolve(
-    dirs: &Dirs,
+    dirs: &Layout,
     registry: &Registry,
     manifest: &Manifest,
     chain: &mut Vec<String>,
@@ -148,7 +149,11 @@ pub(super) fn discard(staged: &[Staged]) {
 }
 
 /// Move every staged dependency into place and pin it in the lockfile.
-pub(super) fn commit(dirs: &Dirs, staged: Vec<Staged>, lock: &mut Lockfile) -> Result<(), Failure> {
+pub(super) fn commit(
+    dirs: &Layout,
+    staged: Vec<Staged>,
+    lock: &mut Lockfile,
+) -> Result<(), Failure> {
     for s in staged {
         commit_checkout(dirs, &s.staging, &s.manifest.name, &s.sha)?;
         lock.upsert(Entry::from_repo(&s.manifest.name, &s.source, &s.sha));

@@ -9,7 +9,8 @@
 //! 3.4 shows a `run-shell`'s output, and a "returned 1", in a view mode on
 //! the current pane instead of handing them to the client.
 
-use super::{private_dir, random_hex, Dirs, PluginError, Result};
+use super::{private_dir, random_hex, PluginError, Result};
+use crate::paths::Layout;
 
 /// One word for a shell line that run-shell format-expands first: single
 /// quoted, `#` doubled.
@@ -26,7 +27,7 @@ pub fn shell_word(word: &str) -> String {
 
 /// Run one tmux command list (`;` as its own argument) inside `run-shell`
 /// and return what it printed.
-pub fn run(dirs: &Dirs, argv: &[String]) -> Result<String> {
+pub fn run(dirs: &Layout, argv: &[String]) -> Result<String> {
     let dir = dirs.run_dir().join(format!("job-{}", random_hex()?));
     private_dir(&dir)?;
     let result = run_in(&dir, argv);

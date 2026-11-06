@@ -323,7 +323,7 @@ struct TracePrefs {
 }
 
 fn prefs_path() -> PathBuf {
-    crate::paths::state_dir().join("trace.json")
+    crate::paths::state_dir().join(crate::paths::TRACE_PREFS.name)
 }
 
 fn load_prefs() -> Option<TracePrefs> {
@@ -350,7 +350,7 @@ fn save_prefs(enabled: bool, level: TraceLevel) {
         enabled,
         level.as_str()
     );
-    let _ = crate::private_files::write(&path, body);
+    let _ = crate::private_files::replace(&path, body);
 }
 
 fn kill_switch() -> bool {

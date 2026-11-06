@@ -197,12 +197,14 @@ cmd_config_init() {
 
 # Every file tmuxy reads or writes, one per line:
 #   dir|relative path|owner|safe to edit|safe to symlink|what it is
-# The same table as the config README (packages/tmuxy-core/assets/config-README.md).
+# The same table as tmuxy-core's paths::FILES, which a Rust test holds this
+# copy and the config README (packages/tmuxy-core/assets/config-README.md) to.
 config_paths_table() {
   cat <<'EOF'
 config|tmuxy.conf|user|yes|yes|Your overrides; tmuxy sources its defaults before it and its essentials after it.
 config|custom.css|user|yes|yes|Your CSS, loaded last.
 config|themes/|user|yes|yes|Your themes; a built-in's name replaces that built-in.
+config|icons/|user|yes|yes|SVG icons an @tmuxy-icon-<process> option names.
 config|tmuxy-plugin.toml|user|yes|yes|Your own actions and verbs: the `user` plugin, re-read by `tmuxy config reload`.
 config|plugins.json|user|yes|yes|The plugins installed and their commits; `tmuxy plugin install` writes it and installs what it lists.
 config|plugins/|user|yes|yes|Each plugin's own config (TMUXY_PLUGIN_CONFIG_DIR); kept on update and on remove unless --purge.
@@ -217,10 +219,14 @@ state|tmuxy.compat.conf|tmuxy|no|no|Only while your tmuxy.conf still sources the
 state|tmuxy.state.json|tmuxy|no|no|Choices made in the app's menus.
 state|servers.json|tmuxy|yes|no|The servers `tmuxy session connect` saved.
 state|trace.json|tmuxy|yes|no|The Debug menu's trace switch.
+state|trace.ndjson|tmuxy|no|no|The action trace, when tracing is on (docs/TRACING.md).
+state|tmuxy.log|tmuxy|no|no|The desktop app's log, for a bug report (Help > Reveal Log File).
 state|launcher|tmuxy|no|no|The desktop app the ~/.local/bin/tmuxy shorthand runs.
 state|tmuxy.pid|tmuxy|no|no|The running web server's pid (tmuxy-<port>.pid on another port).
 state|config-reload|tmuxy|no|no|Touched by `tmuxy config reload`.
 state|plugins/|tmuxy|no|no|Plugin checkouts (<name>@<commit>), their logs and state, launch tokens.
+state|sessions/|tmuxy|no|no|Session snapshots, per tmux socket, that a restart restores.
+state|push/|tmuxy|no|no|The web server's push key and the devices subscribed to notifications.
 EOF
 }
 

@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 use tracing::warn;
 
-use super::config::Layout;
 use crate::constants::tmux_options;
+use crate::paths::Layout;
 
 /// App-managed state persisted to `tmuxy.state.json` in the state dir.
 ///
@@ -262,6 +262,6 @@ pub(super) fn write_managed_state_in(
     }
 
     let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;
-    crate::private_files::write(&path, format!("{}\n", body))?;
+    crate::private_files::replace(&path, format!("{body}\n"))?;
     Ok(path)
 }

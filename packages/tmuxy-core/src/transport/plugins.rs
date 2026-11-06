@@ -8,14 +8,14 @@ use crate::CommandError;
 
 /// Run a blocking plugin lookup off the async runtime, refusing over SSH.
 async fn locally<T: Send + 'static>(
-    work: impl FnOnce(&crate::plugins::Dirs) -> crate::plugins::Result<T> + Send + 'static,
+    work: impl FnOnce(&crate::paths::Layout) -> crate::plugins::Result<T> + Send + 'static,
 ) -> Result<T, CommandError> {
     if crate::session::ssh_target().is_some() {
         return Err(CommandError::unavailable(
             "plugins answer only where tmuxy runs on the tmux server's machine",
         ));
     }
-    tokio::task::spawn_blocking(move || work(&crate::plugins::Dirs::current()))
+    tokio::task::spawn_blocking(move || work(&crate::paths::Layout::current()))
         .await
         .map_err(|e| CommandError::unavailable(e.to_string()))?
         .map_err(|e| CommandError::invalid(e.to_string()))
@@ -89,7 +89,7 @@ pub async fn reload_plugins(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    for cmd in crate::plugins::inventory::commands(&crate::plugins::Dirs::current()) {
+    for cmd in crate::plugins::inventory::commands(&crate::paths::Layout::current()) {
         super::run(tx, &cmd).await?;
     }
     apply_plugin_keys(tx).await
@@ -120,7 +120,7 @@ pub async fn apply_plugin_keys(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    let registry = Registry::load(&crate::plugins::Dirs::current()).unwrap_or_default();
+    let registry = Registry::load(&crate::paths::Layout::current()).unwrap_or_default();
     let mut listings = Vec::new();
     for table in [KeyTable::Prefix, KeyTable::Root] {
         let listing = match super::query(tx, &keys::list_command(table)).await {

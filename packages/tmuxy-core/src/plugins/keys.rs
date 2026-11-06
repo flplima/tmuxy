@@ -16,7 +16,8 @@ use std::collections::BTreeMap;
 
 use super::manifest::KeyTable;
 use super::registry::Registry;
-use super::{job, Dirs, Result};
+use super::{job, Result};
+use crate::paths::Layout;
 
 /// What marks a binding as a plugin's.
 pub const MARKER: &str = "--trigger key";
@@ -185,7 +186,7 @@ pub fn commands(
 
 /// [`commands`] from a CLI verb: read and run inside one `run-shell`.
 /// Returns the plan.
-pub fn apply(dirs: &Dirs) -> Result<Vec<Planned>> {
+pub fn apply(dirs: &Layout) -> Result<Vec<Planned>> {
     let registry = Registry::load(dirs)?;
     let (planned, cmds) = commands(&registry, list_keys);
     let argv: Vec<String> = cmds.join(&[";".to_string()][..]);

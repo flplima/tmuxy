@@ -51,7 +51,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // server has none until something writes them). A server over SSH is
         // another machine's, whose own tmuxy publishes its plugins.
         if crate::session::ssh_target().is_none() {
-            let dirs = crate::plugins::Dirs::current();
+            let dirs = crate::paths::Layout::current();
             for cmd in crate::plugins::inventory::commands(&dirs) {
                 self.connection.send_command(&cmd).await?;
             }

@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use super::registry::Registry;
-use super::Dirs;
+use crate::paths::Layout;
 
 /// The largest stylesheet a plugin theme may be.
 pub const MAX_THEME_BYTES: u64 = 512 * 1024;
@@ -22,7 +22,7 @@ pub fn theme_name(plugin: &str, id: &str) -> String {
 }
 
 /// Every plugin theme on this platform whose file is usable: name and file.
-pub fn list(dirs: &Dirs) -> Vec<(String, PathBuf)> {
+pub fn list(dirs: &Layout) -> Vec<(String, PathBuf)> {
     let Ok(registry) = Registry::load(dirs) else {
         return Vec::new();
     };
@@ -44,7 +44,7 @@ pub fn list(dirs: &Dirs) -> Vec<(String, PathBuf)> {
 }
 
 /// A plugin theme's stylesheet, by its name.
-pub fn css(dirs: &Dirs, name: &str) -> Option<Vec<u8>> {
+pub fn css(dirs: &Layout, name: &str) -> Option<Vec<u8>> {
     if !name.contains("__") {
         return None;
     }
@@ -62,7 +62,7 @@ pub fn resolve_css(path: &str) -> Option<Vec<u8>> {
             .strip_prefix("themes/")?
             .strip_suffix(".css")?;
         crate::session::is_safe_css_name(name)
-            .then(|| css(&Dirs::current(), name))
+            .then(|| css(&Layout::current(), name))
             .flatten()
     })
 }

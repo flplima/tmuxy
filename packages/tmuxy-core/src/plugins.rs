@@ -14,7 +14,7 @@
 //! | --- | --- |
 //! | the manifest | [`manifest`] |
 //! | what is installed, at which commit | [`lockfile`] (`<config_dir>/plugins.json`) |
-//! | the checkouts, one per pinned commit | `<state_dir>/plugins/<name>@<sha>/` ([`Dirs`]) |
+//! | the checkouts, one per pinned commit | `<state_dir>/plugins/<name>@<sha>/` ([`crate::paths::Layout::checkout`]) |
 //! | what the UI shows | [`inventory`] (`@tmuxy-plugins`, `@tmuxy-plugins-rev`) |
 //! | running an action | [`invoke`] |
 
@@ -45,10 +45,12 @@ mod tests_invoke;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_links;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::paths::Layout;
 
 /// The manifest's file name, at a plugin's root.
-pub use crate::session::PLUGIN_MANIFEST_FILE as MANIFEST_FILE;
+pub use crate::paths::PLUGIN_MANIFEST_FILE as MANIFEST_FILE;
 
 /// The plugin a user's own `<config_dir>/tmuxy-plugin.toml` is: installed by
 /// nobody, gated by nothing, its commands relative to the config dir.
@@ -67,67 +69,6 @@ pub const RESERVED_VERBS: &[&str] = &[
     "install", "list", "update", "remove", "action", "log", "check", "new", "config", "path",
     "search", "exec", "publish", "help",
 ];
-
-/// Where plugins live, split as the rest of tmuxy's files are
-/// (`session::Layout`): the lockfile and each plugin's own config in the
-/// user's config dir (a dotfiles repo may hold it), checkouts, logs and
-/// invocation tokens in this machine's state dir.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Dirs {
-    pub config: PathBuf,
-    pub state: PathBuf,
-}
-
-impl Dirs {
-    /// The directories this process resolves from its environment.
-    pub fn current() -> Self {
-        Self {
-            config: crate::session::config_dir(),
-            state: crate::paths::state_dir(),
-        }
-    }
-
-    /// `<config_dir>/plugins.json`.
-    pub fn lockfile(&self) -> PathBuf {
-        self.config.join("plugins.json")
-    }
-
-    /// The user's own manifest (the [`USER_PLUGIN`]).
-    pub fn user_manifest(&self) -> PathBuf {
-        self.config.join(MANIFEST_FILE)
-    }
-
-    /// `<state_dir>/plugins`: every checkout, plus `.staging` and `.run`.
-    pub fn root(&self) -> PathBuf {
-        self.state.join("plugins")
-    }
-
-    /// The checkout of `name` at `sha`.
-    pub fn checkout(&self, name: &str, sha: &str) -> PathBuf {
-        self.root().join(format!("{name}@{sha}"))
-    }
-
-    /// Where a fetch lands before its manifest is read and the user says yes.
-    pub fn staging(&self) -> PathBuf {
-        self.root().join(".staging")
-    }
-
-    /// Invocation tokens (`invoke`), emptied when a server starts.
-    pub fn run_dir(&self) -> PathBuf {
-        self.root().join(".run")
-    }
-
-    /// `TMUXY_PLUGIN_CONFIG_DIR`: the plugin's user config and credentials.
-    /// Survives updates, and `remove` unless `--purge`.
-    pub fn plugin_config(&self, name: &str) -> PathBuf {
-        self.config.join("plugins").join(name)
-    }
-
-    /// `TMUXY_PLUGIN_STATE_DIR`: caches and the log.
-    pub fn plugin_state(&self, name: &str) -> PathBuf {
-        self.root().join(format!("{name}.state"))
-    }
-}
 
 /// A plugin, action or verb name: lowercase ASCII letters, digits and `-`,
 /// starting with a letter or digit, at most 40 long. Names reach tmux and
@@ -244,15 +185,15 @@ pub(crate) fn random_hex() -> Result<String> {
 /// (`docs/DATA-FLOW.md`: bindings reach a client at connect and on a
 /// reload). With no tmux server there is nothing to do: the next server to
 /// attach does all of it.
-pub fn refresh(dirs: &Dirs) {
+pub fn refresh(dirs: &Layout) {
     inventory::publish(dirs);
     let _ = keys::apply(dirs);
     request_reload(dirs);
 }
 
 /// What `tmuxy config reload` does: touch the marker every app watches.
-pub fn request_reload(dirs: &Dirs) {
-    let marker = dirs.state.join("config-reload");
+pub fn request_reload(dirs: &Layout) {
+    let marker = dirs.path(&crate::paths::RELOAD_MARKER);
     if private_dir(&dirs.state).is_err() {
         return;
     }

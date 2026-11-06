@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
+use crate::paths::{self, Layout};
+
 /// Shipped defaults: tmuxy's taste (prefix, status line, bindings, the
 /// `@tmuxy-*` appearance options). Mirrored to the data dir on every launch,
 /// so a new default reaches everyone with no merge work.
@@ -23,19 +25,6 @@ pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../assets/tmuxy.conf
 /// The guide to personalizing tmuxy: every file, who owns it, where it lives,
 /// every option. Mirrored to the data dir as `README.md`.
 const CONFIG_README: &str = include_str!("../../assets/config-README.md");
-
-/// The file tmux is started with (`-f`) and that every reload re-sources: the
-/// chain of layers, built by [`entry_conf`]. In the state dir, not the data
-/// dir: it is built from this machine's `use-tmux-conf` choice and this
-/// process's config dir, so two processes sharing a data dir (a test server
-/// beside the app) would otherwise rewrite it for each other.
-const ENTRY_CONF: &str = "tmuxy.entry.conf";
-
-/// A copy of the user's `tmuxy.conf` with an old `source-file …/tmuxy.defaults.conf`
-/// line commented out, sourced in its place while the user's file still has
-/// one (see [`legacy_defaults_source`]). In the state dir, like the entry
-/// file: it is built from the user's file.
-const COMPAT_CONF: &str = "tmuxy.compat.conf";
 
 /// The tmux global environment variable naming the data dir, which the entry
 /// file sets before it sources anything. The bundled scripts are named by it
@@ -62,108 +51,6 @@ pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 /// and shell-quotes when the key is pressed.
 pub const CLI_OPTION: &str = "@tmuxy-cli";
 
-/// The starter, mirrored for `tmuxy config init`.
-const EXAMPLE_CONF: &str = "tmuxy.conf.example";
-
-/// The file `tmuxy config reload` touches in the state dir. Its stamp is part
-/// of the conf stamp ([`config_stamps`]), so a reload needs no write into the
-/// config dir and works without a `tmuxy.conf` at all.
-const RELOAD_MARKER: &str = "config-reload";
-
-/// A plugin manifest's file name, at a plugin's root and in the config dir
-/// for the user's own (`plugins::MANIFEST_FILE`). Here so a `cli`-only build
-/// (tmuxy-group) can watch it without the plugin machinery.
-pub const PLUGIN_MANIFEST_FILE: &str = "tmuxy-plugin.toml";
-
-/// Resolve the user's tmuxy config directory: $XDG_CONFIG_HOME/tmuxy
-/// or $HOME/.config/tmuxy. Does not create the directory.
-///
-/// We deliberately do NOT use `dirs::config_dir()` because on macOS that
-/// returns `~/Library/Application Support`, which surprises users who
-/// expect to find their tmuxy config at `~/.config/tmuxy/tmuxy.conf`
-/// (the same path as on Linux, the devcontainer, and what every doc/CI
-/// path references). The mismatch silently broke first-run config
-/// loading on Mac: ensure_config wrote into `~/Library/Application
-/// Support/tmuxy/`, the user looked at `~/.config/tmuxy/`, found
-/// nothing, and the desktop app got the default tmux prefix because
-/// `tmux -f` was never given a config path either way.
-pub fn config_dir() -> PathBuf {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        let xdg = std::path::PathBuf::from(xdg);
-        if xdg.is_absolute() {
-            return xdg.join("tmuxy");
-        }
-    }
-    crate::paths::resolved_home_dir()
-        .join(".config")
-        .join("tmuxy")
-}
-
-/// The three directories tmuxy's files live in, split by owner:
-///
-/// | Dir | Owner | Rule |
-/// | --- | --- | --- |
-/// | `config` (`~/.config/tmuxy`) | the user | written once, on the first run; safe to symlink |
-/// | `data` (`~/.local/share/tmuxy`) | the app | mirrored from the bundle on every launch, never edited |
-/// | `state` ([`crate::paths::state_dir`]) | the app | this machine's state: menu choices, the chain built from them, launcher, pid files |
-///
-/// Everything that reads or writes one of them takes a `Layout`, so a test
-/// can point all three at a scratch dir without touching the environment.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Layout {
-    pub config: PathBuf,
-    pub data: PathBuf,
-    pub state: PathBuf,
-    pub home: PathBuf,
-}
-
-impl Layout {
-    /// The directories this process resolves from its environment.
-    pub fn current() -> Self {
-        Self {
-            config: config_dir(),
-            data: crate::paths::data_dir(),
-            state: crate::paths::state_dir(),
-            home: crate::paths::resolved_home_dir(),
-        }
-    }
-
-    /// The user's `tmuxy.conf`.
-    pub fn user_conf(&self) -> PathBuf {
-        self.config.join("tmuxy.conf")
-    }
-
-    /// The user's own plugin manifest (`plugins::USER_PLUGIN`).
-    pub fn user_plugin_manifest(&self) -> PathBuf {
-        self.config.join(PLUGIN_MANIFEST_FILE)
-    }
-
-    /// The generated chain tmux is started with.
-    pub fn entry_conf(&self) -> PathBuf {
-        self.state.join(ENTRY_CONF)
-    }
-
-    /// The menu choices ([`ManagedState`]).
-    pub fn state_file(&self) -> PathBuf {
-        self.state.join("tmuxy.state.json")
-    }
-
-    /// The mirrored CLI dispatcher and helper scripts.
-    pub fn bin(&self) -> PathBuf {
-        self.data.join("bin")
-    }
-
-    /// The mirrored built-in themes.
-    pub fn builtin_themes(&self) -> PathBuf {
-        self.data.join("themes")
-    }
-
-    /// The user's own themes, which shadow a built-in of the same name.
-    pub fn user_themes(&self) -> PathBuf {
-        self.config.join("themes")
-    }
-}
-
 pub(super) fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
@@ -183,27 +70,11 @@ pub(super) fn write_generated(path: &Path, contents: &str, executable: bool) {
     if std::fs::read_to_string(path).is_ok_and(|existing| existing == contents) {
         return;
     }
-    let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
-        return;
-    };
-    let tmp = path.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
-    let written = std::fs::write(&tmp, contents).and_then(|()| {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = if executable { 0o555 } else { 0o444 };
-            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode))?;
-        }
-        #[cfg(not(unix))]
-        let _ = executable;
-        std::fs::rename(&tmp, path)
-    });
+    let mode = if executable { 0o555 } else { 0o444 };
+    let written = crate::private_files::replace_with_mode(path, contents.as_bytes(), mode);
     match written {
         Ok(()) => info!(?path, "refreshed a generated file"),
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            warn!(?path, error = %e, "could not write a generated file");
-        }
+        Err(e) => warn!(?path, error = %e, "could not write a generated file"),
     }
 }
 
@@ -235,22 +106,22 @@ pub(super) fn ensure_config_in(layout: &Layout) -> PathBuf {
     }
     let header = CONF_HEADER;
     write_generated(
-        &layout.data.join("tmuxy.defaults.conf"),
+        &layout.path(&paths::DEFAULTS_CONF),
         &format!("{header}{DEFAULT_DEFAULTS_CONF}"),
         false,
     );
     write_generated(
-        &layout.data.join("tmuxy.essentials.conf"),
+        &layout.path(&paths::ESSENTIALS_CONF),
         &format!("{header}{DEFAULT_ESSENTIALS_CONF}"),
         false,
     );
     write_generated(
-        &layout.data.join(EXAMPLE_CONF),
+        &layout.path(&paths::EXAMPLE_CONF),
         &format!("{header}{DEFAULT_USER_CONF}"),
         false,
     );
     write_generated(
-        &layout.data.join("README.md"),
+        &layout.path(&paths::README),
         &format!(
             "<!-- Generated by tmuxy and rewritten on every launch: an edit here is lost. -->\n\n{CONFIG_README}"
         ),
@@ -300,7 +171,7 @@ pub(super) fn legacy_defaults_source(line: &str) -> bool {
 /// line commented out.
 fn user_layer(layout: &Layout) -> PathBuf {
     let user = layout.user_conf();
-    let compat = layout.state.join(COMPAT_CONF);
+    let compat = layout.path(&paths::COMPAT_CONF);
     let text = std::fs::read_to_string(&user).unwrap_or_default();
     if !text.lines().any(legacy_defaults_source) {
         if std::fs::symlink_metadata(&compat).is_ok_and(|m| m.is_file()) {
@@ -344,7 +215,7 @@ fn user_layer(layout: &Layout) -> PathBuf {
 /// 5. `tmuxy.essentials.conf` again — so no config can take the app apart.
 fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
     let quote = |path: &Path| crate::executor::tmux_quote(&path.to_string_lossy());
-    let essentials = quote(&layout.data.join("tmuxy.essentials.conf"));
+    let essentials = quote(&layout.path(&paths::ESSENTIALS_CONF));
     let tmux_conf = if use_tmux_conf {
         format!(
             "source-file -q {}\n",
@@ -368,8 +239,8 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
         header = CONF_HEADER,
         data = quote(&layout.data),
         entry = quote(&layout.entry_conf()),
-        cli = quote(&layout.data.join("bin").join("tmuxy-cli")),
-        defaults = quote(&layout.data.join("tmuxy.defaults.conf")),
+        cli = quote(&layout.cli()),
+        defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
         user = quote(user),
     )
 }
@@ -423,7 +294,7 @@ fn file_stamp(path: &Path) -> u128 {
 
 pub fn config_stamps() -> ConfigStamps {
     let layout = Layout::current();
-    let mut css = file_stamp(&layout.config.join("custom.css"));
+    let mut css = file_stamp(&layout.path(&paths::CUSTOM_CSS));
     if let Ok(entries) = std::fs::read_dir(layout.user_themes()) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -437,6 +308,6 @@ pub fn config_stamps() -> ConfigStamps {
         // The user's own plugin is config too: saving it reloads.
         conf: file_stamp(&layout.user_conf())
             .wrapping_add(file_stamp(&layout.user_plugin_manifest()))
-            .wrapping_add(file_stamp(&layout.state.join(RELOAD_MARKER))),
+            .wrapping_add(file_stamp(&layout.path(&paths::RELOAD_MARKER))),
     }
 }

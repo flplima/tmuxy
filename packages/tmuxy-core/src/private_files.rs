@@ -1,6 +1,6 @@
 //! Files and directories only their owner can read, for what records a
 //! user's work: session snapshots (cwds, argv, scrollback), the app's managed
-//! state and trace preferences. On Unix a directory is `0700` and a file
+//! state, trace preferences, plugin settings and the lockfile. On Unix a directory is `0700` and a file
 //! `0600`, whatever the umask, including one an older build left looser.
 
 use std::io;
@@ -41,6 +41,38 @@ pub fn write(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     file.write_all(contents.as_ref())
+}
+
+/// Replace the file at `path` with `contents`, owner-only (`0600`): written
+/// to a temporary file beside it, then renamed over it, so a reader (or the
+/// next launch after a crash) sees the old file or the new one, never half a
+/// file, and a symlink at `path` is replaced rather than written through.
+pub fn replace(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    replace_with_mode(path, contents.as_ref(), 0o600)
+}
+
+/// [`replace`] with the file's Unix permissions given: what a generated
+/// read-only (`0444`) or executable (`0555`) mirror is written with.
+pub fn replace_with_mode(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?
+        .to_string_lossy();
+    let tmp = path.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
+    let written = write(&tmp, contents).and_then(|()| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode))?;
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        std::fs::rename(&tmp, path)
+    });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 /// Open or create a file for appending, owner-only (`0600`), refusing symlinks.
@@ -94,6 +126,15 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
         assert!(super::write(&link, "overwrite").is_err());
         assert!(super::open_append(&link).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+
+        super::replace(&link, "replaced").unwrap();
+        assert!(!std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "replaced");
+        assert_eq!(mode(&link), 0o600);
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
 
         let appended = dir.join("trace.ndjson");

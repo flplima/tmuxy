@@ -259,7 +259,10 @@ pub async fn get_theme_settings(
 ) -> Result<serde_json::Value, CommandError> {
     let output = query(tx, &settings_query()).await?;
     let mut settings = parse_settings(&output);
-    icons::inline_svgs(&mut settings["icons"], &session::config_dir().join("icons"));
+    icons::inline_svgs(
+        &mut settings["icons"],
+        &crate::paths::Layout::current().path(&crate::paths::USER_ICONS),
+    );
     settings["pinned"] = serde_json::json!(session::pinned_options());
     Ok(settings)
 }
@@ -445,7 +448,7 @@ pub fn display_theme_name(stem: &str) -> String {
 /// for, so the menu can grey out a mode the theme has not got.
 pub fn get_themes_list() -> serde_json::Value {
     let mut names = session::list_themes();
-    for (name, _) in crate::plugins::themes::list(&crate::plugins::Dirs::current()) {
+    for (name, _) in crate::plugins::themes::list(&crate::paths::Layout::current()) {
         if !names.contains(&name) {
             names.push(name);
         }

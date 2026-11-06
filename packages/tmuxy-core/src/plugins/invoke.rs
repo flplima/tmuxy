@@ -32,7 +32,8 @@ use std::path::Path;
 
 use super::manifest::Action;
 use super::registry::{resolve_command, Installed, Registry};
-use super::{private_dir, Dirs, PluginError, Result};
+use super::{private_dir, PluginError, Result};
+use crate::paths::Layout;
 use token::selection_path;
 
 /// What a command's context is about, beside its plugin.
@@ -48,7 +49,7 @@ pub struct Context<'a> {
 
 /// `TMUXY_PLUGIN_CONTEXT_JSON`: the target pane, what started the command,
 /// the link a click matched, and the settings in force (never a secret one).
-pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String {
+pub fn context_json(dirs: &Layout, plugin: &Installed, ctx: Context<'_>) -> String {
     let info = ctx.info.cloned().unwrap_or_default();
     let mut context = serde_json::json!({
         "plugin": plugin.name,
@@ -72,7 +73,7 @@ pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String
 
 /// The environment every plugin command gets.
 pub fn plugin_env(
-    dirs: &Dirs,
+    dirs: &Layout,
     plugin: &Installed,
     pane: &str,
     context: String,
@@ -110,7 +111,7 @@ fn command_for(
 /// Run an action's command as the process of the pane [`open`] made, and
 /// return its exit status. Never returns an `Err`: what went wrong is
 /// printed in the pane and logged, so the user sees it there.
-pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
+pub fn exec(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> i32 {
     let (status, waited) = match exec_inner(dirs, name, action_id, token_id) {
         Ok(ran) => ran,
         Err(e) => {
@@ -133,7 +134,7 @@ pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
 }
 
 /// The command's exit status, and whether someone waits for it.
-fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Result<(i32, bool)> {
+fn exec_inner(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> Result<(i32, bool)> {
     let token = Token::take(dirs, token_id)?;
     if token.plugin != name || token.action != action_id {
         return Err(PluginError::Invalid(
@@ -220,7 +221,7 @@ fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
 /// The command a `[[cli]]` verb runs, with the plugin's environment, in the
 /// caller's working directory (the verb is the user's own command, run from
 /// their shell). The CLI `exec`s it.
-pub fn cli_command(dirs: &Dirs, verb: &str, args: &[String]) -> Result<std::process::Command> {
+pub fn cli_command(dirs: &Layout, verb: &str, args: &[String]) -> Result<std::process::Command> {
     let registry = Registry::load(dirs)?;
     let (plugin, cli) = registry
         .verb(verb)

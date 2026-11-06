@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 
 use super::super::manifest::{Dim, Size, Surface};
 use super::super::registry::{resolve_command, Registry};
-use super::super::{Dirs, PluginError, Result};
+use super::super::{PluginError, Result};
 use super::token::{is_pane_id, status_path, token_path, PaneInfo, Token, Trigger};
+use crate::paths::Layout;
 
 /// What `tmuxy plugin action` was asked to do.
 #[derive(Debug, Clone)]
@@ -233,7 +234,7 @@ pub fn free_index(listing: &str) -> u32 {
 /// Open an action's surface. The reads run as they are; the command list
 /// that creates the pane runs inside `tmux run-shell` (`job`), so this is
 /// safe to call from a plain process with control mode attached.
-pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
+pub fn open(dirs: &Layout, request: &OpenRequest) -> Result<Opened> {
     if !is_pane_id(&request.pane) {
         return Err(PluginError::Invalid(format!(
             "{:?} is not a pane id",
@@ -327,7 +328,7 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
 
 /// Say on the target pane's status line that a menu launch failed, and where
 /// to look.
-pub fn notify_failure(dirs: &Dirs, pane: &str, plugin: &str, error: &str) {
+pub fn notify_failure(dirs: &Layout, pane: &str, plugin: &str, error: &str) {
     if !is_pane_id(pane) {
         return;
     }
@@ -345,7 +346,7 @@ pub fn notify_failure(dirs: &Dirs, pane: &str, plugin: &str, error: &str) {
 /// Wait for the command a token launched to exit, and return its status
 /// (`tmuxy plugin action --wait`). A pane that closed without one (killed
 /// before its command started) is a failure, status 1.
-pub fn wait(dirs: &Dirs, token_id: &str, pane: Option<&str>) -> i32 {
+pub fn wait(dirs: &Layout, token_id: &str, pane: Option<&str>) -> i32 {
     let path = status_path(dirs, token_id);
     for tick in 0u64.. {
         if let Ok(text) = std::fs::read_to_string(&path) {

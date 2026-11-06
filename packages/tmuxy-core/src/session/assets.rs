@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-use super::config::{is_symlink, write_generated, Layout};
+use super::config::{is_symlink, write_generated};
+use crate::paths::Layout;
 
 /// Bundled theme CSS files, embedded at compile time. Mirrored to the data
 /// dir's `themes/` on every launch by [`ensure_themes`], for whoever reads

@@ -18,8 +18,8 @@ use serde::Serialize;
 
 use super::manifest::LinkMatch;
 use super::registry::Registry;
-use super::Dirs;
 use crate::constants::tmux_options::{PLUGINS, PLUGINS_REV};
+use crate::paths::Layout;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Plugin {
@@ -98,7 +98,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// The tmux commands that publish the inventory. Both values are base64 or
 /// hex, so they need no quoting on a command line.
-pub fn commands(dirs: &Dirs) -> Vec<String> {
+pub fn commands(dirs: &Layout) -> Vec<String> {
     let registry = Registry::load(dirs).unwrap_or_default();
     let (b64, rev) = encode(&build(&registry));
     vec![
@@ -109,7 +109,7 @@ pub fn commands(dirs: &Dirs) -> Vec<String> {
 
 /// Publish from a CLI verb, inside `tmux run-shell` (`job`). No server on
 /// the socket is no error: the next monitor to attach publishes it.
-pub fn publish(dirs: &Dirs) {
+pub fn publish(dirs: &Layout) {
     let mut argv: Vec<String> = Vec::new();
     for command in commands(dirs) {
         if !argv.is_empty() {

@@ -12,14 +12,15 @@ use std::path::PathBuf;
 
 use super::manifest::{Setting, SettingValue};
 use super::registry::Installed;
-use super::{Dirs, PluginError, Result};
+use super::{PluginError, Result};
+use crate::paths::Layout;
 
 /// The file, `<config_dir>/plugins/<name>/settings.toml`.
-pub fn path(dirs: &Dirs, plugin: &str) -> PathBuf {
+pub fn path(dirs: &Layout, plugin: &str) -> PathBuf {
     dirs.plugin_config(plugin).join("settings.toml")
 }
 
-fn read_table(dirs: &Dirs, plugin: &str) -> toml::Table {
+fn read_table(dirs: &Layout, plugin: &str) -> toml::Table {
     std::fs::read_to_string(path(dirs, plugin))
         .ok()
         .and_then(|text| text.parse::<toml::Table>().ok())
@@ -36,7 +37,7 @@ pub struct Current<'a> {
 }
 
 /// Every setting of `plugin`, in manifest order.
-pub fn current<'a>(dirs: &Dirs, plugin: &'a Installed) -> Vec<Current<'a>> {
+pub fn current<'a>(dirs: &Layout, plugin: &'a Installed) -> Vec<Current<'a>> {
     let table = read_table(dirs, &plugin.name);
     plugin
         .manifest
@@ -55,7 +56,7 @@ pub fn current<'a>(dirs: &Dirs, plugin: &'a Installed) -> Vec<Current<'a>> {
 }
 
 /// `settings` in the context JSON: every value in force but the secrets.
-pub fn context_values(dirs: &Dirs, plugin: &Installed) -> serde_json::Value {
+pub fn context_values(dirs: &Layout, plugin: &Installed) -> serde_json::Value {
     let map: serde_json::Map<String, serde_json::Value> = current(dirs, plugin)
         .into_iter()
         .filter(|c| !c.setting.secret)
@@ -78,16 +79,16 @@ fn setting<'a>(plugin: &'a Installed, key: &str) -> Result<&'a Setting> {
         })
 }
 
-fn write_table(dirs: &Dirs, plugin: &str, table: &toml::Table) -> Result<()> {
+fn write_table(dirs: &Layout, plugin: &str, table: &toml::Table) -> Result<()> {
     super::private_dir(&dirs.plugin_config(plugin))?;
     let text = toml::to_string(table).map_err(|e| PluginError::Invalid(e.to_string()))?;
     let file = path(dirs, plugin);
-    crate::private_files::write(&file, text)
+    crate::private_files::replace(&file, text)
         .map_err(|e| PluginError::io(format!("writing {}", file.display()), e))
 }
 
 /// Set `key` from its text form, checked against its type.
-pub fn set(dirs: &Dirs, plugin: &Installed, key: &str, text: &str) -> Result<SettingValue> {
+pub fn set(dirs: &Layout, plugin: &Installed, key: &str, text: &str) -> Result<SettingValue> {
     let setting = setting(plugin, key)?;
     let value = setting
         .kind
@@ -100,7 +101,7 @@ pub fn set(dirs: &Dirs, plugin: &Installed, key: &str, text: &str) -> Result<Set
 }
 
 /// Remove `key` from the file: its default is in force again.
-pub fn unset(dirs: &Dirs, plugin: &Installed, key: &str) -> Result<()> {
+pub fn unset(dirs: &Layout, plugin: &Installed, key: &str) -> Result<()> {
     setting(plugin, key)?;
     let mut table = read_table(dirs, &plugin.name);
     table.remove(key);

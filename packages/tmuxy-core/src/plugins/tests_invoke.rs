@@ -215,7 +215,7 @@ fn gc_removes_only_unlisted_unused_checkouts() {
     for sha in [keep, drop, busy] {
         std::fs::create_dir_all(dirs.checkout("p", sha)).unwrap();
     }
-    std::fs::create_dir_all(dirs.root().join("p.state")).unwrap();
+    std::fs::create_dir_all(dirs.plugins_root().join("p.state")).unwrap();
 
     // A process running from the old checkout keeps it.
     let busy_dir = dirs.checkout("p", busy);
@@ -234,7 +234,10 @@ fn gc_removes_only_unlisted_unused_checkouts() {
         assert!(busy_dir.exists());
     }
     assert!(dirs.checkout("p", keep).exists());
-    assert!(dirs.root().join("p.state").exists(), "not a checkout");
+    assert!(
+        dirs.plugins_root().join("p.state").exists(),
+        "not a checkout"
+    );
     // Once its process is gone, the next run removes it.
     assert!(gc::collect(&dirs).busy.is_empty());
     assert!(!busy_dir.exists());

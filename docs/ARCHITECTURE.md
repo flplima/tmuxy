@@ -55,7 +55,7 @@ See [ARCHITECTURE-WIDGETS.md](ARCHITECTURE-WIDGETS.md) for this section: Widgets
 
 ## The user's config directory
 
-tmuxy's files live in three directories, split by owner so each has one rule (`Layout` in `tmuxy-core/src/session/config.rs`, the directories in `tmuxy-core/src/paths.rs`):
+tmuxy's files live in three directories, split by owner so each has one rule. `tmuxy-core/src/paths.rs` is the one map of them: it resolves the directories, lists every file in `FILES` (dir, name, whether it is safe to edit), and `Layout` turns an entry into a path, so nothing else spells a file name. `tmuxy server config paths` prints that table; tests hold the config README's table and the CLI's shell copy of it (`config_paths_table` in `cli-config.sh`) to it, and the migration names the state files it moves by their entries:
 
 | Dir | Default | Owner | Rule |
 | --- | --- | --- | --- |
@@ -66,11 +66,12 @@ tmuxy's files live in three directories, split by owner so each has one rule (`L
 | File | Dir | Owner | On launch |
 | --- | --- | --- | --- |
 | `tmuxy.conf` | config | user | the starter (comments only) on the very first run — the config dir did not exist, not even as a dangling link — and never again |
-| `custom.css`, `themes/<name>.css` | config | user | left alone; a theme named like a built-in shadows it |
+| `custom.css`, `themes/<name>.css`, `icons/` | config | user | left alone; a theme named like a built-in shadows it |
 | `tmuxy.defaults.conf`, `tmuxy.essentials.conf`, `tmuxy.conf.example`, `README.md` | data | app | rewritten to this build's copy, headed as generated |
 | `themes/<built-in>.css`, `bin/` | data | app | rewritten, headed as generated; a retired built-in is removed |
 | `tmuxy.entry.conf` (and `tmuxy.compat.conf`, when needed) | state | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
-| `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them |
+| `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them, each replaced whole (`private_files::replace`) |
+| `trace.ndjson`, `tmuxy.log`, `sessions/`, `push/` | state | app | the trace while tracing is on; the desktop app's log; session snapshots per socket; the web server's push key and subscriptions |
 | `launcher`, `tmuxy.pid`, `config-reload` | state | app | the desktop app's path for the `~/.local/bin/tmuxy` shorthand; the web server's pid; the marker `tmuxy config reload` touches |
 
 The user never overrides what the app bundles; they copy a built-in theme into the config dir (under a new name to add one, the same name to replace it), write `custom.css`, or set options in `tmuxy.conf`. CSS applies in that order, most specific first: `custom.css` → the `@tmuxy-css-<variable>` options → the theme file. An option `tmuxy.conf` sets beats a menu choice (see [TMUX-CONFIG.md](TMUX-CONFIG.md#menu-choices-and-the-options-tmuxyconf-pins)). Every edit is live: both hosts watch the config dir and either push `css-changed` or source the chain (see [DATA-FLOW.md](DATA-FLOW.md)). The `README.md` in the data dir is the user-facing guide, and the one the bundled agent skill points at; `tmuxy config paths` lists every file with its owner and its real location.

@@ -44,10 +44,12 @@ pub(super) fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
-pub(super) fn dirs_in(base: &Path) -> Dirs {
-    Dirs {
+pub(super) fn dirs_in(base: &Path) -> Layout {
+    Layout {
         config: base.join("config"),
+        data: base.join("data"),
         state: base.join("state"),
+        home: base.to_path_buf(),
     }
 }
 
@@ -289,7 +291,7 @@ fn a_linked_plugin_and_the_users_own_load() {
     lock.upsert(Entry::from_path("missing", &base.join("nowhere")));
     lock.save(&dirs).unwrap();
     std::fs::write(
-        dirs.user_manifest(),
+        dirs.user_plugin_manifest(),
         "[plugin]\napi = 1\nname = \"user\"\nversion = \"0\"\n\
          [[actions]]\nid = \"a\"\ntitle = \"A\"\ncommand = [\"x\"]\n\
          [[cli]]\nverb = \"list\"\ncommand = [\"x\"]\n\
