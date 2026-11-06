@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
     --no-theme) THEME=""; shift ;;
     --help|-h) usage; exit 0 ;;
     --) shift; break ;;
-    -*) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+    -*) _die_usage "Unknown option: $1" usage ;;
     *) break ;;
   esac
 done
@@ -47,31 +47,26 @@ if [ -z "$FILE" ]; then
     if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then FILE="$candidate"; break; fi
   done
   if [ -z "$FILE" ]; then
-    echo "Error: no file given, and no index.html or README.md here" >&2
-    exit 1
+    _fail "$EXIT_FAILED" "no file given, and no index.html or README.md here"
   fi
 fi
 
 if [ -L "$FILE" ]; then
-  echo "Error: a symlink cannot be previewed: $FILE" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "a symlink cannot be previewed: $FILE"
 fi
 if [ ! -f "$FILE" ]; then
-  echo "Error: not a file: $FILE" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "not a file: $FILE"
 fi
 case "$(printf '%s' "$FILE" | tr '[:upper:]' '[:lower:]')" in
   *.html|*.htm|*.md|*.markdown) ;;
-  *) echo "Error: a preview shows .html and .md files: $FILE" >&2; exit 1 ;;
+  *) _fail "$EXIT_FAILED" "a preview shows .html and .md files: $FILE" ;;
 esac
 OWN_PANE="${TMUXY_CALLER_PANE-${TMUX_PANE:-}}"
 if [ -z "$OWN_PANE" ]; then
-  echo "Error: run this inside a tmuxy pane" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "run this inside a tmuxy pane"
 fi
 if [ "$(verified_own_pane "$OWN_PANE")" != "$OWN_PANE" ]; then
-  echo "Error: cannot open a preview on another pane ($OWN_PANE)" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "cannot open a preview on another pane ($OWN_PANE)"
 fi
 TMUX_PANE="$OWN_PANE"
 export TMUX_PANE
@@ -79,12 +74,11 @@ export TMUX_PANE
 DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
 ABS="$DIR/$(basename "$FILE")"
 if [ -L "$ABS" ]; then
-  echo "Error: a symlink cannot be previewed: $FILE" >&2
-  exit 1
+  _fail "$EXIT_FAILED" "a symlink cannot be previewed: $FILE"
 fi
 NAME="$(basename "$ABS")"
 case "$ABS" in
-  *$'\n'*) echo "Error: a file name with a newline cannot be previewed" >&2; exit 1 ;;
+  *$'\n'*) _fail "$EXIT_FAILED" "a file name with a newline cannot be previewed" ;;
 esac
 
 PANE="$(shquote "$TMUX_PANE")"

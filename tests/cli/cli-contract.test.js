@@ -381,6 +381,19 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual({ ok: false, error: 'Unknown pane command: frob', code: 2 });
   });
 
+  // A script's own usage errors keep the contract too.
+  test.each([
+    [['pane', 'send', '--frob', 'x'], "unknown option '--frob'"],
+    [['pane', 'send', '--timeout', 'soon', 'x'], '--timeout takes a positive'],
+    [['open', '--frob'], 'Unknown option: --frob'],
+  ])('%j --json is a bad command line, in JSON', (args, error) => {
+    const { stdout, exitCode } = runCLI([...args, '--json'], { env: IN_PANE_1 });
+    expect(exitCode).toBe(2);
+    const answer = JSON.parse(stdout);
+    expect(answer).toMatchObject({ ok: false, code: 2 });
+    expect(answer.error).toContain(error);
+  });
+
   // A verb answers for itself: `--json` is handed on.
   test.each([
     [['session', 'snapshots'], 'session snapshots --json'],

@@ -79,8 +79,7 @@ while [ $# -gt 0 ]; do
       ;;
     # Any other flag would reach send-keys as one of its own options.
     -?*)
-      echo "Error: unknown option '$1' (keys that start with '-' go after --)" >&2
-      exit 2
+      _die_usage "unknown option '$1' (keys that start with '-' go after --)"
       ;;
     *)
       KEYS+=("$1")
@@ -90,12 +89,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ ${#KEYS[@]} -eq 0 ]; then
-  echo "Error: keys required" >&2
-  exit 2
+  _die_usage "keys required"
 fi
 if [ -n "$TIMEOUT" ] && ! [ "$TIMEOUT" -gt 0 ] 2>/dev/null; then
-  echo "Error: --timeout takes a positive whole number of seconds" >&2
-  exit 2
+  _die_usage "--timeout takes a positive whole number of seconds"
 fi
 
 # The pane the caller runs in, as it was before the CLI resolved a default
@@ -109,8 +106,7 @@ OWN_PANE="$(verified_own_pane "${TMUXY_CALLER_PANE:-}")"
 if [ -z "$TARGET" ]; then
   TARGET="${OWN_PANE:-${TMUX_PANE:-}}"
   if [ -z "$TARGET" ]; then
-    echo "Error: no pane to send to (pass -t)" >&2
-    exit 2
+    _die_usage "no pane to send to (pass -t)"
   fi
 fi
 

@@ -154,7 +154,7 @@ cmd_widget() {
       ;;
 
     preview)
-      exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
+      JSON_OUT="$JSON_OUT" exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
       ;;
 
     --help|-h)
