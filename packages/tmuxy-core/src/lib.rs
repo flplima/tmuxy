@@ -16,6 +16,8 @@ pub mod ids;
 pub mod command_router;
 #[cfg(feature = "cli")]
 pub mod executor;
+#[cfg(feature = "cli")]
+pub mod float;
 
 pub mod layout;
 #[cfg(feature = "cli")]

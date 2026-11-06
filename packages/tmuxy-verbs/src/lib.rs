@@ -8,6 +8,7 @@ mod agents;
 mod cli_json;
 mod config_cli;
 mod connect_cli;
+mod float_cli;
 mod plugin_cli;
 mod send_cli;
 mod session_cli;
@@ -49,6 +50,10 @@ pub enum Verb {
     Connect(connect_cli::ConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
     Skill,
+    /// Make a float over the caller's tab and print its pane and window.
+    /// Backs `float-create` (`tmuxy pane float`).
+    #[command(hide = true)]
+    Float(float_cli::FloatArgs),
 }
 
 /// Run one verb to completion.
@@ -63,5 +68,6 @@ pub async fn run(verb: Verb) {
         Verb::Send(args) => send_cli::run(args).await,
         Verb::Connect(args) => connect_cli::run(args),
         Verb::Skill => print!("{}", agents::SKILL),
+        Verb::Float(args) => float_cli::run(args),
     }
 }
