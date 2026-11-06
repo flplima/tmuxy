@@ -1,12 +1,37 @@
-# Invariants — client model
+# Invariants — the client
 
-The `P` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which holds the column legend, the seam prefixes and the other rows. Same rules: cite a row in a commit on its seam, and a row's enforcer is a test title that exists.
+The `C`, `Q` and `P` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which holds the column legend, the seam prefixes and the other rows. Same rules: cite a row in a commit on its seam, and a row's enforcer is a test title that exists.
+
+## C — client stream stage
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| C1 | Deltas apply only to their base state; missing, misordered, repeated or undecodable deltas drop and refetch full state. | safety | `stateSequencer.ts`, `stateFeed.ts`, `deltaProtocol.ts` | `stateSequencer.test.ts › asks for a resync…`, `› treats a payload…`; `stateFeed.test.ts › a payload…`; `deltaProtocol.test.ts`; `HttpAdapter.commands.test.ts › a state update…` |
+| C2 | Pre-full-state deltas are ignored; full states/answers carry `seq` so a delta lost after sync triggers a gap. | safety | `stateSequencer.ts`, `deltaProtocol.ts` | `stateSequencer.test.ts › ignores a delta…`, `› a delta lost…`; `stateFeed.props.test.ts › never paints backwards…` (property); `deltaProtocol.test.ts › no gap…` |
+| C3 | At most one refetch runs in flight; arriving deltas are boundedly held, and failed refetches retry on next delta. | safety | `stateFeed.ts`, `stateSequencer.ts` | `stateFeed.props.test.ts › never paints backwards…` (property); `stateFeed.test.ts › a gap refetches…`; `stateSequencer.test.ts › the deltas…` |
+| C4 | Post-refetch publish merges the answer, held deltas `> seq`, and queued deltas monotonically; held gaps refetch. | ordering | `stateFeed.ts`, `stateSequencer.ts` | `stateFeed.props.test.ts › never paints backwards…` (property) |
+| C5 | Once synced, initial-state answers only fill empty panes; before sync or after a gap, they set starting state. | ordering | `deltaProtocol.ts`, `stateSequencer.ts` | `HttpAdapter.test.ts › an initial-state answer…`, `› …does not take back…`, `› after a gap…`; `stateSequencer.test.ts › after a gap…`; `stateFeed.props.test.ts › never paints backwards…` (property) |
+| C6 | New connections or session switches reset sequencing so old delta seqs never gate new streams. | safety | `HttpAdapter.ts`, `TauriAdapter.ts` | — |
+| C7 | Transport publishes events in arrival order (including pre-`connect` subscribers); web frame-hold never reorders state ahead of earlier events. | ordering | `TmuxTransport.ts`, `events.ts`, `stateFeed.ts` | `TmuxTransport.test.ts › publishes what the driver pushes…`; `stateFeed.test.ts › publishes a full state…` (examples; per-frame hold is —) |
+| C8 | States coalesce to one per frame (latest wins); older states never paint after newer ones. | ordering | `stateFeed.ts` | — |
+| C9 | Each pane id appears at most once in client state, and a delta removes exactly the panes it nulls. | safety | `deltaProtocol.ts` | `deltaProtocol.props.test.ts` (property) |
+| C10 | Dropped/silent streams retry with backoff, online/visibility/Retry reconnect immediately, refused streams stop, and `EventSource` is singleton. | liveness | `HttpAdapter.ts` | `HttpAdapter.test.ts › keeps retrying…`, `› ten drops…`, `› a pinged stream…`, `› a stream the server refuses…`, `› dedupes concurrent…`; `tests/4-session-connectivity.test.js › six drops…` [nightly] |
+
+## Q — command queue and input
+
+| Id | Invariant | Kind | Stated in | Enforced by |
+| --- | --- | --- | --- | --- |
+| Q1 | Ops and calls serialize in issue order on every transport, so splits never land in a tab a queued `select-window` is leaving. | ordering | `commandLane.ts` | `HttpAdapter.test.ts › runs every tmux op through the serial lane…` (example); `TmuxTransport.test.ts › keystrokes batch, and a call…`; `tests/4-session-connectivity.test.js › 2 panes → reload…` |
+| Q2 | Keystroke batches share the lane, and any other op or call flushes pending batches first. | ordering | `commandLane.ts`, `keyBatching.ts` | `TmuxTransport.test.ts › keystrokes batch, and a call sent after them never overtakes them`; `keyBatching.test.ts › flushAll drains…` |
+| Q3 | Lone keystrokes send on leading edge; literal/special order holds per target; key names starting with a flag and every non-keystroke op never batch; batched text is quoted once, by `toTmuxCommand`. | ordering | `keyBatching.ts` | `keyBatching.test.ts › sends an isolated…`, `› preserves literal→special…`, `› preserves special→literal…`, `› sends key names that start with a flag alone…`, `› joins text holding control characters…`; `tests/1-input-interaction.test.js › Type → backspace…` |
+| Q4 | Client reads (`query_tmux`) and the state fetch run off the lane; order vs. mutations holds in-band on control mode (A6). | ordering | `TmuxTransport.ts`, `docs/DATA-FLOW.md` | — |
+| Q5 | A keystroke issued while the stream is down reaches the transport (the app's `reconnecting` takes it), waits for the stream and posts under the new connection id, still in issue order, and the server holds it until the session's monitor has attached; `disconnect()` and a session switch end the wait. | liveness | `HttpAdapter.ts`, `commandLane.ts`, `appMachine.ts` | `HttpAdapter.test.ts › a key typed while the stream is down…` (example), `reconnectKeys.test.ts › a key and an op sent while reconnecting…`, `sse/tests_errors.rs › a_command_waits_for_a_monitor_still_connecting…` |
 
 ## P — client model
 
 | Id | Invariant | Kind | Stated in | Enforced by |
 | --- | --- | --- | --- | --- |
-| P1 | Placeholder (predicted) pane or window ids are never sent to tmux as targets — not by a dispatched op, a binding's pin, or a tab switch. | safety | `commands.ts`, `dispatch.ts`, `keyboardActor.ts` (`bindingPin`), `layout.ts` (`layout_selectTab`) | `dispatch.test.ts › leaves the target to tmux…`, `› once tmux has confirmed them…`; `keyboardActor.bindings.test.ts › leaves a placeholder window and pane unpinned…`; `selectTab.test.ts › switches the view to a placeholder tab…` |
+| P1 | Placeholder (predicted) pane or window ids are never sent to tmux as targets — not by a dispatched op, a binding's pin, or a tab switch. | safety | `commands.ts`, `dispatch.ts`, `keyboardActor.ts` (`bindingPin`), `layout.ts` (`layout_selectTab`) | `dispatch.test.ts › leaves the target to tmux…`, `› once tmux has confirmed them…`; `keyboardActor.bindings.test.ts › leaves a placeholder window and pane unpinned…`; `selectTab.test.ts › never names a placeholder tab to tmux` |
 | P2 | Ops mark in-flight before send and always settle: unacked sweeps at `OP_STALE_TIMEOUT_MS`, acked at `OP_ACKED_STALE_TIMEOUT_MS`, errors roll back. | liveness | `TmuxStore.ts`, `model.ts`, `types.ts` | `model.test.ts › stale ops…`, `› in-flight ops…`; `TmuxStore.test.ts › dispatch rolls back…`, `› TransportError…` |
 | P3 | Pending ops re-reconcile on a timer so time-based verdicts fire on an idle stream. | liveness | `TmuxStore.ts` | `tests/7-regression-bugs-b.test.js › Creating tabs then switching keeps the rendered tab in sync with tmux` [nightly] (its `waitForSettled` holds while a switch is pending; on an idle terminal only this timer can release it) |
 | P4 | Confirmed focus ops linger (`FOCUS_CONFIRM_LINGER_MS`), yield to a 3rd pane after `FOCUS_SUPERSEDE_GRACE_MS`, drop on newer focus, and skip dead panes. | ordering | `ops.ts`, `model.ts` | `ops.test.ts › holds a confirmed…`, `› holds through stale…`, `› holds briefly…` (examples; `dropSupersededFocusOps` is —); `tests/2-layout-navigation.test.js › Clicking an inactive tab…` [nightly] |

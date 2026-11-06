@@ -45,12 +45,9 @@ export const DEFAULT_KEYBINDINGS: KeyBindings = {
     { key: '1', command: 'select-window -t :=1', description: 'Window 1' },
     { key: '2', command: 'select-window -t :=2', description: 'Window 2' },
   ],
-  // Ctrl+hjkl / Ctrl+arrows: group-aware directional pane navigation via the
-  // `tmuxy-nav-*` command-aliases, which tmuxy.essentials.conf defines and
-  // the guest's defaults conf sources (both guest image builds ship both).
-  // Intercepted client-side so the key isn't sent to the pane as literal
-  // text. Ctrl+digit is the client's own, as the conf says, so it is not
-  // bound here either.
+  // The `tmuxy-nav-*` command-aliases are defined by tmuxy.essentials.conf,
+  // which the guest's defaults conf sources (both guest image builds ship
+  // both).
   root_bindings: [
     { key: 'C-h', command: 'tmuxy-nav-left', description: 'Navigate left' },
     { key: 'C-j', command: 'tmuxy-nav-down', description: 'Navigate down' },

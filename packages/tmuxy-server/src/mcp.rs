@@ -85,7 +85,7 @@ const MAX_CLIENTS: usize = 64;
 
 impl Clients {
     fn register(&self, name: String) -> String {
-        let id = format!("{:016x}{:016x}", random_u64(), random_u64());
+        let id = tmuxy_core::random::token();
         if let Ok(mut names) = self.names.lock() {
             if names.len() == MAX_CLIENTS {
                 names.pop_front();
@@ -102,20 +102,6 @@ impl Clients {
             .find(|(known, _)| known == id)
             .map(|(_, name)| name.clone())
     }
-}
-
-/// 64 bits nobody on the socket can work out in advance: std's hasher keys
-/// are seeded from the OS's randomness.
-pub(crate) fn random_u64() -> u64 {
-    use std::hash::{BuildHasher, Hasher};
-    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-    hasher.write_u128(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default(),
-    );
-    hasher.finish()
 }
 
 #[derive(Debug, PartialEq)]

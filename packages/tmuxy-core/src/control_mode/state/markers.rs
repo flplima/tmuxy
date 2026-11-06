@@ -71,14 +71,11 @@ pub struct Markers {
 }
 
 impl Markers {
-    /// A fresh token: 128 bits from two `RandomState`s, which std seeds from
-    /// the OS random source. Hex, so neither `display-message`'s format and
-    /// strftime expansion nor tmux's command parser reads anything into it.
+    /// Hex, so neither `display-message`'s format and strftime expansion
+    /// nor tmux's command parser reads anything into it.
     pub(super) fn fresh() -> Self {
-        use std::hash::BuildHasher;
-        let half = || std::collections::hash_map::RandomState::new().hash_one("tmuxy-marker");
         Self {
-            token: format!("{:016x}{:016x}", half(), half()),
+            token: crate::random::token(),
         }
     }
 

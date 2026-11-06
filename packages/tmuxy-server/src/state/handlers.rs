@@ -62,9 +62,3 @@ pub(super) async fn image_handler(
         ),
     }
 }
-
-pub fn find_workspace_root() -> std::path::PathBuf {
-    tmuxy_core::host::checkout_root().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-    })
-}

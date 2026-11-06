@@ -1,3 +1,4 @@
+use super::attach::enforced_settings;
 use super::sizing::{needs_resize, resize_command, MAX_RESIZE_ATTEMPTS};
 use super::*;
 use crate::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
@@ -13,7 +14,6 @@ pub(super) fn core(session: &str) -> (Core, Instant) {
     (MonitorCore::new(session, "tmux", now), now)
 }
 
-/// The `resizew` an attach for `session` starts the session's window with.
 fn initial_resize(session: &str) -> String {
     let (core, _) = core(session);
     core.attach_commands((200, 50), AttachConfig::default())
@@ -29,7 +29,6 @@ pub(super) fn response(output: &str) -> ControlModeEvent {
     }
 }
 
-/// A marker block of the core's own: `name` with its token, then `arg`.
 pub(super) fn marked(core: &Core, name: &str, arg: &str) -> ControlModeEvent {
     response(format!("{} {arg}", core.aggregator().markers().tag(name)).trim_end())
 }
@@ -45,9 +44,9 @@ pub(super) fn sent<W>(actions: &[Action<W>]) -> Vec<&str> {
         .collect()
 }
 
-/// SEC-14: `GET /events?session=` lets a client pick the name, and an
-/// unquoted one carrying `;` used to be parsed by control mode as a
-/// second command — `?session=x ; run-shell "id>/tmp/p" ; resizew` ran it.
+/// `GET /events?session=` lets a client pick the name, and an unquoted one
+/// carrying `;` was parsed by control mode as a second command:
+/// `?session=x ; run-shell "id>/tmp/p" ; resizew` ran the `run-shell`.
 #[test]
 fn a_session_name_carrying_a_semicolon_stays_one_command() {
     let cmd = initial_resize(r#"x ; run-shell "id>/tmp/p" ; resizew"#);
@@ -62,7 +61,6 @@ fn a_session_name_carrying_a_quote_is_escaped_not_terminated() {
     assert!(initial_resize("it's").starts_with(r"resizew -t 'it'\''s' "));
 }
 
-/// A window is sized by its id, never by the current window.
 #[test]
 fn a_window_is_resized_by_its_id() {
     assert_eq!(
@@ -71,10 +69,6 @@ fn a_window_is_resized_by_its_id() {
     );
 }
 
-/// The bug this replaced: `resizew` is fire-and-forget, and recording the
-/// SEND as the truth meant one dropped command left the client asking for
-/// a size tmux never applied — `targetCols: 41` against `totalWidth: 200`,
-/// for the life of the session, with the phone's terminal off screen.
 #[test]
 fn a_window_tmux_did_not_resize_is_asked_again() {
     // Asked once at report 3, and the report after it (4) still shows
@@ -87,10 +81,6 @@ fn a_window_tmux_did_not_resize_is_asked_again() {
     ));
 }
 
-/// The bug this replaced: this runs on every control-mode step, and a
-/// step counted as an attempt. Three steps fit in the first thirty
-/// milliseconds of an attach, before tmux had reported anything, and the
-/// window was never asked again.
 #[test]
 fn a_window_is_not_asked_again_until_tmux_has_reported_since() {
     // Asked at report 3, still at report 3: nothing to judge yet.
@@ -105,14 +95,12 @@ fn a_window_is_not_asked_again_until_tmux_has_reported_since() {
 
 #[test]
 fn a_window_tmux_did_resize_is_left_alone() {
-    // However many commands it took, the grid IS the wanted one.
     assert!(!needs_resize(
         Some((41, 29),),
         (41, 29),
         Some(((41, 29), 3, 3)),
         4
     ));
-    // ...even at the cap, which is about refusals, not successes.
     assert!(!needs_resize(
         Some((41, 29)),
         (41, 29),
@@ -123,8 +111,6 @@ fn a_window_tmux_did_resize_is_left_alone() {
 
 #[test]
 fn a_size_tmux_keeps_refusing_stops_being_asked() {
-    // Bounded, so a size tmux will not take cannot become a command on
-    // every report for the rest of the session.
     assert!(needs_resize(
         Some((200, 50)),
         (41, 29),
@@ -141,8 +127,6 @@ fn a_size_tmux_keeps_refusing_stops_being_asked() {
 
 #[test]
 fn a_new_size_starts_its_own_attempts() {
-    // The viewport changed again: the old size's exhausted count must not
-    // suppress the new one, even before any further report.
     assert!(needs_resize(
         Some((200, 50)),
         (80, 24),
@@ -153,12 +137,9 @@ fn a_new_size_starts_its_own_attempts() {
 
 #[test]
 fn a_window_with_no_panes_yet_is_still_asked() {
-    // `None` is "no pane of it seen yet", which is not "zero columns".
     assert!(needs_resize(None, (41, 29), None, 0));
 }
 
-/// Keystrokes go out bare; everything else is wrapped so a `%error`
-/// can be attributed and shown. A pinned keystroke is still a keystroke.
 #[test]
 fn only_keystrokes_skip_failure_reporting() {
     let reports_failure =
@@ -204,10 +185,9 @@ pub(super) fn with_a_pane(core: &mut Core, now: Instant) {
     assert!(core.aggregator().initial_state_ready());
 }
 
-/// The attach is one list for every host: the window sizing first, the
-/// host's config, then the enforced settings (SEC-01's `set-clipboard off`
-/// among them, which a guest's own copy once lost), the host's steps, flow
-/// control, the re-list in M2's order, and the subscriptions.
+/// M2, M11. Every host attaches with this one list: a guest's own copy once
+/// lost `set-clipboard off`, and with tmux's clipboard on, a background
+/// pane's OSC 52 reached every client through the server's paste buffer.
 #[test]
 fn an_attach_enforces_the_settings_after_the_config_and_lists_panes_first() {
     let (core, _) = core("app");
@@ -244,9 +224,8 @@ fn an_attach_enforces_the_settings_after_the_config_and_lists_panes_first() {
         .is_some_and(|c| c.starts_with("refresh-client -B")));
 }
 
-/// A pane that never stops printing (an agent's spinner) still gets its
-/// metadata re-listed: the re-list is due a beat after the first output and
-/// later output does not push it back. It lists the panes first (M2).
+/// M2. The re-list is due a beat after the first output, and later output
+/// does not push it back.
 #[test]
 fn a_pane_that_keeps_printing_does_not_starve_the_metadata_sync() {
     let (mut core, start) = core("app");
@@ -273,7 +252,7 @@ fn a_pane_that_keeps_printing_does_not_starve_the_metadata_sync() {
     );
 }
 
-/// Idle long enough, the heartbeat re-lists everything, panes first (M2).
+/// M2.
 #[test]
 fn the_idle_heartbeat_lists_panes_before_windows() {
     let (mut core, start) = core("app");
@@ -289,9 +268,7 @@ fn the_idle_heartbeat_lists_panes_before_windows() {
     );
 }
 
-/// A caller's command comes back to that caller, whatever else is on the
-/// wire; one tmux never answers fails at the timeout (M7), and one that was
-/// never written fails at once.
+/// M7.
 #[test]
 fn a_callers_command_is_answered_by_its_reply_or_its_timeout() {
     let (mut core, now) = core("app");
@@ -330,8 +307,6 @@ fn a_callers_command_is_answered_by_its_reply_or_its_timeout() {
     ));
 }
 
-/// A keystroke goes out bare; any other fire-and-forget command is wrapped
-/// so tmux's refusal reaches the person.
 #[test]
 fn a_keystroke_goes_out_bare_and_a_refused_command_is_reported() {
     let (mut core, now) = core("app");
@@ -358,8 +333,7 @@ fn a_keystroke_goes_out_bare_and_a_refused_command_is_reported() {
     ));
 }
 
-/// A script tagged to settle arms settling; what tmux leaves unannounced is
-/// re-listed behind the command, the windows in M2's order.
+/// M2.
 #[test]
 fn a_command_settles_or_relists_as_its_commands_say() {
     let (mut core, now) = core("app");
@@ -383,8 +357,6 @@ fn a_command_settles_or_relists_as_its_commands_say() {
         .is_empty());
 }
 
-/// `%exit` ends the connection with tmux's reason; a `%message` is for the
-/// person alone (and an empty one for nobody).
 #[test]
 fn the_connection_ends_on_exit_and_a_message_goes_to_the_person() {
     let (mut core, now) = core("app");
@@ -413,10 +385,8 @@ fn the_connection_ends_on_exit_and_a_message_goes_to_the_person() {
     assert!(empty.is_empty());
 }
 
-/// M9: creating a session anywhere fires `%session-changed` on every
-/// control client. The core follows the session it was made for — by name
-/// until tmux gives it an id, by id after — and a rename of another
-/// session is not one of its own either.
+/// M9. Creating a session anywhere fires `%session-changed` on every
+/// control client.
 #[test]
 fn a_session_event_about_another_session_changes_nothing() {
     let (mut core, now) = core("app");
@@ -437,8 +407,6 @@ fn a_session_event_about_another_session_changes_nothing() {
     assert_eq!(core.aggregator_mut().to_tmux_state().session_name, "app2");
 }
 
-/// A viewport reported before any window is known sizes the current window
-/// at once; once windows are listed each is sized by its id.
 #[test]
 fn a_client_size_reaches_the_current_window_then_every_window() {
     let (mut early, now) = core("app");

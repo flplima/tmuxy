@@ -2,7 +2,7 @@
 //!
 //! The web server keeps one per session a browser watches, the desktop app
 //! one per window. A host supplies only a [`Sink`], where an event goes, and
-//! the [`crate::transport::Host`] policy the monitor loop runs under.
+//! the [`super::Host`] policy the monitor loop runs under.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -10,13 +10,13 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
+use super::bindings::{self, ConfigChange, ImageStore, KeyBindings};
 use super::event::{ConnectionInfo, HostEvent};
 use crate::client_size::SizePolicy;
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, StoredImage};
 use crate::preview::PreviewPages;
 use crate::session_snapshot::{self as snapshot, SnapshotKeeper};
 use crate::theme::ThemeSettings;
-use crate::transport::{self, ImageStore, KeyBindings};
 use crate::{CommandError, PaneId};
 
 /// The web's connection id, or the desktop's 0 (one client per window).
@@ -92,6 +92,8 @@ pub struct SessionRuntime {
     preview: Arc<PreviewPages>,
     preview_scope: String,
     restore: bool,
+    /// `TMUXY_NO_SNAPSHOT=1` turns the autosave off, read once here.
+    autosave: bool,
 }
 
 impl SessionRuntime {
@@ -108,6 +110,7 @@ impl SessionRuntime {
             preview: config.preview,
             preview_scope: config.preview_scope,
             restore: config.restore && !snapshot::restore_disabled(),
+            autosave: !snapshot::autosave_disabled(),
         })
     }
 
@@ -129,6 +132,10 @@ impl SessionRuntime {
 
     pub(crate) fn restores(&self) -> bool {
         self.restore
+    }
+
+    pub(crate) fn autosaves(&self) -> bool {
+        self.autosave
     }
 
     pub fn emit(&self, event: HostEvent) {
@@ -345,14 +352,14 @@ impl SessionRuntime {
 
     /// The user saved a file under the config dir. A saved `tmuxy.conf` gets
     /// what a client's own `source-file` gets.
-    pub async fn config_changed(&self, change: transport::ConfigChange) {
+    pub async fn config_changed(&self, change: ConfigChange) {
         match change {
-            transport::ConfigChange::Css => self.emit(HostEvent::CssChanged),
-            transport::ConfigChange::Conf => {
+            ConfigChange::Css => self.emit(HostEvent::CssChanged),
+            ConfigChange::Conf => {
                 let Some(tx) = self.tx_now() else {
                     return;
                 };
-                match transport::source_config(&tx).await {
+                match bindings::source_config(&tx).await {
                     Ok(()) => {
                         tracing::info!(session = %self.session(), "sourced the saved tmuxy.conf");
                         self.push_config().await;
@@ -393,7 +400,7 @@ impl SessionRuntime {
     /// half of what its snapshot says: the snapshot it is being rebuilt FROM
     /// is the one to keep.
     pub async fn save_snapshot_now(&self, timeout: Duration) {
-        if snapshot::autosave_disabled() || self.keeper.restoring() {
+        if !self.autosave || self.keeper.restoring() {
             return;
         }
         let Some(tx) = self.tx_now() else {
@@ -411,7 +418,7 @@ impl SessionRuntime {
     /// the bindings read next include them, then everything a config sets.
     async fn after_initial_sync(&self) {
         if let Some(tx) = self.tx_now() {
-            if let Err(e) = transport::apply_plugin_keys(&tx).await {
+            if let Err(e) = super::plugins::apply_plugin_keys(&tx).await {
                 tracing::warn!(error = %e, "could not bind the plugin keys");
             }
         }

@@ -26,6 +26,50 @@ fn single_column_pane_wide_chars_do_not_panic() {
     assert_eq!(extract_cells_from_screen(parser.screen()).len(), 4);
 }
 
+/// Every escape that moves the cursor, scrolls, erases, inserts or resizes
+/// text, for the size tests below.
+const EVERY_EDGE: &[&[u8]] = &[
+    b"abcdefghij\r\nklmnop\r\n\r\n\r\n",
+    "漢字ＡＢ漢字e\u{301}x\u{200d}y👍🏽".as_bytes(),
+    b"\x1b[999L\x1b[999M\x1b[999@\x1b[999P\x1b[999X\x1b[999S\x1b[999T",
+    b"\x1b[1;1r\x1b[2;1r\x1b[0;0r\x1b[999;999r\x1bM\x1bM\x1bD\x1bE\n\n",
+    b"\x1b#3\x1b#4\x1b#6\x1b#5\x1b#8abc",
+    b"\x1b[999;999H\x1b[999A\x1b[999B\x1b[999C\x1b[999D\x1b[999E\x1b[999F\x1b[999G\x1b[999d",
+    b"\x1b[J\x1b[1J\x1b[2J\x1b[K\x1b[1K\x1b[2K\x1b[3J",
+    b"\t\t\t\x1b[999I\x1b[999Z\x1b[5b",
+    b"\x1b[?1049h\x1b[?47habc\x1b[?1049l\x1b[?6h\x1b[?6l\x1b[?7l",
+    b"\x1b]66;s=3:w=2;\xe6\xbc\xa2x\x07\x1b]66;s=7;ab\x07",
+    b"\x1b7\x1b8\x1bc\x08\x08\x08",
+];
+
+/// A zero side is a one-cell side, so no caller has to guard against one:
+/// every cursor clamp and scroll region in the grid is `side - 1`. Each size
+/// is also reached by resizing, from and to the others, with the view
+/// scrolled back.
+#[test]
+fn zero_and_one_cell_grids_take_every_escape() {
+    let sizes = [(0, 0), (0, 5), (5, 0), (1, 1), (2, 1), (1, 2)];
+    for &(rows, cols) in &sizes {
+        for input in EVERY_EDGE {
+            let mut parser = vt100::Parser::new(rows, cols, 10);
+            assert_eq!(parser.screen().size(), (rows.max(1), cols.max(1)));
+            parser.process(input);
+            for &(r, c) in &sizes {
+                parser.screen_mut().set_size(r, c);
+                assert_eq!(parser.screen().size(), (r.max(1), c.max(1)));
+                parser.process(input);
+                parser.screen_mut().set_scrollback(5);
+                parser.process(input);
+                parser.screen_mut().set_scrollback(0);
+                assert_eq!(
+                    extract_cells_from_screen(parser.screen()).len(),
+                    usize::from(r.max(1))
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn one_by_one_pane_does_not_panic() {
     let mut parser = vt100::Parser::new(1, 1, 0);

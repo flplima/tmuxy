@@ -37,6 +37,11 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   of a pane's memory at 256 rows of reflow history. Covered by
   `tests/terminal_fidelity.rs` in tmuxy-core.
 - **`col_back_tab`**: moves to the previous multiple-of-8 tab stop, for CBT.
+- **No zero-sized grid**: `Grid::new` and `Grid::set_size` make a zero side
+  one (`Size::at_least_one`). Every cursor clamp and the scroll region are
+  `side - 1`, so a 0-row or 0-column parser panicked on its first resize or
+  write; tmuxy-core no longer guards each call
+  (`tests/degenerate_size.rs`).
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or
   panic (`tests/degenerate_size.rs`).
@@ -142,6 +147,16 @@ about 1,300 lines no caller reached. `Screen::contents`, `rows`,
   `clear_wide` and `erase` look the other half up with checked arithmetic, so
   a stale wide flag at the edge clears nothing instead of panicking.
   Covered by `tests/degenerate_size.rs` in tmuxy-core.
+
+## DEC line sizes
+
+- **`ESC # 3`..`ESC # 6`** (DECDHL top and bottom, DECSWL, DECDWL) set a
+  per-row `LineSize` (`row.rs`, re-exported from `lib.rs`), dispatched in
+  `perform.rs`'s `esc_dispatch` beside DECALN; upstream ignored them.
+  `Screen::row_line_size`, `set_row_line_size` and `dec_line_size` read and
+  write it. tmux keeps the size but strips it from a `capture-pane`, so
+  tmuxy-core puts it back after a capture and draws the row at its size
+  (`control_mode/state/pane_output.rs`).
 
 ## `cell.rs`
 

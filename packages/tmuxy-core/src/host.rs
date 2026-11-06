@@ -11,23 +11,67 @@
 //!   client ◀──HostEvent── Sink (SSE frame / Tauri event) ◀────── runtime emits
 //! ```
 
+mod bindings;
 pub mod command;
 mod event;
+mod plugins;
 pub mod prepare;
+mod requests;
 mod runtime;
 pub mod socket_watch;
+mod start;
 mod supervise;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod protocol_fixtures;
 
+#[cfg(test)]
+pub(crate) use bindings::parse_bindings;
+pub use bindings::{
+    ConfigChange, ImageStore, KeyBinding, KeyBindings, MAX_PANE_IMAGE_BYTES, SOURCE_ENTRY_CONF,
+};
 pub use command::{handle, ClientCommand, HostCtx};
 pub use event::{ConnectionInfo, EventData, HostEvent};
+pub use plugins::PluginToken;
+pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings};
 pub use runtime::{ClientId, RuntimeConfig, SessionRuntime, Sink, MONITOR_READY_TIMEOUT};
+pub use start::{save_final_snapshots, start, Sessions, Started, FINAL_SNAPSHOT_TIMEOUT};
 pub use supervise::*;
 
 use crate::control_mode::MonitorConfig;
+
+/// Create `config`'s session through another session's control-mode client
+/// `via`, waiting for tmux's answer: an external `tmux new-session` while a
+/// control-mode client is attached crashes tmux 3.5a. Detached, at the size
+/// a fresh connection starts at, in the session's start directory unless
+/// its first window names one.
+pub async fn create_session_via(
+    via: &crate::control_mode::MonitorCommandSender,
+    config: &MonitorConfig,
+) -> Result<(), crate::CommandError> {
+    use crate::control_mode::{new_session_flags, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
+    let mut words: Vec<String> = ["new-session", "-d", "-x"]
+        .map(String::from)
+        .into_iter()
+        .chain([
+            INITIAL_PTY_COLS.to_string(),
+            "-y".to_string(),
+            INITIAL_PTY_ROWS.to_string(),
+        ])
+        .collect();
+    if let (None, Some(dir)) = (&config.first_window, &config.working_dir) {
+        words.extend(["-c".to_string(), dir.display().to_string()]);
+    }
+    words.extend(new_session_flags(
+        &config.session,
+        config.group_target.as_deref(),
+        config.first_window.as_ref(),
+    ));
+    crate::control_mode::query(via, &crate::argv::control_line(&words))
+        .await
+        .map(|_| ())
+}
 
 /// Whether tmux has a session called `session`. Asked with a subprocess, so
 /// only before the host's own control-mode connection attaches (docs/TMUX.md).
@@ -48,44 +92,29 @@ pub fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
 }
 
 /// The directory a host-created session starts in, and so every new tab's
-/// cwd: the checkout when run from one (the dev loop lives there), else the
-/// home directory. Never the process cwd: an AppImage runs from its mount
-/// (`/tmp/.mount_tmuxy…/usr`), and an app opened from Finder or a launcher
-/// runs from `/`.
+/// cwd: `TMUXY_START_DIR` when set (the dev loop sets the checkout), else the
+/// home directory. Never the process cwd while there is a home: an AppImage
+/// runs from its mount (`/tmp/.mount_tmuxy…/usr`), and an app opened from
+/// Finder or a launcher runs from `/`.
 pub fn session_start_dir() -> std::path::PathBuf {
     session_start_dir_from(
-        checkout_root(),
+        std::env::var_os("TMUXY_START_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map(std::path::PathBuf::from),
         std::env::var_os("HOME").map(std::path::PathBuf::from),
         std::env::current_dir().ok(),
     )
 }
 
 fn session_start_dir_from(
-    checkout: Option<std::path::PathBuf>,
+    asked: Option<std::path::PathBuf>,
     home: Option<std::path::PathBuf>,
     cwd: Option<std::path::PathBuf>,
 ) -> std::path::PathBuf {
-    checkout
+    asked
         .or(home)
         .or(cwd)
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-}
-
-/// The repository root when the process runs from a checkout: the nearest
-/// ancestor whose package.json declares "workspaces" (a package's own does not).
-pub fn checkout_root() -> Option<std::path::PathBuf> {
-    let mut current = std::env::current_dir().ok()?;
-    loop {
-        let pkg_json = current.join("package.json");
-        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-            if content.contains("\"workspaces\"") {
-                return Some(current);
-            }
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }
 
 /// The machine's host name for the status line. The web client cannot use
@@ -106,12 +135,13 @@ pub fn host_name() -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::session_start_dir_from;
     use std::path::PathBuf;
 
     #[test]
-    fn a_checkout_wins_so_the_dev_loop_starts_in_the_repo() {
+    fn the_asked_directory_wins_so_the_dev_loop_starts_in_the_repo() {
         let dir = session_start_dir_from(
             Some(PathBuf::from("/src/tmuxy")),
             Some(PathBuf::from("/home/u")),
@@ -120,8 +150,11 @@ mod tests {
         assert_eq!(dir, PathBuf::from("/src/tmuxy"));
     }
 
+    /// A process started under any JS monorepo (a `package.json` with
+    /// `"workspaces"` above its cwd) used to start its sessions at that
+    /// repository's root: the dev loop's rule, sniffed in production.
     #[test]
-    fn outside_a_checkout_the_home_directory_not_the_process_cwd() {
+    fn unasked_the_home_directory_not_the_process_cwd() {
         let dir = session_start_dir_from(
             None,
             Some(PathBuf::from("/home/u")),
@@ -134,5 +167,38 @@ mod tests {
     fn with_no_home_the_cwd_is_what_is_left() {
         let dir = session_start_dir_from(None, None, Some(PathBuf::from("/")));
         assert_eq!(dir, PathBuf::from("/"));
+    }
+
+    /// The courier's `new-session` is the direct path's, plus what a session
+    /// made from another client needs (detached, a size, a directory), and it
+    /// is answered: it was queued fire-and-forget and polled for with
+    /// `has-session` fifty times.
+    #[tokio::test]
+    async fn a_session_made_through_another_client_is_waited_for_by_its_answer() {
+        use crate::control_mode::{CommandReply, MonitorCommand};
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let asked = tokio::spawn(async move {
+            match rx.recv().await {
+                Some(MonitorCommand::RunCommandWithReply { command, reply }) => {
+                    let _ = reply.send(CommandReply {
+                        output: String::new(),
+                        error: None,
+                    });
+                    command
+                }
+                _ => panic!("expected a command with a reply"),
+            }
+        });
+        let config = crate::control_mode::MonitorConfig {
+            session: "work".to_string(),
+            group_target: Some("base".to_string()),
+            working_dir: Some(PathBuf::from("/home/u")),
+            ..Default::default()
+        };
+        super::create_session_via(&tx, &config).await.unwrap();
+        assert_eq!(
+            asked.await.unwrap(),
+            "new-session -d -x 200 -y 50 -c /home/u -s work -t base"
+        );
     }
 }

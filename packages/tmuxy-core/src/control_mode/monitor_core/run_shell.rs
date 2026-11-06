@@ -74,7 +74,6 @@ pub(super) fn relay_run_shell(command: &str, key: &str, tmux: &str) -> Option<St
     Some(out.join(" ; "))
 }
 
-/// What a relayed `run-shell`'s reply carried.
 #[derive(Debug, PartialEq)]
 pub(super) struct Relayed<'a> {
     /// Lines the rest of the command list printed, ahead of the answer.
@@ -84,7 +83,6 @@ pub(super) struct Relayed<'a> {
     pub answer: Option<(i32, String)>,
 }
 
-/// Read a relayed `run-shell`'s answer out of its reply's output.
 pub(super) fn read_relayed<'a>(output: &'a str, key: &str) -> Relayed<'a> {
     let lines: Vec<&str> = output.lines().collect();
     let status_at = lines.iter().position(|line| {
@@ -108,9 +106,6 @@ pub(super) fn read_relayed<'a>(output: &'a str, key: &str) -> Relayed<'a> {
     }
 }
 
-/// A caller's relayed `run-shell`, as the reply it waits for: what the rest
-/// of the list printed, then what the shell command printed; a non-zero exit
-/// is the error, carrying that output, unless tmux already failed the list.
 pub(super) fn caller_reply(output: &str, key: &str, error: Option<String>) -> CommandReply {
     let relayed = read_relayed(output, key);
     let mut lines = relayed.before.join("\n");
@@ -136,12 +131,10 @@ pub(super) fn caller_reply(output: &str, key: &str, error: Option<String>) -> Co
     }
 }
 
-/// The most a notice shows of a command's output.
 const MAX_LINES: usize = 20;
 const MAX_CHARS: usize = 2000;
 
-/// What a run-shell printed, cut to what a notice can show: its last lines,
-/// since a failing script says why at the end.
+/// Keeps the last lines: a failing script says why at the end.
 pub(super) fn clip_output(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let kept = lines[lines.len().saturating_sub(MAX_LINES)..].join("\n");
@@ -153,9 +146,8 @@ pub(super) fn clip_output(text: &str) -> String {
     format!("…\n{tail}")
 }
 
-/// What a command typed at the prompt printed, cut to what a notice can
-/// show: its first lines, which is where the pager tmux opens for a terminal
-/// client starts — a `list-keys` or a `show-messages` is read from the top.
+/// Keeps the first lines, where the pager tmux opens for a terminal client
+/// starts: a `list-keys` or a `show-messages` is read from the top.
 pub(super) fn clip_listing(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let kept = lines[..lines.len().min(MAX_LINES)].join("\n");
@@ -172,14 +164,13 @@ pub(super) fn clip_listing(text: &str) -> String {
 fn quoted(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
-    for c in text.chars() {
+    for c in crate::argv::format_literal(text).chars() {
         match c {
             '"' | '\\' | '$' => {
                 out.push('\\');
                 out.push(c);
             }
             '\n' => out.push_str("\\n"),
-            '#' => out.push_str("##"),
             _ => out.push(c),
         }
     }
@@ -187,9 +178,6 @@ fn quoted(text: &str) -> String {
     out
 }
 
-/// A run-shell's words after the verb, as its flags (each with any value it
-/// takes) and the one shell-command word. `None` for `-b`, `-C`, a flag this
-/// does not know, or anything but exactly one shell word.
 fn split_flags<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, &'a str)> {
     let mut flags = Vec::new();
     let mut rest = words.iter().copied();
@@ -204,7 +192,7 @@ fn split_flags<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, &'a str)> {
             shell = Some(word);
             break;
         };
-        // Each flag kept takes a value, so a word holds one: `-t %3` or `-t%3`.
+        // run-shell's `-c`, `-d` and `-t` each take a value: `-t %3` or `-t%3`.
         if !matches!(letters.chars().next(), Some('c' | 'd' | 't')) {
             return None;
         }
@@ -219,9 +207,6 @@ fn split_flags<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, &'a str)> {
     Some((flags, shell?))
 }
 
-/// A tmux command list as its commands' words, each word exactly as
-/// written (`tmux_command::parse`). `None` for what the relay does not
-/// model: a brace block, a comment, a `;` glued to a word, an open quote.
 fn split_command_list(line: &str) -> Option<Vec<Vec<&str>>> {
     let list = crate::tmux_command::parse(line);
     if line.contains('\n') || list.has_blocks() || list.glued_separator || list.unterminated_quote {
@@ -268,9 +253,6 @@ mod tests {
         );
     }
 
-    /// A caller waiting on a `run-shell` (an MCP tool running a CLI script)
-    /// gets what the script printed, not the relay's bookkeeping, and its
-    /// failure as an error rather than as output to parse.
     #[test]
     fn a_callers_run_shell_answers_with_what_the_shell_printed() {
         let ok = caller_reply("@tmuxy-run-4 0\n%12\n", "@tmuxy-run-4", None);
@@ -333,9 +315,7 @@ mod tests {
         let quiet = read_relayed("noise\n@tmuxy-run-4 0", "@tmuxy-run-4");
         assert_eq!(quiet.before, vec!["noise"]);
         assert_eq!(quiet.answer, Some((0, String::new())));
-        // A list that stopped before its run-shell has no answer.
         assert_eq!(read_relayed("", "@tmuxy-run-4").answer, None);
-        // Another command's key is not this one's.
         assert_eq!(read_relayed("@tmuxy-run-40 1", "@tmuxy-run-4").answer, None);
     }
 
@@ -363,15 +343,11 @@ mod tests {
     }
 
     proptest! {
-        /// Whatever the socket path or key, the wrapper's own text reaches
-        /// the shell unchanged.
         #[test]
         fn quoted_text_reaches_the_shell_unchanged(text in "\\PC*") {
             prop_assert_eq!(unquoted(&quoted(&text)), text);
         }
 
-        /// A shell word in any quoting tmux allows survives the rewrite
-        /// verbatim, and every other word of the list too.
         #[test]
         fn the_shell_word_survives_verbatim(
             body in "[a-zA-Z0-9 _./$#{}%&|<>=-]{1,40}",

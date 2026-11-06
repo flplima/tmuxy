@@ -24,19 +24,16 @@ pub struct AttachConfig {
 /// options are set on each window as it is first seen
 /// (`window_setup_commands`): set here, they would reach only the window
 /// current at attach.
-pub fn enforced_settings() -> Vec<String> {
+pub(super) fn enforced_settings() -> Vec<String> {
     [
-        // Mouse support for click-to-focus, scrolling, and selection.
         ("mouse", "on"),
-        // Focus events for applications like vim/neovim.
         ("focus-events", "on"),
         ("set-titles", "on"),
-        // SEC-01: tmux itself honours OSC 52 by loading the text into a
-        // paste buffer, and paste buffers are global to the tmux server —
-        // so a background pane's write reached every client through the
-        // buffer mirror, past the active-pane gate the aggregator applies
-        // to the same sequence. tmuxy carries OSC 52 to the client's own
-        // clipboard on its own; tmux need not.
+        // tmux honours OSC 52 by loading the text into a paste buffer, and
+        // paste buffers are global to the server: a background pane's write
+        // reached every client's clipboard through the buffer mirror, past
+        // the active-pane gate the aggregator applies to the same sequence.
+        // tmuxy carries OSC 52 to the client's clipboard itself.
         ("set-clipboard", "off"),
     ]
     .into_iter()
@@ -45,14 +42,12 @@ pub fn enforced_settings() -> Vec<String> {
 }
 
 impl<W> MonitorCore<W> {
-    /// The commands a freshly attached client sends, in order: `size` is
-    /// the grid to start the session's current window at, until a client
-    /// reports its viewport.
+    /// `size` is the grid to start the session's current window at, until a
+    /// client reports its viewport.
     pub fn attach_commands(&self, size: (u32, u32), host: AttachConfig) -> Vec<String> {
-        // `window-size manual` BEFORE the resize, so the resize does not
-        // SIGWINCH the shell into a prompt redraw that races the captures.
-        // Only the current window, which the resize reaches; every window is
-        // set up on its own once it is listed (`window_setup_commands`).
+        // `window-size manual` before the resize, or the resize SIGWINCHes the
+        // shell into a prompt redraw that races the captures (M4). Set on the
+        // current window only, the one the resize reaches.
         let mut commands = vec![
             "set window-size manual".to_string(),
             format!(

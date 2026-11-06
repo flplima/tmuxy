@@ -35,7 +35,7 @@ The **web server** binds its socket once at process launch (from the env), so it
 
 A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `servers.json` in the state dir (`tmuxy-core/src/servers.rs`; machine state, not config: an ssh host is saved as this machine reaches it); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
 
-`TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
+`TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). No path to the config chain reaches a remote tmux (`get_config_path` is empty over SSH): it is local-only. So the whole app (control mode and reads) drives the remote tmux transparently.
 
 ### The sidebar tree, and the sessions poll behind it
 
@@ -138,7 +138,7 @@ control mode has no key handling to give it — so the prefix and every table
 beyond it run in the client's keyboard actor
 (`tmuxy-ui/src/machines/actors/keyboardActor.ts`), from the bindings the server
 reads with one `list-keys` and sends whole (`KeyBindings` in
-`tmuxy-core/src/transport.rs`: prefix, root, and every other table by name;
+`tmuxy-core/src/host/bindings.rs`: prefix, root, and every other table by name;
 copy mode's tables stay out, copy mode being the client's too).
 
 A binding enters a table the tmux way, with `switch-client -T <table>`

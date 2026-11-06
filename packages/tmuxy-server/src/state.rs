@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, post},
+    routing::{get, post, MethodRouter},
     Router,
 };
 use std::collections::{HashMap, VecDeque};
@@ -14,7 +14,6 @@ use crate::request_guard::HostPolicy;
 
 mod handlers;
 pub(crate) use handlers::build_response;
-pub use handlers::find_workspace_root;
 use handlers::image_handler;
 
 #[cfg(test)]
@@ -270,6 +269,17 @@ impl Default for AppState {
     }
 }
 
+impl tmuxy_core::host::Sessions for AppState {
+    async fn runtimes(&self) -> Vec<Arc<tmuxy_core::host::SessionRuntime>> {
+        self.sessions
+            .read()
+            .await
+            .values()
+            .map(|conns| Arc::clone(&conns.runtime))
+            .collect()
+    }
+}
+
 impl AppState {
     pub fn claim_stream_slot(self: &Arc<Self>) -> Option<StreamSlot> {
         let limit = MAX_LIVE_STREAMS;
@@ -327,6 +337,27 @@ impl AppState {
     }
 }
 
+/// Every route of the API, by path. [`api_routes`] puts each one behind the
+/// guard, and the guard tests probe each path listed here.
+fn api_route_table() -> Vec<(&'static str, MethodRouter<Arc<AppState>>)> {
+    vec![
+        ("/events", get(crate::sse::sse_handler)),
+        ("/commands", post(crate::sse::commands_handler)),
+        ("/api/images/{pane_id}/{image_id}", get(image_handler)),
+        ("/trace", post(crate::sse::trace_handler)),
+        ("/mcp", post(crate::mcp::mcp_handler)),
+        ("/api/push", get(crate::push::key_handler)),
+        (
+            "/api/push/subscription",
+            post(crate::push::subscribe_handler).delete(crate::push::unsubscribe_handler),
+        ),
+        (
+            "/api/preview/{pane_id}",
+            get(crate::sse::preview_page_handler).post(crate::sse::stage_preview_handler),
+        ),
+    ]
+}
+
 /// The caller adds the frontend as `.fallback_service(...)`, and
 /// `.with_state(state)`.
 ///
@@ -334,21 +365,11 @@ impl AppState {
 /// names count as this server (see `request_guard`). No CORS headers are sent,
 /// so no other origin can read a response either.
 pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/events", get(crate::sse::sse_handler))
-        .route("/commands", post(crate::sse::commands_handler))
-        .route("/api/images/{pane_id}/{image_id}", get(image_handler))
-        .route("/trace", post(crate::sse::trace_handler))
-        .route("/mcp", post(crate::mcp::mcp_handler))
-        .route("/api/push", get(crate::push::key_handler))
-        .route(
-            "/api/push/subscription",
-            post(crate::push::subscribe_handler).delete(crate::push::unsubscribe_handler),
-        )
-        .route(
-            "/api/preview/{pane_id}",
-            get(crate::sse::preview_page_handler).post(crate::sse::stage_preview_handler),
-        )
+    api_route_table()
+        .into_iter()
+        .fold(Router::new(), |router, (path, method)| {
+            router.route(path, method)
+        })
         .layer(axum::middleware::from_fn_with_state(
             Arc::new(host_policy),
             crate::request_guard::require_same_origin,

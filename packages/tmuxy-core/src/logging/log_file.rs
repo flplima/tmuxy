@@ -1,6 +1,8 @@
 //! The desktop app's `tmuxy.log`: appended to, and rotated to `<path>.1` once
 //! it passes [`MAX_BYTES`], the way the trace file is, so a long-lived install
-//! keeps at most two files' worth of log.
+//! keeps at most two files' worth of log. Opened like every private file
+//! (`private_files::open_append`): owner-only, even a file an older build
+//! left looser, and never through a symlink planted at its path.
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -24,7 +26,7 @@ impl RotatingLog {
         if let Some(dir) = path.parent() {
             crate::private_files::create_dir_all(dir)?;
         }
-        let file = open_append(path)?;
+        let file = crate::private_files::open_append(path)?;
         let size = file.metadata()?.len();
         Ok(Self {
             path: path.to_path_buf(),
@@ -43,7 +45,7 @@ impl Write for &RotatingLog {
         if *size > 0 && *size + buf.len() as u64 > self.max_bytes {
             let backup = PathBuf::from(format!("{}.1", self.path.display()));
             if std::fs::rename(&self.path, &backup).is_ok() {
-                if let Ok(fresh) = open_append(&self.path) {
+                if let Ok(fresh) = crate::private_files::open_append(&self.path) {
                     *file = fresh;
                     *size = 0;
                 }
@@ -61,25 +63,6 @@ impl Write for &RotatingLog {
             .0
             .flush()
     }
-}
-
-/// The log is only readable by its owner, like the trace, including a file an
-/// older build left with a looser mode.
-fn open_append(path: &Path) -> io::Result<File> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.create(true).append(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    let file = opts.open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(file)
 }
 
 #[cfg(test)]
@@ -107,6 +90,22 @@ mod tests {
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_log_is_never_written_through_a_symlink() {
+        let dir = std::env::temp_dir().join(format!("tmuxy-log-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("elsewhere");
+        std::fs::write(&target, "keep").unwrap();
+        let path = dir.join("tmuxy.log");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+
+        assert!(RotatingLog::open(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

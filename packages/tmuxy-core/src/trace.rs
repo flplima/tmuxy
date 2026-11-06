@@ -124,12 +124,9 @@ fn set_level(level: TraceLevel) {
 /// Per-process random salt so a hashed name can't be confirmed by hashing a
 /// guessed value, and hashes don't correlate across separate trace files. The
 /// tradeoff: ids are NOT stable across runs (a window hashes differently next
-/// launch). `RandomState` is seeded from the OS RNG.
+/// launch).
 fn salt() -> u64 {
-    *SALT.get_or_init(|| {
-        use std::hash::BuildHasher;
-        std::collections::hash_map::RandomState::new().hash_one("tmuxy-trace")
-    })
+    *SALT.get_or_init(crate::random::u64)
 }
 
 // =============================================================================

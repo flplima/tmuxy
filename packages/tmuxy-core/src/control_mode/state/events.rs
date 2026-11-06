@@ -1,11 +1,8 @@
 use super::*;
 
-/// Whether `name` is a buffer tmuxy stages a paste in: the client's
-/// (`PASTE_BUFFER` in `tmuxy-ui/src/domain/commandHelpers.ts`) or the CLI's
-/// (`tmuxy pane paste`, per-PID `tmuxy-cli-paste-<pid>` in
-/// `tmuxy-verbs/src/send_cli.rs`). Never a yank, so never mirrored.
 fn is_paste_staging_buffer(name: &str) -> bool {
-    name == "tmuxy-paste" || name.starts_with("tmuxy-cli-paste-")
+    use crate::constants::{CLI_PASTE_BUFFER_PREFIX, PASTE_BUFFER};
+    name == PASTE_BUFFER || name.starts_with(CLI_PASTE_BUFFER_PREFIX)
 }
 
 impl StateAggregator {
@@ -34,12 +31,11 @@ impl StateAggregator {
                 // included; the visible one holds only the zoomed pane, at
                 // the window's size, and is what gets drawn.
                 let zoomed = flags.contains('Z');
-
-                let resized_panes = self.handle_layout_change(&window_id, &layout);
-
-                if zoomed {
-                    self.update_pane_geometry_from_layout(&window_id, &visible_layout);
-                }
+                let resized_panes = self.handle_layout_change(
+                    &window_id,
+                    &layout,
+                    zoomed.then_some(visible_layout.as_str()),
+                );
 
                 if let Some(window) = self.windows.get_mut(&window_id) {
                     window.zoomed = zoomed;

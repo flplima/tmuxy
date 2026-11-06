@@ -23,7 +23,8 @@ mod surface;
 mod token;
 
 pub use surface::{
-    exec_command_line, notify_failure, open, surface_argv, wait, OpenRequest, Opened, Target,
+    exec_command_line, notify_failure, open, pane_running, surface_argv, wait, OpenRequest, Opened,
+    Target,
 };
 pub use token::{is_pane_id, prepare, status_path, PaneInfo, Token, Trigger, MAX_SELECTION_BYTES};
 
@@ -121,7 +122,13 @@ pub fn exec(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> i32 {
         }
     };
     if waited {
-        let _ = crate::private_files::write(&status_path(dirs, token_id), status.to_string());
+        if let Err(e) =
+            crate::private_files::write(&status_path(dirs, token_id), status.to_string())
+        {
+            let message = format!("exec {name}:{action_id}: the exit status was not saved: {e}");
+            super::log::append(dirs, name, &message);
+            eprintln!("tmuxy plugin {name}: {message}");
+        }
     }
     if status != 0 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         eprintln!("\n[{name}:{action_id} exited with status {status}; press Enter to close]");
@@ -190,8 +197,16 @@ fn exec_inner(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> Res
 /// Spawn and wait, with this process ignoring the interrupt and quit keys
 /// meanwhile: they reach the whole foreground group, and the child decides
 /// what they mean. The exit is still logged after a Ctrl-C.
+///
+/// The disposition is process-wide, which is why this runs only in the
+/// short-lived `tmuxy plugin exec` process a pane runs ([`exec`]), never in
+/// a server. The child is spawned first, so it starts with the default
+/// dispositions rather than inheriting the ignore.
 fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
     let mut child = cmd.spawn()?;
+    // SAFETY: `signal` with `SIG_IGN` installs no handler code, so nothing
+    // runs in signal context; both signal numbers are valid, so neither call
+    // returns `SIG_ERR`.
     #[cfg(unix)]
     let previous = unsafe {
         (
@@ -200,6 +215,9 @@ fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
         )
     };
     let status = child.wait();
+    // SAFETY: puts back exactly the dispositions the calls above replaced
+    // (the default, or an ignore this process was started with), so nothing
+    // is installed that was not there before the wait.
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGINT, previous.0);

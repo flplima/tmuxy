@@ -248,7 +248,7 @@ fn a_plugin_key_command_prints_back_as_itself() {
     // inside escaped. What the client reads back is the command it bound.
     let listing =
         format!("bind-key    -T prefix       M-a                  run-shell -b \"{command}\"\n");
-    let bindings = crate::transport::parse_bindings("prefix", &listing);
+    let bindings = crate::host::parse_bindings("prefix", &listing);
     let bound = &bindings[0];
     assert_eq!(bound.key, "M-a");
     assert_eq!(bound.command, format!("run-shell -b \"{command}\""));

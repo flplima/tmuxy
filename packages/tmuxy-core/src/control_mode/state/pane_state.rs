@@ -153,16 +153,13 @@ impl PaneState {
     }
 
     pub fn new(id: PaneId, width: u32, height: u32) -> Self {
-        // Guard: vt100 panics on zero dimensions
-        let w = (width as u16).max(1);
-        let h = (height as u16).max(1);
         Self {
             id,
             index: 0,
             window_id: None,
             terminal: vt100::Parser::new_with_callbacks(
-                h,
-                w,
+                crate::grid_side(height),
+                crate::grid_side(width),
                 crate::constants::REFLOW_SCROLLBACK_ROWS,
                 super::osc::OscRequests::default(),
             ),
@@ -271,9 +268,11 @@ impl PaneState {
     /// A copy-mode capture goes to a parser of its own: `%output` keeps
     /// arriving for the live grid while the pane is in copy mode.
     pub fn process_copy_mode_capture(&mut self, content: &[u8]) {
-        let w = (self.width as u16).max(1);
-        let h = (self.height as u16).max(1);
-        let mut temp_terminal = vt100::Parser::new(h, w, 0);
+        let mut temp_terminal = vt100::Parser::new(
+            crate::grid_side(self.height),
+            crate::grid_side(self.width),
+            0,
+        );
 
         let normalized = normalize_capture_bytes(content);
         temp_terminal.process(&normalized);

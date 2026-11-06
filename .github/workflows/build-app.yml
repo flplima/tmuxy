@@ -264,7 +264,7 @@ jobs:
         run: |
           tauri-webdriver --port 4444 &
           DRIVER_PID=$!
-          sleep 2
+          bin/ci/wait-for-server http://localhost:4444/status
 
           node tests/smoke/smoke-test.js target/debug/tmuxy
           RESULT=$?

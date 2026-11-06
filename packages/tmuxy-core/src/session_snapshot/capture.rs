@@ -1,70 +1,69 @@
 use std::collections::{BTreeMap, HashMap};
 
 use super::*;
+use crate::constants::tmux_formats::{fields_format, Field};
 
-/// The separator of a record's fields. Free text goes through `s/,/%2C/`
-/// ([`escaped`]); every other field is comma-free (ids, flags, numbers,
-/// base64).
-const FIELD_SEP: char = ',';
-
-fn unescape(field: &str) -> String {
-    field.replace("%2C", ",")
-}
-
-fn escaped(column: &str) -> String {
-    format!("s/,/%2C/:{column}")
-}
-
-fn window_columns() -> Vec<String> {
-    let mut columns: Vec<String> = [
+/// A record's columns, written and read by the rule every list tmuxy reads
+/// follows (`constants::tmux_formats::Field`): free text is [`Field::Text`],
+/// comma-escaped on the way out and unescaped by [`record`]; every other
+/// field is comma-free (ids, flags, numbers, base64).
+fn window_columns() -> Vec<Field> {
+    let mut columns: Vec<Field> = [
         "window_id",
         "window_index",
         "window_active",
         tmux_options::WINDOW_TYPE,
         tmux_options::FLOAT_PARENT,
     ]
-    .map(str::to_string)
+    .map(Field::Var)
     .into();
-    columns.extend(WINDOW_OPTION_NAMES.map(str::to_string));
-    columns.extend([escaped("window_layout"), escaped("window_name")]);
+    columns.extend(WINDOW_OPTION_NAMES.map(Field::Var));
+    columns.extend([Field::Text("window_layout"), Field::Text("window_name")]);
     columns
 }
 
-fn pane_columns() -> Vec<String> {
+fn pane_columns() -> Vec<Field> {
     vec![
-        "pane_id".into(),
-        "window_id".into(),
-        "pane_index".into(),
-        "pane_active".into(),
-        "pane_pid".into(),
-        escaped("pane_tty"),
-        escaped("pane_current_path"),
-        escaped(tmux_options::PANE_RESTORE),
-        escaped(tmux_options::GROUP_ID),
-        tmux_options::GROUP_POS.into(),
+        Field::Var("pane_id"),
+        Field::Var("window_id"),
+        Field::Var("pane_index"),
+        Field::Var("pane_active"),
+        Field::Var("pane_pid"),
+        Field::Text("pane_tty"),
+        Field::Text("pane_current_path"),
+        Field::Text(tmux_options::PANE_RESTORE),
+        Field::Text(tmux_options::GROUP_ID),
+        Field::Var(tmux_options::GROUP_POS),
         // Base64, so it holds no comma.
-        tmux_options::ASK.into(),
+        Field::Var(tmux_options::ASK),
     ]
 }
 
-fn format_of(columns: &[String]) -> String {
-    columns
-        .iter()
-        .map(|c| format!("#{{{c}}}"))
-        .collect::<Vec<_>>()
-        .join(&FIELD_SEP.to_string())
+/// The name a column is looked up by in a [`record`].
+fn column_name(field: Field) -> &'static str {
+    match field {
+        Field::Var(name) | Field::Text(name) | Field::Format(name) | Field::TextFormat(name) => {
+            name
+        }
+    }
 }
 
-/// A record's fields by column, or `None` for a line that is not one record
-/// of exactly these columns.
-fn record<'a>(columns: &'a [String], line: &'a str) -> Option<HashMap<&'a str, &'a str>> {
-    let fields: Vec<&str> = line.split(FIELD_SEP).collect();
-    (fields.len() == columns.len())
-        .then(|| columns.iter().map(String::as_str).zip(fields).collect())
+/// A record's fields by column name, free text unescaped, or `None` for a
+/// line that is not one record of exactly these columns.
+fn record(columns: &[Field], line: &str) -> Option<HashMap<&'static str, String>> {
+    let fields: Vec<&str> = line.split(',').collect();
+    (fields.len() == columns.len()).then(|| {
+        columns
+            .iter()
+            .zip(fields)
+            .map(|(column, printed)| (column_name(*column), column.read(printed)))
+            .collect()
+    })
 }
 
-fn list_query(verb: &str, target_flag: &str, target: &str, columns: &[String]) -> Vec<String> {
-    [verb, target_flag, "-t", target, "-F", &format_of(columns)]
+fn list_query(verb: &str, target_flag: &str, target: &str, columns: Vec<Field>) -> Vec<String> {
+    let format = fields_format(columns);
+    [verb, target_flag, "-t", target, "-F", &format]
         .into_iter()
         .filter(|w| !w.is_empty())
         .map(str::to_string)
@@ -73,12 +72,12 @@ fn list_query(verb: &str, target_flag: &str, target: &str, columns: &[String]) -
 
 /// The windows of `session`, as argv ([`parse_windows`] reads the output).
 pub fn query_windows(session: &str) -> Vec<String> {
-    list_query("list-windows", "", session, &window_columns())
+    list_query("list-windows", "", session, window_columns())
 }
 
 /// Every pane of `session` ([`parse_panes`] reads the output).
 pub fn query_panes(session: &str) -> Vec<String> {
-    list_query("list-panes", "-s", session, &pane_columns())
+    list_query("list-panes", "-s", session, pane_columns())
 }
 
 /// The stash session's panes, in the same record shape as [`query_panes`].
@@ -166,8 +165,8 @@ pub struct PaneRecord {
 }
 
 fn opt(field: &str) -> Option<String> {
-    let value = unescape(field.trim());
-    (!value.is_empty()).then_some(value)
+    let value = field.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// The window options restored verbatim, in the order [`query_windows`]
@@ -192,17 +191,17 @@ pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
             let f = record(&columns, line)?;
             let options = WINDOW_OPTION_NAMES
                 .iter()
-                .filter_map(|name| Some(((*name).to_string(), opt(f[name])?)))
+                .filter_map(|name| Some(((*name).to_string(), opt(&f[name])?)))
                 .collect();
             Some(WindowRecord {
-                id: WindowId::parse(f["window_id"]).ok()?,
+                id: WindowId::parse(&f["window_id"]).ok()?,
                 index: f["window_index"].parse().ok()?,
                 active: f["window_active"] == "1",
-                window_type: opt(f[tmux_options::WINDOW_TYPE]),
+                window_type: opt(&f[tmux_options::WINDOW_TYPE]),
                 float_parent_id: WindowId::parse(f[tmux_options::FLOAT_PARENT].trim()).ok(),
                 options,
-                layout: restorable_layout(&unescape(f[escaped("window_layout").as_str()])),
-                name: unescape(f[escaped("window_name").as_str()]),
+                layout: restorable_layout(&f["window_layout"]),
+                name: f["window_name"].clone(),
             })
         })
         .collect()
@@ -214,18 +213,17 @@ pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
         .lines()
         .filter_map(|line| {
             let f = record(&columns, line)?;
-            let field = |column: &str| f[column];
-            let escaped_field = |column: &str| f[escaped(column).as_str()];
+            let field = |column: &str| f[column].as_str();
             Some(PaneRecord {
                 id: PaneId::parse(field("pane_id")).ok()?,
                 window_id: WindowId::parse(field("window_id")).ok()?,
                 index: field("pane_index").parse().ok()?,
                 active: field("pane_active") == "1",
                 pid: field("pane_pid").parse().ok()?,
-                tty: unescape(escaped_field("pane_tty")),
-                cwd: unescape(escaped_field("pane_current_path")),
-                restore_command: opt(escaped_field(tmux_options::PANE_RESTORE)),
-                group_id: GroupId::parse(escaped_field(tmux_options::GROUP_ID).trim()).ok(),
+                tty: field("pane_tty").to_string(),
+                cwd: field("pane_current_path").to_string(),
+                restore_command: opt(field(tmux_options::PANE_RESTORE)),
+                group_id: GroupId::parse(field(tmux_options::GROUP_ID).trim()).ok(),
                 group_pos: field(tmux_options::GROUP_POS).trim().parse().ok(),
                 offer: offered_by(field(tmux_options::ASK).trim()),
             })

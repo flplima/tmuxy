@@ -19,7 +19,10 @@
 #                    tmux server, and never the `tmuxy` socket a released build
 #                    serves, so a dev server cannot disturb an installed one)
 #   DEV_PORT       — port to listen on (default: 9000)
+#   DEV_START_TIMEOUT — seconds `start` waits for the port to answer (default: 120)
 #   TMUXY_DEV_HOST — address to bind (default: see `cmd_run`)
+#   TMUXY_START_DIR — where the sessions the server creates start (default:
+#                    the checkout)
 #
 # Usage:
 #   bin/dev-server run       # the server in the foreground
@@ -83,6 +86,8 @@ cmd_run() {
   # `_lib`, which resolves the -L/-S flag from it, and for the server, which
   # reads it from the env.
   export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+  # Sessions the server creates (and their new tabs) start in the checkout.
+  export TMUXY_START_DIR="${TMUXY_START_DIR:-$REPO_ROOT}"
   source packages/tmuxy-cli/bin/tmuxy/_lib
 
   echo "[dev] Starting development server with hot reload..."
@@ -166,15 +171,23 @@ cmd_start() {
   local started=$!
   printf '%s\t%s\n' "$started" "$(start_time_of "$started")" >"$PID_FILE"
 
-  sleep 1
-  local pid
-  pid="$(running_pid)"
-  if [[ -z "$pid" ]]; then
-    echo "dev server failed to start — last lines of $LOG_FILE:" >&2
-    tail -20 "$LOG_FILE" >&2 || true
-    return 1
-  fi
-  echo "dev server started (pid $pid), logging to $LOG_FILE"
+  # Wait for the port to answer, or the server to die, whichever comes first.
+  # The deadline only bounds a cold build (cargo watch compiles before it
+  # serves); a server still building at the deadline is left to finish.
+  local port="${DEV_PORT:-9000}" deadline=$((SECONDS + ${DEV_START_TIMEOUT:-120}))
+  while ((SECONDS < deadline)); do
+    if [[ -z "$(running_pid)" ]]; then
+      echo "dev server failed to start — last lines of $LOG_FILE:" >&2
+      tail -20 "$LOG_FILE" >&2 || true
+      return 1
+    fi
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      echo "dev server started (pid $(running_pid)) on port $port, logging to $LOG_FILE"
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo "dev server still building (pid $(running_pid)) — 'bin/dev-server logs' to watch it"
 }
 
 cmd_stop() {

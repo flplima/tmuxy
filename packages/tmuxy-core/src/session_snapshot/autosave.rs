@@ -187,7 +187,7 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
 /// Run one tmux command through a monitor's control-mode connection: the
 /// hosts' `run` for `take`, `run_steps` and `attach_scrollback`.
 async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<String, TmuxError> {
-    crate::transport::query(tx, &crate::argv::control_line(&argv))
+    crate::control_mode::query(tx, &crate::argv::control_line(&argv))
         .await
         .map_err(|e| TmuxError::other(e.error))
 }

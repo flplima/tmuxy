@@ -357,8 +357,8 @@ pub(crate) use stash_and_helpers::normalize_capture_bytes;
 use stash_and_helpers::{accepted_clipboard_write, MAX_STORED_IMAGES_PER_PANE};
 use stash_and_helpers::{normalize_pane_command, StashMember};
 pub use stash_and_helpers::{MAX_CLIPBOARD_BYTES, MIN_CLIPBOARD_INTERVAL};
-use window_state::parse_layout_panes;
 pub use window_state::WindowState;
+use window_state::{parse_layout_panes, LayoutPane};
 
 #[cfg(test)]
 mod tests;

@@ -5,6 +5,7 @@ mod spawn;
 use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::error::TmuxError;
+pub use spawn::new_session_flags;
 use spawn::{build_tmux_args, spawn_parser_task};
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,8 +56,10 @@ async fn drain_recent_output(recent: &Arc<Mutex<Vec<String>>>) -> String {
     guard.join("\n")
 }
 
-/// Initial PTY size. Large enough to avoid tiny panes that crash vt100; the
-/// browser sends a real resize once it knows its viewport.
+/// The window size from attach until a client reports its viewport, which
+/// the browser does once it knows it. Roomy, because a session rebuilt from
+/// a snapshot is split before any client has sized it, and tmux refuses a
+/// split it has no room for (`no space for new pane`).
 pub const INITIAL_PTY_COLS: u32 = 200;
 pub const INITIAL_PTY_ROWS: u32 = 50;
 
@@ -120,25 +123,18 @@ impl ControlModeConnection {
         let recent_output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(1000);
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
+        let reader = spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
 
-        let mut child = child;
-        Self::wait_for_initial_state(
-            &mut child,
-            ready_rx,
-            session_name,
-            &shell_desc,
-            &recent_output,
-            log,
-        )
-        .await?;
-
-        Ok(Self {
+        let mut connection = Self {
             child,
             pty_writer,
             event_rx: rx,
             recent_output,
-        })
+        };
+        connection
+            .wait_for_initial_state(ready_rx, reader, session_name, &shell_desc, log)
+            .await?;
+        Ok(connection)
     }
 
     /// Append the subprocess's recent output to an io::Error message, so the

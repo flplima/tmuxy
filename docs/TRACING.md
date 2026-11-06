@@ -184,7 +184,7 @@ command before it is written — in the trace and in the server's own debug log
 (`redact_command` in `tmuxy-core/src/trace.rs`). `full` is a local-debug escape
 hatch, not a content firehose.
 
-Name/path **hashing is salted per process** (a random `RandomState` seed), so a
+Name/path **hashing is salted per process** (a random seed from the OS random source, `random.rs`), so a
 hashed value can't be confirmed by hashing a guessed name and can't be correlated
 across separate trace files — at the cost of ids not being stable across runs.
 
@@ -273,7 +273,7 @@ every layer writes into.
   it. Registered by `tmuxy_core::logging::init_logging`, installed on the server
   binary, the `tmuxy server` subcommand, and the Tauri GUI path alike. Gating and
   the `--trace` flag live in `trace::init` / `ServerArgs`. Existing spans
-  (monitor `connect`/`run`, the `transport.rs` reads) flow in with no new call sites.
+  (monitor `connect`/`run`, the routed commands) flow in with no new call sites.
 - **Client** — `tmuxy-ui/src/infra/tracer.ts` mirrors `latencyTracker`'s gating,
   fed from the XState `send` tap (`AppContext.tsx`) and the adapter send/apply
   hooks, batch-shipping to `POST /trace` (web) or the `record_trace` Tauri
