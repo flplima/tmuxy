@@ -10,7 +10,7 @@ const { delay, waitForCondition, waitForKeyboardFocus } = require('./browser');
 
 /**
  * Focus the terminal element, clicking the ACTIVE pane's terminal.
- * Clicking a non-active pane triggers FOCUS_PANE → select-pane, which
+ * Clicking a non-active pane triggers SELECT_PANE → select-pane, which
  * races with subsequent prefix binding commands (e.g., prefix+o).
  * Falls back to any terminal, then body, if the active selector fails.
  */
@@ -213,7 +213,7 @@ async function typeInTerminal(page, text, { target } = {}) {
   // Click the active pane's terminal for reliable focus, or `target` when the
   // text is meant for another terminal (the dock's). Clicking the active pane
   // there would take the keyboard away from the terminal the text is for.
-  // Using the first [role="log"] would change the active pane via FOCUS_PANE.
+  // Using the first [role="log"] would change the active pane via SELECT_PANE.
   const terminal =
     (target && (await page.$(target))) ||
     (await page.$('.pane-active [role="log"]')) ||

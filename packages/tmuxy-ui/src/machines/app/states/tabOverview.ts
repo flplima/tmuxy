@@ -18,6 +18,6 @@ export const tabOverviewGlobalEvents = {
   CLOSE_TAB: { actions: 'tabOverview_closeTab' },
   RENAME_ACTIVE_TAB: { actions: 'tabOverview_rename' },
   RENAME_TAB: { actions: 'tabOverview_rename' },
-  TAB_RENAME_END: { actions: 'tabOverview_renameEnd' },
+  RENAME_TAB_COMMIT: { actions: 'tabOverview_renameCommit' },
   TOGGLE_STACKED_PANES: { actions: 'tabOverview_toggleStacked' },
 } as const;

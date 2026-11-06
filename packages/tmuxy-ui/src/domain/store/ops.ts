@@ -19,6 +19,7 @@ import { groupMembers, type TmuxPane } from '../client';
 import type { TmuxOp, TmuxOpOf } from '../commands';
 import type { GroupId, PaneId, WindowId } from '../ids';
 import {
+  predictJoinPane,
   predictKillPane,
   predictNavigate,
   predictSelectPane,
@@ -26,6 +27,7 @@ import {
   predictSwap,
   predictZoomToggle,
   reconcileFocus,
+  reconcileJoinPane,
   reconcileKillPane,
   reconcileSplit,
   reconcileSwap,
@@ -90,6 +92,8 @@ export function predict(
       return predictKillPane(op, snapshot, ctx);
     case 'KillWindow':
       return predictKillWindow(op, snapshot);
+    case 'JoinPane':
+      return predictJoinPane(op, snapshot);
     case 'RenameWindow':
       return predictRenameWindow(op, snapshot);
     case 'MoveWindow':
@@ -146,6 +150,8 @@ export function reconcile(
       return reconcileKillPane(meta, committed.panes, now - pending.createdAt);
     case 'KillWindow':
       return reconcileKillWindow(meta, committed.windows);
+    case 'JoinPane':
+      return reconcileJoinPane(meta, committed.panes, now - pending.createdAt);
     case 'RenameWindow':
       return reconcileRenameWindow(meta, committed.windows);
     case 'MoveWindow':

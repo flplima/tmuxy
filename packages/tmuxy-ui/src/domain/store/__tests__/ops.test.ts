@@ -438,3 +438,56 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
     expect(patch(withPane).windows.map((w) => w.id)).toContain(wid('@1'));
   });
 });
+
+describe('JoinPane moves a pane into another tab ahead of tmux', () => {
+  const win = (id: WindowId, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const target = { ...pane(pid('%5'), 0, 0, 81, 20), windowId: wid('@1') };
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win(wid('@0'), 0, true), { ...win(wid('@1'), 1, false), activePaneId: pid('%5') }],
+    panes: [...SNAPSHOT.panes, target],
+  };
+  const join = TmuxOp.JoinPane({ paneId: pid('%1'), windowId: wid('@1') });
+
+  it('leaves its window to its neighbour and splits the target’s active pane below it', () => {
+    const moved = predict(join, snap, CTX, 'op_join' as OpId)!.patch(snap);
+    const byId = (id: PaneId) => moved.panes.find((p) => p.tmuxId === id)!;
+    expect(byId(pid('%0'))).toMatchObject({ x: 0, width: 81 });
+    expect(byId(pid('%5'))).toMatchObject({ y: 0, height: 9 });
+    expect(byId(pid('%1'))).toMatchObject({
+      windowId: wid('@1'),
+      x: 0,
+      y: 10,
+      width: 81,
+      height: 10,
+    });
+    expect(moved.windows.find((w) => w.id === wid('@1'))!.activePaneId).toBe(pid('%1'));
+  });
+
+  it('waits until tmux lists the pane in the target window', () => {
+    const result = predict(join, snap, CTX, 'op_join' as OpId)!;
+    const pending = makePendingOp({
+      id: 'op_join' as OpId,
+      op: join,
+      command: 'join-pane -s %1 -t @1',
+      patch: result.patch,
+      meta: result.meta,
+      now: 0,
+    });
+    expect(reconcile(pending, snap, undefined, 10_000)._tag).toBe('pending');
+    const joined = result.patch(snap);
+    expect(reconcile(pending, joined, undefined, 10_000)._tag).toBe('matched');
+  });
+});

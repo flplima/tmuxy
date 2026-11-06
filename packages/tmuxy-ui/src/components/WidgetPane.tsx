@@ -85,7 +85,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       data-pane-id={pane.tmuxId}
       tabIndex={-1}
       onMouseDown={() => {
-        send({ type: 'FOCUS_PANE', paneId });
+        send({ type: 'SELECT_PANE', paneId });
       }}
     >
       <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />

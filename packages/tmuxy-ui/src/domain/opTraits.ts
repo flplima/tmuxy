@@ -38,6 +38,7 @@ export function isStructural(op: TmuxOp): boolean {
     case 'NewWindow':
     case 'KillPane':
     case 'KillWindow':
+    case 'JoinPane':
     case 'RenameWindow':
     case 'MoveWindow':
     case 'ZoomToggle':

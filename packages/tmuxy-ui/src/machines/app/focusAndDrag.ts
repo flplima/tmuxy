@@ -7,9 +7,19 @@ import { assign, sendTo } from 'xstate';
 import { act, type Ctx } from './actionTypes';
 import type { PaneId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
-import { getActivePaneInGroup, selectRightSidebarPane } from '../selectors/panesAndSidebars';
+import { selectRightSidebarPane } from '../selectors/panesAndSidebars';
 import { takeKeyboard } from './helpers';
+import { selectTab } from './actions/layout';
 import { PANES_OWN_KEYBOARD, selectKeyFocusPane, selectKeyTarget } from '../selectors/keyboard';
+
+/** The member of a group drawn in a tab (the others are parked in the stash). */
+function shownMember(context: Ctx, members: readonly PaneId[]) {
+  const tabs = new Set(context.windows.filter((w) => w.windowType === 'tab').map((w) => w.id));
+  return (
+    context.panes.find((p) => members.includes(p.tmuxId) && p.windowId && tabs.has(p.windowId)) ??
+    null
+  );
+}
 
 /** A group member parked out of view: in a group, and not in the window on screen. */
 function isParkedMember(context: Ctx, paneId: PaneId): boolean {
@@ -36,11 +46,8 @@ export const focusAndDragIdleEvents = {
   RESIZE_END: {
     actions: 'focusAndDrag_resizeEnd',
   },
-  FOCUS_PANE: {
-    actions: 'focusAndDrag_focusPane',
-  },
-  SELECT_PANE_GROUP_TAB: {
-    actions: 'focusAndDrag_selectPaneGroupTab',
+  SELECT_PANE: {
+    actions: 'focusAndDrag_selectPane',
   },
   COPY_SELECTION: {
     actions: 'focusAndDrag_copySelection',
@@ -125,71 +132,51 @@ export const focusAndDragActions = {
     enqueue(sendTo('resizeLogic', { type: 'RESIZE_END' as const }));
   }),
 
-  focusAndDrag_focusPane: act(({ event, context, enqueue }) => {
-    if (event.type !== 'FOCUS_PANE') return;
-    if (selectRightSidebarPane(context)?.tmuxId === event.paneId) {
+  /**
+   * The user picked a pane — clicked it, its header tab, its tree row, a
+   * notification for it. The machine works out how to get there: the dock
+   * and a float take the keyboard where they are; a group member out of view
+   * is swapped into its group's slot (GroupSwitch; a `select-pane` into the
+   * stash would race the swap); a pane in another tab switches to that tab
+   * first, since `select-pane` never changes the session's current window.
+   */
+  focusAndDrag_selectPane: act(({ event, context, enqueue }) => {
+    if (event.type !== 'SELECT_PANE') return;
+    const { paneId } = event;
+    if (selectRightSidebarPane(context)?.tmuxId === paneId) {
       enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'right' });
       return;
     }
-    if (context.floatPanes[event.paneId]) {
-      takeKeyboard(enqueue, { kind: 'float', paneId: event.paneId });
+    if (context.floatPanes[paneId]) {
+      takeKeyboard(enqueue, { kind: 'float', paneId });
       return;
     }
+    const pane = context.panes.find((p) => p.tmuxId === paneId);
+    if (!pane) return;
     takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
-    const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
-    const inActiveWindow = targetPane?.windowId === context.activeWindowId;
-    if (event.paneId !== context.activePaneId && inActiveWindow) {
+
+    const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(paneId));
+    const shown = group ? shownMember(context, group.paneIds) : null;
+    if (group && shown?.tmuxId !== paneId) {
+      if (shown && shown.windowId !== context.activeWindowId) {
+        selectTab(context, enqueue, shown.windowId);
+      }
       enqueue(
         sendTo('tmuxStore', {
           type: 'DISPATCH_OP' as const,
-          op: TmuxOp.SelectPane({ paneId: event.paneId }),
-        }),
-      );
-    }
-  }),
-
-  focusAndDrag_selectPaneGroupTab: act(({ event, context, enqueue }) => {
-    if (event.type !== 'SELECT_PANE_GROUP_TAB') return;
-    const clickedPaneId = event.paneId;
-
-    const clickedPane = context.panes.find((p) => p.tmuxId === clickedPaneId);
-    if (!clickedPane) return;
-
-    if (clickedPaneId === context.activePaneId && clickedPane.windowId === context.activeWindowId) {
-      return;
-    }
-
-    takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
-
-    const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(clickedPaneId));
-
-    const visibleId = group ? getActivePaneInGroup(context, group) : null;
-    const visiblePane = visibleId
-      ? (context.panes.find((p) => p.tmuxId === visibleId) ?? null)
-      : null;
-
-    // The member already on screen has nothing to swap in, and tmux's group
-    // switch does nothing for it: the click takes the pane, as a click on its
-    // body does. Without the select the next tmux state hands the focus back.
-    if (visiblePane?.tmuxId === clickedPaneId) {
-      enqueue(
-        sendTo('tmuxStore', {
-          type: 'DISPATCH_OP' as const,
-          op: TmuxOp.SelectPane({ paneId: clickedPaneId }),
+          op: TmuxOp.GroupSwitch({ clickedPaneId: paneId, visiblePaneId: shown?.tmuxId ?? null }),
         }),
       );
       return;
     }
 
-    // The store predicts the swap when the member on screen is known; with
-    // none (the group's tab is not the one in front) tmux decides alone.
+    const inFront = pane.windowId === context.activeWindowId;
+    if (!inFront) selectTab(context, enqueue, pane.windowId);
+    if (inFront && paneId === context.activePaneId) return;
     enqueue(
       sendTo('tmuxStore', {
         type: 'DISPATCH_OP' as const,
-        op: TmuxOp.GroupSwitch({
-          clickedPaneId,
-          visiblePaneId: group && visiblePane ? visiblePane.tmuxId : null,
-        }),
+        op: TmuxOp.SelectPane({ paneId }),
       }),
     );
   }),

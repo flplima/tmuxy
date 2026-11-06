@@ -7,7 +7,7 @@
 export const commandUiState = {
   on: {
     RENAME_PANE: { actions: 'commandUi_renamePane' },
-    PANE_RENAME_END: { actions: 'commandUi_paneRenameEnd' },
+    RENAME_PANE_COMMIT: { actions: 'commandUi_renamePaneCommit' },
     PREFIX_MODE_CHANGE: { actions: 'commandUi_setPrefixActive' },
     KEY_TABLE_CHANGE: { actions: 'commandUi_setKeyTable' },
     TOGGLE_KEYS_VIEW: { actions: 'commandUi_toggleKeysView' },

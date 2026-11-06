@@ -43,7 +43,7 @@ Rules an action that flips focus must follow:
 2. **Move the keyboard with `TAKE_KEYBOARD` / `RELEASE_KEYBOARD`** — the `keyboard` slice owns `keyboardOwner`; exactly one surface holds it, so taking it releases the others.
 3. **Don't trust tmux's active pane** — for the third case, prefix and root bindings are auto-pinned at dispatch time: keyboardActor prepends `select-pane -t <activePaneId> \;` to every binding command. New code should not bypass this.
 
-Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
+Reference implementations: `SELECT_TAB` (top tab clicks, `machines/app/actions/layout.ts`) and `SELECT_PANE` (any pane picked — its body, header tab or tree row — `machines/app/focusAndDrag.ts`, which decides between a group switch, a tab switch first and a plain select). Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these (`machines/app/dispatch.ts`), and the store predicts each op they dispatch.
 
 ### Errors and messages the user sees
 

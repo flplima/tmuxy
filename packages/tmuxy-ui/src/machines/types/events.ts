@@ -122,7 +122,12 @@ export type AppMachineEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
 
   // Pane events
-  | { type: 'FOCUS_PANE'; paneId: PaneId }
+  /**
+   * The user picked a pane: a click on it, its header tab or its tree row. The
+   * machine decides how (a group switch, a tab switch first, a float or the
+   * dock taking the keyboard).
+   */
+  | { type: 'SELECT_PANE'; paneId: PaneId }
   | { type: 'SEND_KEYS'; paneId: PaneId; keys: string }
   /**
    * A command that arrives as a string — a binding tmux reported, what the user
@@ -134,11 +139,6 @@ export type AppMachineEvent =
   | { type: 'DISPATCH_OP'; op: TmuxOp }
   | { type: 'COPY_SELECTION' }
   | { type: 'CLOSE_PANE'; paneId: PaneId }
-  /**
-   * Click on a pane-group tab (the tabs inside a `PaneHeader`, not the top
-   * window tabs — those use `SELECT_TAB`).
-   */
-  | { type: 'SELECT_PANE_GROUP_TAB'; paneId: PaneId }
   | { type: 'CREATE_TAB' }
   | { type: 'ZOOM_PANE'; paneId: PaneId }
 
@@ -183,11 +183,17 @@ export type AppMachineEvent =
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }
   | { type: 'RENAME_ACTIVE_TAB' }
-  | { type: 'RENAME_TAB'; windowId: WindowId }
-  | { type: 'TAB_RENAME_END' }
+  /** Open a tab's rename field, in the strip or in the tree (`surface`, the strip by default). */
+  | { type: 'RENAME_TAB'; windowId: WindowId; surface?: 'strip' | 'tree' }
+  /** The tab's rename field closed: with the new name, or `null` when cancelled. */
+  | { type: 'RENAME_TAB_COMMIT'; windowId: WindowId; name: string | null }
   | { type: 'RENAME_PANE'; paneId: PaneId }
-  | { type: 'PANE_RENAME_END' }
-  | { type: 'TOGGLE_STACKED_PANES' }
+  /** The pane's rename field closed: with the new title, or `null` when cancelled. */
+  | { type: 'RENAME_PANE_COMMIT'; paneId: PaneId; title: string | null }
+  /** A pane dropped on another tab: it moves there, and that tab comes to the front. */
+  | { type: 'MOVE_PANE_TO_TAB'; paneId: PaneId; windowId: WindowId }
+  /** Stacked panes on, or off, for a tab (the active one when none is named). */
+  | { type: 'TOGGLE_STACKED_PANES'; windowId?: WindowId }
   | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }
 

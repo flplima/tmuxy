@@ -7,7 +7,7 @@
  *
  * Some ops never reach tmux — the client is the one that shows a command
  * prompt, a status message or copy mode. Tab and group navigation take the
- * optimistic paths a click takes (`SELECT_TAB`, `SELECT_PANE_GROUP_TAB`), and
+ * paths a click takes (`SELECT_TAB`, `SELECT_PANE`), and
  * horizontal navigation can cross into a sidebar. Everything else goes to the
  * store, which predicts it and sends it.
  */
@@ -122,7 +122,7 @@ function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): 
   }
   const member = groupStepTarget(direction === 'L' ? 'prev' : 'next', false, context);
   if (member) {
-    enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId: member });
+    enqueue.raise({ type: 'SELECT_PANE', paneId: member });
     return true;
   }
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
@@ -180,7 +180,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       // gets, so `<prefix> -` and friends don't lag the visible state.
       const paneId = groupStepTarget(op.direction, true, context);
       if (paneId) {
-        enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId });
+        enqueue.raise({ type: 'SELECT_PANE', paneId });
         return;
       }
       break;

@@ -3,7 +3,6 @@
  * for SidebarTree.
  */
 
-import { TmuxOp } from '../domain/commands';
 import { paneRowLines, paneWidgetName, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
@@ -48,7 +47,6 @@ interface SidebarTreeRowProps {
   tabReorder: ReturnType<typeof useReorderDrag>;
   suppressClickRef: React.MutableRefObject<boolean>;
   renamingWindowId: string | null;
-  setRenamingWindowId: React.Dispatch<React.SetStateAction<string | null>>;
   dragPaneId: PaneId | null;
   setDragPaneId: React.Dispatch<React.SetStateAction<PaneId | null>>;
   dropWindowId: string | null;
@@ -73,7 +71,6 @@ export function SidebarTreeRow({
   tabReorder,
   suppressClickRef,
   renamingWindowId,
-  setRenamingWindowId,
   dragPaneId,
   setDragPaneId,
   dropWindowId,
@@ -183,14 +180,10 @@ export function SidebarTreeRow({
           <InlineRename
             value={row.window.name}
             ariaLabel={`Rename tab ${row.position}`}
-            onCommit={(name) => {
-              setRenamingWindowId(null);
-              send({
-                type: 'DISPATCH_OP',
-                op: TmuxOp.RenameWindow({ target: row.window.id, name }),
-              });
-            }}
-            onCancel={() => setRenamingWindowId(null)}
+            onCommit={(name) => send({ type: 'RENAME_TAB_COMMIT', windowId: row.window.id, name })}
+            onCancel={() =>
+              send({ type: 'RENAME_TAB_COMMIT', windowId: row.window.id, name: null })
+            }
           />
         ) : (
           <span className="sidebar-tree-label">

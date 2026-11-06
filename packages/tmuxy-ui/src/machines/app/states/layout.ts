@@ -12,6 +12,7 @@ export const layoutState = {
     ZOOM_PANE: { actions: 'layout_zoomPane' },
     WRITE_TO_PANE: { actions: 'layout_writeToPane' },
     SELECT_TAB: { actions: 'layout_selectTab' },
+    MOVE_PANE_TO_TAB: { actions: 'layout_movePaneToTab' },
     KEY_PRESS: { actions: 'layout_forwardKeyToDragResize' },
     RESIZE_STATE_UPDATE: { actions: 'layout_applyResizeState' },
     RESIZE_COMPLETED: { actions: 'layout_resizeCompleted' },

@@ -121,7 +121,7 @@ export const FIELD_OWNERS = {
   // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
-  renamingTabId: 'tabOverview',
+  renamingTab: 'tabOverview',
 
   // ---- phone ----
   phoneZoom: 'phone',
@@ -227,7 +227,7 @@ export function createInitialContext(): AppMachineContext {
     sidebarPeek: null,
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
-    renamingTabId: null,
+    renamingTab: null,
     phoneZoom: null,
     phoneBottomView: 'tree',
     phoneDockView: null,

@@ -160,7 +160,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       'float pane shell prompt to render',
     );
     // Type directly — the keyboard goes to the float that holds it.
-    // Do NOT click the float's [role="log"] — it triggers FOCUS_PANE which
+    // Do NOT click the float's [role="log"] — it triggers SELECT_PANE which
     // selects the background pane, breaking input isolation.
     // Wait for the keyboard actor to aim at the float (it follows the
     // machine's keyboard owner after the context has it).

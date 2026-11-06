@@ -3,7 +3,6 @@
  * for WindowTabs.
  */
 
-import { TmuxOp } from '../domain/commands';
 import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
@@ -109,14 +108,8 @@ export function WindowTabItem({
           className="tab-name-input"
           value={window.name}
           ariaLabel={`Rename tab ${visualIndex}`}
-          onCommit={(name) => {
-            send({ type: 'TAB_RENAME_END' });
-            send({
-              type: 'DISPATCH_OP',
-              op: TmuxOp.RenameWindow({ target: window.id, name }),
-            });
-          }}
-          onCancel={() => send({ type: 'TAB_RENAME_END' })}
+          onCommit={(name) => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name })}
+          onCancel={() => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name: null })}
         />
       ) : (
         (() => {

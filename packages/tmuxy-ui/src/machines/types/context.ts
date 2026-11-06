@@ -152,8 +152,8 @@ export interface AppMachineContext {
    */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
-  /** The tab whose rename field is open in the strip, if any. */
-  renamingTabId: WindowId | null;
+  /** The tab whose rename field is open, and where: the strip or the tree. */
+  renamingTab: { windowId: WindowId; surface: 'strip' | 'tree' } | null;
   /** Whether browser-side animations are enabled */
   enableAnimations: boolean;
   /**

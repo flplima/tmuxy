@@ -1,9 +1,9 @@
 /**
  * Action implementations for the layout state slice.
  */
-import { assign, sendTo } from 'xstate';
-import { act, assignCtx } from '../actionTypes';
-import { isPlaceholderId } from '../../../domain/ids';
+import { assign, raise, sendTo } from 'xstate';
+import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
+import { isPlaceholderId, type WindowId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn } from '../helpers';
 
@@ -12,6 +12,29 @@ import { scrollViewsIn } from '../helpers';
 // cancelled when a fresh preview supersedes it (see layout_applyResizeState).
 const RESIZE_PREVIEW_CLEAR_ID = 'resizePreviewClear';
 const RESIZE_PREVIEW_FALLBACK_MS = 2000;
+
+/**
+ * A tab picked in this client. The store predicts the switch (SelectWindow
+ * puts the tab and its active pane in front and holds them over stale
+ * snapshots until tmux confirms), and the model update carries the rest:
+ * the float of the tab now in front takes the keyboard. A placeholder tab
+ * is a window tmux has not named yet: nothing to send, and tmux's current
+ * window is already the one it stands for (a new window is selected as it
+ * is made). The tab left behind keeps no scroll view open (see
+ * closeScrollViewsIn).
+ */
+export function selectTab(context: Ctx, enqueue: EnqueueAction, windowId: WindowId) {
+  if (context.activeWindowId === windowId || isPlaceholderId(windowId)) return;
+  for (const paneId of scrollViewsIn(context, context.activeWindowId)) {
+    enqueue(raise({ type: 'EXIT_SCROLL_MODE' as const, paneId }));
+  }
+  enqueue(
+    sendTo('tmuxStore', {
+      type: 'DISPATCH_OP' as const,
+      op: TmuxOp.SelectWindow({ target: windowId }),
+    }),
+  );
+}
 
 export const layoutActions = {
   layout_sendKeysToTmux: act(({ event, enqueue }) => {
@@ -72,28 +95,21 @@ export const layoutActions = {
     });
   }),
 
-  /**
-   * A tab picked in this client. The store predicts the switch (SelectWindow
-   * puts the tab and its active pane in front and holds them over stale
-   * snapshots until tmux confirms), and the model update carries the rest:
-   * the float of the tab now in front takes the keyboard. A placeholder tab
-   * is a window tmux has not named yet: nothing to send, and tmux's current
-   * window is already the one it stands for (a new window is selected as it
-   * is made). The tab left behind keeps no scroll view open (see
-   * closeScrollViewsIn).
-   */
   layout_selectTab: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_TAB') return;
-    if (context.activeWindowId === event.windowId || isPlaceholderId(event.windowId)) return;
-    for (const paneId of scrollViewsIn(context, context.activeWindowId)) {
-      enqueue.raise({ type: 'EXIT_SCROLL_MODE', paneId });
-    }
+    selectTab(context, enqueue, event.windowId);
+  }),
+
+  /** A pane dropped on another tab: it moves there (the store predicts the join) and that tab comes to the front. */
+  layout_movePaneToTab: act(({ event, context, enqueue }) => {
+    if (event.type !== 'MOVE_PANE_TO_TAB') return;
     enqueue(
       sendTo('tmuxStore', {
         type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SelectWindow({ target: event.windowId }),
+        op: TmuxOp.JoinPane({ paneId: event.paneId, windowId: event.windowId }),
       }),
     );
+    selectTab(context, enqueue, event.windowId);
   }),
 
   layout_forwardKeyToDragResize: act(({ event, enqueue }) => {

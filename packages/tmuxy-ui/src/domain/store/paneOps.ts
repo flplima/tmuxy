@@ -409,6 +409,27 @@ function findAbsorber(doomed: TmuxPane, siblings: ReadonlyArray<TmuxPane>): Tmux
   );
 }
 
+/**
+ * `panes` without `gone`, its freed space given to the neighbour that shares
+ * its full edge (`findAbsorber`): what tmux does to the window a pane leaves.
+ */
+function withoutPane(panes: ReadonlyArray<TmuxPane>, gone: TmuxPane): TmuxPane[] {
+  const sibs = panes.filter((p) => p.windowId === gone.windowId && p.tmuxId !== gone.tmuxId);
+  const absorber = findAbsorber(gone, sibs);
+  return panes
+    .filter((p) => p.tmuxId !== gone.tmuxId)
+    .map((p) => {
+      if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
+      return {
+        ...p,
+        x: Math.min(p.x, gone.x),
+        y: Math.min(p.y, gone.y),
+        width: p.y === gone.y && p.height === gone.height ? p.width + gone.width + 1 : p.width,
+        height: p.x === gone.x && p.width === gone.width ? p.height + gone.height + 1 : p.height,
+      };
+    });
+}
+
 export function predictKillPane(
   op: TmuxOpOf<'KillPane'>,
   snapshot: TmuxSnapshot,
@@ -452,26 +473,7 @@ export function predictKillPane(
         activePaneId: s.activePaneId === paneId ? nextFocus : s.activePaneId,
       };
     }
-    const sibs = s.panes.filter((p) => p.windowId === doomedNow.windowId && p.tmuxId !== paneId);
-    const absorber = findAbsorber(doomedNow, sibs);
-    const panes = s.panes
-      .filter((p) => p.tmuxId !== paneId)
-      .map((p) => {
-        if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
-        return {
-          ...p,
-          x: Math.min(p.x, doomedNow.x),
-          y: Math.min(p.y, doomedNow.y),
-          width:
-            p.y === doomedNow.y && p.height === doomedNow.height
-              ? p.width + doomedNow.width + 1
-              : p.width,
-          height:
-            p.x === doomedNow.x && p.width === doomedNow.width
-              ? p.height + doomedNow.height + 1
-              : p.height,
-        };
-      });
+    const panes = withoutPane(s.panes, doomedNow);
     return {
       ...s,
       panes,
@@ -498,6 +500,73 @@ export function reconcileKillPane(
     return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
   }
   return { _tag: 'pending' };
+}
+
+// ============================================
+// JoinPane
+// ============================================
+
+/**
+ * A pane moved into another tab (`join-pane -s <pane> -t <window>`): it
+ * leaves its window as a kill would (a neighbour takes its space) and splits
+ * the target window's active pane, stacked below it as `join-pane`'s default
+ * `-v` does, as that window's active pane. Snapshot-relative, so a replay
+ * over a layout tmux already moved it in passes through untouched.
+ */
+export function predictJoinPane(
+  op: TmuxOpOf<'JoinPane'>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  const moving = snapshot.panes.find((p) => p.tmuxId === op.paneId);
+  if (!moving || moving.windowId === op.windowId) return null;
+  if (!snapshot.windows.some((w) => w.id === op.windowId)) return null;
+
+  const patch: Patch = (s) => {
+    const pane = s.panes.find((p) => p.tmuxId === op.paneId);
+    const target = s.windows.find((w) => w.id === op.windowId);
+    if (!pane || !target || pane.windowId === op.windowId) return s;
+    const inTarget = s.panes.filter((p) => p.windowId === op.windowId);
+    const anchor =
+      inTarget.find((p) => p.tmuxId === target.activePaneId) ??
+      inTarget.find((p) => p.active) ??
+      inTarget[0];
+    if (!anchor) return s;
+    const below = Math.floor(anchor.height / 2);
+    const above = anchor.height - below - 1;
+    const panes = withoutPane(s.panes, pane).map((p) =>
+      p.tmuxId === anchor.tmuxId ? { ...p, height: above } : p,
+    );
+    panes.push({
+      ...pane,
+      windowId: op.windowId,
+      x: anchor.x,
+      y: anchor.y + above + 1,
+      width: anchor.width,
+      height: below,
+    });
+    return {
+      ...s,
+      panes,
+      windows: s.windows.map((w) => (w.id === op.windowId ? { ...w, activePaneId: op.paneId } : w)),
+    };
+  };
+
+  return { patch, meta: { paneId: op.paneId, windowId: op.windowId } };
+}
+
+/**
+ * Confirmed once tmux lists the pane in the target window (or no longer at
+ * all), lingering like a kill so a snapshot from before the move cannot put
+ * it back for a beat.
+ */
+export function reconcileJoinPane(
+  meta: Readonly<Record<string, unknown>>,
+  panes: ReadonlyArray<TmuxPane>,
+  ageMs: number,
+): ReconcileVerdict {
+  const pane = panes.find((p) => p.tmuxId === meta.paneId);
+  if (pane && pane.windowId !== meta.windowId) return { _tag: 'pending' };
+  return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
 }
 
 // ============================================

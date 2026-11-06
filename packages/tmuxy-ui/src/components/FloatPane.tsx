@@ -68,7 +68,7 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+      send({ type: 'SELECT_PANE', paneId: floatState.paneId });
       focusKeyboardInput(floatState.paneId);
     },
     [send, floatState.paneId],
