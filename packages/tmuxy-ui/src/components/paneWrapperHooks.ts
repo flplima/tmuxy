@@ -4,10 +4,10 @@
 
 import React, { useEffect, useRef } from 'react';
 import { isModelPaneId } from '../domain/ids';
-import type { PaneBox } from '../constants/layout';
+import { gridPixelSize, type PaneBox } from '../domain/paneGeometry';
 import { takeZoomHandoff } from './gestures/zoomHandoff';
 import type { AppMachineEvent } from '../machines/types/events';
-import { MORPH_FALLBACK_MS, MORPH_PROPERTIES, onMorphEnd } from './PaneLayoutMorph';
+import { morphFallbackMs, MORPH_PROPERTIES, onMorphEnd } from './PaneLayoutMorph';
 
 const ZOOM_FLIP_TRANSITION = [...MORPH_PROPERTIES]
   .map((prop) => `${prop} var(--transition-pane-zoom)`)
@@ -88,12 +88,13 @@ export function usePaneZoomObserver({
   // filling the grid from one in its slot. The full-extent (zoomed) pane's
   // cell height is one row short of the grid (the pane-border-status header
   // row), so a cell-dimension test misses it - but its *pixel* box spans the
-  // whole grid (computePaneBox adds the header row back), which is the
+  // whole grid (paneBox adds the header row back), which is the
   // reliable signal.
   const zoomGeometryRef = useRef({ gridWidth: 0, gridHeight: 0, charWidth, charHeight });
+  const grid = gridPixelSize(totalWidth, totalHeight, charWidth, charHeight);
   zoomGeometryRef.current = {
-    gridWidth: totalWidth * charWidth,
-    gridHeight: totalHeight * charHeight,
+    gridWidth: grid.width,
+    gridHeight: grid.height,
     charWidth,
     charHeight,
   };
@@ -225,5 +226,5 @@ function flipZoom(node: HTMLElement, from: PaneBox): void {
     node.style.zIndex = '';
   };
   const unlisten = onMorphEnd(node, finish);
-  timer = window.setTimeout(finish, MORPH_FALLBACK_MS);
+  timer = window.setTimeout(finish, morphFallbackMs(node));
 }

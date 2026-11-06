@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectWidget, registerWidget } from '../registry';
+import { paneWidgetOf, registerWidget } from '../registry';
+import { pid } from '../../../test/wire';
 import type { PaneContent } from '../../../domain/wireCells';
 
 // The registry is populated by `widgets/init.ts` at app start; two stand-ins
@@ -10,15 +11,22 @@ registerWidget('tree', stub);
 
 const lines = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
+let paneNumber = 0;
+/** What a pane with this screen and this `@tmuxy-pane-widget` tag shows (a fresh pane each time). */
+const detectWidget = (content: PaneContent, paneWidget: string | null | undefined) => {
+  const widget = paneWidgetOf({ tmuxId: pid(`%${paneNumber++}`), content, paneWidget });
+  return widget && { widgetName: widget.name, contentLines: widget.lines };
+};
+
 const MARKER = '__TMUXY_WIDGET__:session';
 
 /**
- * SEC-18. The marker travels in pane OUTPUT — `cat` of a crafted file, a
+ * The marker travels in pane OUTPUT — `cat` of a crafted file, a
  * commit message in `git log`, `curl` output, an ssh MOTD. Without an
  * out-of-band authorisation, any of those could replace the pane with app UI
  * the user never asked for, drawn where the terminal should be.
  */
-describe('detectWidget', () => {
+describe('paneWidgetOf', () => {
   it('renders the widget a pane was actually tagged for', () => {
     const info = detectWidget(lines(MARKER, 'payload'), 'session');
     expect(info?.widgetName).toBe('session');
@@ -65,5 +73,30 @@ describe('detectWidget', () => {
       expect(detectWidget(lines('whatever', 'output'), null)).toBeNull();
       expect(detectWidget(lines(MARKER), null)).toBeNull();
     });
+  });
+
+  /**
+   * A pane narrower than the marker gets it wrapped over several rows — the
+   * tree in a 20-column sidebar, a narrow `tmuxy open` preview.
+   */
+  it('finds a marker the terminal wrapped over several rows', () => {
+    const info = detectWidget(lines('__TMUXY_WIDGET__:ses', 'sion      ', 'payload'), 'session');
+    expect(info).toEqual({ widgetName: 'session', contentLines: ['payload'] });
+  });
+
+  it('does not join a row that ended short of its edge', () => {
+    expect(detectWidget(lines('__TMUXY_WIDGET__:ses ', 'sion'), 'session')).toBeNull();
+  });
+
+  /** Content that is not captured yet keeps the last answer; a real screen replaces it. */
+  it('holds its answer across a pane with no rows captured yet', () => {
+    const tmuxId = pid('%900');
+    const at = (content: PaneContent, paneWidget: string | null = 'session') =>
+      paneWidgetOf({ tmuxId, content, paneWidget })?.name ?? null;
+    expect(at(lines(MARKER, 'x'))).toBe('session');
+    expect(at([])).toBe('session');
+    expect(at(lines('$ '))).toBeNull();
+    expect(at(lines(MARKER, 'x'))).toBe('session');
+    expect(at([], null)).toBeNull();
   });
 });

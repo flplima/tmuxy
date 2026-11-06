@@ -7,7 +7,7 @@
 
 import { useRef, useEffect } from 'react';
 import { PaneHeader } from './PaneHeader';
-import { getWidget } from './widgets/registry';
+import type { RegisteredPaneWidget } from './widgets/registry';
 import {
   useAppSelector,
   useAppSend,
@@ -22,13 +22,13 @@ import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {
   paneId: PaneId;
-  widgetInfo: { widgetName: string; contentLines: string[] };
+  widget: RegisteredPaneWidget;
 }
 
-export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
+export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
-  const definition = getWidget(widgetInfo.widgetName)!;
+  const { definition } = widget;
   const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
   // The widget's own title when it declares one; without one the header
   // shows the pane's.
   const widgetTitle = useAppSelector((context) =>
-    definition.selectTitle?.(context, paneId, widgetInfo.contentLines),
+    definition.selectTitle?.(context, paneId, widget.lines),
   );
 
   // Capture-phase window listener that fires BEFORE the keyboard actor's
@@ -88,7 +88,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
         send({ type: 'FOCUS_PANE', paneId });
       }}
     >
-      <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />
+      <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
       {/* `pointer-events: none` for the length of a drag or a resize, because
           an embedded frame captures the pointer the moment it crosses into the
           pane: the `mousemove`s stop reaching the window listener the gesture
@@ -104,7 +104,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
           pointerEvents: gestureInFlight ? 'none' : undefined,
         }}
       >
-        <WidgetComponent paneId={paneId} lines={widgetInfo.contentLines} />
+        <WidgetComponent paneId={paneId} lines={widget.lines} />
       </div>
     </div>
   );

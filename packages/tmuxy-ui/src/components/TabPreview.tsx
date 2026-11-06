@@ -33,11 +33,7 @@ import { Tooltip } from './Tooltip';
 import { slotBoxes } from '../domain/tabOverview';
 import { useTabStill } from './useTabStill';
 import { TabShot } from './TabShot';
-import {
-  useFloatingSurface,
-  surfacePortalTarget,
-  SURFACE_EXIT_MS,
-} from './floating/useFloatingSurface';
+import { useFloatingSurface, surfacePortalTarget } from './floating/useFloatingSurface';
 import './floating/FloatingSurface.css';
 import './TabPreview.css';
 import type { WindowId } from '../domain/ids';
@@ -97,7 +93,6 @@ export function TabPreview({
     // Centred under the tab it is of: the tie between the picture and the
     // button is what makes it read without a pointer or a line.
     placement: { align: 'center' },
-    exitMs: SURFACE_EXIT_MS,
     animated: animations,
     onDismiss,
   });

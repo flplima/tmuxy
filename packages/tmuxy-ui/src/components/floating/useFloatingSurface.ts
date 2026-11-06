@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { cssDurationMs } from '../../infra/dom/cssTiming';
 import { openSurface } from './surfaceRegistry';
 
 /** Where a surface hangs: under an element, or at a point (a right-click). */
@@ -26,16 +27,6 @@ export type SurfaceAnchor =
 const GAP_PX = 6;
 /** Closest a surface may come to the window's edge. */
 const EDGE_PX = 8;
-
-/**
- * How long every floating surface takes to come and go.
- *
- * One number for the preview and the menus: they are the same kind of object,
- * and a menu that appears instantly where a card faded reads as two different
- * mechanisms. Must stay in sync with the keyframes in `FloatingSurface.css` —
- * the node is held exactly this long so the exit has something to play on.
- */
-export const SURFACE_EXIT_MS = 150;
 
 /** Which side of its anchor a surface hangs on, and how it lines up. */
 export interface SurfacePlacement {
@@ -136,8 +127,6 @@ interface FloatingSurfaceOptions<T> {
    * claimed the layer would dismiss its own parent on the way up.
    */
   claim?: boolean;
-  /** How long the exit animation runs; the node is held exactly that long. */
-  exitMs: number;
   /** False when the app's animation switch is off — then exits are instant. */
   animated: boolean;
   /** Put the surface away. Called when a peer surface opens. */
@@ -168,7 +157,6 @@ export function useFloatingSurface<T>({
   anchor,
   placement,
   claim = true,
-  exitMs,
   animated,
   onDismiss,
 }: FloatingSurfaceOptions<T>): FloatingSurfaceResult<T> {
@@ -206,9 +194,13 @@ export function useFloatingSurface<T>({
       return;
     }
     setLeaving(true);
-    const timer = setTimeout(() => setShown(null), animated ? exitMs : 0);
+    // The node is held exactly as long as its exit animation runs:
+    // `--transition-normal`, which every floating surface's keyframes use
+    // (FloatingSurface.css), as the surface computes it.
+    const exitMs = animated && ref.current ? cssDurationMs(ref.current, '--transition-normal') : 0;
+    const timer = setTimeout(() => setShown(null), exitMs);
     return () => clearTimeout(timer);
-  }, [contentKey, animated, exitMs]);
+  }, [contentKey, animated]);
 
   // Hold the floating layer for exactly as long as this surface is WANTED, not
   // as long as it is drawn: the tail of an exit animation must not dismiss the

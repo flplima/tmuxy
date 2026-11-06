@@ -30,11 +30,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppSelector } from '../machines/appHooks';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
-import {
-  SURFACE_EXIT_MS,
-  surfacePortalTarget,
-  useFloatingSurface,
-} from './floating/useFloatingSurface';
+import { surfacePortalTarget, useFloatingSurface } from './floating/useFloatingSurface';
 import { useMenuDispatch } from './menus/SpecMenu';
 import { SessionPicker, type SwitcherItem } from './SessionPicker';
 
@@ -68,7 +64,6 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
     content: OPEN,
     anchor: { kind: 'element', element: anchorRef.current },
     placement: { align: 'start' },
-    exitMs: SURFACE_EXIT_MS,
     animated: animations,
     onDismiss: () => closeRef.current(),
   });
