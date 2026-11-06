@@ -324,7 +324,8 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       label: 'Detach Session',
       icon: 'detach',
       keyHint: keyHint(keybindings, TmuxOp.RawCommand({ command: 'detach-client' })),
-      disabled: env.isDemo,
+      // Only the desktop detaches; the web server answers `unavailable`.
+      disabled: env.isDemo || !env.isTauri,
       action: action('session-detach'),
     },
     // Destructive and one click away: it asks first.

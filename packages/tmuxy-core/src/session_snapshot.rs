@@ -407,6 +407,39 @@ pub fn forget(dir: &Path, session: &str) -> usize {
     removed
 }
 
+/// What a restore of a session by name rebuilds from, and how, for the CLI's
+/// `tmuxy session restore` and a client's `restore_session` alike: refused
+/// when the name is not a usable session name, when the session is
+/// `running`, or when it has no snapshot. `run` runs each offered command
+/// instead of leaving it typed at the prompt.
+pub fn named_restore(
+    name: &str,
+    running: bool,
+    run: bool,
+) -> Result<(Snapshot, RestoreOptions), crate::CommandError> {
+    use crate::CommandError;
+    if crate::session::SessionName::parse(name).is_none() {
+        return Err(CommandError::invalid(format!(
+            "not a usable session name: {name:?}"
+        )));
+    }
+    if running {
+        return Err(CommandError::invalid(format!(
+            "session {name:?} is already running"
+        )));
+    }
+    let saved = read_latest(&default_dir(), name)
+        .map_err(|e| CommandError::unavailable(e.to_string()))?
+        .ok_or_else(|| CommandError::invalid(format!("no snapshot for {name:?}")))?;
+    let options = RestoreOptions {
+        run,
+        fallback_cwd: fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    Ok((saved, options))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_capture;

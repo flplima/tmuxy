@@ -5,9 +5,7 @@ use axum::{
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tmuxy_core::client_size::SizePolicy;
-use tmuxy_core::control_mode::MonitorCommandSender;
-use tmuxy_core::transport::ImageStore;
+use tmuxy_core::host::{HostEvent, RuntimeConfig, SessionRuntime, Sink};
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -16,8 +14,8 @@ use crate::request_guard::HostPolicy;
 
 mod handlers;
 pub(crate) use handlers::build_response;
+pub use handlers::find_workspace_root;
 use handlers::image_handler;
-pub use handlers::{find_workspace_root, session_start_dir};
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
@@ -44,12 +42,20 @@ pub const EVENT_BUFFER_SIZE: usize = 128;
 /// gets a full state instead, the same as one that fell behind the count.
 pub const EVENT_BUFFER_MAX_BYTES: usize = 16 * 1024 * 1024;
 
-/// A broadcast message tagged with its monotonic per-session sequence id.
+/// An event as the SSE stream writes it: its name (the `event:` field) and
+/// its serialised frame (the `data:` field). Stored as `Arc<str>` so keeping
+/// an event in the replay ring and fanning it out across Tokio's broadcast
+/// slots shares one immutable allocation.
+#[derive(Debug, Clone)]
+pub struct Frame {
+    pub name: &'static str,
+    pub data: Arc<str>,
+}
+
+/// A broadcast frame tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
-/// across reconnects via the `Last-Event-Id` request header. Stored as
-/// `Arc<str>` so keeping an event in the replay ring and fanning it out across
-/// Tokio's broadcast slots shares one immutable allocation.
-type TaggedEvent = (u64, Arc<str>);
+/// across reconnects via the `Last-Event-Id` request header.
+type TaggedEvent = (u64, Frame);
 
 /// Wraps a `broadcast::Sender` with the monotonic `seq` counter and the
 /// recent-events ring buffer needed for `Last-Event-Id` resync.
@@ -88,7 +94,20 @@ impl SessionBroadcast {
         }
     }
 
-    /// Broadcast a payload to every subscriber and store it in the ring buffer.
+    /// Broadcast an event to every subscriber, as its frame. `None` when it
+    /// could not be serialised (logged): one dropped event rather than a
+    /// crashed monitor.
+    pub fn send(&self, event: &HostEvent) -> Option<u64> {
+        match serde_json::to_string(event) {
+            Ok(data) => Some(self.broadcast(event.name(), data)),
+            Err(e) => {
+                tracing::error!(error = %e, event = event.name(), "failed to serialize an event");
+                None
+            }
+        }
+    }
+
+    /// Broadcast a frame to every subscriber and store it in the ring buffer.
     /// Returns the sequence id assigned to this message.
     ///
     /// The id is taken, the ring written and the channel sent under the one
@@ -96,26 +115,29 @@ impl SessionBroadcast {
     /// `replay_since` and `oldest_seq` read the ring as sorted (S1 in
     /// `docs/INVARIANTS.md`). An id taken before the lock could be pushed
     /// after a higher one.
-    pub fn broadcast(&self, payload: String) -> u64 {
-        let payload: Arc<str> = Arc::from(payload);
+    pub fn broadcast(&self, name: &'static str, payload: String) -> u64 {
+        let frame = Frame {
+            name,
+            data: Arc::from(payload),
+        };
         let Ok(mut buf) = self.recent.lock() else {
             // A poisoned ring is a panicked broadcaster; the stream must go on.
             let id = self.seq.fetch_add(1, Ordering::SeqCst);
-            let _ = self.tx.send((id, payload));
+            let _ = self.tx.send((id, frame));
             return id;
         };
         let id = self.seq.fetch_add(1, Ordering::SeqCst);
-        let entry: TaggedEvent = (id, payload);
+        let entry: TaggedEvent = (id, frame);
         if buf.len() == EVENT_BUFFER_SIZE {
             buf.pop_front();
         }
         buf.push_back(entry.clone());
         // The newest event always stays, however large: it is the one a
         // lagging receiver is most likely to need.
-        let mut bytes: usize = buf.iter().map(|(_, payload)| payload.len()).sum();
+        let mut bytes: usize = buf.iter().map(|(_, frame)| frame.data.len()).sum();
         while bytes > EVENT_BUFFER_MAX_BYTES && buf.len() > 1 {
             if let Some((_, oldest)) = buf.pop_front() {
-                bytes -= oldest.len();
+                bytes -= oldest.data.len();
             }
         }
         let _ = self.tx.send(entry);
@@ -153,7 +175,18 @@ impl Default for SessionBroadcast {
     }
 }
 
-/// Tracks connections and shared resources for a single tmux session
+/// Where a session's events go on the web: its SSE broadcast.
+struct BroadcastSink(Arc<SessionBroadcast>);
+
+impl Sink for BroadcastSink {
+    fn emit(&self, event: HostEvent) {
+        self.0.send(&event);
+    }
+}
+
+/// What the web keeps per session a browser watches: its streams, its
+/// broadcast, the monitor task, and the session's runtime (the command
+/// channel, sizes, bindings, images — `tmuxy_core::host`).
 pub struct SessionConnections {
     /// All connection IDs in order of connection time
     pub connections: Vec<u64>,
@@ -163,28 +196,11 @@ pub struct SessionConnections {
     /// 5 s one from session creation, say, firing inside a reload's 2 s
     /// grace) leaves the session alone.
     pub idle_guard_gen: u64,
-    /// Each client's reported viewport size (cols, rows), what `size_policy`
-    /// picks the session's size from
-    pub client_sizes: HashMap<u64, (u32, u32)>,
-    /// `@tmuxy-size`, as the config last said it
-    pub size_policy: SizePolicy,
-    /// The client that was used last (a command or a size report): whose
-    /// viewport a `latest` session takes
-    pub latest_client: Option<u64>,
-    /// Last resize dimensions sent to tmux (to avoid redundant resize commands)
-    pub last_resize: Option<(u32, u32)>,
-    /// Sender for commands to the session's monitor (resize, etc.)
-    pub monitor_command_tx: Option<MonitorCommandSender>,
-    /// The autosave for this session's snapshots (`session_snapshot`), told
-    /// of every shape change by the emitter; `None` until the monitor is up.
-    pub snapshot_keeper: Option<Arc<tmuxy_core::session_snapshot::SnapshotKeeper>>,
-    /// The bindings the session's monitor last broadcast: what a new stream
-    /// is greeted with, at no tmux round trip.
-    pub key_bindings: Option<tmuxy_core::transport::KeyBindings>,
     /// Broadcast channel + sequence id + replay buffer for this session.
-    /// Wrapped in `Arc` so `SseEmitter` can clone a handle and call
-    /// `broadcast()` without holding the `sessions` write lock.
+    /// Wrapped in `Arc` so the runtime's sink can broadcast without holding
+    /// the `sessions` write lock.
     pub broadcast: Arc<SessionBroadcast>,
+    pub runtime: Arc<SessionRuntime>,
     /// Handle to the monitor task (so we can stop it when last client leaves)
     pub monitor_handle: Option<JoinHandle<()>>,
     /// Until when an agent on `/mcp` keeps the monitor up with no stream
@@ -194,28 +210,26 @@ pub struct SessionConnections {
     pub agent_hold_until: Option<tokio::time::Instant>,
 }
 
-impl Default for SessionConnections {
-    fn default() -> Self {
+impl SessionConnections {
+    pub fn new(session: &str, state: &AppState) -> Self {
+        let broadcast = Arc::new(SessionBroadcast::new());
+        let runtime = SessionRuntime::new(
+            RuntimeConfig {
+                session: session.to_string(),
+                preview: Arc::clone(&state.preview_pages),
+                preview_scope: session.to_string(),
+                restore: state.restore,
+            },
+            Arc::new(BroadcastSink(Arc::clone(&broadcast))),
+        );
         Self {
             connections: Vec::new(),
             idle_guard_gen: 0,
-            client_sizes: HashMap::new(),
-            size_policy: SizePolicy::default(),
-            latest_client: None,
-            last_resize: None,
-            monitor_command_tx: None,
-            snapshot_keeper: None,
-            key_bindings: None,
-            broadcast: Arc::new(SessionBroadcast::new()),
+            broadcast,
+            runtime,
             monitor_handle: None,
             agent_hold_until: None,
         }
-    }
-}
-
-impl SessionConnections {
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// A client's stream opened: it is watching from now on, and any idle
@@ -225,32 +239,33 @@ impl SessionConnections {
         self.idle_guard_gen += 1;
     }
 
+    /// Whether the session's monitor task is running.
+    pub fn monitored(&self) -> bool {
+        self.monitor_handle
+            .as_ref()
+            .is_some_and(|h| !h.is_finished())
+    }
+
     /// How much longer an agent holds the monitor up, if it still does.
     pub fn agent_hold_remaining(&self, now: tokio::time::Instant) -> Option<std::time::Duration> {
         self.agent_hold_until
             .filter(|until| *until > now)
             .map(|until| until - now)
     }
-
-    /// The size the session should be, by its `@tmuxy-size` policy over the
-    /// clients' viewports. `None` while no client has reported one and the
-    /// size is not fixed.
-    pub fn size(&self) -> Option<(u32, u32)> {
-        let latest = self
-            .latest_client
-            .and_then(|id| self.client_sizes.get(&id).copied());
-        self.size_policy
-            .resolve(self.client_sizes.values().copied(), latest)
-    }
 }
+
+/// The most `/events` streams this server serves at once.
+///
+/// Generous for real use — a browser opens one per tab, and tmuxy is not a
+/// broadcast service — and far below the point where the tasks and their
+/// buffers are the problem.
+pub const MAX_LIVE_STREAMS: u64 = 32;
 
 pub struct AppState {
     /// Per-session connection tracking
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
     /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
-    /// Pictures decoded out of pane output, served by `/api/images`.
-    pub image_store: RwLock<ImageStore>,
     /// Structured shutdown: every background task spawned by the server lives
     /// in this `JoinSet`. `server::shutdown_signal` calls
     /// `join_set.shutdown().await` after firing `shutdown.cancel()` so we drain
@@ -270,7 +285,11 @@ pub struct AppState {
 
     /// The pages `preview` panes frame, staged by the client and served to
     /// the pane's frame by `/api/preview/{pane}` (`tmuxy_core::preview`).
-    pub preview_pages: tmuxy_core::preview::PreviewPages,
+    pub preview_pages: Arc<tmuxy_core::preview::PreviewPages>,
+
+    /// Whether a session this server creates is rebuilt from its snapshot
+    /// (off for `--no-restore`).
+    pub restore: bool,
 
     /// Serialises explicit session creation (`ensure_session`) so concurrent
     /// requests cannot race past `MAX_AUTO_CREATED_SESSIONS`.
@@ -300,11 +319,11 @@ impl Default for AppState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             next_conn_id: AtomicU64::new(1),
-            image_store: RwLock::new(ImageStore::default()),
             join_set: Mutex::new(JoinSet::new()),
             shutdown: CancellationToken::new(),
             live_streams: AtomicU64::new(0),
-            preview_pages: tmuxy_core::preview::PreviewPages::default(),
+            preview_pages: Arc::default(),
+            restore: true,
             session_create_lock: Mutex::new(()),
             mcp_clients: crate::mcp::Clients::default(),
             push: crate::push::Push::default(),
@@ -313,25 +332,12 @@ impl Default for AppState {
 }
 
 impl AppState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The most `/events` streams this server serves at once.
-    ///
-    /// Generous for real use — a browser opens one per tab, and tmuxy is not a
-    /// broadcast service — and far below the point where the tasks and their
-    /// buffers are the problem.
-    pub fn max_live_streams(&self) -> u64 {
-        32
-    }
-
     /// Claim a slot for a new `/events` stream, or `None` when full.
     ///
     /// The returned guard releases the slot when dropped, which is what the
     /// stream generator being dropped on client disconnect does.
     pub fn claim_stream_slot(self: &Arc<Self>) -> Option<StreamSlot> {
-        let limit = self.max_live_streams();
+        let limit = MAX_LIVE_STREAMS;
         let mut current = self.live_streams.load(Ordering::SeqCst);
         loop {
             if current >= limit {
@@ -353,41 +359,27 @@ impl AppState {
         }
     }
 
-    /// How long a command waits for a monitor that is still connecting.
-    pub const MONITOR_START_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+    /// The runtime of a session this server watches, if it does.
+    pub async fn runtime(&self, session: &str) -> Option<Arc<SessionRuntime>> {
+        self.sessions
+            .read()
+            .await
+            .get(session)
+            .map(|conns| Arc::clone(&conns.runtime))
+    }
 
-    /// The session's monitor command channel, or the error a client is
-    /// answered with while its monitor is not connected. A monitor that is
-    /// still connecting is waited for, up to [`Self::MONITOR_START_WAIT`]: a page
-    /// whose stream came back with the server sends what was typed meanwhile
-    /// at once, and the first of it reached a monitor not yet attached to
-    /// tmux and was refused — a line typed during an outage lost its first
-    /// character.
+    /// The session's monitor command channel, waiting for a monitor that is
+    /// still connecting (`SessionRuntime::channel`), or the error a client is
+    /// answered with when the server does not watch the session.
     pub async fn monitor_tx(
         &self,
         session: &str,
-    ) -> Result<MonitorCommandSender, tmuxy_core::CommandError> {
-        let deadline = tokio::time::Instant::now() + Self::MONITOR_START_WAIT;
-        loop {
-            let (tx, starting) = self
-                .sessions
-                .read()
-                .await
-                .get(session)
-                .map(|s| {
-                    let live = s.monitor_handle.as_ref().is_some_and(|h| !h.is_finished());
-                    (s.monitor_command_tx.clone(), live)
-                })
-                .unwrap_or((None, false));
-            if let Some(tx) = tx {
-                return Ok(tx);
-            }
-            if !starting || tokio::time::Instant::now() >= deadline {
-                return Err(tmuxy_core::CommandError::unavailable(
-                    "No monitor connection available",
-                ));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    ) -> Result<tmuxy_core::control_mode::MonitorCommandSender, tmuxy_core::CommandError> {
+        match self.runtime(session).await {
+            Some(runtime) => runtime.channel().await,
+            None => Err(tmuxy_core::CommandError::unavailable(
+                "No monitor connection available",
+            )),
         }
     }
 

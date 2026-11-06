@@ -47,7 +47,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 4. tmux sends real-time notifications (`%output`, `%layout-change`, `%window-add`, etc.) through control mode stdout. The `StateAggregator` processes these into `StateUpdate` objects (full snapshots or incremental deltas).
 
-5. State updates are emitted via the `StateEmitter` trait — `SseEmitter` broadcasts to all SSE clients in a session, `TauriEmitter` emits Tauri events to the desktop app.
+5. State updates are emitted via the `StateEmitter` trait, which one type implements: the session's `SessionRuntime` (`tmuxy-core/src/host/runtime.rs`). It turns them into `HostEvent`s and hands them to its host's sink — the web server's per-session SSE broadcast, or the desktop window's Tauri events.
 
 6. The frontend's XState machine merges state updates into its context, and React components re-render via selector hooks. See [DATA-FLOW.md](DATA-FLOW.md) for detailed flow diagrams.
 

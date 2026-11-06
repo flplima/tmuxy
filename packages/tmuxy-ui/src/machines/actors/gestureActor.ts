@@ -19,12 +19,8 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { invoke } from '@tauri-apps/api/core';
-import type { AppMachineContext } from '../types/context';
 import type { GestureFlags } from '../types/domain';
 import { isModelPaneId, type PaneId } from '../../domain/ids';
-import { isTauri } from '../../utils/platform';
-import { failing } from '../../utils/logFailure';
 
 export type GestureActorEvent = { type: 'NOOP' };
 
@@ -203,24 +199,6 @@ export function createGestureActor() {
       endSlide(0);
     };
 
-    // The shell claims a slide's scroll events before the page sees them, so
-    // it has to be told when not to: the config flag off. A mouse-tracking
-    // program on the tab does NOT turn it off — Claude Code and nvim track
-    // the mouse, so gating on them left most tabs with no slide at all, and
-    // what a TUI loses is only a horizontal two-finger scroll.
-    let shellClaims: boolean | null = null;
-    const tellShell = () => {
-      const context = input.parent.getSnapshot()?.context as AppMachineContext | undefined;
-      if (!context) return;
-      const claims = context.gestureFlags.swipeTabs;
-      if (claims === shellClaims) return;
-      shellClaims = claims;
-      if (!isTauri()) return;
-      invoke('set_swipe_tabs', { enabled: claims }).catch(failing('set_swipe_tabs'));
-    };
-    const subscription = input.parent.subscribe(tellShell);
-    tellShell();
-
     const opts = { capture: true, passive: false } as const;
     window.addEventListener('wheel', onWheel, opts);
     window.addEventListener('gesturestart', onGestureStart, opts);
@@ -235,7 +213,6 @@ export function createGestureActor() {
       window.removeEventListener('gesturechange', onGestureChange, opts);
       window.removeEventListener('gestureend', onGestureEnd, opts);
       window.removeEventListener('blur', abandon);
-      subscription.unsubscribe();
       if (window.tmuxyGesture === onNative) delete window.tmuxyGesture;
       if (pinch?.timer != null) clearTimeout(pinch.timer);
     };

@@ -4,6 +4,7 @@
 //! `TmuxOp.PluginAction`; the plugins and the token directory are this
 //! machine's, so a server reached over SSH has neither.
 
+use crate::plugins::links::Prepared;
 use crate::CommandError;
 
 /// Run a blocking plugin lookup off the async runtime, refusing over SSH.
@@ -26,28 +27,34 @@ async fn locally<T: Send + 'static>(
 /// command line (`plugins::invoke`). Answers `{ token }`; the client then
 /// names the token in `TmuxOp.PluginAction`. The plugins and the token
 /// directory are this machine's, so a server reached over SSH has neither.
-pub async fn prepare_plugin_action_json(
+pub async fn prepare_plugin_action(
     plugin: String,
     action: String,
     pane_id: crate::PaneId,
     selection: Option<String>,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<PluginToken, CommandError> {
     let pane = pane_id.to_string();
     let token = locally(move |dirs| {
         crate::plugins::invoke::prepare(dirs, &plugin, &action, &pane, selection)
     })
     .await?;
-    Ok(serde_json::json!({ "token": token }))
+    Ok(PluginToken { token })
+}
+
+/// [`prepare_plugin_action`]'s answer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PluginToken {
+    pub token: String,
 }
 
 /// A URL clicked in `pane_id`: the action of the first link handler that
 /// takes it, prepared, or `null` for the browser.
-pub async fn open_plugin_link_json(
+pub async fn open_plugin_link(
     url: String,
     pane_id: crate::PaneId,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<Option<Prepared>, CommandError> {
     let pane = pane_id.to_string();
-    let prepared = locally(move |dirs| {
+    locally(move |dirs| {
         let registry = crate::plugins::registry::Registry::load(dirs)?;
         crate::plugins::links::prepare(
             dirs,
@@ -55,20 +62,19 @@ pub async fn open_plugin_link_json(
             &pane,
         )
     })
-    .await?;
-    Ok(serde_json::to_value(prepared).unwrap_or_default())
+    .await
 }
 
 /// Text clicked in `pane_id` (the whole line and the column, in
 /// characters): the action of the first text handler whose pattern covers
 /// the column, prepared, or `null`.
-pub async fn open_plugin_text_json(
+pub async fn open_plugin_text(
     pane_id: crate::PaneId,
     line: String,
     column: usize,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<Option<Prepared>, CommandError> {
     let pane = pane_id.to_string();
-    let prepared = locally(move |dirs| {
+    locally(move |dirs| {
         let registry = crate::plugins::registry::Registry::load(dirs)?;
         crate::plugins::links::prepare(
             dirs,
@@ -76,8 +82,7 @@ pub async fn open_plugin_text_json(
             &pane,
         )
     })
-    .await?;
-    Ok(serde_json::to_value(prepared).unwrap_or_default())
+    .await
 }
 
 /// What a config reload re-reads of the plugins: the inventory (the user's

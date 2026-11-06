@@ -51,6 +51,12 @@ pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 /// and shell-quotes when the key is pressed.
 pub const CLI_OPTION: &str = "@tmuxy-cli";
 
+/// The tmux binary this process resolved ([`super::tmux_path`]), set beside
+/// [`DATA_DIR_ENV`] so a script tmux runs drives the same tmux — a GUI app's
+/// PATH may not have it, and a side-installed one would otherwise be passed
+/// over for whatever `tmux` the script's PATH finds first.
+pub const TMUX_BIN_ENV: &str = "TMUX_BIN";
+
 pub(super) fn is_symlink(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
 }
@@ -230,6 +236,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
          set-environment -g {DATA_DIR_ENV} {data}\n\
          set-environment -g {ENTRY_CONF_ENV} {entry}\n\
          set-option -g {CLI_OPTION} {cli}\n\
+         set-environment -g {TMUX_BIN_ENV} {tmux}\n\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
@@ -240,6 +247,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
         data = quote(&layout.data),
         entry = quote(&layout.entry_conf()),
         cli = quote(&layout.cli()),
+        tmux = crate::executor::tmux_quote(super::tmux_path()),
         defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
         user = quote(user),
     )

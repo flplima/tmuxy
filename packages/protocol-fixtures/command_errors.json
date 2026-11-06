@@ -18,5 +18,9 @@
   {
     "error": "tmux monitor did not answer with the initial state",
     "kind": "unavailable"
+  },
+  {
+    "error": "detaching is not available here",
+    "kind": "unavailable"
   }
 ]

@@ -122,6 +122,12 @@ fn config_dir_from(xdg_config_home: Option<OsString>) -> PathBuf {
         .join("tmuxy")
 }
 
+/// The state directory with no `TMUXY_STATE_DIR` override: where a tmuxy
+/// started from the user's own session keeps its state.
+pub fn default_state_dir() -> PathBuf {
+    state_dir_from(None)
+}
+
 /// [`state_dir`] as a function of the override, so the rule is testable
 /// without touching the process environment.
 fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {

@@ -90,11 +90,7 @@ fn entries(list: &str) -> impl Iterator<Item = String> + '_ {
 /// `…/claude/versions/<version>`, so tmux reports a bare version (`2.1.314`)
 /// for it; the CLI's `send` reads it the same way.
 pub(super) fn program_name(command: &str) -> String {
-    let is_version = command.contains('.')
-        && command
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
-    if is_version {
+    if tmuxy_core::host::socket_watch::is_version(command) {
         "claude".to_string()
     } else {
         command.to_string()

@@ -487,5 +487,12 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
             a.layout.data.join("bin/tmuxy-cli").display()
         )
     );
-    assert!(lines[3].starts_with("source-file ") && lines[3].ends_with("tmuxy.essentials.conf'"));
+    assert_eq!(
+        lines[3],
+        format!(
+            "set-environment -g TMUX_BIN {}",
+            crate::executor::tmux_quote(crate::session::tmux_path())
+        )
+    );
+    assert!(lines[4].starts_with("source-file ") && lines[4].ends_with("tmuxy.essentials.conf'"));
 }

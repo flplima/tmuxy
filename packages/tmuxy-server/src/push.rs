@@ -38,11 +38,7 @@ use tracing::{debug, info, warn};
 
 use crate::state::AppState;
 use store::{Store, Subscription};
-pub(crate) use watch::is_version;
 use watch::{Notice, Watch};
-
-/// How often the watcher reads the panes while a device is subscribed.
-const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// How long a push service keeps a notification for a device that is off.
 const PUSH_TTL_SECS: u32 = 60 * 60;
@@ -167,13 +163,13 @@ struct Gone;
 
 /// Watch the panes and push what comes to need the user, for the life of
 /// the server.
-pub async fn watch(state: Arc<AppState>) {
+pub async fn watch(state: Arc<AppState>, mut panes: tmuxy_core::host::socket_watch::Rows) {
     // The key is read (or made, or an unreadable one replaced along with its
     // devices) before any device can subscribe, so no new subscription is
     // forgotten with an old key.
     let _ = state.push.public_key();
     let shutdown = state.shutdown.clone();
-    let host = crate::host_name();
+    let host = tmuxy_core::host::host_name();
     let watched = Arc::clone(&state);
     state
         .spawn(async move {
@@ -181,7 +177,7 @@ pub async fn watch(state: Arc<AppState>) {
             let mut watch = Watch::default();
             loop {
                 tokio::select! {
-                    _ = tokio::time::sleep(WATCH_INTERVAL) => {}
+                    changed = panes.changed() => if changed.is_err() { return },
                     _ = shutdown.cancelled() => return,
                 }
                 if !state.push.has_subscriptions() {
@@ -190,9 +186,7 @@ pub async fn watch(state: Arc<AppState>) {
                     watch = Watch::default();
                     continue;
                 }
-                let Some(rows) = watch::read_panes().await else {
-                    continue;
-                };
+                let rows = Arc::clone(&panes.borrow_and_update());
                 for notice in watch.update(&rows, &host) {
                     debug!(target: "tmuxy_server::push", pane = %notice.pane_id, "pushing a notification");
                     state.push.send(&notice).await;

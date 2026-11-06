@@ -21,6 +21,7 @@ const {
   getAppState,
   getPaneCount,
   invokeCommand,
+  invokeWindowCommand,
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
@@ -114,13 +115,14 @@ describe('State Sync', () => {
   test('keybindings are available via IPC', async () => {
     await setupApp();
 
-    // The snapshot the monitor keeps of its last `tmux-keybindings` emit (the
-    // event may arrive before the frontend listener is set up, so the
-    // broadcast alone is not enough). It is taken once the config is sourced.
+    // The greeting carries the bindings the monitor last read (the event
+    // may arrive before the frontend listener is set up, so the broadcast
+    // alone is not enough). They are read once the config is sourced.
     let bindings = null;
     const deadline = Date.now() + 15000;
     while (!bindings && Date.now() < deadline) {
-      bindings = await invokeCommand(driver, 'get_keybindings_snapshot');
+      const greeting = await invokeCommand(driver, 'greeting');
+      bindings = greeting?.find?.((e) => e.event === 'keybindings')?.data ?? null;
       if (!bindings) await driver.pause(200);
     }
     expect(bindings).toBeTruthy();
@@ -222,16 +224,16 @@ describe('GUI windows', () => {
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
     await waitForRawWindowCount(driver, 2);
 
-    const before = await invokeCommand(driver, 'list_gui_windows');
+    const before = await invokeWindowCommand(driver, 'list_gui_windows');
     expect(before).toHaveLength(1);
     expect(before[0].index).toBe(1);
 
-    await invokeCommand(driver, 'new_window');
+    await invokeWindowCommand(driver, 'new_window');
 
     // The registry knows both windows, and the digit that focuses each.
     let listed = [];
     for (let i = 0; i < 60; i++) {
-      listed = await invokeCommand(driver, 'list_gui_windows');
+      listed = await invokeWindowCommand(driver, 'list_gui_windows');
       if (listed.length === 2) break;
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -291,16 +293,16 @@ describe('GUI windows', () => {
   test('a window style is applied and reported back', async () => {
     await setupApp();
 
-    expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
+    expect(await invokeWindowCommand(driver, 'get_window_style')).toBe('normal');
 
     // A docked style: the window keeps its height and spans the work area, which
     // is iTerm2's "Full-Width Top of Screen".
-    await invokeCommand(driver, 'set_window_style', { style: 'full-width-top' });
-    expect(await invokeCommand(driver, 'get_window_style')).toBe('full-width-top');
+    await invokeWindowCommand(driver, 'set_window_style', { style: 'full-width-top' });
+    expect(await invokeWindowCommand(driver, 'get_window_style')).toBe('full-width-top');
 
     // Normal puts back the frame the window had before it was styled.
-    await invokeCommand(driver, 'set_window_style', { style: 'normal' });
-    expect(await invokeCommand(driver, 'get_window_style')).toBe('normal');
+    await invokeWindowCommand(driver, 'set_window_style', { style: 'normal' });
+    expect(await invokeWindowCommand(driver, 'get_window_style')).toBe('normal');
 
     // No Title Bar and back, also out of full screen and out of a maximized
     // frame: after each Normal the page is as tall as it was before the cycle
@@ -320,11 +322,11 @@ describe('GUI windows', () => {
     const settled = async (style) => {
       // Full screen enters and leaves with an animation; the style lands after it.
       for (let i = 0; i < 40; i++) {
-        if ((await invokeCommand(driver, 'get_window_style')) === style) break;
+        if ((await invokeWindowCommand(driver, 'get_window_style')) === style) break;
         await driver.pause(250);
       }
       await driver.pause(style === 'full-screen' ? 2000 : 500);
-      expect(await invokeCommand(driver, 'get_window_style')).toBe(style);
+      expect(await invokeWindowCommand(driver, 'get_window_style')).toBe(style);
     };
     for (const cycle of [
       ['no-title-bar', 'normal'],
@@ -332,7 +334,7 @@ describe('GUI windows', () => {
       ['full-width-top', 'no-title-bar', 'maximized', 'normal'],
     ]) {
       for (const style of cycle) {
-        await invokeCommand(driver, 'set_window_style', { style });
+        await invokeWindowCommand(driver, 'set_window_style', { style });
         await settled(style);
         if (process.platform !== 'darwin') continue;
         const seen = await chrome();
@@ -351,7 +353,7 @@ describe('GUI windows', () => {
     // The refusal arrives as `{ __error }`, not as a rejected promise:
     // `invokeCommand` catches what `invoke()` throws and resolves with it, so
     // it never rejects and `.rejects` could not pass whatever the app did.
-    const refused = await invokeCommand(driver, 'set_window_style', { style: 'sideways' });
+    const refused = await invokeWindowCommand(driver, 'set_window_style', { style: 'sideways' });
     expect(refused.__error).toMatch(/unknown window style/i);
     expect(refused.__kind).toBe('invalid');
   }, 120000);

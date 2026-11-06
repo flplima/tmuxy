@@ -326,6 +326,23 @@ fn kill_switch_in(var: impl Fn(&str) -> Option<String>) -> bool {
 // Public emit surface
 // =============================================================================
 
+/// The most events one client batch records — a cap behind each transport's
+/// own size limit, so a hostile client cannot fill the disk in one call.
+pub const CLIENT_BATCH_MAX_EVENTS: usize = 1000;
+
+/// Record a batch the client tracer shipped, up to
+/// [`CLIENT_BATCH_MAX_EVENTS`] of it. **Fails closed**: dropped whole when
+/// tracing is off here, whatever the client believes, so a stale client flag
+/// can never reopen the sink.
+pub fn record_client_batch(events: Vec<Map<String, Value>>) {
+    if !is_enabled() {
+        return;
+    }
+    for fields in events.into_iter().take(CLIENT_BATCH_MAX_EVENTS) {
+        record_client_event(fields);
+    }
+}
+
 /// Sanitize + record a client-originated trace event. The browser/Tauri tracer
 /// is designed to send only content-free shapes, but the ingest path never
 /// trusts it: every field goes through the same [`admit`] as a Rust event's,

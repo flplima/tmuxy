@@ -15,6 +15,8 @@ pub mod command_router;
 #[cfg(feature = "cli")]
 pub mod executor;
 
+#[cfg(feature = "native")]
+pub mod host;
 pub mod layout;
 #[cfg(feature = "cli")]
 pub mod list_keys;

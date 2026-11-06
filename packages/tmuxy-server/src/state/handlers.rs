@@ -40,10 +40,18 @@ pub(super) async fn image_handler(
     State(state): State<Arc<AppState>>,
     Path((pane_id, image_id)): Path<(String, u32)>,
 ) -> Response {
-    let store = state.image_store.read().await;
-    let image = tmuxy_core::PaneId::parse(&format!("%{pane_id}"))
-        .ok()
-        .and_then(|pane_id| store.get(&pane_id, image_id));
+    // Each session keeps its own pictures, and the URL names only the pane:
+    // pane ids are unique on the socket, so the one session holding it is
+    // the one that drew it.
+    let image = match tmuxy_core::PaneId::parse(&format!("%{pane_id}")) {
+        Ok(pane_id) => state
+            .sessions
+            .read()
+            .await
+            .values()
+            .find_map(|conns| conns.runtime.image(&pane_id, image_id)),
+        Err(_) => None,
+    };
     match image {
         Some(img) => Response::builder()
             .status(StatusCode::OK)
@@ -58,7 +66,7 @@ pub(super) async fn image_handler(
             // caching anyway: a live preview mints a new id per frame, and a
             // still image is fetched once per mount over a local socket.
             .header("Cache-Control", "no-store")
-            .body(Body::from(img.data.clone()))
+            .body(Body::from(img.data))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         None => json_response(
             StatusCode::NOT_FOUND,
@@ -71,47 +79,7 @@ pub(super) async fn image_handler(
 /// whose package.json declares "workspaces"), else the process's cwd. Dev mode
 /// serves the frontend from here.
 pub fn find_workspace_root() -> std::path::PathBuf {
-    checkout_root().unwrap_or_else(|| {
+    tmuxy_core::host::checkout_root().unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     })
-}
-
-/// The directory a session this server creates starts in, and so the cwd of
-/// every new tab in it. Inside a checkout, the checkout (the dev loop lives
-/// there); otherwise the home directory. Never the bare process cwd: an
-/// AppImage runs from its mount (`/tmp/.mount_tmuxy…/usr`) and a desktop
-/// launcher from `/`, and every new tab opened a shell there.
-pub fn session_start_dir() -> std::path::PathBuf {
-    session_start_dir_from(
-        checkout_root(),
-        std::env::var_os("HOME").map(std::path::PathBuf::from),
-        std::env::current_dir().ok(),
-    )
-}
-
-pub(crate) fn session_start_dir_from(
-    checkout: Option<std::path::PathBuf>,
-    home: Option<std::path::PathBuf>,
-    cwd: Option<std::path::PathBuf>,
-) -> std::path::PathBuf {
-    checkout
-        .or(home)
-        .or(cwd)
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-}
-
-/// The nearest ancestor of the cwd whose package.json declares "workspaces".
-fn checkout_root() -> Option<std::path::PathBuf> {
-    let mut current = std::env::current_dir().ok()?;
-    loop {
-        let pkg_json = current.join("package.json");
-        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-            if content.contains("\"workspaces\"") {
-                return Some(current);
-            }
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }

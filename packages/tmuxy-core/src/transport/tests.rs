@@ -59,11 +59,11 @@ async fn scrollback_is_read_through_the_monitor_in_one_query() {
     let answer = scrollback_cells(&tx, &PaneId::from_number(3), -10, -1)
         .await
         .unwrap();
-    assert_eq!(answer["width"], 40);
-    assert_eq!(answer["historySize"], 120);
-    assert_eq!(answer["start"], -10);
-    assert_eq!(answer["end"], -1);
-    assert_eq!(answer["cells"].as_array().unwrap().len(), 2);
+    assert_eq!(answer.width, 40);
+    assert_eq!(answer.history_size, 120);
+    assert_eq!(answer.start, -10);
+    assert_eq!(answer.end, -1);
+    assert_eq!(answer.cells.len(), 2);
     let asked = asked.lock().unwrap();
     assert_eq!(asked.len(), 1);
     assert!(asked[0].contains("-t %3 -S -10 -E -1"), "{}", asked[0]);
@@ -75,8 +75,8 @@ async fn scrollback_lines_out_of_range_are_clamped_to_what_tmux_parses() {
     let answer = scrollback_cells(&tx, &PaneId::from_number(3), i64::MIN, i64::MAX)
         .await
         .unwrap();
-    assert_eq!(answer["start"], i64::from(i32::MIN));
-    assert_eq!(answer["end"], i64::from(i16::MAX));
+    assert_eq!(answer.start, i64::from(i32::MIN));
+    assert_eq!(answer.end, i64::from(i16::MAX));
     let asked = asked.lock().unwrap();
     assert!(
         asked[0].contains(&format!("-S {} -E {}", i32::MIN, i16::MAX)),

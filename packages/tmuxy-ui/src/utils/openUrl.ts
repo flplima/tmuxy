@@ -38,7 +38,9 @@ export function openExternalUrl(url: string): void {
   const link = url.trim();
   if (isTauri()) {
     void import('@tauri-apps/api/core').then(({ invoke }) =>
-      invoke('open_url', { url: link }).catch(failing('open_url')),
+      invoke('dispatch', { request: { cmd: 'open_url', args: { url: link } } }).catch(
+        failing('open_url'),
+      ),
     );
     return;
   }

@@ -229,13 +229,6 @@ export class HttpAdapter implements SequencedAdapter {
           this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
         }
 
-        this.events.emit(
-          TransportEvent.ConnectionInfo({
-            defaultShell: data.default_shell ?? 'bash',
-            hostname: data.hostname || null,
-          }),
-        );
-
         this.resolveConnectWaiters();
       },
       onDisconnected: (shouldAnnounceReconnect) => {
@@ -246,9 +239,8 @@ export class HttpAdapter implements SequencedAdapter {
           this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
         }
       },
-      onFatal: (message) => {
+      onFatal: () => {
         this.fatal = true;
-        this.events.emit(TransportEvent.Fatal({ message }));
       },
       onEstablishError: (url) => {
         void this.explainRefusal(url);
