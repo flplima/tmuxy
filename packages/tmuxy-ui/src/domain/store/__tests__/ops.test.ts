@@ -522,4 +522,18 @@ describe('KillWindow on the current tab lands where tmux will', () => {
     const after = predict(kill, snap, CTX, 'op_kw' as OpId)!.patch(snap);
     expect(after.activeWindowId).toBe(wid('@1'));
   });
+
+  // A rebase replays the patch over the server's state, which can still have
+  // the doomed tab current when the optimistic one predicted from did not.
+  it('a tab, when the state it lands on has the doomed tab current and the predicted-from one did not', () => {
+    const elsewhere: TmuxSnapshot = {
+      ...snap,
+      windows: snap.windows.map((w) => ({ ...w, active: w.id === wid('@0') })),
+      activeWindowId: wid('@0'),
+      activePaneId: pid('%0'),
+    };
+    const after = predict(kill, elsewhere, CTX, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@1'));
+    expect(after.activePaneId).toBe(pid('%1'));
+  });
 });
