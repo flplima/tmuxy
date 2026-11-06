@@ -57,25 +57,28 @@ async function getUIPaneCount(page) {
 
 /**
  * Wait until the page shows `expectedCount` distinct panes; throw past the
- * budget with what the page and the client hold.
+ * budget with what the page and the client hold. A page still loading (a
+ * reload a test just made) has no answer yet, which is not a wrong one.
  */
 async function waitForPaneCount(page, expectedCount, timeout = 10000) {
   const budget = waitBudget(timeout);
-  try {
-    await page.waitForFunction(
-      `(${drawnPaneIds})(${JSON.stringify(DRAWN_PANE)}).length === ${expectedCount}`,
-      null,
-      { timeout: budget, polling: 50 },
-    );
-  } catch {
-    const dom = await page.evaluate(drawnPaneIds, DRAWN_PANE);
-    const client = await page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.panes?.map((p) => `${p.tmuxId}@${p.windowId}`),
-    );
-    throw new Error(
-      `Expected ${expectedCount} panes, found ${dom.length} (timeout ${budget}ms)\n  DOM panes: ${JSON.stringify(dom)}\n  client panes: ${JSON.stringify(client)}`,
-    );
+  const start = Date.now();
+  let seen = null;
+  for (;;) {
+    seen = await page.evaluate(drawnPaneIds, DRAWN_PANE).catch((err) => err);
+    if (Array.isArray(seen) && seen.length === expectedCount) return;
+    if (Date.now() - start >= budget) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  const client = await page
+    .evaluate(() =>
+      window.app?.getSnapshot()?.context?.panes?.map((p) => `${p.tmuxId}@${p.windowId}`),
+    )
+    .catch((err) => err.message);
+  const dom = Array.isArray(seen) ? JSON.stringify(seen) : `unreadable: ${seen.message}`;
+  throw new Error(
+    `Expected ${expectedCount} panes (timeout ${budget}ms)\n  DOM panes: ${dom}\n  client panes: ${JSON.stringify(client)}`,
+  );
 }
 
 /**

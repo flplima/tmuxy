@@ -347,7 +347,8 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     const secondTab = (await state()).window;
     expect(secondTab).not.toBe(firstTab);
     await splitPaneKeyboard(page, 'vertical');
-    await waitForPaneCount(page, 3);
+    // Tab 2's two panes on screen; tab 1's is mounted but hidden.
+    await waitForPaneCount(page, 2);
     const rightPane = (await state()).pane;
     // Tab 2's panes by geometry: the split put the new, active pane on the
     // right; the left one is where a wrong guess would land.
