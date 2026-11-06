@@ -1,9 +1,9 @@
 /**
- * The phone layout: on a narrow window or a coarse pointer the app is a tab
- * strip, the whole 80 × 25 terminal, a key row under it and the tab/pane tree
- * below that, with no bottom bar of its own. Held sideways (landscape), the
+ * The phone layout: on a narrow window or a coarse pointer the app is the
+ * whole 80 × 25 terminal, a key row under it and the tab/pane tree below that,
+ * with no tab strip or bottom bar of its own. Held sideways (landscape), the
  * terminal takes the right of the screen at the height that fits its 25 rows,
- * and the strip, the keys and the tree stack in the column left of it.
+ * and the keys and the tree stack in the column left of it.
  *
  * The pty is never sized to the phone. The client asks for the classic 80 × 24
  * window and shrinks the cell until 80 columns span the screen, a few pixels

@@ -2,8 +2,7 @@
  * App - Main application component
  *
  * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, a tab strip, the whole 80 × 25 terminal, the key row and the tree
- * under it.
+ * phone, the whole 80 × 25 terminal, the key row and the tree under it.
  * All state is accessed via hooks - no prop drilling.
  */
 
@@ -41,6 +40,7 @@ import {
   selectCursorBlink,
   selectSidebarFocused,
 } from './machines/selectors/ui';
+import { selectSidebarHoldsKeyboard } from './machines/selectors/keyboard';
 import { cellMetricsStyle } from './infra/dom/cellMetrics';
 import { useSelectionRows } from './components/terminal/useSelectionRows';
 import { latencyTracker } from './infra/latencyTracker';
@@ -48,7 +48,6 @@ import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/phone/KeyRow';
-import { PhoneTabStrip } from './components/phone/PhoneTabStrip';
 import {
   useCursorInView,
   usePhoneZoomScroll,
@@ -97,6 +96,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const ptyRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
+  // The side pane holds the keyboard: with the phone's keyboard up the
+  // terminal above gives up its room first (styles/phone.css).
+  const dockTyping = useAppSelector(
+    (ctx) => ctx.phoneBottomView === 'dock' && selectSidebarHoldsKeyboard(ctx, 'right'),
+  );
   useVisualViewport(phone);
   useCursorInView(ptyRef, phone, cursorKey, phoneZoom ? zoomRef : null);
   usePhoneZoomScroll(zoomRef, ptyRef, phoneZoom);
@@ -203,13 +207,14 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // The phone layout: the tab strip, the terminal, the key row and the tree,
-  // top to bottom — or, held sideways, the terminal on the right and the
-  // rest stacked in the column left of it.
-  const phoneTabs = showLayout && <PhoneTabStrip />;
+  // The phone layout: the terminal, the key row and the bottom view, top to
+  // bottom — or, held sideways, the terminal on the right and the rest
+  // stacked in the column left of it. No tab strip: the tree lists the tabs
+  // and a slide on the terminal switches them, and the strip's height goes
+  // to the bottom view.
   const phoneKeys = showLayout && <KeyRow />;
-  // Every tab and pane, where the tab strip would be on a desktop — or the
-  // dock, after a sideways swipe (PhoneBottomView). Zoomed and upright, it
+  // The app menu, every tab and pane, or the dock, picked by the tab bar
+  // under them or a sideways swipe (PhoneBottomView). Zoomed and upright, it
   // makes way: the doubled grid takes its place, every row in view.
   const phoneTree = showLayout && !(phoneZoom && !landscape) && <PhoneBottomView />;
   // The terminal at the phone's cell: the grid, then tmux's status line
@@ -237,7 +242,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneBody = landscape ? (
     <>
       <div className="phone-side">
-        {phoneTabs}
         {phoneKeys}
         {phoneTree}
       </div>
@@ -245,7 +249,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </>
   ) : (
     <>
-      {phoneTabs}
       {phonePty}
       {phoneKeys}
       {phoneTree}
@@ -267,7 +270,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
       <div
-        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}`}
+        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}`}
       >
         {/* Sidebars: fixed-width, full-height columns when open, each holding
             one real tmux pane. As flex siblings they shrink the pane container,

@@ -12,6 +12,13 @@ import type { GroupDrop } from '../drag/groupDrop';
 export type SidebarSide = 'left' | 'right';
 
 /**
+ * What the phone shows under the keys: the app menu, the tabs/panes tree, or
+ * the pinned terminal (the dock). The order the views are laid out in, left
+ * to right, is the bottom view's (components/phone/bottomSlide.ts).
+ */
+export type BottomView = 'menu' | 'tree' | 'dock';
+
+/**
  * Who holds the keyboard: the tiled panes (the active pane), or one surface
  * over or beside them — a float, or a sidebar column's pane. Exactly one does,
  * so taking it is all a surface does to release the others.

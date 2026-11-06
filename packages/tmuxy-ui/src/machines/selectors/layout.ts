@@ -2,6 +2,7 @@ import { DEFAULT_FONT_SIZE, smallFontSize } from '../../infra/fontSizeManager';
 import { sidebarCellMetrics } from '../../infra/dom/cellMetrics';
 import { CHAR_HEIGHT } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
+import type { BottomView } from '../types/domain';
 import type { TmuxPane } from '../../domain/client';
 import { createMemoizedSelector } from './memoize';
 import type { TabDrop } from '../drag/tabStripDrop';
@@ -254,8 +255,8 @@ export function selectPhoneZoom(context: AppMachineContext): AppMachineContext['
   return context.phoneZoom;
 }
 
-/** What the phone shows under the keys: the tree or the dock. */
-export function selectPhoneBottomView(context: AppMachineContext): 'tree' | 'dock' {
+/** What the phone shows under the keys: the menu, the tree or the dock. */
+export function selectPhoneBottomView(context: AppMachineContext): BottomView {
   return context.phoneBottomView;
 }
 

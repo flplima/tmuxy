@@ -9,6 +9,7 @@ import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
 import type {
+  BottomView,
   ChildMachineEvent,
   KeyboardOwner,
   KeyPressEvent,
@@ -104,7 +105,7 @@ export type AppMachineEvent =
   | { type: 'REFIT_GRID' }
   /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
-  | { type: 'SET_PHONE_BOTTOM_VIEW'; view: 'tree' | 'dock' }
+  | { type: 'SET_PHONE_BOTTOM_VIEW'; view: BottomView }
   /** The phone's bottom view was measured, in the dock's cells. */
   | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }
   /** A change about to land must not animate: the next settled update turns animations back on. */
