@@ -10,7 +10,8 @@
  */
 
 import { isStructural } from '../../domain/opTraits';
-import { Exit, Cause } from 'effect';
+import { Exit } from 'effect';
+import { failureText } from './failureText';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../infra/store/TmuxStore';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
@@ -85,20 +86,9 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       command: string,
     ): void => {
       void runtime.runPromiseExit(program).then((exit) => {
-        if (Exit.isFailure(exit)) {
-          const failure = Cause.failureOption(exit.cause);
-          if (failure._tag === 'Some') {
-            const e = failure.value;
-
-            // Trace the failure by its typed code — never the stderr text.
-            tracer.event({ layer: 'effect', name: 'fail', code: e._tag });
-            const reason =
-              e._tag === 'OpRejectedByTmux'
-                ? e.stderr
-                : String((e as { cause?: unknown }).cause ?? 'transport error');
-            parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
-          }
-        }
+        if (Exit.isSuccess(exit)) return;
+        const reason = failureText(exit.cause);
+        if (reason !== null) parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
       });
     };
 

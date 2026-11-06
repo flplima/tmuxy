@@ -182,7 +182,8 @@ export function makeTmuxStore(): TmuxStore {
     }).pipe(
       Effect.matchEffect({
         onFailure: (err) => {
-          const { model: rolledBack, entry } = rollbackOp(model, opId, formatAdapterError(err));
+          const reason = formatAdapterError(err);
+          const { model: rolledBack, entry } = rollbackOp(model, opId, reason);
           commit(rolledBack);
           if (entry) {
             console.warn(`[TmuxStore] rolled back op ${opId} (${entry.op._tag}): ${entry.reason}`);
@@ -190,7 +191,7 @@ export function makeTmuxStore(): TmuxStore {
           return Effect.fail(
             err._tag === 'TmuxError'
               ? new OpRejectedByTmux({ opId, command, stderr: err.stderr })
-              : new OpTransportError({ opId, command, cause: err }),
+              : new OpTransportError({ opId, command, reason }),
           );
         },
         onSuccess: () =>
