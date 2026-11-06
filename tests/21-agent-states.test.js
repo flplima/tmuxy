@@ -15,7 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForShellPrompt,
@@ -54,65 +54,62 @@ function fakeAgent() {
   return { agent, remove: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-describe('Scenario: an agent pane needs the user while its dialog is up, and works on once it is answered', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+describeE2E(
+  'Scenario: an agent pane needs the user while its dialog is up, and works on once it is answered',
+  {},
+  (ctx) => {
+    test('a dialog on screen marks the pane needs-input, the answer marks it working again', async () => {
+      const { page } = ctx;
+      await ctx.setupPage();
+      await waitForShellPrompt(page);
+      // Two panes, so each has a header that shows its state.
+      await splitPaneKeyboard(page, 'horizontal');
+      await waitForPaneCount(page, 2);
+      await waitForShellPrompt(page);
+      const paneId = await page.evaluate(() => window.app?.view().activePaneId);
+      const { agent, remove } = fakeAgent();
+      try {
+        // The turn's first hook: the agent is working.
+        tmuxyCli(['pane', 'state', 'working', paneId]);
+        await waitForCondition(
+          page,
+          async () => (await headerMark(page, paneId)) === 'working',
+          10000,
+          () => seen(page, paneId, 'the pane to show it is working'),
+        );
 
-  test('a dialog on screen marks the pane needs-input, the answer marks it working again', async () => {
-    if (ctx.skipIfNotReady()) return;
-    const { page } = ctx;
-    await ctx.setupPage();
-    await waitForShellPrompt(page);
-    // Two panes, so each has a header that shows its state.
-    await splitPaneKeyboard(page, 'horizontal');
-    await waitForPaneCount(page, 2);
-    await waitForShellPrompt(page);
-    const paneId = await page.evaluate(() => window.app.getSnapshot().context.activePaneId);
-    const { agent, remove } = fakeAgent();
-    try {
-      // The turn's first hook: the agent is working.
-      tmuxyCli(['pane', 'state', 'working', paneId]);
-      await waitForCondition(
-        page,
-        async () => (await headerMark(page, paneId)) === 'working',
-        10000,
-        () => seen(page, paneId, 'the pane to show it is working'),
-      );
+        const dialog = 'Do you want to proceed?\\n> 1. Yes\\n  2. No\\n';
+        await typeInTerminal(
+          page,
+          `${agent} -c 'printf "\\033[2J\\033[H"; printf "${dialog}"; read; printf "\\033[2J\\033[H"; echo tool-running; read -t 120'`,
+          { target: `[data-pane-id="${paneId}"] [role="log"]` },
+        );
+        await pressEnter(page);
+        await waitForCondition(
+          page,
+          async () => (await headerMark(page, paneId)) === 'needs-input',
+          // The screen is read every 1.5 s and tmux reports the option within
+          // about a second: a mark that waits for the 15 s idle heartbeat is late.
+          5000,
+          () => seen(page, paneId, 'the dialog to mark the pane needs-input'),
+        );
 
-      const dialog = 'Do you want to proceed?\\n> 1. Yes\\n  2. No\\n';
-      await typeInTerminal(
-        page,
-        `${agent} -c 'printf "\\033[2J\\033[H"; printf "${dialog}"; read; printf "\\033[2J\\033[H"; echo tool-running; read -t 120'`,
-        { target: `[data-pane-id="${paneId}"] [role="log"]` },
-      );
-      await pressEnter(page);
-      await waitForCondition(
-        page,
-        async () => (await headerMark(page, paneId)) === 'needs-input',
-        // The screen is read every 1.5 s and tmux reports the option within
-        // about a second: a mark that waits for the 15 s idle heartbeat is late.
-        5000,
-        () => seen(page, paneId, 'the dialog to mark the pane needs-input'),
-      );
-
-      // Answered on the keyboard, as the user does: the tool runs, and no
-      // hook says so until it finishes.
-      await pressEnter(page);
-      await waitForCondition(
-        page,
-        async () => (await headerMark(page, paneId)) === 'working',
-        // The screen is read every 1.5 s and tmux reports the option within
-        // about a second: a mark that waits for the 15 s idle heartbeat is late.
-        5000,
-        () => seen(page, paneId, 'the answered dialog to mark the pane working again'),
-      );
-    } finally {
-      tmuxRunAsOperator(`send-keys -t ${paneId} C-c`);
-      tmuxyCli(['pane', 'state', 'clear', paneId]);
-      remove();
-    }
-  }, 120000);
-});
+        // Answered on the keyboard, as the user does: the tool runs, and no
+        // hook says so until it finishes.
+        await pressEnter(page);
+        await waitForCondition(
+          page,
+          async () => (await headerMark(page, paneId)) === 'working',
+          // The screen is read every 1.5 s and tmux reports the option within
+          // about a second: a mark that waits for the 15 s idle heartbeat is late.
+          5000,
+          () => seen(page, paneId, 'the answered dialog to mark the pane working again'),
+        );
+      } finally {
+        tmuxRunAsOperator(`send-keys -t ${paneId} C-c`);
+        tmuxyCli(['pane', 'state', 'clear', paneId]);
+        remove();
+      }
+    }, 120000);
+  },
+);

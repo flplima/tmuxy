@@ -20,7 +20,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { getBrowser, waitForCondition, openSidebarKeyboard } = require('./helpers');
+const { getBrowser, waitForCondition, openSidebarKeyboard, sidebarShown } = require('./helpers');
 const { TMUXY_PORT } = require('./helpers/config');
 const { isolatedServer, shapeOf, comparable } = require('./helpers/snapshot-server');
 
@@ -57,13 +57,17 @@ describe('Scenario 32: Session snapshots', () => {
     fs.rmSync(scratch, { recursive: true, force: true });
   }, 60000);
 
+  /** The sessions tmux has a client (the server's monitor for a page) attached to. */
+  const attachedTo = () =>
+    srv.cli(['run', 'list-clients -F "#{client_session}"']).split('\n').filter(Boolean);
+
   /** A page on the isolated server, attached and showing at least one window. */
   async function openPage() {
     const p = await browser.newPage();
     await p.goto(`${srv.url}/?session=${SESSION}`);
     await waitForCondition(
       p,
-      () => p.evaluate(() => (window.app?.getSnapshot?.()?.context?.windows?.length ?? 0) > 0),
+      () => p.evaluate(() => (window.app?.view?.().windows.length ?? 0) > 0),
       60000,
       'the isolated server to show a session',
     );
@@ -90,7 +94,7 @@ describe('Scenario 32: Session snapshots', () => {
     await openSidebarKeyboard(page, 'left');
     await waitForCondition(
       page,
-      () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === true),
+      () => sidebarShown(page, 'left'),
       15000,
       'the left sidebar to open',
     );
@@ -142,7 +146,7 @@ describe('Scenario 32: Session snapshots', () => {
     page = await openPage();
     await waitForCondition(
       page,
-      () => page.evaluate(() => window.app.getSnapshot().context.windows.length),
+      () => page.evaluate(() => window.app.view().windows.length),
       60000,
       'the restored session to show its windows',
     );
@@ -216,11 +220,11 @@ describe('Scenario 32: Session snapshots', () => {
       async () =>
         `the restored float to be visible over ${firstTab.id}\ntab list: ${listed}\nclient: ${await page.evaluate(
           () => {
-            const c = window.app.getSnapshot().context;
+            const v = window.app.view();
             return JSON.stringify({
-              active: c.activeWindowId,
-              windows: c.windows.map((w) => [w.id, w.index, w.windowType, w.floatParent]),
-              floats: Object.keys(c.floatPanes),
+              active: v.activeTabId,
+              windows: v.windows.map((w) => [w.id, w.kind]),
+              onScreen: v.visiblePaneIds,
             });
           },
         )}\nserver: ${srv.serverLog()}`,
@@ -265,11 +269,11 @@ describe('Scenario 32: Session snapshots', () => {
     );
     // A new browser has no docking remembered, so the restored tree column
     // overlays the panes; it is closed from its own header.
-    if (await page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open)) {
+    if (await sidebarShown(page, 'left')) {
       await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
-        () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === false),
+        async () => !(await sidebarShown(page, 'left')),
         15000,
         'the tree column to close',
       );
@@ -298,11 +302,11 @@ describe('Scenario 32: Session snapshots', () => {
     //    opened from the status line with the tree sidebar closed (the menu
     //    must read the list as it opens, not wait for the tree's poll), and
     //    choosing it rebuilds the session and switches to it.
-    if (await page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open)) {
+    if (await sidebarShown(page, 'left')) {
       await page.click('button[aria-label="Toggle tree sidebar"]');
       await waitForCondition(
         page,
-        () => page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === false),
+        async () => !(await sidebarShown(page, 'left')),
         15000,
         'the tree sidebar to close',
       );
@@ -324,19 +328,15 @@ describe('Scenario 32: Session snapshots', () => {
         }, row),
       15000,
       async () =>
-        `the exited session to be offered in the menu\nrestorable: ${await page.evaluate(() =>
-          JSON.stringify(window.app.getSnapshot().context.restorableSessions),
-        )}\nsnapshots: ${srv.cli(['session', 'snapshots'])}`,
+        `the exited session to be offered in the menu\nsnapshots: ${srv.cli(['session', 'snapshots'])}`,
     );
     await page.click(row);
     await waitForCondition(
       page,
-      () => page.evaluate((name) => window.app.getSnapshot().context.sessionName === name, SPARE),
+      () => attachedTo().includes(SPARE),
       30000,
       async () =>
-        `the client to switch to the rebuilt session\non: ${await page.evaluate(
-          () => window.app.getSnapshot().context.sessionName,
-        )}\nsessions: ${srv.cli(['run', 'list-sessions -F "#{session_name}"'])}\nserver: ${srv.serverLog()}`,
+        `the client to switch to the rebuilt session\nclients on: ${attachedTo().join(', ')}\nsessions: ${srv.cli(['run', 'list-sessions -F "#{session_name}"'])}\nserver: ${srv.serverLog()}`,
     );
 
     // 8. Forgetting is deliberate and separate from killing: the running

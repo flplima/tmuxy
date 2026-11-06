@@ -1,7 +1,3 @@
-/**
- * What tmux itself holds for a page's session, for failure messages.
- */
-
 const { execFileSync } = require('child_process');
 const { tmuxExec } = require('./tmux-socket');
 
@@ -14,9 +10,8 @@ const { tmuxExec } = require('./tmux-socket');
  */
 async function tmuxSideOfSession(page, sessionName = null) {
   try {
-    const session =
-      sessionName ?? (await page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName));
-    if (!session) return 'tmux: (the client names no session)';
+    const session = sessionName ?? new URL(page.url()).searchParams.get('session');
+    if (!session) return 'tmux: (the page names no session)';
     const panes = tmuxExec(
       `list-panes -s -t '${session}' -F '#{pane_id} pid=#{pane_pid} dead=#{pane_dead} cmd=#{pane_current_command} size=#{pane_width}x#{pane_height}'`,
     )

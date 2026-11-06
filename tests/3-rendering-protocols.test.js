@@ -5,7 +5,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -18,15 +18,8 @@ const {
 
 // ==================== Scenario 14: OSC Protocols ====================
 
-describe('Scenario 14: OSC Protocols', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 14: OSC Protocols', {}, (ctx) => {
   test('Hyperlink → multiple links → malformed → OSC 52 writes the clipboard', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: OSC 8 hyperlink renders text as a real, visible anchor
@@ -139,7 +132,6 @@ describe('Scenario 14: OSC Protocols', () => {
   }, 180000);
 
   test('OSC 2 pane title shows in the header, falling back to the process name', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 

@@ -3,8 +3,7 @@
  */
 
 const {
-  createTestContext,
-  delay,
+  describeE2E,
   focusPage,
   waitForPaneCount,
   waitForWindowCount,
@@ -26,22 +25,14 @@ const {
   assertLayoutInvariants,
   waitForCondition,
   waitForSettled,
-  DELAYS,
 } = require('./helpers/layout-helpers');
+const { tmuxPane } = require('./helpers/tmux-read');
 
 // ==================== Scenario 5: Pane Groups ====================
 
-describe('Scenario 5: Pane Groups', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 5: Pane Groups', {}, (ctx) => {
   test('Header → add button → create group → switch tabs → identity verify → add 3rd → close tab → ungroup', async () => {
-    if (ctx.skipIfNotReady()) return;
-    const activePane = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId || null);
+    const activePane = () => ctx.page.evaluate(() => window.app?.view().activePaneId || null);
     // A group switch is settled by a fixed wait here, deliberately: the
     // client's active pane is optimistic, tmux's own answer names the pane
     // of whatever window it considers current while a group swap is under
@@ -65,7 +56,7 @@ describe('Scenario 5: Pane Groups', () => {
     // rendered, not only by state-level ids (a swap that renders the wrong
     // pane's content under the right id would pass an id-only check).
     const alphaPaneId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
+      return window.app?.view().activePaneId || null;
     });
     expect(alphaPaneId).not.toBeNull();
     const ALPHA_TOKEN = `ALPHA_CONTENT_${Date.now()}`;
@@ -108,9 +99,7 @@ describe('Scenario 5: Pane Groups', () => {
     // Step 4b: The group parks its members in hidden tmux windows, which take
     // window indices of their own. A tab opened now must still read ➋, by its
     // position in the strip — it shipped reading "5:", the tmux index.
-    const groupWindowId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId ?? null,
-    );
+    const groupWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId ?? null);
     expect(groupWindowId).toMatch(/^@\d+$/);
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2);
@@ -133,11 +122,7 @@ describe('Scenario 5: Pane Groups', () => {
     await ctx.page.click(`.tab-list .tab-name[data-window-id="${groupWindowId}"]`);
     await waitForCondition(
       ctx.page,
-      () =>
-        ctx.page.evaluate(
-          (id) => window.app?.getSnapshot()?.context?.activeWindowId === id,
-          groupWindowId,
-        ),
+      () => ctx.page.evaluate((id) => window.app?.view().activeTabId === id, groupWindowId),
       10000,
       'the group window to be back on screen',
     );
@@ -158,14 +143,14 @@ describe('Scenario 5: Pane Groups', () => {
       ctx.page,
       () =>
         ctx.page.evaluate((alpha) => {
-          const id = window.app?.getSnapshot()?.context?.activePaneId || null;
+          const id = window.app?.view().activePaneId || null;
           return id !== null && id !== alpha;
         }, alphaPaneId),
       10000,
       'the new group member to be the active pane',
     );
     const betaPaneId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
+      return window.app?.view().activePaneId || null;
     });
     expect(betaPaneId).not.toBeNull();
     expect(betaPaneId).not.toBe(alphaPaneId);
@@ -177,9 +162,7 @@ describe('Scenario 5: Pane Groups', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const id = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.activePaneId || null,
-        );
+        const id = await ctx.page.evaluate(() => window.app?.view().activePaneId || null);
         return id === alphaPaneId;
       },
       10000,
@@ -194,7 +177,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(tabs.filter((t) => !t.active).map((t) => t.color)).not.toContain(accent);
 
     const afterSwitchId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
+      return window.app?.view().activePaneId || null;
     });
     expect(afterSwitchId).toBe(alphaPaneId);
     // Content fingerprint: the VISIBLE pane must show ALPHA's scrollback.
@@ -281,108 +264,106 @@ describe('Scenario 5: Pane Groups', () => {
 
 // ====== Scenario 6h: nav left/right walks the group, the panes, then the dock ======
 
-describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+describeE2E(
+  'Scenario 6h: Horizontal nav through a group, the panes and the dock',
+  { snapshot: true },
+  (ctx) => {
+    /** Where the keyboard is, and which member of the group is showing. */
+    const where = async (page) => {
+      const seen = await page.evaluate(() => {
+        const v = window.app.view();
+        // The group's header: its members in order, the one showing selected.
+        const tabs = [...document.querySelectorAll('.pane-tabs [data-pane-tab]')];
+        return {
+          active: v.activePaneId,
+          members: tabs.map((t) => t.dataset.paneTab),
+          shown:
+            tabs.find((t) => t.classList.contains('pane-tab-selected'))?.dataset.paneTab ?? null,
+          dockFocused: v.keyboardTarget.kind === 'right',
+        };
+      });
+      return { ...seen, activeX: seen.active ? tmuxPane(seen.active).left : null };
+    };
 
-  /** Where the keyboard is, and which member of the group is showing. */
-  const where = (page) =>
-    page.evaluate(() => {
-      const c = window.app.getSnapshot().context;
-      const active = c.panes.find((p) => p.tmuxId === c.activePaneId);
-      const group = Object.values(c.paneGroups)[0];
-      const shown = group?.paneIds.find(
-        (id) => c.panes.find((p) => p.tmuxId === id)?.windowId === c.activeWindowId,
+    const until = (label, check) =>
+      waitForCondition(
+        ctx.page,
+        async () => check(await where(ctx.page)),
+        10000,
+        // Where the keyboard was when the wait gave up is the diagnosis.
+        async () => `${label}\nlast seen: ${JSON.stringify(await where(ctx.page))}`,
       );
-      return {
-        active: c.activePaneId,
-        activeX: active?.x ?? null,
-        members: group?.paneIds ?? [],
-        shown: shown ?? null,
-        dockFocused: c.keyboardOwner.kind === 'right',
-      };
-    });
 
-  const until = (label, check) =>
-    waitForCondition(
-      ctx.page,
-      async () => check(await where(ctx.page)),
-      10000,
-      // Where the keyboard was when the wait gave up is the diagnosis.
-      async () => `${label}\nlast seen: ${JSON.stringify(await where(ctx.page))}`,
-    );
+    test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back [nightly]', async () => {
+      await ctx.setupPage();
 
-  test('nav right shows the next group member, then the pane on the right, then the dock; nav left walks back [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-
-    // Two panes side by side; the left one becomes a group of two.
-    await splitPaneKeyboard(ctx.page, 'vertical');
-    await waitForPaneCount(ctx.page, 2);
-    await navigatePaneKeyboard(ctx.page, 'left');
-    await clickPaneGroupAdd(ctx.page);
-    await waitForGroupTabs(ctx.page, 2);
-    await until('the group to hold the keyboard', (w) => w.members.includes(w.active));
-    const [first, last] = (await where(ctx.page)).members;
-
-    // Start on the group's first member, in the left slot.
-    if ((await where(ctx.page)).shown !== first) {
+      // Two panes side by side; the left one becomes a group of two.
+      await splitPaneKeyboard(ctx.page, 'vertical');
+      await waitForPaneCount(ctx.page, 2);
       await navigatePaneKeyboard(ctx.page, 'left');
-      await until('nav left to show the first member', (w) => w.shown === first);
-    }
-    expect((await where(ctx.page)).activeX).toBe(0);
+      await clickPaneGroupAdd(ctx.page);
+      await waitForGroupTabs(ctx.page, 2);
+      await until('the group to hold the keyboard', (w) => w.members.includes(w.active));
+      const [first, last] = (await where(ctx.page)).members;
 
-    // nav left from the first member of the leftmost pane: no member before it,
-    // no pane to its left, no left sidebar — nothing moves.
-    await navigatePaneKeyboard(ctx.page, 'left');
-    await delay(DELAYS.SYNC);
-    expect(await where(ctx.page)).toEqual(
-      expect.objectContaining({ active: first, shown: first, activeX: 0 }),
-    );
+      // Start on the group's first member, in the left slot.
+      if ((await where(ctx.page)).shown !== first) {
+        await navigatePaneKeyboard(ctx.page, 'left');
+        await until('nav left to show the first member', (w) => w.shown === first);
+      }
+      expect((await where(ctx.page)).activeX).toBe(0);
 
-    // Ctrl+l shows the next member, in the same slot.
-    await navigatePaneKeyboard(ctx.page, 'right');
-    await until('nav right to show the next member', (w) => w.shown === last && w.active === last);
-    expect((await where(ctx.page)).activeX).toBe(0);
+      // nav left from the first member of the leftmost pane: no member before it,
+      // no pane to its left, no left sidebar — nothing moves.
+      await navigatePaneKeyboard(ctx.page, 'left');
+      expect(await where(ctx.page)).toEqual(
+        expect.objectContaining({ active: first, shown: first, activeX: 0 }),
+      );
 
-    // nav right from the last member moves on to the pane on the right, and the
-    // group keeps showing the member it was on — leaving the group is not
-    // stepping it. Both are waited for together: the keyboard lands on the
-    // right pane before the group's swap has settled, so a wait on the
-    // keyboard alone let the assertion read the group mid-swap, with no
-    // member in the visible window at all (~1 run in 3).
-    await navigatePaneKeyboard(ctx.page, 'right');
-    await until(
-      'nav right from the last member to reach the right pane, group still on the last member',
-      (w) => w.activeX > 0 && w.shown === last,
-    );
+      // Ctrl+l shows the next member, in the same slot.
+      await navigatePaneKeyboard(ctx.page, 'right');
+      await until(
+        'nav right to show the next member',
+        (w) => w.shown === last && w.active === last,
+      );
+      expect((await where(ctx.page)).activeX).toBe(0);
 
-    // nav left comes back into the group as it is showing, without stepping it.
-    await navigatePaneKeyboard(ctx.page, 'left');
-    await until(
-      'nav left to return to the group, still on the last member',
-      (w) => w.active === last && w.shown === last,
-    );
+      // nav right from the last member moves on to the pane on the right, and the
+      // group keeps showing the member it was on — leaving the group is not
+      // stepping it. Both are waited for together: the keyboard lands on the
+      // right pane before the group's swap has settled, so a wait on the
+      // keyboard alone let the assertion read the group mid-swap, with no
+      // member in the visible window at all (~1 run in 3).
+      await navigatePaneKeyboard(ctx.page, 'right');
+      await until(
+        'nav right from the last member to reach the right pane, group still on the last member',
+        (w) => w.activeX > 0 && w.shown === last,
+      );
 
-    // With the dock open, nav right from the rightmost pane goes into it.
-    await navigatePaneKeyboard(ctx.page, 'right');
-    await until('nav right to reach the right pane again', (w) => w.activeX > 0);
-    await openSidebarKeyboard(ctx.page, 'right');
-    await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
-    // Opening the dock hands it the keyboard once its pane exists, a beat
-    // after the column draws; a nav pressed before then goes to the grid.
-    await until('the opened dock to take the keyboard', (w) => w.dockFocused === true);
-    await navigatePaneKeyboard(ctx.page, 'left'); // the dock hands the keyboard back
-    await until('the dock to hand the keyboard back', (w) => w.dockFocused === false);
-    await navigatePaneKeyboard(ctx.page, 'right');
-    await until(
-      'nav right from the rightmost pane to focus the dock',
-      (w) => w.dockFocused === true,
-    );
+      // nav left comes back into the group as it is showing, without stepping it.
+      await navigatePaneKeyboard(ctx.page, 'left');
+      await until(
+        'nav left to return to the group, still on the last member',
+        (w) => w.active === last && w.shown === last,
+      );
 
-    await ctx.page.click('button[aria-label="Toggle terminal sidebar"]');
-  }, 180000);
-});
+      // With the dock open, nav right from the rightmost pane goes into it.
+      await navigatePaneKeyboard(ctx.page, 'right');
+      await until('nav right to reach the right pane again', (w) => w.activeX > 0);
+      await openSidebarKeyboard(ctx.page, 'right');
+      await ctx.page.waitForSelector('[data-testid="right-sidebar-content"]', { timeout: 20000 });
+      // Opening the dock hands it the keyboard once its pane exists, a beat
+      // after the column draws; a nav pressed before then goes to the grid.
+      await until('the opened dock to take the keyboard', (w) => w.dockFocused === true);
+      await navigatePaneKeyboard(ctx.page, 'left'); // the dock hands the keyboard back
+      await until('the dock to hand the keyboard back', (w) => w.dockFocused === false);
+      await navigatePaneKeyboard(ctx.page, 'right');
+      await until(
+        'nav right from the rightmost pane to focus the dock',
+        (w) => w.dockFocused === true,
+      );
+
+      await ctx.page.click('button[aria-label="Toggle terminal sidebar"]');
+    }, 180000);
+  },
+);

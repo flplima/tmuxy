@@ -5,35 +5,15 @@
  * a swipe, a hold, and the wait for the phone's grid to settle.
  */
 
-const { createOwnBrowserContext } = require('./own-browser');
-const { getBrowser, delay, waitForCondition } = require('./browser');
+const { delay, waitForCondition } = require('./browser');
+const { tmuxWindow } = require('./tmux-read');
 
 /** The portrait phone every touch suite starts from. */
 const PHONE = { width: 390, height: 844 };
 
-/**
- * Register a suite's hooks for a touch context at `viewport` and return the
- * context. Called inside a `describe`.
- */
-function usePhoneContext(viewport) {
-  const ctx = createOwnBrowserContext({
-    label: 'a touch-enabled Chromium context',
-    // Chromium is the browser the whole suite already needs; a missing one is
-    // a broken environment, not a skip.
-    openBrowser: async () => (await getBrowser())._browser,
-    contextOptions: { viewport, hasTouch: true, deviceScaleFactor: 2 },
-  });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  // The browser is the suite-wide shared one; closing it would take the rest
-  // of the run with it. Only this suite's own page and context are released.
-  afterAll(async () => {
-    if (ctx.page) await ctx.page.close().catch(() => {});
-    if (ctx.context) await ctx.context.close().catch(() => {});
-    ctx.browser = null;
-  }, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-  return ctx;
+/** The browser context of a touch suite: a touchscreen at `viewport`, drawn at 2x. */
+function phoneContext(viewport) {
+  return { viewport, hasTouch: true, deviceScaleFactor: 2 };
 }
 
 /** Type on the virtual keyboard — into whatever the tap put the focus on. */
@@ -161,14 +141,17 @@ async function waitForPhoneGrid(page) {
     page,
     async () => {
       const sample = await page.evaluate(() => {
-        const c = window.app?.getSnapshot()?.context;
         const pane = document.querySelector('.pane-active [role="log"]');
-        if (!c || !pane) return null;
+        const tab = window.app?.view().activeTabId;
+        if (!pane || !tab) return null;
         return {
-          ok: c.phoneLayout === true && c.totalWidth === 80 && document.fonts.status === 'loaded',
-          charWidth: c.charWidth,
+          ok: document.querySelector('.phone-pty') !== null && document.fonts.status === 'loaded',
+          charWidth: parseFloat(getComputedStyle(pane).getPropertyValue('--cell-w')),
+          tab,
         };
       });
+      // tmux has sized the tab to the phone's 80 columns.
+      if (sample?.ok) sample.ok = tmuxWindow(sample.tab).width === 80;
       const settled = sample?.ok && previous?.charWidth === sample.charWidth;
       previous = sample;
       return settled;
@@ -180,7 +163,7 @@ async function waitForPhoneGrid(page) {
 
 module.exports = {
   PHONE,
-  usePhoneContext,
+  phoneContext,
   typeOnVirtualKeyboard,
   expectOnScreen,
   drag,

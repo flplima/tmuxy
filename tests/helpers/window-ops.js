@@ -5,80 +5,54 @@ const { tmuxExec } = require('./tmux-socket');
  * Create, navigate, rename, and kill tmux windows via keyboard/commands.
  */
 
-const { delay, waitForCondition } = require('./browser');
-const { DELAYS } = require('./config');
+const { waitForCondition } = require('./browser');
 const {
   sendPrefixCommand,
   tmuxCommandKeyboard,
   focusTerminal,
-  waitForKeybindings,
+  getPrefixKey,
 } = require('./keyboard');
 
 /**
- * Press a window-switching binding until the active window actually changes.
- *
- * Headless Playwright Chromium occasionally drops the keydown between
- * `keyboard.up(modifier)` and the following `keyboard.press(key)`: prefix mode
- * is entered and the binding exists, but the key never fires in the page. So
- * the press needs retrying.
- *
- * The retry must re-check the window index FIRST. next/prev toggle, so with
- * exactly two windows a press that landed just after its wait expired would be
- * undone by the retry — the condition reads false again and the attempts can be
- * spent oscillating between the two windows, reporting "did not change" when
- * the binding worked every time.
- *
- * @param {Object} ctx - Test context (needs .page and .session)
- * @param {Function} press - Sends the binding, e.g. nextWindowKeyboard
- * @param {string} label - Name used in the failure message
+ * Press a window-switching binding once and wait for the tab the app shows to
+ * change. A key the page drops fails here: retrying it would hide the very
+ * bug a keyboard test is for.
  */
-async function pressUntilWindowChanged(ctx, press, label, attempts = 3) {
+async function pressChangingWindow(ctx, press, label) {
   const startIndex = await ctx.session.getCurrentWindowIndex();
-  const changed = async () => (await ctx.session.getCurrentWindowIndex()) !== startIndex;
-
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0 && (await changed())) return;
-    await press(ctx.page);
-    try {
-      await waitForCondition(ctx.page, changed, 3000, `${label} to change active window`);
-      return;
-    } catch {
-      // Key was dropped before reaching the page — press again.
-    }
-  }
-  // One last look: the final press may have landed as the wait expired.
-  if (await changed()) return;
-  throw new Error(`${label} did not change active window after ${attempts} attempts`);
+  await press(ctx.page);
+  await waitForCondition(
+    ctx.page,
+    async () => (await ctx.session.getCurrentWindowIndex()) !== startIndex,
+    10000,
+    `${label} to change the active window`,
+  );
 }
 
 /**
  * Create a new window the way a user does: `prefix c`. It goes through the
  * keyboard actor and the adapter's serial command queue, so it lands after any
- * key the test pressed before it. A side-channel POST to /commands used to
- * stand in for it and could overtake a tab switch still in flight: tmux then
- * made the new window and the late `select-window` took it away again.
+ * key the test pressed before it; a side channel could overtake a tab switch
+ * still in flight, whose late `select-window` takes the new window away.
  */
 async function createWindowKeyboard(page) {
   const before = await windowCount(page);
-  const known = await page.evaluate(
-    () => window.app?.getSnapshot()?.context?.windows?.map((w) => w.id) ?? [],
-  );
+  const known = await page.evaluate(() => window.app?.view().windows.map((w) => w.id) ?? []);
   await sendPrefixCommand(page, 'c');
-  // A new tab is created selected, so "done" is tmux's new window existing
-  // AND being the active one: the count rises a beat before the active window
-  // follows, and a caller reading activeWindowId at that beat got the old tab.
+  // A new tab is created selected, so "done" is a new window existing AND
+  // being the active one: the count rises a beat before the active tab follows.
   await waitForCondition(
     page,
     async () =>
       page.evaluate(
         ({ before, known }) => {
-          const c = window.app?.getSnapshot()?.context;
+          const v = window.app?.view();
           // `@N`, not the optimistic placeholder the client shows until
           // tmux confirms the window: a caller keys later steps on this id.
           return (
-            (c?.windows?.length ?? 0) > before &&
-            /^@\d+$/.test(c?.activeWindowId ?? '') &&
-            !known.includes(c.activeWindowId)
+            (v?.windows.length ?? 0) > before &&
+            /^@\d+$/.test(v?.activeTabId ?? '') &&
+            !known.includes(v.activeTabId)
           );
         },
         { before, known },
@@ -86,12 +60,12 @@ async function createWindowKeyboard(page) {
     8000,
     async () =>
       `the new window to exist and be active (had ${before})\nclient: ${await page.evaluate(() => {
-        const c = window.app?.getSnapshot()?.context;
+        const v = window.app?.view();
         return JSON.stringify({
-          active: c?.activeWindowId,
-          activePane: c?.activePaneId,
-          windows: c?.windows?.map((w) => [w.id, w.active, w.windowType ?? null]),
-          panes: c?.panes?.map((p) => [p.tmuxId, p.windowId]),
+          active: v?.activeTabId,
+          activePane: v?.activePaneId,
+          windows: v?.windows.map((w) => [w.id, w.kind]),
+          visiblePanes: v?.visiblePaneIds,
         });
       })}\ntmux: ${tmuxExec("list-windows -a -F '#{session_name}:#{window_id}#{?window_active,*,}#{?window_last_flag,-,}'").replace(/\n/g, ' ')}`,
   );
@@ -99,7 +73,7 @@ async function createWindowKeyboard(page) {
 
 /** How many windows the app currently knows about. */
 async function windowCount(page) {
-  return page.evaluate(() => window.app?.getSnapshot()?.context?.windows?.length ?? 0);
+  return page.evaluate(() => window.app?.view().windows.length ?? 0);
 }
 
 /**
@@ -119,14 +93,10 @@ async function nextWindowKeyboard(page) {
  */
 async function prevWindowKeyboard(page) {
   await focusTerminal(page);
-  // Root bindings are matched against the same keybinding table as prefix ones,
-  // so it must be loaded before the chord is delivered. waitForKeybindings
-  // already resolves on that, so no beat is needed after it.
-  await waitForKeybindings(page);
+  // Root bindings arrive with the prefix ones, so the chord waits for them.
+  await getPrefixKey(page);
   const before = await activeWindowId(page);
   await page.keyboard.press('Control+Shift+Tab');
-  // `pressUntilWindowChanged` retries this helper when the chord is dropped,
-  // so a press that does not land must fail here rather than resolve blindly.
   await waitForCondition(
     page,
     async () => (await activeWindowId(page)) !== before,
@@ -137,7 +107,7 @@ async function prevWindowKeyboard(page) {
 
 /** The app's current active window id. */
 async function activeWindowId(page) {
-  return page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId ?? null);
+  return page.evaluate(() => window.app?.view().activeTabId ?? null);
 }
 
 /**
@@ -152,11 +122,13 @@ async function selectWindowKeyboard(page, number) {
   // so the app — not just tmux — has to be on the new window first.
   await waitForCondition(
     page,
-    () =>
-      page.evaluate((n) => {
-        const c = window.app?.getSnapshot()?.context;
-        return c?.windows.find((w) => w.id === c.activeWindowId)?.index === n;
-      }, number),
+    async () => {
+      const tab = await page.evaluate(() => window.app?.view().activeTabId ?? '');
+      return (
+        /^@\d+$/.test(tab) &&
+        tmuxExec(`display-message -p -t ${tab} '#{window_index}'`) === String(number)
+      );
+    },
     8000,
     `the app to make window ${number} active`,
   );
@@ -205,7 +177,7 @@ module.exports = {
   activeWindowId,
   windowCount,
   createWindowKeyboard,
-  pressUntilWindowChanged,
+  pressChangingWindow,
   nextWindowKeyboard,
   prevWindowKeyboard,
   selectWindowKeyboard,

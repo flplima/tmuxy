@@ -6,12 +6,12 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
-  withConsistencyChecks,
-  verifyDomSizes,
+  GlitchDetector,
+  assertScreenMatchesTmux,
   splitPaneKeyboard,
   navigatePaneKeyboard,
   swapPaneKeyboard,
@@ -25,15 +25,8 @@ const {
 
 // ==================== Scenario 17: Large Output Perf ====================
 
-describe('Scenario 17: Large Output Perf', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 17: Large Output Perf', {}, (ctx) => {
   test('yes|head-500 → seq 1 2000 → scrollback → verify responsive', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Rapid output (yes | head -500)
@@ -60,15 +53,8 @@ describe('Scenario 17: Large Output Perf', () => {
 
 // ==================== Scenario 18: Rapid Operations ====================
 
-describe('Scenario 18: Rapid Operations', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 18: Rapid Operations', {}, (ctx) => {
   test('Split×4 → kill×3 → split-close-split → 6 panes → 4 windows → swap', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Rapid splits ×4, each waited for on screen.
@@ -89,17 +75,15 @@ describe('Scenario 18: Rapid Operations', () => {
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Step 3: Split-close-split
-    const result = await withConsistencyChecks(
-      ctx,
-      async () => {
-        await splitPaneKeyboard(ctx.page, 'horizontal');
-        await killPaneKeyboard(ctx.page);
-        await splitPaneKeyboard(ctx.page, 'vertical');
-      },
-      { operationType: 'split' },
-    );
+    const detector = new GlitchDetector(ctx.page);
+    await detector.start();
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await killPaneKeyboard(ctx.page);
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    const glitches = await detector.stop();
+    await assertScreenMatchesTmux(ctx.page, { label: 'split-close-split' });
     expect(await ctx.session.getPaneCount()).toBe(3);
-    expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(4);
+    expect(glitches.summary.nodeFlickers).toBeLessThanOrEqual(4);
 
     // Kill to reset
     await killPaneKeyboard(ctx.page);
@@ -122,8 +106,7 @@ describe('Scenario 18: Rapid Operations', () => {
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 6, 10000);
     expect(await ctx.session.getPaneCount()).toBe(6);
-    const sizeResult = await verifyDomSizes(ctx.page);
-    expect(sizeResult.valid).toBe(true);
+    await assertScreenMatchesTmux(ctx.page, { label: 'Scenario 18 6-pane grid' });
 
     // Layout invariants on 6-pane grid
     await assertLayoutInvariants(ctx.page, { label: 'Scenario 18 6-pane grid' });
@@ -158,15 +141,8 @@ describe('Scenario 18: Rapid Operations', () => {
 
 // ==================== Scenario 20: Glitch Detection ====================
 
-describe('Scenario 20: Glitch Detection', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 20: Glitch Detection', {}, (ctx) => {
   test('Split H + detect → split V + detect → resize + detect → click focus + detect [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Horizontal split with glitch detection

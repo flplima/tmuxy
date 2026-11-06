@@ -5,13 +5,13 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   focusPage,
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
-  navigateToSession,
+  openSession,
   waitForCondition,
   waitForPaneCount,
   splitPaneKeyboard,
@@ -25,17 +25,23 @@ const { waitForMonitorGone } = require('./helpers/monitor');
 const { startExtraServer } = require('./helpers/extra-server');
 const { startPublicNameProxy } = require('./helpers/public-name-proxy');
 
+/** The session the page drives, as its address names it. */
+const pageSession = (page) =>
+  page.evaluate(() => new URL(window.location.href).searchParams.get('session'));
+
+/** Whether the server has a client (its monitor) attached to `session` in tmux. */
+function attached(session) {
+  try {
+    return tmuxExec(`list-clients -t ${session} -F '#{client_name}'`).trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
 // ==================== Scenario 22b: Other Origins Cannot Drive tmux ====================
 
-describe('Scenario 22b: Other origins cannot drive tmux', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 22b: Other origins cannot drive tmux', {}, (ctx) => {
   test('a page on another origin posts a command → tmux never runs it → the app itself still can [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     const session = ctx.session.name;
@@ -104,8 +110,7 @@ describe('Scenario 22b: Other origins cannot drive tmux', () => {
 
 // ==================== Scenario 22c: Behind a Reverse Proxy ====================
 
-describe('Scenario 22c: Published under another name by a reverse proxy', () => {
-  const ctx = createTestContext();
+describeE2E('Scenario 22c: Published under another name by a reverse proxy', {}, (ctx) => {
   const PUBLIC_NAME = 'tmuxy.proxy.test';
   const ALLOWED_PORT = TMUXY_PORT + 110;
   let refused;
@@ -113,7 +118,6 @@ describe('Scenario 22c: Published under another name by a reverse proxy', () => 
   let stopAllowedServer = () => {};
 
   beforeAll(async () => {
-    await ctx.beforeAll();
     // The suite's own server was started without --allowed-host; a second one
     // is told the public name. Each sits behind a proxy forwarding that name.
     stopAllowedServer = await startExtraServer(ALLOWED_PORT, ['--allowed-host', PUBLIC_NAME]);
@@ -132,13 +136,9 @@ describe('Scenario 22c: Published under another name by a reverse proxy', () => 
     refused?.stop();
     allowed?.stop();
     stopAllowedServer();
-    await ctx.afterAll();
   });
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
 
   test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const session = encodeURIComponent(ctx.session.name);
 
@@ -158,12 +158,13 @@ describe('Scenario 22c: Published under another name by a reverse proxy', () => 
     expect(box.height).toBeGreaterThan(0);
     expect(await page.locator('[data-testid="loading-display"]').count()).toBe(0);
     expect(await page.getByRole('button', { name: /retry/i }).isVisible()).toBe(true);
-    // It stays refused rather than flapping back to the spinner.
+    // It stays refused rather than flapping back to the spinner. A refused
+    // page has no round trip to wait on, so this is a fixed look later.
     await delay(DELAYS.SYNC * 2);
     expect(await verdict.isVisible()).toBe(true);
 
     // Allowed: the same public name, a server that was told about it.
-    await navigateToSession(page, ctx.session.name, allowed.url);
+    await openSession(page, ctx.session.name, allowed.url);
     await page.bringToFront();
     expect(await page.locator('[data-testid="fatal-display"]').count()).toBe(0);
     const token = `PROXIED_${Date.now()}`;
@@ -178,13 +179,7 @@ describe('Scenario 22c: Published under another name by a reverse proxy', () => 
 
 // ==================== Scenario 24: Session Switcher (web) ====================
 
-describe('Scenario 24: Session Switcher (web)', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 24: Session Switcher (web)', {}, (ctx) => {
   // The web build enumerates every session on its tmux socket (not just the
   // attached one) via the `serversActor` poll and offers them in the status
   // line's switcher dropdown; the tree stays the current session's own tabs
@@ -192,8 +187,6 @@ describe('Scenario 24: Session Switcher (web)', () => {
   // which the unit + storybook tests can't (they mock the poll and never
   // reconnect the stream).
   test('a sibling session is offered in the switcher, not the tree, and picking it switches the web client [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
-
     // Bounding-rect probe: a row or menu item must be visually present, not
     // just in the DOM (per docs/TESTS.md — an element clipped to 0px is not
     // "shown").
@@ -227,9 +220,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
       await ctx.page.waitForSelector('.sidebar-column-left', { timeout: 20000 });
 
       // The tree is THIS session's: its active window's tab is drawn...
-      const primaryWinId = await ctx.page.evaluate(
-        () => window.app?.getSnapshot()?.context?.activeWindowId,
-      );
+      const primaryWinId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
       await waitForCondition(
         ctx.page,
         async () => {
@@ -274,11 +265,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
       await ctx.page.click(siblingItem);
       await waitForCondition(
         ctx.page,
-        async () =>
-          ctx.page.evaluate(
-            (name) => window.app?.getSnapshot()?.context?.sessionName === name,
-            siblingName,
-          ),
+        async () => (await pageSession(ctx.page)) === siblingName && attached(siblingName),
         15000,
         'web client to switch to the sibling session',
       );
@@ -310,8 +297,6 @@ describe('Scenario 24: Session Switcher (web)', () => {
   // A dozen and more sessions — the setup of the user who asked for a
   // switcher (issue #60). The list ran off the screen at about twelve.
   test('twenty sessions: the switcher stays on screen and scrolls, typing filters it, Enter switches', async () => {
-    if (ctx.skipIfNotReady()) return;
-
     // Setup, as above: vanilla sessions created before the page attaches.
     const stamp = Date.now();
     const target = `tmuxy_pick_${stamp}`;
@@ -389,11 +374,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
       await ctx.page.keyboard.press('Enter');
       await waitForCondition(
         ctx.page,
-        async () =>
-          ctx.page.evaluate(
-            (name) => window.app?.getSnapshot()?.context?.sessionName === name,
-            target,
-          ),
+        async () => (await pageSession(ctx.page)) === target && attached(target),
         15000,
         'web client to switch to the filtered session',
       );
@@ -410,7 +391,6 @@ describe('Scenario 24: Session Switcher (web)', () => {
   }, 180000);
 
   test("the app menu's New Session creates a session and moves the page to it; the first comes back with its panes [nightly]", async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const primaryName = ctx.session.name;
     // Two panes, so the session the switch comes back to is recognisably this one.
@@ -424,8 +404,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
           .sort()
           .join(','),
       );
-    const sessionName = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.sessionName);
+    const sessionName = () => pageSession(ctx.page);
     const primaryPanes = await shownPanes();
 
     let created = null;
@@ -464,7 +443,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
 
       // Back to the first session (the switcher's pick is the test above),
       // and it comes back with both its panes.
-      await navigateToSession(ctx.page, primaryName);
+      await openSession(ctx.page, primaryName);
       await waitForCondition(
         ctx.page,
         async () => (await sessionName()) === primaryName && (await shownPanes()) === primaryPanes,

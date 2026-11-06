@@ -17,39 +17,39 @@
 
 const {
   PHONE,
-  usePhoneContext,
+  phoneContext,
   typeOnVirtualKeyboard,
   expectOnScreen,
   swipe,
 } = require('./helpers/phone');
+const { tmuxWindow } = require('./helpers/tmux-read');
 const {
+  describeE2E,
   waitForTerminalText,
   getTerminalText,
   waitForCopyMode,
   getCopyModeState,
   createWindowKeyboard,
   waitForCondition,
-  delay,
 } = require('./helpers');
 
-describe('Phone width (390px) with a touchscreen', () => {
-  const ctx = usePhoneContext(PHONE);
-
+describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PHONE) }, (ctx) => {
   test('the whole 80 × 25 terminal over the keys and the tree; a tap on the pane opens the keyboard and another puts it away, ctrl latches, a swipe opens history, the tree switches tabs', async () => {
-    if (ctx.skipIfUnavailable()) return;
     await ctx.setupPage();
 
     // 1. Nothing runs off the side of the screen. A 400px-wide page that
     //    scrolls sideways is the whole class of phone layout bug, and it costs
     //    one number to rule out.
-    const measureLayout = () =>
-      ctx.page.evaluate(() => {
+    const measureLayout = async () => {
+      const seen = await ctx.page.evaluate(() => {
         const box = (el) => {
           if (!el) return null;
           const r = el.getBoundingClientRect();
           return { left: r.left, right: r.right, top: r.top, width: r.width, height: r.height };
         };
-        const ctx = window.app?.getSnapshot()?.context;
+        const log = document.querySelector('.pane-active [role="log"]');
+        const container = document.querySelector('.phone-pty .pane-container');
+        const pad = container && getComputedStyle(container);
         return {
           docScrollWidth: document.documentElement.scrollWidth,
           // Typing before the font settles types across a resize: the cell
@@ -57,9 +57,9 @@ describe('Phone width (390px) with a touchscreen', () => {
           // columns, and zsh redraws the half-typed line at the old width —
           // the `ffori in $$(seq` the screen showed.
           fontsLoaded: document.fonts.status === 'loaded',
-          pane: box(document.querySelector('.pane-active [role="log"]')),
+          pane: box(log),
           strip: document.querySelector('.phone-tab-strip, .tab-list') !== null,
-          container: box(document.querySelector('.phone-pty .pane-container')),
+          container: box(container),
           status: box(document.querySelector('.phone-pty .tmux-status-bar')),
           keys: box(document.querySelector('.key-row')),
           tree: box(document.querySelector('.phone-tree')),
@@ -67,24 +67,22 @@ describe('Phone width (390px) with a touchscreen', () => {
           tabNames: [...document.querySelectorAll('.phone-tabs [role="tab"]')].map(
             (t) => `${t.textContent}${t.getAttribute('aria-selected') === 'true' ? '*' : ''}`,
           ),
-          // What the grid was sized from, for a failure to be readable: the
-          // client's target against what tmux actually reports, and the panes
-          // it reports it for.
-          grid: ctx && {
-            containerWidth: ctx.containerWidth,
-            charWidth: ctx.charWidth,
-            totalWidth: ctx.totalWidth,
-            targetCols: ctx.targetCols,
-            totalHeight: ctx.totalHeight,
-            targetRows: ctx.targetRows,
-            phoneLayout: ctx.phoneLayout ?? null,
-            sidebarMotion: ctx.sidebarMotion ?? null,
-            leftSidebar: ctx.sidebars.left.open ?? null,
-            rightSidebar: ctx.sidebars.right.open ?? null,
-            panes: (ctx.panes ?? []).map((p) => `${p.tmuxId} ${p.width}x${p.height}`),
-          },
+          // The grid as drawn: its cell, the width inside the container's
+          // padding, and whether it is the phone's terminal at all.
+          grid: log &&
+            container && {
+              charWidth: parseFloat(getComputedStyle(log).getPropertyValue('--cell-w')),
+              containerWidth:
+                container.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight),
+              phoneLayout: document.querySelector('.phone-pty') !== null,
+            },
+          tab: window.app?.view().activeTabId ?? null,
         };
       });
+      // What tmux sized the tab to: the columns the client asked for, once it has.
+      if (seen.grid && seen.tab) seen.grid.totalWidth = tmuxWindow(seen.tab).width;
+      return seen;
+    };
     // Following the viewport is a round trip, not a reflow: the client asks
     // tmux for the columns it measured and redraws when tmux says it resized.
     // On a slow machine that took longer than the five seconds this used to
@@ -102,7 +100,6 @@ describe('Phone width (390px) with a touchscreen', () => {
       // The cell has stopped changing size: two samples agree.
       previous?.grid?.charWidth === l.grid.charWidth &&
       l.grid.totalWidth === 80 &&
-      l.grid.targetCols === 80 &&
       l.pane.right <= PHONE.width + 1 &&
       l.docScrollWidth <= PHONE.width + 1;
     await waitForCondition(

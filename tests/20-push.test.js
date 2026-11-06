@@ -13,7 +13,7 @@
 
 const crypto = require('crypto');
 const http = require('http');
-const { createTestContext, waitForShellPrompt, waitForCondition, TMUXY_URL } = require('./helpers');
+const { describeE2E, waitForShellPrompt, waitForCondition, TMUXY_URL } = require('./helpers');
 const { tmuxyCli } = require('./helpers/cli');
 
 /** A browser's half of web push: subscribe, and read what is pushed to it. */
@@ -75,54 +75,51 @@ const api = (method, route, body) =>
 /** An agent saying what its pane is doing, as its hooks do. */
 const paneState = (paneId, state) => tmuxyCli(['pane', 'state', state, paneId]);
 
-describe('Scenario: a pane that needs the user is pushed to the devices that asked', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+describeE2E(
+  'Scenario: a pane that needs the user is pushed to the devices that asked',
+  {},
+  (ctx) => {
+    test('a device subscribes, an agent marks its pane needs-input, the device decrypts the notice', async () => {
+      await ctx.setupPage();
+      await waitForShellPrompt(ctx.page);
+      const paneId = await ctx.page.evaluate(() => window.app?.view().activePaneId);
+      const device = await fakeDevice();
+      try {
+        expect((await api('POST', '/api/push/subscription', device.subscription)).status).toBe(204);
 
-  test('a device subscribes, an agent marks its pane needs-input, the device decrypts the notice', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    await waitForShellPrompt(ctx.page);
-    const paneId = await ctx.page.evaluate(() => window.app.getSnapshot().context.activePaneId);
-    const device = await fakeDevice();
-    try {
-      expect((await api('POST', '/api/push/subscription', device.subscription)).status).toBe(204);
+        // The watcher's first read after a subscription only learns what is
+        // already showing, and nothing outside says when it has happened. So
+        // the pane enters the state again until a notice arrives: each entry
+        // is news once the watcher is reading.
+        let entries = 0;
+        await waitForCondition(
+          ctx.page,
+          async () => {
+            const ours = device.received.find((r) => r.notice.paneId === paneId);
+            if (ours) return true;
+            paneState(paneId, 'working');
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            paneState(paneId, 'needs-input');
+            entries += 1;
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            return device.received.some((r) => r.notice.paneId === paneId);
+          },
+          45000,
+          () => `a push for ${paneId} after ${entries} entries into needs-input`,
+        );
 
-      // The watcher's first read after a subscription only learns what is
-      // already showing, and nothing outside says when it has happened. So
-      // the pane enters the state again until a notice arrives: each entry
-      // is news once the watcher is reading.
-      let entries = 0;
-      await waitForCondition(
-        ctx.page,
-        async () => {
-          const ours = device.received.find((r) => r.notice.paneId === paneId);
-          if (ours) return true;
-          paneState(paneId, 'working');
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          paneState(paneId, 'needs-input');
-          entries += 1;
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          return device.received.some((r) => r.notice.paneId === paneId);
-        },
-        45000,
-        () => `a push for ${paneId} after ${entries} entries into needs-input`,
-      );
-
-      const { headers, notice } = device.received.find((r) => r.notice.paneId === paneId);
-      expect(headers['content-encoding']).toBe('aes128gcm');
-      expect(headers.authorization).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/);
-      expect(notice.title).toMatch(/needs you$/);
-      expect(notice.tag).toBe(`tmuxy-${paneId}-needs-input`);
-      expect(notice.url).toBe(`/?session=${ctx.session.name}`);
-      expect(notice.body).toContain(ctx.session.name);
-    } finally {
-      await api('DELETE', '/api/push/subscription', { endpoint: device.subscription.endpoint });
-      device.close();
-      paneState(paneId, 'idle');
-    }
-  }, 120000);
-});
+        const { headers, notice } = device.received.find((r) => r.notice.paneId === paneId);
+        expect(headers['content-encoding']).toBe('aes128gcm');
+        expect(headers.authorization).toMatch(/^vapid t=[\w-]+\.[\w-]+\.[\w-]+, k=[\w-]+$/);
+        expect(notice.title).toMatch(/needs you$/);
+        expect(notice.tag).toBe(`tmuxy-${paneId}-needs-input`);
+        expect(notice.url).toBe(`/?session=${ctx.session.name}`);
+        expect(notice.body).toContain(ctx.session.name);
+      } finally {
+        await api('DELETE', '/api/push/subscription', { endpoint: device.subscription.endpoint });
+        device.close();
+        paneState(paneId, 'idle');
+      }
+    }, 120000);
+  },
+);

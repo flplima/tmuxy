@@ -241,6 +241,9 @@ jobs:
           # The tier's jest name pattern, composed by
           # bin/ci/e2e-plan.mjs; empty when every test in the file is wanted.
           SUITE_PATTERN: ${{ matrix.suite.pattern }}
+          # The runner that installs WebKit fails a WebKit suite that cannot
+          # launch it, instead of reporting it as not run.
+          TMUXY_E2E_REQUIRE_WEBKIT: ${{ matrix.suite.webkit && '1' || '' }}
         run: |
           set -o pipefail
           npx jest "$SUITE_PATH" ${SUITE_PATTERN:+--testNamePattern "$SUITE_PATTERN"} 2>&1 | tee /tmp/jest-output.log

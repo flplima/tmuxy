@@ -6,7 +6,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
@@ -44,15 +44,8 @@ const waitForNotice = (page, role, text) =>
       })})`,
   );
 
-describe('Scenario: what a run-shell prints reaches the snackbar, on every tmux', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: what a run-shell prints reaches the snackbar, on every tmux', {}, (ctx) => {
   test('a failing run-shell is an error with its output, a quiet one a notice, and the pane keeps taking keys', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
     const paneId = await ctx.session.getActivePaneId();
@@ -87,7 +80,6 @@ describe('Scenario: what a run-shell prints reaches the snackbar, on every tmux'
   // a command typed at the prompt prints (`show-messages`, `list-keys`) is
   // answered to a control client in the reply, where nothing showed it.
   test('a view mode tmux opens for a background run-shell is closed with a notice, and show-messages at the prompt is shown', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
     const paneId = await ctx.session.getActivePaneId();

@@ -60,4 +60,45 @@ async function clickMenuItem(page, labels) {
   }
 }
 
-module.exports = { openMenuLabels, menuItemHint, closeMenu, noMenuOpen, clickMenuItem };
+/**
+ * Open the app menu down `labels` and read the items of the last level, each
+ * with its key hint, then close every level. `null` when a level is not in
+ * the menu (a submenu with nothing to list).
+ */
+async function menuItems(page, labels) {
+  await waitForCondition(page, () => noMenuOpen(page), 5000, 'the previous menu to close');
+  await page.click('.app-menu-button');
+  let opened = 1;
+  let items = null;
+  try {
+    for (const label of labels) {
+      const item = page.locator('[role^="menuitem"]', { hasText: label }).first();
+      const shown = await item.waitFor({ state: 'visible', timeout: 2000 }).then(
+        () => true,
+        () => false,
+      );
+      if (!shown) return null;
+      await item.click();
+      opened += 1;
+    }
+    await waitForCondition(
+      page,
+      () => page.evaluate((n) => document.querySelectorAll('[role="menu"]').length >= n, opened),
+      5000,
+      `the ${labels.join(' > ')} menu to open`,
+    );
+    items = await page.evaluate(() => {
+      const menus = document.querySelectorAll('[role="menu"]');
+      return [...menus[menus.length - 1].querySelectorAll('[role^="menuitem"]')].map((el) => ({
+        text: el.textContent.trim(),
+        hint: el.querySelector('.menu-keybinding')?.textContent.trim() ?? '',
+      }));
+    });
+  } finally {
+    for (let level = 0; level < opened; level++) await page.keyboard.press('Escape');
+    await waitForCondition(page, () => noMenuOpen(page), 5000, 'the menu to close');
+  }
+  return items;
+}
+
+module.exports = { openMenuLabels, menuItemHint, menuItems, closeMenu, noMenuOpen, clickMenuItem };

@@ -3,18 +3,14 @@
  */
 
 const {
-  createTestContext,
-  delay,
+  waitForSettled,
+  describeE2E,
   afterFrames,
-  focusPage,
   getTerminalText,
   waitForTerminalText,
   runCommand,
   typeInTerminal,
   pressEnter,
-  DELAYS,
-  assertContentMatch,
-  getCopyModeState,
   waitForCondition,
   waitForCopyMode,
   enterCopyModeAndWait,
@@ -28,21 +24,15 @@ const {
   recordCopies,
   copiedText,
 } = require('./helpers/selection-drag');
+const { tmuxPane } = require('./helpers/tmux-read');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 // ==================== Scenario 7d: Selecting and copying with the mouse ====================
 
-describe('Scenario 7d: Selecting and copying with the mouse', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 7d: Selecting and copying with the mouse', {}, (ctx) => {
   test('a drag selects text on the live screen and copies it at once, with a notice of how many characters; the next key clears the selection and is typed', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // 1. The drag itself. The pane used to focus the hidden keyboard input on
@@ -117,7 +107,8 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
       10000,
       'the background job to print in tmux',
     );
-    await delay(DELAYS.SHORT);
+    // Caught up: the output reached the app, and it would be drawn by now.
+    await waitForSettled(ctx.page);
     expect(await getTerminalText(ctx.page)).not.toContain('LATE_OUTPUT');
     expect(await selectedText(ctx.page)).toBe('DRAG_SELECT_ME');
     const still = await runRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
@@ -272,7 +263,6 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
   }, 120000);
 
   test('Ctrl+Shift+C copies a drag selection and leaves the running program alone', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // `cat` runs until it reads Ctrl+C or end of input, and echoes each line
@@ -314,7 +304,6 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
   }, 60000);
 
   test('in copy mode a drag copies on release, blinks, and leaves copy mode', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     await runCommand(
@@ -407,8 +396,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     expect(await ctx.page.evaluate(() => window.__sawCopied)).toBe(true);
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => window.app.getSnapshot().context.panes[0]?.inMode === false),
+      async () => !tmuxPane(await ctx.page.evaluate(() => window.app.view().activePaneId)).inMode,
       5000,
       'tmux to leave copy mode',
     );

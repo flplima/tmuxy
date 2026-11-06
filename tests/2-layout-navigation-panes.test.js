@@ -3,7 +3,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   runCommand,
   waitForPaneCount,
@@ -20,13 +20,7 @@ const {
 
 // ==================== Scenario 4d: Marked pane ====================
 
-describe('Scenario 4d: Marked pane', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4d: Marked pane', {}, (ctx) => {
   // tmux's marked pane (`select-pane -m`) used to be invisible in tmuxy. It now
   // travels on the wire as `#{pane_marked}` and says so three ways: MARKED at
   // the right of the pane's header, an outline on the pane, and a wash of the
@@ -34,7 +28,6 @@ describe('Scenario 4d: Marked pane', () => {
   // not only by a 1px edge. The context menu can swap another pane with it,
   // and clearing the mark (`select-pane -M`) removes all of it.
   test('prefix m flags the pane → swap with marked from the menu → prefix M clears [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     await splitPaneKeyboard(ctx.page, 'vertical');
@@ -57,9 +50,9 @@ describe('Scenario 4d: Marked pane', () => {
         // rather than found in the DOM.
         const wash = content ? getComputedStyle(content, '::after') : null;
         return {
-          state: (window.app?.getSnapshot()?.context?.panes || [])
-            .filter((p) => p.marked)
-            .map((p) => p.tmuxId),
+          state: [...document.querySelectorAll('.pane-layout-item.pane-marked')].map(
+            (el) => el.dataset.paneId,
+          ),
           flags: document.querySelectorAll('[data-testid="pane-header-mark"]').length,
           outlined: document.querySelectorAll('.pane-layout-item.pane-marked').length,
           // Spelled out, and really drawn — a badge with no box says nothing.
@@ -80,9 +73,7 @@ describe('Scenario 4d: Marked pane', () => {
       });
 
     // Step 1: mark the active (right) pane.
-    const rightPane = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    const rightPane = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     await sendPrefixCommand(ctx.page, 'm');
     await waitForCondition(
       ctx.page,
@@ -110,9 +101,7 @@ describe('Scenario 4d: Marked pane', () => {
     // Step 2: from the OTHER pane's context menu, swap it with the marked pane.
     const orderBefore = String(await paneOrder());
     await navigatePaneKeyboard(ctx.page, 'left');
-    const leftPane = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    const leftPane = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(leftPane).not.toBe(rightPane);
     // The pane menu lives behind the header's ⋮ button (a right-click on the
     // content opens the text-selection menu instead).
@@ -145,20 +134,13 @@ describe('Scenario 4d: Marked pane', () => {
 
 // ==================== Scenario 4f: Collapsible panes ====================
 
-describe('Scenario 4f: Collapsible panes', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4f: Collapsible panes', {}, (ctx) => {
   // PANE mode's s turns the window collapsible and adds a first-level row:
   // only the row holding the active pane stays expanded, the others collapse
   // to one line per pane. Nested panes inside a row are never touched. S turns
   // it off and evens the first-level rows out (docs/TMUX.md, "Collapsible
   // panes").
   test('PANE mode s ×2 collapses the other rows → nested split + nav leaves the first level alone → ctrl+k expands a row → PANE mode S evens out', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -231,7 +213,7 @@ describe('Scenario 4f: Collapsible panes', () => {
     expect(before.length).toBe(3);
     // Each move has landed when the active pane changed; the first level must
     // not have moved with it.
-    const active = () => page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId);
+    const active = () => page.evaluate(() => window.app?.view().activePaneId);
     for (const direction of ['left', 'right']) {
       const from = await active();
       await navigatePaneKeyboard(page, direction);
@@ -284,20 +266,13 @@ describe('Scenario 4f: Collapsible panes', () => {
 
 // ==================== Scenario 4b: Split right after a tab switch ====================
 
-describe('Scenario 4b: Split right after a tab switch', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4b: Split right after a tab switch', {}, (ctx) => {
   // The tab switch is optimistic: the client is on the new tab before tmux is.
   // A split fired in that gap used to land in the tab the user just LEFT,
   // because the binding was pinned with `select-pane` only, which never changes
   // tmux's current window. Every binding is now pinned to the visible window
   // too, so the split must follow the eye every time.
   test('prefix % immediately after ctrl+N / tab click / prefix n always splits the visible tab', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     await createWindowKeyboard(ctx.page);
@@ -311,15 +286,12 @@ describe('Scenario 4b: Split right after a tab switch', () => {
       }
       return counts;
     };
-    const visibleWindow = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const visibleWindow = () => ctx.page.evaluate(() => window.app?.view().activeTabId);
 
     // The two tabs' tmux indices, for the ctrl+<digit> root bindings.
-    const indices = await ctx.page.evaluate(() =>
-      (window.app?.getSnapshot()?.context?.windows || [])
-        .filter((w) => w.windowType === 'tab')
-        .map((w) => w.index),
-    );
+    const indices = (await ctx.session.getWindowInfo())
+      .filter((w) => w.windowType === 'tab')
+      .map((w) => w.index);
     const ctrlDigit = async (digit) => {
       await ctx.page.keyboard.down('Control');
       await ctx.page.keyboard.press(String(digit));

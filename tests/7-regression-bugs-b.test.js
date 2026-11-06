@@ -6,7 +6,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   waitForWindowCount,
   typeInTerminal,
@@ -18,26 +18,20 @@ const {
   waitForCondition,
   waitForSettled,
   runCommand,
-  DELAYS,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
+const { tmuxPane } = require('./helpers/tmux-read');
+
+/** Every pane tmux holds, the stash's parked group members included. */
+const allPanes = () => tmuxExec("list-panes -a -F '#{pane_id}'").split('\n').filter(Boolean);
 
 // ==================== Scenario: keystrokes route to clicked pane-group tab ====================
 
-describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: keystrokes route to the clicked pane-group tab', {}, (ctx) => {
   test('a pane header shows a new title the moment the program announces it', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    const paneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId || null,
-    );
+    const paneId = await ctx.page.evaluate(() => window.app?.view().activePaneId || null);
     expect(paneId).not.toBeNull();
 
     const title = `TITLE_${Date.now()}`;
@@ -77,13 +71,10 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
   }, 120000);
 
   test('typing exit in a pane group closes only that member and promotes the next one', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // ALPHA is the anchor, visible to start with.
-    const alphaId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId || null,
-    );
+    const alphaId = await ctx.page.evaluate(() => window.app?.view().activePaneId || null);
     expect(alphaId).not.toBeNull();
     await runCommand(ctx.page, 'echo ALPHA_MARK', 'ALPHA_MARK');
 
@@ -92,16 +83,12 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     await waitForGroupTabs(ctx.page, 2);
     await waitForCondition(
       ctx.page,
-      async () =>
-        (await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId)) !==
-        alphaId,
+      async () => (await ctx.page.evaluate(() => window.app?.view().activePaneId)) !== alphaId,
       8000,
       'the new member to take the keyboard',
     );
 
-    const betaId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId || null,
-    );
+    const betaId = await ctx.page.evaluate(() => window.app?.view().activePaneId || null);
     expect(betaId).not.toBe(alphaId);
     await runCommand(ctx.page, 'echo BETA_MARK', 'BETA_MARK');
 
@@ -118,10 +105,11 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate((gone) => {
-          const panes = window.app?.getSnapshot()?.context?.panes ?? [];
-          return panes.length > 0 && !panes.some((p) => p.tmuxId === gone);
-        }, betaId),
+        !allPanes().includes(betaId) &&
+        (await ctx.page.evaluate(
+          (gone) => document.querySelector(`[data-pane-id="${gone}"]`) === null,
+          betaId,
+        )),
       20000,
       'the exited pane to go and the group to survive it',
     );
@@ -131,20 +119,17 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     // shell appearing.
     await waitForTerminalText(ctx.page, 'ALPHA_MARK', 20000);
 
-    const survivors = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.panes?.map((p) => p.tmuxId) ?? [],
-    );
+    const survivors = allPanes();
     expect(survivors).toContain(alphaId);
     expect(survivors).not.toContain(betaId);
   }, 120000);
 
   test('Typing immediately after a pane-group tab click hits the clicked pane, not the previously-visible one', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Record the original (ALPHA) pane id. ALPHA is visible at this point.
     const alphaId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
+      return window.app?.view().activePaneId || null;
     });
     expect(alphaId).not.toBeNull();
 
@@ -156,15 +141,13 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     await waitForGroupTabs(ctx.page, 2);
     await waitForCondition(
       ctx.page,
-      async () =>
-        (await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.activePaneId)) !==
-        alphaId,
+      async () => (await ctx.page.evaluate(() => window.app?.view().activePaneId)) !== alphaId,
       8000,
       'the new member to take the keyboard',
     );
 
     const betaId = await ctx.page.evaluate(() => {
-      return window.app?.getSnapshot()?.context?.activePaneId || null;
+      return window.app?.view().activePaneId || null;
     });
     expect(betaId).not.toBeNull();
     expect(betaId).not.toBe(alphaId);
@@ -261,13 +244,7 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
 
 // ==================== Scenario: Tab switch converges on idle terminal ====================
 
-describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: Tab switch converges to tmux truth on idle terminal', {}, (ctx) => {
   // Ground truth straight from tmux: the window tmux itself considers active.
   const tmuxActiveWindow = () => {
     const out = tmuxExec(`list-windows -t ${ctx.session.name} -F '#{window_id}|#{window_active}'`, {
@@ -298,14 +275,16 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
       ctx.page,
       async () => {
         state = await ctx.page.evaluate(() => {
-          const c = window.app?.getSnapshot()?.context;
-          const tabs = (c?.windows || []).filter((w) => w.windowType === 'tab');
-          const flagged = tabs.filter((w) => w.active).map((w) => w.id);
-          const activePaneWindow = (c?.panes || []).find(
-            (p) => p.tmuxId === c.activePaneId,
-          )?.windowId;
-          return { activeWindowId: c?.activeWindowId, flagged, activePaneWindow };
+          const v = window.app?.view();
+          // The tabs the strip draws as the current one.
+          const flagged = [...document.querySelectorAll('.tab-name.tab-name-active')].map(
+            (el) => el.dataset.windowId,
+          );
+          return { activeWindowId: v?.activeTabId, flagged, activePaneId: v?.activePaneId };
         });
+        state.activePaneWindow = /^%\d+$/.test(state.activePaneId ?? '')
+          ? tmuxPane(state.activePaneId).windowId
+          : null;
         truth = tmuxActiveWindow();
         return (
           state?.activeWindowId === truth &&
@@ -324,7 +303,6 @@ describe('Scenario: Tab switch converges to tmux truth on idle terminal', () => 
   };
 
   test('Creating tabs then switching keeps the rendered tab in sync with tmux [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // BUG: the optimistic `activeWindowId` flip on tab switch was only ever

@@ -9,9 +9,8 @@
  */
 
 const {
-  createTestContext,
-  navigateToSession,
-  waitForSessionReady,
+  describeE2E,
+  openSession,
   waitForCondition,
   waitForTerminalText,
   afterFrames,
@@ -69,19 +68,11 @@ async function holdsFor(page, ms, holds, what) {
   );
 }
 
-describe('Scenario 6g: a closed sidebar peeks over the panes on hover', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6g: a closed sidebar peeks over the panes on hover', {}, (ctx) => {
   test('a rest on the tree toggle shows the tree over a dimmed, unchanged grid → it holds while the mouse is on it → leaving puts it away and the keyboard is still the pane’s → the toggle’s click docks it', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name);
-    await waitForSessionReady(page, ctx.session.name);
+    await openSession(page, ctx.session.name);
 
     const before = await geometry(page);
     expect(before.peek).toBeNull();
