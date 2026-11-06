@@ -9,12 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import {
-  CHAR_HEIGHT,
-  CONTAINER_PADDING_BOTTOM,
-  CONTAINER_PADDING_X,
-  PHONE_CONTAINER_PADDING,
-} from '../../constants/layout';
+import { CHAR_HEIGHT, CONTAINER_PADDING_BOTTOM, CONTAINER_PADDING_X } from '../../constants/layout';
 import { PANE_OUTLINE_PX } from '../../domain/paneGeometry';
 import { MODAL_HEADER_HEIGHT } from '../Modal';
 import { DEFAULT_APPEARANCE } from '../../domain/tmuxyConstants.gen';
@@ -40,17 +35,10 @@ describe('stylesheet values the layout arithmetic copies', () => {
     expect(px('styles.css', ':root', '--line-height-terminal')).toBe(CHAR_HEIGHT);
   });
 
-  it('the pane container is padded by CONTAINER_PADDING_X / _BOTTOM, and on the phone by PHONE_CONTAINER_PADDING', () => {
+  it('the pane container is padded by CONTAINER_PADDING_X / _BOTTOM', () => {
     expect(px('styles.css', ':root', '--pane-container-padding-x')).toBe(CONTAINER_PADDING_X);
     expect(px('styles.css', ':root', '--pane-container-padding-bottom')).toBe(
       CONTAINER_PADDING_BOTTOM,
-    );
-    const phone = '.app-body-phone .phone-pty .pane-container';
-    expect(px('styles/phone.css', phone, '--pane-container-padding-x')).toBe(
-      PHONE_CONTAINER_PADDING,
-    );
-    expect(px('styles/phone.css', phone, '--pane-container-padding-bottom')).toBe(
-      PHONE_CONTAINER_PADDING,
     );
   });
 

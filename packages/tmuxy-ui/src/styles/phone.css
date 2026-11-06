@@ -40,15 +40,15 @@
 
 .phone-zoom-viewport {
   flex: none;
-  height: calc(24 * var(--line-height-terminal) + 4px);
+  height: calc(var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding));
   overflow: hidden;
 }
 
 .app-body-phone .phone-pty .pane-container {
   flex: none;
-  height: calc(24 * var(--line-height-terminal) + 4px);
-  --pane-container-padding-x: 4px;
-  --pane-container-padding-bottom: 4px;
+  height: calc(var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding));
+  --pane-container-padding-x: var(--phone-container-padding);
+  --pane-container-padding-bottom: var(--phone-container-padding);
   padding: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
   box-sizing: border-box;
   transform-origin: 0 0;
@@ -69,7 +69,10 @@
 }
 
 .phone-pty.is-zoomed .phone-zoom-viewport {
-  height: calc(var(--phone-zoom) * (24 * var(--line-height-terminal) + 4px));
+  height: calc(
+    var(--phone-zoom) *
+      (var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding))
+  );
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
@@ -89,7 +92,7 @@
 
 .phone-pty .tmux-status-bar {
   flex: none;
-  height: 12px;
+  height: var(--phone-status-height);
 }
 
 .phone-pty .tmux-status-bar-content,
@@ -101,13 +104,13 @@
    too wide for them. */
 .phone-pty .statusline-hints {
   display: inline;
-  line-height: 12px;
+  line-height: var(--phone-status-height);
 }
 
 .phone-pty .statusline-host,
 .phone-pty .statusline-session {
   padding: 0 var(--spacing-md);
-  line-height: 12px;
+  line-height: var(--phone-status-height);
   border-radius: 0;
 }
 
