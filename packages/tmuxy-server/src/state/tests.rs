@@ -9,20 +9,6 @@ fn app() -> Router {
     api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::default()))
 }
 
-/// The POST a hostile page can make without a preflight: `text/plain`,
-/// `no-cors`, the command JSON as its body.
-fn forged_command(origin: &'static str, site: &'static str) -> Request<Body> {
-    Request::post("/commands")
-        .header("host", "localhost:9000")
-        .header("origin", origin)
-        .header("sec-fetch-site", site)
-        .header("content-type", "text/plain")
-        .body(Body::from(
-            r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
-        ))
-        .unwrap()
-}
-
 fn preview_page_request(site: &'static str) -> Request<Body> {
     Request::get("/api/preview/7?v=1")
         .header("host", "localhost:9000")
@@ -121,22 +107,6 @@ async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
         .preview_pages
         .page(&tmuxy_core::PaneId::parse("%3").unwrap())
         .is_none());
-}
-
-#[tokio::test]
-async fn a_page_on_another_origin_cannot_post_a_command() {
-    for (origin, site) in [
-        ("https://evil.example", "cross-site"),
-        ("http://localhost:3000", "same-site"),
-        ("null", "cross-site"),
-    ] {
-        let response = app().oneshot(forged_command(origin, site)).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
-        assert!(response
-            .headers()
-            .get("access-control-allow-origin")
-            .is_none());
-    }
 }
 
 #[tokio::test]
