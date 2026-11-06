@@ -9,6 +9,8 @@
 use std::path::PathBuf;
 
 use tmuxy_core::paths::Layout;
+
+use crate::cli_json;
 use tmuxy_core::plugins::invoke::{self, OpenRequest, Trigger};
 use tmuxy_core::plugins::registry::Registry;
 use tmuxy_core::plugins::{log, PluginError};
@@ -202,27 +204,19 @@ pub fn run(args: PluginArgs) {
         } => std::process::exit(invoke::exec(&dirs, &name, &action, &token)),
         PluginCommand::Verb(words) => run_cli_verb(&dirs, &words),
     };
+    let answer = cli_json::Answer::new(json);
     match result {
-        Ok(value) => {
-            if json && !value.is_null() {
-                let mut out = serde_json::json!({ "ok": true });
-                if let (Some(out), Some(fields)) = (out.as_object_mut(), value.as_object()) {
-                    out.extend(fields.clone());
-                }
-                println!("{out}");
-            }
+        Ok(value) if json && !value.is_null() => {
+            let fields: Vec<(&str, String)> = value
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, value)| (name.as_str(), value.to_string()))
+                .collect();
+            answer.done(&fields, "");
         }
-        Err(failure) => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "ok": false, "error": failure.message, "code": failure.code })
-                );
-            } else {
-                eprintln!("tmuxy plugin: {}", failure.message);
-            }
-            std::process::exit(failure.code);
-        }
+        Ok(_) => {}
+        Err(failure) => answer.exit(failure.code, &failure.message),
     }
 }
 
