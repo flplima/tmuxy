@@ -1,9 +1,3 @@
-/**
- * The guest's callers wait on the replies the wasm core answers by id (the
- * core correlates the blocks and times a reply out itself); what the book
- * keeps is which caller an id belongs to, and that none is left waiting when
- * the machine goes away.
- */
 import { describe, expect, it } from 'vitest';
 import { ReplyBook } from '../controlMode';
 
