@@ -156,6 +156,32 @@ fn write_starter(layout: &Layout) {
     }
 }
 
+/// `tmuxy config init`: the starter `tmuxy.conf` into the config dir, and
+/// where it went. Refused when a file is there — a dangling link too, which
+/// is a dotfiles checkout not cloned yet, and writing through it would create
+/// a file in the user's repo.
+pub fn init_user_conf(layout: &Layout) -> Result<PathBuf, String> {
+    let path = layout.user_conf();
+    if std::fs::symlink_metadata(&path).is_ok() {
+        return Err(format!(
+            "{} already exists; not overwriting it",
+            path.display()
+        ));
+    }
+    let mut dir = std::fs::DirBuilder::new();
+    dir.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        dir.mode(0o700);
+    }
+    dir.create(&layout.config)
+        .map_err(|e| format!("cannot create {}: {e}", layout.config.display()))?;
+    crate::private_files::write(&path, DEFAULT_USER_CONF)
+        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    Ok(path)
+}
+
 /// Whether a `tmuxy.conf` line sources the defaults itself, as every
 /// `tmuxy.conf` an older build wrote did. The chain sources them now, from the
 /// data dir, so the line names a file the migration removed.

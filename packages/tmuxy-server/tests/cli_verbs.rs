@@ -176,3 +176,45 @@ fn with_no_server_a_verb_says_so_and_exits_4() {
     assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
     assert!(stderr(&out).contains("no tmux server on socket"));
 }
+
+/// The starter is comments only (tmuxy sources its own layers around it),
+/// and a file already there — a dangling link included, a dotfiles checkout
+/// not cloned yet — is never written over or through.
+#[test]
+fn config_init_writes_the_starter_once_and_never_through_a_link() {
+    let home = std::env::temp_dir().join(format!("tmuxy-cli-verbs-init-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let socket = "tmuxy-cli-verbs-init-unused";
+    let conf = home.join("config/tmuxy/tmuxy.conf");
+
+    let made = verb_in(&home, socket, None, &["config", "init", "--json"]);
+    assert_eq!(made.status.code(), Some(0), "{}", stderr(&made));
+    let answer: serde_json::Value = serde_json::from_str(&stdout(&made)).unwrap();
+    assert_eq!(answer["file"], conf.display().to_string());
+    let starter = std::fs::read_to_string(&conf).unwrap();
+    assert!(
+        starter.contains("# tmuxy.conf: your overrides"),
+        "{starter}"
+    );
+    assert!(starter
+        .lines()
+        .all(|l| l.trim().is_empty() || l.trim().starts_with('#')));
+
+    std::fs::write(&conf, "set -g prefix C-Space\n").unwrap();
+    let again = verb_in(&home, socket, None, &["config", "init"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert!(stderr(&again).contains("already exists"));
+    assert_eq!(
+        std::fs::read_to_string(&conf).unwrap(),
+        "set -g prefix C-Space\n"
+    );
+
+    std::fs::remove_file(&conf).unwrap();
+    let target = home.join("dotfiles/tmuxy.conf");
+    std::os::unix::fs::symlink(&target, &conf).unwrap();
+    let linked = verb_in(&home, socket, None, &["config", "init"]);
+    assert_eq!(linked.status.code(), Some(1));
+    assert!(!target.exists());
+    let _ = std::fs::remove_dir_all(&home);
+}

@@ -36,8 +36,8 @@ pub enum Verb {
     /// Install, list, update and remove plugins, and run their actions.
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
     Plugin(plugin_cli::PluginArgs),
-    /// The config verbs whose work is a file tmuxy-core owns: `paths`,
-    /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
+    /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
+    /// `use-tmux-conf`. Backs `tmuxy config`.
     Config(config_cli::ConfigArgs),
     /// Type keys, or paste text, into a pane, asking the user there first
     /// when it is not the caller's own. Backs `tmuxy pane send` and
