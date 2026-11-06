@@ -59,6 +59,16 @@ impl Field {
         matches!(self, Field::Text(_) | Field::TextFormat(_))
     }
 
+    /// What tmux printed for this field, its commas back when it is free
+    /// text.
+    pub fn read(self, printed: &str) -> String {
+        if self.is_text() {
+            unescape_commas(printed)
+        } else {
+            printed.to_string()
+        }
+    }
+
     pub fn format(self) -> String {
         match self {
             Field::Var(name) => format!("#{{{name}}}"),
@@ -78,9 +88,15 @@ pub trait Column: Copy + std::fmt::Debug + 'static {
 }
 
 pub fn row_format<C: Column>() -> String {
-    C::ALL
-        .iter()
-        .map(|column| column.field().format())
+    fields_format(C::ALL.iter().map(|column| column.field()))
+}
+
+/// The `-F` format of a row of `fields`, in order: one field per column, so
+/// a row splits back on its commas.
+pub fn fields_format(fields: impl IntoIterator<Item = Field>) -> String {
+    fields
+        .into_iter()
+        .map(Field::format)
         .collect::<Vec<_>>()
         .join(",")
 }
