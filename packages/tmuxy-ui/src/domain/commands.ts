@@ -275,9 +275,11 @@ function hasControlCharacter(text: string): boolean {
  * the window (which is what steers tmux's current target), then the pane.
  */
 export function pinPrefix(windowId: WindowId | null, paneId: PaneId | null): string {
-  const window = windowId ? `select-window -t ${windowId} \\; ` : '';
-  const pane = paneId ? `select-pane -t ${paneId} \\; ` : '';
-  return window + pane;
+  const pins = [
+    ...(windowId ? [`select-window -t ${windowId}`] : []),
+    ...(paneId ? [`select-pane -t ${paneId}`] : []),
+  ];
+  return list([...pins, '']);
 }
 
 /** The one place an op becomes tmux syntax. */

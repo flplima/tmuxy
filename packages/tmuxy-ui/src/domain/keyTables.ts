@@ -11,10 +11,8 @@
  * the table does not bind leaves it.
  */
 
-/** The parts of a tmux command list, split on its `;` separators. */
-function commandParts(command: string): string[] {
-  return command.split(/\s+\\?;\s+/);
-}
+import { list } from './commandHelpers';
+import { commandListParts } from './store/parseCommand';
 
 /** `switch-client -T <table>` (or `switchc`), with the table it names. */
 const TABLE_SWITCH = /^(?:switch-client|switchc)\b.*\s-T\s+(\S+)/;
@@ -31,10 +29,10 @@ export function splitTableSwitch(command: string): {
 } {
   let table: string | null | undefined;
   const rest: string[] = [];
-  for (const part of commandParts(command.trim())) {
+  for (const part of commandListParts(command)) {
     const named = part.match(TABLE_SWITCH)?.[1];
     if (named === undefined) rest.push(part);
     else table = named === 'root' ? null : named;
   }
-  return { command: rest.join(' \\; ').trim(), table };
+  return { command: list(rest), table };
 }

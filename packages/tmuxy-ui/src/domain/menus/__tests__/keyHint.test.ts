@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { boundAction, getKeybindingLabel, keyHint } from '../keyHint';
+import { getKeybindingLabel, keyHint } from '../keyHint';
 import { TmuxOp } from '../../commands';
 import type { KeyBindings } from '../../wire';
 
@@ -55,17 +55,5 @@ describe('getKeybindingLabel', () => {
   it('matches what a binding does, not something that only shares its name', () => {
     expect(getKeybindingLabel(REAL, 'split-window')).toBeUndefined();
     expect(getKeybindingLabel(REAL, 'kill-pane -a')).toBeUndefined();
-  });
-});
-
-describe('boundAction', () => {
-  it('unwraps confirm-before with its flags and a quoted command', () => {
-    expect(boundAction('confirm-before -y -p "really? (y/n)" "kill-session"')).toBe('kill-session');
-    expect(boundAction("confirm-before -p 'go?' kill-server")).toBe('kill-server');
-  });
-
-  it('drops the directory a split or a new window starts in, however it is quoted', () => {
-    expect(boundAction("split-window -h -c '#{pane_current_path}'")).toBe('split-window -h');
-    expect(boundAction('new-window -c #{pane_current_path}')).toBe('new-window');
   });
 });

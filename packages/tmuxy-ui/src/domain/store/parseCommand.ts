@@ -14,39 +14,163 @@ import { TmuxOp, type PaneDirection } from '../commands';
 import { isPaneId, isWindowId } from '../ids';
 
 /**
+ * One word of a command as tmux's parser reads it, with where it sits in the
+ * string: `'…'` and `"…"` are one word each, quotes removed, with `\"` and
+ * `\\` inside double quotes standing for themselves (how `list-keys` prints a
+ * template holding quotes); a `{ … }` block is one word, its contents (how it
+ * prints a template given as a block).
+ */
+interface Token {
+  word: string;
+  start: number;
+  end: number;
+  /** Written bare, so a `;` or `\;` here separates commands. */
+  bare: boolean;
+}
+
+function tokens(command: string): Token[] {
+  const found: Token[] = [];
+  const re = /'([^']*)'|"((?:[^"\\]|\\.)*)"|\{\s*([^}]*?)\s*\}|(\S+)/g;
+  let m;
+  while ((m = re.exec(command)) !== null) {
+    const word = m[2] !== undefined ? m[2].replace(/\\(["\\])/g, '$1') : (m[1] ?? m[3] ?? m[4]);
+    found.push({ word, start: m.index, end: re.lastIndex, bare: m[4] !== undefined });
+  }
+  return found;
+}
+
+/** A command's words (see `Token`). */
+export function commandWords(command: string): string[] {
+  return tokens(command).map((t) => t.word);
+}
+
+const isSeparator = (t: Token) => t.bare && (t.word === ';' || t.word === '\\;');
+
+/** Each command of a tmux command list, verbatim, with each start offset. */
+function listParts(command: string): Array<{ text: string; start: number }> {
+  const parts: Array<{ text: string; start: number }> = [];
+  let first: Token | null = null;
+  let last: Token | null = null;
+  const close = () => {
+    if (first && last)
+      parts.push({ text: command.slice(first.start, last.end), start: first.start });
+    first = last = null;
+  };
+  for (const token of tokens(command)) {
+    if (isSeparator(token)) close();
+    else {
+      first ??= token;
+      last = token;
+    }
+  }
+  close();
+  return parts;
+}
+
+/** The commands of a tmux command list (`a \; b`), each verbatim. */
+export function commandListParts(command: string): string[] {
+  return listParts(command).map((p) => p.text);
+}
+
+/**
  * Strip the pin keyboardActor prepends to every prefix/root binding —
- * `select-window -t @N \;` and/or `select-pane -t %N \;` (see `pinPrefix`) —
+ * `select-window -t @N \;` and/or `select-pane -t %N \;` (`pinPrefix`) —
  * leaving the binding itself. Without this every binding would read as a
  * `SelectWindow`/`SelectPane` (the pin matches first) and the real operation
  * would be lost. The original command is still what goes to tmux.
  */
 export function stripPin(command: string): string {
-  const m = command.match(
-    /^(?:select-window\s+-t\s+\S+\s+\\;\s*)?(?:select-pane\s+-t\s+\S+\s+\\;\s*)?/,
-  );
-  return m && m[0] ? command.slice(m[0].length) : command;
+  const parts = listParts(command);
+  let i = 0;
+  if (i < parts.length - 1 && /^select-window\s+-t\s+\S+$/.test(parts[i].text)) i++;
+  if (i < parts.length - 1 && /^select-pane\s+-t\s+\S+$/.test(parts[i].text)) i++;
+  return i === 0 ? command : command.slice(parts[i].start);
 }
 
 /**
- * Words as tmux's parser reads them: `'…'` and `"…"` are one word each, quotes
- * removed, with `\"` and `\\` inside double quotes standing for themselves (how
- * `list-keys` prints a template holding quotes); a `{ … }` block is one word,
- * its contents (how it prints a template given as a block).
+ * The script a `run-shell` command runs — `name` is its file name, `bundled`
+ * whether it is one of tmuxy's own (`bin/tmuxy/`) — with its arguments; null
+ * for any other command. `bash`/`sh` in front of the path are skipped, as
+ * the config's aliases put it there.
  */
-function words(command: string): string[] {
-  const tokens: string[] = [];
-  const re = /'([^']*)'|"((?:[^"\\]|\\.)*)"|\{\s*([^}]*?)\s*\}|(\S+)/g;
-  let m;
-  while ((m = re.exec(command)) !== null) {
-    if (m[2] !== undefined) tokens.push(m[2].replace(/\\(["\\])/g, '$1'));
-    else tokens.push(m[1] ?? m[3] ?? m[4]);
+export function runShellScript(
+  command: string,
+): { name: string; bundled: boolean; args: string[] } | null {
+  const words = commandWords(command);
+  if (words[0] !== 'run-shell') return null;
+  let i = 1;
+  while (i < words.length && words[i].startsWith('-')) i += /^-[dt]$/.test(words[i]) ? 2 : 1;
+  if (i >= words.length) return null;
+  const shell = commandWords(words[i]);
+  const at = shell[0] === 'bash' || shell[0] === 'sh' ? 1 : 0;
+  const path = shell[at];
+  if (path === undefined) return null;
+  return {
+    name: path.slice(path.lastIndexOf('/') + 1),
+    bundled: path.includes('bin/tmuxy/'),
+    args: shell.slice(at + 1),
+  };
+}
+
+/** The verbs that re-tile a window to a preset layout. */
+const LAYOUT_VERBS = new Set([
+  'select-layout',
+  'selectl',
+  'next-layout',
+  'nextl',
+  'previous-layout',
+  'prevl',
+]);
+
+/** Whether any command of the list re-tiles a window to a preset layout. */
+export function isLayoutCommand(command: string): boolean {
+  return commandListParts(command).some((part) => LAYOUT_VERBS.has(commandWords(part)[0]));
+}
+
+/**
+ * `select-window -t N` exactly, the binding of a tab's visual position (the
+ * `tab` table's digits): N, or null for any other command.
+ */
+export function tabPosition(command: string): number | null {
+  const m = stripPin(command).match(/^select-window\s+-t\s+(\d+)$/);
+  return m ? Number(m[1]) : null;
+}
+
+/** `-c "#{pane_current_path}"`, in any quoting: a start directory, not a different command. */
+const isCurrentPathFlag = (flag: Token, value: Token | undefined) =>
+  flag.bare && flag.word === '-c' && value?.word === '#{pane_current_path}';
+
+/**
+ * What a bound command does, for matching it to a menu item's: a split or a
+ * new window that starts in the pane's directory is still that split or
+ * window, and a kill that asks first (tmux's own `x`) is still that kill.
+ */
+export function boundAction(command: string): string {
+  let action = command.trim();
+  const words = tokens(action);
+  if (words[0]?.word === 'confirm-before') {
+    let i = 1;
+    while (i < words.length && /^-[by]+$/.test(words[i].word)) i++;
+    while (i < words.length && /^-[pct]$/.test(words[i].word)) i += 2;
+    const rest = words.slice(i);
+    if (rest.length === 0) return '';
+    action = rest.length === 1 ? rest[0].word : action.slice(rest[0].start);
   }
-  return tokens;
+  const all = tokens(action);
+  let out = '';
+  let from = 0;
+  for (let i = 0; i < all.length; i++) {
+    if (!isCurrentPathFlag(all[i], all[i + 1])) continue;
+    out += action.slice(from, all[i].start).trimEnd();
+    from = all[i + 1].end;
+    i++;
+  }
+  return (out + action.slice(from)).trim();
 }
 
 /** `command-prompt [-p prompt] [-I initial] [flags] [template]`. */
 function parseCommandPrompt(command: string): TmuxOp {
-  const tokens = words(command);
+  const tokens = commandWords(command);
   let prompt: string | null = null;
   let initial = '';
   let template: string | null = null;
@@ -118,23 +242,23 @@ export function parseCommandToOp(command: string): TmuxOp {
   // predicts the neighbour and the server's answer rolls it back, the same
   // reconcile path every other focus op uses. At the grid edge there is no
   // neighbour, so nothing is predicted at all.
+  const script = runShellScript(trimmed);
   const navWord =
     trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/)?.[1] ??
-    trimmed.match(/^run-shell\s+.*\bbin\/tmuxy\/nav\s+(left|right|up|down)\b/)?.[1];
-  if (navWord) {
+    (script?.bundled && script.name === 'nav' ? script.args[0] : undefined);
+  if (navWord !== undefined && Object.prototype.hasOwnProperty.call(NAV, navWord)) {
     return TmuxOp.Navigate({ direction: NAV[navWord as keyof typeof NAV], script: true });
   }
 
   // Pane-group next/prev: the alias, or its expanded `run-shell` form.
-  const groupStep =
-    trimmed.match(/^tmuxy-pane-group-(next|prev)\b/) ??
-    trimmed.match(/^run-shell\s+.*\/pane-group'?\s+(next|prev)\b(?:\s+(%\d+))?/);
-  if (groupStep) {
-    const paneId = groupStep[2];
-    return TmuxOp.GroupStep({
-      direction: groupStep[1] as 'next' | 'prev',
-      paneId: isPaneId(paneId) ? paneId : null,
-    });
+  const alias = trimmed.match(/^tmuxy-pane-group-(next|prev)\b/);
+  const [step, paneArg]: Array<string | undefined> = alias
+    ? [alias[1]]
+    : script?.name === 'pane-group'
+      ? script.args
+      : [];
+  if (step === 'next' || step === 'prev') {
+    return TmuxOp.GroupStep({ direction: step, paneId: isPaneId(paneArg) ? paneArg : null });
   }
 
   // swap-pane -s %X -t %Y (and the reversed -t/-s form)
@@ -178,7 +302,7 @@ export function parseCommandToOp(command: string): TmuxOp {
   // select-pane -t %X -T title — only the title changes; the focus does not.
   const title = trimmed.match(/^(select-pane|selectp)\s+-t\s+(%\d+)\s+-T\s+(.+)$/s);
   if (title && isPaneId(title[2])) {
-    return TmuxOp.SetPaneTitle({ paneId: title[2], title: words(title[3])[0] ?? '' });
+    return TmuxOp.SetPaneTitle({ paneId: title[2], title: commandWords(title[3])[0] ?? '' });
   }
 
   // select-pane -t %X — direct focus

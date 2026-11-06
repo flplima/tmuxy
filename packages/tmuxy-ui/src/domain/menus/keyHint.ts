@@ -5,7 +5,7 @@
 
 import type { KeyBindings } from '../wire';
 import { toTmuxCommand, type TmuxOp } from '../commands';
-import { parseCommandToOp } from '../store/parseCommand';
+import { boundAction, parseCommandToOp } from '../store/parseCommand';
 
 /** Special key display mappings */
 const KEY_DISPLAY: Record<string, string> = {
@@ -36,30 +36,6 @@ export function formatPrefixKey(prefixKey: string): string {
  */
 export function formatBindingKey(key: string): string {
   return KEY_DISPLAY[key] ?? key;
-}
-
-/** `-c "#{pane_current_path}"`, in any of the quotings `list-keys` prints it with. */
-const CURRENT_PATH_FLAG =
-  /\s+-c\s+(?:"#\{pane_current_path\}"|'#\{pane_current_path\}'|#\{pane_current_path\})/g;
-
-/** `confirm-before`'s own flags, ahead of the command it asks about. */
-const CONFIRM_BEFORE =
-  /^confirm-before(?:\s+-[by])*(?:\s+-[pct]\s+(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+))*\s+/;
-
-/**
- * What a bound command does, for matching it to a menu item's: a split or a
- * new window that starts in the pane's directory is still that split or
- * window, and a kill that asks first (tmux's own `x`) is still that kill.
- */
-export function boundAction(command: string): string {
-  let action = command.trim();
-  const confirm = action.match(CONFIRM_BEFORE);
-  if (confirm) {
-    action = action.slice(confirm[0].length).trim();
-    const quoted = action.match(/^"(.*)"$|^'(.*)'$/);
-    if (quoted) action = quoted[1] ?? quoted[2];
-  }
-  return action.replace(CURRENT_PATH_FLAG, '').trim();
 }
 
 /** A prefix-table key as the menus show it: `ctrl+a x`. */

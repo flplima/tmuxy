@@ -4,6 +4,10 @@
  */
 
 import type { TmuxOp } from './commands';
+import { commandListParts, isLayoutCommand, runShellScript } from './store/parseCommand';
+
+/** The `pane-group` verbs that restructure windows over several steps. */
+const MULTI_STEP_GROUP_VERBS = new Set(['add', 'close', 'switch', 'next', 'prev']);
 
 /**
  * Ops that run a multi-step server script or create a window, whose
@@ -19,10 +23,14 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'GroupStep':
       return true;
     case 'RawCommand':
-      return (
-        /^run-shell\b/.test(op.command) &&
-        /pane-group'? (add|close|switch|next|prev)|float-create/.test(op.command)
-      );
+      return commandListParts(op.command).some((part) => {
+        const script = runShellScript(part);
+        return (
+          script !== null &&
+          (script.name === 'float-create' ||
+            (script.name === 'pane-group' && MULTI_STEP_GROUP_VERBS.has(script.args[0])))
+        );
+      });
     default:
       return false;
   }
@@ -31,8 +39,5 @@ export function isMultiStep(op: TmuxOp): boolean {
 /** Ops that re-tile the window (a preset layout), for transient-focus suppression. */
 export function isLayoutChange(op: TmuxOp): boolean {
   if (op._tag === 'SelectLayout') return true;
-  return (
-    op._tag === 'RawCommand' &&
-    /^(next-layout|previous-layout|select-layout|selectl)\b/.test(op.command)
-  );
+  return op._tag === 'RawCommand' && isLayoutCommand(op.command);
 }
