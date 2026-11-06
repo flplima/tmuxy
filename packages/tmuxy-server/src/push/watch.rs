@@ -4,7 +4,7 @@
 //! see it.
 
 use std::collections::HashMap;
-use tmuxy_core::host::socket_watch::{is_version, PaneRow};
+use tmuxy_core::host::socket_watch::PaneRow;
 
 /// The states a notification is sent for.
 const NOTIFY_STATES: [&str; 2] = ["needs-input", "error"];
@@ -26,11 +26,8 @@ impl Notice {
     fn for_row(row: &PaneRow, host: &str) -> Self {
         let name = if !row.label.is_empty() {
             row.label.clone()
-        } else if is_version(&row.command) {
-            // Claude Code runs as `…/claude/versions/<version>`.
-            "claude".to_string()
         } else {
-            row.command.clone()
+            tmuxy_core::program::program_name(&row.command).to_string()
         };
         let title = match row.state.as_str() {
             "error" => format!("{name} stopped with an error"),

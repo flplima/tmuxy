@@ -135,6 +135,8 @@ case "${1:-}" in
       *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
       *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
       *@tmuxy-send-allow-into) echo "${MOCK_TMUX_SEND_ALLOW_INTO:-}"; exit 0 ;;
+      # The caller's window's type (`window_type`, packages/tmuxy-cli/bin/tmuxy/_lib).
+      *@tmuxy-window-type) echo "${MOCK_TMUX_WINDOW_TYPE:-}"; exit 0 ;;
       # The pane's state, played from the log once the script has written
       # one (the last write wins, an unset clears it), else
       # MOCK_TMUX_PANE_STATE: a pane marked waiting reads as waiting.
@@ -192,10 +194,6 @@ case "${1:-}" in
       # when a `splitw` precedes it (`tab create`).
       *breakp*'-P'*) response="${MOCK_TMUX_BREAK_WINDOW_ID:-@99}" ;;
       *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
-      # A float's command list ends by naming the float's pane and window.
-      *"'##{pane_id} ##{window_id}'"*)
-        response="${MOCK_TMUX_PANE_ID:-%99} ${MOCK_TMUX_FLOAT_WINDOW_ID:-@98}"
-        ;;
       *) response="" ;;
     esac
     # `_run_shell` has the command write its output and exit status to files
@@ -209,10 +207,6 @@ case "${1:-}" in
     if [ -n "$run_dir" ] && [ -n "${MOCK_TMUX_RUN_STATUS:-}" ]; then
       echo "$MOCK_TMUX_RUN_STATUS" > "$run_dir/status"
     fi
-    # A float running a command splits off a wrapper that writes the
-    # command's stdout where `pane float` reads it: play the float's pane.
-    float_wrapper=$(printf '%s' "$2" | sed -n "s/.*bash \(\/[^ ']*tmuxy-float-cmd\.[^ ']*\).*/\1/p")
-    [ -z "$float_wrapper" ] || bash "$float_wrapper" </dev/null
     if [ -n "$dir" ]; then
       [ -n "$response" ] && echo "$response" > "$dir/out"
       echo "$exit_code" > "$dir/status"

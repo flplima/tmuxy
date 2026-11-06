@@ -129,7 +129,7 @@ pub fn run_server(args: Vec<String>) {
     // Match the standalone `tmuxy-server` binary: without a subscriber, every
     // server log — including the fatal dev-mode port-collision message — is
     // silently dropped, so `tmuxy server` would exit with no diagnostic output.
-    tmuxy_server::init_logging();
+    tmuxy_core::logging::init_logging();
     // Everything after the `server` noun is the server's own command line.
     run_server_argv(args.into_iter().skip(1));
 }

@@ -16,7 +16,7 @@ pub fn run() {
     // The same subscriber as the server's, plus a copy of its lines in the
     // state dir: an app launched from Finder has no stderr anyone sees, and
     // the file is what Help ▸ Reveal Log File shows and the smoke tests read.
-    tmuxy_server::init_logging_to_file(&tmuxy_core::paths::log_file());
+    tmuxy_core::logging::init_logging_to_file(&tmuxy_core::paths::log_file());
     tmuxy_core::trace::init(None, cfg!(debug_assertions));
 
     #[allow(unused_mut)]

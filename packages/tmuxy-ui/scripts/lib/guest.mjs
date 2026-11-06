@@ -3,7 +3,8 @@
  * the repo: the i686 static binaries the pane-group scripts run, the `tmuxy`
  * CLI with its helper scripts, and the tmux config the app ships.
  */
-import { chmod, cp, mkdir, readdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { chmod, cp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,37 +12,26 @@ import { fileURLToPath } from 'node:url';
 export const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
 /**
- * The guest's tmuxy layout, as the app lays it out on a real machine (tmuxy-core
- * `session::Layout`): the shipped config and the scripts in the data dir, the
- * user's `tmuxy.conf` in the config dir, and tmux started with the chain, which
- * lives in the state dir.
+ * The guest's tmuxy layout, and the config chain tmux starts with there:
+ * tmuxy-core's own, generated into `guest.gen.json` (by
+ * `tmuxy-core/tests/generated_constants.rs`), so the guest cannot drift from
+ * what the app builds on a real machine.
  */
-export const GUEST_DATA_DIR = '/root/.local/share/tmuxy';
-export const GUEST_CONFIG_DIR = '/root/.config/tmuxy';
-export const GUEST_STATE_DIR = '/root/.local/state/tmuxy';
-export const GUEST_ENTRY_CONF = `${GUEST_STATE_DIR}/tmuxy.entry.conf`;
+const GENERATED = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'guest.gen.json'), 'utf8'),
+);
+export const GUEST_DATA_DIR = GENERATED.dataDir;
+export const GUEST_CONFIG_DIR = GENERATED.configDir;
+export const GUEST_STATE_DIR = GENERATED.stateDir;
+export const GUEST_ENTRY_CONF = GENERATED.entryConf;
 
 /** The config files the app ships, copied into the guest's data dir. */
 export const GUEST_CONF_ASSETS = ['tmuxy.defaults.conf', 'tmuxy.essentials.conf'];
 export const GUEST_CONF_ASSETS_DIR = join(REPO, 'packages', 'tmuxy-core', 'assets');
 
-/**
- * The chain tmux starts with, as tmuxy-core's `entry_conf` builds it: the data
- * dir the essentials' aliases and the client's script commands name the
- * scripts by (`$TMUXY_DATA_DIR`), and the file Reload Config sources, then
- * the layers in order.
- */
+/** The chain tmux starts with: tmuxy-core's entry file for the guest's layout. */
 export function guestEntryConf() {
-  return [
-    '# The config chain, as tmuxy builds it on a real machine.',
-    `set-environment -g TMUXY_DATA_DIR ${GUEST_DATA_DIR}`,
-    `set-environment -g TMUXY_ENTRY_CONF ${GUEST_ENTRY_CONF}`,
-    `source-file ${GUEST_DATA_DIR}/tmuxy.essentials.conf`,
-    `source-file ${GUEST_DATA_DIR}/tmuxy.defaults.conf`,
-    `source-file -q ${GUEST_CONFIG_DIR}/tmuxy.conf`,
-    `source-file ${GUEST_DATA_DIR}/tmuxy.essentials.conf`,
-    '',
-  ].join('\n');
+  return GENERATED.entryConfText;
 }
 
 /** The guest user's `tmuxy.conf`, overrides only: `defaultCommand` (bash as a
@@ -103,7 +93,10 @@ export async function crossCompileGuestBinaries(names, destDir) {
 export async function stageTmuxyScripts(destBinDir) {
   const cliBin = join(REPO, 'packages', 'tmuxy-cli', 'bin');
   await mkdir(join(destBinDir, 'tmuxy'), { recursive: true });
-  await cp(join(cliBin, 'tmuxy-cli'), join(destBinDir, 'tmuxy-cli'));
+  // With the version written in, as the app mirrors it (`session::assets`).
+  const { version } = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
+  const cli = readFileSync(join(cliBin, 'tmuxy-cli'), 'utf8');
+  await writeFile(join(destBinDir, 'tmuxy-cli'), cli.replaceAll('@TMUXY_VERSION@', version));
   await chmod(join(destBinDir, 'tmuxy-cli'), 0o755);
   for (const f of await readdir(join(cliBin, 'tmuxy'))) {
     await cp(join(cliBin, 'tmuxy', f), join(destBinDir, 'tmuxy', f), { recursive: true });

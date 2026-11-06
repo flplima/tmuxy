@@ -219,7 +219,7 @@ fn user_layer(layout: &Layout) -> PathBuf {
 /// 4. The user's `tmuxy.conf` — their overrides, after `~/.tmux.conf` so the
 ///    tmuxy-specific file has the last word on taste.
 /// 5. `tmuxy.essentials.conf` again — so no config can take the app apart.
-fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
+fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path, tmux: &str) -> String {
     let quote = |path: &Path| crate::executor::tmux_quote(&path.to_string_lossy());
     let essentials = quote(&layout.path(&paths::ESSENTIALS_CONF));
     let tmux_conf = if use_tmux_conf {
@@ -247,10 +247,17 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
         data = quote(&layout.data),
         entry = quote(&layout.entry_conf()),
         cli = quote(&layout.cli()),
-        tmux = crate::executor::tmux_quote(super::tmux_path()),
+        tmux = crate::executor::tmux_quote(tmux),
         defaults = quote(&layout.path(&paths::DEFAULTS_CONF)),
         user = quote(user),
     )
+}
+
+/// The entry file for a machine tmuxy itself never starts on, a browser
+/// guest's image, whose tmux is `tmux` on its PATH: the same chain, built
+/// from the user's file as it stands, so the guest cannot drift from it.
+pub fn guest_entry_conf(layout: &Layout) -> String {
+    entry_conf(layout, false, &layout.user_conf(), "tmux")
 }
 
 /// Regenerate the entry file from the current `use-tmux-conf` choice and the
@@ -264,7 +271,11 @@ fn write_entry(layout: &Layout) -> PathBuf {
         .unwrap_or(false);
     let user = user_layer(layout);
     let path = layout.entry_conf();
-    write_generated(&path, &entry_conf(layout, use_tmux_conf, &user), false);
+    write_generated(
+        &path,
+        &entry_conf(layout, use_tmux_conf, &user, super::tmux_path()),
+        false,
+    );
     path
 }
 

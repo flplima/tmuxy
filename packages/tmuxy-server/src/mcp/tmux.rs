@@ -17,6 +17,7 @@ use tmuxy_core::{tmux_quote, transport, CommandError, PaneId};
 use crate::state::AppState;
 
 /// A session an agent is driving, attached.
+#[derive(Clone)]
 pub(super) struct Tmux {
     state: Arc<AppState>,
     session: SessionName,
@@ -52,10 +53,6 @@ impl Tmux {
 
     pub(super) fn session(&self) -> &SessionName {
         &self.session
-    }
-
-    pub(super) fn channel(&self) -> &MonitorCommandSender {
-        &self.tx
     }
 
     /// Keep holding the monitor through a long wait (`AGENT_HOLD`).

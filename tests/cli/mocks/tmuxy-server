@@ -12,4 +12,18 @@ if [ "${1:-} ${2:-}" = "session snapshots" ] && [ -n "${MOCK_SERVER_SNAPSHOTS:-}
   printf '%b\n' "$MOCK_SERVER_SNAPSHOTS"
   exit 0
 fi
+# A float (`float-create`): its command line goes to MOCK_SERVER_LOG, a
+# wrapper script it runs (`--command 'bash <wrapper>'`) is played as the
+# float's pane would run it, and its pane and window ids are the answer.
+if [ "${1:-}" = float ]; then
+  [ -n "${MOCK_SERVER_LOG:-}" ] && printf '%s\n' "$*" >> "$MOCK_SERVER_LOG"
+  while [ $# -gt 0 ]; do
+    if [ "$1" = --command ] && [[ "${2:-}" == "bash /"*tmuxy-float-cmd.* ]]; then
+      bash "${2#bash }" </dev/null
+    fi
+    shift
+  done
+  echo "${MOCK_FLOAT_IDS:-%99 @98}"
+  exit 0
+fi
 echo "mock-server-started $*"

@@ -5,9 +5,8 @@ use serde_json::{json, Map, Value};
 
 use super::{Agent, Hook};
 
-/// The skill every agent gets: the same text `tmuxy skill` prints (a CLI test
-/// keeps the two equal).
-pub(super) const SKILL: &str = include_str!("../../../../.agents/skills/tmuxy/SKILL.md");
+/// The skill every agent gets, and the text `tmuxy skill` prints.
+pub(crate) const SKILL: &str = include_str!("../../../../.agents/skills/tmuxy/SKILL.md");
 pub(super) const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Written beside an installed SKILL.md: what makes the directory tmuxy's to
 /// update or remove, and the version `status` compares against.
