@@ -7,6 +7,7 @@
 mod agents;
 mod cli_json;
 mod config_cli;
+mod connect_cli;
 mod plugin_cli;
 mod send_cli;
 mod session_cli;
@@ -41,6 +42,11 @@ pub enum Verb {
     /// `tmuxy pane paste`, which resolve the target and the caller.
     #[command(hide = true)]
     Send(send_cli::SendArgs),
+    /// Ask the desktop app to reconnect to another tmux server, and save the
+    /// server for the session menu. Backs `tmuxy connect` and
+    /// `tmuxy session connect`, which probe the server first.
+    #[command(hide = true)]
+    Connect(connect_cli::ConnectArgs),
 }
 
 /// Run one verb to completion.
@@ -53,5 +59,6 @@ pub async fn run(verb: Verb) {
         Verb::Plugin(args) => plugin_cli::run(args),
         Verb::Config(args) => config_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
+        Verb::Connect(args) => connect_cli::run(args),
     }
 }

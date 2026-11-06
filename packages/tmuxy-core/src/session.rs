@@ -269,7 +269,7 @@ pub fn session_name() -> String {
 }
 
 /// Whether `dest` is an ssh destination and nothing more: `[user@]host`,
-/// never an option. A `TMUXY_CONNECT_SSH` is written into the tmux server's
+/// never an option. A connect request's host is written into the tmux server's
 /// environment by anything that can reach it, and ssh runs a
 /// `-oProxyCommand=…` as a local command.
 pub fn is_ssh_destination(dest: &str) -> bool {

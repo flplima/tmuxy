@@ -462,13 +462,6 @@ cmd_connect() {
   if ! _is_safe_socket "$socket"; then
     _fail "$EXIT_USAGE" "'$socket' is not a valid tmux socket name or absolute path"
   fi
-  if [ -n "$session" ] && ! _is_safe_session_name "$session"; then
-    _fail "$EXIT_USAGE" "'$session' is not a valid tmux session name"
-  fi
-
-  # Target socket flag: a slash means a full socket path (-S), else a name (-L).
-  local target_flag="-L"
-  case "$socket" in */*) target_flag="-S" ;; esac
 
   # Resolve the session when the caller didn't name one: prefer the target
   # server's first existing session with a safe name (`_first_safe_session`),
@@ -476,24 +469,19 @@ cmd_connect() {
   # the target socket directly is read-only and safe even though it's a
   # different server.
   if [ -z "$session" ]; then
-    # `|| true` so a missing/empty target server (list-sessions exits non-zero)
-    # doesn't trip `set -e`; fall back to `tmuxy`.
-    session="$(_first_safe_session "$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
+    local target_flag="-L"
+    case "$socket" in */*) target_flag="-S" ;; esac
+    session="$(_first_safe_session "$(command "$TMUX_BIN" "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
     [ -z "$session" ] && session="tmuxy"
   fi
 
-  # Publish the request on the CURRENT server via run-shell (control-mode safe).
-  # The desktop app's connect watcher reads these and reconnects.
-  # Session first, socket last: the desktop app's watcher triggers on
-  # TMUXY_CONNECT_TO, so it must be the final write or the poll can fire
-  # between the two and reconnect to the default session.
-  _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session")"
-  _run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$socket")"
-
+  # The server binary publishes the request on the CURRENT server, where the
+  # desktop app's connect watcher reads it (tmuxy_core::servers::connect).
+  find_server_cmd || exit "$EXIT_FAILED"
   if [ "$JSON_OUT" = true ]; then
-    json_ok "socket=$(json_string "$socket")" "session=$(json_string "$session")"
-    return 0
+    exec "${SERVER_CMD[@]}" connect --socket "$socket" --session "$session" --json
   fi
+  "${SERVER_CMD[@]}" connect --socket "$socket" --session "$session" || exit $?
   echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
   echo "No effect in the web UI — the web server's socket is fixed at launch."
 }

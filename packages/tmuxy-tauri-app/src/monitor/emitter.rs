@@ -5,6 +5,7 @@ use tmuxy_core::control_mode::{LogKind, LogSink, MonitorCommandSender, StateEmit
 use tmuxy_core::transport::{self, KeyBindings};
 use tmuxy_core::StateUpdate;
 
+use tmuxy_core::servers::connect::{ConnectRequest, CONNECT_REQUEST};
 use tmuxy_core::session::session_name as get_session;
 
 use super::{request_reconnect, ConnectTarget, MonitorState};
@@ -207,16 +208,16 @@ impl StateEmitter for TauriEmitter {
 }
 
 /// Watch for `tmuxy connect` requests and reconnect the monitor when one
-/// arrives. `tmuxy connect <socket> [session]` sets the `TMUXY_CONNECT_TO`
-/// (and optional `TMUXY_CONNECT_SESSION` / `TMUXY_CONNECT_SSH`) tmux global env
-/// vars on the current server; this task reads them and, when the target
-/// differs from the current server, clears them and asks the monitor to
+/// arrives. `tmuxy connect <socket> [session]` and `tmuxy session connect`
+/// write one request (`tmuxy_core::servers::connect`) into the current
+/// server's global environment; this task reads it and, when the target
+/// differs from the current server, clears it and asks the monitor to
 /// reconnect. Runs for the app's lifetime alongside [`super::start_monitoring`].
 ///
 /// The reads and the clears ride the first window's control-mode connection,
 /// so the watch only looks while that connection is live — during startup or
 /// a reconnect there is nothing to read from, and nothing it could clear.
-/// Ignore `TMUXY_CONNECT_*` global environment polling while attached to a
+/// Ignore connect requests while attached to a
 /// remote SSH tmux server so an untrusted process on that remote machine cannot
 /// redirect the local desktop app onto a local socket or spawn an outbound SSH
 /// connection from the user's workstation.
@@ -235,29 +236,24 @@ pub async fn poll_connect_requests(monitor_state: MonitorState) {
             continue;
         };
 
-        let Some(socket) = take_global_env(&tx, "TMUXY_CONNECT_TO").await else {
+        let Some(value) = take_global_env(&tx, CONNECT_REQUEST).await else {
             continue;
         };
-        let session = take_global_env(&tx, "TMUXY_CONNECT_SESSION")
-            .await
-            .unwrap_or_else(get_session);
-        // Optional SSH tunnel for the target (absent → a local server).
-        let ssh = take_global_env(&tx, "TMUXY_CONNECT_SSH").await;
-
         // Anything on the server it is attached to (a remote host's, too)
-        // can write these: a request is followed only when each part is a
+        // can write the request: it is followed only when each part is a
         // plain name, so none of it can turn into an ssh option or a command.
-        if !tmuxy_core::session::is_safe_socket(&socket)
-            || !tmuxy_core::session::is_safe_session_name(&session)
-            || ssh
-                .as_deref()
-                .is_some_and(|d| !tmuxy_core::session::is_ssh_destination(d))
-        {
+        let Some(request) = ConnectRequest::decode(&value) else {
             tracing::warn!(
                 "ignoring a connect request that is not a plain socket, session and host"
             );
             continue;
-        }
+        };
+        let ConnectRequest {
+            socket,
+            session,
+            ssh,
+        } = request;
+        let session = session.unwrap_or_else(get_session);
 
         // No-op if we're already on this exact target (socket + session + ssh).
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));

@@ -18,6 +18,7 @@ use std::path::PathBuf;
 
 use crate::session::{DEFAULT_TMUX_SOCKET, USERS_OWN_SOCKET};
 
+pub mod connect;
 pub mod discovery;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
@@ -170,8 +171,8 @@ impl Server {
     }
 }
 
-/// Filesystem-safe fragment of an id, mirroring the ids `session-connect`
-/// (bin/tmuxy) mints, so a server it saved and one listed here share a key.
+/// Filesystem-safe fragment of an id: a server `tmuxy session connect` saved
+/// (`connect::ConnectRequest::server`) and one listed here share a key.
 fn slug(value: &str) -> String {
     value
         .chars()
