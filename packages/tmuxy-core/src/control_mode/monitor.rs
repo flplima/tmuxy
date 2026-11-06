@@ -7,64 +7,19 @@
 
 mod commands;
 mod event_loop;
-mod replies;
-mod resize;
-mod run_shell;
 mod sync;
 
-use super::{parser, state};
-
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
+use super::monitor_core::{Action, CommandReply, MonitorCore};
 use super::parser::ControlModeEvent;
-use super::state::{ChangeType, SideEffect, StateAggregator};
-use crate::constants::tmux_formats::{self, TmuxList};
+use super::state::{ChangeType, Notice};
 use crate::error::TmuxError;
-use crate::{PaneId, StateUpdate, WindowId};
-#[cfg(test)]
-use commands::*;
+use crate::StateUpdate;
 use event_loop::*;
-use resize::*;
-use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, instrument, trace, warn};
-
-/// What a `RunCommandWithReply` command printed, and how it failed if it did.
-#[derive(Debug, Clone)]
-pub struct CommandReply {
-    pub output: String,
-    /// tmux's message when a block of the command was a `%error`. tmux stops
-    /// a command list at its first failure, so `output` is then partial.
-    pub error: Option<String>,
-}
-
-impl CommandReply {
-    /// The output, or tmux's message as a [`crate::CommandError`] of kind
-    /// `tmux`.
-    pub fn into_result(self) -> Result<String, crate::CommandError> {
-        match self.error {
-            None => Ok(self.output),
-            Some(error) => Err(crate::CommandError::tmux(error)),
-        }
-    }
-}
-
-/// Who is waiting on a reply-wrapped command.
-enum ReplyWaiter {
-    /// A `RunCommandWithReply` caller: gets the whole reply, success or not.
-    Caller(oneshot::Sender<CommandReply>),
-    /// A fire-and-forget `RunCommand`: nobody wants the output, but a
-    /// `%error` is reported to the emitter so the user learns why nothing
-    /// happened.
-    ReportFailure,
-    /// A fire-and-forget `run-shell`, relayed through the server option it
-    /// names (`run_shell`): what it printed is shown, and a failure reported.
-    RunShell(String),
-    /// A caller's `run-shell`, relayed the same way: the caller gets what the
-    /// shell command printed, and a non-zero exit as the reply's error.
-    CallerRunShell(oneshot::Sender<CommandReply>, String),
-}
 
 /// Commands that can be sent to the monitor from external code
 #[derive(Debug)]
@@ -133,13 +88,18 @@ pub trait StateEmitter: super::log::LogSink {
 
     /// Called when new images are decoded from terminal output.
     /// Default implementation discards images (for emitters that don't need them).
-    fn store_images(&self, _pane_id: &PaneId, _images: Vec<(u32, super::images::StoredImage)>) {}
+    fn store_images(
+        &self,
+        _pane_id: &crate::PaneId,
+        _images: Vec<(u32, super::images::StoredImage)>,
+    ) {
+    }
 
     /// Called when an OSC 52 clipboard request is decoded from terminal output.
     /// `text` is the UTF-8 string the application asked to place on the system
     /// clipboard; `pane_id` is the pane that asked, `None` for a paste-buffer
     /// yank. Default implementation discards the request.
-    fn write_clipboard(&self, _pane_id: Option<&PaneId>, _text: String) {}
+    fn write_clipboard(&self, _pane_id: Option<&crate::PaneId>, _text: String) {}
 
     /// Called when tmux shows this client a message (`display-message`, or
     /// tmux's own notices), already cleaned by the parser. Default
@@ -203,23 +163,18 @@ pub type MonitorCommandSender = mpsc::Sender<MonitorCommand>;
 /// so the future has *some* await point when the guard is false.
 const LONG_SLEEP: Duration = Duration::from_secs(3600);
 
-/// How long a `RunCommandWithReply` waits for its closing marker before it
-/// fails: long enough for any tmux round trip on the supported targets, short
-/// enough that a wedged command does not hold up the client that asked.
-const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+/// The handle a caller waits on for its reply.
+type Caller = oneshot::Sender<CommandReply>;
 
-/// The main tmux control mode monitor.
-///
-/// This struct handles:
-/// - Connecting to tmux in control mode
-/// - Processing events and aggregating state
-/// - Emitting state changes via the StateEmitter trait
+/// The main tmux control mode monitor: the tokio host of a
+/// [`MonitorCore`], which decides everything; this connects, waits on the
+/// link, the timers and the command channel, and runs what the core says.
 pub struct TmuxMonitor<C: ControlLink = ControlModeConnection> {
     /// Connection to tmux control mode
     connection: C,
 
-    /// State aggregator
-    aggregator: StateAggregator,
+    /// The sans-IO client core.
+    core: MonitorCore<Caller>,
 
     /// Configuration
     config: MonitorConfig,
@@ -227,47 +182,6 @@ pub struct TmuxMonitor<C: ControlLink = ControlModeConnection> {
     /// Channel for receiving commands from external code
     command_rx: mpsc::Receiver<MonitorCommand>,
 
-    /// Whether this connection has logged adopting untagged windows (tagging
-    /// floats/sidebars by name, giving tabs their border row). Every batch is
-    /// still sent; this only keeps the log line to one per connect.
-    logged_adoption: bool,
-
-    /// Last viewport size the client asked for, in cells.
-    ///
-    /// A client's first resize routinely arrives before the initial
-    /// `list-windows` response has been aggregated, so there are no window ids
-    /// to target yet and only the current window can be sized. Remembering the
-    /// request lets `apply_client_size` re-apply it to every window as soon as
-    /// they are known — otherwise every non-current window keeps whatever size
-    /// the previous client left it at, for the life of the session.
-    client_size: Option<(u32, u32)>,
-
-    /// The size each window was last ASKED for, and how many times running.
-    ///
-    /// A count of sized windows is not enough: `%window-add` announces a window
-    /// before its `@tmuxy-window-type` is readable, so a freshly broken-out
-    /// sidebar is first sized as an ordinary window — and with a count, "all
-    /// windows sized" then hides the type arriving a moment later on
-    /// `list-windows`, leaving the dock stuck at the viewport width.
-    ///
-    /// The ATTEMPT COUNT is what stops this being a claim that the window has
-    /// that size. `resizew` goes out fire-and-forget and can be dropped; this
-    /// map used to record the send as the truth, so one lost command left the
-    /// client asking for 41 columns while tmux sat at 200 for the life of the
-    /// session — the phone layout's `targetCols: 41, totalWidth: 200`. The
-    /// authority is now `window_extent`, what tmux itself reports, and this
-    /// only bounds the retries so a size tmux genuinely refuses cannot spin.
-    resize_attempts: HashMap<WindowId, ((u32, u32), u8, u64)>,
-    /// Windows already reported as ones tmux will not size, so the warning is
-    /// said once rather than on every sync.
-    resize_given_up: HashSet<WindowId>,
-
-    /// Replies still waiting for their closing marker, by reply id, with the
-    /// instant each was sent — the loop fails any that outlive REPLY_TIMEOUT.
-    pending_replies: HashMap<u64, (ReplyWaiter, tokio::time::Instant)>,
-    /// Source of reply ids. Monotonic for the life of the monitor, so a late
-    /// block from an expired reply can never be matched to a newer one.
-    next_reply_id: u64,
     /// `GetState` requests waiting for the aggregator to settle.
     pending_state_requests: Vec<oneshot::Sender<crate::TmuxState>>,
 }
@@ -345,15 +259,13 @@ impl<C: ControlLink> TmuxMonitor<C> {
     ) -> Self {
         Self {
             connection,
-            aggregator: StateAggregator::new(),
+            core: MonitorCore::new(
+                &config.session,
+                crate::session::tmux_shell_line(),
+                Instant::now(),
+            ),
             config,
             command_rx,
-            logged_adoption: false,
-            client_size: None,
-            resize_attempts: HashMap::new(),
-            resize_given_up: HashSet::new(),
-            pending_replies: HashMap::new(),
-            next_reply_id: 0,
             pending_state_requests: Vec::new(),
         }
     }

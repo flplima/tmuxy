@@ -10,12 +10,7 @@ pub mod error;
 pub mod groups;
 pub mod ids;
 
-// The synchronous tmux-command layer (`cli`), and the native async transport
-// on top of it (`native`, which includes `cli`). Neither builds for wasm.
-#[cfg(feature = "native")]
 pub mod command_router;
-#[cfg(feature = "cli")]
-pub mod executor;
 #[cfg(feature = "cli")]
 pub mod float;
 
@@ -46,7 +41,7 @@ pub mod session_snapshot;
 pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
-#[cfg(feature = "cli")]
+pub mod tmux_command;
 pub mod tmux_compat;
 #[cfg(feature = "native")]
 pub mod trace;

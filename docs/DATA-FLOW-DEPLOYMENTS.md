@@ -160,15 +160,15 @@ No server at all. Real tmux runs inside an in-browser guest machine, and its `tm
 TmuxyApp ──invoke(run_tmux_command)──> GuestTmuxAdapter ──> GuestEngine (V86Engine | CheerpXEngine)
    ▲                                                              │ send
    │                                                              ▼
-onStateChange <── tmuxy-wasm (parse + aggregate) <──stream── tmux -CC in the guest
+onStateChange <── tmuxy-wasm (MonitorCore) <──stream── tmux -CC in the guest
 ```
 
 Key pieces (under `tmuxy-ui/src/infra/transport/drivers/`):
 
 | Piece | Responsibility |
 | --- | --- |
-| `guest/GuestEngine` | The machine-independent control-mode client: the wasm core, tick/sync timers, `%exit`→fatal detection, the attach-and-sync loop with a per-attach guest setup, and a serialized boot/reset lifecycle. Marker-bracketed commands (tracked mutations, scrollback captures, in `guest/controlMode.ts`) send their markers as separate lines, as the native monitor does — invariant A6 in INVARIANTS.md. |
-| `guest/GuestTmuxAdapter` | The driver behind `GuestTransportLive`: translates frontend commands for raw control-mode stdin (separator + format-expansion rewrites per TMUX.md), serves themes/keybindings/images locally. The first frame is the finished start: the session is sized to the client's viewport before the first state is answered, as the server does, and an init whose work outlives its commands (a shell line it typed) names a tmux option it sets when done (`initDoneOption`), which `connect()` waits for. Files the page hands it (`files`: text, or a URL it fetches) are in the guest's `/mnt` before the init runs: v86's 9p share, a CheerpX in-memory device mounted at the same path. |
+| `guest/GuestEngine` | The machine-independent host of the wasm client core (`MonitorCore`, the native monitor's own: the attach commands, reply correlation and timeouts, the `run-shell` relay, the re-list timers, window sizing, `%exit`): it feeds the stream in, ticks the core, runs the commands it hands back, keeps the callers' replies by id (`guest/controlMode.ts`), and serializes the boot/reset lifecycle — invariant A12 in INVARIANTS.md. |
+| `guest/GuestTmuxAdapter` | The driver behind `GuestTransportLive`: routes a client's commands and queries through the router every transport uses (a wasm export of `command_router`), serves themes/keybindings/images locally. The first frame is the finished start: the session is sized to the client's viewport before the first state is answered, as the server does, and an init whose work outlives its commands (a shell line it typed) names a tmux option it sets when done (`initDoneOption`), which `connect()` waits for. Files the page hands it (`files`: text, or a URL it fetches) are in the guest's `/mnt` before the init runs: v86's 9p share, a CheerpX in-memory device mounted at the same path. |
 | `v86/V86Engine` | The v86 machine: a UART writer paced under the rate the guest drains its input (v86's UART queue is unbounded; the guest reads ~45 KB/s, and a slower pace turns the queue into the bottleneck behind every keystroke) and serial coalescing. Snapshot restores rewind the filesystem, so the guest setup is re-applied on every attach. |
 | `v86` shared engine | Opt-in: many adapters reuse one booted machine; each consumer restores the pinned snapshot with a fresh WASM core (~1s) instead of cold-booting (~5s). |
 | `cheerpx/CheerpXEngine` | The CheerpX machine: CheerpX from its CDN, the image with a fresh IndexedDB overlay per page load, the relay on the console. |

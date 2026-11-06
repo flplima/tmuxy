@@ -43,6 +43,21 @@ describe('readGuestPreview', () => {
     });
   });
 
+  it('reads a resource larger than one shell argument a chunk at a time', async () => {
+    const full = 'A'.repeat(64_000);
+    const asked: string[] = [];
+    const query = async (command: string) => {
+      asked.push(command);
+      if (command.startsWith('display-message')) return 'preview\n/root/notes/a.md\n';
+      return command.includes('skip=0 ') ? full : 'QUJD\n';
+    };
+    await expect(readGuestPreview(query, '%3', 'big.png')).resolves.toEqual({
+      mime: 'image/png',
+      data: `${full}QUJD`,
+    });
+    expect(asked.slice(1).map((c) => /skip=(\d+)/.exec(c)?.[1])).toEqual(['0', '1']);
+  });
+
   it('single-quotes shell arguments even when a path contains tabs and backticks', async () => {
     const tricky = "/root/notes/tab\t`id`$(whoami)'s.md";
     const { query, asked } = tmux(`preview\n${tricky}\n`, {
