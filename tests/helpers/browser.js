@@ -410,43 +410,6 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
 }
 
 /**
- * An element that draws a pane: its layout wrapper, its terminal, a float, the
- * dock. A pane carries its id on more than one of them, so callers count
- * distinct ids. The tree's rows carry it too, for every tab's panes.
- */
-const DRAWN_PANE = '[data-pane-id]:not(.sidebar-tree-pane)';
-
-/** The distinct pane ids the page draws (runs in the page). */
-const drawnPaneIds = (selector) => [
-  ...new Set([...document.querySelectorAll(selector)].map((el) => el.dataset.paneId)),
-];
-
-/**
- * Wait until the page draws `expectedCount` distinct panes; throw past the
- * budget with what the page and the client hold.
- */
-async function waitForPaneCount(page, expectedCount, timeout = 10000) {
-  const budget = waitBudget(timeout);
-  try {
-    await page.waitForFunction(
-      ({ count, selector }) =>
-        new Set([...document.querySelectorAll(selector)].map((el) => el.dataset.paneId)).size ===
-        count,
-      { count: expectedCount, selector: DRAWN_PANE },
-      { timeout: budget, polling: 50 },
-    );
-  } catch {
-    const dom = await page.evaluate(drawnPaneIds, DRAWN_PANE);
-    const client = await page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.panes?.map((p) => `${p.tmuxId}@${p.windowId}`),
-    );
-    throw new Error(
-      `Expected ${expectedCount} panes, found ${dom.length} (timeout ${budget}ms)\n  DOM panes: ${JSON.stringify(dom)}\n  client panes: ${JSON.stringify(client)}`,
-    );
-  }
-}
-
-/**
  * Resolve after the page has drawn `frames` more frames. For a check that
  * something did NOT change after a local interaction (a scroll, a click that
  * re-renders): the app reacts in the event handler and on the next frame, so
@@ -513,8 +476,6 @@ async function waitForSettled(page, timeout = 10000) {
 }
 
 module.exports = {
-  DRAWN_PANE,
-  drawnPaneIds,
   waitForSettled,
   afterFrames,
   disconnectBrowser,
@@ -527,6 +488,5 @@ module.exports = {
   waitForKeyboardFocus,
   waitForSessionReady,
   waitForWindowCount,
-  waitForPaneCount,
   waitForCondition,
 };

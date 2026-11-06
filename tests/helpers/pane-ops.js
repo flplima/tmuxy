@@ -4,7 +4,7 @@
  * Pane information, split, navigate, swap, zoom, kill, layout, and resize.
  */
 
-const { delay, DRAWN_PANE, drawnPaneIds } = require('./browser');
+const { delay } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
 const { waitBudget } = require('./config');
 const {
@@ -17,9 +17,65 @@ const {
 
 // ==================== Pane Information ====================
 
-/** How many distinct panes the page draws. */
+/**
+ * An element that draws a pane: its layout wrapper, its terminal, a float, the
+ * dock. A pane carries its id on more than one of them, so callers count
+ * distinct ids. The tree's rows carry it too, for every tab's panes.
+ */
+const DRAWN_PANE = '[data-pane-id]:not(.sidebar-tree-pane)';
+
+/**
+ * The distinct pane ids on screen (runs in the page). A background tab and a
+ * parked group member keep their panes mounted, hidden, so the rules
+ * `visibleTerminals` applies decide what the user can see.
+ */
+const drawnPaneIds = (selector) => {
+  const shown = (el) => {
+    if (el.closest('.pane-window-hidden') || getComputedStyle(el).visibility === 'hidden')
+      return false;
+    const box = el.getBoundingClientRect();
+    return (
+      box.width >= 1 &&
+      box.height >= 1 &&
+      box.right > 0 &&
+      box.bottom > 0 &&
+      box.left < window.innerWidth &&
+      box.top < window.innerHeight
+    );
+  };
+  return [
+    ...new Set(
+      [...document.querySelectorAll(selector)].filter(shown).map((el) => el.dataset.paneId),
+    ),
+  ];
+};
+
+/** How many distinct panes the page shows. */
 async function getUIPaneCount(page) {
   return (await page.evaluate(drawnPaneIds, DRAWN_PANE)).length;
+}
+
+/**
+ * Wait until the page shows `expectedCount` distinct panes; throw past the
+ * budget with what the page and the client hold.
+ */
+async function waitForPaneCount(page, expectedCount, timeout = 10000) {
+  const budget = waitBudget(timeout);
+  try {
+    await page.waitForFunction(
+      `(${drawnPaneIds})(${JSON.stringify(DRAWN_PANE)}).length === ${expectedCount}`,
+      null,
+      { timeout: budget, polling: 50 },
+    );
+  } catch {
+    const dom = await page.evaluate(drawnPaneIds, DRAWN_PANE);
+    const client = await page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.panes?.map((p) => `${p.tmuxId}@${p.windowId}`),
+    );
+    throw new Error(
+      `Expected ${expectedCount} panes, found ${dom.length} (timeout ${budget}ms)\n  DOM panes: ${JSON.stringify(dom)}\n  client panes: ${JSON.stringify(client)}`,
+    );
+  }
 }
 
 /**
@@ -411,6 +467,7 @@ async function resizePaneKeyboard(page, direction, amount = 5) {
 module.exports = {
   // Pane info
   getUIPaneCount,
+  waitForPaneCount,
   visibleTerminals,
   getTerminalText,
   waitForTerminalText,

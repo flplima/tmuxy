@@ -11,7 +11,6 @@ const {
   verifyRoundTrip,
   focusPage,
   waitForSessionReady,
-  waitForPaneCount,
   waitForCondition,
 } = require('./browser');
 const TmuxTestSession = require('./TmuxTestSession');
@@ -19,7 +18,7 @@ const { TMUXY_URL } = require('./config');
 const { GlitchDetector } = require('./glitch-detector');
 const { waitForMonitorGone } = require('./monitor');
 const { assertStateMatches } = require('./consistency');
-const { splitPaneKeyboard } = require('./pane-ops');
+const { splitPaneKeyboard, waitForPaneCount } = require('./pane-ops');
 
 /**
  * Create test context with beforeAll/afterAll/beforeEach/afterEach
