@@ -306,10 +306,15 @@
 
 /* The app menu at the strip's left end, then the tabs (PhoneTabStrip). The
    tab list takes the rest of the width and scrolls sideways when it
-   overflows. */
+   overflows. Sticky and painted in the window colour: in the installed app it
+   is the solid box at the top edge that keeps iOS 26's edge blur off it
+   (standalone.css). Nothing scrolls above it, so sticky moves nothing. */
 .phone-tab-strip {
+  position: sticky;
+  top: 0;
   display: flex;
   flex: none;
+  background-color: rgb(var(--window-bg-rgb));
   align-items: center;
   gap: var(--spacing-md);
   height: var(--statusbar-height);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useCursorInView, useVisualViewport } from '../usePhoneViewport';
+import { standaloneShortfall, useCursorInView, useVisualViewport } from '../usePhoneViewport';
 
 /** A visual viewport a test can resize, as a keyboard does on a phone. */
 class FakeViewport extends EventTarget {
@@ -39,6 +39,32 @@ describe('useVisualViewport', () => {
     vi.stubGlobal('visualViewport', new FakeViewport());
     renderHook(() => useVisualViewport(false));
     expect(document.documentElement.classList.contains('tmuxy-phone')).toBe(false);
+  });
+});
+
+describe('standaloneShortfall', () => {
+  // An iPhone 15 installed app, status bar over the page: the screen is 852
+  // tall for the page, iOS reports 793, the status bar is 59.
+  const iphone = { standalone: true, large: 852, inner: 793, visual: 793, insetTop: 59 };
+
+  it('puts back the status bar’s height iOS leaves out of an installed app', () => {
+    expect(standaloneShortfall(iphone)).toBe(59);
+  });
+
+  it('adds nothing while the keyboard is up: what it leaves is laid out as reported', () => {
+    expect(standaloneShortfall({ ...iphone, visual: 470 })).toBe(0);
+  });
+
+  it('adds nothing where the height is right, or the page is not under a status bar', () => {
+    expect(standaloneShortfall({ ...iphone, inner: 852, visual: 852 })).toBe(0);
+    expect(standaloneShortfall({ ...iphone, insetTop: 0 })).toBe(0);
+    expect(standaloneShortfall({ ...iphone, standalone: false })).toBe(0);
+  });
+
+  it('adds nothing for a keyboard that really resizes the page (Android)', () => {
+    expect(
+      standaloneShortfall({ standalone: true, large: 915, inner: 600, visual: 600, insetTop: 24 }),
+    ).toBe(0);
   });
 });
 

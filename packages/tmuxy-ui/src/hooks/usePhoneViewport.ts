@@ -8,6 +8,12 @@
  * `--app-height` / `--app-top` (standalone.css pins `#root` to them), and the
  * page is laid out in what the user can see.
  *
+ * Installed on an iPhone with the status bar drawn over the page, iOS reports
+ * the visible height — the visual viewport, `innerHeight`, `100dvh` — short by
+ * the status bar's height while the page runs to the screen's bottom edge, so
+ * the root stopped that far above it and left a blank band under the tree. The
+ * slice it leaves out is put back (`standaloneShortfall`).
+ *
  * What does not fit then is the terminal's lower rows, and the one that matters
  * is the cursor's: `useCursorInView` scrolls the clipped terminal so the row
  * being typed on stays on screen, a row of margin below it — zoomed as well,
@@ -18,6 +24,48 @@ import { type RefObject, useEffect, useLayoutEffect } from 'react';
 
 const PHONE_CLASS = 'tmuxy-phone';
 
+/** What the page knows of its height in an installed app, in CSS px. */
+export interface StandaloneHeights {
+  /** Running as an installed app (`display-mode: standalone`). */
+  standalone: boolean;
+  /** The screen's full height for the page: `100lvh`. */
+  large: number;
+  /** `window.innerHeight`. */
+  inner: number;
+  /** The visual viewport's height. */
+  visual: number;
+  /** `env(safe-area-inset-top)`: the status bar over the page. */
+  insetTop: number;
+}
+
+/**
+ * The height iOS leaves out of what it reports in an installed app whose
+ * status bar is drawn over the page: the reported height falls short of the
+ * screen's by the status bar's height, exactly. Only with the keyboard down —
+ * a keyboard shrinks the visual viewport and nothing else, and what it leaves
+ * is laid out as reported. A browser tab, and a keyboard that really resizes
+ * the page (Android's), never match.
+ */
+export function standaloneShortfall(h: StandaloneHeights): number {
+  if (!h.standalone || h.insetTop <= 0) return 0;
+  if (h.visual < h.inner - 1) return 0;
+  const short = h.large - h.inner;
+  return Math.abs(short - h.insetTop) <= 2 ? short : 0;
+}
+
+/** `100lvh` and the top safe-area inset, read off an invisible probe. */
+function measureProbe(): { large: number; insetTop: number } {
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;' +
+    'height:100vh;height:100lvh;padding-top:env(safe-area-inset-top,0px);box-sizing:content-box';
+  document.body.appendChild(probe);
+  const insetTop = parseFloat(getComputedStyle(probe).paddingTop) || 0;
+  const large = probe.getBoundingClientRect().height - insetTop;
+  probe.remove();
+  return { large, insetTop };
+}
+
 /** Pin the app to the visual viewport while `enabled` (the phone layout). */
 export function useVisualViewport(enabled: boolean): void {
   useEffect(() => {
@@ -25,18 +73,30 @@ export function useVisualViewport(enabled: boolean): void {
     const viewport = window.visualViewport;
     if (!enabled) return;
     root.classList.add(PHONE_CLASS);
+    // The screen's height and the status bar's change only on a rotation (a
+    // window resize), not on every scroll of the visual viewport.
+    const standalone = window.matchMedia?.('(display-mode: standalone)').matches ?? false;
+    let full = standalone ? measureProbe() : null;
     const update = () => {
-      root.style.setProperty('--app-height', `${viewport?.height ?? window.innerHeight}px`);
+      const visual = viewport?.height ?? window.innerHeight;
+      const shortfall = full
+        ? standaloneShortfall({ standalone, inner: window.innerHeight, visual, ...full })
+        : 0;
+      root.style.setProperty('--app-height', `${visual + shortfall}px`);
       root.style.setProperty('--app-top', `${viewport?.offsetTop ?? 0}px`);
+    };
+    const rotated = () => {
+      if (standalone) full = measureProbe();
+      update();
     };
     update();
     viewport?.addEventListener('resize', update);
     viewport?.addEventListener('scroll', update);
-    window.addEventListener('resize', update);
+    window.addEventListener('resize', rotated);
     return () => {
       viewport?.removeEventListener('resize', update);
       viewport?.removeEventListener('scroll', update);
-      window.removeEventListener('resize', update);
+      window.removeEventListener('resize', rotated);
       root.classList.remove(PHONE_CLASS);
       root.style.removeProperty('--app-height');
       root.style.removeProperty('--app-top');
