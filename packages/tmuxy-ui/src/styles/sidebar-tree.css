@@ -7,6 +7,12 @@
   --tree-row: calc(var(--line-height-terminal) * 0.85);
   --tree-sub-line: calc(var(--line-height-terminal) * 0.7);
   --tree-gap: 3px;
+  /* A row's band — the current tab, the keyboard cursor, the hover — is a
+     rounded box held a little in from the column's edges, with a little room
+     above and below a tab's name inside it. */
+  --tree-row-inset: var(--spacing-md);
+  --tree-row-radius: 6px;
+  --tree-tab-pad-y: 3px;
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
@@ -33,16 +39,62 @@
 }
 
 /* Every row keeps the same padding — a pane's depth is drawn by its connector
-   glyph, not by indentation, which would cost a third of a 30-column column. */
+   glyph, not by indentation, which would cost a third of a 30-column column.
+   The inset comes out of the padding, so the text sits where it did. */
 .sidebar-tree-tab,
 .sidebar-tree-pane {
   display: flex;
   align-items: center;
   height: var(--tree-row);
-  padding: 0 var(--spacing-2xl);
+  margin-inline: var(--tree-row-inset);
+  padding: 0 calc(var(--spacing-2xl) - var(--tree-row-inset));
+  border-radius: var(--tree-row-radius);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+/* A tab's row grows by its padding: the name keeps its line, with room above
+   and below it inside the band. */
+.sidebar-tree-tab {
+  box-sizing: content-box;
+  padding-block: var(--tree-tab-pad-y);
+}
+
+/* A tab's panes, in a group that folds: as tall as its rows when the tab is
+   open, closed to nothing when it is collapsed (SidebarTree.tsx keeps the rows
+   and makes the closed group inert). The fold runs at the theme's speed. */
+.sidebar-tree-children {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows var(--transition-normal),
+    opacity var(--transition-normal);
+}
+
+.sidebar-tree-children[data-open='false'] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.sidebar-tree-children-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Animations off (`@tmuxy-animations off`) or reduced motion: rows change
+   colour and tabs fold in one step. */
+.app-no-animations :is(.sidebar-tree-tab, .sidebar-tree-pane, .sidebar-tree-children) {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.sidebar-tree-tab, .sidebar-tree-pane, .sidebar-tree-children) {
+    transition: none;
+  }
 }
 
 /* A group member parked out of view, at the same level as the member in
@@ -197,10 +249,22 @@
   border-top-width: 1px;
 }
 
-/* Hover, as on the tab strip. */
+/* Hover, as on the tab strip: the band, and the row's text a step up — the
+   name to the primary ink, the lines under it to the secondary. The pane with
+   the keyboard keeps its accent. */
 .sidebar-tree-tab:hover,
 .sidebar-tree-pane:hover {
   background: var(--bg-medium);
+}
+
+.sidebar-tree-tab:hover,
+.sidebar-tree-pane:hover:not(.is-active) {
+  color: var(--text-primary);
+}
+
+.sidebar-tree-pane:hover:not(.is-active)
+  :is(.sidebar-tree-id, .sidebar-tree-where, .sidebar-tree-title) {
+  color: var(--text-secondary);
 }
 
 .sidebar-tree-pane.in-current-tab {

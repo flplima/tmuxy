@@ -46,7 +46,16 @@
  *    window tabs show (PaneContextMenu / TabContextMenu).
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { usePendingMove } from './sidebarTreePendingMove';
 import { TmuxOp } from '../domain/commands';
 import {
@@ -71,9 +80,44 @@ import {
   useSidebarGitContext,
   type MenuState,
   type Row,
+  type TabGroup,
   buildTreeRows,
+  groupByTab,
 } from './sidebarTreeRows';
 import { SidebarTreeRow } from './SidebarTreeRow';
+
+const NO_TABS: ReadonlySet<WindowId> = new Set();
+
+/**
+ * A tab row and, under it, its panes in a group that folds: open, the group is
+ * as tall as its rows; collapsed, it closes to nothing and is inert, so its
+ * rows can be neither clicked nor reached. The fold is a transition on the
+ * group's height (styles/sidebar-tree.css), at the theme's speed and off when
+ * the config turns animations off.
+ */
+function TreeTabGroup({
+  tab,
+  panes,
+  renderRow,
+}: TabGroup & { renderRow: (row: Row) => ReactNode }) {
+  const open = !tab.collapsed;
+  return (
+    <>
+      {renderRow(tab)}
+      {panes.length > 0 && (
+        <div
+          className="sidebar-tree-children"
+          role="group"
+          data-open={open}
+          inert={!open}
+          aria-hidden={!open || undefined}
+        >
+          <div className="sidebar-tree-children-inner">{panes.map(renderRow)}</div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boolean }) {
   const send = useAppSend();
@@ -113,14 +157,26 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   // In the order they sit in the grid, so the list follows the layout as it
   // changes (a split, a swap, a move) rather than tmux's creation order; a
   // group's parked members under the member in view.
-  const rows = useMemo<Row[]>(() => {
-    const placed = pendingMove
-      ? panes.map((p) =>
-          p.tmuxId === pendingMove.paneId ? { ...p, windowId: pendingMove.windowId } : p,
-        )
-      : panes;
-    return buildTreeRows(windows, placed, collapsed, paneGroups);
-  }, [windows, panes, collapsed, pendingMove, paneGroups]);
+  const placed = useMemo(
+    () =>
+      pendingMove
+        ? panes.map((p) =>
+            p.tmuxId === pendingMove.paneId ? { ...p, windowId: pendingMove.windowId } : p,
+          )
+        : panes,
+    [panes, pendingMove],
+  );
+  const rows = useMemo<Row[]>(
+    () => buildTreeRows(windows, placed, collapsed, paneGroups),
+    [windows, placed, collapsed, paneGroups],
+  );
+  // What is drawn: every tab with all of its panes, a collapsed tab's folded
+  // away in its group rather than left out, so folding and unfolding can be
+  // seen. `rows`, which leaves them out, stays the keyboard's order.
+  const tabGroups = useMemo(
+    () => groupByTab(buildTreeRows(windows, placed, NO_TABS, paneGroups), collapsed),
+    [windows, placed, collapsed, paneGroups],
+  );
 
   // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -348,6 +404,34 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [focused, selectedIndex]);
 
+  const selectedRowKey = rows[selectedIndex] ? rowKey(rows[selectedIndex]) : null;
+  const renderRow = (row: Row) => (
+    <SidebarTreeRow
+      key={row.kind === 'tab' ? `w${rowKey(row)}` : `p${rowKey(row)}`}
+      row={row}
+      isSelected={rowKey(row) === selectedRowKey}
+      activeWindowId={activeWindowId}
+      activePaneId={activePaneId}
+      tabSummaries={tabSummaries}
+      tabCount={tabCount}
+      tabReorder={tabReorder}
+      suppressClickRef={suppressClickRef}
+      renamingWindowId={renamingWindowId}
+      setRenamingWindowId={setRenamingWindowId}
+      dragPaneId={dragPaneId}
+      setDragPaneId={setDragPaneId}
+      dropWindowId={dropWindowId}
+      setDropWindowId={setDropWindowId}
+      cwdByPane={cwdByPane}
+      branchOf={branchOf}
+      activate={activate}
+      toggleCollapse={toggleCollapse}
+      movePaneToTab={movePaneToTab}
+      openMenu={openMenu}
+      send={send}
+    />
+  );
+
   return (
     <div
       ref={treeRef}
@@ -360,36 +444,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       data-testid="sidebar-tree"
       data-focused={focused}
     >
-      {rows.map((row) => {
-        const key = rowKey(row);
-        const isSelected = Boolean(rows[selectedIndex] && rowKey(rows[selectedIndex]) === key);
-        return (
-          <SidebarTreeRow
-            key={row.kind === 'tab' ? `w${key}` : `p${key}`}
-            row={row}
-            isSelected={isSelected}
-            activeWindowId={activeWindowId}
-            activePaneId={activePaneId}
-            tabSummaries={tabSummaries}
-            tabCount={tabCount}
-            tabReorder={tabReorder}
-            suppressClickRef={suppressClickRef}
-            renamingWindowId={renamingWindowId}
-            setRenamingWindowId={setRenamingWindowId}
-            dragPaneId={dragPaneId}
-            setDragPaneId={setDragPaneId}
-            dropWindowId={dropWindowId}
-            setDropWindowId={setDropWindowId}
-            cwdByPane={cwdByPane}
-            branchOf={branchOf}
-            activate={activate}
-            toggleCollapse={toggleCollapse}
-            movePaneToTab={movePaneToTab}
-            openMenu={openMenu}
-            send={send}
-          />
-        );
-      })}
+      {tabGroups.map(({ tab, panes: tabPanes }) => (
+        <TreeTabGroup key={`w${tab.window.id}`} tab={tab} panes={tabPanes} renderRow={renderRow} />
+      ))}
       {menu?.kind === 'pane' && (
         <PaneContextMenu paneId={menu.paneId} x={menu.x} y={menu.y} onClose={closeMenu} />
       )}

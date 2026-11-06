@@ -189,13 +189,23 @@ export const TabsCollapseToHideTheirPanes: Story = {
     const paneRow = (id: string) =>
       tree.querySelector(`[data-testid="tree-pane-${id}"]`) as HTMLElement | null;
     const treeBox = () => tree.getBoundingClientRect();
+    // Drawn, as the user sees it: the row's height left inside the group that
+    // folds it, and reachable (a folded group is inert).
+    const shownHeight = (id: string) => {
+      const row = paneRow(id);
+      const group = row?.closest<HTMLElement>('.sidebar-tree-children');
+      if (!row || !group || group.inert) return 0;
+      const r = row.getBoundingClientRect();
+      const g = group.getBoundingClientRect();
+      return Math.max(0, Math.min(r.bottom, g.bottom) - Math.max(r.top, g.top));
+    };
 
     // Expanded by default: every pane row is drawn, and drawn inside the column.
     for (const id of paneIds) {
       const row = paneRow(id);
       expect(row).not.toBeNull();
       const box = row!.getBoundingClientRect();
-      expect(box.height).toBeGreaterThan(0);
+      expect(shownHeight(id)).toBeGreaterThan(0);
       expect(box.top).toBeGreaterThanOrEqual(treeBox().top - 1);
     }
 
@@ -206,7 +216,7 @@ export const TabsCollapseToHideTheirPanes: Story = {
 
     await waitFor(
       () => {
-        for (const id of paneIds) expect(paneRow(id)).toBeNull();
+        for (const id of paneIds) expect(shownHeight(id)).toBe(0);
       },
       { timeout: 5000 },
     );
@@ -226,7 +236,9 @@ export const TabsCollapseToHideTheirPanes: Story = {
     await user.click(chevron);
     await waitFor(
       () => {
-        for (const id of paneIds) expect(paneRow(id)).not.toBeNull();
+        for (const id of paneIds) {
+          expect(shownHeight(id)).toBeCloseTo(paneRow(id)!.getBoundingClientRect().height, 0);
+        }
       },
       { timeout: 5000 },
     );
