@@ -213,11 +213,9 @@ impl PaneState {
     /// whichever variant (1000/1002/1003) the program chose; a later `?1000l`
     /// still clears it.
     fn fresh_terminal(&self) -> vt100::Parser<super::osc::OscRequests> {
-        let w = (self.width as u16).max(1);
-        let h = (self.height as u16).max(1);
         let mut terminal = vt100::Parser::new_with_callbacks(
-            h,
-            w,
+            crate::grid_side(self.height),
+            crate::grid_side(self.width),
             crate::constants::REFLOW_SCROLLBACK_ROWS,
             super::osc::OscRequests::default(),
         );
@@ -248,15 +246,14 @@ impl PaneState {
             self.height = height;
             self.content_dirty = true;
             self.cached_content = None;
-            // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
-            let w = (width as u16).max(1);
-            let h = (height as u16).max(1);
             // Reflowed IN PLACE, the way a terminal does on SIGWINCH: `set_size`
             // rewraps each row and grows/shrinks the grid from the bottom, so
             // top-anchored content stays put. Replaying the raw output through a
             // fresh grid left short content BOTTOM-anchored in the client-side
             // (v86) path, which has no capture to correct it.
-            self.terminal.screen_mut().set_size(h, w);
+            self.terminal
+                .screen_mut()
+                .set_size(crate::grid_side(height), crate::grid_side(width));
             self.image_parser.reset_for_resize(self.alternate_on);
             self.rebaseline_scroll();
             let (row, col) = self.terminal.screen().cursor_position();
