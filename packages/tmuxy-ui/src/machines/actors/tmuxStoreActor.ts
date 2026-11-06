@@ -1,24 +1,12 @@
 /**
- * tmuxStoreActor — Bridge between the TmuxStore and XState.
- *
- * Responsibilities:
- *  1. Subscribe to the store and forward every model change to the parent as
- *     a TMUX_MODEL_UPDATE event. This is how local optimistic patches and
- *     server reconciliations both reach the XState context.
- *  2. Expose a DISPATCH_OP receiver: the parent routes every op here (see
- *     `routeOp`), and the actor runs it through `store.dispatch`. The store
- *     applies the predicted patch synchronously (caller sees the change
- *     before the network round-trip), then awaits the adapter for the real
- *     round-trip.
- *  3. Log dispatched commands via LOG_APPEND (the debug log), and surface a
- *     failed dispatch — or a structural op tmux never confirmed — as
- *     TMUX_ERROR.
- *
- * Why a callback actor and not direct context access:
- *   The store lives in plain JS-land; the bridge actor is the single place
- *   that runs its dispatch (the one Effect, which needs the transport) on the
- *   app runtime. That keeps the XState code free of Effect and makes the
- *   actor easy to swap for a mock in integration tests.
+ * The bridge between the TmuxStore and the app machine. Every model change
+ * (an optimistic patch or a server reconciliation) reaches the parent as
+ * TMUX_MODEL_UPDATE; every op the parent routes (`routeOp` in
+ * app/dispatch.ts) runs through `store.dispatch`, which applies its predicted
+ * patch at once and then awaits tmux. A failed dispatch, or a structural op
+ * tmux never confirmed, is surfaced as TMUX_ERROR. The actor is the one place
+ * the store's Effects run on the app runtime, so the machine stays free of
+ * Effect.
  */
 
 import { isStructural } from '../../domain/opTraits';
@@ -31,8 +19,7 @@ import type { ServerState } from '../../domain/wire';
 import { tracer } from '../../infra/tracer';
 import type { AppRuntime } from '../../infra/runtime';
 
-/** Extract only content-free id/direction fields from a typed op for the trace.
- * Deliberately excludes `RenameWindow.name` and any free text. */
+/** An op's ids and direction for the trace: never a name or any free text. */
 function traceOp(op: TmuxOp): void {
   const o = op as Record<string, unknown>;
   const pane = (o.paneId ?? o.sourcePaneId ?? o.clickedPaneId) as string | null | undefined;
@@ -53,17 +40,13 @@ export type TmuxStoreActorEvent =
    * place of the op's own form — a parsed binding keeps its pin and flags.
    */
   | { type: 'DISPATCH_OP'; op: TmuxOp; command?: string }
-  /** Push a fresh server snapshot into the store's reconciler. */
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /**
-   * Drop every pending op + committed/derived snapshot. Used on SWITCH_SESSION
-   * before the new session's first state-update arrives — without this, pending
-   * ops from the previous session would attempt to reconcile against the new
-   * one (different pane/window ids) and stale-timeout 2 seconds later instead
-   * of dropping immediately.
+   * Drop every pending op and snapshot, on SWITCH_SESSION: the old session's
+   * ops would otherwise reconcile against the new one's ids until they went
+   * stale (OP_STALE_TIMEOUT_MS).
    */
   | { type: 'CLEAR' }
-  /** Update the predict context (defaultShell or paneActivationOrder changed). */
   | {
       type: 'UPDATE_PREDICT_CONTEXT';
       defaultShell: string;
@@ -74,11 +57,6 @@ export interface TmuxStoreActorInput {
   parent: AnyActorRef;
 }
 
-/**
- * Build the bridge actor. The store is captured in a closure; tests can
- * supply a fresh store per test for isolation. Dispatches run on the app
- * runtime, which provides the transport they send through.
- */
 export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
   return fromCallback<TmuxStoreActorEvent, TmuxStoreActorInput>(({ input, receive }) => {
     const { parent } = input;

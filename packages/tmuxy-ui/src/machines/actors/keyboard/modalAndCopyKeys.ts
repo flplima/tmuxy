@@ -14,12 +14,8 @@ import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
 
 /**
- * Handle font-size shortcuts, Tauri window shortcuts, modal keys view,
- * ask overlays, Cmd+A scrollback select-all, Cmd+C/Ctrl+C copy/SIGINT,
- * scroll-mode auto-exit, and client-side copy-mode keys.
- *
- * Returns `true` when the keydown has been completely handled and must not
- * proceed to prefix/table/root/send-keys dispatch.
+ * `true` when the keydown has been handled here and must not go on to the
+ * prefix, key-table, root or send-keys dispatch.
  */
 export function handleModalOrCopyKeyDown(
   event: KeyboardEvent,
@@ -112,7 +108,6 @@ export function handleModalOrCopyKeyDown(
 
   const nativeSelection = () => window.getSelection()?.toString() ?? '';
 
-  // Cmd+A / Ctrl+Shift+A: select whole scrollback
   if (!replayed && scrollbackPane && windowShortcut(event) && event.code === 'KeyA') {
     event.preventDefault();
     window.getSelection()?.removeAllRanges();
@@ -120,7 +115,6 @@ export function handleModalOrCopyKeyDown(
     return true;
   }
 
-  // Copy scroll-view selection via Cmd+C / Ctrl+Shift+C
   if (
     !replayed &&
     windowShortcut(event) &&
@@ -157,7 +151,6 @@ export function handleModalOrCopyKeyDown(
     return true;
   }
 
-  // Close scroll view on first real keystroke
   if (scrollModePane && !isModifierOnlyKey(event.key)) {
     parent.send({ type: 'EXIT_SCROLL_MODE', paneId: scrollModePane });
     if (event.key === 'Escape') {
@@ -166,7 +159,6 @@ export function handleModalOrCopyKeyDown(
     }
   }
 
-  // Client-side copy mode key interception
   if (copyModeActive) {
     event.preventDefault();
     if (event.key === 'y' || event.key === 'Enter') {
