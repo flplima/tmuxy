@@ -15,11 +15,13 @@
 JSON_OUT="${JSON_OUT:-false}"
 
 # The CLI's one JSON string encoder, as an awk function: `jstr(s)` is `s`
-# with the characters JSON forbids raw escaped (backslash, quote, tab, CR),
-# every other control character dropped. A row printer splices it into its own
-# awk program (`awk "$JSON_AWK"'…'`); `json_string` runs it on one value. awk
-# only, since neither jq nor python is a dependency of the CLI.
-JSON_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\t/, "\\t", s); gsub(/\r/, "\\r", s); gsub(/[[:cntrl:]]/, "", s); return s } '
+# with backslash, quote and every control character escaped as serde_json
+# escapes them (`\t`, `\u001b`), so a string answers the same here as from a
+# verb (tmuxy-core `cli_contract` holds the two together). A row printer
+# splices it into its own awk program (`awk "$JSON_AWK"'…'`); `json_string`
+# runs it on one value. awk only, since neither jq nor python is a dependency
+# of the CLI.
+JSON_AWK='function jstr(s,  out, i, n, ch) { if (!JSTR_READY) { for (i = 1; i < 32; i++) JSTR_ESC[sprintf("%c", i)] = sprintf("\\u%04x", i); JSTR_ESC["\t"] = "\\t"; JSTR_ESC["\r"] = "\\r"; JSTR_ESC["\b"] = "\\b"; JSTR_ESC["\f"] = "\\f"; JSTR_ESC["\\"] = "\\\\"; JSTR_ESC["\""] = "\\\""; JSTR_READY = 1 } out = ""; n = length(s); for (i = 1; i <= n; i++) { ch = substr(s, i, 1); out = out ((ch in JSTR_ESC) ? JSTR_ESC[ch] : ch) } return out } '
 
 # One string as a JSON string literal (quotes included), its lines joined by
 # `\n`.

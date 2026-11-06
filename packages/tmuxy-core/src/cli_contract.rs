@@ -57,4 +57,29 @@ mod tests {
         );
         assert_eq!(json_string("a\"b\u{1b}"), r#""a\"b\u001b""#);
     }
+
+    /// The shell half's encoder (`json_string` in `bin/tmuxy/_contract`)
+    /// writes every string the way this one does: a window name answers the
+    /// same through `tmuxy tab list --json` as through a verb.
+    #[cfg(unix)]
+    #[test]
+    fn the_shell_encoder_writes_what_this_one_writes() {
+        let contract = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../tmuxy-cli/bin/tmuxy/_contract");
+        let mut value: String = (1u8..0x20).map(char::from).collect();
+        value.push_str("\\ \" ' é \u{7f} %s & end");
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(r#"source "$1"; json_string "$2""#)
+            .arg("bash")
+            .arg(&contract)
+            .arg(&value)
+            .output();
+        let output = match output {
+            Ok(output) => output,
+            Err(e) => panic!("bash: {e}"),
+        };
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), json_string(&value));
+    }
 }

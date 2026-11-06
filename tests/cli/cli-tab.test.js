@@ -53,14 +53,15 @@ describe('CLI tab subcommands', () => {
     });
 
     // A name can hold any byte (`tmux rename-window $'\e[31mred'`): JSON
-    // forbids a raw control character, so it is dropped rather than printed.
-    test('--json survives a window name holding a control character', () => {
+    // forbids a raw control character, so it is escaped, as a verb's answer
+    // escapes it — the name comes back whole.
+    test('--json keeps a window name holding a control character, escaped', () => {
       const { stdout, exitCode } = runCLI(['tab', 'list', '--json'], {
         env: { MOCK_TMUX_LIST_WINDOWS: '@0\t0\t\x1b[31mred\t1\t1\ttab' },
       });
       expect(exitCode).toBe(0);
       expect(JSON.parse(stdout)).toEqual([
-        { id: '@0', index: 0, name: '[31mred', panes: 1, active: true },
+        { id: '@0', index: 0, name: '\x1b[31mred', panes: 1, active: true },
       ]);
     });
   });
