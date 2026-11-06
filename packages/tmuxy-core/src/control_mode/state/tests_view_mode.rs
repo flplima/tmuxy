@@ -1,4 +1,5 @@
 use super::tests::*;
+use super::tests_capture::captures;
 use super::*;
 use crate::constants::tmux_formats::TmuxList;
 use crate::ids::test_ids::pid;
@@ -92,4 +93,31 @@ fn a_view_mode_a_terminal_client_is_reading_is_left_open() {
             answer.effects
         );
     }
+}
+
+/// The same request for a pane in copy mode is left to the copy-mode poll,
+/// which captures every such pane on each tick: a follow-up per landed
+/// capture would keep one on the wire at all times, since each tick finds
+/// the last one in flight.
+#[test]
+fn a_capture_asked_twice_for_a_pane_in_copy_mode_is_left_to_the_poll() {
+    let mut agg = StateAggregator::new();
+    seed_pane(&mut agg, "%0", "@0");
+    enter_copy_mode(&mut agg, "%0", "@0");
+    agg.pending_captures.clear();
+    assert_eq!(agg.queue_captures(&[pid("%0")]), vec![pid("%0")]);
+    assert!(agg.queue_captures(&[pid("%0")]).is_empty());
+
+    agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
+    let landed = agg.step(response("COPY MODE VIEW\n", true));
+    assert!(
+        !landed.effects.iter().any(|e| captures(e, "%0")),
+        "no follow-up for a pane in copy mode ({:?})",
+        landed.effects
+    );
+    agg.step(response(&marked(&agg, CAPTURE_END_MARKER, ""), true));
+    assert!(agg
+        .copy_mode_poll_commands()
+        .iter()
+        .any(|c| c.contains("capture-pane -t %0 ")));
 }

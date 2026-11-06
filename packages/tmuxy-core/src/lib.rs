@@ -159,16 +159,10 @@ pub(crate) fn is_false(b: &bool) -> bool {
 }
 
 impl CellStyle {
+    /// No attribute set: the default style, so a field added to the struct
+    /// counts the moment it exists.
     pub fn is_empty(&self) -> bool {
-        self.fg.is_none()
-            && self.bg.is_none()
-            && !self.bold
-            && !self.dim
-            && !self.italic
-            && !self.underline
-            && !self.inverse
-            && self.url.is_none()
-            && self.size.is_none()
+        *self == Self::default()
     }
 }
 
@@ -317,12 +311,15 @@ pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
     parse_ansi_to_cells(content, width, line_count)
 }
 
-/// The grid is clamped to `1..=u16::MAX` a side: a capture of a pane with a
-/// deep history can run past 65,535 lines, and a taller capture keeps its
-/// last 65,535.
+/// A pane side as a vt100 grid side, saturated at `u16::MAX`: a capture of a
+/// pane with a deep history can run past 65,535 lines, and a taller capture
+/// keeps its last 65,535. vt100 itself makes a zero side one.
+pub(crate) fn grid_side(n: u32) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
-    let side = |n: u32| u16::try_from(n.max(1)).unwrap_or(u16::MAX);
-    let mut parser = vt100::Parser::new(side(height), side(width), 0);
+    let mut parser = vt100::Parser::new(grid_side(height), grid_side(width), 0);
 
     let normalized = control_mode::normalize_capture_bytes(content.as_bytes());
     parser.process(&normalized);

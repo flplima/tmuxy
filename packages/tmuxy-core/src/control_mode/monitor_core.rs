@@ -6,10 +6,7 @@
 //! the client's viewport (`set_client_size`) and the time (`tick`, at
 //! `next_deadline`), and runs the [`Action`]s it hands back in order: write
 //! lines to tmux, emit the state, show a notice, answer a caller, end. The
-//! tokio monitor (`control_mode::monitor`) and tmuxy-wasm are two such hosts;
-//! what they used to do each for itself — turning the aggregator's effects
-//! into commands, the settings an attach enforces, reply correlation, the
-//! `run-shell` relay, the re-list timers, window sizing — is done once, here.
+//! tokio monitor (`control_mode::monitor`) and tmuxy-wasm are two such hosts.
 //!
 //! ```text
 //!   events ──► step ───────┐
@@ -40,10 +37,8 @@ pub use reads::ReadPacing;
 /// How often the client polls a pane in copy mode: its cursor needs
 /// sub-100ms updates, and tmux announces none of them.
 pub const COPY_MODE_SYNC_INTERVAL: Duration = Duration::from_millis(50);
-/// How long the connection must be quiet before the heartbeat re-list runs.
 pub const IDLE_THRESHOLD: Duration = Duration::from_secs(10);
-/// How often the heartbeat re-lists everything once idle, to catch what
-/// changed out of band.
+/// The idle heartbeat re-lists everything, to catch what changed out of band.
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 /// How long after output or a window change the metadata re-list runs: a
 /// pane's command, title and history size, and the window indices a close
@@ -53,10 +48,8 @@ pub const METADATA_SYNC_DELAY: Duration = Duration::from_millis(500);
 /// fails: long enough for any tmux round trip on the supported targets,
 /// short enough that a wedged command does not hold up the client that asked.
 pub const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
-/// The first sync tick, after the attach's own reads have had their turn.
 const FIRST_SYNC_DELAY: Duration = Duration::from_millis(1500);
 
-/// What a reply-wrapped command printed, and how it failed if it did.
 #[derive(Debug, Clone)]
 pub struct CommandReply {
     pub output: String,
@@ -66,8 +59,6 @@ pub struct CommandReply {
 }
 
 impl CommandReply {
-    /// The output, or tmux's message as a [`crate::CommandError`] of kind
-    /// `tmux`.
     pub fn into_result(self) -> Result<String, crate::CommandError> {
         match self.error {
             None => Ok(self.output),
@@ -92,9 +83,7 @@ pub enum Action<W> {
     Send(Vec<String>),
     /// A state emission is due; the class picks throttle, debounce or now.
     Emit(ChangeType),
-    /// Something for the person or the host's stores.
     Notify(Notice),
-    /// A caller's command has its answer.
     Answer(W, CommandReply),
     /// tmux ended the connection (`%exit`), with its reason when it gave one
     /// — `detached` for a client detached on purpose.
@@ -112,32 +101,24 @@ pub struct Outgoing {
 }
 
 impl Outgoing {
-    /// The id its reply comes back under, when it is reply-wrapped.
     pub fn reply_id(&self) -> Option<u64> {
         self.reply_id
     }
 }
 
-/// The sans-IO client core (see the module docs).
 pub struct MonitorCore<W> {
     aggregator: StateAggregator,
     session: String,
-    /// The shell command line that reaches this tmux server from inside a
-    /// `run-shell` job (the relay writes its answer back with it).
     shell_line: String,
-    /// Commands waiting on their closing marker, by reply id, with the
-    /// instant each was sent.
     replies: HashMap<u64, (Waiter<W>, Instant)>,
     /// Monotonic for the life of the core, so a late block from an expired
     /// reply can never be matched to a newer one (M8).
     next_reply_id: u64,
-    /// The viewport the client asked for, in cells, replayed onto every
-    /// window as it becomes known.
+    /// In cells.
     client_size: Option<(u32, u32)>,
     /// The size each window was last asked for, how many times running, and
     /// which `list-panes` report was current then (`sizing::needs_resize`).
     resize_attempts: HashMap<WindowId, ((u32, u32), u8, u64)>,
-    /// Windows already reported as ones tmux will not size.
     resize_given_up: HashSet<WindowId>,
     last_event_at: Instant,
     next_sync_at: Instant,
@@ -147,9 +128,8 @@ pub struct MonitorCore<W> {
 }
 
 impl<W> MonitorCore<W> {
-    /// A core for `session`, started at `now`. `shell_line` is how a
-    /// `run-shell` job reaches this server (`session::tmux_shell_line` for a
-    /// native host, plain `tmux` in a guest).
+    /// `shell_line` is how a `run-shell` job reaches this server
+    /// (`session::tmux_shell_line` for a native host, plain `tmux` in a guest).
     pub fn new(session: &str, shell_line: impl Into<String>, now: Instant) -> Self {
         Self {
             aggregator: StateAggregator::with_session_name(session),
@@ -184,8 +164,8 @@ impl<W> MonitorCore<W> {
         self.resize_given_up.clear();
     }
 
-    /// One control-mode event. `Ended` is the last action a connection
-    /// gets; a message goes to the person and never touches the tree.
+    /// `Ended` is the last action a connection gets; a `%message` goes to the
+    /// person and never touches the tree.
     pub fn step(&mut self, event: ControlModeEvent, now: Instant) -> Vec<Action<W>> {
         self.last_event_at = now;
         if let ControlModeEvent::Exit { reason } = event {
@@ -201,11 +181,6 @@ impl<W> MonitorCore<W> {
                 } => self.read(commands, &mut actions),
                 SideEffect::Send { commands, .. } => actions.push(Action::Send(commands)),
                 SideEffect::Emit(change) => {
-                    // Output changes what no event announces (a pane's
-                    // command, title, history size), and a window coming or
-                    // going renumbers every window after it: a re-list
-                    // follows, once, a beat later. Not pushed back by later
-                    // output, or a pane that never stops printing starves it.
                     if matches!(change, ChangeType::Output | ChangeType::Window) {
                         self.metadata_sync_at
                             .get_or_insert(now + METADATA_SYNC_DELAY);
@@ -218,10 +193,9 @@ impl<W> MonitorCore<W> {
                 }
             }
         }
-        // Size the windows the viewport has not reached yet, AFTER the step's
-        // own effects: ahead of them, the commands jump the queue ahead of
+        // After the step's own effects (M5): ahead of them, the sizing jumps
         // this step's emission, and the window payload that carries
-        // @tmuxy-window-type gets dropped (M5).
+        // @tmuxy-window-type gets dropped.
         if let Some(sizing) = self.size_windows() {
             actions.push(sizing);
         }
@@ -229,8 +203,6 @@ impl<W> MonitorCore<W> {
         actions
     }
 
-    /// What is due at `now`: the settling flush, the metadata re-list, the
-    /// copy-mode poll or idle heartbeat, and replies that ran out of time.
     pub fn tick(&mut self, now: Instant) -> Vec<Action<W>> {
         let mut actions = Vec::new();
         if let Some(change) = self.aggregator.tick(now) {
@@ -282,12 +254,10 @@ impl<W> MonitorCore<W> {
     /// The viewport the client shows, in cells: every window is sized to it
     /// (a sidebar to its own column) as soon as it is known.
     pub fn set_client_size(&mut self, cols: u32, rows: u32) -> Vec<Action<W>> {
-        // Remembered first: before the window list has arrived this is the
-        // only record of the size, and the windows are sized once they land.
         self.client_size = Some((cols, rows));
         if self.aggregator.window_ids().is_empty() {
-            // Nothing to target yet: size the current window so the visible
-            // pane is right at once; the rest follow the window list.
+            // Before the window list arrives, the current window is sized so
+            // the visible pane is right at once.
             return vec![Action::Send(vec![format!("resizew -x {cols} -y {rows}")])];
         }
         self.size_windows().into_iter().collect()

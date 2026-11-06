@@ -272,7 +272,7 @@ pub const SOURCE_FILE_SETTLE: Duration = Duration::from_millis(200);
 pub async fn source_config(tx: &MonitorCommandSender) -> Result<(), CommandError> {
     let Some(path) = crate::session::get_config_path() else {
         return Err(CommandError::unavailable(
-            "the tmuxy config chain could not be written",
+            "no tmuxy config chain this server can read (not written, or the server is over SSH)",
         ));
     };
     run(

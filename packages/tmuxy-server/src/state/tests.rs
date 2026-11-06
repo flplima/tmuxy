@@ -250,42 +250,15 @@ fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
     )
 }
 
-/// The route table as `api_routes` declares it, read out of `state.rs`.
-///
-/// The guard is the `.layer()` in `api_routes`, and it covers the routes
-/// declared above it. A route added anywhere else — or a whole new route
-/// nobody thought to test — is served with no origin check at all, which on
-/// this API means a remote shell. So the routes are enumerated rather than
-/// listed by hand: a new one that `COVERED_ROUTES` does not know about fails
-/// this test by name.
+/// Every path `api_routes` serves. The guard is the `.layer()` over the
+/// whole table, so a route is behind it by being in the table; a new one
+/// that `COVERED_ROUTES` does not know about fails these tests by name, so
+/// nobody ships a route whose guard nothing probed.
 fn declared_routes() -> Vec<String> {
-    let source = include_str!("../state.rs");
-    let start = source
-        .find("pub fn api_routes")
-        .expect("api_routes moved out of state.rs");
-    let body = &source[start..];
-    let end = body
-        .find("// Internal Handlers")
-        .expect("the route builders are no longer followed by the handlers");
-    let body = &body[..end];
-
-    // The literal is split so this scan does not find itself.
-    let needle = concat!(".", "route(");
-    let mut routes = Vec::new();
-    let mut rest = body;
-    while let Some(idx) = rest.find(needle) {
-        rest = rest[idx + needle.len()..].trim_start();
-        let rest_after_quote = rest
-            .strip_prefix('"')
-            .expect("a route's path is not a string literal");
-        let close = rest_after_quote
-            .find('"')
-            .expect("unterminated route literal");
-        routes.push(rest_after_quote[..close].to_string());
-        rest = &rest_after_quote[close..];
-    }
-    assert!(!routes.is_empty(), "found no routes in api_routes");
-    routes
+    super::api_route_table()
+        .into_iter()
+        .map(|(path, _)| path.to_string())
+        .collect()
 }
 
 #[tokio::test]

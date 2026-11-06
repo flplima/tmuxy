@@ -22,10 +22,9 @@ import {
 } from '../../../../domain/preview';
 import { isPaneId } from '../../../../domain/ids';
 
-/** Run a tmux command and resolve with what it printed (`GuestEngine.query`). */
+/** `GuestEngine.query`. */
 type Query = (command: string) => Promise<string>;
 
-/** The types a page may load, as a preview serves them. */
 const MIME: Record<string, string> = {
   css: 'text/css',
   js: 'text/javascript',
@@ -66,7 +65,6 @@ function runShell(command: string): string {
  */
 const CHUNK_BYTES = 48_000;
 
-/** A file of the guest's, in base64, read a chunk at a time. */
 async function readBase64(query: Query, file: string): Promise<string> {
   let data = '';
   for (let skip = 0; ; skip++) {

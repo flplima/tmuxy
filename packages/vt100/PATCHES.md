@@ -37,6 +37,11 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   of a pane's memory at 256 rows of reflow history. Covered by
   `tests/terminal_fidelity.rs` in tmuxy-core.
 - **`col_back_tab`**: moves to the previous multiple-of-8 tab stop, for CBT.
+- **No zero-sized grid**: `Grid::new` and `Grid::set_size` make a zero side
+  one (`Size::at_least_one`). Every cursor clamp and the scroll region are
+  `side - 1`, so a 0-row or 0-column parser panicked on its first resize or
+  write; tmuxy-core no longer guards each call
+  (`tests/degenerate_size.rs`).
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or
   panic (`tests/degenerate_size.rs`).
