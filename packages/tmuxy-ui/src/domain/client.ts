@@ -101,13 +101,13 @@ export const TmuxPane = Schema.mutable(
     /**
      * What the pane says it is doing (`@tmuxy-pane-state`), verbatim. Any
      * process can set it via `tmuxy pane state <value>`; the vocabulary the tree
-     * draws lives in `utils/paneState.ts`, which collapses anything unknown.
+     * draws lives in `domain/paneState.ts`, which collapses anything unknown.
      * Absent when the option is unset.
      */
     paneState: optionalFrom('pane_state', Schema.NullOr(Schema.String)),
     /**
      * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
-     * payload `tmuxy pane send -t` wrote. Decoded by `utils/paneAsk.ts`; absent when no
+     * payload `tmuxy pane send -t` wrote. Decoded by `domain/paneAsk.ts`; absent when no
      * question is pending.
      */
     paneAsk: optionalFrom('pane_ask', Schema.NullOr(Schema.String)),
@@ -137,6 +137,26 @@ export function groupMembers(
     .filter((p) => p.groupId === groupId)
     .sort((a, b) => position(a) - position(b) || paneNumber(a.tmuxId) - paneNumber(b.tmuxId))
     .map((p) => p.tmuxId);
+}
+
+/** tmux's marked pane (`select-pane -m`) among `panes`, or null. */
+export function markedPaneId(
+  panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'marked'>>,
+): PaneId | null {
+  return panes.find((p) => p.marked)?.tmuxId ?? null;
+}
+
+/**
+ * Whether copy mode means anything on the pane. A pane running a widget (a
+ * preview, the tree) draws its own view, and under it the pane's text is only
+ * the widget's marker: there is nothing there to scroll back through or copy.
+ */
+export function paneTakesCopyMode(
+  panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'paneWidget'>>,
+  paneId: PaneId,
+): boolean {
+  const pane = panes.find((p) => p.tmuxId === paneId);
+  return !!pane && !pane.paneWidget;
 }
 
 /** A window as the client holds it, decoded from a wire window. */
@@ -251,4 +271,10 @@ export function toClientState(state: ServerState): ClientState {
     panes: state.panes.map(decodePane),
     windows: state.windows.map(decodeWindow).sort((a, b) => a.index - b.index),
   };
+}
+
+/** Pane group - groups panes that share the same visual position (like tabs) */
+export interface PaneGroup {
+  id: GroupId;
+  paneIds: PaneId[]; // Tab order - active pane is derived from which pane is in activeWindowId
 }

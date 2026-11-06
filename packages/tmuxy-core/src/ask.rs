@@ -3,7 +3,7 @@
 //! `tmuxy pane send -t` (a process of its own, `tmuxy-server send`) and the
 //! MCP endpoint's `pane_send_keys` (on a session's control-mode connection) —
 //! each over the [`Tmux`] it has. The UI is the answering end
-//! (`packages/tmuxy-ui/src/utils/paneAsk.ts`).
+//! (`packages/tmuxy-ui/src/domain/paneAsk.ts`).
 //!
 //! The target pane's `@tmuxy-ask` carries base64 of `{token, caller, keys}`
 //! (base64 because `list-panes` is comma-separated and the keys are free

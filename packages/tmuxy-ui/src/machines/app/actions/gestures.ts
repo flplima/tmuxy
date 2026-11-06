@@ -29,7 +29,7 @@ import {
   swipeCommits,
   swipeOffsetPx,
   swipeSettleMs,
-} from '../../../utils/gestures';
+} from '../../gestures/gestures';
 import type { PaneId } from '../../../domain/ids';
 
 /** The one pending settle timer: a new gesture cancels the last one's. */

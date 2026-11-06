@@ -12,8 +12,14 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
 import tabActions from './fixtures/gen/tab-actions.json';
-import { activePaneId, activeWindow, paneGroups, windowTabEls, windows } from './appStoryHelpers';
-import type { Canvas } from './appStoryHelpers';
+import {
+  activePaneId,
+  activeWindow,
+  paneGroups,
+  windowTabEls,
+  windows,
+  type Canvas,
+} from './appStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Tab Actions',

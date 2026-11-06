@@ -34,6 +34,7 @@
   --text-secondary: #8c9c9c;
   --text-muted: #657b83;
   --text-dimmed: #8d9c9d;
+  --text-quiet: var(--text-dimmed);
   --text-subtle: #4a6068;
   --text-dark: #002b36;
 
@@ -111,6 +112,7 @@
   --text-secondary: #586e75;
   --text-muted: #839496;
   --text-dimmed: #586e75;
+  --text-quiet: var(--text-dimmed);
   --text-subtle: #a8b0b0;
   --text-dark: #fdf6e3;
 

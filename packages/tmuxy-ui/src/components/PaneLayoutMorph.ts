@@ -11,8 +11,8 @@ import {
   PANE_ENTER_FROM_OPACITY,
   type PaneBox,
 } from '../constants/layout';
-import { findEnterFromBox } from '../utils/paneTransitions';
-import { parseSwipeNeighbor } from '../utils/gestures';
+import { findEnterFromBox } from './paneTransitions';
+import { parseSwipeNeighbor } from '../machines/gestures/gestures';
 import type { TmuxPane } from '../domain/client';
 
 export function useRenderedPanesAndView({

@@ -1,25 +1,20 @@
-import type { PushState } from '../../utils/pushNotifications';
+import type { PushState } from '../../infra/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
-import type { TabStripGeometry } from '../../utils/tabStripDrop';
-import type { AskAnswer } from '../../utils/paneAsk';
+import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
+import type { TabStripGeometry } from '../drag/tabStripDrop';
+import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
+import type { ChildMachineEvent, KeyPressEvent, NotificationKind, ResizeHandle } from './domain';
 import type {
-  ChildMachineEvent,
   GitRepository,
-  KeyPressEvent,
-  NotificationKind,
-  ResizeHandle,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
-  TraceLevel,
-  TraceSettings,
-} from './domain';
+} from '../../domain/servers';
 
 /** All events the app machine can receive from external sources */
 export type AppMachineEvent =
@@ -139,7 +134,7 @@ export type AppMachineEvent =
   | { type: 'CREATE_TAB' }
   | { type: 'ZOOM_PANE'; paneId: PaneId }
 
-  // Pending confirmations (`tmuxy pane send -t`) — see utils/paneAsk.ts.
+  // Pending confirmations (`tmuxy pane send -t`) — see domain/paneAsk.ts.
   | { type: 'MOVE_ASK_SELECTION'; paneId: PaneId; to: AskAnswer }
   | { type: 'ANSWER_ASK'; paneId: PaneId; answer: AskAnswer }
   | { type: 'ANSWER_VISIBLE_ASKS'; answer: AskAnswer }

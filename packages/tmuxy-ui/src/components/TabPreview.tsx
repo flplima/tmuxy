@@ -30,8 +30,8 @@ import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/a
 import { selectPanes, selectCharSize, selectContainerSize } from '../machines/selectors/layout';
 import { selectAnimationsAllowed } from '../machines/selectors/ui';
 import { Tooltip } from './Tooltip';
-import { slotBoxes } from '../utils/tabOverview';
-import { useTabStill } from '../hooks/useTabStill';
+import { slotBoxes } from '../domain/tabOverview';
+import { useTabStill } from './useTabStill';
 import { TabShot } from './TabShot';
 import {
   useFloatingSurface,

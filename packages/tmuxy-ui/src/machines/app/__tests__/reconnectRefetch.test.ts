@@ -12,8 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor, fromCallback } from 'xstate';
-import type { AnyActorRef } from 'xstate';
+import { createActor, fromCallback, type AnyActorRef } from 'xstate';
 import { appMachine } from '../appMachine';
 import type { TmuxActorEvent } from '../../actors/tmuxActor';
 

@@ -11,7 +11,8 @@
 
 import React, { useCallback } from 'react';
 import { Modal } from './Modal';
-import { Terminal } from './Terminal';
+import './FloatPane.css';
+import { Terminal } from './terminal/Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
@@ -25,26 +26,27 @@ import {
   selectPhoneLayout,
 } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
-import { LogProfiler } from '../utils/renderLog';
-import { focusKeyboardInput } from '../utils/mobileKeyboard';
+import { LogProfiler } from './renderLog';
+import { focusKeyboardInput } from '../infra/dom/mobileKeyboard';
 import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;
-  zIndex?: number;
+  /** Its place among the visible floats, lowest first. */
+  stack: number;
 }
 
-export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
+export function FloatPane({ floatState, stack }: FloatPaneProps) {
   return (
     <LogProfiler id={`FloatPane:${floatState.paneId}`}>
-      <FloatPaneInner floatState={floatState} zIndex={zIndex} />
+      <FloatPaneInner floatState={floatState} stack={stack} />
     </LogProfiler>
   );
 }
 
-function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
+function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
   const send = useAppSend();
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
@@ -112,7 +114,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         onClose={handleClose}
         title={title}
         width={floatWidth}
-        zIndex={zIndex}
+        stack={stack}
         className={`drawer drawer-${drawer}`}
         containerStyle={containerStyle}
         backdrop={backdrop}
@@ -149,7 +151,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       onClose={handleClose}
       title={title}
       width={floatWidth}
-      zIndex={zIndex}
+      stack={stack}
       className="float-modal"
       containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
@@ -246,7 +248,7 @@ export function FloatContainer() {
   return (
     <>
       {visibleFloats.map((floatState, index) => (
-        <FloatPane key={floatState.paneId} floatState={floatState} zIndex={1001 + index} />
+        <FloatPane key={floatState.paneId} floatState={floatState} stack={1 + index} />
       ))}
     </>
   );

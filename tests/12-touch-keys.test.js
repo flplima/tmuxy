@@ -1,5 +1,5 @@
 /**
- * The phone's key row as a thumb uses it (components/KeyRow.tsx): a prefix
+ * The phone's key row as a thumb uses it (components/phone/KeyRow.tsx): a prefix
  * key that arms tmux's prefix with one tap and stays lit until the next key,
  * and arrows that repeat while held and hand over to the arrow a finger
  * slides onto. The layout itself is tests/12-touch.test.js.

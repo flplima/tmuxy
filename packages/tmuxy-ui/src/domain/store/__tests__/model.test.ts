@@ -10,8 +10,12 @@ import {
 } from '../model';
 import { predict } from '../ops';
 import { toTmuxCommand, type TmuxOp } from '../../commands';
-import type { TmuxSnapshot, OpId } from '../types';
-import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
+import {
+  type TmuxSnapshot,
+  type OpId,
+  OP_STALE_TIMEOUT_MS,
+  OP_ACKED_STALE_TIMEOUT_MS,
+} from '../types';
 import type { TmuxPane, TmuxWindow } from '../../client';
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({

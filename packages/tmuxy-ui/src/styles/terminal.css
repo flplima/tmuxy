@@ -151,7 +151,7 @@
   user-select: none;
   /* Snap the advance to the cell grid: --cell-gap is the letter-spacing that
      pads the font's natural advance up to --cell-w, the whole-device-pixel cell
-     width every cell-addressed box is a multiple of (utils/cellMetrics.ts). */
+     width every cell-addressed box is a multiple of (infra/dom/cellMetrics.ts). */
   letter-spacing: var(--cell-gap, 0px);
   /* Keep each glyph's advance fixed across re-renders: no kerning or contextual
      ligatures whose width could shift when neighbouring characters change. */
@@ -254,7 +254,7 @@
   min-width: 0;
 }
 
-/* A one-column symbol wider than its cell (utils/glyphFit.ts): scaled down
+/* A one-column symbol wider than its cell (components/terminal/glyphFit.ts): scaled down
    from the cell's left edge so it stays inside the box the grid gave it. The
    box itself is untouched, so the run after it starts where tmux says. */
 .terminal-fit-glyph {
@@ -318,7 +318,7 @@
 }
 
 /* `terminal-link-hot` is set on every anchor of the hovered URL (a wrapped
-   link is one anchor per row; see utils/linkHover.ts). */
+   link is one anchor per row; see components/terminal/linkHover.ts). */
 .terminal-hyperlink:hover,
 .terminal-hyperlink.terminal-link-hot {
   color: var(--link-hover);
@@ -393,7 +393,7 @@
 
 /* A row the browser's selection runs past is selected to the pane's edge, as
    a terminal draws it: the rest of the row, past its last cell, is filled
-   (utils/selectionRows.ts). An empty row is filled entirely. */
+   (components/terminal/selectionRows.ts). An empty row is filled entirely. */
 .terminal-selectable .terminal-line-selected-on::after {
   content: '';
   flex: 1 1 auto;

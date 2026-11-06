@@ -11,8 +11,14 @@
  *   expect(actor.getSnapshot().context.themeName).toBe('dracula');
  */
 
-import { createActor, fromCallback, setup } from 'xstate';
-import type { AnyEventObject, AnyStateMachine, Actor } from 'xstate';
+import {
+  createActor,
+  fromCallback,
+  setup,
+  type AnyEventObject,
+  type AnyStateMachine,
+  type Actor,
+} from 'xstate';
 import { createInitialContext } from '../../context';
 import type { AppMachineContext } from '../../../types/context';
 import type { AllAppMachineEvents } from '../../../types/events';

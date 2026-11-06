@@ -234,7 +234,7 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     await user.click(menu.querySelector('[data-current="true"]') as HTMLElement);
     await switcherClosed();
 
-    // What `isTauri()` reads (utils/platform.ts). The harness builds its own
+    // What `isTauri()` reads (infra/platform.ts). The harness builds its own
     // fixture adapter, so flipping this after mount changes only what the
     // switcher decides to draw.
     const tauriWindow = window as unknown as Record<string, unknown>;

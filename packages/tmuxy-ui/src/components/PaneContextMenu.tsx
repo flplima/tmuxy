@@ -5,7 +5,7 @@
 
 import { FloatingMenu } from './floating/Menu';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
-import { paneMenuSpec } from '../domain/menus/paneMenu';
+import { paneMenuSpec } from './menus/specs/paneMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
 import { useWidgetMenuItems } from './widgets/usePaneWidget';
 import { useNativeMenu } from './menus/useNativeMenu';
@@ -40,12 +40,12 @@ export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContext
     // brought into view the way clicking its tab does — `FOCUS_PANE` on a
     // parked member would race the swap, and the action would land on the
     // member that was showing instead of the one the menu was opened for.
-    before: (actionId) => {
-      if (actionId === 'pane-close') return;
+    before: (command) => {
+      if (command === 'pane-close') return;
       send(inGroup ? { type: 'SELECT_PANE_GROUP_TAB', paneId } : { type: 'FOCUS_PANE', paneId });
     },
-    onLocal: (id) => {
-      if (id === 'pane-rename') onRename?.();
+    onLocal: (local) => {
+      if (local.verb === 'rename') onRename?.();
     },
   });
 

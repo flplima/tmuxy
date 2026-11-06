@@ -1,5 +1,5 @@
 /**
- * phone state — what only the phone layout has (utils/phoneLayout.ts).
+ * phone state — what only the phone layout has (infra/dom/phoneLayout.ts).
  *
  * Owns context fields: phoneZoom, phoneBottomView, phoneDockSizeSent.
  *

@@ -228,7 +228,7 @@ async function typeInTerminal(page, text, { target } = {}) {
   // bringToFront() re-establishes it at the CDP level.
   await page.bringToFront();
   // Wait for the app to be holding the keyboard rather than sleeping and
-  // hoping. The hidden input (utils/mobileKeyboard.ts) owns browser focus on
+  // hoping. The hidden input (infra/dom/mobileKeyboard.ts) owns browser focus on
   // every device, so its being the active element is the signal that a
   // keystroke will land in a pane.
   await waitForKeyboardFocus(page);
@@ -328,7 +328,7 @@ async function tmuxCommandKeyboard(page, cmd) {
 /**
  * Wait until the keyboard actor sends keys where the app's context says they
  * go now. The actor hears of a focus change by message, after the context has
- * it; the hidden input's `data-keyboard-target` (utils/mobileKeyboard.ts) is
+ * it; the hidden input's `data-keyboard-target` (infra/dom/mobileKeyboard.ts) is
  * the actor saying it has caught up. `target` is a pane id, `left-sidebar`,
  * or `focused-float` for whatever float the context has focused.
  */

@@ -4,7 +4,7 @@
 
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { WindowId } from '../domain/ids';
-import { tabPaneStates } from '../utils/paneState';
+import { tabPaneStates } from '../domain/paneState';
 import type { AppMachineContext } from '../machines/types/context';
 
 /**

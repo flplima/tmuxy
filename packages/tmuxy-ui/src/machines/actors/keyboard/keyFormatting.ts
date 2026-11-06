@@ -3,7 +3,7 @@
  * keyboardActor.
  */
 
-import { getMobileInput } from '../../../utils/mobileKeyboard';
+import { getMobileInput } from '../../../infra/dom/mobileKeyboard';
 import { isPlaceholderId, type PaneId } from '../../../domain/ids';
 
 export const KEY_MAP: Record<string, string> = {

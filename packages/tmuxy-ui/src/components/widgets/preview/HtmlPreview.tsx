@@ -14,17 +14,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { composePage } from './previewPage';
-import {
-  markReplayedPreviewKey,
-  newBridgeChannel,
-  readBridgeMessage,
-  type BridgeMessage,
-} from './previewBridge';
+import { newBridgeChannel, readBridgeMessage, type BridgeMessage } from './previewBridge';
+import { markReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { PreviewSource } from './previewSource';
 import type { PreviewTheme } from './previewTheme';
 import type { PreviewDocument } from '../../../domain/preview';
-import { openExternalUrl, safeHref } from '../../../utils/openUrl';
+import { openExternalUrl, safeHref } from '../../../infra/openUrl';
 
 /** A link the page followed, opened in the system browser when it leaves tmuxy. */
 function openLink(url: string) {

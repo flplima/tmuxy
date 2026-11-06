@@ -95,7 +95,7 @@ describe('Scenario 16: Unicode Rendering', () => {
     await ctx.setupPage();
 
     // The browser grid is a whole number of device pixels per cell, published
-    // as --cell-w (tmuxy-ui/src/utils/cellMetrics.ts).
+    // as --cell-w (tmuxy-ui/src/infra/dom/cellMetrics.ts).
     const cellW = await getCellWidth(ctx.page);
     expect(cellW * (await ctx.page.evaluate(() => devicePixelRatio))).toBeCloseTo(
       Math.round(cellW * (await ctx.page.evaluate(() => devicePixelRatio))),

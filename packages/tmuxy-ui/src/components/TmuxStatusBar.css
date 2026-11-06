@@ -1,0 +1,195 @@
+/* ============================================
+   Tmux Status Bar (Bottom)
+   ============================================ */
+
+/* One height whatever the line shows: a terminal row with 4px above and below,
+   the TMUX_STATUS_BAR_HEIGHT the pane area is sized around
+   (constants/layout.ts). Left to its content, the bar was as tall as its
+   tallest item — the host and session labels in normal mode, the hint row
+   alone in a mode, the prompt with its padding at `:` — so entering a mode
+   moved it by a few pixels. */
+.tmux-status-bar {
+  width: 100%;
+  height: calc(var(--line-height-terminal) + 2 * var(--spacing-md));
+  flex: none;
+  background-color: var(--tmux-status-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* Every item on the line is the chrome's small text, whatever it is; the
+     rules below say so again only where a font shorthand would reset it. */
+  font-size: var(--tmuxy-small-font-size);
+}
+
+.tmux-status-bar-content {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  line-height: var(--line-height-terminal);
+  white-space: pre;
+  margin: 0;
+  padding: var(--spacing-md) 0;
+  color: var(--text-dark);
+}
+
+/* Command mode input (prefix+:) */
+.tmux-command-mode {
+  background-color: var(--tmux-status-bg);
+}
+
+.tmux-command-input-wrapper {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--spacing-md) 0;
+}
+
+.tmux-command-prompt {
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  white-space: pre;
+  flex-shrink: 0;
+}
+
+.tmux-command-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  line-height: var(--line-height-terminal);
+  color: var(--text-dark);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  caret-color: var(--text-dark);
+}
+
+/* Status message */
+.tmux-status-message {
+  background-color: var(--tmux-status-bg);
+}
+
+/* Status line 3-column layout */
+.tmux-statusline-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+}
+
+.tmux-statusline-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tmux-statusline-center {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.tmux-statusline-center .tmux-status-bar-content {
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tmux-statusline-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* In a mode the line is the mode's: no host or session. */
+.tmux-statusline-right[hidden] {
+  display: none;
+}
+
+/* Keybinding hints: the terminal's size on the terminal's row, so the hints,
+   the centre and the labels share one baseline. Every line is written to fit
+   80 columns with 1ch either side (components/statusLineHints.ts). */
+.statusline-hints {
+  color: var(--text-dark);
+  font-size: var(--tmuxy-small-font-size);
+  line-height: var(--line-height-terminal);
+  font-family: var(--font-mono);
+  white-space: pre;
+  overflow: hidden;
+  padding: 0 1ch;
+  /* Keys are read glyph by glyph: FiraCode would draw `-|` as one arrow. */
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
+}
+
+@media (pointer: coarse), (max-width: 600px) {
+  .statusline-hints {
+    display: none;
+  }
+}
+
+.statusline-hints kbd {
+  font-weight: bold;
+  color: var(--text-dark);
+  font-family: inherit;
+}
+
+.statusline-bracket {
+  opacity: 0.5;
+  font-weight: normal;
+}
+
+/* A mode (PREFIX, COPY, PANE, TAB) names itself in an uppercase inverse-video
+   chip — the terminal convention for "a mode is on" — drawn in the THEME's
+   colours: the terminal background, the darkest tone on a dark theme and the
+   lightest on a light one, so the chip sits apart from the band under it; the
+   text is the theme's accent, the colour the active pane's title takes. */
+.statusline-mode {
+  background: var(--term-background);
+  color: var(--theme-accent);
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  font-weight: bold;
+}
+
+.statusline-separator {
+  opacity: 0.3;
+}
+
+/* Host and session labels */
+.statusline-host,
+.statusline-session {
+  color: var(--text-dark);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-small-font-size);
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-md);
+}
+
+.statusline-session {
+  font-weight: bold;
+}
+
+.statusline-clickable {
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.statusline-clickable:hover {
+  color: var(--text-secondary);
+  background-color: var(--bg-medium);
+}

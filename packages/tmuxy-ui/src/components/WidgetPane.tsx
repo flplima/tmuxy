@@ -17,7 +17,7 @@ import {
   useIsResizing,
   useIsSinglePane,
 } from '../machines/appHooks';
-import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
+import { useFramedPaneFocus } from './useFramedPaneFocus';
 import type { PaneId } from '../domain/ids';
 
 interface WidgetPaneProps {

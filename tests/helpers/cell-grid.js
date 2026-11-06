@@ -3,7 +3,7 @@
  * cells.
  *
  * The UI publishes the snapped cell width as `--cell-w` on `.app-container`
- * (tmuxy-ui/src/utils/cellMetrics.ts). Everything here converts bounding rects
+ * (tmuxy-ui/src/infra/dom/cellMetrics.ts). Everything here converts bounding rects
  * into that unit so a test can compare rendered positions with tmux's own
  * cell coordinates (`#{cursor_x}`), which is the real oracle for "does the
  * browser grid match tmux".

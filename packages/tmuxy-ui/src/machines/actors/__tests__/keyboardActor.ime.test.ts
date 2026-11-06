@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { pid } from '../../../test/wire';
 import { pasteBufferInto } from '../../../domain/commandHelpers';
-import * as mobileKeyboard from '../../../utils/mobileKeyboard';
+import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 import {
   lastSendCommand,
   pasteText,

@@ -7,10 +7,10 @@
 
 import { memo } from 'react';
 import { usePane } from '../machines/appHooks';
-import { LogProfiler } from '../utils/renderLog';
+import { LogProfiler } from './renderLog';
 import { usePaneWidgetInfo } from './widgets/usePaneWidgetInfo';
 import { WidgetPane } from './WidgetPane';
-import { TerminalPane } from './TerminalPane';
+import { TerminalPane } from './terminal/TerminalPane';
 import type { PaneId } from '../domain/ids';
 
 interface PaneProps {

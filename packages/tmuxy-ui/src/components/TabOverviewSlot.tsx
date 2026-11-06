@@ -5,8 +5,8 @@
 
 import type React from 'react';
 import type { AppMachineEvent } from '../machines/types/events';
-import type { overviewSlots } from '../utils/tabOverview';
-import type { useReorderDrag } from '../hooks/useReorderDrag';
+import type { overviewSlots } from '../domain/tabOverview';
+import type { useReorderDrag } from './useReorderDrag';
 import type { WindowId } from '../domain/ids';
 import { TabShot } from './TabShot';
 import { Tooltip } from './Tooltip';

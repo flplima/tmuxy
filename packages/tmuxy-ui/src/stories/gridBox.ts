@@ -22,7 +22,7 @@ import {
   TMUX_STATUS_BAR_HEIGHT,
 } from '../constants/layout';
 import { useEffect, useState } from 'react';
-import { measureCellMetrics } from '../utils/cellMetrics';
+import { measureCellMetrics } from '../infra/dom/cellMetrics';
 
 export function gridBox(cols: number, rows: number): { width: number; height: number } {
   const { cellWidth } = measureCellMetrics();

@@ -11,7 +11,7 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { PANE_STATE_GLYPH, PANE_STATE_LABEL, type PaneStateName } from '../utils/paneState';
+import { PANE_STATE_GLYPH, PANE_STATE_LABEL, type PaneStateName } from '../domain/paneState';
 import { Tooltip } from './Tooltip';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

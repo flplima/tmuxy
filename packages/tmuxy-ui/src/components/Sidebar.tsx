@@ -34,8 +34,8 @@ import {
   selectRightSidebarPane,
   selectSidebarLayout,
 } from '../machines/selectors/panesAndSidebars';
-import { LogProfiler } from '../utils/renderLog';
-import { useSidebarPeekHold } from '../hooks/useSidebarPeek';
+import { LogProfiler } from './renderLog';
+import { useSidebarPeekHold } from './useSidebarPeek';
 
 /** What differs between the two columns, by side. */
 const SIDES = {

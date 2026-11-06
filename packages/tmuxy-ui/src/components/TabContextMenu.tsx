@@ -5,10 +5,9 @@
  */
 
 import { FloatingMenu } from './floating/Menu';
-import { useAppSend, useAppSelector } from '../machines/appHooks';
-import { tabMenuSpec } from '../domain/menus/tabMenu';
+import { useAppSelector } from '../machines/appHooks';
+import { tabMenuSpec } from './menus/specs/tabMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { TmuxOp } from '../domain/commands';
 import type { WindowId } from '../domain/ids';
 import { belowElement, useNativeMenu } from './menus/useNativeMenu';
 
@@ -35,28 +34,11 @@ export function TabContextMenu({
   onClose,
   onRename,
 }: TabContextMenuProps) {
-  const send = useAppSend();
   const spec = useAppSelector((ctx) => tabMenuSpec(ctx, { windowId, navigation: false }));
-  const collapsible = useAppSelector((ctx) =>
-    Boolean(ctx.windows.find((w) => w.id === windowId)?.collapsible),
-  );
 
   const dispatch = useMenuDispatch({
-    onLocal: (id) => {
-      if (id === 'tab-rename') onRename();
-      // Stacked panes: a window option the backend reads (docs/TMUX.md). On,
-      // only the active pane's first-level row stays expanded; off evens the
-      // rows back out.
-      if (id === 'tab-stack-toggle') {
-        send({
-          type: 'DISPATCH_OP',
-          op: TmuxOp.SetWindowTag({
-            windowId,
-            tag: 'collapsible',
-            value: collapsible ? null : '1',
-          }),
-        });
-      }
+    onLocal: (local) => {
+      if (local.verb === 'rename') onRename();
     },
   });
 

@@ -19,8 +19,9 @@ import { TransportEvent } from '../../infra/transport/events';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../infra/transport/wireDecode';
 import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../domain/wire';
-import type { TraceSettings } from '../../machines/types/domain';
-import { loadThemeFromStorage, parseThemeMode, saveThemeToStorage } from '../../utils/themeManager';
+import type { Types } from 'effect';
+import { type TraceSettings, parseThemeMode } from '../../domain/wireSettings';
+import { loadThemePref, saveThemePref } from '../../infra/prefs';
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */
 export interface Fixture {
@@ -90,7 +91,7 @@ export class FixtureAdapter implements TmuxAdapter {
   private current: string;
   /** Every command the app sent, in order. */
   readonly commands: string[] = [];
-  private traceSettings: TraceSettings = {
+  private traceSettings: Types.Mutable<TraceSettings> = {
     enabled: false,
     level: 'shape',
     path: '/home/demo/.local/state/tmuxy/trace.ndjson',
@@ -189,19 +190,19 @@ export class FixtureAdapter implements TmuxAdapter {
         this.events.emit(TransportEvent.Detached({ reason: null }));
         return null as T;
       case 'set_theme': {
-        const saved = loadThemeFromStorage();
+        const saved = loadThemePref();
         const mode = args?.mode as string | undefined;
-        saveThemeToStorage(
-          (args?.name as string | undefined) || saved?.theme || 'default',
-          mode === undefined ? (saved?.mode ?? 'dark') : parseThemeMode(mode),
+        saveThemePref(
+          (args?.name as string | undefined) || saved.theme,
+          mode === undefined ? saved.mode : parseThemeMode(mode),
         );
         return null as T;
       }
       case 'set_theme_mode':
-        saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', parseThemeMode(args?.mode));
+        saveThemePref(loadThemePref().theme, parseThemeMode(args?.mode));
         return null as T;
       case 'get_theme_settings':
-        return (loadThemeFromStorage() ?? { theme: 'default', mode: 'dark' }) as T;
+        return loadThemePref() as T;
       case 'get_themes_list':
         return THEMES as T;
       case 'get_trace_settings':

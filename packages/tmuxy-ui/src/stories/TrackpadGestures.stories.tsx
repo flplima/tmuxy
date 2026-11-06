@@ -23,7 +23,7 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import tabsRecording from './fixtures/gen/tabs.json';
 import pinchZoomLeft from './fixtures/gen/pinch-zoom-left.json';
 import tabsSecondSplit from './fixtures/gen/tabs-second-split.json';
-import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../utils/gestures';
+import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../machines/gestures/gestures';
 import {
   activePaneEl,
   actor,
