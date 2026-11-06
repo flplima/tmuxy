@@ -6,89 +6,33 @@
  * switched away from, it held that pane on what they had scrolled to while its
  * program kept printing, and the tab came back to it. Copy mode is tmux's, so
  * it stays.
- *
- * `appMachine` is exported with stub actors, so it starts standalone.
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor } from 'xstate';
-import { appMachine } from '../appMachine';
 import { pid, wid } from '../../../test/wire';
-import type { TmuxPane, TmuxWindow } from '../../../domain/client';
-import type { TmuxClientModel, TmuxSnapshot } from '../../../domain/store/types';
+import { modelPane, modelUpdate, modelWindow } from '../../../test/model';
+import { startApp } from '../../../test/app';
+import type { TmuxPane } from '../../../domain/client';
 import type { PaneId, WindowId } from '../../../domain/ids';
 
 const ONE = wid('@1');
 const TWO = wid('@2');
 
-const pane = (tmuxId: PaneId, windowId: WindowId, inMode = false): TmuxPane => ({
-  id: Number(tmuxId.slice(1)),
-  tmuxId,
-  windowId,
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 23,
-  x: 0,
-  y: 1,
-  active: true,
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 500,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-});
+const pane = (tmuxId: PaneId, windowId: WindowId, inMode = false) =>
+  modelPane(tmuxId, windowId, { height: 23, y: 1, active: true, inMode, historySize: 500 });
 
-const tab = (id: WindowId, index: number, active: boolean): TmuxWindow => ({
-  id,
-  index,
-  name: `tab${index}`,
-  active,
-  windowType: 'tab',
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-});
+const tab = (id: WindowId, index: number, active: boolean) =>
+  modelWindow(id, index, { name: `tab${index}`, active });
 
 /** A model update with `activeWindowId` the current tab, nothing optimistic in flight. */
-const showing = (activeWindowId: WindowId, panes: TmuxPane[]) => {
-  const snapshot: TmuxSnapshot = {
-    panes,
-    windows: [tab(ONE, 0, activeWindowId === ONE), tab(TWO, 1, activeWindowId === TWO)],
-    activePaneId: activeWindowId === ONE ? pid('%1') : pid('%2'),
-    activeWindowId,
-    totalWidth: 80,
-    totalHeight: 24,
-    sessionName: 'main',
-    focusRequest: '',
-    pluginsRev: '',
-    themeRev: '',
-  };
-  const model: TmuxClientModel = {
-    committed: snapshot,
-    ops: [],
-    derived: snapshot,
-    paneKeyOverrides: {},
-  };
-  return { type: 'TMUX_MODEL_UPDATE' as const, model };
-};
+const showing = (activeWindowId: WindowId, panes: TmuxPane[]) =>
+  modelUpdate(panes, [tab(ONE, 0, activeWindowId === ONE), tab(TWO, 1, activeWindowId === TWO)], {
+    paneId: activeWindowId === ONE ? pid('%1') : pid('%2'),
+    windowId: activeWindowId,
+  });
 
 const connected = (panes: TmuxPane[]) => {
-  const actor = createActor(appMachine).start();
-  actor.send({ type: 'TMUX_CONNECTED' });
+  const actor = startApp();
   actor.send(showing(ONE, panes));
   return actor;
 };

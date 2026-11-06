@@ -2,7 +2,12 @@ import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { CellLine } from '../domain/wireCells';
 import type { PaneId, WindowId } from '../domain/ids';
 import { recomputeDerived } from '../domain/store/model';
-import { EMPTY_SNAPSHOT, type TmuxClientModel, type TmuxSnapshot } from '../domain/store/types';
+import {
+  EMPTY_SNAPSHOT,
+  type PendingOp,
+  type TmuxClientModel,
+  type TmuxSnapshot,
+} from '../domain/store/types';
 
 /** A pane of `windowId`, `width`×`height` cells at the window's origin. */
 export const modelPane = (
@@ -60,11 +65,15 @@ export const modelWindow = (
   ...overrides,
 });
 
-/** A model update carrying `panes` and `windows`, with nothing optimistic in flight. */
+/**
+ * A model update carrying `panes` and `windows`, sized to the active pane,
+ * with `ops` in flight (none unless given).
+ */
 export const modelUpdate = (
   panes: TmuxPane[],
   windows: TmuxWindow[],
-  active: { paneId: PaneId; windowId: WindowId },
+  active: { paneId: PaneId | null; windowId: WindowId },
+  extra: { ops?: PendingOp[]; sessionName?: string } = {},
 ) => {
   const activePane = panes.find((p) => p.tmuxId === active.paneId);
   const snapshot: TmuxSnapshot = {
@@ -74,14 +83,14 @@ export const modelUpdate = (
     activeWindowId: active.windowId,
     totalWidth: activePane?.width ?? 80,
     totalHeight: activePane?.height ?? 24,
-    sessionName: 'main',
+    sessionName: extra.sessionName ?? 'main',
     focusRequest: '',
     pluginsRev: '',
     themeRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,
-    ops: [],
+    ops: extra.ops ?? [],
     derived: snapshot,
     paneKeyOverrides: {},
   };

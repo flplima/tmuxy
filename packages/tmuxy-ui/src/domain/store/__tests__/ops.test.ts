@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelPane } from '../../../test/model';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
 import { TmuxOp } from '../../commands';
@@ -11,38 +12,10 @@ import {
   type TmuxSnapshot,
   type OpId,
 } from '../types';
-import type { TmuxPane } from '../../client';
 import type { PaneId, WindowId } from '../../ids';
 
-function pane(tmuxId: PaneId, x: number, y: number, width: number, height: number): TmuxPane {
-  return {
-    id: parseInt(tmuxId.slice(1), 10),
-    tmuxId,
-    windowId: wid('@0'),
-    content: [],
-    cursorX: 0,
-    cursorY: 0,
-    width,
-    height,
-    x,
-    y,
-    active: false,
-    command: 'bash',
-    title: '',
-    borderTitle: '',
-    inMode: false,
-    copyCursorX: 0,
-    copyCursorY: 0,
-    alternateOn: false,
-    mouseAnyFlag: false,
-    historySize: 0,
-    selectionPresent: false,
-    selectionStartX: 0,
-    selectionStartY: 0,
-    cursorShape: 0,
-    cursorHidden: false,
-  };
-}
+const pane = (tmuxId: PaneId, x: number, y: number, width: number, height: number) =>
+  modelPane(tmuxId, wid('@0'), { x, y, width, height });
 
 // Two side-by-side panes: %0 [0..39] and %1 [41..80].
 const SNAPSHOT: TmuxSnapshot = {
