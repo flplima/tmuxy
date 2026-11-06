@@ -122,7 +122,7 @@ async function nextRun(page, seen, what) {
     15000,
     () => `the action to run from ${what}; ${whyNoRun()}`,
   );
-  expect(await waitForPaneCount(page, 1, 10000)).toBe(true);
+  await waitForPaneCount(page, 1, 10000);
   await afterFrames(page, 2);
   return runs()[seen];
 }

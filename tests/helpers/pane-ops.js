@@ -4,7 +4,7 @@
  * Pane information, split, navigate, swap, zoom, kill, layout, and resize.
  */
 
-const { delay } = require('./browser');
+const { delay, DRAWN_PANE, drawnPaneIds } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
 const { waitBudget } = require('./config');
 const {
@@ -17,21 +17,9 @@ const {
 
 // ==================== Pane Information ====================
 
-/**
- * Get number of visible panes in UI
- */
+/** How many distinct panes the page draws. */
 async function getUIPaneCount(page) {
-  return await page.evaluate(() => {
-    const panes = document.querySelectorAll('[data-pane-id]');
-    if (panes.length > 0) {
-      const uniqueIds = new Set();
-      for (const pane of panes) {
-        uniqueIds.add(pane.getAttribute('data-pane-id'));
-      }
-      return uniqueIds.size;
-    }
-    return document.querySelectorAll('[role="log"]').length;
-  });
+  return (await page.evaluate(drawnPaneIds, DRAWN_PANE)).length;
 }
 
 /**
@@ -427,7 +415,6 @@ module.exports = {
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,
-  waitForEveryShellPrompt,
   showsShellPrompt,
   waitForLayoutSettled,
   runCommand,
