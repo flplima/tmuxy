@@ -41,8 +41,9 @@ pub const LIST_CLIENTS_FORMAT: &str = "#{client_control_mode},#{session_group},#
 /// is taken by position, never by what it says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Read {
-    /// A `capture-pane` of the pane.
-    Capture(PaneId),
+    /// A `capture-pane` of the pane, and where tmux's cursor was in it (see
+    /// [`Markers::capture_command`]).
+    Capture(PaneId, Option<(u32, u32)>),
     /// The `list-clients` asked before a view mode on the pane is closed.
     Clients(PaneId),
     /// The `show-buffer` that mirrors a copy-mode yank.
@@ -108,8 +109,14 @@ impl Markers {
             let number = self.after(line, marker)?.parse().ok()?;
             Some(PaneId::from_number(number))
         };
-        if let Some(pane) = pane(CAPTURE_BEGIN_MARKER) {
-            return Some(Read::Capture(pane));
+        if let Some(rest) = self.after(line, CAPTURE_BEGIN_MARKER) {
+            let mut fields = rest.split_whitespace().map(str::parse::<u32>);
+            let pane = PaneId::from_number(fields.next()?.ok()?);
+            let cursor = match (fields.next(), fields.next()) {
+                (Some(Ok(x)), Some(Ok(y))) => Some((x, y)),
+                _ => None,
+            };
+            return Some(Read::Capture(pane, cursor));
         }
         if let Some(pane) = pane(CLIENTS_BEGIN_MARKER) {
             return Some(Read::Clients(pane));
@@ -160,6 +167,15 @@ impl Markers {
     /// (observed on tmux 3.7: `%69` prints as 67 spaces + `%69`; other
     /// versions can swallow it entirely). Bare digits are expansion-proof;
     /// the response router re-prefixes the `%`.
+    ///
+    /// The BEGIN marker also carries tmux's cursor, read in the same command
+    /// list as the capture: tmux runs one list without reading a pane's
+    /// output in between, so the cursor is where it was in the captured
+    /// screen. The one a `list-panes` reported is from another moment, which
+    /// a chunked control-mode input (the v86 serial line) can put whole lines
+    /// of output away from the capture; output after the capture was then
+    /// drawn from that cursor, over the screen the capture had just laid
+    /// down.
     pub fn capture_command(&self, pane_id: &PaneId) -> String {
         self.marker_wrapped_capture(pane_id, "")
     }
@@ -232,8 +248,9 @@ impl Markers {
 
     fn marker_wrapped_capture(&self, pane_id: &PaneId, range: &str) -> String {
         format!(
-            "{} ; capture-pane -t {pane_id} -p -e{range} ; {}",
-            self.print(CAPTURE_BEGIN_MARKER, Some(pane_id.number().to_string())),
+            "display-message -p -t {pane_id} '{} {} #{{cursor_x}} #{{cursor_y}}' ; capture-pane -t {pane_id} -p -e{range} ; {}",
+            self.tag(CAPTURE_BEGIN_MARKER),
+            pane_id.number(),
             self.print(CAPTURE_END_MARKER, None),
         )
     }

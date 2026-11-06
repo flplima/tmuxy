@@ -100,7 +100,7 @@ impl StateAggregator {
 
     fn on_read(&mut self, read: Read, output: &str, success: bool) -> ProcessEventResult {
         match read {
-            Read::Capture(pane_id) => self.on_capture(pane_id, output, success),
+            Read::Capture(pane_id, cursor) => self.on_capture(pane_id, cursor, output, success),
             Read::Clients(pane_id) => self.on_clients_listed(&pane_id, output, success),
             Read::Buffer => {
                 self.pending_buffer_reads = self.pending_buffer_reads.saturating_sub(1);
@@ -191,7 +191,13 @@ impl StateAggregator {
         }
     }
 
-    fn on_capture(&mut self, pane_id: PaneId, output: &str, success: bool) -> ProcessEventResult {
+    fn on_capture(
+        &mut self,
+        pane_id: PaneId,
+        cursor: Option<(u32, u32)>,
+        output: &str,
+        success: bool,
+    ) -> ProcessEventResult {
         // Whatever the outcome: a wedged entry would block every later
         // capture of the pane and hold the first state back
         // (`initial_state_ready`), and a moved pane left in
@@ -220,6 +226,10 @@ impl StateAggregator {
         let Some(pane) = self.panes.get_mut(&pane_id) else {
             return ProcessEventResult::default();
         };
+        if let Some((x, y)) = cursor {
+            pane.tmux_cursor_x = x;
+            pane.tmux_cursor_y = y;
+        }
         if pane.in_mode {
             pane.process_copy_mode_capture(output.as_bytes());
         } else {
