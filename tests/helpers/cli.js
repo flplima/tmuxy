@@ -1,18 +1,13 @@
 /**
- * CLI Helpers
- *
- * Mutating tmux commands for E2E tests, through the tmuxy CLI. Read-only
+ * Mutating tmux commands for the E2E tests, through the tmuxy CLI. Read-only
  * queries go through tmuxExec in tmux-socket.js.
  */
 
 const { execFileSync, execSync } = require('child_process');
 const path = require('path');
 
-const WORKSPACE_ROOT = path.resolve(__dirname, '../..');
-const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
-
+const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary } = require('./config');
 const { tmuxEnv } = require('./tmux-socket');
-const { serverBinary } = require('./server-binary');
 
 /**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
@@ -34,8 +29,7 @@ function tmuxRun(command) {
       env: tmuxEnv(),
     }).trim();
   } catch (error) {
-    // execSync's message is just "Command failed: <cmd>" — the reason tmux gave
-    // is in stderr, which is the only part that says what actually went wrong.
+    // execSync's message is only "Command failed: <cmd>"; tmux's reason is in stderr.
     const stderr = (error.stderr || '').toString().trim();
     const stdout = (error.stdout || '').toString().trim();
     throw new Error(
