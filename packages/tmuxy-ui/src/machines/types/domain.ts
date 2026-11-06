@@ -4,10 +4,6 @@ import type { Side, TmuxOp } from '../../domain/commands';
 import type { TabDrop, TabStripGeometry } from '../drag/tabStripDrop';
 import type { GroupDrop } from '../drag/groupDrop';
 
-// ============================================
-// Shared State Types
-// ============================================
-
 /** A sidebar column: the tree on the left, the pinned terminal (the dock) on the right. */
 export type SidebarSide = 'left' | 'right';
 
@@ -53,12 +49,9 @@ export interface SidebarState {
 /** Drawer direction for float panes docked to an edge */
 export type DrawerDirection = 'left' | 'right' | 'top' | 'bottom';
 
-/** Backdrop style for float panes */
 export type FloatBackdrop = 'dim' | 'blur' | 'none';
 
-/** Float pane state */
 export interface FloatPaneState {
-  /** Pane ID (e.g., "%5") */
   paneId: PaneId;
   /**
    * The tab the float belongs to (`@tmuxy-float-parent`), or null when its
@@ -75,11 +68,9 @@ export interface FloatPaneState {
   drawer?: DrawerDirection;
   /** Backdrop style (default: dim) */
   backdrop?: FloatBackdrop;
-  /** Whether to hide the header bar */
   hideHeader?: boolean;
 }
 
-/** Drag operation state */
 export interface DragState {
   draggedPaneId: PaneId;
   targetPaneId: PaneId | null;
@@ -184,10 +175,6 @@ export interface ResizeState {
   lastSentAt: number;
 }
 
-// ============================================
-// App Machine Domain Types
-// ============================================
-
 /** An error the user has to see, or a message tmux showed them (`display-message`). */
 export type NotificationKind = 'error' | 'info';
 
@@ -203,7 +190,7 @@ export interface AppNotification {
   timestamp: number;
 }
 
-/** Log entry shown on the connecting/error status screen for debugging */
+/** An entry of the log the connection overlay shows under Details. */
 export interface LogEntry {
   timestamp: number;
   kind: 'command' | 'output' | 'error' | 'info';
@@ -252,10 +239,6 @@ export type GestureState =
       paneId: PaneId;
       phase: 'tracking' | 'handoff';
     };
-
-// ============================================
-// Child Machine Types (Drag & Resize)
-// ============================================
 
 /** A key the keyboard actor consumed; the drag and resize machines cancel on Escape. */
 export type KeyPressEvent = { type: 'KEY_PRESS'; key: string };

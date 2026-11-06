@@ -1,9 +1,7 @@
 /**
- * Drag Machine - Handles pane drag-to-swap operations
- *
- * Sends real-time swap commands once the pointer rests on another pane.
- * The dragged pane follows the cursor while other panes swap in real-time.
- * Spawns its own pointer listener when entering the dragging state.
+ * Pane drags. The dragged pane follows the pointer, and swaps with another
+ * pane once the pointer rests on it, through a pointer listener spawned while
+ * dragging.
  *
  * Dragging up onto the tab strip means something else: the pane leaves this
  * tab. Over another tab it joins that one, over the empty space after the last
@@ -17,10 +15,6 @@
  * a member moves along its group's order, an ungrouped pane joins the group
  * of the header it is dropped on, and a parked member dragged out by its tab
  * leaves the group. These also wait for the release.
- *
- * States:
- * - idle: No drag in progress
- * - dragging: Pane is being dragged, swaps happen on target change
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback, raise, cancel } from 'xstate';

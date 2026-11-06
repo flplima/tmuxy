@@ -1,13 +1,6 @@
 /**
- * Resize Machine - Handles pane resize operations
- *
- * Sends throttled tmux commands when the resize delta crosses a character threshold.
- * Spawns its own pointer listener when entering the resizing state.
- * Throttle state is kept in machine context (not module-level).
- *
- * States:
- * - idle: No resize in progress
- * - resizing: Pane divider is being dragged, commands sent with throttling
+ * Divider drags: throttled resize commands each time the delta crosses a
+ * whole cell, through a pointer listener spawned while resizing.
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback } from 'xstate';
@@ -163,9 +156,7 @@ export const resizeMachine = setup({
             const colsChanged = deltaCols !== lastSentDelta.cols;
             const rowsChanged = deltaRows !== lastSentDelta.rows;
 
-            // Coalesce wire traffic: at most one command batch per interval.
-            // The visual preview (assigned below) still updates every move;
-            // RESIZE_END flushes whatever delta remains unsent.
+            // At most one command batch per interval (ResizeState.lastSentAt).
             const now = Date.now();
             const throttleOpen = now - lastSentAt >= RESIZE_SEND_INTERVAL_MS;
 
@@ -174,7 +165,6 @@ export const resizeMachine = setup({
               (((handle === 'e' || handle === 'w') && colsChanged) ||
                 ((handle === 's' || handle === 'n') && rowsChanged));
 
-            // Track the new lastSentDelta for this event
             let newLastSentDelta = lastSentDelta;
             let newLastSentAt = lastSentAt;
 
@@ -192,7 +182,6 @@ export const resizeMachine = setup({
               }
             }
 
-            // Always update the resize state for visual feedback
             const newResize = {
               ...context.resize,
               pixelDelta: { x: pixelDeltaX, y: pixelDeltaY },
@@ -222,8 +211,7 @@ export const resizeMachine = setup({
                 );
               }
             }),
-            // Keep resize state — parent holds it as optimistic preview until
-            // the next TMUX_STATE_UPDATE arrives with server-confirmed sizes.
+            // The parent keeps the preview until tmux's sizes settle on it.
             'notifyCompleted',
           ],
         },
