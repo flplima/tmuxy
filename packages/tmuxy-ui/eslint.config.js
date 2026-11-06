@@ -40,6 +40,32 @@ export default tseslint.config(
       'tmuxy/no-barrel-files': 'error',
     },
   },
+  // Dependencies point down the layers: domain/ (the model and the vocabulary)
+  // imports nothing above it, infra/ (the platform and the transport) only
+  // the domain, machines/ no component. A type or helper two layers share
+  // lives in the lower one (packages/tmuxy-ui/README.md). A test may reach
+  // up: it drives the seam between layers.
+  ...[
+    { layer: 'domain', above: ['machines', 'components', 'infra', 'hooks', 'utils'] },
+    { layer: 'infra', above: ['machines', 'components', 'hooks', 'utils'] },
+    { layer: 'machines', above: ['components', 'hooks', 'utils'] },
+  ].map(({ layer, above }) => ({
+    files: [`src/${layer}/**/*.{ts,tsx}`],
+    ignores: ['**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: `^(\\.\\./)+(${above.join('|')})(/|$)`,
+              message: `${layer}/ is below ${above.join(', ')}: move what it needs down instead.`,
+            },
+          ],
+        },
+      ],
+    },
+  })),
   // The scripts under scripts/ and the lint rules under eslint-rules/ run in
   // Node (`npm run lint` covers them, with src); the probe and perf scripts
   // also evaluate code inside the page, hence the browser globals too.

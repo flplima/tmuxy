@@ -16,7 +16,7 @@ Feature-to-files retrieval map for agents.
 | The transport service, its Layers and the state stream | `packages/tmuxy-ui/src/infra/transport/` (`TmuxTransport.ts`, `layers.ts`, `stateFeed.ts`, `drivers/`)<br>`packages/tmuxy-ui/src/infra/runtime.ts` |
 | Backend state aggregation and emit | `packages/tmuxy-core/src/control_mode/state.rs`<br>`packages/tmuxy-server/src/state.rs` |
 | SSE/HTTP server flow | `packages/tmuxy-server/src` (see docs references) |
-| Frontend state machine | `packages/tmuxy-ui/src` (XState machine and hooks) |
+| Frontend state machine | `packages/tmuxy-ui/src/machines` (the XState machines); the four layers of `src/` and what each may import: `packages/tmuxy-ui/README.md` |
 | CLI dispatcher and event queue | `packages/tmuxy-cli/bin/tmuxy-cli` |
 | Tauri bridge and desktop shell | `packages/tmuxy-tauri-app` |
 | Menus: one spec per surface, rendered in-app or natively | `packages/tmuxy-ui/src/domain/menus/` (the vocabulary, generic over the action: `spec.ts`; `icons.ts`, the item icons both renderers draw; `keyHint.ts`, key hints and key formatting)<br>`packages/tmuxy-ui/src/components/menus/specs/` (the app's specs per surface; `actions.ts`, the typed `AppMenuAction` and the `MENU_COMMANDS` table)<br>`packages/tmuxy-ui/src/components/menus/SpecMenu.tsx` (the in-app renderer and `useMenuDispatch`)<br>`packages/tmuxy-ui/src/infra/menus/nativeMenu.ts`, `components/menus/NativeMenuBar.tsx`, `useNativeMenu.ts` (the desktop's) |
