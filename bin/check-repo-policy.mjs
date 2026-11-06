@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkFileTokenLimit } from './ci/file-token-limit.mjs';
+import { checkInvariantEnforcers } from './ci/invariant-enforcers.mjs';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const errors = [];
@@ -424,6 +425,7 @@ checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
 checkFileTokenLimit(root, addError);
+checkInvariantEnforcers(root, addError);
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');
