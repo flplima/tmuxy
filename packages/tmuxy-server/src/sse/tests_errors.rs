@@ -363,7 +363,7 @@ async fn a_session_whose_monitor_ended_and_that_tmux_no_longer_has_is_a_404() {
 /// back with the server before the monitor has attached to tmux, and it sends
 /// what was typed meanwhile at once: the first key was answered "No monitor
 /// connection available" and lost.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_command_waits_for_a_monitor_still_connecting_and_not_for_a_dead_one() {
     let state = Arc::new(AppState::default());
     {
