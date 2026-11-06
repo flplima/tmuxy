@@ -231,12 +231,11 @@ impl KeyBindings {
     }
 }
 
-/// Whether a client command sources a config, which may change the prefix,
-/// the bindings, the theme and the appearance options — so both transports
-/// push fresh copies of each after it.
+/// Whether a client command list sources a config anywhere in it, which may
+/// change the prefix, the bindings, the theme and the appearance options — so
+/// the host pushes fresh copies of each after it.
 pub fn is_source_file(command: &str) -> bool {
-    let command = command.trim_start();
-    command.starts_with("source-file") || command.starts_with("source ")
+    crate::tmux_command::parse(command).runs(&crate::tmux_command::SOURCE_FILE)
 }
 
 /// What a client sends to reload the config chain (Reload Config): the entry

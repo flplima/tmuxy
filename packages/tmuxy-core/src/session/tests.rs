@@ -411,6 +411,16 @@ bind x set -g @tmuxy-theme-mode dark
     assert!(pinned_options_in(DEFAULT_USER_CONF).is_empty());
 }
 
+/// tmux runs `set-o` as `set-option`, and its words are the grammar's: a
+/// reader that matched the verb's spelling missed both pins.
+#[test]
+fn a_pin_is_read_by_the_command_grammar() {
+    assert_eq!(
+        pinned_options_in("set-o -g @tmuxy-theme nord\nset-opt -g @tmuxy-send-ask off\n"),
+        vec!["@tmuxy-theme", "@tmuxy-send-ask"]
+    );
+}
+
 /// `-t` takes an argument, which is a target and not the option's name,
 /// whether it stands alone, ends a cluster or is glued to its flag.
 #[test]

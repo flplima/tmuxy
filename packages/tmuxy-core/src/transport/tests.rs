@@ -178,6 +178,19 @@ fn source_file_is_recognised_in_both_spellings() {
     assert!(!is_source_file("send-keys source-file"));
 }
 
+/// A binding arrives pinned (`selectp -t %1 ; source-file …`), a list can
+/// source on its second line, and tmux runs any unique prefix of a verb: each
+/// sources the config, and each left the bindings and theme stale.
+#[test]
+fn source_file_is_seen_anywhere_tmux_would_run_it() {
+    assert!(is_source_file("selectp -t %1 ; source-file ~/.tmux.conf"));
+    assert!(is_source_file("selectp -t %1 \\; source ~/.tmux.conf"));
+    assert!(is_source_file("display-message hi\nsource-file x"));
+    assert!(is_source_file("source-f ~/.tmux.conf"));
+    assert!(is_source_file("if-shell -F 1 { source-file x }"));
+    assert!(!is_source_file("display-message 'source-file x'"));
+}
+
 /// The client spells its Reload Config and its script paths with the two
 /// variables the chain publishes; a rename on one side would leave the
 /// server sourcing nothing it recognises, and every script command naming a
