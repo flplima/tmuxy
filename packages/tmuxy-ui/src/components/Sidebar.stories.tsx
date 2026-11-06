@@ -5,7 +5,7 @@
  * fixed-width, full-height column beside the pane area, opened onto a tmux
  * window running the tree widget. The tree is derived from the recorded
  * `context.windows`/`context.panes`, so these stories exercise the real user
- * chain: TOGGLE_LEFT_SIDEBAR (the header button) → the column opens → the tree
+ * chain: TOGGLE_SIDEBAR left (the header button) → the column opens → the tree
  * lists every tab and its panes → clicking a node activates it through the
  * same events the rest of the UI uses.
  *

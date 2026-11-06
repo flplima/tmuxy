@@ -31,6 +31,7 @@ import {
   reconcileSwap,
   reconcileZoomToggle,
 } from './paneOps';
+import { predictJoinPane, reconcileJoinPane } from './joinPane';
 import {
   predictGroupSwitch,
   predictKillWindow,
@@ -89,7 +90,9 @@ export function predict(
     case 'KillPane':
       return predictKillPane(op, snapshot, ctx);
     case 'KillWindow':
-      return predictKillWindow(op, snapshot);
+      return predictKillWindow(op, snapshot, ctx);
+    case 'JoinPane':
+      return predictJoinPane(op, snapshot);
     case 'RenameWindow':
       return predictRenameWindow(op, snapshot);
     case 'MoveWindow':
@@ -146,6 +149,8 @@ export function reconcile(
       return reconcileKillPane(meta, committed.panes, now - pending.createdAt);
     case 'KillWindow':
       return reconcileKillWindow(meta, committed.windows);
+    case 'JoinPane':
+      return reconcileJoinPane(meta, committed.panes, now - pending.createdAt);
     case 'RenameWindow':
       return reconcileRenameWindow(meta, committed.windows);
     case 'MoveWindow':

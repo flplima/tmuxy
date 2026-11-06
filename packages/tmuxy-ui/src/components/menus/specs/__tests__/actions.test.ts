@@ -55,6 +55,7 @@ describe('executeMenuCommand pane-close routing', () => {
 describe('commandHint', () => {
   const BINDINGS: KeyBindings = {
     prefix_key: 'C-a',
+    repeat_time_ms: 300,
     prefix_bindings: [
       { key: 'c', command: 'new-window -c "#{pane_current_path}"', description: '' },
       { key: 'd', command: 'detach-client', description: '' },

@@ -122,6 +122,7 @@ fn binding(key: &str, command: &str, description: &str, repeat: bool) -> KeyBind
 fn canonical_bindings() -> KeyBindings {
     KeyBindings {
         prefix_key: "C-b".to_string(),
+        repeat_time_ms: 300,
         prefix_bindings: vec![binding("c", "new-window", "new window", false)],
         root_bindings: vec![binding("M-Left", "select-pane -L", "pane left", true)],
         tables: [(

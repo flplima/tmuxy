@@ -12,6 +12,7 @@ import { STICKY_TABLE_ENTRIES, STICKY_TABLES } from '../stickyTables';
 
 export const DEFAULT_KEYBINDINGS: KeyBindings = {
   prefix_key: 'C-a',
+  repeat_time_ms: 300,
   prefix_bindings: [
     { key: '-', command: 'split-window -v', description: 'Split horizontally' },
     { key: '|', command: 'split-window -h', description: 'Split vertically' },

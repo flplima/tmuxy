@@ -400,7 +400,7 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           }
           lastTapRef.current = tap;
           haptics.trigger(10);
-          send({ type: 'FOCUS_PANE', paneId });
+          send({ type: 'SELECT_PANE', paneId });
           // The pane in front again: the keyboard up or away. Any other: the
           // pane takes focus, and an open keyboard follows it.
           lastTapToggledRef.current = phoneLayout && holdsKeyboard;

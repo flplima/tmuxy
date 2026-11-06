@@ -34,6 +34,7 @@ import {
   selectRightSidebarPane,
   selectSidebarLayout,
 } from '../machines/selectors/panesAndSidebars';
+import { selectSidebarHoldsKeyboard } from '../machines/selectors/keyboard';
 import { LogProfiler } from './renderLog';
 import { useSidebarPeekHold } from './useSidebarPeek';
 
@@ -42,15 +43,11 @@ const SIDES = {
   left: {
     profilerId: 'Sidebar',
     selectPane: selectLeftSidebarPane,
-    focusEvent: 'FOCUS_LEFT_SIDEBAR',
-    toggleEvent: 'TOGGLE_LEFT_SIDEBAR',
     testId: 'sidebar-content',
   },
   right: {
     profilerId: 'RightSidebar',
     selectPane: selectRightSidebarPane,
-    focusEvent: 'FOCUS_RIGHT_SIDEBAR',
-    toggleEvent: 'TOGGLE_RIGHT_SIDEBAR',
     testId: 'right-sidebar-content',
   },
 } as const;
@@ -64,23 +61,19 @@ export const Sidebar = memo(function Sidebar({ side }: { side: 'left' | 'right' 
 });
 
 function SidebarInner({ side }: { side: 'left' | 'right' }) {
-  const { selectPane, focusEvent, toggleEvent, testId } = SIDES[side];
+  const { selectPane, testId } = SIDES[side];
   const send = useAppSend();
   const layout = useAppSelector(selectSidebarLayout);
   const open = side === 'left' ? layout.leftOpen : layout.rightOpen;
   const width = side === 'left' ? layout.leftWidth : layout.rightWidth;
-  const focused = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
-  );
-  const startFailed = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarStartFailed : ctx.rightSidebarStartFailed,
-  );
+  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, side));
+  const startFailed = useAppSelector((ctx) => ctx.sidebars[side].startFailed);
   const pane = useAppSelector(selectPane);
   const peeking = useAppSelector((ctx) => ctx.sidebarPeek === side) && !open;
   useSidebarPeekHold(side, peeking);
 
-  const handleFocus = useCallback(() => send({ type: focusEvent }), [send, focusEvent]);
-  const handleClose = useCallback(() => send({ type: toggleEvent }), [send, toggleEvent]);
+  const handleFocus = useCallback(() => send({ type: 'FOCUS_SIDEBAR', side }), [send, side]);
+  const handleClose = useCallback(() => send({ type: 'TOGGLE_SIDEBAR', side }), [send, side]);
 
   if (!open && !peeking) return null;
 

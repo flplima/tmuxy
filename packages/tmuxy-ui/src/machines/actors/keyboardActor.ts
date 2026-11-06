@@ -4,23 +4,23 @@
  */
 
 import { clearNativeSelection, terminalSelection } from '../../infra/dom/nativeSelection';
-import { fromCallback, type AnyActorRef } from 'xstate';
+import { fromCallback, type AnyActorRef, type EventObject } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
 import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
-import { pinPrefix, TmuxOp } from '../../domain/commands';
+import { TmuxOp } from '../../domain/commands';
 import { CLIENT_KEYS, type ClientKey, splitTableSwitch } from '../../domain/keyTables';
 import { tabWalksChrome } from '../../infra/dom/chromeTab';
-import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import {
   bindingKeyOf,
   formatTmuxKey,
   isModifierOnlyKey,
   isRealFormControl,
   isTextKey,
-  realPaneId,
   windowShortcut,
 } from './keyboard/keyFormatting';
-import { handleModalOrCopyKeyDown, readLiveSnapshot } from './keyboard/modalAndCopyKeys';
+import { handleModalOrCopyKeyDown } from './keyboard/modalAndCopyKeys';
+import type { ContextView } from '../contextView';
+import { overlayPaneId, type KeyContext } from '../selectors/keyboard';
 import { setupImeClipboardAndFocusListeners } from './keyboard/imeAndClipboard';
 import { isReplayedPreviewKey } from '../../infra/dom/replayedKeys';
 
@@ -34,57 +34,70 @@ function isSafePreviewRootCommand(command: string): boolean {
   );
 }
 
-export type KeyboardActorEvent =
-  | { type: 'UPDATE_SESSION'; sessionName: string }
-  | { type: 'UPDATE_ACTIVE_PANE'; paneId: PaneId | null }
-  | { type: 'UPDATE_KEYBINDINGS'; keybindings: KeyBindings }
-  | { type: 'UPDATE_ENABLED'; enabled: boolean }
-  | { type: 'UPDATE_FOCUSED_FLOAT'; paneId: PaneId | null }
-  | { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED'; focused: boolean }
-  | { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED'; paneId: PaneId | null };
-
+/** The actor takes no events: what it needs from the machine it reads through `keys`. */
 export interface KeyboardActorInput {
   parent: AnyActorRef;
+  keys: ContextView<KeyContext>;
+}
+
+/** The binding tables, as the actor looks keys up in them. */
+interface BindingMaps {
+  prefixKey: string;
+  /** How long a `bind -r` key keeps the prefix armed for the next repeat (tmux's `repeat-time`). */
+  repeatTimeMs: number;
+  prefix: Map<string, string>;
+  prefixRepeat: Set<string>;
+  root: Map<string, string>;
+  tables: Map<string, Map<string, string>>;
+}
+
+const NO_BINDINGS: BindingMaps = {
+  prefixKey: 'C-a',
+  repeatTimeMs: 500,
+  prefix: new Map(),
+  prefixRepeat: new Set(),
+  root: new Map(),
+  tables: new Map(),
+};
+
+function bindingMaps(kb: KeyBindings): BindingMaps {
+  return {
+    prefixKey: kb.prefix_key,
+    repeatTimeMs: kb.repeat_time_ms,
+    prefix: new Map(kb.prefix_bindings.map((b) => [b.key, b.command])),
+    prefixRepeat: new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key)),
+    root: new Map(kb.root_bindings.map((b) => [b.key, b.command])),
+    tables: new Map(
+      Object.entries(kb.tables).map(([name, bindings]) => [
+        name,
+        new Map(bindings.map((b) => [b.key, b.command])),
+      ]),
+    ),
+  };
+}
+
+/** Where the page shows the keyboard is: `data-keyboard-target` on the hidden input. */
+function keyboardMark(keys: KeyContext): string {
+  if (keys.owner.kind === 'left') return 'left-sidebar';
+  return overlayPaneId(keys.owner) ?? keys.activePaneId ?? '';
 }
 
 const PREFIX_TIMEOUT_MS = 8000;
-/**
- * How long a `bind -r` key keeps the prefix armed for the next repeat — tmux's
- * `repeat-time`, which the server does not export; the shipped config sets 300.
- */
-const REPEAT_TIMEOUT_MS = 300;
 
 export function createKeyboardActor() {
-  return fromCallback<KeyboardActorEvent, KeyboardActorInput>(({ input, receive }) => {
-    let sessionName = 'tmuxy';
-    let activePaneId: PaneId | null = null;
-    let focusedFloatPaneId: PaneId | null = null;
-    let leftSidebarFocused = false;
-    let focusedRightSidebarPaneId: PaneId | null = null;
-    const overlayPaneId = (): PaneId | null => focusedFloatPaneId ?? focusedRightSidebarPaneId;
-    let enabled = true;
-
-    let prefixKey = 'C-a';
-    let prefixBindings: Map<string, string> = new Map();
-    let prefixRepeatKeys: Set<string> = new Set();
-    let rootBindings: Map<string, string> = new Map();
-    let tableBindings: Map<string, Map<string, string>> = new Map();
-
-    const keyTarget = (): string => {
-      const overlay = overlayPaneId();
-      if (overlay) return realPaneId(overlay) ?? sessionName;
-      return realPaneId(activePaneId) ?? sessionName;
+  return fromCallback<EventObject, KeyboardActorInput>(({ input }) => {
+    const { keys } = input;
+    let bindingsSource: KeyBindings | null = null;
+    let bindings = NO_BINDINGS;
+    const currentBindings = (kb: KeyBindings | null): BindingMaps => {
+      if (kb !== bindingsSource) {
+        bindingsSource = kb;
+        bindings = kb ? bindingMaps(kb) : NO_BINDINGS;
+      }
+      return bindings;
     };
 
-    const imeClipboard = setupImeClipboardAndFocusListeners({
-      parent: input.parent,
-      isEnabled: () => enabled,
-      isLeftSidebarFocused: () => leftSidebarFocused,
-      getSessionName: () => sessionName,
-      getActivePaneId: () => activePaneId,
-      getOverlayPaneId: overlayPaneId,
-      getKeyTarget: keyTarget,
-    });
+    const imeClipboard = setupImeClipboardAndFocusListeners({ parent: input.parent, keys });
 
     let prefixActive = false;
     let prefixRepeatOnly: ReadonlySet<string> | null = null;
@@ -139,9 +152,9 @@ export function createKeyboardActor() {
     const runClientKey = (key: ClientKey) => {
       switch (key) {
         case 'left-sidebar':
-          return input.parent.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+          return input.parent.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
         case 'right-sidebar':
-          return input.parent.send({ type: 'TOGGLE_RIGHT_SIDEBAR' });
+          return input.parent.send({ type: 'TOGGLE_SIDEBAR', side: 'right' });
         case 'tab-overview':
           return input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
         case 'keys-view':
@@ -163,11 +176,12 @@ export function createKeyboardActor() {
     // before the highlight goes. A modifier on its own leaves it, so Shift
     // or Cmd pressed on the way to a chord does not lose it.
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!enabled) return;
+      const ctx = keys.get();
+      if (!ctx.enabled) return;
       if (isRealFormControl(event.target)) return;
       const selected = !isModifierOnlyKey(event.key) && terminalSelection() !== null;
       try {
-        routeKeyDown(event);
+        routeKeyDown(event, ctx);
       } finally {
         if (selected) {
           clearNativeSelection();
@@ -176,7 +190,7 @@ export function createKeyboardActor() {
       }
     };
 
-    const routeKeyDown = (event: KeyboardEvent) => {
+    const routeKeyDown = (event: KeyboardEvent, ctx: KeyContext) => {
       if (
         event.key === 'Tab' &&
         !event.ctrlKey &&
@@ -197,13 +211,9 @@ export function createKeyboardActor() {
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') return;
       if (windowShortcut(event) && event.code === 'KeyV') return;
 
-      const snap = readLiveSnapshot(input.parent, activePaneId);
-
       if (
         handleModalOrCopyKeyDown(event, input.parent, {
-          snap,
-          overlayPaneId: overlayPaneId(),
-          leftSidebarFocused,
+          keys: ctx,
           prefixActive: prefixMode.active,
           setPendingCopyText: imeClipboard.setPendingCopyText,
         })
@@ -232,35 +242,10 @@ export function createKeyboardActor() {
         return;
       }
 
-      const bindingPin = (): string => {
-        if (overlayPaneId()) return pinPrefix(null, realPaneId(overlayPaneId()));
-        let pane = realPaneId(snap.liveActivePaneId);
-        // A placeholder window is one tmux has not named yet, so it cannot be
-        // a target; left unpinned, the binding runs in tmux's current window,
-        // which a just-created window is.
-        const liveWindow =
-          snap.liveActiveWindowId && !isPlaceholderId(snap.liveActiveWindowId)
-            ? snap.liveActiveWindowId
-            : null;
-        const windowId =
-          liveWindow ?? snap.livePanes.find((p) => p.tmuxId === pane)?.windowId ?? null;
-        if (windowId) {
-          const inWindow = (id: PaneId | null) =>
-            id !== null && snap.livePanes.some((p) => p.tmuxId === id && p.windowId === windowId);
-          if (!inWindow(pane)) {
-            pane = realPaneId(
-              snap.livePanes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null,
-            );
-          }
-          return pinPrefix(windowId, pane);
-        }
-        return pinPrefix(null, pane);
-      };
-
       const runBinding = (binding: string): string | null | undefined => {
         const { command, table } = splitTableSwitch(binding);
         if (command) {
-          input.parent.send({ type: 'SEND_TMUX_COMMAND', command: `${bindingPin()}${command}` });
+          input.parent.send({ type: 'SEND_TMUX_COMMAND', command: `${ctx.bindingPin}${command}` });
         }
         return table;
       };
@@ -268,10 +253,14 @@ export function createKeyboardActor() {
       const hiddenInputText = event.target === getMobileInput() && isTextKey(event);
       if (!hiddenInputText) event.preventDefault();
 
-      if (event.key === 'Escape' && focusedFloatPaneId && keyTable === null) {
-        input.parent.send({ type: 'CLOSE_FLOAT', paneId: focusedFloatPaneId });
+      if (event.key === 'Escape' && ctx.owner.kind === 'float' && keyTable === null) {
+        input.parent.send({ type: 'CLOSE_FLOAT', paneId: ctx.owner.paneId });
         return;
       }
+
+      const { prefixKey, repeatTimeMs, prefix, prefixRepeat, root, tables } = currentBindings(
+        ctx.keybindings,
+      );
 
       const formattedKey = formatTmuxKey(event);
 
@@ -286,7 +275,7 @@ export function createKeyboardActor() {
           prefixMode.exit();
           input.parent.send({
             type: 'DISPATCH_OP',
-            op: TmuxOp.SendKeys({ target: keyTarget(), keys: prefixKey }),
+            op: TmuxOp.SendKeys({ target: ctx.target, keys: prefixKey }),
           });
         } else {
           prefixMode.enter();
@@ -310,16 +299,15 @@ export function createKeyboardActor() {
         // `prefix M-y` and `prefix C-o` are bindings of their own (a plugin's
         // `[[keys]]` among them): with Ctrl or Alt held the key is looked up
         // with them first, then bare as it always was.
-        const modified =
-          event.ctrlKey || event.altKey ? prefixBindings.get(formattedKey) : undefined;
-        const bindingCommand = modified ?? prefixBindings.get(bindingKey);
+        const modified = event.ctrlKey || event.altKey ? prefix.get(formattedKey) : undefined;
+        const bindingCommand = modified ?? prefix.get(bindingKey);
         if (bindingCommand) {
           const table = runBinding(bindingCommand);
           if (table) {
             prefixMode.exit();
             setKeyTable(table);
-          } else if (prefixRepeatKeys.has(bindingKey)) {
-            prefixMode.enter(REPEAT_TIMEOUT_MS, prefixRepeatKeys);
+          } else if (prefixRepeat.has(bindingKey)) {
+            prefixMode.enter(repeatTimeMs, prefixRepeat);
           } else {
             prefixMode.exit();
           }
@@ -342,7 +330,7 @@ export function createKeyboardActor() {
           runClientKey(clientKey);
           setKeyTable(null);
         } else {
-          const binding = tableBindings.get(keyTable)?.get(bindingKey);
+          const binding = tables.get(keyTable)?.get(bindingKey);
           setKeyTable(binding ? (runBinding(binding) ?? null) : null);
         }
         notifyKeyPress(event);
@@ -365,7 +353,7 @@ export function createKeyboardActor() {
         return;
       }
 
-      const rootCommand = formattedKey ? rootBindings.get(formattedKey) : undefined;
+      const rootCommand = formattedKey ? root.get(formattedKey) : undefined;
       if (rootCommand) {
         if (replayed && !isSafePreviewRootCommand(rootCommand)) return;
         event.preventDefault();
@@ -376,13 +364,10 @@ export function createKeyboardActor() {
       }
 
       if (replayed) return;
-      if (leftSidebarFocused) return;
+      if (ctx.owner.kind === 'left') return;
       if (hiddenInputText) return;
 
-      const overlay = overlayPaneId();
-      const target = overlay
-        ? (realPaneId(overlay) ?? sessionName)
-        : (realPaneId(snap.liveActivePaneId) ?? sessionName);
+      const { target } = ctx;
       let op: TmuxOp;
       if (isTextKey(event)) {
         op = TmuxOp.SendText({ target, text: event.key });
@@ -397,41 +382,13 @@ export function createKeyboardActor() {
 
     window.addEventListener('keydown', handleKeyDown);
 
-    receive((event) => {
-      if (event.type === 'UPDATE_SESSION') {
-        sessionName = event.sessionName;
-      } else if (event.type === 'UPDATE_ACTIVE_PANE') {
-        activePaneId = event.paneId;
-        imeClipboard.syncKeyboardInputTarget();
-      } else if (event.type === 'UPDATE_KEYBINDINGS') {
-        const kb = event.keybindings;
-        prefixKey = kb.prefix_key;
-        prefixBindings = new Map(kb.prefix_bindings.map((b) => [b.key, b.command]));
-        prefixRepeatKeys = new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key));
-        rootBindings = new Map(kb.root_bindings.map((b) => [b.key, b.command]));
-        tableBindings = new Map(
-          Object.entries(kb.tables).map(([name, bindings]) => [
-            name,
-            new Map(bindings.map((b) => [b.key, b.command])),
-          ]),
-        );
-      } else if (event.type === 'UPDATE_ENABLED') {
-        enabled = event.enabled;
-      } else if (event.type === 'UPDATE_FOCUSED_FLOAT') {
-        focusedFloatPaneId = event.paneId;
-        imeClipboard.syncKeyboardInputTarget();
-      } else if (event.type === 'UPDATE_LEFT_SIDEBAR_FOCUSED') {
-        leftSidebarFocused = event.focused;
-      } else if (event.type === 'UPDATE_RIGHT_SIDEBAR_FOCUSED') {
-        focusedRightSidebarPaneId = event.paneId;
-        imeClipboard.syncKeyboardInputTarget();
-      }
-      markKeyboardTarget(
-        leftSidebarFocused ? 'left-sidebar' : (overlayPaneId() ?? activePaneId ?? ''),
-      );
+    const unsubscribe = keys.subscribe((ctx) => {
+      imeClipboard.syncKeyboardInputTarget();
+      markKeyboardTarget(keyboardMark(ctx));
     });
 
     return () => {
+      unsubscribe();
       imeClipboard.cleanup();
       prefixMode.exit(false);
       window.removeEventListener('keydown', handleKeyDown);

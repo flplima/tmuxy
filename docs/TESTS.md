@@ -89,7 +89,7 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 | `getComputedStyle(fc).borderColor === green` | Border on invisible element |
 | `log.textContent.includes(token)` | Text in DOM but clipped/hidden |
 | `floatPanes.length === 1` | Float exists in state but not rendered |
-| `focusedFloatPaneId !== null` | Focus set but keyboard not actually routing |
+| `keyboardOwner.kind === 'float'` | Focus set but keyboard not actually routing |
 
 See [TESTS-E2E.md](TESTS-E2E.md) for these sections: E2E Tests; Interaction-Latency Tests; Desktop (Tauri) Tests; Debugging.
 

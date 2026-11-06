@@ -7,15 +7,15 @@
  *
  * Some ops never reach tmux — the client is the one that shows a command
  * prompt, a status message or copy mode. Tab and group navigation take the
- * optimistic paths a click takes (`SELECT_TAB`, `SELECT_PANE_GROUP_TAB`), and
+ * paths a click takes (`SELECT_TAB`, `SELECT_PANE`), and
  * horizontal navigation can cross into a sidebar. Everything else goes to the
  * store, which predicts it and sends it.
  */
 
-import { assign, sendTo } from 'xstate';
+import { sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from './actionTypes';
 import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
-import { isLayoutChange, isMultiStep } from '../../domain/opTraits';
+import { isMultiStep } from '../../domain/opTraits';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, tabPosition } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
@@ -113,27 +113,30 @@ function groupStepTarget(direction: 'next' | 'prev', wrap: boolean, context: Ctx
 function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): boolean {
   // Leaving a focused column always works, even when the pane underneath
   // happens to be in a group; nav further outward has nowhere to go.
-  if (context.leftSidebarFocused) {
-    if (direction === 'R') enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
-    return true;
-  }
-  if (context.rightSidebarFocused) {
-    if (direction === 'L') enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
+  const owner = context.keyboardOwner.kind;
+  if (owner === 'left' || owner === 'right') {
+    if (direction === (owner === 'left' ? 'R' : 'L')) {
+      enqueue.raise({ type: 'BLUR_SIDEBAR', side: owner });
+    }
     return true;
   }
   const member = groupStepTarget(direction === 'L' ? 'prev' : 'next', false, context);
   if (member) {
-    enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId: member });
+    enqueue.raise({ type: 'SELECT_PANE', paneId: member });
     return true;
   }
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
   if (!pane) return false;
-  if (direction === 'L' && context.leftSidebarOpen && pane.x === 0) {
-    enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+  if (direction === 'L' && context.sidebars.left.open && pane.x === 0) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'left' });
     return true;
   }
-  if (direction === 'R' && context.rightSidebarOpen && pane.x + pane.width >= context.totalWidth) {
-    enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+  if (
+    direction === 'R' &&
+    context.sidebars.right.open &&
+    pane.x + pane.width >= context.totalWidth
+  ) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'right' });
     return true;
   }
   return false;
@@ -159,8 +162,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       });
       return;
     case 'SelectWindow': {
-      // Shares the optimistic flip and lastActivePaneByWindow bookkeeping
-      // with a click on the tab.
+      // Shares what a click on the tab does (the scroll views it leaves).
       const windowId = tabNavTarget(op.target, context);
       if (windowId) {
         enqueue.raise({ type: 'SELECT_TAB', windowId });
@@ -178,7 +180,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       // gets, so `<prefix> -` and friends don't lag the visible state.
       const paneId = groupStepTarget(op.direction, true, context);
       if (paneId) {
-        enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId });
+        enqueue.raise({ type: 'SELECT_PANE', paneId });
         return;
       }
       break;
@@ -191,9 +193,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
   // but the active-pane swap it ends with can still trigger a CSS transition;
   // the next model update re-enables animations. Splits are not suppressed:
   // PaneLayout's enter/shift lifecycle owns the split morph.
-  if (isMultiStep(op)) enqueue(assign({ enableAnimations: false }));
-  // Lets a re-tile's transient active-pane changes be ignored.
-  if (isLayoutChange(op)) enqueue(assign({ lastLayoutCommandTime: Date.now() }));
+  if (isMultiStep(op)) enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' });
 
   // The store applies the op's predicted patch synchronously (this machine
   // sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it back if the

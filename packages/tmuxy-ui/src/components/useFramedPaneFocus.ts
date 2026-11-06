@@ -44,7 +44,7 @@ export function useFramedPaneFocus(paneId: PaneId, ref: RefObject<HTMLElement | 
       if (!active || active.tagName !== 'IFRAME') return;
       if (!ref.current?.contains(active)) return;
       // A no-op when the pane is already active.
-      send({ type: 'FOCUS_PANE', paneId });
+      send({ type: 'SELECT_PANE', paneId });
     };
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);

@@ -10,41 +10,11 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { pid } from '../../../test/wire';
-import { createActor, createMachine, type AnyActorRef } from 'xstate';
-import { createKeyboardActor } from '../keyboardActor';
+import { spawnKeyboardActor } from './keyboardHarness';
 import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
 import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 
 type Ev = { type: string; [k: string]: unknown };
-
-function spawnKeyboardActor(activePaneId = pid('%3')) {
-  const events: Ev[] = [];
-  const keyboardActor = createKeyboardActor();
-  const parent = createMachine({
-    types: {} as {
-      context: { activePaneId: string; copyModeStates: Record<string, unknown> };
-      events: Ev;
-    },
-    context: { activePaneId, copyModeStates: {} },
-    invoke: {
-      id: 'keyboard',
-      src: 'keyboardActor',
-      input: ({ self }: { self: AnyActorRef }) => ({ parent: self }),
-    },
-    on: {
-      '*': {
-        actions: ({ event }) => {
-          events.push(event as Ev);
-        },
-      },
-    },
-  }).provide({ actors: { keyboardActor }, actions: {} } as never);
-  const actor = createActor(parent);
-  actor.start();
-  const child = actor.getSnapshot().children.keyboard as AnyActorRef;
-  child.send({ type: 'UPDATE_ACTIVE_PANE', paneId: activePaneId });
-  return { actor, events };
-}
 
 const sendCommands = (events: Ev[]) =>
   events

@@ -75,8 +75,8 @@ describe('Phone width (390px) with a touchscreen', () => {
             targetRows: ctx.targetRows,
             phoneLayout: ctx.phoneLayout ?? null,
             sidebarMotion: ctx.sidebarMotion ?? null,
-            leftSidebar: ctx.leftSidebarOpen ?? null,
-            rightSidebar: ctx.rightSidebarOpen ?? null,
+            leftSidebar: ctx.sidebars.left.open ?? null,
+            rightSidebar: ctx.sidebars.right.open ?? null,
             panes: (ctx.panes ?? []).map((p) => `${p.tmuxId} ${p.width}x${p.height}`),
           },
         };

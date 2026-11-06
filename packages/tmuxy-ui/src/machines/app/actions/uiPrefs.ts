@@ -10,6 +10,7 @@
  * where DOM/localStorage write happen synchronously with state mutation.
  */
 
+import { appearancePrefs } from '../appearance';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import { invokeEvent } from '../../actors/tmuxActor';
@@ -99,7 +100,7 @@ export const uiPrefsActions = {
     // notifications stand, and let a tapped one bring its pane forward.
     if (context.pushState === 'unknown') {
       void readPushState().then((state) => self.send({ type: 'PUSH_STATE', state }));
-      onNotificationFocus((paneId) => self.send({ type: 'FOCUS_PANE', paneId: paneId as PaneId }));
+      onNotificationFocus((paneId) => self.send({ type: 'SELECT_PANE', paneId: paneId as PaneId }));
     }
     const sizePolicy = event.appearance?.size ?? DEFAULT_SIZE_POLICY;
     if (!sameSizePolicy(sizePolicy, context.sizePolicy)) {
@@ -116,19 +117,8 @@ export const uiPrefsActions = {
     if (event.cssVars) applyCssVars(event.cssVars);
     enqueue(
       assign({
-        animationsAllowed: event.appearance?.animations ?? true,
-        cursorBlink: event.appearance?.cursorBlink ?? true,
-        sendAsk: event.appearance?.sendAsk ?? true,
-        notifyAllowed: event.appearance?.notify ?? true,
+        ...appearancePrefs(event.appearance),
         processIcons: event.icons ?? {},
-        transparency: event.appearance?.transparency ?? true,
-        tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
-        gestureFlags: {
-          swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
-          pinchZoom: event.appearance?.gesturePinchZoom ?? true,
-          pinchOverview: event.appearance?.gesturePinchOverview ?? true,
-        },
-        nativeMenus: event.appearance?.nativeMenus ?? true,
         pinnedOptions: event.pinned ?? [],
       }),
     );

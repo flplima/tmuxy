@@ -316,6 +316,29 @@ describe('SelectWindow predicts even when the target window has no known panes',
     const resolved = result!.patch(withPane);
     expect(resolved.activePaneId).toBe(pid('%9'));
   });
+
+  it("lands on the target window's own active pane, not its first pane", () => {
+    // `pane.active` is session-wide: none of a background tab's panes carry
+    // it. The window's own activePaneId (from the server) is what the switch
+    // must use — the first pane was a wrong guess the server then corrected.
+    const target = { ...win(wid('@1'), 1, false), activePaneId: pid('%36') };
+    const background: TmuxSnapshot = {
+      ...snap,
+      windows: [win(wid('@0'), 0, true), target],
+      panes: [
+        ...snap.panes,
+        { ...pane(pid('%35'), 0, 0, 40, 20), windowId: wid('@1') },
+        { ...pane(pid('%36'), 40, 0, 40, 20), windowId: wid('@1') },
+      ],
+    };
+    const result = predict(
+      TmuxOp.SelectWindow({ target: wid('@1') }),
+      background,
+      CTX,
+      'op_own' as OpId,
+    );
+    expect(result!.patch(background).activePaneId).toBe(pid('%36'));
+  });
 });
 
 describe('NewWindow reconcile requires the window to have a pane', () => {
@@ -413,5 +436,97 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
       ],
     };
     expect(patch(withPane).windows.map((w) => w.id)).toContain(wid('@1'));
+  });
+});
+
+describe('JoinPane moves a pane into another tab ahead of tmux', () => {
+  const win = (id: WindowId, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const target = { ...pane(pid('%5'), 0, 0, 81, 20), windowId: wid('@1') };
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win(wid('@0'), 0, true), { ...win(wid('@1'), 1, false), activePaneId: pid('%5') }],
+    panes: [...SNAPSHOT.panes, target],
+  };
+  const join = TmuxOp.JoinPane({ paneId: pid('%1'), windowId: wid('@1') });
+
+  it('leaves its window to its neighbour and splits the target’s active pane below it', () => {
+    const moved = predict(join, snap, CTX, 'op_join' as OpId)!.patch(snap);
+    const byId = (id: PaneId) => moved.panes.find((p) => p.tmuxId === id)!;
+    expect(byId(pid('%0'))).toMatchObject({ x: 0, width: 81 });
+    expect(byId(pid('%5'))).toMatchObject({ y: 0, height: 9 });
+    expect(byId(pid('%1'))).toMatchObject({
+      windowId: wid('@1'),
+      x: 0,
+      y: 10,
+      width: 81,
+      height: 10,
+    });
+    expect(moved.windows.find((w) => w.id === wid('@1'))!.activePaneId).toBe(pid('%1'));
+  });
+
+  it('waits until tmux lists the pane in the target window', () => {
+    const result = predict(join, snap, CTX, 'op_join' as OpId)!;
+    const pending = makePendingOp({
+      id: 'op_join' as OpId,
+      op: join,
+      command: 'join-pane -s %1 -t @1',
+      patch: result.patch,
+      meta: result.meta,
+      now: 0,
+    });
+    expect(reconcile(pending, snap, undefined, 10_000)._tag).toBe('pending');
+    const joined = result.patch(snap);
+    expect(reconcile(pending, joined, undefined, 10_000)._tag).toBe('matched');
+  });
+});
+
+describe('KillWindow on the current tab lands where tmux will', () => {
+  const win = (id: WindowId, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win(wid('@0'), 0, false), win(wid('@1'), 1, false), win(wid('@2'), 2, true)],
+    panes: [
+      { ...pane(pid('%0'), 0, 0, 80, 20), windowId: wid('@0') },
+      { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@1') },
+      { ...pane(pid('%2'), 0, 0, 80, 20), windowId: wid('@2'), active: true },
+    ],
+    activeWindowId: wid('@2'),
+    activePaneId: pid('%2'),
+  };
+  const kill = TmuxOp.KillWindow({ windowId: wid('@2') });
+
+  it('the tab used last, as tmux’s own last-window choice', () => {
+    const ctx = { ...CTX, paneActivationOrder: [pid('%2'), pid('%0'), pid('%1')] };
+    const after = predict(kill, snap, ctx, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@0'));
+  });
+
+  it('the previous tab when nothing says which was used last', () => {
+    const after = predict(kill, snap, CTX, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@1'));
   });
 });

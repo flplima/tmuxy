@@ -19,7 +19,6 @@ import type { TmuxPane, PaneGroup } from '../domain/client';
 import type { CopyModeState } from '../domain/copyMode';
 import {
   selectPaneById,
-  selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
   selectPaneGroupForPane,
   selectPaneGroupPanes as selectPaneGroupPanesFn,
@@ -110,12 +109,6 @@ export function usePane(paneId: PaneId | null): TmuxPane | undefined {
   return useSelector(actor, (snapshot) =>
     paneId === null ? undefined : selectPaneById(snapshot.context, paneId),
   );
-}
-
-/** Check if a pane is in the active window */
-export function useIsPaneInActiveWindow(paneId: PaneId): boolean {
-  const actor = useAppActor();
-  return useSelector(actor, (snapshot) => selectIsPaneInActiveWindowFn(snapshot.context, paneId));
 }
 
 /** Check if there's only a single visible pane */

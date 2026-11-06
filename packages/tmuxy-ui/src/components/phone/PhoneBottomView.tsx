@@ -24,6 +24,7 @@ import { TerminalPane } from '../terminal/TerminalPane';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
 import { selectPhoneBottomView, selectPhoneDockCellMetrics } from '../../machines/selectors/layout';
 import { selectRightSidebarPane } from '../../machines/selectors/panesAndSidebars';
+import { selectSidebarHoldsKeyboard } from '../../machines/selectors/keyboard';
 import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../../machines/constants';
 import { cellMetricsStyle } from '../../infra/dom/cellMetrics';
 import { SWIPE_EASING } from '../../machines/gestures/gestures';
@@ -165,8 +166,8 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
 function PhoneDock() {
   const send = useAppSend();
   const pane = useAppSelector(selectRightSidebarPane);
-  const focused = useAppSelector((ctx) => ctx.rightSidebarFocused);
-  const startFailed = useAppSelector((ctx) => ctx.rightSidebarStartFailed);
+  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'right'));
+  const startFailed = useAppSelector((ctx) => ctx.sidebars.right.startFailed);
   const cell = useAppSelector(selectPhoneDockCellMetrics);
   const boxRef = useRef<HTMLDivElement>(null);
 

@@ -31,6 +31,7 @@
         }
       ],
       "prefix_key": "C-b",
+      "repeat_time_ms": 300,
       "root_bindings": [
         {
           "command": "select-pane -L",

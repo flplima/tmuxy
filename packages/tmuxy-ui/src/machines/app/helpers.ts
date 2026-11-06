@@ -2,37 +2,33 @@
  * Helper functions for the app machine
  */
 
-import { assign, sendTo } from 'xstate';
+import { raise } from 'xstate';
 import { groupMembers, type PaneGroup, type TmuxPane, type TmuxWindow } from '../../domain/client';
 import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
-import type { DrawerDirection, FloatBackdrop, FloatPaneState } from '../types/domain';
+import type {
+  DrawerDirection,
+  FloatBackdrop,
+  FloatPaneState,
+  KeyboardOwner,
+} from '../types/domain';
 import type { Ctx, EnqueueAction } from './actionTypes';
 import { fitGridCell, fixedGridSize, type GridCell } from '../../domain/gridFit';
 
-/** The surfaces that can hold the keyboard away from the tiled panes. */
-export type KeyboardSurface = 'left' | 'right' | 'float';
+/**
+ * Hand the keyboard to `owner`. Exactly one surface holds it, so taking it is
+ * all a surface does: the one that had it lets go by the same step. The
+ * keyboard slice makes the change, and the keyboard actor follows it.
+ */
+export function takeKeyboard(enqueue: EnqueueAction, owner: KeyboardOwner) {
+  enqueue(raise({ type: 'TAKE_KEYBOARD' as const, owner }));
+}
 
 /**
- * Take the keyboard back from a surface, when it holds it: the focus flag
- * here and the keyboard actor's record of it, which is what re-aims the next
- * keystroke. Exactly one surface holds the keyboard, so whatever takes it —
- * a pane click, a group tab, the other column — releases the others through
- * this; a column that vanished or was hidden releases itself the same way.
+ * Give the keyboard back to the panes if `from` holds it: a column that was
+ * hidden or vanished, a float that closed, a peek that ended.
  */
-export function releaseKeyboard(context: Ctx, enqueue: EnqueueAction, surface: KeyboardSurface) {
-  if (surface === 'left') {
-    if (!context.leftSidebarFocused) return;
-    enqueue(assign({ leftSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-  } else if (surface === 'right') {
-    if (!context.rightSidebarFocused) return;
-    enqueue(assign({ rightSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-  } else {
-    if (!context.focusedFloatPaneId) return;
-    enqueue(assign({ focusedFloatPaneId: null }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-  }
+export function releaseKeyboard(enqueue: EnqueueAction, from: KeyboardOwner['kind']) {
+  enqueue(raise({ type: 'RELEASE_KEYBOARD' as const, from }));
 }
 
 /**

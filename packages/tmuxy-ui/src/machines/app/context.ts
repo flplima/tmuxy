@@ -17,27 +17,25 @@ import {
 } from '../constants';
 import { loadFontSizePref, loadThemePref } from '../../infra/prefs';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
+import { appearancePrefs } from './appearance';
 
-/**
- * The name of each state slice (a root-level `on` block under ./states/)
- * plus 'parent' for fields owned by the machine itself (lifecycle,
- * connection, dimensions).
- */
+/** The name of each state slice: its handlers in ./states/<name>.ts, its actions in ./actions/<name>.ts. */
 export type StateName =
+  | 'connection'
+  | 'viewport'
   | 'layout'
   | 'tabOverview'
   | 'phone'
   | 'copyMode'
-  | 'browser'
   | 'groupsAndFloats'
+  | 'keyboard'
   | 'sidebars'
   | 'commandUi'
   | 'notifications'
   | 'uiPrefs'
   | 'gestures'
   | 'ask'
-  | 'plugins'
-  | 'parent';
+  | 'plugins';
 
 /**
  * Maps every AppMachineContext field to the state slice that owns it.
@@ -45,52 +43,53 @@ export type StateName =
  * The tmuxy/state-field-ownership ESLint rule reads this map from this file
  * (keep it one `field: 'owner',` entry per line) — any `assign({...})` or
  * `assignCtx({...})` in states/<name>.ts or actions/<name>.ts may only mutate
- * fields whose owner is `<name>` ('parent' fields are written by
- * appMachine.ts only).
+ * fields whose owner is `<name>`, and the other files in machines/app/ own
+ * none.
  *
  * The `satisfies` clause guarantees every context field is covered;
  * removing one or adding a new one without updating this map is a type error.
  */
 export const FIELD_OWNERS = {
-  // ---- parent (lifecycle, connection, dimensions, dragging proxies) ----
-  connected: 'parent',
-  error: 'parent',
-  fatalError: 'parent',
-  log: 'parent',
-  sessionName: 'parent',
-  defaultShell: 'parent',
-  serverHostname: 'parent',
-  keybindings: 'parent',
-  appFocused: 'parent',
-  totalWidth: 'parent',
-  totalHeight: 'parent',
-  targetCols: 'parent',
-  targetRows: 'parent',
-  charWidth: 'parent',
-  charHeight: 'parent',
-  cellGap: 'parent',
-  gridFontSize: 'parent',
-  measuredCell: 'parent',
-  phoneLayout: 'parent',
-  phoneLandscape: 'parent',
-  containerWidth: 'parent',
-  containerHeight: 'parent',
-  bodyWidth: 'parent',
-  sessions: 'parent',
-  repositories: 'parent',
-  servers: 'parent',
-  currentServerId: 'parent',
-  restorableSessions: 'parent',
+  // ---- connection ----
+  connected: 'connection',
+  error: 'connection',
+  fatalError: 'connection',
+  log: 'connection',
+  sessionName: 'connection',
+  defaultShell: 'connection',
+  serverHostname: 'connection',
+  keybindings: 'connection',
+  appFocused: 'connection',
+  sessions: 'connection',
+  repositories: 'connection',
+  servers: 'connection',
+  currentServerId: 'connection',
+  restorableSessions: 'connection',
+
+  // ---- viewport ----
+  targetCols: 'viewport',
+  targetRows: 'viewport',
+  viewportMeasured: 'viewport',
+  charWidth: 'viewport',
+  charHeight: 'viewport',
+  cellGap: 'viewport',
+  gridFontSize: 'viewport',
+  measuredCell: 'viewport',
+  phoneLayout: 'viewport',
+  phoneLandscape: 'viewport',
+  containerWidth: 'viewport',
+  containerHeight: 'viewport',
+  bodyWidth: 'viewport',
 
   // ---- layout ----
+  totalWidth: 'layout',
+  totalHeight: 'layout',
   panes: 'layout',
   windows: 'layout',
   activeWindowId: 'layout',
   activePaneId: 'layout',
   paneActivationOrder: 'layout',
-  lastActivePaneByWindow: 'layout',
   paneKeyOverrides: 'layout',
-  lastLayoutCommandTime: 'layout',
   drag: 'layout',
   resize: 'layout',
   resizeActive: 'layout',
@@ -98,41 +97,38 @@ export const FIELD_OWNERS = {
   lastUpdateAnimated: 'layout',
   groupSwitchPaneIds: 'layout',
   lastUpdateQuiet: 'layout',
+  enableAnimations: 'layout',
 
   // ---- ask ----
   askSelections: 'ask',
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
+  copyModeExitedAt: 'copyMode',
 
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
-  focusedFloatPaneId: 'groupsAndFloats',
+
+  // ---- keyboard ----
+  keyboardOwner: 'keyboard',
 
   // ---- sidebars ----
-  leftSidebarOpen: 'sidebars',
-  leftSidebarFocused: 'sidebars',
-  rightSidebarOpen: 'sidebars',
-  rightSidebarFocused: 'sidebars',
-  leftSidebarStartFailed: 'sidebars',
-  rightSidebarStartFailed: 'sidebars',
-  leftSidebarStarting: 'sidebars',
-  rightSidebarStarting: 'sidebars',
+  sidebars: 'sidebars',
   sidebarColsPreview: 'sidebars',
-  dockRowsSent: 'sidebars',
+  dockSizeSent: 'sidebars',
   collapsedTabIds: 'sidebars',
   sidebarPeek: 'sidebars',
 
   // ---- tabOverview ----
   tabOverviewOpen: 'tabOverview',
   tabOverviewSelected: 'tabOverview',
-  renamingTabId: 'tabOverview',
+  renamingTab: 'tabOverview',
 
   // ---- phone ----
   phoneZoom: 'phone',
   phoneBottomView: 'phone',
-  phoneDockSizeSent: 'phone',
+  phoneDockView: 'phone',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -152,7 +148,6 @@ export const FIELD_OWNERS = {
   availableThemes: 'uiPrefs',
   traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
-  enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
   sendAsk: 'uiPrefs',
@@ -170,6 +165,7 @@ export const FIELD_OWNERS = {
   // ---- plugins ----
   plugins: 'plugins',
   pluginsRev: 'plugins',
+  // ---- gestures ----
   gesture: 'gestures',
 } as const satisfies Record<keyof AppMachineContext, StateName>;
 
@@ -197,6 +193,7 @@ export function createInitialContext(): AppMachineContext {
     askSelections: {},
     targetCols: DEFAULT_COLS,
     targetRows: DEFAULT_ROWS,
+    viewportMeasured: false,
     drag: null,
     resize: null,
     resizeActive: false,
@@ -223,46 +220,34 @@ export function createInitialContext(): AppMachineContext {
     currentServerId: null,
     restorableSessions: [],
     floatPanes: {},
-    focusedFloatPaneId: null,
-    leftSidebarOpen: false,
-    leftSidebarFocused: false,
-    rightSidebarOpen: false,
-    rightSidebarFocused: false,
-    leftSidebarStartFailed: false,
-    rightSidebarStartFailed: false,
-    leftSidebarStarting: false,
-    rightSidebarStarting: false,
+    keyboardOwner: { kind: 'panes' },
+    sidebars: {
+      left: { open: false, starting: false, startFailed: false },
+      right: { open: false, starting: false, startFailed: false },
+    },
     sidebarColsPreview: null,
-    dockRowsSent: null,
+    dockSizeSent: null,
     collapsedTabIds: [],
     sidebarPeek: null,
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
-    renamingTabId: null,
+    renamingTab: null,
     phoneZoom: null,
     phoneBottomView: 'tree',
-    phoneDockSizeSent: null,
+    phoneDockView: null,
     enableAnimations: false,
-    animationsAllowed: true,
-    cursorBlink: true,
-    sendAsk: true,
-    notifyAllowed: true,
+    ...appearancePrefs(undefined),
     pushState: pushSupported() ? 'unknown' : 'unsupported',
     processIcons: {},
-    transparency: true,
     pinnedOptions: [],
-    tabOverviewCols: 3,
-    gestureFlags: { swipeTabs: true, pinchZoom: true, pinchOverview: true },
-    nativeMenus: true,
     sizePolicy: DEFAULT_SIZE_POLICY,
     gesture: null,
     keybindings: null,
     copyModeStates: {},
-    lastLayoutCommandTime: 0,
+    copyModeExitedAt: {},
     suppressLayoutTransition: false,
     lastUpdateAnimated: false,
     paneKeyOverrides: {},
-    lastActivePaneByWindow: {},
     paneActivationOrder: [],
     groupSwitchPaneIds: [],
     lastUpdateQuiet: true,

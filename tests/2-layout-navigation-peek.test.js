@@ -41,7 +41,7 @@ const geometry = (page) =>
       treeRow: rect('.sidebar-column-left.is-peek .sidebar-tree-tab'),
       treeHidden: tree ? Boolean(tree.sidebarHidden) : null,
       paneCols: active?.width ?? null,
-      open: ctx?.leftSidebarOpen,
+      open: ctx?.sidebars?.left?.open,
     };
   });
 
