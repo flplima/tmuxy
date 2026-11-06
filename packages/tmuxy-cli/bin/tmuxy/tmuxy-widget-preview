@@ -86,16 +86,16 @@ PANE="$(shquote "$TMUX_PANE")"
 # takes `@tmuxy-pane-widget` with it, which alone stops the preview being
 # read — and this script ends once the pane's shell does.
 cleanup() {
-  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview" || true
-  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview-net" || true
+  _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW" || true
+  _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW_NET" || true
 }
 trap cleanup EXIT
 
-_run_safe "set-option -p -t $PANE @tmuxy-pane-preview $(shquote "$ABS")"
+_run_safe "set-option -p -t $PANE $OPT_PANE_PREVIEW $(shquote "$ABS")"
 if [ -n "$NET" ]; then
-  _run_safe "set-option -p -t $PANE @tmuxy-pane-preview-net 1"
+  _run_safe "set-option -p -t $PANE $OPT_PANE_PREVIEW_NET 1"
 else
-  _run_safe "set-option -p -u -t $PANE @tmuxy-pane-preview-net"
+  _run_safe "set-option -p -u -t $PANE $OPT_PANE_PREVIEW_NET"
 fi
 
 # What the file is now: its checksum and size, or `missing` in the moment an

@@ -135,7 +135,49 @@ fn shell() -> String {
         quoted(APP_PANE_TITLE)
     );
     shell_cli_contract(&mut out);
+    shell_tmux_names(&mut out);
     out
+}
+
+/// The `@tmuxy-*` options, window types and defaults the scripts read and
+/// write (`constants::tmux_options`, `WindowType`, `session`).
+fn shell_tmux_names(out: &mut String) {
+    use tmuxy_core::constants::tmux_options as o;
+    out.push_str("\n# The tmuxy options the scripts read and write (`constants::tmux_options`).\n");
+    for (name, value) in [
+        ("WINDOW_TYPE", o::WINDOW_TYPE),
+        ("SIDEBAR_HIDDEN", o::SIDEBAR_HIDDEN),
+        ("COLLAPSIBLE", o::COLLAPSIBLE),
+        ("FOCUS_REQUEST", o::FOCUS_REQUEST),
+        ("GROUP_ID", o::GROUP_ID),
+        ("PANE_RESTORE", o::PANE_RESTORE),
+        ("PANE_STATE", o::PANE_STATE),
+        ("PANE_LABEL", o::PANE_LABEL),
+        ("PANE_WIDGET", o::PANE_WIDGET),
+        ("PANE_PREVIEW", o::PANE_PREVIEW),
+        ("PANE_PREVIEW_NET", o::PANE_PREVIEW_NET),
+    ] {
+        let _ = writeln!(out, "OPT_{name}={}", quoted(value));
+    }
+    let _ = writeln!(
+        out,
+        "\n# The window types tmuxy's chrome is tagged with (`WindowType`); an\n\
+         # untagged window is a tab. A sidebar's window is named by its prefix.\n\
+         WINDOW_TYPE_FLOAT={}\nWINDOW_TYPE_SIDEBAR_LEFT={}\nWINDOW_TYPE_SIDEBAR_RIGHT={}\n\
+         SIDEBAR_WINDOW_PREFIX={}",
+        quoted(WindowType::Float.as_str()),
+        quoted(WindowType::SidebarLeft.as_str()),
+        quoted(WindowType::SidebarRight.as_str()),
+        quoted(SIDEBAR_WINDOW_PREFIX)
+    );
+    let _ = writeln!(
+        out,
+        "\n# The socket a released build serves when TMUX_SOCKET is unset, and the\n\
+         # session it attaches to (`session::DEFAULT_TMUX_SOCKET`, `DEFAULT_SESSION_NAME`).\n\
+         DEFAULT_TMUX_SOCKET={}\nDEFAULT_SESSION={}",
+        quoted(tmuxy_core::session::DEFAULT_TMUX_SOCKET),
+        quoted(tmuxy_core::DEFAULT_SESSION_NAME)
+    );
 }
 
 /// The CLI's contract (`cli_contract`) and the exit statuses its scripts

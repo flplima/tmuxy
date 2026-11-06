@@ -113,7 +113,7 @@ _resolve_target() {
   esac
   # The title is the app's (APP_PANE_TITLE_FMT): tmux seeds every untitled
   # pane's title with the host name, which would otherwise name them all.
-  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{@tmuxy-label}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
+  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $4 "\t" $2 }')"
   if [ -z "$matches" ]; then
     matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$3 == want { print $1 "\t" $4 "\t" $3 }')"

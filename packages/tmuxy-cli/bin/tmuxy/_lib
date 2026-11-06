@@ -81,7 +81,7 @@ if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
   TMUX_SOCKET="${_path##*/}"
 fi
-TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
+TMUX_SOCKET="${TMUX_SOCKET:-$DEFAULT_TMUX_SOCKET}"
 export TMUX_SOCKET
 # A TMUX_SOCKET containing a slash is a full socket path (-S); otherwise a
 # socket name in tmux's default directory (-L).
@@ -315,19 +315,30 @@ _lock_release() {
 
 # Output: float|sidebar-left|sidebar-right, empty for a tab.
 window_type() {
-  _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
+  _tmux show-options -wqv -t "$1" "$OPT_WINDOW_TYPE" 2>/dev/null
+}
+
+# The window type of the sidebar on side $1 (left|right), in SIDEBAR_TYPE.
+_sidebar_type() {
+  if [ "$1" = left ]; then
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_LEFT"
+  else
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_RIGHT"
+  fi
 }
 
 sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t { print $1; exit }'
 }
 
 # A closed sidebar column keeps its window, hidden (`@tmuxy-sidebar-hidden`),
 # and is nowhere to move to.
 shown_sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type} #{?@tmuxy-sidebar-hidden,hidden,shown}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t && $3 == "shown" { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE} #{?$OPT_SIDEBAR_HIDDEN,hidden,shown}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t && $3 == "shown" { print $1; exit }'
 }
 
 # Ask the connected clients to move keyboard focus somewhere no tmux command
@@ -342,7 +353,7 @@ shown_sidebar_window() {
 # Args: $1=left|right|panes
 request_focus() {
   _tmux set-option -t "$(_tmux display-message -p '#{session_name}')" \
-    @tmuxy-focus-request "$1" 2>/dev/null || true
+    "$OPT_FOCUS_REQUEST" "$1" 2>/dev/null || true
   # tmux emits no control-mode notification for a user option, so left alone
   # the request would sit until the backend's next window event or idle
   # heartbeat (15 s). Poke a window event out of tmux instead: renaming a
@@ -350,12 +361,15 @@ request_focus() {
   # and nothing else — chrome windows are not tabs, so no label changes and
   # automatic-rename was never on for them. The backend re-lists windows on
   # the event and the client sees the request within a round trip.
-  local target_side="$1" poke_win
-  [ "$target_side" = "panes" ] && target_side="left"
-  poke_win=$(sidebar_window "$target_side")
-  [ -n "$poke_win" ] || poke_win=$(sidebar_window right)
+  local side="$1" poke_win
+  [ "$side" = "panes" ] && side="left"
+  poke_win=$(sidebar_window "$side")
+  if [ -z "$poke_win" ]; then
+    side=right
+    poke_win=$(sidebar_window right)
+  fi
   if [ -n "$poke_win" ]; then
-    _run_safe "rename-window -t $poke_win __sidebar-$(window_type "$poke_win" | sed 's/^sidebar-//')"
+    _run_safe "rename-window -t $poke_win $SIDEBAR_WINDOW_PREFIX$side"
   fi
 }
 

@@ -44,9 +44,9 @@ cmd_pane() {
       target="$own"
 
       if [ "$value" = "--clear" ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_RESTORE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_RESTORE $(shquote "$value")"
       fi
       _done "paneId=$(json_string "$target")"
       ;;
@@ -77,9 +77,9 @@ cmd_pane() {
       fi
       [ -n "$target" ] || _die_usage "no pane to target (pass a target or run inside a pane)"
       if [ "$value" = clear ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-state"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_STATE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_STATE $(shquote "$value")"
       fi
       _done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
       ;;

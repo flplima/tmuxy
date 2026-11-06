@@ -40,12 +40,12 @@ cmd_mcp() {
     _die_usage "--session takes a session name (got '$session')"
 
   local query=""
-  if [ -n "$session" ] && [ "$session" != tmuxy ]; then query="session=$session"; fi
+  if [ -n "$session" ] && [ "$session" != "$DEFAULT_SESSION" ]; then query="session=$session"; fi
   if $read_only; then query="${query:+$query&}read-only"; fi
   local url="http://$host:$port/mcp${query:+?$query}"
 
   if [ "$JSON_OUT" = true ]; then
-    json_ok "url=$(json_string "$url")" "session=$(json_string "${session:-tmuxy}")" "readOnly=$read_only"
+    json_ok "url=$(json_string "$url")" "session=$(json_string "${session:-$DEFAULT_SESSION}")" "readOnly=$read_only"
     return 0
   fi
   cat <<MEOF

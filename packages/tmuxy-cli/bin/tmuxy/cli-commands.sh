@@ -51,7 +51,7 @@ cmd_tab() {
         local rows
         rows=$(_tmux_read list-windows -F "$LIST_WINDOWS_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
-          awk -F'\t' "$JSON_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' -v float="$WINDOW_TYPE_FLOAT" -v left="$WINDOW_TYPE_SIDEBAR_LEFT" -v right="$WINDOW_TYPE_SIDEBAR_RIGHT" "$JSON_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!=float && $6!=left && $6!=right{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         _tmux_read list-windows
       fi
