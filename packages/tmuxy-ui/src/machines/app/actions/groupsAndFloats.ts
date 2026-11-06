@@ -2,7 +2,6 @@ import { sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import type { TmuxWindow } from '../../../domain/client';
-import { topVisibleFloat } from '../../selectors/keyboard';
 import { visibleFloats } from '../../selectors/panesAndSidebars';
 
 /**
@@ -46,11 +45,6 @@ export const groupsAndFloatsActions = {
   groupsAndFloats_closeFloat: act(({ event, enqueue }) => {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.KillPane({ paneId: event.paneId }) });
-  }),
-
-  groupsAndFloats_closeTopFloat: act(({ context, enqueue }) => {
-    const top = topVisibleFloat(context.floatPanes, context.windows, context.activeWindowId);
-    if (top) enqueue.raise({ type: 'CLOSE_FLOAT' as const, paneId: top });
   }),
 };
 

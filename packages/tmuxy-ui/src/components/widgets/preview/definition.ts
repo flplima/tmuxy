@@ -1,5 +1,6 @@
 import type { WidgetDefinition } from '../registry';
 import { event } from '../../menus/specs/actions';
+import { TmuxOp } from '../../../domain/commands';
 import { PreviewWidget } from './PreviewWidget';
 import { parsePreviewLines } from '../../../domain/preview';
 
@@ -17,7 +18,7 @@ export const previewWidget: WidgetDefinition = {
       label: 'Close Preview',
       keyHint: 'ctrl+c',
       data: { 'widget-action': 'preview-close' },
-      action: event({ type: 'SEND_KEYS', paneId, keys: 'C-c' }),
+      action: event({ type: 'DISPATCH_OP', op: TmuxOp.SendKeys({ target: paneId, keys: 'C-c' }) }),
     },
   ],
 };

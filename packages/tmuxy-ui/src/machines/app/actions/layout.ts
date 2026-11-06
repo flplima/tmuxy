@@ -122,14 +122,6 @@ export const layoutActions = {
     );
   }),
 
-  layout_sendKeysToTmux: act(({ event, enqueue }) => {
-    if (event.type !== 'SEND_KEYS') return;
-    enqueue.raise({
-      type: 'DISPATCH_OP' as const,
-      op: TmuxOp.SendKeys({ target: event.paneId, keys: event.keys }),
-    });
-  }),
-
   layout_closePane: act(({ event, context, enqueue }) => {
     if (event.type !== 'CLOSE_PANE') return;
     // Group members and floats need the group-aware close script (swap-in /
@@ -152,14 +144,6 @@ export const layoutActions = {
     if (event.type !== 'ZOOM_PANE') return;
     enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.SelectPane({ paneId: event.paneId }) });
     enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.ZoomToggle({ paneId: event.paneId }) });
-  }),
-
-  layout_writeToPane: act(({ event, enqueue }) => {
-    if (event.type !== 'WRITE_TO_PANE') return;
-    enqueue.raise({
-      type: 'DISPATCH_OP' as const,
-      op: TmuxOp.SendText({ target: event.paneId, text: event.data }),
-    });
   }),
 
   layout_selectTab: act(({ event, context, enqueue }) => {

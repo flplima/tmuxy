@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
-import { applyServerSnapshot, modelFromSnapshot, makePendingOp } from '../../../domain/store/model';
+import { applyServerSnapshot, makePendingOp } from '../../../domain/store/model';
+import { modelFromSnapshot } from '../../../test/model';
 import type { OpId, TmuxSnapshot } from '../../../domain/store/types';
 import type {
   ServerState,

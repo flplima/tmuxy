@@ -179,7 +179,6 @@ export const appMachine = setup({
     ...viewportGlobalEvents,
 
     TMUX_FATAL: { target: '.disconnected', actions: 'connection_fatal' },
-    TMUX_DISCONNECTED: { target: '.disconnected', actions: 'connection_lost' },
     TMUX_RECONNECTING: { target: '.reconnecting', actions: 'connection_reconnecting' },
     TMUX_DETACHED: { target: '.detached', actions: 'connection_lost' },
   },

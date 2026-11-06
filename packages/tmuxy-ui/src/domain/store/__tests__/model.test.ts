@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelFromSnapshot } from '../../../test/model';
 import {
-  modelFromSnapshot,
   addPendingOp,
   applyServerSnapshot,
   makePendingOp,

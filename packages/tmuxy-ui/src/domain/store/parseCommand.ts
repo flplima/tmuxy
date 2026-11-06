@@ -118,19 +118,6 @@ export function runShellScript(
   };
 }
 
-const LAYOUT_VERBS = new Set([
-  'select-layout',
-  'selectl',
-  'next-layout',
-  'nextl',
-  'previous-layout',
-  'prevl',
-]);
-
-export function isLayoutCommand(command: string): boolean {
-  return commandListParts(command).some((part) => LAYOUT_VERBS.has(commandWords(part)[0]));
-}
-
 /**
  * `select-window -t N` exactly, the binding of a tab's visual position (the
  * `tab` table's digits): N, or null for any other command.
