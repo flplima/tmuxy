@@ -160,13 +160,18 @@ jobs:
         with:
           e2e: 'true'
 
+      # Only on HEAD: every push runs these two on the pinned tmux and on 3.4
+      # (tests/e2e-suites.json), and the full suite below runs them on every
+      # other released version.
       - name: Snapshot suite
         id: snapshots
+        if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
         run: npx jest tests/snapshots/
 
       - name: TUI alternate-screen suite
         id: tui
+        if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
         run: npx jest tests/8-tui-alternate-screen.test.js
 
