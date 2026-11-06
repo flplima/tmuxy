@@ -13,7 +13,7 @@
  */
 
 import { sendTo } from 'xstate';
-import { act, type Ctx, type Enqueue } from './actionTypes';
+import { act, type Ctx, type Enqueue, type EnqueueAction } from './actionTypes';
 import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import { isMultiStep } from '../../domain/opTraits';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
@@ -195,10 +195,18 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
   // PaneLayout's enter/shift lifecycle owns the split morph.
   if (isMultiStep(op)) enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' });
 
-  // The store applies the op's predicted patch synchronously (this machine
-  // sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it back if the
-  // send fails.
-  enqueue(sendTo('tmuxStore', { type: 'DISPATCH_OP' as const, op, command: wire }));
+  toStore(enqueue, op, wire);
+}
+
+/**
+ * Hand a routed op to the store, which applies its predicted patch at once
+ * (this machine sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it
+ * back if the send fails. The one way an op reaches the store: `routeOp`'s
+ * last step, and the actions that are themselves where an op is routed to
+ * (a tab click, a pane click). Anything else raises DISPATCH_OP.
+ */
+export function toStore(enqueue: EnqueueAction, op: TmuxOp, wire?: string) {
+  enqueue(sendTo('tmuxStore', { type: 'STORE_DISPATCH' as const, op, wire }));
 }
 
 /**

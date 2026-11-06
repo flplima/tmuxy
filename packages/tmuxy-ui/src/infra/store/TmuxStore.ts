@@ -25,13 +25,12 @@ import {
 
 export interface DispatchOptions {
   /**
-   * Override the wire-format command string sent to tmux. Use this when the
-   * caller has the full original command (including format strings like
-   * `-c "#{pane_current_path}"` or the `select-pane -t %N \;` prefix-pin
-   * the keyboardActor injects) and `toTmuxCommand(op)` would lose information.
-   * The op is still used for prediction; only the command string changes.
+   * The exact string to send in place of the op's own form, when the op was
+   * parsed from one: a binding keeps its pin and flags, `-c
+   * "#{pane_current_path}"` its format. The op is still what is predicted.
+   * Without it the op itself goes to the lane, which batches keystrokes.
    */
-  readonly command?: string;
+  readonly wire?: string;
 }
 
 export type StoreListener = (model: TmuxClientModel) => void;
@@ -157,7 +156,7 @@ export function makeTmuxStore(): TmuxStore {
   const dispatchRemote = (
     transport: TmuxTransport['Type'],
     opId: OpId,
-    wire: TmuxOp,
+    sent: TmuxOp,
     command: string,
   ): Effect.Effect<OpId, OpError> =>
     Effect.suspend(() => {
@@ -165,7 +164,7 @@ export function makeTmuxStore(): TmuxStore {
       // the quick stale sweep, and a swept op would blink the optimistic UI
       // away and remount when the confirm finally lands.
       setStatus(opId, 'in-flight');
-      return transport.run(wire);
+      return transport.run(sent);
     }).pipe(
       Effect.matchEffect({
         onFailure: (err) => {
@@ -196,14 +195,14 @@ export function makeTmuxStore(): TmuxStore {
 
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        const command = opts?.command ?? toTmuxCommand(op);
+        const command = opts?.wire ?? toTmuxCommand(op);
         // Nothing to send (a paste that was all controls): an empty line on
         // the control-mode connection detaches it, and a pending op for it
         // would only wait out the stale sweep. Done before it starts; its id
         // is never recorded.
         if (command.trim() === '') return Effect.succeed(generateOpId());
-        const wire = opts?.command === undefined ? op : TmuxOp.RawCommand({ command });
-        return dispatchRemote(transport, applyOptimistic(op, command), wire, command);
+        const sent = opts?.wire === undefined ? op : TmuxOp.RawCommand({ command });
+        return dispatchRemote(transport, applyOptimistic(op, command), sent, command);
       }),
 
     reconcile: (state) => {

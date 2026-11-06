@@ -36,10 +36,10 @@ function traceOp(op: TmuxOp): void {
 
 export type TmuxStoreActorEvent =
   /**
-   * Dispatch an op. `command`, when given, is the exact string to send in
-   * place of the op's own form — a parsed binding keeps its pin and flags.
+   * Dispatch an op: only `routeOp` sends this. `wire`, when given, is the
+   * string the op was parsed from, sent in place of the op's own form.
    */
-  | { type: 'DISPATCH_OP'; op: TmuxOp; command?: string }
+  | { type: 'STORE_DISPATCH'; op: TmuxOp; wire?: string }
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /**
    * Drop every pending op and snapshot, on SWITCH_SESSION: the old session's
@@ -108,14 +108,14 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
     };
 
     receive((event) => {
-      if (event.type === 'DISPATCH_OP') {
-        const command = event.command ?? toTmuxCommand(event.op);
+      if (event.type === 'STORE_DISPATCH') {
+        const command = event.wire ?? toTmuxCommand(event.op);
         parent.send({ type: 'LOG_APPEND', kind: 'command', message: command });
         traceOp(event.op);
         // Fire-and-forget — the store rolls a failed op back on its own (the
         // next TMUX_MODEL_UPDATE reflects it); dispatchWithErrorSurface
         // reports the failure.
-        dispatchWithErrorSurface(store.dispatch(event.op, { command }), command);
+        dispatchWithErrorSurface(store.dispatch(event.op, { wire: event.wire }), command);
         return;
       }
 

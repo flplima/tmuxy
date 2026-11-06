@@ -166,7 +166,7 @@ describe('TmuxStore (integration)', () => {
     const before = store.getModel();
 
     const exit = await fake.runtime.runPromiseExit(store.dispatch(op));
-    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { command: ' \n\t' }));
+    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { wire: ' \n\t' }));
 
     expect(exit._tag).toBe('Success');
     expect(blank._tag).toBe('Success');

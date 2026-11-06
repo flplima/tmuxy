@@ -6,4 +6,4 @@ import { parseCommandToOp } from '../domain/store/parseCommand';
  * its op, with the string itself as what goes to tmux.
  */
 export const dispatchRaw = (store: TmuxStore, command: string) =>
-  store.dispatch(parseCommandToOp(command), { command });
+  store.dispatch(parseCommandToOp(command), { wire: command });

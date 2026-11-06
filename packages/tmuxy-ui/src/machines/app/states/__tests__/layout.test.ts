@@ -24,7 +24,9 @@ describe('layout state', () => {
       },
     );
     const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@1') });
-    expect(sent).toEqual([{ type: 'DISPATCH_OP', op: TmuxOp.SelectWindow({ target: wid('@1') }) }]);
+    expect(sent).toEqual([
+      { type: 'STORE_DISPATCH', op: TmuxOp.SelectWindow({ target: wid('@1') }) },
+    ]);
     // The machine assigns nothing itself: the store's model update does.
     expect(ctx.activeWindowId).toBe(wid('@0'));
   });

@@ -125,12 +125,10 @@ export const tabOverviewActions = {
     if (event.type !== 'RENAME_TAB_COMMIT') return;
     enqueue(assign({ renamingTab: null }));
     if (!event.name) return;
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.RenameWindow({ target: event.windowId, name: event.name }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.RenameWindow({ target: event.windowId, name: event.name }),
+    });
   }),
 
   /** Stacked panes on a tab: a window option the backend reads (docs/TMUX.md). */
@@ -155,12 +153,7 @@ export const tabOverviewActions = {
   tabOverview_closeTab: act(({ context, event, enqueue }) => {
     // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
     if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.KillWindow({ windowId: event.windowId }),
-      }),
-    );
+    enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.KillWindow({ windowId: event.windowId }) });
     const count = Math.max(1, slotCount(context) - 1);
     if (context.tabOverviewSelected >= count) {
       enqueue(assign({ tabOverviewSelected: count - 1 }));

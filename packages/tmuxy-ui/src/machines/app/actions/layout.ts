@@ -1,4 +1,5 @@
 import { assign, raise, sendTo } from 'xstate';
+import { toStore } from '../dispatch';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
@@ -26,12 +27,7 @@ export function selectTab(context: Ctx, enqueue: EnqueueAction, windowId: Window
   for (const paneId of scrollViewsIn(context, context.activeWindowId)) {
     enqueue(raise({ type: 'EXIT_SCROLL_MODE' as const, paneId }));
   }
-  enqueue(
-    sendTo('tmuxStore', {
-      type: 'DISPATCH_OP' as const,
-      op: TmuxOp.SelectWindow({ target: windowId }),
-    }),
-  );
+  toStore(enqueue, TmuxOp.SelectWindow({ target: windowId }));
 }
 
 /** The member of a group drawn in a tab (the others are parked in the stash). */
@@ -79,11 +75,9 @@ export const layoutActions = {
       if (shown && shown.windowId !== context.activeWindowId) {
         selectTab(context, enqueue, shown.windowId);
       }
-      enqueue(
-        sendTo('tmuxStore', {
-          type: 'DISPATCH_OP' as const,
-          op: TmuxOp.GroupSwitch({ clickedPaneId: paneId, visiblePaneId: shown?.tmuxId ?? null }),
-        }),
+      toStore(
+        enqueue,
+        TmuxOp.GroupSwitch({ clickedPaneId: paneId, visiblePaneId: shown?.tmuxId ?? null }),
       );
       return;
     }
@@ -91,12 +85,7 @@ export const layoutActions = {
     const inFront = pane.windowId === context.activeWindowId;
     if (!inFront) selectTab(context, enqueue, pane.windowId);
     if (inFront && paneId === context.activePaneId) return;
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SelectPane({ paneId }),
-      }),
-    );
+    toStore(enqueue, TmuxOp.SelectPane({ paneId }));
   }),
 
   layout_dragStart: act(({ event, context, enqueue }) => {
@@ -146,41 +135,23 @@ export const layoutActions = {
     // Group members and floats need the group-aware close script (swap-in /
     // window cleanup / option bookkeeping — server-side semantics we can't
     // predict). A plain pane is exactly `kill-pane` (the script's own
-    // fallback), so dispatch it through the STORE for the optimistic
-    // removal + exit animation on click instead of on the round-trip.
+    // fallback), which the store predicts: the pane leaves on the click, not
+    // on the round trip.
     const inGroup = Object.values(context.paneGroups).some((g) => g.paneIds.includes(event.paneId));
     const isFloat = Boolean(context.floatPanes[event.paneId]);
-    if (!inGroup && !isFloat) {
-      enqueue(
-        sendTo('tmuxStore', {
-          type: 'DISPATCH_OP' as const,
-          op: TmuxOp.KillPane({ paneId: event.paneId }),
-        }),
-      );
-      return;
-    }
     enqueue.raise({
       type: 'DISPATCH_OP' as const,
-      op: TmuxOp.GroupClose({ paneId: event.paneId }),
+      op:
+        inGroup || isFloat
+          ? TmuxOp.GroupClose({ paneId: event.paneId })
+          : TmuxOp.KillPane({ paneId: event.paneId }),
     });
   }),
 
   layout_zoomPane: act(({ event, enqueue }) => {
     if (event.type !== 'ZOOM_PANE') return;
-    // Through the store: select-pane gets the focus prediction, and the
-    // explicitly-targeted zoom gets the ZoomToggle geometry prediction.
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SelectPane({ paneId: event.paneId }),
-      }),
-    );
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.ZoomToggle({ paneId: event.paneId }),
-      }),
-    );
+    enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.SelectPane({ paneId: event.paneId }) });
+    enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.ZoomToggle({ paneId: event.paneId }) });
   }),
 
   layout_writeToPane: act(({ event, enqueue }) => {
@@ -197,15 +168,13 @@ export const layoutActions = {
   }),
 
   /** A pane dropped on another tab: it moves there (the store predicts the join) and that tab comes to the front. */
-  layout_movePaneToTab: act(({ event, context, enqueue }) => {
+  layout_movePaneToTab: act(({ event, enqueue }) => {
     if (event.type !== 'MOVE_PANE_TO_TAB') return;
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.JoinPane({ paneId: event.paneId, windowId: event.windowId }),
-      }),
-    );
-    selectTab(context, enqueue, event.windowId);
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.JoinPane({ paneId: event.paneId, windowId: event.windowId }),
+    });
+    enqueue.raise({ type: 'SELECT_TAB', windowId: event.windowId });
   }),
 
   layout_forwardKeyToDragResize: act(({ event, enqueue }) => {
