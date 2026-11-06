@@ -50,8 +50,6 @@ const reportedMonths = (month) => !complete || month < monthOf(thisMonth);
 const run = (cmd, argv) =>
   execFileSync(cmd, argv, { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 });
 
-// ---- minutes-to-green -------------------------------------------------------
-
 const pages = run('gh', [
   'api',
   '--paginate',
@@ -88,8 +86,6 @@ const quantile = (values, q) => {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
 };
 
-// ---- test commits -------------------------------------------------------------
-
 const TIMING_WORDS =
   /\b(flak\w*|de-?flake\w*|race\w*|timing|timeouts?|deadlines?|settl\w*|sleeps?|wait\w*|poll\w*|quarantin\w*|retr(y|ies))\b/i;
 
@@ -111,8 +107,6 @@ for (const line of log.split('\n').filter(Boolean)) {
     if (TIMING_WORDS.test(subject)) counts.timing++;
   }
 }
-
-// ---- report -------------------------------------------------------------------
 
 // The runs and commits after the last reported month still count: a push near
 // its end waits for the next green, which may come after it.

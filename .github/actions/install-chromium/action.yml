@@ -1,7 +1,6 @@
 name: Install Chromium
 description: Playwright's Chromium with its download cached, and the fonts it renders with.
-# Playwright's Chromium, with its browser download cached. The download is
-# ~130MB and identical for one lockfile. The apt side of `--with-deps` is
+# The download is ~130MB and identical for one lockfile. The apt side of `--with-deps` is
 # only run on a miss: the GitHub runner image ships Google Chrome, so the
 # shared libraries Chromium loads are already there, and the ~15s index
 # refresh was the whole cost of this action on a hit. What the image does

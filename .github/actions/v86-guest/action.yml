@@ -3,12 +3,9 @@ description: tmuxy-wasm and the v86 guest assets (image and booted snapshot), th
 # Needs a Rust toolchain with the guest targets first (setup-node-rust with
 # `rust: guest`) and the npm dependencies.
 #
-# The cache key hashes everything the snapshot is built from: the build
-# scripts and their guest module, the CLI and the shipped confs baked into
-# it, the tmuxy-group binary cross-compiled into it (tmuxy-group, the
-# tmuxy-core it links, the lockfiles), and the v86 package that writes the
-# snapshot. It used to be spelled in three workflows, none with the Rust
-# inputs, so a core change re-ran the v86 probe against a stale guest.
+# The cache key must hash everything the snapshot is built from, the Rust
+# crates cross-compiled into it included: a key without them re-ran the v86
+# probe against a stale guest after a core change.
 runs:
   using: composite
   steps:
