@@ -135,11 +135,3 @@ fn echo_restore(tty: &std::fs::File, saved: libc::termios) {
         libc::tcsetattr(tty.as_raw_fd(), libc::TCSANOW, &saved);
     }
 }
-
-#[cfg(not(unix))]
-fn echo_off(_tty: &std::fs::File) -> Option<()> {
-    None
-}
-
-#[cfg(not(unix))]
-fn echo_restore(_tty: &std::fs::File, _saved: ()) {}
