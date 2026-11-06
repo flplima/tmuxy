@@ -133,12 +133,17 @@ async function awaitOutcome(id) {
 }
 
 // channel.emit only sends OUTBOUND (to a manager that doesn't exist on
-// iframe.html) — drive the preview's own selection handler directly.
-const selectStory = (storyId) =>
-  page.evaluate((s) => {
+// iframe.html) — drive the preview's own selection handler directly. A page
+// a retry just reloaded may not have its preview yet: wait for it.
+const selectStory = async (storyId) => {
+  await page.waitForFunction(() => window.__STORYBOOK_PREVIEW__?.onSetCurrentStory, null, {
+    timeout: 60000,
+  });
+  await page.evaluate((s) => {
     window.__probeEvents = [];
     window.__STORYBOOK_PREVIEW__.onSetCurrentStory({ storyId: s, viewMode: 'story' });
   }, storyId);
+};
 
 // Navigate the page fresh to a story — this tears down the shared v86 engine
 // (JS context is discarded) and cold-boots a new one. The addInitScript
@@ -149,11 +154,17 @@ const loadStory = (storyId) =>
     timeout: 60000,
   });
 
-const results = [];
-for (let i = 0; i < ids.length; i++) {
-  const id = ids[i];
-  currentStoryId = id;
-  if (i > 0) {
+/**
+ * One story: selected on the shared page (or loaded fresh after `fresh`),
+ * retried once on a cold-booted engine. The probe's own calls into the page
+ * fail when the page goes away under them (a reload, a crashed renderer): that
+ * fails this story, and the next one starts on a freshly loaded page, rather
+ * than ending the run with every later story unprobed.
+ */
+async function probeStory(id, i, fresh) {
+  if (fresh) {
+    await loadStory(id);
+  } else if (i > 0) {
     // Let the finished story's teardown/trailing engine traffic settle
     // before rewinding the shared machine — switching at storyRendered+0ms
     // leaves the next mount racing the previous story's outbound bytes.
@@ -179,13 +190,31 @@ for (let i = 0; i < ids.length; i++) {
     result = await awaitOutcome(id);
     retried = true;
   }
+  return { result, retried, started };
+}
+
+const results = [];
+let fresh = false;
+for (let i = 0; i < ids.length; i++) {
+  const id = ids[i];
+  currentStoryId = id;
+  let result;
+  let retried = false;
+  let started = Date.now();
+  try {
+    ({ result, retried, started } = await probeStory(id, i, fresh));
+    fresh = false;
+  } catch (err) {
+    result = { id, ok: false, reason: 'probe-error', message: err.message.split('\n')[0] };
+    fresh = true;
+  }
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   if (!result.ok) {
     // The page errors so far and this story's console errors travel with the
     // result, into its artifacts and the report at the end.
     result.pageErrors = [...pageErrors];
     result.consoleErrors = consoleErrorsByStory.get(id) ?? [];
-    result.artifact = await writeArtifacts(page, `v86-${id}`, result);
+    result.artifact = await writeArtifacts(page, `v86-${id}`, result).catch(() => undefined);
   }
   console.log(
     `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
