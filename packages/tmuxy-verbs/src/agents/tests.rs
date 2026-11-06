@@ -316,6 +316,7 @@ fn a_hook_command_quotes_the_tmuxy_path() {
 
 /// The screen correction runs on every agent tmuxy hooks: each one's process
 /// name is one it watches.
+#[cfg(feature = "native")]
 #[test]
 fn every_hooked_agent_is_one_the_screen_watches() {
     for agent in ALL {

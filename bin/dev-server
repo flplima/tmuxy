@@ -91,7 +91,7 @@ cmd_run() {
   # script embeds (packages/tmuxy-core/build.rs) and writes to the data dir.
   local watched=(
     packages/tmuxy-core/src packages/tmuxy-core/assets packages/tmuxy-core/build.rs
-    packages/tmuxy-server/src packages/tmuxy-verbs/src packages/tmuxy-group/src
+    packages/tmuxy-server/src packages/tmuxy-verbs/src
     packages/tmuxy-cli/bin packages/tmuxy-ui/public/themes
   ) dir watch_args=()
   for dir in "${watched[@]}"; do watch_args+=(-w "$dir"); done

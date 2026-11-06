@@ -64,10 +64,10 @@ describe('which CI jobs a push can skip', () => {
     });
   });
 
-  // The desktop binary links tmuxy-group (through tmuxy-verbs), and the v86
+  // The desktop binary links tmuxy-verbs (through tmuxy-server), and the v86
   // guest ships it as its own binary.
-  it('a pane-group change runs both', () => {
-    expect(decide(['packages/tmuxy-group/src/lib.rs'])).toMatchObject({
+  it('a verb change runs both', () => {
+    expect(decide(['packages/tmuxy-verbs/src/group_cli.rs'])).toMatchObject({
       desktop: true,
       v86: true,
     });

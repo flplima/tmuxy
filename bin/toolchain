@@ -9,7 +9,7 @@
 # Usage:
 #   bin/toolchain tmux-version          the tmux CI, the image and docs/TMUX.md target
 #   bin/toolchain rust-targets          the rustup targets past the host's: wasm32 for
-#                                       tmuxy-wasm, i686-musl for the guests' tmuxy-group
+#                                       tmuxy-wasm, i686-musl for the guests' tmuxy-verbs
 #   bin/toolchain tauri-driver-version  the driver the desktop suites run the app under
 #   bin/toolchain packages <set>        apt package names, space-separated:
 #                                         tmux-build       what a tmux release builds with
