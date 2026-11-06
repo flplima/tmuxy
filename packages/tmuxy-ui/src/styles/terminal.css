@@ -372,18 +372,23 @@
   color: var(--term-black);
 }
 
-/* The browser's selection over terminal text wears the same wash as copy
-   mode's (--selection-bg); the text keeps its own colour. */
+/* Selected text is one colour pair, whatever the cells were drawn in: the
+   selection's background (--selection-bg) under the theme's foreground. A
+   cell's own red, its green background or its reverse video read as noise
+   under a selection, and some of them vanished into it. The browser's
+   selection paints over a cell's colours; copy mode's renderers leave a
+   selected cell's colours off (TerminalLine.tsx, terminalRendering.ts). */
 .terminal-selectable::selection,
 .terminal-selectable *::selection {
   background-color: var(--selection-bg);
+  color: var(--selection-fg);
 }
 
-/* A cell copy mode has selected: the wash is a background image, so it lies
-   over the cell's own background colour and under its text, and leaves the
-   inset shadow to the copy blink (styles/pane-layout.css). */
+/* A cell copy mode has selected. The copy blink is an inset shadow over this
+   background (styles/pane-layout.css). */
 .terminal-selected {
-  background-image: linear-gradient(var(--selection-bg), var(--selection-bg));
+  background-color: var(--selection-bg);
+  color: var(--selection-fg);
 }
 
 /* A row the browser's selection runs past is selected to the pane's edge, as

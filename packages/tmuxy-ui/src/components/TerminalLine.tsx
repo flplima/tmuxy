@@ -64,10 +64,22 @@ function styleKey(s: CellStyle | undefined): number {
 }
 
 /**
- * Build CSS style from CellStyle
+ * Build CSS style from CellStyle. A selected cell keeps its weight, slant and
+ * underline but none of its colours: every selected cell is the selection's
+ * (`.terminal-selected`, styles/terminal.css), whatever it was drawn in.
  */
-function buildCellStyle(style: CellStyle): CSSProperties {
+function buildCellStyle(style: CellStyle, selected: boolean): CSSProperties {
   const css: CSSProperties = {};
+  if (style.bold) {
+    css.fontWeight = 'bold';
+  }
+  if (style.italic) {
+    css.fontStyle = 'italic';
+  }
+  if (style.underline) {
+    css.textDecoration = 'underline';
+  }
+  if (selected) return css;
 
   if (style.fg !== undefined) {
     css.color = cellColorToCss(style.fg);
@@ -75,17 +87,8 @@ function buildCellStyle(style: CellStyle): CSSProperties {
   if (style.bg !== undefined) {
     css.backgroundColor = cellColorToCss(style.bg);
   }
-  if (style.bold) {
-    css.fontWeight = 'bold';
-  }
   if (style.dim) {
     css.opacity = 0.5;
-  }
-  if (style.italic) {
-    css.fontStyle = 'italic';
-  }
-  if (style.underline) {
-    css.textDecoration = 'underline';
   }
   if (style.inverse) {
     // Swap fg/bg for inverse
@@ -195,7 +198,9 @@ export const TerminalLine = memo(
         // (emoji, spinner symbols, CJK) then paints within / over its fixed box
         // instead of pushing the rest of the line — which is what caused the
         // horizontal jitter when only a few characters changed (e.g. spinners).
-        let style: CSSProperties = currentGroup.style ? buildCellStyle(currentGroup.style) : {};
+        let style: CSSProperties = currentGroup.style
+          ? buildCellStyle(currentGroup.style, currentGroup.selected)
+          : {};
         const cellSize = currentGroup.style?.size;
         style.width = cellsToCss(currentGroup.cells.length * (cellSize ? 2 : 1));
         const blockCh = currentGroup.blockCh;
@@ -248,7 +253,7 @@ export const TerminalLine = memo(
         // Block Elements are drawn as CSS rectangles rather than font glyphs so
         // they fill the cell exactly and stacked rows tile seamlessly. The
         // character stays as (transparent) text, keeping copy/paste intact.
-        if (blockCh) {
+        if (blockCh && !currentGroup.selected) {
           const painted = blockGlyphStyle(
             blockCh,
             (style.color as string) ?? 'var(--term-foreground)',

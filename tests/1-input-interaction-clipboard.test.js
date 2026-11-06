@@ -123,28 +123,6 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     const still = await runRect(ctx.page, '.pane-layout-item', 'DRAG_SELECT_ME');
     expect(Math.abs(still.box.top - at.box.top)).toBeLessThanOrEqual(1);
 
-    // The selection is a wash of the theme's foreground over its background,
-    // under text that keeps its own colour.
-    const paint = await ctx.page.evaluate(() => {
-      const node = window.getSelection().getRangeAt(0).startContainer;
-      const el = node.nodeType === 1 ? node : node.parentElement;
-      const sel = getComputedStyle(el, '::selection');
-      const probe = document.createElement('span');
-      probe.style.backgroundColor =
-        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
-      document.body.appendChild(probe);
-      const result = {
-        bg: sel.backgroundColor,
-        fg: sel.color,
-        wantBg: getComputedStyle(probe).backgroundColor,
-        ownFg: getComputedStyle(el).color,
-      };
-      probe.remove();
-      return result;
-    });
-    expect(paint.wantBg).not.toBe('rgba(0, 0, 0, 0)');
-    expect({ bg: paint.bg, fg: paint.fg }).toEqual({ bg: paint.wantBg, fg: paint.ownFg });
-
     // 2. Cmd+C copies the same text once more and blinks it: boxes laid over
     //    the selection, which go away on their own.
     await ctx.page.keyboard.press('Meta+c');
@@ -192,9 +170,43 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
 
     // 3. A row of differently-coloured runs copies as one line. Each run is its
     //    own box, and the browser's own copy broke the line at every one.
-    await runCommand(ctx.page, 'printf "\\033[31mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
+    await runCommand(ctx.page, 'printf "\\033[31;42mRED_RUN\\033[0m PLAIN_RUN\\n"', 'PLAIN_RUN');
     const mixed = await shownRunRect(ctx.page, '.pane-layout-item', 'RED_RUN PLAIN_RUN');
     await dragSelect(ctx.page, mixed);
+    // Selected, every cell is the same pair, whatever it was drawn in: the
+    // theme's foreground on a wash of it over the theme's background, the
+    // red-on-green run in neither red nor green.
+    const paint = await ctx.page.evaluate(() => {
+      const lines = [...document.querySelectorAll('.pane-layout-item .terminal-line')].filter((l) =>
+        (l.textContent || '').includes('RED_RUN PLAIN_RUN'),
+      );
+      const spans = [...lines[lines.length - 1].querySelectorAll('span')];
+      const run = (text) => spans.find((el) => el.textContent.trim() === text);
+      const probe = document.createElement('span');
+      probe.style.backgroundColor =
+        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
+      probe.style.color = 'var(--term-foreground)';
+      document.body.appendChild(probe);
+      const want = {
+        bg: getComputedStyle(probe).backgroundColor,
+        fg: getComputedStyle(probe).color,
+      };
+      probe.remove();
+      const selected = (el) => {
+        const sel = getComputedStyle(el, '::selection');
+        return { bg: sel.backgroundColor, fg: sel.color };
+      };
+      return {
+        want,
+        red: selected(run('RED_RUN')),
+        plain: selected(run('PLAIN_RUN')),
+        redOwn: getComputedStyle(run('RED_RUN')).color,
+      };
+    });
+    expect(paint.want.bg).not.toBe('rgba(0, 0, 0, 0)');
+    expect(paint.redOwn).not.toBe(paint.want.fg);
+    expect(paint.red).toEqual(paint.want);
+    expect(paint.plain).toEqual(paint.want);
     await ctx.page.keyboard.press('Meta+c');
     await waitForCondition(
       ctx.page,
@@ -254,7 +266,7 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     expect(fills.empty.width).toBeGreaterThan(fills.empty.row * 0.95);
     expect(fills.first.width).toBeGreaterThan(0);
     expect(fills.first.width).toBeLessThan(fills.first.row);
-    expect(fills.empty.bg).toBe(paint.wantBg);
+    expect(fills.empty.bg).toBe(paint.want.bg);
     expect(fills.end.shown).toBe(false);
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
   }, 120000);
@@ -305,7 +317,11 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    await runCommand(ctx.page, 'echo "COPY_DRAG_ME and more"', 'COPY_DRAG_ME');
+    await runCommand(
+      ctx.page,
+      'printf "\\033[31;42mCOPY_DRAG_ME\\033[0m and more\\n"',
+      'COPY_DRAG_ME',
+    );
     const cs = await enterCopyModeAndWait(ctx.page);
     expect(cs.mode).toBe('copy');
     await ctx.page.evaluate(() => {
@@ -338,8 +354,8 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     });
     expect(cursor.bg).toBe(cursor.want);
 
-    // Mid-drag, the selected cells wear the same reversed colours as a
-    // browser selection does.
+    // Mid-drag, the selected cells wear the same colours as a browser
+    // selection does: the red-on-green word too, in neither red nor green.
     await ctx.page.mouse.move(at.first, at.y);
     await ctx.page.mouse.down();
     await ctx.page.mouse.move(at.last, at.y, { steps: 10 });
@@ -348,31 +364,33 @@ describe('Scenario 7d: Selecting and copying with the mouse', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(
-          () => !!document.querySelector('[data-copy-mode="true"] .terminal-selected'),
+        ctx.page.evaluate(() =>
+          [...document.querySelectorAll('[data-copy-mode="true"] .terminal-selected')].some((el) =>
+            el.textContent.includes('COPY_DRAG_ME'),
+          ),
         ),
       3000,
-      'the drag to select cells',
+      'the drag to select the word',
     );
     const cells = await ctx.page.evaluate(() => {
-      const cell = document.querySelector('[data-copy-mode="true"] .terminal-selected');
+      const cell = [
+        ...document.querySelectorAll('[data-copy-mode="true"] .terminal-selected'),
+      ].find((el) => el.textContent.includes('COPY_DRAG_ME'));
       const probe = document.createElement('span');
-      const wash = 'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
-      probe.style.backgroundImage = `linear-gradient(${wash}, ${wash})`;
+      probe.style.backgroundColor =
+        'color-mix(in srgb, var(--term-foreground) 32%, var(--term-background))';
       probe.style.color = 'var(--term-foreground)';
       document.body.appendChild(probe);
-      const got = getComputedStyle(cell);
+      const got = cell ? getComputedStyle(cell) : null;
       const want = getComputedStyle(probe);
       const result = {
-        bg: got.backgroundImage,
-        fg: got.color,
-        wantBg: want.backgroundImage,
-        wantFg: want.color,
+        got: got && { bg: got.backgroundColor, fg: got.color },
+        want: { bg: want.backgroundColor, fg: want.color },
       };
       probe.remove();
       return result;
     });
-    expect({ bg: cells.bg, fg: cells.fg }).toEqual({ bg: cells.wantBg, fg: cells.wantFg });
+    expect(cells.got).toEqual(cells.want);
     await ctx.page.mouse.up();
 
     // Released: the selection is on the clipboard, the copied text blinked,

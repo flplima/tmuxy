@@ -39,6 +39,19 @@ function applyStyleToElement(
 
   if (!style) return;
 
+  if (style.bold) el.style.fontWeight = 'bold';
+  if (style.italic) el.style.fontStyle = 'italic';
+  if (style.underline) el.style.textDecoration = 'underline';
+  if (style.url) {
+    el.dataset.href = style.url;
+    el.style.cursor = 'pointer';
+    el.style.textDecoration = 'underline';
+  }
+
+  // A selected cell wears the selection's colours (`.terminal-selected`),
+  // not the ones it was drawn in, as TerminalLine renders it.
+  if (selected) return;
+
   let fg = style.fg !== undefined ? cellColorToCss(style.fg) : '';
   let bg = style.bg !== undefined ? cellColorToCss(style.bg) : '';
 
@@ -50,17 +63,7 @@ function applyStyleToElement(
 
   if (fg) el.style.color = fg;
   if (bg) el.style.backgroundColor = bg;
-
-  if (style.bold) el.style.fontWeight = 'bold';
   if (style.dim) el.style.opacity = '0.5';
-  if (style.italic) el.style.fontStyle = 'italic';
-  if (style.underline) el.style.textDecoration = 'underline';
-
-  if (style.url) {
-    el.dataset.href = style.url;
-    el.style.cursor = 'pointer';
-    el.style.textDecoration = 'underline';
-  }
 }
 
 // ============================================

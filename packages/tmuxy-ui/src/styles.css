@@ -122,19 +122,19 @@
   /* Copy mode's block cursor is the accent, so the mode is unmistakable. */
   --cursor-copy-bg: var(--theme-accent);
 
-  /* Selected text, in copy mode and in the browser's own selection alike: a
-     wash of the theme's foreground over its background, under text that keeps
-     the colour it was drawn in — the prompt, a string, a link read the same
-     selected as not, as iTerm2 and Alacritty draw it. Reverse video turned
-     every selected cell into one glaring slab of the foreground. The wash is
-     opaque, not a translucent foreground: the browser also paints a selected
-     line break after every cell span, and translucent paints stacked there
-     into lighter boxes. */
+  /* Selected text, in copy mode and in the browser's own selection alike:
+     the theme's foreground on a wash of it over the theme's background, the
+     same for every cell whatever colours it was drawn in (styles/terminal.css).
+     Reverse video turned every selected cell into one glaring slab of the
+     foreground. The wash is opaque, not a translucent foreground: the browser
+     also paints a selected line break after every cell span, and translucent
+     paints stacked there into lighter boxes. */
   --selection-bg: color-mix(
     in srgb,
     var(--term-foreground, var(--term-white)) 32%,
     var(--term-background, var(--term-black))
   );
+  --selection-fg: var(--term-foreground, var(--term-white));
 
   /* Colors - Tmux Status */
   --tmux-status-bg: var(--term-green);
