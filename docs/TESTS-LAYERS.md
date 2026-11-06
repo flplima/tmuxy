@@ -109,8 +109,9 @@ A push that changes only prose — `docs/**` or any `*.md` — runs no workflow 
 ## UI Unit Tests
 
 - Vitest with jsdom, configured in `packages/tmuxy-ui/vite.config.ts`; `src/test/setup.ts` installs jest-dom matchers, an in-memory `localStorage` for Node ≥ 22, and cleans up after each test
-- Tests live beside the code in `__tests__/` directories: `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/domain/` (the command vocabulary, the delta protocol, the store's pure logic), `src/infra/` (the transport service and its drivers — HTTP, Tauri, the demo backend — key batching, the store), `src/components/` (and its feature folders, `components/terminal/`, `components/phone/`, `components/menus/specs/`)
+- Tests live beside the code in `__tests__/` directories: `src/machines/` (a slice alone mounts in `src/machines/app/states/__tests__/testHarness.ts`; anything that crosses slices starts the real app machine with `startApp` from `src/test/app.ts`, whose `recorder` keeps what an actor is sent), `src/domain/` (the command vocabulary, the delta protocol, the store's pure logic), `src/infra/` (the transport service and its drivers — HTTP, Tauri, the demo backend — key batching, the store), `src/components/` (and its feature folders, `components/terminal/`, `components/phone/`, `components/menus/specs/`)
 - Test pure logic: parsers, state transformations, utility functions, adapter protocol handling
+- Fixtures come from `src/test/`: `model.ts` builds client panes, windows and model updates, `wire.ts` the server's own shape (`wirePane`, `wireWindow`, `wireSession`), so a field added to either is a change to one file
 - Component rendering in jsdom is limited to a few mocked-context tests in `src/test/`. jsdom has no layout, so a jsdom render test can prove "does not throw" and "renders this text", never "is visible" — anything visual belongs in a story or E2E
 - Keep unit tests fast (< 1s per file)
 
