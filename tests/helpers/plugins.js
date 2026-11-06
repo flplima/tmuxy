@@ -32,11 +32,6 @@ const pluginCli = (...args) => tmuxyCli(['plugin', ...args]);
 const pluginStateDir = (name) => path.join(stateDir(), 'plugins', `${name}.state`);
 
 /** The menu actions the page knows of, as `plugin:action`. */
-const knownActions = (page) =>
-  page.evaluate(() =>
-    window.app
-      .getSnapshot()
-      .context.plugins.flatMap((p) => p.actions.map((a) => `${p.name}:${a.id}`)),
-  );
+const knownActions = (page) => page.evaluate(() => window.app.view().pluginActions);
 
 module.exports = { writePluginDir, pluginCli, pluginStateDir, knownActions };

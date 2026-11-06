@@ -42,6 +42,11 @@ export interface AppTestView {
     | 'loading'
     | 'loadedRanges'
   > | null;
+  /**
+   * The plugin actions the menus offer, as `plugin:action`: a selection-only
+   * one is in no menu until there is a selection, so the screen cannot say.
+   */
+  pluginActions: string[];
   /** Every window the client holds, and what it is (`@tmuxy-window-type`; null for a foreign one). */
   windows: { id: WindowId; kind: WindowType | null }[];
 }
@@ -72,5 +77,6 @@ export function selectTestView(context: AppMachineContext): AppTestView {
         }
       : null,
     windows: context.windows.map((w) => ({ id: w.id, kind: w.windowType })),
+    pluginActions: context.plugins.flatMap((p) => p.actions.map((a) => `${p.name}:${a.id}`)),
   };
 }

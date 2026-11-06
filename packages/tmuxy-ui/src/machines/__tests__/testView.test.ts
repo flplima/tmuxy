@@ -56,6 +56,18 @@ describe('the test view', () => {
     expect(selectTestView(context({ keybindings })).prefixKey).toBe('C-a');
   });
 
+  it('lists the plugin actions the menus offer', () => {
+    const plugins = [
+      {
+        name: 'demo',
+        actions: [{ id: 'grab' }, { id: 'split' }],
+        linkHosts: [],
+        textLinks: false,
+      },
+    ];
+    expect(selectTestView(context({ plugins })).pluginActions).toEqual(['demo:grab', 'demo:split']);
+  });
+
   it("carries only the active pane's scrollback", () => {
     expect(selectTestView(context()).copyMode).toBeNull();
     const view = selectTestView(
