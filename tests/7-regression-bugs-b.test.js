@@ -43,8 +43,10 @@ describe('Scenario: keystrokes route to the clicked pane-group tab', () => {
     const title = `TITLE_${Date.now()}`;
     // OSC 2, the way any program announces what it is now doing. Nothing else
     // in this test touches tmux: the point is that the header reacts to the
-    // pane's own output rather than to a poll.
-    await typeInTerminal(ctx.page, `printf '\\033]2;${title}\\007'`);
+    // pane's own output rather than to a poll. The program keeps running: a
+    // shell that titles its prompt (zsh's precmd, a user's rc) would write
+    // over the title the moment it came back.
+    await typeInTerminal(ctx.page, `printf '\\033]2;${title}\\007'; sleep 60`);
     await pressEnter(ctx.page);
 
     // 5s is deliberately well under the 15s idle heartbeat that used to be the
