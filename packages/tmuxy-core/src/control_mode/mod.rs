@@ -35,7 +35,7 @@ pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};
 pub use log::{LogKind, LogSink};
 #[cfg(feature = "native")]
 pub use monitor::{MonitorCommand, MonitorCommandSender, MonitorConfig, StateEmitter, TmuxMonitor};
-pub use monitor_core::{Action, AttachConfig, CommandReply, MonitorCore, Outgoing};
+pub use monitor_core::{Action, AttachConfig, CommandReply, MonitorCore, Outgoing, ReadPacing};
 pub use octal::decode_octal;
 pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};

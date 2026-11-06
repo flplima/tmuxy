@@ -21,12 +21,13 @@
 //! ```
 
 mod attach;
+mod reads;
 mod replies;
 pub(crate) mod run_shell;
 mod sizing;
 
 use super::parser::ControlModeEvent;
-use super::state::{ChangeType, Instant, Notice, SideEffect, StateAggregator};
+use super::state::{Batch, ChangeType, Instant, Notice, SideEffect, StateAggregator};
 use crate::WindowId;
 use replies::Waiter;
 use std::collections::{HashMap, HashSet};
@@ -34,6 +35,7 @@ use std::time::Duration;
 use tracing::debug;
 
 pub use attach::{enforced_settings, AttachConfig};
+pub use reads::ReadPacing;
 
 /// How often the client polls a pane in copy mode: its cursor needs
 /// sub-100ms updates, and tmux announces none of them.
@@ -140,6 +142,8 @@ pub struct MonitorCore<W> {
     last_event_at: Instant,
     next_sync_at: Instant,
     metadata_sync_at: Option<Instant>,
+    read_pacing: ReadPacing,
+    reads: reads::ReadGate,
 }
 
 impl<W> MonitorCore<W> {
@@ -159,6 +163,8 @@ impl<W> MonitorCore<W> {
             last_event_at: now,
             next_sync_at: now + FIRST_SYNC_DELAY,
             metadata_sync_at: None,
+            read_pacing: ReadPacing::default(),
+            reads: reads::ReadGate::default(),
         }
     }
 
@@ -189,6 +195,10 @@ impl<W> MonitorCore<W> {
         let mut actions = Vec::with_capacity(step.effects.len() + 1);
         for effect in step.effects {
             match effect {
+                SideEffect::Send {
+                    batch: Batch::WindowRelist | Batch::PaneRefresh,
+                    commands,
+                } => self.read(commands, &mut actions),
                 SideEffect::Send { commands, .. } => actions.push(Action::Send(commands)),
                 SideEffect::Emit(change) => {
                     // Output changes what no event announces (a pane's
@@ -215,6 +225,7 @@ impl<W> MonitorCore<W> {
         if let Some(sizing) = self.size_windows() {
             actions.push(sizing);
         }
+        actions.extend(self.flush_reads(now));
         actions
     }
 
@@ -227,25 +238,25 @@ impl<W> MonitorCore<W> {
         }
         if self.metadata_sync_at.is_some_and(|at| now >= at) {
             self.metadata_sync_at = None;
-            actions.push(Action::Send(
-                self.aggregator.markers().window_relist_commands().to_vec(),
-            ));
+            let relist = self.aggregator.markers().window_relist_commands().to_vec();
+            self.read(relist, &mut actions);
         }
         if now >= self.next_sync_at {
             let idle_for = now.saturating_duration_since(self.last_event_at);
             if self.aggregator.has_pane_in_copy_mode() {
-                actions.push(Action::Send(self.aggregator.copy_mode_poll_commands()));
+                let poll = self.aggregator.copy_mode_poll_commands();
+                self.read(poll, &mut actions);
                 self.next_sync_at = now + COPY_MODE_SYNC_INTERVAL;
             } else if idle_for >= IDLE_THRESHOLD {
-                actions.push(Action::Send(
-                    self.aggregator.markers().window_relist_commands().to_vec(),
-                ));
+                let relist = self.aggregator.markers().window_relist_commands().to_vec();
+                self.read(relist, &mut actions);
                 self.next_sync_at = now + HEARTBEAT_INTERVAL;
             } else {
                 self.next_sync_at = now + (IDLE_THRESHOLD - idle_for);
             }
         }
         actions.extend(self.expire_replies(now));
+        actions.extend(self.flush_reads(now));
         actions
     }
 
@@ -291,3 +302,6 @@ impl<W> MonitorCore<W> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests_reads;

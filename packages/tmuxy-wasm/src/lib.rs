@@ -13,7 +13,7 @@
 use serde::Serialize;
 use tmuxy_core::command_router::{self, Route};
 use tmuxy_core::control_mode::{
-    Action, AttachConfig, ControlModeEvent, Instant, MonitorCore, Notice, Parser,
+    Action, AttachConfig, ControlModeEvent, Instant, MonitorCore, Notice, Parser, ReadPacing,
 };
 use wasm_bindgen::prelude::*;
 
@@ -136,8 +136,11 @@ impl Session {
     fn new(session_name: &str) -> Self {
         Self {
             parser: Parser::new(),
-            // The guest's tmux is the default server, on the PATH.
-            core: MonitorCore::new(session_name, "tmux", Instant::now()),
+            // The guest's tmux is the default server, on the PATH. Every
+            // byte to it crosses an emulated UART into an emulated CPU, so
+            // one batch of the core's reads is out at a time.
+            core: MonitorCore::new(session_name, "tmux", Instant::now())
+                .with_read_pacing(ReadPacing::OneBatchInFlight),
             pending: String::new(),
         }
     }
@@ -360,18 +363,39 @@ mod tests {
              8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
         );
         let out = s.feed(&stream);
-        // The listed panes are captured; nothing is shown before the
-        // windows are listed and those captures have landed.
-        let captures = out
-            .commands
-            .iter()
-            .filter(|c| c.contains("capture-pane"))
-            .count();
-        assert_eq!(captures, 2, "one capture per new pane: {:?}", out.commands);
         assert!(
             !out.changed,
             "nothing to show before the initial sync is complete"
         );
+        // The window add's re-list is the batch of reads out; the captures
+        // the pane list asks for go in the next one, once tmux has answered
+        // it: one per new pane.
+        let end = format!("display-message -p '{} ", markers.tag(REPLY_END_MARKER));
+        let id = out
+            .commands
+            .iter()
+            .find_map(|c| c.strip_prefix(&end))
+            .map(|rest| rest.trim_end_matches('\'').to_string())
+            .expect("a batch of reads is out");
+        let next = s.feed(&format!(
+            "{}{}",
+            block(
+                20,
+                &format!("{} {id}\n", markers.tag(REPLY_BEGIN_MARKER)),
+                true
+            ),
+            block(
+                21,
+                &format!("{} {id}\n", markers.tag(REPLY_END_MARKER)),
+                true
+            ),
+        ));
+        let captures = next
+            .commands
+            .iter()
+            .filter(|c| c.contains("capture-pane"))
+            .count();
+        assert_eq!(captures, 2, "one capture per new pane: {:?}", next.commands);
 
         let capture = |pane: &str| {
             format!(
