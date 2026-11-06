@@ -44,10 +44,6 @@ export function registerWidget(name: string, definition: WidgetDefinition) {
   widgetRegistry[name] = definition;
 }
 
-export function getWidget(name: string): WidgetDefinition | undefined {
-  return widgetRegistry[name];
-}
-
 export interface RegisteredPaneWidget extends PaneWidget {
   definition: WidgetDefinition;
 }
