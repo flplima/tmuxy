@@ -84,14 +84,15 @@ pub trait Host: Send {
 
     fn ended(&mut self) -> impl Future<Output = Ended> + Send;
 
-    /// A connect attempt failed. `Some` overrides the failure count (a wait
-    /// or a stop the host decides from the error); `None` counts it.
+    /// A connect attempt failed: `true` stops the loop (the host decides
+    /// from the error that there is nothing to connect to), `false` counts
+    /// the failure.
     fn connect_failed(
         &mut self,
         _error: &TmuxError,
         _ever_ran: bool,
-    ) -> impl Future<Output = Option<Attempt>> + Send {
-        async { None }
+    ) -> impl Future<Output = bool> + Send {
+        async { false }
     }
 
     /// The loop has given up; `message` says why, for the user.
@@ -295,25 +296,21 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
                     }
                 }
             }
-            Err(e) => match host.connect_failed(&e, ever_ran).await {
-                Some(Attempt::Wait(pause)) => {
-                    host.sleep(pause).await;
-                    Outcome::Again
+            Err(e) => {
+                if host.connect_failed(&e, ever_ran).await {
+                    return;
                 }
-                Some(Attempt::Stop) => return,
-                Some(Attempt::Connect(_)) | None => {
-                    failures
-                        .count(
-                            &mut host,
-                            runtime,
-                            format!("Failed to connect to control mode: {e}"),
-                            || format!(
-                                "Unable to connect to tmux after {MAX_CONSECUTIVE_FAILURES} attempts; giving up. Last error: {e}"
-                            ),
-                        )
-                        .await
-                }
-            },
+                failures
+                    .count(
+                        &mut host,
+                        runtime,
+                        format!("Failed to connect to control mode: {e}"),
+                        || format!(
+                            "Unable to connect to tmux after {MAX_CONSECUTIVE_FAILURES} attempts; giving up. Last error: {e}"
+                        ),
+                    )
+                    .await
+            }
         };
 
         match outcome {

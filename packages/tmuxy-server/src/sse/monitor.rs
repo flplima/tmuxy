@@ -175,16 +175,13 @@ impl Host for ServerHost {
     /// `tmux kill-session`) means the user intentionally tore it down: stop
     /// instead of looping forever trying to attach. Everything else is counted
     /// and retried.
-    async fn connect_failed(&mut self, error: &TmuxError, ever_ran: bool) -> Option<Attempt> {
-        if !matches!(error, TmuxError::SessionNotFound { .. }) {
-            return None;
+    async fn connect_failed(&mut self, error: &TmuxError, ever_ran: bool) -> bool {
+        if !ever_ran || !matches!(error, TmuxError::SessionNotFound { .. }) {
+            return false;
         }
-        if ever_ran {
-            info!(session = %self.session, %error, "session destroyed externally, stopping monitor loop");
-            self.forget_session().await;
-            return Some(Attempt::Stop);
-        }
-        None
+        info!(session = %self.session, %error, "session destroyed externally, stopping monitor loop");
+        self.forget_session().await;
+        true
     }
 
     async fn gave_up(&mut self, message: String) -> GaveUp {

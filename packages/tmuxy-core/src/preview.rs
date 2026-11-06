@@ -411,11 +411,6 @@ impl PreviewPages {
             .map(|(_, page)| page.clone())
     }
 
-    pub fn evict(&self, pane: &PaneId) {
-        let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
-        store.pages.retain(|(id, _)| id != pane);
-    }
-
     /// Evict staged pages for panes in `scope` (a session name or GUI window
     /// label) whose `@tmuxy-pane-widget` left `preview` or whose pane closed.
     pub fn sync_update(&self, scope: &str, update: &crate::StateUpdate) {
