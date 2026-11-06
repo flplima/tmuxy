@@ -213,8 +213,8 @@ pub type PaneContent = Vec<TerminalLine>;
 ///
 /// vt100 gives an unwritten cell — and the continuation half of a wide one —
 /// an empty string; a space keeps the joined line on the column grid. Shared
-/// so a hyperlink mark and the extraction that validates it are comparing the
-/// same spelling of the same cell.
+/// so the sizes a capture refill carries over are compared in the same
+/// spelling the extraction writes.
 pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     let raw = screen
         .cell(row, col)
@@ -227,51 +227,30 @@ pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     }
 }
 
-/// Extract structured cells from a vt100 screen.
-/// This is the single source of truth for cell extraction, used by both
-/// parse_ansi_to_cells (polling mode) and PaneState::get_content (control mode).
+/// Extract structured cells from a vt100 screen: the single source of truth
+/// for cell extraction, used by both `parse_ansi_to_cells` (polling mode) and
+/// `PaneState::get_content` (control mode).
 pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
-    extract_cells_with_urls(screen, None)
-}
-
-/// Extract structured cells from a vt100 screen with optional OSC parser for hyperlinks.
-/// When osc_parser is provided, URL information is included in cell styles.
-pub fn extract_cells_with_urls(
-    screen: &vt100::Screen,
-    osc_parser: Option<&control_mode::OscParser>,
-) -> PaneContent {
     let (rows, cols) = screen.size();
     let mut lines: Vec<TerminalLine> = Vec::with_capacity(rows as usize);
-    let mut prev_chars: Vec<String> = Vec::new();
 
     for row in 0..rows {
         let mut line: Vec<TerminalCell> = Vec::with_capacity(cols as usize);
 
-        // The row's text first, as a unit: a hyperlink is only still a
-        // hyperlink if the text it was written on is still there, and that is
-        // judged per run rather than per cell (see `OscParser::row_urls`).
-        let chars: Vec<String> = (0..cols)
-            .map(|col| screen_cell_char(screen, row, col))
-            .collect();
-        let row_urls = osc_parser.map(|p| p.row_urls(row as u32, &chars));
-        let row_sizes = osc_parser.map(|p| p.row_sizes(row as u32, &chars, &prev_chars));
         let row_line_size = match screen.row_line_size(row) {
             vt100::LineSize::Single => None,
             vt100::LineSize::DoubleWidth => Some(CellSize::DoubleWidth),
             vt100::LineSize::DoubleHeightTop => Some(CellSize::DoubleHeightTop),
             vt100::LineSize::DoubleHeightBottom => Some(CellSize::DoubleHeightBottom),
         };
-        prev_chars.clone_from(&chars);
 
-        // `chars` is consumed here, so collecting the row up front costs no
-        // allocation over building each cell's string in place.
-        for (col, mut char_content) in chars.into_iter().enumerate() {
-            let col = col as u16;
+        for col in 0..cols {
             // `screen.cell` only returns None when row/col exceed the grid bounds,
             // which the `0..rows` / `0..cols` loops guarantee against.
             let Some(cell) = screen.cell(row, col) else {
                 continue;
             };
+            let mut char_content = screen_cell_char(screen, row, col);
 
             let fg = match cell.fgcolor() {
                 vt100::Color::Default => None,
@@ -285,17 +264,31 @@ pub fn extract_cells_with_urls(
                 vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
             };
 
-            let url = row_urls
-                .as_ref()
-                .and_then(|urls| urls[col as usize].map(str::to_string));
-
-            let osc_size = row_sizes.as_ref().and_then(|sizes| sizes[col as usize]);
-            if let Some((_, ch)) = osc_size {
-                if char_content == " " {
-                    char_content = ch.to_string();
+            // An `OSC 66 ; s=2` character covers the cell below its own too:
+            // that cell shows the character's bottom half while it holds
+            // nothing else.
+            let size = match cell.text_size() {
+                vt100::TextSize::DoubleHeight => Some(CellSize::DoubleHeightTop),
+                vt100::TextSize::DoubleWidth => Some(CellSize::DoubleWidth),
+                vt100::TextSize::Normal => {
+                    let above = row
+                        .checked_sub(1)
+                        .filter(|&up| {
+                            screen
+                                .cell(up, col)
+                                .is_some_and(|c| c.text_size() == vt100::TextSize::DoubleHeight)
+                        })
+                        .map(|up| screen_cell_char(screen, up, col))
+                        .filter(|top| char_content == " " || char_content == *top);
+                    match above {
+                        Some(top) => {
+                            char_content = top;
+                            Some(CellSize::DoubleHeightBottom)
+                        }
+                        None => row_line_size,
+                    }
                 }
-            }
-            let size = osc_size.map(|(sz, _)| sz).or(row_line_size);
+            };
 
             let style = CellStyle {
                 fg,
@@ -305,7 +298,7 @@ pub fn extract_cells_with_urls(
                 italic: cell.italic(),
                 underline: cell.underline(),
                 inverse: cell.inverse(),
-                url,
+                url: screen.hyperlink(cell).map(str::to_string),
                 size,
             };
 

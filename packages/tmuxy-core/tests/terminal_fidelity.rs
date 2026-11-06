@@ -238,3 +238,77 @@ fn scrollback_rows_keep_only_what_they_show() {
     assert_eq!(text[..7], ["3", "4", "5", "6", "7", "8", "9"]);
     assert_eq!(parser.screen().cell(0, 199).map(|c| c.contents()), Some(""));
 }
+
+// ── OSC 8 hyperlinks as cell attributes (packages/vt100/src/hyperlinks.rs) ──
+
+fn open_link(url: &str, label: &str) -> Vec<u8> {
+    format!("\x1b]8;;{url}\x07{label}\x1b]8;;\x07").into_bytes()
+}
+
+/// The URL the cell at (`row`, `col`) was written under.
+fn link_at(parser: &vt100::Parser, row: u16, col: u16) -> Option<String> {
+    let screen = parser.screen();
+    screen
+        .cell(row, col)
+        .and_then(|cell| screen.hyperlink(cell))
+        .map(str::to_string)
+}
+
+#[test]
+fn a_link_is_on_the_cells_its_text_was_written_to() {
+    let mut parser = vt100::Parser::new(4, 20, 0);
+    parser.process(&open_link("https://example.com", "label"));
+    parser.process(b" plain");
+    for col in 0..5 {
+        assert_eq!(
+            link_at(&parser, 0, col).as_deref(),
+            Some("https://example.com")
+        );
+    }
+    assert_eq!(link_at(&parser, 0, 6), None);
+}
+
+#[test]
+fn a_wide_character_is_one_link_across_both_halves() {
+    let mut parser = vt100::Parser::new(4, 20, 0);
+    parser.process(&open_link("http://w", "漢"));
+    assert_eq!(link_at(&parser, 0, 0).as_deref(), Some("http://w"));
+    assert_eq!(link_at(&parser, 0, 1).as_deref(), Some("http://w"));
+    assert_eq!(link_at(&parser, 0, 2), None);
+}
+
+#[test]
+fn the_oldest_link_is_forgotten_past_the_table_cap() {
+    // tmux keeps the same number per screen, and forgets the same way.
+    let mut parser = vt100::Parser::new(4, 20, 0);
+    parser.process(&open_link("http://first", "A"));
+    for i in 0..vt100::MAX_HYPERLINKS - 1 {
+        parser.process(format!("\x1b[2;1H\x1b]8;;http://{i}\x07B\x1b]8;;\x07").as_bytes());
+    }
+    assert_eq!(link_at(&parser, 0, 0).as_deref(), Some("http://first"));
+    parser.process(&open_link("http://one-more", "C"));
+    assert_eq!(link_at(&parser, 0, 0), None, "the oldest link is forgotten");
+    assert_eq!(link_at(&parser, 1, 1).as_deref(), Some("http://one-more"));
+}
+
+#[test]
+fn the_link_table_holds_a_bounded_number_of_url_bytes() {
+    let mut parser = vt100::Parser::new(4, 20, 0);
+    let longest = |i: usize| {
+        format!(
+            "http://{i:04}{}",
+            "u".repeat(vt100::MAX_HYPERLINK_URL_BYTES - 11)
+        )
+    };
+    parser.process(&open_link(&longest(0), "A"));
+    let fit = vt100::MAX_HYPERLINK_BYTES / vt100::MAX_HYPERLINK_URL_BYTES;
+    for i in 1..=fit {
+        parser.process(format!("\x1b[2;1H\x1b]8;;{}\x07B\x1b]8;;\x07", longest(i)).as_bytes());
+    }
+    assert_eq!(
+        link_at(&parser, 0, 0),
+        None,
+        "the oldest URL bytes are let go"
+    );
+    assert_eq!(link_at(&parser, 1, 0), Some(longest(fit)));
+}

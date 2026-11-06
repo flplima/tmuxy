@@ -152,14 +152,17 @@ describe('Scenario 16: Unicode Rendering', () => {
     ];
 
     // tmux before 3.4 gives ZWJ, skin-tone and VS16 sequences other widths,
-    // which tmuxy does not follow — a documented limitation (docs/TMUX.md,
-    // tmux version table). On those versions only the rules both agree on are
-    // checked.
+    // and 3.6 an emoji followed by its skin tone, which tmuxy does not follow
+    // — documented limitations (docs/TMUX-VERSION-BUGS.md, tmux version
+    // table). On those versions only the rules both agree on are checked.
     const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
     const sameRules = !major || major > 3 || (major === 3 && minor >= 4);
-    const checked = sameRules
-      ? cases
-      : cases.filter((c) => !['ZWJ sequence', 'skin tone', 'VS16'].includes(c.name));
+    const differs = !sameRules
+      ? ['ZWJ sequence', 'skin tone', 'VS16']
+      : major === 3 && minor === 6
+        ? ['skin tone']
+        : [];
+    const checked = cases.filter((c) => !differs.includes(c.name));
     for (const c of checked) {
       await typeInTerminal(
         ctx.page,

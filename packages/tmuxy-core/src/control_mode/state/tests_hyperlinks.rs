@@ -1,29 +1,22 @@
 use super::*;
 use crate::ids::test_ids::pid;
 
-/// Read back the text a pane's OSC 8 marks actually cover, as
-/// `(url, text)` — the same join `extract_cells_with_urls` does, which is
-/// what the frontend turns into `<a href>`.
+/// Read back the text each OSC 8 link covers, as `(url, text)`: the cells
+/// `extract_cells_from_screen` gives a URL, joined into runs the way the
+/// frontend turns them into `<a href>`.
 fn linked_text(pane: &PaneState) -> Vec<(String, String)> {
-    let screen = pane.screen();
-    let (rows, cols) = screen.size();
     let mut out: Vec<(String, String)> = Vec::new();
-    for row in 0..rows {
-        let chars: Vec<String> = (0..cols)
-            .map(|col| crate::screen_cell_char(screen, row, col))
-            .collect();
-        let urls = pane.osc().row_urls(u32::from(row), &chars);
+    for line in crate::extract_cells_from_screen(pane.screen()) {
         let mut run: Option<(String, String)> = None;
-        for col in 0..cols {
-            let url = urls[usize::from(col)];
-            let ch = chars[usize::from(col)].clone();
+        for cell in line {
+            let url = cell.style.and_then(|s| s.url);
             match (url, &mut run) {
-                (Some(u), Some((cur, text))) if cur == u => text.push_str(&ch),
+                (Some(u), Some((cur, text))) if *cur == u => text.push_str(&cell.char),
                 (Some(u), _) => {
                     if let Some(done) = run.take() {
                         out.push(done);
                     }
-                    run = Some((u.to_string(), ch));
+                    run = Some((u, cell.char));
                 }
                 (None, _) => {
                     if let Some(done) = run.take() {
@@ -267,6 +260,79 @@ fn links_do_not_leak_onto_the_alternate_screen() {
     assert!(
         linked_text(&pane).is_empty(),
         "a normal-screen URL must not attach to alternate-screen content"
+    );
+}
+
+#[test]
+fn only_the_text_inside_the_pair_is_linked() {
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    pane.process_output(b"before\x1b]8;;http://x\x07IN\x1b]8;;\x07after ");
+    pane.process_output(&osc8("http://a", "A"));
+    pane.process_output(b" ");
+    pane.process_output(&osc8("http://b", "B"));
+    assert_eq!(
+        linked_text(&pane),
+        vec![
+            ("http://x".to_string(), "IN".to_string()),
+            ("http://a".to_string(), "A".to_string()),
+            ("http://b".to_string(), "B".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn a_link_left_open_carries_into_the_next_output() {
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    pane.process_output(b"\x1b]8;;http://x\x07AB");
+    pane.process_output(b"CD\x1b]8;;\x07EF");
+    assert_eq!(
+        linked_text(&pane),
+        vec![("http://x".to_string(), "ABCD".to_string())]
+    );
+}
+
+#[test]
+fn an_osc8_split_across_outputs_is_not_torn() {
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    pane.process_output(b"\x1b]8;;https://exa");
+    pane.process_output(b"mple.com\x07hi\x1b]8;;\x07");
+    assert_eq!(
+        linked_text(&pane),
+        vec![("https://example.com".to_string(), "hi".to_string())]
+    );
+    assert_eq!(pane.screen().contents(), "hi");
+}
+
+#[test]
+fn an_oversized_url_opens_no_link() {
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    let url = "https://example.com/".to_string() + &"a".repeat(vt100::MAX_HYPERLINK_URL_BYTES);
+    pane.process_output(&osc8(&url, "text"));
+    assert!(linked_text(&pane).is_empty());
+    assert_eq!(pane.screen().contents(), "text");
+}
+
+#[test]
+fn a_colour_reset_inside_a_link_keeps_it_open_and_an_erase_paints_none() {
+    // `ls --hyperlink --color` resets its colours inside the link it
+    // opened; an erase while a link is open clears cells, it writes no text.
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    pane.process_output(b"\x1b]8;;http://x\x07\x1b[1mA\x1b[0mB\x1b[K\r\n\x1b[2K\x1b]8;;\x07");
+    assert_eq!(
+        linked_text(&pane),
+        vec![("http://x".to_string(), "AB".to_string())]
+    );
+}
+
+#[test]
+fn a_link_stays_on_its_text_across_a_resize() {
+    let mut pane = PaneState::new(pid("%1"), 40, 6);
+    pane.process_output(b"\x1b[3;5H");
+    pane.process_output(&osc8("http://x", "LINK"));
+    pane.resize(30, 4);
+    assert_eq!(
+        linked_text(&pane),
+        vec![("http://x".to_string(), "LINK".to_string())]
     );
 }
 
