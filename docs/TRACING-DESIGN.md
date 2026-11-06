@@ -101,7 +101,7 @@ Each seam already exists in the code; the tracer emits at it.
 | http | `POST /commands` header, `sse.rs` | `action_id` (`X-Action-Id`) → the exact request-leg join |
 | server | `send_via_control_mode`, `sse.rs` | the mutating ingress by command **verb** (first token; args only at `full`) |
 | emitter | `emit_state`, `sse.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
-| tmux | the in-band reads in `tmuxy-core/src/transport.rs` | read op name + argc |
+| tmux | the routed commands and reads (`tmuxy-core/src/command_router.rs`) | read op name + argc |
 | tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under its own `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
 | tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under its own `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
 | marker | `tmuxy trace --mark`, `trace_view.rs` | a user-stamped "bug happened here" label |

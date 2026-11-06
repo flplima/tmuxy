@@ -24,9 +24,9 @@ use std::path::{Component, Path, PathBuf};
 use base64::Engine as _;
 
 use crate::constants::tmux_options::{PANE_PREVIEW, PANE_PREVIEW_NET, PANE_WIDGET};
+use crate::control_mode::query;
 use crate::control_mode::MonitorCommandSender;
 use crate::mime::{content_type_for_path, preview_use, PreviewUse};
-use crate::transport::query;
 use crate::{CommandError, PaneId};
 
 mod answer;

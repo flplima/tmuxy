@@ -47,8 +47,6 @@ pub mod tmux_compat;
 #[cfg(feature = "native")]
 pub mod trace;
 #[cfg(feature = "native")]
-pub mod transport;
-#[cfg(feature = "native")]
 pub mod worktrees;
 
 pub use command_error::{CommandError, ErrorKind};

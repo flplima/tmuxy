@@ -13,10 +13,14 @@ mod state;
 pub mod monitor_core;
 
 #[cfg(feature = "native")]
+mod channel;
+#[cfg(feature = "native")]
 mod connection;
 #[cfg(feature = "native")]
 mod monitor;
 
+#[cfg(feature = "native")]
+pub use channel::{query, run};
 #[cfg(feature = "native")]
 pub use connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 pub use images::{ImageParser, ImagePlacement, ImageProtocol, StoredImage};

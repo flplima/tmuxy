@@ -148,7 +148,7 @@ pub fn run() {
             // is announced to the webviews, a saved tmuxy.conf is sourced.
             let config_watch_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                tmuxy_core::transport::watch_config(|change| {
+                tmuxy_core::host::watch_config(|change| {
                     let app = config_watch_app.clone();
                     tauri::async_runtime::spawn(async move {
                         for window in windows::list_all(&app) {

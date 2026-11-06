@@ -13,10 +13,11 @@ use std::future::Future;
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::plugins;
+use super::requests::{self, to_json};
 use super::{ClientId, HostEvent, SessionRuntime};
 use crate::command_router::Route;
 use crate::session::{ConnectTarget, ManagedOption};
-use crate::transport::{self, to_json};
 use crate::{CommandError, PaneId};
 
 #[derive(Debug, Deserialize)]
@@ -260,7 +261,7 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 runtime.set_client_size(client, cols, rows).await;
             }
             to_json(
-                transport::initial_state_for_size(&tx, runtime.sent_size()).await?,
+                requests::initial_state_for_size(&tx, runtime.sent_size()).await?,
                 "state",
             )
         }
@@ -280,13 +281,9 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 runtime.note_activity(client).await;
             }
             let tx = runtime.channel().await?;
-            transport::run_client_command(
-                &tx,
-                &command,
-                &runtime.session(),
-                runtime.size(),
-                || runtime.push_config(),
-            )
+            requests::run_client_command(&tx, &command, &runtime.session(), runtime.size(), || {
+                runtime.push_config()
+            })
             .await?;
             tracing::trace!(
                 command = %crate::trace::redact_command(&command),
@@ -294,13 +291,17 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             );
             Ok(Value::Null)
         }
-        ClientCommand::QueryTmux { command } => match transport::route_query(&command) {
-            Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
-            Route::ControlMode(routed) => {
-                let tx = runtime.channel().await?;
-                Ok(Value::String(transport::query(&tx, &routed).await?))
+        ClientCommand::QueryTmux { command } => {
+            match crate::command_router::route_query(&command) {
+                Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
+                Route::ControlMode(routed) => {
+                    let tx = runtime.channel().await?;
+                    Ok(Value::String(
+                        crate::control_mode::query(&tx, &routed).await?,
+                    ))
+                }
             }
-        },
+        }
         ClientCommand::GetScrollbackCells {
             pane_id,
             start,
@@ -308,7 +309,7 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         } => {
             let tx = runtime.channel().await?;
             to_json(
-                transport::scrollback_cells(&tx, &pane_id, start, end).await?,
+                requests::scrollback_cells(&tx, &pane_id, start, end).await?,
                 "scrollback",
             )
         }
@@ -356,23 +357,23 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         }
         ClientCommand::ListGitWorktrees => {
             let tx = runtime.channel().await?;
-            to_json(transport::git_worktrees(&tx).await?, "worktrees")
+            to_json(requests::git_worktrees(&tx).await?, "worktrees")
         }
-        ClientCommand::ListSnapshots => to_json(transport::list_snapshots().await?, "snapshots"),
+        ClientCommand::ListSnapshots => to_json(requests::list_snapshots().await?, "snapshots"),
         ClientCommand::RestoreSession { session } => {
             let tx = runtime.channel().await?;
-            transport::restore_named(&session, &tx).await?;
+            requests::restore_named(&session, &tx).await?;
             Ok(Value::Null)
         }
-        ClientCommand::GetTraceSettings => to_json(transport::trace_settings(), "trace settings"),
+        ClientCommand::GetTraceSettings => to_json(requests::trace_settings(), "trace settings"),
         // The state in force: `false` when the kill switch refuses, and the
         // client renders the answer, never its request.
         ClientCommand::SetTraceEnabled { enabled } => {
             Ok(Value::Bool(crate::trace::set_enabled(enabled)))
         }
-        ClientCommand::SetTraceLevel { level } => Ok(Value::String(
-            transport::set_trace_level(&level).to_string(),
-        )),
+        ClientCommand::SetTraceLevel { level } => {
+            Ok(Value::String(requests::set_trace_level(&level).to_string()))
+        }
         ClientCommand::RecordTrace { events } => {
             crate::trace::record_client_batch(events);
             Ok(Value::Null)
@@ -404,7 +405,7 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                 return Err(not_here("the server picker"));
             }
             let live = match runtime.tx_now() {
-                Some(tx) => transport::query(&tx, crate::servers::LIST_SESSIONS)
+                Some(tx) => crate::control_mode::query(&tx, crate::servers::LIST_SESSIONS)
                     .await
                     .ok()
                     .map(|out| crate::servers::parse_session_list(&out).len()),
@@ -436,18 +437,18 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             pane_id,
             selection,
         } => to_json(
-            transport::prepare_plugin_action(plugin, action, pane_id, selection).await?,
+            plugins::prepare_plugin_action(plugin, action, pane_id, selection).await?,
             "plugin token",
         ),
         ClientCommand::OpenLink { url, pane_id } => {
-            to_json(transport::open_plugin_link(url, pane_id).await?, "link")
+            to_json(plugins::open_plugin_link(url, pane_id).await?, "link")
         }
         ClientCommand::OpenText {
             pane_id,
             line,
             column,
         } => to_json(
-            transport::open_plugin_text(pane_id, line, column).await?,
+            plugins::open_plugin_text(pane_id, line, column).await?,
             "text link",
         ),
         ClientCommand::Greeting => {

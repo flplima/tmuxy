@@ -1,55 +1,16 @@
-//! Every tmux read here rides the monitor's control-mode connection
-//! (`MonitorCommand::RunCommandWithReply`): an external `tmux` process while a
-//! control-mode client is attached can crash tmux 3.5a (docs/TMUX.md).
+//! What a host answers a client's requests with, read over the session's
+//! monitor (`control_mode::query`).
 
 use std::future::Future;
 use std::time::Duration;
 
-use crate::command_router::{route_command, route_query as route_query_policy, Route};
-use crate::control_mode::{MonitorCommand, MonitorCommandSender};
-use crate::session_snapshot::{self as snapshot, SnapshotKeeper};
+use crate::command_router::{route_command, Route};
+use crate::control_mode::{query, run, MonitorCommand, MonitorCommandSender};
+use crate::session_snapshot as snapshot;
 use crate::tmux_quote;
-use crate::{CommandError, PaneId, StateUpdate, TmuxState};
+use crate::{CommandError, PaneId, TmuxState};
 
-mod bindings;
-mod plugins;
-pub use bindings::*;
-pub use plugins::*;
-
-// ============================================
-// The monitor loop
-// ============================================
-
-/// The bookkeeping both emitters do with a state update before handing it to
-/// their client.
-///
-/// `forget_dead_images` is given a full state, the one update that names every
-/// live pane. The keeper is told of a change of SHAPE (a split, a closed pane, a
-/// tag, a program starting; never bytes arriving), which is what a snapshot
-/// follows. The emit is traced by the DELTA seq, so the return leg joins to the
-/// client's applied `seq` (docs/TRACING.md); the transport's own ids are
-/// another counter.
-pub fn on_state_update(
-    update: &StateUpdate,
-    keeper: &SnapshotKeeper,
-    forget_dead_images: impl FnOnce(&TmuxState),
-) {
-    match update {
-        StateUpdate::Full { state } => {
-            forget_dead_images(state);
-            if !snapshot::autosave_disabled() {
-                keeper.note_change();
-            }
-            tracing::debug!(target: "tmuxy_core::emit", kind = "full", "emit state");
-        }
-        StateUpdate::Delta { delta } => {
-            if snapshot::is_structural(delta) && !snapshot::autosave_disabled() {
-                keeper.note_change();
-            }
-            tracing::debug!(target: "tmuxy_core::emit", seq = delta.seq, kind = "delta", "emit state");
-        }
-    }
-}
+use super::bindings::{self, is_source_file, source_with_entry};
 
 // ============================================
 // A client's first requests
@@ -93,7 +54,7 @@ pub async fn initial_state_for_size(
     while state.total_width != cols || state.total_height != rows {
         if tokio::time::Instant::now() >= deadline {
             tracing::debug!(
-                target: "tmuxy_core::transport",
+                target: "tmuxy_core::host",
                 asked = ?(cols, rows),
                 got = ?(state.total_width, state.total_height),
                 "first state still disagrees with the size asked for; sending it anyway"
@@ -118,29 +79,6 @@ pub fn to_json(
 // ============================================
 // Client commands
 // ============================================
-
-/// Records the command as its tmux verb, never the args; the full command
-/// string is admitted only at trace level `full` (docs/TRACING.md). `size` is
-/// the viewport a freshly created window should be sized to, when a client has
-/// reported one.
-pub fn route(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
-    tracing::debug!(
-        target: "tmuxy_core::transport",
-        verb = command.split_whitespace().next().unwrap_or(""),
-        command,
-        "run command"
-    );
-    route_command(command, session, size)
-}
-
-pub fn route_query(command: &str) -> Route {
-    tracing::debug!(
-        target: "tmuxy_core::transport",
-        verb = command.split_whitespace().next().unwrap_or(""),
-        "run query"
-    );
-    route_query_policy(command)
-}
 
 /// Git worktree context for the sidebar tree, discovered from the cwd of
 /// every pane on the socket. The cwds come from tmux, never from the request,
@@ -185,32 +123,6 @@ pub fn set_trace_level(level: &str) -> &'static str {
     level.as_str()
 }
 
-/// Run a command on the monitor's connection and wait for what it printed. An
-/// `%error` from tmux is a `tmux` error carrying tmux's message; a monitor
-/// that is gone is `unavailable`.
-pub async fn query(tx: &MonitorCommandSender, command: &str) -> Result<String, CommandError> {
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply {
-        command: command.to_string(),
-        reply,
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))?;
-    rx.await
-        .map_err(|_| CommandError::unavailable("monitor went away before answering"))?
-        .into_result()
-}
-
-/// Run a command on the monitor's connection without waiting for it. A
-/// `%error` reaches the user through the emitter, not the caller.
-pub async fn run(tx: &MonitorCommandSender, command: &str) -> Result<(), CommandError> {
-    tx.send(MonitorCommand::RunCommand {
-        command: command.to_string(),
-    })
-    .await
-    .map_err(|e| CommandError::unavailable(format!("Monitor channel error: {e}")))
-}
-
 /// A mutation the host builds itself, routed by the shared policy like a
 /// client's, whose output it needs back: the id a `splitw -P` printed, say.
 /// It rides the same command channel as every other mutation, so it stays in
@@ -223,7 +135,7 @@ pub async fn run_with_output(
     session: &str,
     size: Option<(u32, u32)>,
 ) -> Result<String, CommandError> {
-    match route(command, session, size) {
+    match route_command(command, session, size) {
         Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
         Route::ControlMode(cmd) => query(tx, &cmd).await,
     }
@@ -248,9 +160,9 @@ pub async fn run_client_command<F>(
 where
     F: Future<Output = ()>,
 {
-    let routed = match route(command, session, size) {
+    let routed = match route_command(command, session, size) {
         Route::Blocked(reason) => {
-            tracing::warn!(target: "tmuxy_core::transport", reason, "blocked command");
+            tracing::warn!(target: "tmuxy_core::host", reason, "blocked command");
             return Ok(());
         }
         Route::ControlMode(cmd) => cmd,
@@ -364,7 +276,7 @@ pub struct SnapshotInfo {
 
 /// Rebuild a session from its latest snapshot through the caller's
 /// control-mode client — a session made from inside a control-mode client is
-/// how both transports already create one
+/// how both hosts already create one
 /// ([`snapshot::named_restore`] says what is refused).
 pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), CommandError> {
     let running = match crate::session::SessionName::parse(name) {
@@ -394,4 +306,5 @@ async fn session_running(tx: &MonitorCommandSender, name: &str) -> Result<bool, 
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
+#[path = "requests_tests.rs"]
 mod tests;

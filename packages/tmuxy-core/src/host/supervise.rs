@@ -254,7 +254,7 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
                 }
 
                 let started = std::time::Instant::now();
-                if snapshot::autosave_disabled() {
+                if !runtime.autosaves() {
                     monitor.run(runtime).await;
                 } else {
                     tokio::select! {

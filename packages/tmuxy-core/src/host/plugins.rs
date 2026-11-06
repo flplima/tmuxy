@@ -91,7 +91,7 @@ pub async fn reload_plugins(
     let commands = crate::plugins::inventory::commands(&crate::paths::Layout::current())
         .map_err(|e| CommandError::invalid(e.to_string()))?;
     for cmd in commands {
-        super::run(tx, &cmd).await?;
+        crate::control_mode::run(tx, &cmd).await?;
     }
     apply_plugin_keys(tx).await
 }
@@ -114,7 +114,7 @@ pub async fn apply_plugin_keys(
     let mut listings = Vec::new();
     for table in [KeyTable::Prefix, KeyTable::Root] {
         let listing =
-            crate::list_keys::listing(super::query(tx, &keys::list_command(table)).await)?;
+            crate::list_keys::listing(crate::control_mode::query(tx, &keys::list_command(table)).await)?;
         listings.push((table, listing));
     }
     let (planned, cmds) = keys::commands(&registry, |table| {
@@ -138,7 +138,7 @@ pub async fn apply_plugin_keys(
         "plugin keys"
     );
     for line in lines {
-        super::run(tx, &line).await?;
+        crate::control_mode::run(tx, &line).await?;
     }
     Ok(())
 }

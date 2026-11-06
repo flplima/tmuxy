@@ -107,7 +107,7 @@ pub async fn request_reconnect(app: &AppHandle, target: ConnectTarget) {
 /// error to.
 pub async fn run_on(monitor: &Monitor, command: &str) {
     if let Some(tx) = monitor.runtime.tx_now() {
-        if let Err(e) = tmuxy_core::transport::run(&tx, command).await {
+        if let Err(e) = tmuxy_core::control_mode::run(&tx, command).await {
             tracing::warn!(error = %e, "housekeeping command not sent");
         }
     }

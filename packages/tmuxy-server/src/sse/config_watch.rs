@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use tmuxy_core::transport;
+use tmuxy_core::host;
 
 use crate::state::AppState;
 
@@ -9,7 +9,7 @@ pub async fn watch_config_dir(state: Arc<AppState>) {
     state
         .spawn(async move {
             tokio::select! {
-                _ = transport::watch_config(|change| {
+                _ = host::watch_config(|change| {
                     let state = watcher.clone();
                     tokio::spawn(async move {
                         let runtimes: Vec<_> = state

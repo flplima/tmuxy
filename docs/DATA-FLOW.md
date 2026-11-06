@@ -105,7 +105,7 @@ The monitor multiplexes control-mode events with timer-driven flushes (throttle,
 
 Every command the client sends is a row of `tmuxy-ui/src/domain/backendCalls.ts` (name, argument schema, answer schema), held to the Rust `ClientCommand` by the protocol fixtures. It goes out as `{ cmd, args }` (`POST /commands`, the desktop's `dispatch`) and both hosts decode it into a `ClientCommand`. Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
 
-Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`tmuxy-core/src/transport.rs`, shared by both transports). Sync helpers in `executor::*` remain only for CLI paths with no client attached.
+Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`control_mode::query`, answered for a client in `tmuxy-core/src/host/requests.rs`, shared by both hosts).
 
 **Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Both hosts implement both identically (`ClientCommand::RunTmuxCommand`, `ClientCommand::QueryTmux`), and the frontend reaches them as the transport's `run(op)` and `query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
 
@@ -128,7 +128,7 @@ Frontend
 │      command_router::route_command       │
 │                    │                     │
 │     monitor channel (mutations and       │
-│     in-band reads, transport.rs)         │
+│     in-band reads, host/requests.rs)     │
 └────────────────────┬─────────────────────┘
                      ▼
             Monitor stdin → tmux

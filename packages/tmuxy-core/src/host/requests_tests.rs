@@ -1,5 +1,6 @@
 use super::*;
-use crate::control_mode::{StoredImage, MAX_CLIPBOARD_BYTES};
+use crate::control_mode::StoredImage;
+use crate::host::bindings::*;
 use crate::ids::test_ids::pid;
 
 #[test]
@@ -334,14 +335,4 @@ fn a_full_state_forgets_the_pictures_of_dead_panes() {
     store.retain_live_panes(&state);
     assert!(store.get(&pid("%1"), 1).is_none());
     assert!(store.get(&pid("%2"), 1).is_none());
-}
-
-/// For both transports: the desktop forwarded a clipboard write of any size.
-#[test]
-fn a_clipboard_write_over_the_cap_is_refused() {
-    assert!(clipboard_write_allowed("yanked"));
-    assert!(clipboard_write_allowed(&"x".repeat(MAX_CLIPBOARD_BYTES)));
-    assert!(!clipboard_write_allowed(
-        &"x".repeat(MAX_CLIPBOARD_BYTES + 1)
-    ));
 }

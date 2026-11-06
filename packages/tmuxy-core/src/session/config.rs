@@ -35,7 +35,7 @@ pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
 
 /// The tmux global environment variable naming the entry file, set beside
 /// [`DATA_DIR_ENV`]: what a client's Reload Config sources
-/// (`transport::SOURCE_ENTRY_CONF`) where no tmuxy process stands between it
+/// (`host::SOURCE_ENTRY_CONF`) where no tmuxy process stands between it
 /// and tmux (the in-browser guests). A tmuxy process sources its own path.
 pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 

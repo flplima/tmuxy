@@ -11,9 +11,12 @@
 //!   client ◀──HostEvent── Sink (SSE frame / Tauri event) ◀────── runtime emits
 //! ```
 
+mod bindings;
 pub mod command;
 mod event;
+mod plugins;
 pub mod prepare;
+mod requests;
 mod runtime;
 pub mod socket_watch;
 mod supervise;
@@ -22,8 +25,16 @@ mod supervise;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod protocol_fixtures;
 
+#[cfg(test)]
+pub(crate) use bindings::parse_bindings;
+pub use bindings::{
+    watch_config, ConfigChange, ImageStore, KeyBinding, KeyBindings, MAX_PANE_IMAGE_BYTES,
+    SOURCE_ENTRY_CONF,
+};
 pub use command::{handle, ClientCommand, HostCtx};
 pub use event::{ConnectionInfo, EventData, HostEvent};
+pub use plugins::PluginToken;
+pub use requests::{run_with_output, ScrollbackCells, SnapshotInfo, TraceSettings};
 pub use runtime::{ClientId, RuntimeConfig, SessionRuntime, Sink, MONITOR_READY_TIMEOUT};
 pub use supervise::*;
 
