@@ -12,10 +12,10 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { scriptEnv, withScratchDir } = require('./env');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'packages/tmuxy-cli/bin/tmuxy');
-const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 
 /**
  * @param {string} verb - The group verb, e.g. `move`
@@ -24,26 +24,21 @@ const MOCKS_DIR = path.resolve(__dirname, '../mocks');
  * @returns {{ stdout: string, stderr: string, exitCode: number | null }}
  */
 function runGroupScript(verb, args, env = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-group-'));
-  try {
+  return withScratchDir('tmuxy-group-', (dir) => {
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
     fs.writeFileSync(
-      path.join(dir, 'tmuxy-server'),
+      path.join(bin, 'tmuxy-server'),
       '#!/bin/bash\necho "server $* [scripts=$TMUXY_SCRIPTS_DIR]"\nexit "${STUB_EXIT:-0}"\n',
       { mode: 0o755 },
     );
-    // A shell inside tmuxy inherits the binary the running build published;
-    // the stub must win unless a test publishes one itself.
-    const base = { ...process.env };
-    delete base.TMUXY_SERVER_BIN;
-    delete base.TMUXY_SERVER_SUBCOMMAND;
+    const base = scriptEnv(dir);
     const result = spawnSync('bash', [path.join(SCRIPTS_DIR, 'pane-group'), verb, ...args], {
       encoding: 'utf8',
-      env: { ...base, PATH: `${dir}:${MOCKS_DIR}:${process.env.PATH}`, ...env },
+      env: { ...base, PATH: `${bin}:${base.PATH}`, ...env },
     });
     return { stdout: result.stdout.trim(), stderr: result.stderr, exitCode: result.status };
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+  });
 }
 
 /**

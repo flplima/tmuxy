@@ -2,19 +2,15 @@
  * Canned tmux output for --json formatting tests.
  */
 
-// list-panes format is TAB-separated (free-text fields may contain commas):
-// #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}
-// list-panes format is TAB-separated (pane_current_command and the app title
-// are free text). Mirrors LIST_PANES_JSON_FMT in packages/tmuxy-cli/bin/tmuxy-cli:
-// #{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t<app title>
-// The last column is the APP-set title, empty unless a program set one — the
-// second pane here has one, so the escaping path is covered too.
-const LIST_PANES_OUTPUT = ['%0\t@0\t120\t40\tzsh\t1\t', '%1\t@0\t80\t30\tvim\t0\tREADME.md'].join(
-  '\n',
-);
+// Rows of LIST_PANES_JSON_FMT (packages/tmuxy-cli/bin/tmuxy-cli), TAB-separated
+// since the command, the app-set title and the label are free text. The second
+// pane has a title and a label, so the escaping path is covered too.
+// cli-pane.test.js holds the column count to the format the CLI asks for.
+const LIST_PANES_OUTPUT = [
+  '%0\t@0\t120\t40\tzsh\t1\t\t',
+  '%1\t@0\t80\t30\tvim\t0\tREADME.md\tlogs',
+].join('\n');
 
-// The ninth column, `#{@tmuxy-label}`, is empty on both: no `pane run --label`
-// named them.
 const LIST_PANES_JSON = [
   {
     id: '%0',
@@ -34,7 +30,7 @@ const LIST_PANES_JSON = [
     command: 'vim',
     active: false,
     title: 'README.md',
-    label: '',
+    label: 'logs',
   },
 ];
 

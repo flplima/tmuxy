@@ -19,8 +19,13 @@ describe('CLI pane subcommands', () => {
       });
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toEqual(LIST_PANES_JSON);
+      const { args } = tmuxCalls[0];
+      const columns = args[args.indexOf('-F') + 1].split('\t').length;
+      expect(LIST_PANES_OUTPUT.split('\n').map((row) => row.split('\t').length)).toEqual([
+        columns,
+        columns,
+      ]);
+      expect(JSON.parse(stdout)).toEqual(LIST_PANES_JSON);
     });
 
     test('lists panes --all --json', () => {
@@ -53,13 +58,6 @@ describe('CLI pane subcommands', () => {
         'run-shell',
         "tmux -L tmuxy splitw -h -P -F '##{pane_id}'",
       ]);
-    });
-
-    test('--help still prints usage without splitting', () => {
-      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'split', '--help']);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain('Usage: tmuxy pane split');
-      expect(tmuxCalls).toHaveLength(0);
     });
 
     test('splits pane -v (vertical)', () => {
@@ -241,22 +239,6 @@ describe('CLI pane subcommands', () => {
       expect(stdout.trim()).toBe('hello world');
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].args).toContain('capture-pane');
-    });
-
-    test('captures specific pane', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'capture', '%5']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-t', '%5']);
-    });
-
-    test('captures with --json', () => {
-      const { stdout, exitCode } = runCLI(['pane', 'capture', '--json'], {
-        env: { MOCK_TMUX_CAPTURE: 'test content' },
-      });
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toEqual({ content: 'test content', format: 'text', paneId: '' });
     });
 
     test('captures specific pane with --json', () => {

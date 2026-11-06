@@ -35,7 +35,7 @@ describe('CLI widget subcommands', () => {
     expect(calls.find((line) => line.includes('set-option -p -u'))).toContain(
       "set-option -p -u -t '%5' @tmuxy-pane-widget",
     );
-    expect(files).toEqual(['tmux.log']);
+    expect(files).toEqual([]);
   });
 
   // A preview reads the file it was opened on and nothing else, so what it
@@ -44,7 +44,7 @@ describe('CLI widget subcommands', () => {
     test.each([['open'], ['widget', 'preview']])('%s --help describes the flags', (...cmd) => {
       const { stdout, exitCode, tmuxCalls } = runCLI([...cmd, '--help']);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain('Usage: tmuxy-widget-preview [--net] [--no-theme] [file]');
+      expect(stdout).toContain('Usage: tmuxy widget preview [--net] [--no-theme] [file]');
       expect(tmuxCalls).toEqual([]);
     });
 

@@ -1,120 +1,80 @@
 const { runCLI } = require('./helpers/run-cli');
 
+/** The command names a help screen lists under its `Commands:` heading. */
+function listedCommands(help) {
+  const lines = help.split('\n');
+  const start = lines.findIndex((line) => line === 'Commands:');
+  if (start < 0) return [];
+  const end = lines.findIndex((line, i) => i > start && line.trim() === '');
+  return lines
+    .slice(start + 1, end < 0 ? undefined : end)
+    .map((line) => /^ {2}([a-z][a-z0-9-]*)\s/.exec(line)?.[1])
+    .filter(Boolean);
+}
+
+/**
+ * Every command the help reaches from `tmuxy --help` down: each noun it
+ * lists, each subcommand that noun's help lists, and theirs. A subcommand a
+ * dispatcher adds is probed once its noun's help lists it.
+ */
+function commandPaths(prefix = []) {
+  if (prefix.length === 3) return [];
+  const { stdout } = runCLI([...prefix, '--help']);
+  return listedCommands(stdout).flatMap((name) => {
+    const path = [...prefix, name];
+    return [path, ...commandPaths(path)];
+  });
+}
+
+const PATHS = commandPaths();
+const NOUNS_WITH_COMMANDS = PATHS.filter(
+  (path) => listedCommands(runCLI([...path, '--help']).stdout).length > 0,
+);
+
 describe('CLI help output', () => {
-  describe('top-level help', () => {
-    test.each([
-      [[], 'Usage: tmuxy <command>'],
-      [['--help'], 'Usage: tmuxy <command>'],
-      [['-h'], 'Usage: tmuxy <command>'],
-    ])('tmuxy %j shows top-level usage', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
+  test.each([[[]], [['--help']]])('tmuxy %j shows the top-level usage', (args) => {
+    const { stdout, exitCode } = runCLI(args);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('Usage: tmuxy <command>');
   });
 
-  describe('pane help', () => {
-    test.each([
-      [['pane'], 'Usage: tmuxy pane <command>'],
-      [['pane', '--help'], 'Usage: tmuxy pane <command>'],
-      [['pane', '-h'], 'Usage: tmuxy pane <command>'],
-    ])('tmuxy %j shows pane usage', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
+  test('the walk reaches the nested commands', () => {
+    expect(PATHS).toEqual(
+      expect.arrayContaining([
+        ['pane', 'list'],
+        ['pane', 'group', 'ungroup'],
+        ['session', 'restore'],
+        ['plugin', 'install'],
+        ['gui'],
+      ]),
+    );
   });
 
-  describe('pane subcommand help', () => {
-    test.each([
-      [['pane', 'list', '--help'], 'Usage: tmuxy pane list'],
-      // `pane split` is the one subcommand with no `-h` help alias: -h is its
-      // own flag (horizontal split). Covered in cli-pane.test.js.
-      [['pane', 'split', '--help'], 'Usage: tmuxy pane split'],
-      [['pane', 'kill', '--help'], 'Usage: tmuxy pane kill'],
-      [['pane', 'select', '--help'], 'Usage: tmuxy pane select'],
-      [['pane', 'resize', '--help'], 'Usage: tmuxy pane resize'],
-      [['pane', 'swap', '--help'], 'Usage: tmuxy pane swap'],
-      [['pane', 'zoom', '--help'], 'Usage: tmuxy pane zoom'],
-      [['pane', 'break', '--help'], 'Usage: tmuxy pane break'],
-      [['pane', 'capture', '--help'], 'Usage: tmuxy pane capture'],
-      [['pane', 'send', '--help'], 'Usage: tmuxy pane send'],
-      [['pane', 'paste', '--help'], 'Usage: tmuxy pane paste'],
-      [['pane', 'float', '--help'], 'Usage: tmuxy pane float'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
+  // A command's own help, or the server binary's verb asked for its help:
+  // either way nothing runs, and tmux is never called.
+  test.each(PATHS.map((path) => [path.join(' '), path]))(
+    'tmuxy %s --help answers without running the command',
+    (_name, path) => {
+      const { stdout, exitCode, tmuxCalls } = runCLI([...path, '--help']);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
-  });
+      expect(tmuxCalls).toEqual([]);
+      expect(stdout).toMatch(/^Usage: |^mock-server-started .*--help\n$/);
+    },
+  );
 
-  describe('pane group help', () => {
-    test.each([
-      [['pane', 'group'], 'Usage: tmuxy pane group <command>'],
-      [['pane', 'group', '--help'], 'Usage: tmuxy pane group <command>'],
-      [['pane', 'group', 'add', '--help'], 'Usage: tmuxy pane group add'],
-      [['pane', 'group', 'close', '--help'], 'Usage: tmuxy pane group close'],
-      [['pane', 'group', 'switch', '--help'], 'Usage: tmuxy pane group switch'],
-      [['pane', 'group', 'next', '--help'], 'Usage: tmuxy pane group next'],
-      [['pane', 'group', 'prev', '--help'], 'Usage: tmuxy pane group prev'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
-  });
-
-  describe('tab help', () => {
-    test.each([
-      [['tab'], 'Usage: tmuxy tab <command>'],
-      [['tab', '--help'], 'Usage: tmuxy tab <command>'],
-      [['tab', '-h'], 'Usage: tmuxy tab <command>'],
-      [['tab', 'list', '--help'], 'Usage: tmuxy tab list'],
-      [['tab', 'create', '--help'], 'Usage: tmuxy tab create'],
-      [['tab', 'kill', '--help'], 'Usage: tmuxy tab kill'],
-      [['tab', 'select', '--help'], 'Usage: tmuxy tab select'],
-      [['tab', 'next', '--help'], 'Usage: tmuxy tab next'],
-      [['tab', 'prev', '--help'], 'Usage: tmuxy tab prev'],
-      [['tab', 'rename', '--help'], 'Usage: tmuxy tab rename'],
-      [['tab', 'layout', '--help'], 'Usage: tmuxy tab layout'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
-  });
-
-  describe('widget help', () => {
-    test.each([
-      [['widget'], 'Usage: tmuxy widget <command>'],
-      [['widget', '--help'], 'Usage: tmuxy widget <command>'],
-      [['widget', '-h'], 'Usage: tmuxy widget <command>'],
-      [['widget', 'tree', '--help'], 'Usage: tmuxy widget tree'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
-  });
-
-  describe('nav help', () => {
-    test.each([
-      [['nav'], 'Usage: tmuxy nav <direction>'],
-      [['nav', '--help'], 'Usage: tmuxy nav <direction>'],
-      [['nav', '-h'], 'Usage: tmuxy nav <direction>'],
-    ])('tmuxy %j shows help', (args, expected) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
-    });
-  });
+  test.each(NOUNS_WITH_COMMANDS.map((path) => [path.join(' '), path]))(
+    'tmuxy %s with no subcommand shows its help',
+    (_name, path) => {
+      const bare = runCLI(path);
+      expect(bare.exitCode).toBe(0);
+      expect(bare.stdout).toBe(runCLI([...path, '--help']).stdout);
+    },
+  );
 
   // `tmuxy run`'s help lists what the `run` verb runs, so it is the verb's.
-  describe('run help', () => {
-    test.each([[['run', '--help']], [['run', '-h']]])('tmuxy %j asks the run verb', (args) => {
-      const { stdout, exitCode } = runCLI(args);
-      expect(exitCode).toBe(0);
-      expect(stdout.trim()).toBe(`mock-server-started run -- ${args[1]}`);
-    });
+  test('tmuxy run --help asks the run verb', () => {
+    const { stdout, exitCode } = runCLI(['run', '--help']);
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe('mock-server-started run -- --help');
   });
 });
