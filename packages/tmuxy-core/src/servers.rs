@@ -1,11 +1,10 @@
-//! Saved tmux *servers* the desktop app can attach to.
+//! Saved tmux *servers* the app can attach to.
 //!
 //! A "server" is a tmux server tmuxy drives in control mode: the local machine
 //! (the default) or a remote host reached over SSH. Entries are persisted to
 //! `servers.json` in the state dir (this machine's list, not portable config)
-//! by the `tmuxy connect` TUI and read by the
-//! desktop app's sidebar server picker. This is a desktop-only concept — the
-//! web server always uses whatever socket/host it was launched against.
+//! by `tmuxy session connect` and read by the sidebar's server picker, in
+//! the desktop app and the web app alike.
 //!
 //! Attaching to a server means pointing the monitor at its socket and, for a
 //! remote, its SSH tunnel. Both go into the [`crate::session::ConnectTarget`]

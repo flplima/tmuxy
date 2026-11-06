@@ -79,7 +79,7 @@ fn a_full_manifest_parses() {
     assert_eq!(m.name, "claude-artifacts");
     assert_eq!(m.requires, vec!["curl"]);
     assert_eq!(m.actions.len(), 2);
-    let open = m.action("open-url").unwrap();
+    let open = m.actions.iter().find(|a| a.id == "open-url").unwrap();
     assert_eq!(open.menu, Some(Menu::App));
     assert_eq!(open.surface, Surface::Popup);
     assert_eq!(
@@ -90,7 +90,7 @@ fn a_full_manifest_parses() {
         })
     );
     assert_eq!(open.command, vec!["bin/open-url", "--flag"]);
-    let plain = m.action("plain").unwrap();
+    let plain = m.actions.iter().find(|a| a.id == "plain").unwrap();
     assert_eq!(plain.surface, Surface::Split);
     assert_eq!(plain.menu, None);
     assert_eq!(m.cli[0].verb, "artifact");

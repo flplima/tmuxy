@@ -573,10 +573,6 @@ impl Manifest {
         parse(&text)
     }
 
-    pub fn action(&self, id: &str) -> Option<&Action> {
-        self.actions.iter().find(|a| a.id == id)
-    }
-
     /// What the plugin can do, as the index lists it.
     pub fn capabilities(&self) -> Vec<&'static str> {
         [

@@ -45,12 +45,6 @@ pub struct Registry {
     pub broken: Vec<Broken>,
 }
 
-impl Installed {
-    pub fn is_user(&self) -> bool {
-        self.kind == Kind::User
-    }
-}
-
 /// A plugin verb that never runs, and what runs in its place.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Shadowed {
