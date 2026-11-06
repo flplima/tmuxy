@@ -17,6 +17,7 @@ import {
   buildFloatPanesFromWindows,
   closeScrollViewsIn,
   gridExtent,
+  keepIfSame,
   keepLivePanes,
 } from '../../helpers';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
@@ -115,52 +116,21 @@ export const layoutModelUpdateActions = {
 
     enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
 
-    const structurallyChanged =
-      transformed.panes.length !== context.panes.length ||
-      transformed.activeWindowId !== context.activeWindowId ||
-      transformed.windows.length !== context.windows.length ||
-      transformed.windows.some((w, i) => {
-        const prev = context.windows[i];
-        if (!prev) return true;
-        if (w.name !== prev.name) return true;
-        if (w.windowType !== prev.windowType) return true;
-        if (
-          w.floatDrawer !== prev.floatDrawer ||
-          w.floatWidth !== prev.floatWidth ||
-          w.floatHeight !== prev.floatHeight ||
-          w.floatBg !== prev.floatBg ||
-          w.floatNoheader !== prev.floatNoheader ||
-          Boolean(w.sidebarHidden) !== Boolean(prev.sidebarHidden) ||
-          Boolean(w.zoomed) !== Boolean(prev.zoomed)
-        ) {
-          return true;
-        }
-        return false;
-      }) ||
-      transformed.panes.some((p) => {
-        const prev = context.panes.find((cp) => cp.tmuxId === p.tmuxId);
-        return (
-          p.windowId !== prev?.windowId ||
-          (p.groupId ?? null) !== (prev?.groupId ?? null) ||
-          (p.groupPos ?? null) !== (prev?.groupPos ?? null)
-        );
-      });
-
-    const paneGroups = structurallyChanged
-      ? buildGroupsFromPanes(transformed.panes)
-      : context.paneGroups;
-
-    let floatPanes = structurallyChanged
-      ? buildFloatPanesFromWindows(
-          transformed.windows,
-          transformed.panes,
-          context.floatPanes,
-          context.containerWidth,
-          context.containerHeight,
-          context.charWidth,
-          context.charHeight,
-        )
-      : context.floatPanes;
+    // Rebuilt from every update, so no option they read can change unseen;
+    // kept as they were when the rebuild is the same, so nothing re-renders.
+    const paneGroups = keepIfSame(context.paneGroups, buildGroupsFromPanes(transformed.panes));
+    let floatPanes = keepIfSame(
+      context.floatPanes,
+      buildFloatPanesFromWindows(
+        transformed.windows,
+        transformed.panes,
+        context.floatPanes,
+        context.containerWidth,
+        context.containerHeight,
+        context.charWidth,
+        context.charHeight,
+      ),
+    );
 
     const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
     floatPanes = keepLivePanes(floatPanes, currentPaneIdSet);
