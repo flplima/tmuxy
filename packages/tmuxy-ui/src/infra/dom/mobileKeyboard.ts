@@ -1,21 +1,12 @@
 import type { PaneId } from '../../domain/ids';
 /**
- * mobileKeyboard - Manages the hidden text input used by desktop IMEs and touch keyboards.
+ * The hidden text input that desktop IMEs and touch keyboards type into.
  *
- * Ownership:
- *  - keyboardActor calls setupMobileKeyboard() at startup to register a handler for
- *    typed characters (input events). It also calls getMobileInput() to identify
- *    the element in keydown so it can skip printable chars already handled here.
- *  - usePaneTouch calls focusMobileInput(paneId) on a tap on another pane, so an
- *    open keyboard follows it, and toggleMobileKeyboard() on a tap on the pane
- *    that has it; the key row's ⌨ key calls toggleMobileKeyboard() too.
- *
- * Key event routing:
- *  - Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events
- *    that bubble to window and are handled by keyboardActor's existing keydown listener.
- *  - Printable characters and finalized IME compositions arrive through `input` or
- *    `compositionend` events and are forwarded through the registered callback.
- *  - keyboardActor skips printable keydowns from this input so text is sent once.
+ * Special keys (Backspace, Enter, arrows, Escape) fire reliable keydown events,
+ * which the keyboard actor handles on the window. Printable characters and
+ * finished IME compositions only arrive reliably as `input` / `compositionend`
+ * events, so they are forwarded from here, and the keyboard actor skips
+ * printable keydowns from this input so text is sent once.
  */
 
 let input: HTMLInputElement | null = null;
@@ -114,7 +105,6 @@ export function touchIsPrimary(): boolean {
   return window.matchMedia('(pointer: coarse)').matches;
 }
 
-/** Called by keyboardActor at startup to register the character-forwarding handler. */
 export function setupMobileKeyboard(
   handler: (text: string, paneId: PaneId | null) => void,
 ): () => void {
@@ -141,12 +131,10 @@ export function setupMobileKeyboard(
   };
 }
 
-/** Returns the hidden input element so keyboardActor can identify it via event.target. */
 export function getMobileInput(): HTMLInputElement | null {
   return input;
 }
 
-/** Updates the pane target without changing DOM focus. */
 export function setKeyboardInputTarget(paneId: PaneId | null): void {
   activePaneId = paneId;
 }
@@ -172,12 +160,10 @@ function focusInput(paneId: PaneId): void {
   }
 }
 
-/** Moves mouse or keyboard input to the hidden editable element. */
 export function focusKeyboardInput(paneId: PaneId): void {
   focusInput(paneId);
 }
 
-/** Whether the phone's keyboard is up: the hidden input has the focus. */
 export function isMobileKeyboardOpen(): boolean {
   return input !== null && document.activeElement === input;
 }
@@ -197,10 +183,7 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
   }
 }
 
-/**
- * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
- * up, follows the pane; if it is down it stays down.
- */
+/** A tap on another pane: the keyboard, if it is up, follows the pane; if down it stays down. */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   if (isMobileKeyboardOpen()) focusInput(paneId);

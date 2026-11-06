@@ -3,7 +3,7 @@ import { pid } from '../../test/wire';
 import { clipboardWriteMessage } from '../clipboard';
 
 /**
- * SEC-01. An OSC 52 write arrives in pane OUTPUT, so `cat` of a crafted file
+ * An OSC 52 write arrives in pane OUTPUT, so `cat` of a crafted file
  * reaches it. The write itself stays allowed — an nvim yank over ssh is why
  * the sequence is honoured — so the signal that it happened is what keeps a
  * clipboard the user did not set from being invisible.

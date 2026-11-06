@@ -16,13 +16,11 @@ import { desktopInvoke } from './desktop';
 
 export const isMacTauri = isTauri() && isMacPlatform();
 
-/** Invoke a window command, under a fresh `action_id` the shell echoes on its own events. */
 function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const actionId = tracer.actionId();
   return desktopInvoke<T>(cmd, { ...args, actionId }, { actionId, traced: args });
 }
 
-/** Hand the current mousedown to the OS as a window drag. */
 export function startWindowDrag(): void {
   void import('@tauri-apps/api/window').then(({ getCurrentWindow }) =>
     getCurrentWindow().startDragging(),

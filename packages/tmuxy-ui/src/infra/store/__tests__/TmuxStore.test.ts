@@ -1,13 +1,3 @@
-/**
- * Integration tests for the Effect-managed TmuxStore.
- *
- * These cover the bridge points the XState layer relies on:
- *  - subscribe → notified on local dispatch and server reconcile
- *  - dispatch → derived snapshot updates synchronously
- *  - dispatch → adapter rejection rolls back the op
- *  - reconcile → committed advances, matched ops drop
- */
-
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
 import { OP_ACKED_STALE_TIMEOUT_MS, type TmuxClientModel } from '../../../domain/store/types';
@@ -75,15 +65,12 @@ describe('TmuxStore (integration)', () => {
     const unsub = store.subscribe((m) => {
       snaps.push(m);
     });
-    // Subscribing fires once synchronously with the current model.
     expect(snaps).toHaveLength(1);
 
-    // Server snapshot arrives → committed updates → notify fires.
     store.reconcile(blankServerState());
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(snaps[snaps.length - 1].committed.panes).toHaveLength(1);
 
-    // Local optimistic dispatch — patch applies sync.
     fake.setNextResult({ kind: 'ok', value: undefined });
     const before = snaps.length;
     fake.runtime.runFork(store.dispatch(parseCommandToOp('split-window -h')));
@@ -99,7 +86,6 @@ describe('TmuxStore (integration)', () => {
     const store = makeTmuxStore();
     store.reconcile(blankServerState());
 
-    // First, prime the model with a single pane in committed state.
     expect(store.getModel().committed.panes).toHaveLength(1);
 
     fake.setNextResult({
@@ -112,7 +98,6 @@ describe('TmuxStore (integration)', () => {
     );
     expect(exit._tag).toBe('Failure');
 
-    // After rollback: derived === committed, no pending ops.
     const m = store.getModel();
     expect(m.ops).toHaveLength(0);
     expect(m.derived.panes).toEqual(m.committed.panes);
@@ -124,18 +109,15 @@ describe('TmuxStore (integration)', () => {
     const store = makeTmuxStore();
     store.reconcile(blankServerState());
 
-    // Dispatch a split. The adapter says ok; the store applies + awaits.
     fake.setNextResult({ kind: 'ok', value: undefined });
     const exit = await fake.runtime.runPromiseExit(
       store.dispatch(parseCommandToOp('split-window -h')),
     );
     expect(exit._tag).toBe('Success');
 
-    // Before reconcile, the optimistic placeholder is still in derived.
     expect(store.getModel().derived.panes).toHaveLength(2);
     expect(store.getModel().ops).toHaveLength(1);
 
-    // Now server confirms with a real second pane.
     store.reconcile(
       blankServerState({
         panes: [
@@ -162,15 +144,12 @@ describe('TmuxStore (integration)', () => {
     const store = makeTmuxStore();
     store.reconcile(blankServerState());
 
-    // Plain string rejection → classified as TransportError in the
-    // adapter → wrapped as OpTransportError in the store.
     fake.setNextResult({ kind: 'reject', error: 'network down' });
     const exit = await fake.runtime.runPromiseExit(
       store.dispatch(parseCommandToOp('split-window -h')),
     );
     expect(exit._tag).toBe('Failure');
     if (exit._tag === 'Failure') {
-      // Either Cause.fail or Cause.die — we just care no op remains.
       expect(store.getModel().ops).toHaveLength(0);
     }
   });

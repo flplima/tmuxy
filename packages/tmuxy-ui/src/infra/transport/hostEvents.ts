@@ -56,7 +56,6 @@ export const HOST_EVENTS = {
   ),
   keybindings: spec(KeyBindings, (keybindings) => TransportEvent.KeyBindings({ keybindings })),
   'theme-settings': spec(ThemeSettings, (settings) => TransportEvent.ThemeSettings({ settings })),
-  // A notification with nothing to decode.
   'css-changed': spec(Schema.NullOr(Schema.Unknown), () => TransportEvent.CssChanged()),
   log: spec(LogEvent, (data) => TransportEvent.Log({ kind: data.kind, message: data.message })),
   fatal: spec(MessageFrame, (data) =>
@@ -73,7 +72,6 @@ export type HostEventName = keyof typeof HOST_EVENTS;
 
 export const HOST_EVENT_NAMES = Object.keys(HOST_EVENTS) as HostEventName[];
 
-/** The decoded payload of the event `K`. */
 export type HostEventPayload<K extends HostEventName> = Schema.Schema.Type<
   (typeof HOST_EVENTS)[K]['schema']
 >;

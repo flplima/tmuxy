@@ -12,22 +12,18 @@ import { isTauri } from './platform';
 import { desktopCall } from './desktop';
 import type { GuiWindowInfo, WindowStyleSlug } from '../domain/guiWindows';
 
-/** Open another GUI window on the same session group. */
 export function newGuiWindow(): void {
   void desktopCall('new_window', undefined);
 }
 
-/** Bring the window at `index` to the front. */
 export function focusGuiWindow(index: number): void {
   void desktopCall('focus_window', undefined, { index });
 }
 
-/** Every open GUI window, in menu order; empty in a browser. */
 export function listGuiWindows(): Promise<GuiWindowInfo[]> {
   return desktopCall<GuiWindowInfo[]>('list_gui_windows', []);
 }
 
-/** Close this OS window (Window ▸ Close Window). */
 export function closeGuiWindow(): void {
   void desktopCall('close_window', undefined);
 }
@@ -37,12 +33,10 @@ export function quitApp(): void {
   void desktopCall('quit_app', undefined);
 }
 
-/** Put this window into one of the window styles. */
 export function setWindowStyle(style: WindowStyleSlug): void {
   void desktopCall('set_window_style', undefined, { style });
 }
 
-/** The style this window is in — `normal` in a browser, which has no styles. */
 export function getWindowStyle(): Promise<WindowStyleSlug> {
   return desktopCall<WindowStyleSlug>('get_window_style', 'normal');
 }

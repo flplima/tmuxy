@@ -25,10 +25,6 @@ async function dispatch(call: BackendCall): Promise<unknown> {
   return invoke('dispatch', { request: call });
 }
 
-// ============================================
-// Tauri Adapter
-// ============================================
-
 export class TauriAdapter implements SequencedDriver {
   readonly enumeratesSessions = true;
   readonly answersQueries = true;
@@ -49,8 +45,7 @@ export class TauriAdapter implements SequencedDriver {
     try {
       const { listen } = await import('@tauri-apps/api/event');
 
-      // What this link does on an event besides publishing it. The monitor
-      // runs in this process, so its tmux connection is the link: it is down
+      // The monitor runs in this process, so its tmux connection is the link: it is down
       // from a `reconnecting` until the next state arrives, and a state is
       // the ONLY signal that a deliberate detach has ended (the monitor
       // parks, and a user reconnect revives it with nothing in between).
@@ -70,7 +65,6 @@ export class TauriAdapter implements SequencedDriver {
             this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
           }
         },
-        // Terminal: no further events.
         fatal: () => {
           this.connected = false;
           this.reconnectingState = false;
@@ -125,7 +119,6 @@ export class TauriAdapter implements SequencedDriver {
   /** Bumped per staged page, so each one is a new URL and the frame reloads. */
   private previewVersion = 0;
 
-  /** Stage a preview pane's page; its frame loads it from `tmuxypreview:`. */
   async stagePreview(paneId: PaneId, html: string): Promise<string> {
     await dispatch(backendCall('stage_preview', { paneId, html }));
     return tauriSchemeUrl(

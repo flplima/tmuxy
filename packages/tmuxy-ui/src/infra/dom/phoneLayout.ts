@@ -14,14 +14,11 @@
  * What a finger does on the terminal is components/terminal/usePaneTouch.ts; the key row,
  * the zoom and the bottom view (the tree, or the pinned terminal a sideways
  * swipe flips it to) are App.tsx and the `phone` state slice.
- *
- * Pure: no React, no machine.
  */
 
 import { CHAR_HEIGHT, PHONE_CONTAINER_PADDING } from '../../constants/layout';
 import { DEFAULT_FONT_SIZE } from '../fontSizeManager';
 
-/** When the app takes the phone layout. */
 export const PHONE_QUERY = '(pointer: coarse), (max-width: 600px)';
 
 /**
@@ -113,7 +110,6 @@ export function rootFontPx(): number {
   return px > 0 ? px : DEFAULT_FONT_SIZE;
 }
 
-/** The media query, or null where there is no `matchMedia` (tests, old engines). */
 export function phoneMediaQuery(): MediaQueryList | null {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia(PHONE_QUERY)

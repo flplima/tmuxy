@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { isOpenableUrl, safeHref } from '../openUrl';
 
 /**
- * SEC-04 / SEC-21. A pane prints the URL, so the anchor's own `href` is a
+ * A pane prints the URL, so the anchor's own `href` is a
  * scheme an attacker picks. Only the left-click path went through
  * `openExternalUrl`; middle-click, Ctrl/Cmd-click, "Open in new tab", "Copy
  * link" and dragging to the address bar all use the attribute directly.

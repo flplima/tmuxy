@@ -1,22 +1,11 @@
 /**
- * Tagged union of adapter failure modes.
- *
- * The point of typing failures: instead of `catch (e) { logError(e.message) }`
- * everywhere, consumers pattern-match on `_tag` and decide per-case.
- * Adding a new failure mode forces every consumer's switch to be updated
- * (via TypeScript exhaustiveness), preventing the silent-failure bug class.
- *
  * Every transport rejects a command the backend refused with the same shape,
  * `{ error, kind }` (`CommandFailure` in `domain/wire.ts`): the HTTP adapter
  * throws the `POST /commands` error body, a Tauri command rejects with it,
- * and the demo and v86 sandboxes reject with it too. `kind` decides the tag:
- *
- *   kind `tmux` — tmux itself rejected the command  → TmuxError
- *   kind `unavailable` — no tmux connection          → TransportError
- *   kind `invalid` / `forbidden` — the server refused → TransportError,
- *     its context naming the refusal so the user sees why
- *   a failed connect, a non-JSON HTTP error, IPC loss → TransportError
- *   a payload that fails its schema decode           → ProtocolError
+ * and the demo and v86 sandboxes reject with it too. `kind` decides the tag
+ * (`fromCommandFailure`). A failed connect, a non-JSON HTTP error or a lost
+ * IPC channel is a TransportError; a payload that fails its schema decode, a
+ * ProtocolError.
  *
  * A mutation is acknowledged once it is written to control mode, so tmux's
  * rejection of one arrives later on the event stream (`tmux-error`); a read
@@ -57,7 +46,6 @@ export function formatAdapterError(e: AdapterError): string {
 
 const decodeCommandFailure = Schema.decodeUnknownOption(CommandFailure);
 
-/** The tagged error for a command the backend refused. */
 function fromCommandFailure(command: string, failure: CommandFailure): AdapterError {
   switch (failure.kind) {
     case 'tmux':

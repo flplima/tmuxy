@@ -3,7 +3,7 @@
  * a popup at a point for every context menu, and on macOS the application
  * menu bar — both built with `@tauri-apps/api/menu`, so the item callbacks
  * run here in the page and dispatch through the same `MenuDispatch` the
- * in-app menu uses; what an item's action is, is the caller's. muda backs it with NSMenu on macOS and GTK on Linux.
+ * in-app menu uses. muda backs it with NSMenu on macOS and GTK on Linux.
  *
  * Every call can fail (no Tauri, a compositor without GTK menus, a refused
  * capability); the caller then draws the in-app menu in the same gesture.
@@ -70,7 +70,6 @@ async function buildItem<A>(
       return api.PredefinedMenuItem.new({ item: 'Separator' });
     case 'predefined':
       return api.PredefinedMenuItem.new({ item: PREDEFINED[node.which] });
-    // A heading is an item nothing happens on.
     case 'header':
       return api.MenuItem.new({ text: node.label, enabled: false });
     case 'item': {
@@ -81,7 +80,6 @@ async function buildItem<A>(
         accelerator: node.accelerator,
         action: run(node.action),
       };
-      // An icon that cannot be drawn leaves the item plain, not missing.
       const icon = node.icon ? await nativeMenuIcon(node.icon) : null;
       return icon ? api.IconMenuItem.new({ ...options, icon }) : api.MenuItem.new(options);
     }

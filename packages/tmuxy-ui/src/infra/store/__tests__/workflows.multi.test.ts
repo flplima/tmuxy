@@ -12,10 +12,6 @@ import { pid, wid, wireState } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
 import { predict } from '../../../domain/store/ops';
 
-// ============================================
-// Fixtures
-// ============================================
-
 const serverPane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded => ({
   id: 0,
   tmux_id: pid('%0'),
@@ -66,10 +62,6 @@ const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
     ...over,
   });
 
-// ============================================
-// Multiple concurrent in-flight ops
-// ============================================
-
 describe('TmuxStore — multiple in-flight ops compose', () => {
   it('two splits in flight stack predictions on top of each other', async () => {
     const fake = fakeTransport();
@@ -78,7 +70,6 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
 
     fake.setNextResult({ kind: 'ok', value: undefined });
 
-    // First split: 1 pane → 2 panes (placeholder added).
     const r1 = await fake.runtime.runPromiseExit(
       store.dispatch({ _tag: 'Split', direction: 'vertical' }),
     );
@@ -86,22 +77,15 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
     expect(store.getModel().derived.panes).toHaveLength(2);
     expect(store.getModel().ops).toHaveLength(1);
 
-    // Second split (before any server reconcile): predicted against the
-    // CURRENT derived (which already has 2 panes including the placeholder).
-    // The active pane in derived is the first placeholder, so the new
-    // split's prediction is computed relative to it.
     const r2 = await fake.runtime.runPromiseExit(
       store.dispatch({ _tag: 'Split', direction: 'vertical' }),
     );
     expect(r2._tag).toBe('Success');
-    // Two predicted patches stacked → 3 panes in derived.
     expect(store.getModel().derived.panes).toHaveLength(3);
     expect(store.getModel().ops).toHaveLength(2);
   });
 
   it('reconcile clears matched op without disturbing the still-pending one', () => {
-    // Start from committed=1 pane, then build two pending splits manually
-    // (simpler than dispatch chain, same shape).
     const baseSnap: TmuxSnapshot = {
       panes: [
         {
@@ -191,8 +175,6 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
       derived: m1.ops.concat(split2).reduce((s, o) => o.patch(s), m1.committed),
     };
 
-    // Server confirms the first split (real pane %1 appeared) but the
-    // second one is still pending.
     const serverSnap: TmuxSnapshot = {
       ...baseSnap,
       panes: [
@@ -213,25 +195,16 @@ describe('TmuxStore — multiple in-flight ops compose', () => {
     };
 
     const out = applyServerSnapshot(m2, serverSnap, Date.now());
-    // First op matched and dropped, second op still pending.
     expect(out.matched).toHaveLength(1);
     expect(out.model.ops).toHaveLength(1);
     expect(out.model.ops[0].id).toBe('op_b');
-    // paneKeyOverrides records the real-id → placeholder mapping for the
-    // matched op only.
     expect(Object.values(out.model.paneKeyOverrides)).toHaveLength(1);
   });
 });
 
-// ============================================
-// tmux output positions are honored (sanity)
-// ============================================
-
 describe('Op predictions — tmux-output shape', () => {
-  // Tmux pane positions and sizes are integer cell counts (not pixels).
-  // Splits divide the existing pane in half with a single-cell separator.
-  // These tests pin our prediction to that contract so we'd catch any
-  // drift in the math (e.g., off-by-one in separator handling).
+  // tmux pane positions and sizes are integer cell counts, and a split
+  // divides the pane in half with a single-cell separator.
 
   it('vertical split (-h) places the new pane to the right with a 1-cell separator', () => {
     const m = modelFromSnapshot({
@@ -302,7 +275,6 @@ describe('Op predictions — tmux-output shape', () => {
     expect(placeholder.width).toBe(40);
     // Placeholder starts at original.width + 1 (separator cell).
     expect(placeholder.x).toBe(original.x + original.width + 1);
-    // Heights are unchanged in a vertical split.
     expect(placeholder.height).toBe(original.height);
     expect(placeholder.y).toBe(original.y);
   });
@@ -400,11 +372,9 @@ describe('Op predictions — tmux-output shape', () => {
     expect(newPane.y).toBe(0);
     expect(newPane.width).toBe(160);
     expect(newPane.height).toBe(48);
-    // The new tab is focused optimistically.
     expect(next.activeWindowId).toBe(newWin.id);
     expect(next.activePaneId).toBe(newPane.tmuxId);
     expect(newWin.active).toBe(true);
-    // Prior tab is no longer the active one in the predicted snapshot.
     const priorWin = next.windows.find((w) => w.id === wid('@5'))!;
     expect(priorWin.active).toBe(false);
   });
@@ -412,11 +382,9 @@ describe('Op predictions — tmux-output shape', () => {
   it('reconcile after sessionName change still cleanly matches new ops', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    // Session A
     store.reconcile(serverState({ session_name: 'A' }));
-    // Clear (e.g. SWITCH_SESSION).
     store.clear();
-    // Session B arrives — different ids reused.
+    // Session B reuses the ids session A had.
     store.reconcile(
       serverState({
         session_name: 'B',
@@ -427,7 +395,6 @@ describe('Op predictions — tmux-output shape', () => {
     expect(store.getModel().committed.sessionName).toBe('B');
     expect(store.getModel().ops).toHaveLength(0);
 
-    // A fresh dispatch in session B reconciles normally.
     fake.setNextResult({ kind: 'ok', value: undefined });
     await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().ops).toHaveLength(1);

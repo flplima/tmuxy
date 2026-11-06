@@ -8,7 +8,6 @@
 
 import { tracer } from './tracer';
 
-/** Report that `scope` (a command or a subsystem) failed with `error`. */
 export function logFailure(scope: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`[${scope}] ${message}`);

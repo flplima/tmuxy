@@ -96,11 +96,6 @@ export function sidebarCellMetrics(
   return computeCellMetrics(advance, devicePixelRatio);
 }
 
-/**
- * Inline-style custom properties that publish the metrics to the DOM subtree.
- * Set on the app root (see App.tsx) and on story decorators that render
- * terminal content without the app.
- */
 export function cellMetricsStyle(metrics: {
   cellWidth: number;
   cellGap: number;

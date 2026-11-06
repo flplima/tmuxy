@@ -50,7 +50,6 @@ describe('phoneLandscapeCell', () => {
     expect(cell.rowHeight * 24 + CHROME).toBeGreaterThan(390 - 25);
     expect(cell.cellWidth).toBeCloseTo(cell.fontSize * 0.6, 10);
     expect(cell.cellGap).toBe(0);
-    // The column beside the terminal keeps room for the keys and the tree.
     expect(844 - cell.cellWidth * PHONE_COLS - 2 * PHONE_CONTAINER_PADDING).toBeGreaterThanOrEqual(
       PHONE_SIDE_MIN,
     );

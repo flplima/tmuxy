@@ -172,7 +172,6 @@ export class CheerpXEngine extends GuestEngine {
     await this.start(initCommands, null, TIMING);
   }
 
-  /** Write a control-mode command into the console, as UTF-8. */
   send(cmd: string): void {
     const send = this.consoleSend;
     if (!send) return;

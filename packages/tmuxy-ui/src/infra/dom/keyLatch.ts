@@ -34,7 +34,6 @@ export function getLatches(): Latches {
   return latches;
 }
 
-/** A tap on the modifier's key: off → latched → locked → off. */
 export function tapModifier(modifier: Modifier): void {
   set({ ...latches, [modifier]: NEXT[latches[modifier]] });
 }
@@ -54,7 +53,6 @@ export function takeModifiers(): { ctrlKey: boolean; altKey: boolean } | null {
   return { ctrlKey, altKey };
 }
 
-/** Drop every latch and lock. */
 export function resetLatches(): void {
   set({ ctrl: 'off', alt: 'off' });
 }
