@@ -17,6 +17,12 @@ state) with `tmuxy_config_dir`, `tmuxy_data_dir` and `tmuxy_state_dir` in
   and `_run_shell` in `bin/tmuxy/_lib` are the way in; read-only calls
   (`display-message -p`, `list-panes`) may run directly. See
   [docs/TMUX.md](../../docs/TMUX.md).
+- **A script tells the server what it does** on the `run-shell` line that
+  starts it, as a shell assignment ahead of the script (`tmux_compat.rs` in
+  tmuxy-core reads them): `TMUXY_SETTLE=1` for one that changes tmux in
+  several steps (`pane-group add`, `float-create`), so the clients are not
+  shown the steps; `TMUXY_RELIST=1` for one that writes options tmux does
+  not announce (`stack`), so the windows are re-listed behind it.
 - **The contract with scripts and agents** (`tmuxy --help`): exit codes
   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
   4 no tmux server · 130 interrupted, and a wait (`pane run --wait`,

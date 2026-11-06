@@ -18,6 +18,18 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/**
+ * The tag a script that changes tmux in several steps starts with, as the
+ * server reads it (`SETTLE_TAG` in `tmuxy-core/src/tmux_compat.rs`): it holds
+ * the clients' updates back until the steps settle.
+ */
+export const SETTLE_TAG = 'TMUXY_SETTLE=1';
+
+/** A bundled multi-step script, run by tmux and tagged to settle. */
+export function settlingScript(name: string, ...args: Array<string | number>): string {
+  return `run-shell "${[SETTLE_TAG, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
 /** Commands run as one list (` \; ` between them). */
 export function list(commands: ReadonlyArray<string>): string {
   return commands.join(' \\; ');

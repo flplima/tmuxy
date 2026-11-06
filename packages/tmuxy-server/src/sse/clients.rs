@@ -140,7 +140,7 @@ pub(crate) async fn monitor_for_agent(
 
 /// The viewport size a freshly created window should be resized to, or `None`
 /// when there is none yet (no client has reported one and the size is not
-/// fixed). Feeds `executor`'s shared rewrite so the Tauri app and this server
+/// fixed). Feeds `tmux_command::new_window_rewrite` so the Tauri app and this server
 /// can't drift on the rewrite shape.
 pub(crate) async fn new_window_client_size(
     state: &Arc<AppState>,

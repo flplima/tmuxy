@@ -25,6 +25,7 @@ import {
   pastedText,
   pluginAction,
   script,
+  settlingScript,
   target,
   tmuxDoubleQuoted,
 } from './commandHelpers';
@@ -384,14 +385,14 @@ export function toTmuxCommand(op: TmuxOp): string {
         : `set-option -w -t ${op.windowId} @tmuxy-${op.tag} ${op.value}`;
     case 'GroupAdd':
       return op.pane
-        ? script('pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
-        : script('pane-group', 'add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
+        ? settlingScript('pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
+        : settlingScript('pane-group', 'add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
     case 'GroupClose':
-      return script('pane-group', 'close', op.paneId);
+      return settlingScript('pane-group', 'close', op.paneId);
     case 'GroupSwitch':
-      return script('pane-group', 'switch', op.clickedPaneId);
+      return settlingScript('pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':
-      return script('pane-group', op.direction, op.paneId ?? '#{pane_id}');
+      return settlingScript('pane-group', op.direction, op.paneId ?? '#{pane_id}');
     case 'GroupMove':
       return script('pane-group', 'move', op.paneId, op.index);
     case 'GroupJoin':

@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use crate::command_router::{route_command, route_query as route_query_policy, Route};
 use crate::control_mode::{MonitorCommand, MonitorCommandSender, MonitorConfig};
-use crate::executor::tmux_quote;
 use crate::session_snapshot::{self as snapshot, RestoreOptions, Snapshot, SnapshotKeeper};
+use crate::tmux_quote;
 use crate::{CommandError, PaneId, StateUpdate, TmuxError, TmuxState};
 
 mod bindings;

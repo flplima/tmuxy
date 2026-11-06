@@ -25,7 +25,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if let Some(config_path) = crate::session::get_config_path() {
             let cmd = format!(
                 "source-file {}",
-                crate::executor::tmux_quote(&config_path.to_string_lossy())
+                crate::tmux_quote(&config_path.to_string_lossy())
             );
             self.connection.send_commands(&[&cmd]).await?;
         }

@@ -14,7 +14,7 @@ pub(super) fn resize_command(window_id: &WindowId, (cols, rows): (u32, u32)) -> 
 pub(super) fn initial_resize_command(session: &str) -> String {
     format!(
         "resizew -t {} -x {} -y {}",
-        crate::executor::tmux_quote(session),
+        crate::tmux_quote(session),
         INITIAL_PTY_COLS,
         INITIAL_PTY_ROWS
     )

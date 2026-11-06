@@ -4,8 +4,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
     /// Send a command a client asked for, with or without wanting its output.
     ///
     /// One path for both, so the things that have to happen around a user
-    /// command — the `\;` unescape, settling for the multi-step group
-    /// scripts, and the re-lists after option writes, reorders and pane
+    /// command — settling for the multi-step group scripts, and the re-lists after option writes, reorders and pane
     /// marks (tmux announces none of those) — cannot drift between the
     /// fire-and-forget and the reply-carrying variant.
     pub(super) async fn send_user_command<E: StateEmitter>(
@@ -19,8 +18,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
             wants_reply = reply.is_some(),
             "processing user command"
         );
-        let unescaped = command.replace(" \\; ", " ; ");
-        let is_compound = is_multi_step_run_shell(&unescaped);
+        let unescaped = command.to_string();
+        let list = crate::tmux_command::parse(command);
+        let is_compound = crate::tmux_compat::settles(&list);
         if is_compound {
             self.aggregator.arm_settling(Instant::now());
             debug!("settling armed for multi-step run-shell");
@@ -45,7 +45,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             }
             (Some(reply), None) => (unescaped.clone(), Some(ReplyWaiter::Caller(reply))),
             (None, Some(relayed)) => (relayed, Some(ReplyWaiter::RunShell(relay_key))),
-            (None, None) if reports_failure(&unescaped) => {
+            (None, None) if reports_failure(&list) => {
                 (unescaped.clone(), Some(ReplyWaiter::ReportFailure))
             }
             (None, None) => (unescaped.clone(), None),
@@ -99,7 +99,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // What tmux leaves unannounced (`tmux_compat::SILENT_COMMANDS`) would
         // otherwise reach the clients on the next event or the idle heartbeat
         // — seconds later. Re-list it right behind the command.
-        let relists = crate::tmux_compat::relists_after(&unescaped);
+        let relists = crate::tmux_compat::relists_after(&list);
         if relists.windows {
             if let Err(e) = self
                 .connection
@@ -216,33 +216,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
 
 /// Whether a fire-and-forget command is marker-wrapped so its `%error`
 /// reaches the user. Everything but keystrokes (`send-keys`, also pinned).
-/// The list separator may still be the client's `\;` or already unescaped.
-pub(super) fn reports_failure(command: &str) -> bool {
-    !crate::executor::split_compound(command)
-        .iter()
-        .any(|part| matches!(crate::executor::command_verb(part), "send-keys" | "send"))
-}
-
-/// True when a control-mode command will run a tmuxy bash script that mutates
-/// tmux state across multiple separate tmux calls (split → break → set-option
-/// → swap → resize, etc.). Each step fires its own %layout-change / %window-add
-/// event; without settling, the frontend renders the intermediate split before
-/// the script lands on the final group layout. Matching by script name (not by
-/// "run-shell" alone) avoids false positives on harmless one-shot scripts like
-/// reap-orphan-shells or list-* helpers.
-pub(super) fn is_multi_step_run_shell(command: &str) -> bool {
-    if !command.contains("run-shell") {
-        return false;
-    }
-    const MULTI_STEP_SCRIPTS: &[&str] = &[
-        "pane-group add",
-        "pane-group close",
-        "pane-group switch",
-        "pane-group next",
-        "pane-group prev",
-        "float-create",
-    ];
-    // The CLI quotes the script's path (`'…/pane-group' add`); the UI does not.
-    let unquoted = command.replace('\'', "");
-    MULTI_STEP_SCRIPTS.iter().any(|s| unquoted.contains(s))
+pub(super) fn reports_failure(list: &crate::tmux_command::CommandList) -> bool {
+    !list
+        .top_level()
+        .any(|command| command.runs(&crate::tmux_command::SEND_KEYS))
 }

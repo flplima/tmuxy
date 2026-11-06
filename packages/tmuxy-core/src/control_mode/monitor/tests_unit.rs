@@ -112,44 +112,11 @@ fn a_window_with_no_panes_yet_is_still_asked() {
     assert!(needs_resize(None, (41, 29), None, 0));
 }
 
-#[test]
-fn test_is_multi_step_run_shell_matches_pane_group_scripts() {
-    // Real-world commands the frontend sends through SEND_TMUX_COMMAND.
-    assert!(is_multi_step_run_shell(
-        "run-shell \"$HOME/.local/share/tmuxy/bin/tmuxy/pane-group add %3 80 24\""
-    ));
-    assert!(is_multi_step_run_shell(
-        "run-shell \"$HOME/.local/share/tmuxy/bin/tmuxy/pane-group close %3\""
-    ));
-    assert!(is_multi_step_run_shell(
-        "run-shell \"$HOME/.local/share/tmuxy/bin/tmuxy/float-create lazygit\""
-    ));
-    // `tmuxy pane group …` quotes the script's path.
-    assert!(is_multi_step_run_shell(
-        "run-shell \"bash '/home/x/.local/share/tmuxy/bin/tmuxy/pane-group' next %3\""
-    ));
-    // Only the listed verbs are held; join is not one of them.
-    assert!(!is_multi_step_run_shell(
-        "run-shell \"$HOME/.local/share/tmuxy/bin/tmuxy/pane-group join %3 %1 0\""
-    ));
-}
-
-#[test]
-fn test_is_multi_step_run_shell_skips_one_shot_commands() {
-    // Plain run-shell to one-shot helpers shouldn't arm settling.
-    assert!(!is_multi_step_run_shell("run-shell \"echo hello\""));
-    assert!(!is_multi_step_run_shell(
-        "run-shell \"tmuxy/bin/tmuxy/reap-orphan-shells\""
-    ));
-    // Non-run-shell commands never arm.
-    assert!(!is_multi_step_run_shell("splitw -h"));
-    assert!(!is_multi_step_run_shell("splitw ; breakp"));
-}
-
 /// Keystrokes go out bare; everything else is wrapped so a `%error`
 /// can be attributed and shown. A pinned keystroke is still a keystroke.
 #[test]
 fn only_keystrokes_skip_failure_reporting() {
+    let reports_failure = |command: &str| reports_failure(&crate::tmux_command::parse(command));
     assert!(!reports_failure("send-keys -t %1 -l x"));
     assert!(!reports_failure(
         "select-window -t @1 ; select-pane -t %1 ; send-keys Enter"

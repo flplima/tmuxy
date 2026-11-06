@@ -214,7 +214,7 @@ fn user_layer(layout: &Layout) -> PathBuf {
 ///    tmuxy-specific file has the last word on taste.
 /// 5. `tmuxy.essentials.conf` again — so no config can take the app apart.
 fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
-    let quote = |path: &Path| crate::executor::tmux_quote(&path.to_string_lossy());
+    let quote = |path: &Path| crate::tmux_quote(&path.to_string_lossy());
     let essentials = quote(&layout.path(&paths::ESSENTIALS_CONF));
     let tmux_conf = if use_tmux_conf {
         format!(

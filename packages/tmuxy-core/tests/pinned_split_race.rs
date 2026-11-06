@@ -98,7 +98,14 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
     let pinned = format!(
         "select-window -t {second_window} \\; select-pane -t {second_pane} \\; run-shell 'sleep 1' \\; split-window -h"
     );
-    tx.send(MonitorCommand::RunCommand { command: pinned })
+    // As a client sends it: through the router, which writes the frontend's
+    // `\;` as the `;` control mode reads.
+    let tmuxy_core::command_router::Route::ControlMode(command) =
+        tmuxy_core::command_router::route_command(&pinned, "tmuxy", None)
+    else {
+        panic!("the pinned split routes to control mode");
+    };
+    tx.send(MonitorCommand::RunCommand { command })
         .await
         .unwrap();
     // A position INSIDE the stalled list's one-second window, by design: the

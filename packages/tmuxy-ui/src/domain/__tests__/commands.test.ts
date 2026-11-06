@@ -23,6 +23,8 @@ import { parseCommandToOp } from '../store/parseCommand';
 import { pid, wid } from '../../test/wire';
 
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';
+/** A group script, tagged to settle (`settlingScript`). */
+const G = `TMUXY_SETTLE=1 ${S}/pane-group`;
 
 const cases: Array<[TmuxOp, string]> = [
   // Panes
@@ -139,27 +141,18 @@ const cases: Array<[TmuxOp, string]> = [
   ],
 
   // Pane groups
-  [
-    TmuxOp.GroupAdd({ pane: null }),
-    `run-shell "${S}/pane-group add #{pane_id} #{pane_width} #{pane_height}"`,
-  ],
+  [TmuxOp.GroupAdd({ pane: null }), `run-shell "${G} add #{pane_id} #{pane_width} #{pane_height}"`],
   [
     TmuxOp.GroupAdd({ pane: { paneId: pid('%3'), width: 80, height: 24 } }),
-    `run-shell "${S}/pane-group add %3 80 24"`,
+    `run-shell "${G} add %3 80 24"`,
   ],
-  [TmuxOp.GroupClose({ paneId: pid('%3') }), `run-shell "${S}/pane-group close %3"`],
+  [TmuxOp.GroupClose({ paneId: pid('%3') }), `run-shell "${G} close %3"`],
   [
     TmuxOp.GroupSwitch({ clickedPaneId: pid('%3'), visiblePaneId: pid('%1') }),
-    `run-shell "${S}/pane-group switch %3"`,
+    `run-shell "${G} switch %3"`,
   ],
-  [
-    TmuxOp.GroupStep({ direction: 'next', paneId: pid('%3') }),
-    `run-shell "${S}/pane-group next %3"`,
-  ],
-  [
-    TmuxOp.GroupStep({ direction: 'prev', paneId: null }),
-    `run-shell "${S}/pane-group prev #{pane_id}"`,
-  ],
+  [TmuxOp.GroupStep({ direction: 'next', paneId: pid('%3') }), `run-shell "${G} next %3"`],
+  [TmuxOp.GroupStep({ direction: 'prev', paneId: null }), `run-shell "${G} prev #{pane_id}"`],
   [TmuxOp.GroupMove({ paneId: pid('%3'), index: 2 }), `run-shell "${S}/pane-group move %3 2"`],
   [
     TmuxOp.GroupJoin({ paneId: pid('%3'), anchorPaneId: pid('%1'), index: 0 }),
@@ -434,8 +427,8 @@ describe('binding strings round-trip through their op', () => {
     'previous-layout',
     'kill-session',
     `run-shell "bash ${S}/nav left #{pane_id}"`,
-    `run-shell "${S}/pane-group next #{pane_id}"`,
-    `run-shell "${S}/pane-group prev %3"`,
+    `run-shell "${G} next #{pane_id}"`,
+    `run-shell "${G} prev %3"`,
     'command-prompt -I "#W" "rename-window -- \\"%%%\\""',
   ];
 

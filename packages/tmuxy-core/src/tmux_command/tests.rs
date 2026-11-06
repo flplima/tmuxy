@@ -1,5 +1,10 @@
 use super::*;
 
+/// The top-level commands of `cmd`, as written.
+fn top_level(cmd: &str) -> Vec<String> {
+    parse(cmd).top_level().map(|c| c.text.to_string()).collect()
+}
+
 #[test]
 fn new_window_rewrite_quotes_the_session() {
     // Session names come from servers.json / `tmuxy session connect`, so they can
@@ -32,21 +37,18 @@ fn new_window_rewrite_includes_resize_only_with_a_size() {
 /// head-anchored check, and the raw command escaped to an external
 /// subprocess against an attached control-mode client.
 #[test]
-fn compound_runs_sees_past_the_binding_pin() {
+fn a_list_runs_a_command_behind_the_binding_pin() {
     let pinned =
         "select-window -t @2 \\; select-pane -t %5 \\; new-window -c \"#{pane_current_path}\"";
-    assert!(compound_runs(pinned, &NEW_WINDOW));
-    assert!(compound_runs("neww", &NEW_WINDOW));
+    assert!(parse(pinned).runs(&NEW_WINDOW));
+    assert!(parse("neww").runs(&NEW_WINDOW));
     // A pane pin alone (an overlay binding) is still seen through.
-    assert!(compound_runs("select-pane -t %5 \\; neww", &NEW_WINDOW));
+    assert!(parse("select-pane -t %5 \\; neww").runs(&NEW_WINDOW));
     // No false positives: `new-window` as an argument is not a verb, and a
     // different command with the same prefix does not count.
-    assert!(!compound_runs(
-        "select-pane -t %5 \\; split-window -h",
-        &NEW_WINDOW
-    ));
-    assert!(!compound_runs("send-keys -l 'new-window'", &NEW_WINDOW));
-    assert!(!compound_runs("new-session -d", &NEW_WINDOW));
+    assert!(!parse("select-pane -t %5 \\; split-window -h").runs(&NEW_WINDOW));
+    assert!(!parse("send-keys -l 'new-window'").runs(&NEW_WINDOW));
+    assert!(!parse("new-session -d").runs(&NEW_WINDOW));
 }
 
 /// tmux runs any prefix of a command's name no other command shares, so
@@ -68,9 +70,10 @@ fn a_command_is_seen_under_every_name_tmux_runs_it_by() {
 }
 
 #[test]
-fn rewrite_new_window_in_compound_keeps_the_pin_around_the_rewrite() {
+fn the_new_window_rewrite_keeps_the_pin_around_the_rewrite() {
     let pinned = "select-window -t @2 \\; select-pane -t %5 \\; new-window";
-    let out = rewrite_new_window_in_compound(pinned, "tmuxy", Some((120, 40)))
+    let out = parse(pinned)
+        .rewrite_new_window("tmuxy", Some((120, 40)))
         .expect("a new-window in the list");
 
     // The pin survives, ahead of the rewrite — `splitw -t <session>` targets
@@ -88,37 +91,37 @@ fn rewrite_new_window_in_compound_keeps_the_pin_around_the_rewrite() {
 }
 
 #[test]
-fn rewrite_new_window_in_compound_passes_through_unpinned_and_unrelated() {
-    let bare = rewrite_new_window_in_compound("new-window", "tmuxy", None)
+fn the_new_window_rewrite_passes_through_unpinned_and_unrelated() {
+    let bare = parse("new-window")
+        .rewrite_new_window("tmuxy", None)
         .expect("a bare new-window still rewrites");
     assert_eq!(bare, new_window_rewrite("tmuxy", None));
 
-    assert!(
-        rewrite_new_window_in_compound("select-pane -t %5 \\; split-window -h", "tmuxy", None)
-            .is_none()
-    );
+    assert!(parse("select-pane -t %5 \\; split-window -h")
+        .rewrite_new_window("tmuxy", None)
+        .is_none());
 }
 
 #[test]
-fn split_compound_respects_quotes() {
+fn a_list_splits_outside_quotes_only() {
     // Unquoted separators split.
     assert_eq!(
-        split_compound("splitw \\; breakp"),
+        top_level("splitw \\; breakp"),
         vec!["splitw ".to_string(), " breakp".to_string()]
     );
     // A separator inside single quotes is payload, not a separator.
     assert_eq!(
-        split_compound("send-keys -l 'a\\;b'"),
+        top_level("send-keys -l 'a\\;b'"),
         vec!["send-keys -l 'a\\;b'".to_string()]
     );
     // Same for double quotes.
     assert_eq!(
-        split_compound("send-keys -l \"a\\;b\""),
+        top_level("send-keys -l \"a\\;b\""),
         vec!["send-keys -l \"a\\;b\"".to_string()]
     );
     // Mixed: quoted payload preserved, real separator still splits.
     assert_eq!(
-        split_compound("send-keys -l 'a\\;b' \\; selectp -t %1"),
+        top_level("send-keys -l 'a\\;b' \\; selectp -t %1"),
         vec![
             "send-keys -l 'a\\;b' ".to_string(),
             " selectp -t %1".to_string()
@@ -130,12 +133,11 @@ fn split_compound_respects_quotes() {
 /// `;`, a newline, and a quote a backslash escaped does not open or close
 /// anything. Each of these hid a `resizew` from the router.
 #[test]
-fn split_compound_splits_where_tmux_does() {
+fn a_list_splits_where_tmux_does() {
     let verbs = |cmd: &str| -> Vec<String> {
-        split_compound(cmd)
-            .iter()
-            .map(|part| command_verb(part).to_string())
-            .filter(|verb| !verb.is_empty())
+        parse(cmd)
+            .top_level()
+            .map(|c| c.verb().to_string())
             .collect()
     };
     assert_eq!(verbs("display x ; resizew -x 1"), ["display", "resizew"]);
@@ -160,7 +162,7 @@ fn split_compound_splits_where_tmux_does() {
 /// policy must see. A brace that is quoted, escaped or glued to a word
 /// (`#{pane_id}`) opens nothing, in tmux or here.
 #[test]
-fn compound_runs_sees_into_brace_blocks() {
+fn a_list_runs_the_commands_of_its_blocks() {
     for cmd in [
         "if-shell -F 1 { resizew -x 10 -y 10 }",
         "if-shell -F 1 {resizew}",
@@ -169,9 +171,9 @@ fn compound_runs_sees_into_brace_blocks() {
         "select-pane -t %1 \\; if-shell -F 1 { display -p x#{pane_id} ; resizew }",
         "display-menu -x M Yes y { resizew } No n { }",
     ] {
-        assert!(compound_runs(cmd, &RESIZE_WINDOW), "{cmd:?}");
+        assert!(parse(cmd).runs(&RESIZE_WINDOW), "{cmd:?}");
     }
-    assert!(compound_runs("if-shell -F 1 { new-window }", &NEW_WINDOW));
+    assert!(parse("if-shell -F 1 { new-window }").runs(&NEW_WINDOW));
     for cmd in [
         "display '{ resizew }'",
         "display \"{ resizew }\"",
@@ -179,26 +181,20 @@ fn compound_runs_sees_into_brace_blocks() {
         "display x{ resizew }",
         "display-menu -x M \"resizew\" r { display x }",
     ] {
-        assert!(!compound_runs(cmd, &RESIZE_WINDOW), "{cmd:?}");
+        assert!(!parse(cmd).runs(&RESIZE_WINDOW), "{cmd:?}");
     }
 }
 
 /// The rewrites split and rejoin a list at its top level only: a block
 /// goes out whole, with its own separators and quoting as they came.
 #[test]
-fn split_compound_keeps_brace_blocks_whole() {
+fn the_top_level_keeps_brace_blocks_whole() {
     assert_eq!(
-        split_compound(
-            "select-pane -t %1 \\; if -F 1 { selectp -t %2 ; resizep -Z } { display \"}\" }"
-        ),
+        top_level("select-pane -t %1 \\; if -F 1 { selectp -t %2 ; resizep -Z } { display \"}\" }"),
         [
             "select-pane -t %1 ",
             " if -F 1 { selectp -t %2 ; resizep -Z } { display \"}\" }"
         ]
-    );
-    assert_eq!(
-        rewrite_mutating_verbs("split-window -h \\; if -F 1 { kill-pane ; display '{' }"),
-        "splitw -h ; if -F 1 { kill-pane ; display '{' }"
     );
 }
 
@@ -206,28 +202,82 @@ fn split_compound_keeps_brace_blocks_whole() {
 /// binding, and a window menu offers `{ new-window }` as an item: the
 /// block keeps its shape, with the rewrite in place of each `new-window`.
 #[test]
-fn rewrite_new_window_in_compound_rewrites_inside_blocks() {
-    let out = rewrite_new_window_in_compound(
-        "select-pane -t %5 \\; if-shell -F 1 { new-window -c x } { display y }",
-        "tmuxy",
-        None,
-    );
+fn the_new_window_rewrite_reaches_inside_blocks() {
+    let out = parse("select-pane -t %5 \\; if-shell -F 1 { new-window -c x } { display y }")
+        .rewrite_new_window("tmuxy", None);
     assert_eq!(
         out.as_deref(),
         Some("select-pane -t %5 ; if-shell -F 1 { splitw -t 'tmuxy' ; breakp } { display y }")
     );
-    let out = rewrite_new_window_in_compound(
-        "display-menu -x M \"New Pane\" p { new-pane ; join-pane } \"New Window\" w {neww}",
-        "tmuxy",
-        None,
-    );
+    let out =
+        parse("display-menu -x M \"New Pane\" p { new-pane ; join-pane } \"New Window\" w {neww}")
+            .rewrite_new_window("tmuxy", None);
     assert_eq!(
         out.as_deref(),
         Some("display-menu -x M \"New Pane\" p { new-pane ; join-pane } \"New Window\" w { splitw -t 'tmuxy' ; breakp }")
     );
     // Every new-window in the list, not only the first.
     assert_eq!(
-        rewrite_new_window_in_compound("neww ; if -F 1 { neww }", "tmuxy", None).as_deref(),
+        parse("neww ; if -F 1 { neww }")
+            .rewrite_new_window("tmuxy", None)
+            .as_deref(),
         Some("splitw -t 'tmuxy' ; breakp ; if -F 1 { splitw -t 'tmuxy' ; breakp }")
     );
+}
+
+/// The separator the frontend joins a pinned binding with is a literal on a
+/// control-mode line; it becomes the bare `;` there, and nothing else moves
+/// — not a `\;` inside quotes, which is text.
+#[test]
+fn escaped_separators_become_plain_ones_and_nothing_else_changes() {
+    let pinned =
+        "select-window -t @1 \\; select-pane -t %2 \\;  splitw -h -c \"#{pane_current_path}\"";
+    assert_eq!(
+        parse(pinned).with_plain_separators(),
+        "select-window -t @1 ; select-pane -t %2 ;  splitw -h -c \"#{pane_current_path}\""
+    );
+    let literal = "send-keys -t %1 -l -- 'a \\; b' \\; send-keys -t %1 Enter";
+    assert_eq!(
+        parse(literal).with_plain_separators(),
+        "send-keys -t %1 -l -- 'a \\; b' ; send-keys -t %1 Enter"
+    );
+    let plain = "display -p x ; display -p y";
+    assert!(matches!(
+        parse(plain).with_plain_separators(),
+        Cow::Borrowed(_)
+    ));
+}
+
+/// A command's words are as written, a block one word of the command it
+/// belongs to, and the list says when tmux's own reading is in doubt.
+#[test]
+fn a_command_is_read_into_its_words() {
+    let list = parse("run-shell -t %3 'echo \"a b\"' ; if -F 1 { display x } {selectp}");
+    let top: Vec<Vec<&str>> = list.top_level().map(|c| c.words().to_vec()).collect();
+    assert_eq!(
+        top,
+        [
+            vec!["run-shell", "-t", "%3", "'echo \"a b\"'"],
+            vec!["if", "-F", "1", "{ display x }", "{selectp}"],
+        ]
+    );
+    assert!(list.has_blocks());
+    assert!(!list.glued_separator && !list.unterminated_quote);
+    assert!(parse("display hi; run-shell 'a'").glued_separator);
+    assert!(parse("display 'hi").unterminated_quote);
+    assert!(!parse("display 'hi'").has_blocks());
+}
+
+#[test]
+fn a_word_is_unquoted_as_tmux_joins_it() {
+    assert_eq!(unquote("'it'\\''s'").as_deref(), Some("it's"));
+    assert_eq!(
+        unquote("\"a \\\"b\\\" \\101\"").as_deref(),
+        Some("a \"b\" A")
+    );
+    assert_eq!(unquote("plain\\ word").as_deref(), Some("plain word"));
+    assert_eq!(unquote("'#{pane_id}'").as_deref(), Some("#{pane_id}"));
+    for unknown in ["$HOME", "\"$HOME\"", "~/x", "{ a }", "'open"] {
+        assert_eq!(unquote(unknown), None, "{unknown}");
+    }
 }
