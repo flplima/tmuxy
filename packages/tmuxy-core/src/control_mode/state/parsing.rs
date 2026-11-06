@@ -82,7 +82,19 @@ impl StateAggregator {
         pane.copy_cursor_x = number(PaneColumn::CopyCursorX);
         pane.copy_cursor_y = number(PaneColumn::CopyCursorY);
         pane.scroll_position = number(PaneColumn::ScrollPosition);
-        pane.window_id = window_id;
+        // A row can report a pane's move (break-pane, swap-pane) before the
+        // layout of its new window does: the same reset and capture as there.
+        let moved_window = match window_id {
+            Some(window) if pane.window_id.is_some() && !pane.in_window(&window) => {
+                pane.move_to_window(window);
+                self.panes_moved_window.insert(pane_id.clone());
+                true
+            }
+            other => {
+                pane.window_id = other;
+                false
+            }
+        };
         // `#{pane_active}` is per window: it names each window's own active
         // pane, which %window-pane-changed only reports for later changes.
         if active {
@@ -119,7 +131,7 @@ impl StateAggregator {
         // (exiting copy mode requires re-syncing the vt100 terminal with tmux's actual content,
         // since %output events during copy mode may have desynchronized it)
         let exited_copy_mode = was_in_mode && !in_mode;
-        let needs_capture = is_new_pane || was_resized || exited_copy_mode;
+        let needs_capture = is_new_pane || was_resized || exited_copy_mode || moved_window;
         Some((pane_id, needs_capture))
     }
 

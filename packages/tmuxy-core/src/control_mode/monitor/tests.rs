@@ -380,3 +380,37 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         "the window close should end on its emission: {window_close:?}"
     );
 }
+
+/// M4: a window is told to stop sizing itself before the monitor sizes it.
+/// tmux will not keep a `resizew` on a window still set to size itself to
+/// the latest client — it applies ours and then puts its own back — and the
+/// options are per WINDOW, so they are set on each window as it is first
+/// seen, in the step's own effects, ahead of the client-size pass.
+#[tokio::test]
+async fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
+    let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (_tx, rx) = mpsc::channel(1);
+    let link = Scripted {
+        events: [ControlModeEvent::WindowAdd {
+            window_id: "@3".parse().unwrap(),
+        }]
+        .into(),
+        sent: std::sync::Arc::clone(&log),
+    };
+    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    monitor.client_size = Some((41, 29));
+    let emitter = Recording(std::sync::Arc::clone(&log));
+    let mut rs = RunState::new(&monitor.config, Instant::now());
+    let event = monitor.connection.recv().await;
+    assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+
+    let log = log.lock().unwrap().clone();
+    let at = |wanted: &str| {
+        log.iter()
+            .position(|c| c == wanted)
+            .unwrap_or_else(|| panic!("{wanted:?} was not sent: {log:?}"))
+    };
+    let resize = at("resizew -t @3 -x 41 -y 29");
+    assert!(at("set-option -w -t @3 window-size manual") < resize);
+    assert!(at("set-option -w -t @3 aggressive-resize off") < resize);
+}

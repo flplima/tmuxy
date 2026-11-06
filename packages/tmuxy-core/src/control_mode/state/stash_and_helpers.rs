@@ -241,9 +241,9 @@ impl StateAggregator {
     }
 
     /// Whether `to_tmux_state` would describe the session in full: the
-    /// initial list-panes and list-windows have been parsed and no
-    /// capture-pane refill is on its way — a snapshot taken mid-refill would
-    /// carry the blank panes a reset parser holds until capture-pane answers.
+    /// initial list-panes and list-windows have been parsed and no capture is
+    /// on its way — a snapshot taken before would carry the blank panes a new
+    /// (or moved) pane's emulator holds until capture-pane answers.
     pub fn initial_state_ready(&self) -> bool {
         self.panes_synced && self.windows_synced && self.pending_captures.is_empty()
     }

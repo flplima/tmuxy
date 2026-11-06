@@ -11,9 +11,9 @@ fn a_capture_refill_keeps_a_hidden_cursor_hidden() {
     let mut pane = PaneState::new(pid("%1"), 40, 10);
     pane.process_output(b"\x1b[?25lhello");
     assert!(pane.cursor_hidden);
-    pane.reset_and_process_capture(b"hello");
+    pane.apply_capture(b"hello");
     assert!(
-        pane.terminal.screen().hide_cursor(),
+        pane.screen().hide_cursor(),
         "the rebuilt parser lost the hidden cursor"
     );
 }
@@ -38,11 +38,7 @@ fn a_resize_mid_frame_does_not_spill_the_frame_as_text() {
         !text.contains("GgoAAAANSUhEUg"),
         "the frame's tail reached the grid as text: {text:?}"
     );
-    assert_eq!(
-        pane.image_parser.placements.len(),
-        1,
-        "the frame was placed"
-    );
+    assert_eq!(pane.placements().len(), 1, "the frame was placed");
 }
 
 #[test]
@@ -53,21 +49,21 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     pane.process_output(
         b"line0\r\nline1\r\n\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07",
     );
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, 2);
+    assert_eq!(pane.placements().len(), 1);
+    assert_eq!(pane.placements()[0].row, 2);
 
     // Scrolling the pane by 5 lines (7 newlines reach row 9 + 5 scroll) shifts
     // the placement from row 2 to row -3 (into scrollback history).
     for _ in 0..12 {
         pane.process_output(b"\r\n");
     }
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, -3);
+    assert_eq!(pane.placements().len(), 1);
+    assert_eq!(pane.placements()[0].row, -3);
 
     // Zooming/resizing on the primary screen preserves placements.
     pane.resize(80, 24);
     assert_eq!(
-        pane.image_parser.placements.len(),
+        pane.placements().len(),
         1,
         "primary-screen placement must survive pane zoom/resize"
     );
@@ -75,16 +71,16 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     // On the alternate screen, resize clears placements so the full-screen
     // application's SIGWINCH redraw starts clean.
     pane.process_output(b"\x1b[?1049h\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07");
-    assert_eq!(pane.image_parser.placements.len(), 1);
+    assert_eq!(pane.placements().len(), 1);
     pane.resize(40, 10);
     assert!(
-        pane.image_parser.placements.is_empty(),
+        pane.placements().is_empty(),
         "alt-screen placement is retired on resize"
     );
     // Leaving the alternate screen restores the primary-screen placement.
     pane.process_output(b"\x1b[?1049l");
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, -3);
+    assert_eq!(pane.placements().len(), 1);
+    assert_eq!(pane.placements()[0].row, -3);
 }
 
 /// A capture rebuilds the screen from what tmux shows now; the rows that
@@ -102,7 +98,7 @@ fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
         "80 lines on a 10-row screen leave history: {before}"
     );
 
-    pane.reset_and_process_capture(
+    pane.apply_capture(
         b"line 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\n",
     );
 
@@ -531,8 +527,8 @@ fn kitty_tmux_passthrough_placeholders_render_as_an_image() {
         !text.contains('\u{10eeee}'),
         "placeholders stay out of text"
     );
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    let placement = &pane.image_parser.placements[0];
+    assert_eq!(pane.placements().len(), 1);
+    let placement = &pane.placements()[0];
     assert_eq!((placement.row, placement.col), (0, 0));
     assert_eq!((placement.width_cells, placement.height_cells), (2, 2));
     assert!(pane.image_store.contains_key(&placement.id));

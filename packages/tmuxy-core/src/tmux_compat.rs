@@ -14,8 +14,9 @@
 //!   by `command_router::route_command` on every transport;
 //! - every mutation from a script through `run-shell`, never a second client
 //!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
-//! - session-scoped rather than global option writes while attached (3.5a
-//!   crash): `control_mode/monitor/sync.rs`;
+//! - session- and window-scoped rather than global option writes while
+//!   attached (3.5a crash): `control_mode/monitor/sync.rs`,
+//!   `control_mode/state/window_state.rs` (`window_setup_commands`);
 //! - `run-shell` output redirected to files (3.4 shows it in view-mode):
 //!   `_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`, `ask_run_shell` in `session_snapshot`;
 //! - the copy-mode flag asked as `#{pane_mode}`, not `#{pane_in_mode}` (3.4

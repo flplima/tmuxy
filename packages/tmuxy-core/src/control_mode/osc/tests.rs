@@ -208,7 +208,7 @@ fn dec_line_size_escapes_tag_rows_and_survive_capture_refresh() {
     assert_eq!(content[3][0].style, None);
 
     // Simulate tmux capture-pane (which strips ESC # 3..6)
-    pane.reset_and_process_capture(b"TOP\nTOP\nWIDE\nPLAIN");
+    pane.apply_capture(b"TOP\nTOP\nWIDE\nPLAIN");
     let after = pane.get_content();
     assert_eq!(
         after[0][0].style.as_ref().and_then(|s| s.size),
@@ -252,7 +252,7 @@ fn osc66_scales_double_height_and_double_width_and_survives_capture() {
     );
 
     // Survives capture-pane refresh when the top-row text still matches
-    pane.reset_and_process_capture(b"BIG\n\nWIDE");
+    pane.apply_capture(b"BIG\n\nWIDE");
     let after = pane.get_content();
     assert_eq!(
         after[0][0].style.as_ref().and_then(|s| s.size),

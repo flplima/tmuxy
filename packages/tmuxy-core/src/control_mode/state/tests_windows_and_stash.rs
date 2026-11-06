@@ -9,7 +9,6 @@ use crate::WindowType;
 fn a_window_whose_index_moved_is_in_the_delta() {
     // move-window renumbers the windows behind the moved one; the strip
     // orders by index, so an index-only change must reach the client.
-    let agg = StateAggregator::new();
     let before = crate::TmuxWindow {
         id: wid("@0"),
         index: 0,
@@ -32,11 +31,11 @@ fn a_window_whose_index_moved_is_in_the_delta() {
     let mut after = before.clone();
     after.index = 3;
     after.active_pane_id = Some(pid("%7"));
-    let delta = agg.compute_window_delta(&before, &after);
+    let delta = super::delta_emit::window_delta(&before, &after);
     assert_eq!(delta.index, Some(3));
     assert_eq!(delta.active_pane_id, Some(Some(pid("%7"))));
     assert!(!delta.is_empty());
-    assert!(agg.compute_window_delta(&before, &before).is_empty());
+    assert!(super::delta_emit::window_delta(&before, &before).is_empty());
 }
 
 #[test]
@@ -305,7 +304,7 @@ fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
     // @id,index,active,type(empty),float*,zoomed,name
     agg.parse_list_windows_line(&window_row("@5", 0, true, "shell").build());
 
-    let cmds = agg.collect_window_tag_commands();
+    let cmds = agg.window_setup_commands();
     assert!(
         cmds.iter().any(|c| c.contains("pane-border-status top")),
         "tab needs pane-border enforcement: {cmds:?}"
@@ -315,7 +314,7 @@ fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
         "a tab must never be tagged: {cmds:?}"
     );
     // Idempotent — already enforced, so nothing new.
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 
     // Emitted as a tab despite carrying no marker.
     let state = agg.to_tmux_state();

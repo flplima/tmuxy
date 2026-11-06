@@ -1,25 +1,9 @@
 use super::*;
 
-/// Size one window, having first made sure tmux will let us.
-///
-/// `window-size` and `aggressive-resize` are WINDOW options. The pair set at
-/// attach reaches only whichever window was current then, so every other one
-/// keeps tmux's default `window-size latest` — under which tmux sizes the
-/// window to the latest attached client and undoes the `resizew`. The
-/// control-mode PTY is 200x50, which is exactly the grid a phone-width client
-/// was left stuck with.
-///
-/// Sent per window, immediately before its resize: idempotent, and it needs no
-/// bookkeeping about which windows have been seen.
-pub(super) fn window_sizing_commands(
-    window_id: &WindowId,
-    (cols, rows): (u32, u32),
-) -> [String; 3] {
-    [
-        format!("setw -t {window_id} window-size manual"),
-        format!("setw -t {window_id} aggressive-resize off"),
-        format!("resizew -t {window_id} -x {cols} -y {rows}"),
-    ]
+/// Size one window. The window was set to `window-size manual` when the
+/// aggregator first saw it (`window_setup_commands`), so tmux keeps the size.
+pub(super) fn resize_command(window_id: &WindowId, (cols, rows): (u32, u32)) -> String {
+    format!("resizew -t {window_id} -x {cols} -y {rows}")
 }
 
 /// The `resizew` that gives a freshly attached session the initial PTY size.
@@ -168,20 +152,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
             self.resize_given_up.remove(wid);
         }
 
-        // `window-size` and `aggressive-resize` are WINDOW options, and the
-        // pair set at attach (`sync_initial_state`, `enforce_settings`) reached
-        // only the window that happened to be current then. Any other window —
-        // a tab made later, or simply a different one at attach — kept tmux's
-        // default `window-size latest`, under which tmux sizes the window to
-        // the latest attached client and undoes the `resizew` below: the
-        // control-mode PTY is 200x50, which is exactly the grid a phone-width
-        // client was stuck with (`targetCols: 41, totalWidth: 200`).
-        //
-        // Setting it per window, immediately before the resize, is idempotent
-        // and needs no bookkeeping about which windows have been seen.
         let cmds: Vec<String> = pending
             .iter()
-            .flat_map(|(wid, size)| window_sizing_commands(wid, *size))
+            .map(|(wid, size)| resize_command(wid, *size))
             .collect();
         debug!(
             count = pending.len(),

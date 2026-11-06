@@ -141,9 +141,8 @@ pub enum SideEffect {
     /// After a window-add event, refresh both list-panes and list-windows.
     /// Order is load-bearing (see `refresh_after_window_add`).
     RefreshAfterWindowAdd,
-    /// Auto-adopt every untagged window with the supplied `set-option`
-    /// commands. Idempotent — `collect_window_tag_commands` skips already
-    /// tagged windows.
+    /// Set up the windows with the supplied `set-option` commands
+    /// (`window_setup_commands`): once per window and kind.
     AdoptUntaggedWindows(Vec<String>),
     /// Indicate the runtime should emit a state update if the aggregator has
     /// one queued. The variant carries the `ChangeType` so the runtime can
@@ -206,9 +205,9 @@ pub struct StateAggregator {
     active_window_id: Option<WindowId>,
 
     /// Pane IDs with a capture-pane command in flight. Used for de-duplication
-    /// (don't send a second capture while one is pending) and to preserve the
-    /// previous content of a resized pane until its capture lands (see
-    /// `to_state_update`). Response ROUTING does not use this — every capture
+    /// (don't send a second capture while one is pending) and to hold the
+    /// first state back until the initial captures land
+    /// (`initial_state_ready`). Response ROUTING does not use this — every capture
     /// is bracketed by `TMUXY_CAP_BEGIN <token> <pane>` / `TMUXY_CAP_END <token>`
     /// marker responses (see `Markers`), so a capture block is attributed to
     /// its pane exactly, never by arrival order or output-shape guessing.
@@ -288,16 +287,10 @@ pub struct StateAggregator {
     /// visible member by its window id (a stash window is never the active one).
     stash_members: HashMap<PaneId, StashMember>,
 
-    /// Window ids that have had `pane-border-status top` enforced. Tabs no
-    /// longer carry a `@tmuxy-window-type` marker (untagged ⇒ tab, derived at
-    /// emit), so there's no per-window tmux flag to make the enforcement
-    /// idempotent — this in-memory set does, applying the border settings once
-    /// per window per connection.
-    border_enforced: std::collections::HashSet<WindowId>,
-    /// Sidebar windows whose pane border has been switched off. `pane-border-status
-    /// top` is a GLOBAL window option (every new window inherits it), so a sidebar
-    /// needs it turned off explicitly whether or not it was first adopted as a tab.
-    sidebar_border_cleared: std::collections::HashSet<WindowId>,
+    /// What each window has been set up as on this connection
+    /// (`window_setup_commands`): tabs carry no marker to gate the setup on,
+    /// so this is what makes it once per window.
+    window_setup: HashMap<WindowId, window_state::WindowSetup>,
 
     /// Compound-command settling state. When armed (`settling_until.is_some()`),
     /// window/layout emissions are suppressed and the aggregator's `tick(now)`
@@ -342,8 +335,7 @@ impl StateAggregator {
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
             stash_members: HashMap::new(),
-            border_enforced: std::collections::HashSet::new(),
-            sidebar_border_cleared: std::collections::HashSet::new(),
+            window_setup: HashMap::new(),
             settling_until: None,
             settling_started: None,
             settling_awaiting_first_event: false,
@@ -370,7 +362,6 @@ mod command_response;
 mod delta_emit;
 mod events;
 mod markers;
-mod pane_output;
 mod pane_state;
 mod parsing;
 mod stash_and_helpers;

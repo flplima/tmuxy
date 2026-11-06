@@ -1,6 +1,16 @@
 use super::*;
 use crate::{PaneId, WindowId};
 
+/// How many panes not yet in the state may have their `%output` kept for
+/// them (a split's output lands before the layout that creates the pane):
+/// a burst of splits is a handful, anything past this is not a split.
+const MAX_EARLY_OUTPUT_PANES: usize = 32;
+
+/// How much of such a pane's output is kept, newest last: a shell's first
+/// prompt and then some. The capture the new pane gets refills its screen
+/// anyway; this only spares it a blank first frame.
+const MAX_EARLY_OUTPUT_BYTES: usize = 8192;
+
 impl StateAggregator {
     /// Like `step`, but accepts an explicit `now` so tests can drive the
     /// settling extension deterministically.
@@ -25,7 +35,7 @@ impl StateAggregator {
         // this, the frontend sees an untagged window until the next
         // state-changing event arrives — which can be 15s+ in CI under tmux
         // 3.4 when the CC stream is busy with sync_initial_state.
-        let tag_cmds = self.collect_window_tag_commands();
+        let tag_cmds = self.window_setup_commands();
         let tagged_any = !tag_cmds.is_empty();
         if tagged_any {
             effects.push(SideEffect::AdoptUntaggedWindows(tag_cmds));
@@ -207,29 +217,25 @@ impl StateAggregator {
                     .map(|(id, img)| (*id, img.clone()))
                     .collect();
                 // Drain any OSC 52 clipboard request the app emitted in this chunk.
-                let clipboard = pane.osc_parser.take_clipboard();
-                // ...and any OSC 0/2 title, applied HERE rather than waiting for
-                // tmux to report `pane_title` on the next list-panes. That only
-                // happens on a metadata sync or the 15-second idle heartbeat, so
-                // a program announcing a new title left the header showing the
-                // old one for up to fifteen seconds. tmux sees the same escape
-                // and agrees at the next poll; this only removes the lag.
-                if let Some(title) = pane.osc_parser.take_title() {
-                    pane.set_title(title);
-                }
+                let clipboard = pane.take_clipboard();
                 return (true, new_imgs, clipboard);
             }
         }
         // Buffer output for panes not yet created in state.
         // During split, %output can arrive before %layout-change creates the pane.
         // Cap per-pane buffer and total entry count to prevent unbounded growth.
-        if self.early_output.len() < 32 || self.early_output.contains_key(pane_id) {
+        if self.early_output.len() < MAX_EARLY_OUTPUT_PANES
+            || self.early_output.contains_key(pane_id)
+        {
             let buf = self.early_output.entry(pane_id.clone()).or_default();
             buf.extend(content);
-            if buf.len() > 8192 {
-                let start = buf.len() - 8192;
+            if buf.len() > MAX_EARLY_OUTPUT_BYTES {
+                let start = buf.len() - MAX_EARLY_OUTPUT_BYTES;
+                debug!(pane = %pane_id, dropped = start, "early output over its cap: oldest bytes dropped");
                 *buf = buf[start..].to_vec();
             }
+        } else {
+            debug!(pane = %pane_id, bytes = content.len(), "early output for one pane too many: dropped");
         }
         (false, Vec::new(), None)
     }
@@ -308,25 +314,15 @@ impl StateAggregator {
                 // Existing pane: update geometry and window assignment
                 pane.x = lp.x;
                 pane.y = lp.y;
-                // Detect pane moving between windows (e.g., break-pane, swap-pane).
-                // Reset the VT100 parser immediately to clear stale content from the
-                // old window. Without this, %output events that arrive before the
-                // capture-pane response would build on top of the stale buffer.
-                let moved_window = !pane.in_window(window_id);
-                pane.window_id = Some(window_id.clone());
                 pane.index = lp.index;
+                let moved_window = !pane.in_window(window_id);
                 let was_resized = pane.resize(lp.width, lp.height);
-                if moved_window && !was_resized {
-                    // resize() already resets VT100 when dimensions change.
-                    // When only the window changed (same dimensions), reset manually.
-                    pane.terminal = pane.fresh_terminal();
-                    pane.image_parser.reset();
-                    pane.content_dirty = true;
-                    pane.cached_content = None;
-                }
                 if moved_window {
-                    // Track that this pane moved windows so handle_output()
-                    // suppresses stale %output until capture-pane arrives.
+                    // A pane moving between windows (break-pane, swap-pane):
+                    // its grid is reset so %output that arrives before the
+                    // capture does not build on the old window's content, and
+                    // handle_output() holds that output until the capture.
+                    pane.move_to_window(window_id.clone());
                     self.panes_moved_window.insert(lp.id.clone());
                 }
                 if was_resized || moved_window {
@@ -362,7 +358,7 @@ impl StateAggregator {
 
         // Prune in-flight captures for panes that no longer exist — their
         // marker-routed responses are discarded on arrival, and a dead entry
-        // would freeze content preservation in to_state_update.
+        // would hold back `initial_state_ready` forever.
         self.prune_capture_bookkeeping();
 
         resized_panes

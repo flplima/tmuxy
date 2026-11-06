@@ -108,7 +108,7 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
             .set(WindowColumn::Collapsible, "0")
             .build(),
     );
-    let adopted = agg.collect_window_tag_commands();
+    let adopted = agg.window_setup_commands();
     assert!(
         adopted
             .iter()
@@ -122,7 +122,7 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
             .set(WindowColumn::WindowType, "sidebar-right")
             .build(),
     );
-    let corrected = agg.collect_window_tag_commands();
+    let corrected = agg.window_setup_commands();
     assert!(
         corrected
             .iter()
@@ -130,13 +130,13 @@ fn sidebar_loses_the_pane_border_a_tab_gets() {
         "the border must be taken back once the type lands: {corrected:?}"
     );
     // ...exactly once, and never re-enforced afterwards.
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 }
 
 /// The monitor re-lists windows right behind a create command, so a
-/// sidebar can be typed before it was ever adopted as a tab. The global
-/// `pane-border-status top` still applies to it, so the border must come
-/// off in that case too — it used to be skipped, leaving the pane a row short.
+/// sidebar can be typed before it was ever adopted as a tab. The border
+/// must come off in that case too — it used to be skipped, leaving the pane
+/// a row short when the window was made with one.
 #[test]
 fn sidebar_typed_on_arrival_still_loses_the_pane_border() {
     let mut agg = StateAggregator::new();
@@ -145,13 +145,13 @@ fn sidebar_typed_on_arrival_still_loses_the_pane_border() {
             .set(WindowColumn::WindowType, "sidebar-left")
             .build(),
     );
-    let cmds = agg.collect_window_tag_commands();
+    let cmds = agg.window_setup_commands();
     assert!(
         cmds.iter()
             .any(|c| c == "set-option -w -t @4 pane-border-status off"),
         "a sidebar typed on arrival must still drop the border row: {cmds:?}"
     );
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 }
 
 #[test]

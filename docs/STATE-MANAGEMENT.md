@@ -44,7 +44,7 @@ The typed envelope external code uses to drive the monitor (resize the window, r
 
 ### ControlModeConnection
 
-Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_command` / `send_commands_batch` for writes. `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
+Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_commands` for writes (a line each, one flush). `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
 
 See `tmuxy-core/src/control_mode/connection.rs`.
 

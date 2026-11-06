@@ -47,9 +47,7 @@ The native desktop menus (the macOS menu bar and the native popups) are built by
 
 ## `%unlinked-window-close` Events
 
-**Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows from **other sessions** sharing the same tmux server. The parser handles both event types (`parser.rs`), but `state.rs` intentionally **ignores** `UnlinkedWindowClose` events to avoid polluting the current session's state with events from other sessions.
-
-`%window-close` handles window removal for the current session. `%unlinked-window-close` is only relevant in multi-session environments and is correctly ignored.
+**Behavior:** tmux fires `%unlinked-window-close` (instead of `%window-close`) for windows that are not the current one, in **any session** sharing the same tmux server. The parser handles both event types (`parser.rs`). The aggregator (`control_mode/state/events.rs`) removes the window only when it already knows it — a window it listed is one of this session's — and ignores one it never saw, which belongs to another session.
 
 ## `pane_in_mode` Is Not "In Copy Mode"
 

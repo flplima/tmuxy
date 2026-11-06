@@ -240,18 +240,7 @@ impl StateAggregator {
                 lines = output.lines().filter(|l| !l.trim().is_empty()).count(),
                 "pane captured"
             );
-            // Normal mode: reset and reprocess the main terminal
-            pane.reset_and_process_capture(output.as_bytes());
-
-            // After processing capture output, the vt100 cursor
-            // is at the end of the content (last row). Reposition
-            // it to tmux's actual cursor position.
-            let cursor_seq = format!(
-                "\x1b[{};{}H",
-                pane.tmux_cursor_y + 1,
-                pane.tmux_cursor_x + 1
-            );
-            pane.terminal.process(cursor_seq.as_bytes());
+            pane.apply_capture(output.as_bytes());
         }
         ProcessEventResult {
             state_changed: true,

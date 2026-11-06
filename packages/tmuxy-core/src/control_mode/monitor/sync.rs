@@ -6,7 +6,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
     pub async fn sync_initial_state(&mut self) -> Result<(), TmuxError> {
         // Set window-size to manual BEFORE resizing, so the resize doesn't
         // trigger SIGWINCH to the shell (which causes prompt redraw %output
-        // that races with our capture-pane responses).
+        // that races with our capture-pane responses). Only the current
+        // window, which the attach-time resize below reaches; every window
+        // is set up on its own once it is listed (`window_setup_commands`).
         self.connection
             .send_commands(&["set window-size manual"])
             .await?;
@@ -96,12 +98,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
     /// effect immediately, regardless of what the user's config file contains.
     /// This does NOT modify any config file on disk.
     pub(super) async fn enforce_settings(&mut self) -> Result<(), TmuxError> {
+        // The window options (borders, sizing) are set on each window as the
+        // aggregator first sees it (`window_setup_commands`).
         let settings = [
-            // CRITICAL: PaneLayout assumes border-status top — without it,
-            // y=0 panes lose 1 row of content (the header steals from terminal area).
-            ("pane-border-status", "top"),
-            // Blank border format so the row is visually empty behind PaneHeader.
-            ("pane-border-format", " "),
             // Mouse support for click-to-focus, scrolling, and selection.
             ("mouse", "on"),
             // Focus events for applications like vim/neovim.
@@ -119,9 +118,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
         ];
 
         for (key, value) in &settings {
-            // Session-level (not -g) to avoid a tmux 3.5a bug where global
-            // settings + control mode + new-session -d crashes the server.
-            // Each session's monitor enforces its own settings on connect.
+            // Session-level (not -g): docs/TMUX-CONFIG.md records a tmux 3.5a
+            // crash with global settings under control mode. Each session's
+            // monitor enforces its own settings on connect.
             let cmd = format!("set {} '{}'", key, value);
             self.connection.send_commands(&[&cmd]).await?;
         }
@@ -137,21 +136,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
 
         for (key, value) in &newer_settings {
             let cmd = format!("set -q {} '{}'", key, value);
-            self.connection.send_commands(&[&cmd]).await?;
-        }
-
-        // window-size manual is set earlier in sync_initial_state() before resizew,
-        // so that the resize doesn't trigger SIGWINCH prompt redraws.
-
-        // Window-level settings (setw, deliberately WITHOUT -g — see below)
-        let window_settings = [
-            // Disable aggressive-resize — tmuxy manages sizing.
-            ("aggressive-resize", "off"),
-        ];
-
-        for (key, value) in &window_settings {
-            // Session-level to avoid tmux 3.5a global+CC crash.
-            let cmd = format!("setw {} {}", key, value);
             self.connection.send_commands(&[&cmd]).await?;
         }
 

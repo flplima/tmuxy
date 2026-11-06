@@ -192,45 +192,46 @@ fn list_panes_leaves_an_unasked_pane_without_a_question() {
 fn pane_delta_carries_a_changed_ask() {
     // The question appearing and being answered both have to reach the
     // client through the delta pass — the overlay is drawn from it.
-    let agg = StateAggregator::new();
     let prev = tmux_pane("%3");
     let mut asking = prev.clone();
     asking.pane_ask = Some("eyJ0b2tlbiI6ImExIn0=".to_string());
 
     assert_eq!(
-        agg.compute_pane_delta(&prev, &asking).pane_ask,
+        super::delta_emit::pane_delta(&prev, &asking).pane_ask,
         Some(Some("eyJ0b2tlbiI6ImExIn0=".to_string()))
     );
     // Answering unsets the option, which must clear it on the client.
     assert_eq!(
-        agg.compute_pane_delta(&asking, &prev).pane_ask,
+        super::delta_emit::pane_delta(&asking, &prev).pane_ask,
         Some(None),
         "an answered question has to clear, not linger"
     );
-    assert_eq!(agg.compute_pane_delta(&asking, &asking).pane_ask, None);
+    assert_eq!(
+        super::delta_emit::pane_delta(&asking, &asking).pane_ask,
+        None
+    );
 }
 
 #[test]
 fn pane_delta_carries_a_changed_pane_state() {
     // An agent moving from working to needs-input has to reach the client
     // through the delta pass, not just the initial snapshot.
-    let agg = StateAggregator::new();
     let mut prev = tmux_pane("%3");
     prev.pane_state = Some("working".to_string());
     let mut curr = prev.clone();
     curr.pane_state = Some("needs-input".to_string());
 
-    let delta = agg.compute_pane_delta(&prev, &curr);
+    let delta = super::delta_emit::pane_delta(&prev, &curr);
     assert_eq!(delta.pane_state, Some(Some("needs-input".to_string())));
 
     // An agent clearing the option on exit clears it on the client too.
     let mut cleared = curr.clone();
     cleared.pane_state = None;
-    let clearing = agg.compute_pane_delta(&curr, &cleared);
+    let clearing = super::delta_emit::pane_delta(&curr, &cleared);
     assert_eq!(clearing.pane_state, Some(None));
 
     // ...and an unchanged pane puts nothing on the wire.
-    assert_eq!(agg.compute_pane_delta(&curr, &curr).pane_state, None);
+    assert_eq!(super::delta_emit::pane_delta(&curr, &curr).pane_state, None);
 }
 
 #[test]
@@ -238,16 +239,15 @@ fn pane_delta_carries_a_changed_title() {
     // A pane header shows the app's own title, so a title change has to
     // survive the delta pass — it used to be dropped, leaving the client
     // stuck on whatever title the initial snapshot carried.
-    let agg = StateAggregator::new();
     let mut prev = tmux_pane("%3");
     prev.title = "old".to_string();
     let mut curr = prev.clone();
     curr.title = "✳ new title".to_string();
 
-    let delta = agg.compute_pane_delta(&prev, &curr);
+    let delta = super::delta_emit::pane_delta(&prev, &curr);
     assert_eq!(delta.title.as_deref(), Some("✳ new title"));
 
-    let unchanged = agg.compute_pane_delta(&curr, &curr);
+    let unchanged = super::delta_emit::pane_delta(&curr, &curr);
     assert_eq!(
         unchanged.title, None,
         "an unchanged title stays off the wire"

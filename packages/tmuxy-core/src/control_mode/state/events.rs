@@ -57,8 +57,7 @@ impl StateAggregator {
             ControlModeEvent::UnlinkedWindowClose { window_id } => {
                 if self.windows.contains_key(&window_id) {
                     self.windows.remove(&window_id);
-                    self.border_enforced.remove(&window_id);
-                    self.sidebar_border_cleared.remove(&window_id);
+                    self.window_setup.remove(&window_id);
                     self.panes.retain(|_, p| !p.in_window(&window_id));
                     self.prune_capture_bookkeeping();
                     ProcessEventResult {
@@ -88,8 +87,7 @@ impl StateAggregator {
 
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
-                self.border_enforced.remove(&window_id);
-                self.sidebar_border_cleared.remove(&window_id);
+                self.window_setup.remove(&window_id);
                 self.panes.retain(|_, p| !p.in_window(&window_id));
                 self.prune_capture_bookkeeping();
                 ProcessEventResult {
