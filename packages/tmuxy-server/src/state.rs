@@ -14,7 +14,6 @@ use crate::request_guard::HostPolicy;
 
 mod handlers;
 pub(crate) use handlers::build_response;
-pub use handlers::find_workspace_root;
 use handlers::image_handler;
 
 #[cfg(test)]

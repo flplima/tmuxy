@@ -92,44 +92,29 @@ pub fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
 }
 
 /// The directory a host-created session starts in, and so every new tab's
-/// cwd: the checkout when run from one (the dev loop lives there), else the
-/// home directory. Never the process cwd: an AppImage runs from its mount
-/// (`/tmp/.mount_tmuxy…/usr`), and an app opened from Finder or a launcher
-/// runs from `/`.
+/// cwd: `TMUXY_START_DIR` when set (the dev loop sets the checkout), else the
+/// home directory. Never the process cwd while there is a home: an AppImage
+/// runs from its mount (`/tmp/.mount_tmuxy…/usr`), and an app opened from
+/// Finder or a launcher runs from `/`.
 pub fn session_start_dir() -> std::path::PathBuf {
     session_start_dir_from(
-        checkout_root(),
+        std::env::var_os("TMUXY_START_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map(std::path::PathBuf::from),
         std::env::var_os("HOME").map(std::path::PathBuf::from),
         std::env::current_dir().ok(),
     )
 }
 
 fn session_start_dir_from(
-    checkout: Option<std::path::PathBuf>,
+    asked: Option<std::path::PathBuf>,
     home: Option<std::path::PathBuf>,
     cwd: Option<std::path::PathBuf>,
 ) -> std::path::PathBuf {
-    checkout
+    asked
         .or(home)
         .or(cwd)
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-}
-
-/// The repository root when the process runs from a checkout: the nearest
-/// ancestor whose package.json declares "workspaces" (a package's own does not).
-pub fn checkout_root() -> Option<std::path::PathBuf> {
-    let mut current = std::env::current_dir().ok()?;
-    loop {
-        let pkg_json = current.join("package.json");
-        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-            if content.contains("\"workspaces\"") {
-                return Some(current);
-            }
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }
 
 /// The machine's host name for the status line. The web client cannot use
@@ -156,7 +141,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn a_checkout_wins_so_the_dev_loop_starts_in_the_repo() {
+    fn the_asked_directory_wins_so_the_dev_loop_starts_in_the_repo() {
         let dir = session_start_dir_from(
             Some(PathBuf::from("/src/tmuxy")),
             Some(PathBuf::from("/home/u")),
@@ -165,8 +150,11 @@ mod tests {
         assert_eq!(dir, PathBuf::from("/src/tmuxy"));
     }
 
+    /// A process started under any JS monorepo (a `package.json` with
+    /// `"workspaces"` above its cwd) used to start its sessions at that
+    /// repository's root: the dev loop's rule, sniffed in production.
     #[test]
-    fn outside_a_checkout_the_home_directory_not_the_process_cwd() {
+    fn unasked_the_home_directory_not_the_process_cwd() {
         let dir = session_start_dir_from(
             None,
             Some(PathBuf::from("/home/u")),
