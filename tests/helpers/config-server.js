@@ -87,7 +87,6 @@ const iconSetFor = (name) => iconsSet.push(name);
 
 module.exports = {
   CONFIG_URL,
-  CONFIG_HOME,
   CONFIG_DIR,
   DATA_DIR,
   STATE_DIR,

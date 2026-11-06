@@ -16,7 +16,6 @@ const {
   openSidebarKeyboard,
   createWindowKeyboard,
   clickPaneGroupAdd,
-  clickGroupTabAdd,
   getGroupTabCount,
   clickGroupTab,
   clickGroupTabClose,
@@ -218,7 +217,7 @@ describe('Scenario 5: Pane Groups', () => {
     expect(selectedTab.index).toBe(otherIdx);
 
     // Step 9: Add 3rd tab
-    await clickGroupTabAdd(ctx.page);
+    await clickPaneGroupAdd(ctx.page);
     await waitForGroupTabs(ctx.page, 3);
     expect(await getGroupTabCount(ctx.page)).toBe(3);
 

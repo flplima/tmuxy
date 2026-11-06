@@ -190,4 +190,4 @@ function comparable(shape) {
   };
 }
 
-module.exports = { isolatedServer, shapeOf, layoutTree, comparable };
+module.exports = { isolatedServer, shapeOf, comparable };

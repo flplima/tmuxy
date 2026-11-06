@@ -360,7 +360,6 @@ module.exports = {
   waitForKeybindings,
   waitForPrefixActive,
   waitForPrefixConsumed,
-  sendTmuxPrefix,
   sendPrefixCommand,
   openSidebarKeyboard,
   typeInTerminal,
