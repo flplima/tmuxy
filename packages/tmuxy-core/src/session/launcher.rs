@@ -81,7 +81,7 @@ pub fn server_command_env() -> Vec<String> {
 }
 
 pub(super) fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Vec<String> {
-    let quote = crate::executor::tmux_quote;
+    let quote = crate::tmux_quote;
     vec![
         format!(
             "set-environment -g {SERVER_BIN_ENV} {}",

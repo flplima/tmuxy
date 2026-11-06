@@ -178,6 +178,41 @@ impl StateAggregator {
         queued
     }
 
+    /// The batch that refreshes `pane_ids`: `list-panes` and the stash, then
+    /// a capture of each pane not already being captured (M3). A pane in copy
+    /// mode scrolled back is captured over the rows it shows.
+    pub fn pane_refresh_commands(&mut self, pane_ids: &[PaneId]) -> Vec<String> {
+        let queued = self.queue_captures(pane_ids);
+        let mut commands = self.markers.pane_refresh_commands(&[]);
+        for pane_id in &queued {
+            let scrolled = self
+                .panes
+                .get(pane_id)
+                .filter(|p| p.in_mode && p.scroll_position > 0);
+            commands.push(match scrolled {
+                Some(p) => {
+                    let end = -i64::from(p.scroll_position);
+                    let start = end - i64::from(p.height) + 1;
+                    self.markers.capture_command_range(pane_id, start, end)
+                }
+                None => self.markers.capture_command(pane_id),
+            });
+        }
+        commands
+    }
+
+    /// The copy-mode poll: every pane in copy mode refreshed, so its cursor
+    /// and the rows it is scrolled to follow the keys at once.
+    pub fn copy_mode_poll_commands(&mut self) -> Vec<String> {
+        let panes: Vec<PaneId> = self
+            .panes
+            .values()
+            .filter(|p| p.in_mode && p.window_id.is_some())
+            .map(|p| p.id.clone())
+            .collect();
+        self.pane_refresh_commands(&panes)
+    }
+
     /// Forget the in-flight and follow-up captures of panes that are gone:
     /// their marker-routed responses are discarded on arrival, and a dead
     /// entry would hold back `initial_state_ready` forever.
@@ -309,15 +344,6 @@ impl StateAggregator {
         self.panes.values().any(|p| p.in_mode)
     }
 
-    /// Get copy mode pane info: (pane_id, scroll_position, height) for building capture-pane commands
-    pub fn get_copy_mode_pane_info(&self) -> Vec<(PaneId, u32, u32)> {
-        self.panes
-            .values()
-            .filter(|p| p.in_mode && p.window_id.is_some())
-            .map(|p| (p.id.clone(), p.scroll_position, p.height))
-            .collect()
-    }
-
     /// Sans-IO entry point. Drives the aggregator with one control-mode event
     /// and returns a `StepResult` describing every I/O action the runtime must
     /// perform plus the `change_type` of this step.
@@ -382,13 +408,20 @@ impl WindowSetup {
 fn window_setup(id: &WindowId, before: Option<WindowSetup>, now: WindowSetup) -> Vec<String> {
     let mut cmds = Vec::new();
     if before.is_none() {
-        // tmuxy sizes every window itself (`apply_client_size`). Under
+        // tmuxy sizes every window itself (`MonitorCore::set_client_size`). Under
         // tmux's default `window-size latest`, tmux sizes the window to the
         // latest attached client and undoes the `resizew`: the control-mode
         // PTY is 200x50, which is exactly the grid a phone-width client was
         // left stuck with.
         cmds.push(format!("set-option -w -t {id} window-size manual"));
         cmds.push(format!("set-option -w -t {id} aggressive-resize off"));
+        // A program may name its pane (OSC 0/2), which is how a pane header
+        // shows what runs in it.
+        cmds.push(format!("set-option -w -t {id} allow-rename on"));
+        // OSC passthrough, for hyperlinks, images and the rest. tmux 3.3
+        // added the option (`-q`: 3.2 has none, and passes them through
+        // unconditionally).
+        cmds.push(format!("set-option -wq -t {id} allow-passthrough on"));
     }
     if before == Some(now) {
         return cmds;

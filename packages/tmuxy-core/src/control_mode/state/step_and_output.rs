@@ -27,79 +27,69 @@ impl StateAggregator {
         );
         let mut result = self.process_event(event);
         let mut effects = Vec::new();
+        let send = |batch, commands: Vec<String>| SideEffect::Send { batch, commands };
 
-        // Auto-adopt before anything else so emissions reflect tagged state.
+        // Window setup before anything else so emissions reflect tagged state.
         // When we tag windows on a step where process_event reported
         // state_changed=false (e.g. WindowAdd, which intentionally defers its
         // own emit), promote the step to a window-typed state change. Without
         // this, the frontend sees an untagged window until the next
         // state-changing event arrives — which can be 15s+ in CI under tmux
         // 3.4 when the CC stream is busy with sync_initial_state.
-        let tag_cmds = self.window_setup_commands();
-        let tagged_any = !tag_cmds.is_empty();
-        if tagged_any {
-            effects.push(SideEffect::AdoptUntaggedWindows(tag_cmds));
+        let setup = self.window_setup_commands();
+        if !setup.is_empty() {
+            effects.push(send(Batch::WindowSetup, setup));
             if !result.state_changed {
                 result.state_changed = true;
                 result.change_type = ChangeType::Window;
             }
         }
 
-        // Image / clipboard / notice side effects fire before list-pane
-        // refreshes, so a consumer has the images and the clipboard by the
-        // time the refreshed panes arrive.
-        for (pane_id, images) in result.new_images.iter() {
+        // Images, clipboard writes and notices before the refreshes, so a
+        // consumer has the images and the clipboard by the time the
+        // refreshed panes arrive.
+        for (pane_id, images) in std::mem::take(&mut result.new_images) {
             if !images.is_empty() {
-                effects.push(SideEffect::StoreImages {
-                    pane_id: pane_id.clone(),
-                    images: images.clone(),
-                });
+                effects.push(SideEffect::Notify(Notice::Images { pane_id, images }));
             }
         }
-        for (pane_id, text) in result.clipboard_writes.iter() {
-            effects.push(SideEffect::WriteClipboard {
-                pane_id: pane_id.clone(),
-                text: text.clone(),
-            });
+        for (pane_id, text) in std::mem::take(&mut result.clipboard_writes) {
+            effects.push(SideEffect::Notify(Notice::Clipboard { pane_id, text }));
         }
-        for text in result.messages.iter() {
-            effects.push(SideEffect::ShowMessage(text.clone()));
+        for text in std::mem::take(&mut result.messages) {
+            effects.push(SideEffect::Notify(Notice::Message(text)));
         }
-        for cmd in result.commands.iter() {
-            effects.push(SideEffect::SendTmuxCommand(cmd.clone()));
+        if !result.commands.is_empty() {
+            effects.push(send(Batch::Own, std::mem::take(&mut result.commands)));
         }
-        for (id, output, error) in result.command_replies.iter() {
-            effects.push(SideEffect::CommandReply {
-                id: *id,
-                output: output.clone(),
-                error: error.clone(),
-            });
+        for (id, output, error) in std::mem::take(&mut result.command_replies) {
+            effects.push(SideEffect::Reply { id, output, error });
         }
 
         if is_window_add {
-            effects.push(SideEffect::RefreshAfterWindowAdd);
+            effects.push(send(
+                Batch::WindowRelist,
+                self.markers.window_relist_commands().to_vec(),
+            ));
         }
-
         if !result.panes_needing_refresh.is_empty() {
-            effects.push(SideEffect::RefreshPanes {
-                pane_ids: result.panes_needing_refresh.clone(),
-            });
+            let refresh = self.pane_refresh_commands(&result.panes_needing_refresh);
+            effects.push(send(Batch::PaneRefresh, refresh));
         }
-
-        if let ChangeType::FlowPause { ref pane_id } = result.change_type {
-            effects.push(SideEffect::ResumePane(pane_id.clone()));
+        if let Some(pane_id) = result.resume.take() {
+            effects.push(send(
+                Batch::Resume,
+                vec![format!("refresh-client -A '{pane_id}:continue'")],
+            ));
         }
-
         if result.state_changed {
-            effects.push(SideEffect::EmitState {
-                change: result.change_type.clone(),
-            });
+            effects.push(SideEffect::Emit(result.change_type));
         }
 
         // Extend settling AFTER computing effects — extension is driven by the
         // computed `change_type`, including the suppressed `state_changed=false`
         // case where settling still needs to be kept alive.
-        self.maybe_extend_settling(&result.change_type, now);
+        self.maybe_extend_settling(result.change_type, now);
 
         StepResult {
             effects,
@@ -129,7 +119,7 @@ impl StateAggregator {
             // Nothing to emit; just leave the aggregator unsuppressed.
             return None;
         }
-        Some(ChangeType::Full)
+        Some(ChangeType::Other)
     }
 
     /// The pane a keystroke would reach: the active pane of the active window.
@@ -173,7 +163,7 @@ impl StateAggregator {
             state_changed: changed,
             panes_needing_refresh: Vec::new(),
             change_type: if changed {
-                ChangeType::PaneOutput { pane_id }
+                ChangeType::Output
             } else {
                 ChangeType::None
             },

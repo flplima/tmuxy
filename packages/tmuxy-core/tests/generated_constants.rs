@@ -156,13 +156,16 @@ fn guest_layout() -> Layout {
 fn guest_json() -> String {
     let layout = guest_layout();
     let path = |p: PathBuf| p.display().to_string();
+    // Keys in sorted order: serde_json keeps insertion order when another
+    // crate of the build turns on its `preserve_order`, and sorts otherwise,
+    // so only a sorted literal reads the same both ways.
     let value = serde_json::json!({
         "_generated": HEADER.lines().collect::<Vec<_>>(),
         "configDir": path(layout.config.clone()),
         "dataDir": path(layout.data.clone()),
-        "stateDir": path(layout.state.clone()),
         "entryConf": path(layout.entry_conf()),
         "entryConfText": tmuxy_core::session::guest_entry_conf(&layout),
+        "stateDir": path(layout.state.clone()),
     });
     format!(
         "{}\n",

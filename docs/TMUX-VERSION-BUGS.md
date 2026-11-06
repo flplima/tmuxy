@@ -35,7 +35,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Where it's applied:**
 
-- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `rewrite_new_window_in_compound` and `new_window_rewrite` in `executor.rs`, the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
+- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `CommandList::rewrite_new_window` and `new_window_rewrite` in `tmux_command.rs` (the one tmux command-list grammar), the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
 - `packages/tmuxy-cli/bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
@@ -123,9 +123,9 @@ Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'tex
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
 | `#(date)` | `#(date)` (command formats not run) |
 
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The in-browser guest clients do this in `toControlModeCommand` (`tmuxy-ui/src/infra/transport/drivers/guest/GuestTmuxAdapter.ts`).
+Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The router does this for every transport (`split_format_literals` in `packages/tmuxy-core/src/tmux_compat.rs`, applied by `command_router::route_command`); the in-browser guests route through the same function, compiled to wasm.
 
-The native control-mode path does not need it: a `#{pane_id}` typed at the prompt reaches the shell verbatim on 3.8 and on every tmux the per-commit and nightly suites run, which `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks on each of them. Should a tmux ever expand it there, that test is where it shows.
+The native control-mode path has not been seen to expand typed text: a `#{pane_id}` typed at the prompt reaches the shell verbatim on 3.8 and on every tmux the per-commit and nightly suites run, which `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks on each of them. The split costs nothing there, and one rule for every transport means a tmux that starts expanding is covered already.
 
 ### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
 

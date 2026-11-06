@@ -260,7 +260,6 @@ export const StateUpdate = Schema.Union(
   Schema.Struct({ type: Schema.Literal('delta'), delta: ServerDelta }),
 );
 export type StateUpdate = Schema.Schema.Type<typeof StateUpdate>;
-export type StateUpdateEncoded = Schema.Schema.Encoded<typeof StateUpdate>;
 
 // ============================================
 // Other server events

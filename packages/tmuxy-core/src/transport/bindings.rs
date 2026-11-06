@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::control_mode::{MonitorCommandSender, StoredImage, MAX_CLIPBOARD_BYTES};
-use crate::executor::tmux_quote;
+use crate::tmux_quote;
 use crate::{CommandError, PaneId};
 
 use super::{query, run};

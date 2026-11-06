@@ -14,7 +14,7 @@
 
 use proptest::prelude::*;
 use std::collections::HashSet;
-use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{Batch, ChangeType, ControlModeEvent, SideEffect, StateAggregator};
 use tmuxy_core::{PaneId, WindowId};
 
 mod common_aggregator_props;
@@ -60,15 +60,15 @@ fn the_seam_events_reach_every_effect_of_a1() {
         }
     }
     for kind in [
-        "AdoptUntaggedWindows",
-        "StoreImages",
-        "WriteClipboard",
-        "SendTmuxCommand",
-        "CommandReply",
-        "RefreshAfterWindowAdd",
-        "RefreshPanes",
-        "ResumePane",
-        "EmitState",
+        "Send(WindowSetup)",
+        "Notify(Images)",
+        "Notify(Clipboard)",
+        "Send(Own)",
+        "Reply",
+        "Send(WindowRelist)",
+        "Send(PaneRefresh)",
+        "Send(Resume)",
+        "Emit",
     ] {
         assert!(seen.contains(kind), "no event reached {kind}: {seen:?}");
     }
@@ -130,7 +130,7 @@ proptest! {
         prop_assert!(!agg.is_settling());
     }
 
-    /// State-delta consistency: every `EmitState` effect must carry a non-None
+    /// State-delta consistency: every `Emit` effect must carry a non-None
     /// change_type that matches the step's overall change_type. Catches the
     /// regression where a refactor of `step` drops the change-type plumbing
     /// and the monitor's throttle policy starts treating layout changes as
@@ -143,19 +143,19 @@ proptest! {
         for ev in events {
             let result = agg.step(ev);
             for effect in &result.effects {
-                if let SideEffect::EmitState { change } = effect {
+                if let SideEffect::Emit(change) = effect {
                     prop_assert_ne!(change.clone(), ChangeType::None,
-                        "EmitState must carry a real change type");
+                        "Emit must carry a real change type");
                     prop_assert_eq!(change.clone(), result.change_type.clone(),
-                        "EmitState change must match step's reported change_type");
+                        "Emit change must match step's reported change_type");
                 }
             }
         }
     }
 
     /// Window-add ↔ capture-pane reconciliation: every WindowAdd step must
-    /// emit RefreshAfterWindowAdd, and that effect type must arrive BEFORE
-    /// any EmitState in the same step (so the monitor issues list-panes
+    /// emit the window re-list, and that effect type must arrive BEFORE
+    /// any Emit in the same step (so the monitor issues list-panes
     /// before tmux can race a layout-change emission). Catches a regression
     /// where the SideEffect ordering documented in `state::SideEffect` gets
     /// inverted.
@@ -174,14 +174,14 @@ proptest! {
             window_id: window_id.parse().unwrap(),
         });
         let refresh_idx = result.effects.iter().position(|e|
-            matches!(e, SideEffect::RefreshAfterWindowAdd));
+            matches!(e, SideEffect::Send { batch: Batch::WindowRelist, .. }));
         let emit_idx = result.effects.iter().position(|e|
-            matches!(e, SideEffect::EmitState { .. }));
+            matches!(e, SideEffect::Emit(_)));
         prop_assert!(refresh_idx.is_some(),
-            "WindowAdd must emit RefreshAfterWindowAdd");
+            "WindowAdd must emit the window re-list");
         if let (Some(r), Some(e)) = (refresh_idx, emit_idx) {
             prop_assert!(r < e,
-                "RefreshAfterWindowAdd ({}) must precede EmitState ({}) in effect order",
+                "the window re-list ({}) must precede Emit ({}) in effect order",
                 r, e);
         }
     }
@@ -231,7 +231,7 @@ proptest! {
             "re-queueing the same ids should be a no-op");
     }
 
-    /// When window emissions are suppressed, no SideEffect::EmitState should
+    /// When window emissions are suppressed, no SideEffect::Emit should
     /// fire for window/layout events. Mirrors the settling-window behaviour
     /// the monitor relies on to batch compound-command intermediates.
     #[test]
@@ -251,7 +251,7 @@ proptest! {
         for w in &window_ids {
             let result = agg.step_at(ControlModeEvent::WindowClose { window_id: w.clone() }, t0);
             let has_emit = result.effects.iter().any(|e|
-                matches!(e, SideEffect::EmitState { .. }));
+                matches!(e, SideEffect::Emit(_)));
             prop_assert!(!has_emit,
                 "WindowClose under suppression must not emit; got effects: {:?}",
                 result.effects);
@@ -300,7 +300,7 @@ proptest! {
                 t0 + std::time::Duration::from_millis(*off),
             );
             prop_assert!(
-                !result.effects.iter().any(|e| matches!(e, SideEffect::EmitState { .. })),
+                !result.effects.iter().any(|e| matches!(e, SideEffect::Emit(_))),
                 "a window event inside the settling window escaped: {:?}",
                 result.effects
             );
@@ -351,19 +351,21 @@ proptest! {
     #[test]
     fn a_capture_lands_on_its_pane_whatever_the_pane_shows(content in hostile_block()) {
         let mut agg = seeded_aggregator();
+        // The seed's own steps sent %1's capture, and asked for it again
+        // while it was in flight (the list, then the window focus): once
+        // the block lands as %1's, that second capture follows it.
         let pane: PaneId = "%1".parse().unwrap();
-        prop_assert_eq!(agg.queue_captures(std::slice::from_ref(&pane)), vec![pane.clone()]);
         agg.step(signed(&agg, response("TMUXY_CAP_BEGIN 1")));
         let landed = agg.step(response(&content));
+        prop_assert_eq!(landed.change_type, ChangeType::Output, "the block is a capture");
+        let follow_up = format!("capture-pane -t {pane} ");
         prop_assert!(
-            matches!(landed.change_type, ChangeType::PaneOutput { ref pane_id } if *pane_id == pane),
-            "the block is %1's capture: {:?}", landed.change_type
+            landed.effects.iter().any(|e| matches!(e,
+                SideEffect::Send { batch: Batch::PaneRefresh, commands }
+                    if commands.iter().any(|c| c.contains(&follow_up)))),
+            "the block was %1's capture, so %1 is free for the next: {:?}", landed.effects
         );
         agg.step(signed(&agg, response("TMUXY_CAP_END")));
-        prop_assert_eq!(
-            agg.queue_captures(std::slice::from_ref(&pane)), vec![pane],
-            "the capture is no longer pending, so the pane can be captured again"
-        );
     }
 
     /// A13: a reply is everything between its own markers. No block a pane
@@ -381,7 +383,7 @@ proptest! {
         let mut replies = Vec::new();
         for block in blocks {
             for effect in agg.step(block).effects {
-                if let SideEffect::CommandReply { id, output, error } = effect {
+                if let SideEffect::Reply { id, output, error } = effect {
                     replies.push((id, output, error));
                 }
             }

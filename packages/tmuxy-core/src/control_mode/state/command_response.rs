@@ -145,7 +145,7 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: true,
                     panes_needing_refresh: resized_panes,
-                    change_type: ChangeType::Full,
+                    change_type: ChangeType::Other,
                     commands,
                     ..Default::default()
                 }
@@ -244,7 +244,7 @@ impl StateAggregator {
         }
         ProcessEventResult {
             state_changed: true,
-            change_type: ChangeType::PaneOutput { pane_id },
+            change_type: ChangeType::Output,
             panes_needing_refresh,
             ..Default::default()
         }
