@@ -1,23 +1,11 @@
 /**
- * Blinking cursor stories, over a pane recorded from real tmux.
- *
- * What the user sees is the SmoothCursor overlay, not the pane's own cursor
- * element — that one is only the anchor the overlay glides to. So the blink
- * rides on a layer of its own inside the overlay (`.smooth-cursor-blink`),
- * because the glide rewrites the overlay root's and the glyph's opacity on
- * every frame.
- *
- * Two switches have to agree before anything winks:
- *
- *  - `@tmuxy-cursor-blink` from tmuxy.conf, carried in the appearance and put
- *    on the app container as `.app-cursor-blink`. View > Blinking Cursor flips
- *    it and the choice is written back to the config.
- *  - the running application's DECSCUSR request, mirrored onto the anchor as
- *    `.terminal-cursor-blink` and onto the overlay as `.is-blinking`. Shapes
- *    2, 4 and 6 ask for a steady cursor and get one either way.
- *
- * The assertions watch the real thing: a sampled `opacity` that actually
- * reaches 0 and comes back, not just the presence of a class.
+ * Blinking cursor, over a pane recorded from real tmux. What the user sees is
+ * the SmoothCursor overlay, so the blink rides on its own layer
+ * (`.smooth-cursor-blink`): the glide rewrites the overlay's and the glyph's
+ * opacity on every frame. It winks only when `@tmuxy-cursor-blink` (View >
+ * Blinking Cursor) and the application's DECSCUSR request agree; shapes 2, 4
+ * and 6 ask for a steady cursor. The assertions sample the painted opacity,
+ * not a class.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -60,7 +48,6 @@ function appContainer(canvasElement: HTMLElement): HTMLElement {
   return el;
 }
 
-/** The overlay layer the blink animates, once the cursor has found its pane. */
 async function blinkLayer(canvasElement: HTMLElement): Promise<HTMLElement> {
   return waitFor(
     () => {
@@ -75,9 +62,8 @@ async function blinkLayer(canvasElement: HTMLElement): Promise<HTMLElement> {
 }
 
 /**
- * Sample the layer's painted opacity across a little over one blink period.
- * A blinking cursor is fully on for half of it and fully off for the other
- * half; a steady one never leaves 1.
+ * Samples the layer's painted opacity across a little over one blink period:
+ * a blinking cursor is fully off for half of it, a steady one never leaves 1.
  */
 async function sampleOpacity(el: HTMLElement, ms = 1300): Promise<number[]> {
   const seen: number[] = [];
@@ -89,7 +75,6 @@ async function sampleOpacity(el: HTMLElement, ms = 1300): Promise<number[]> {
   return seen;
 }
 
-/** The app's appearance as tmuxy.conf pushes it, with `@tmuxy-cursor-blink` set to `blink`. */
 const pushAppearance = (blink: boolean) =>
   getApp().send({
     type: 'THEME_SETTINGS_RECEIVED',
@@ -97,10 +82,6 @@ const pushAppearance = (blink: boolean) =>
     mode: 'dark',
     appearance: { ...APPEARANCE, cursorBlink: blink },
   });
-
-// ---------------------------------------------------------------------------
-// On by default — the cursor winks out and comes back
-// ---------------------------------------------------------------------------
 
 export const BlinksByDefault: Story = {
   parameters: {
@@ -128,10 +109,6 @@ export const BlinksByDefault: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// The config and View > Blinking Cursor — both paths that flip it
-// ---------------------------------------------------------------------------
-
 export const ViewMenuTogglesTheBlink: Story = {
   parameters: {
     docs: {
@@ -149,21 +126,18 @@ export const ViewMenuTogglesTheBlink: Story = {
     const container = appContainer(canvasElement);
     expect(container.classList.contains('app-cursor-blink')).toBe(true);
 
-    // The config turns it off: the cursor holds solid for a whole period.
     pushAppearance(false);
     await waitFor(() => expect(container.classList.contains('app-cursor-blink')).toBe(false));
     expect(layer.getAnimations().length).toBe(0);
     const seen = await sampleOpacity(layer);
     expect(Math.min(...seen)).toBe(1);
 
-    // …and back on.
     pushAppearance(true);
     await waitFor(() => expect(container.classList.contains('app-cursor-blink')).toBe(true));
     expect(layer.getAnimations().length).toBeGreaterThan(0);
 
-    // The menu portals to document.body, so query there once it is open. The
-    // hamburger is the one in the status bar — each pane header has a menu
-    // button of its own with the same accessible name.
+    // The menu portals to document.body. The status bar's hamburger shares its
+    // accessible name with every pane header's menu button.
     const body = within(document.body);
     const hamburger = canvasElement.querySelector<HTMLElement>('.app-menu-button');
     if (!hamburger) throw new Error('.app-menu-button not found');

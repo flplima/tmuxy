@@ -4,18 +4,11 @@ import { ResizeGlitchRecorder } from './resizeGlitch';
 import { inputPause, tmuxCaughtUp, transitionsDone } from './tmuxBarrier';
 
 /**
- * Enter a command line by pasting it — a first-class real-user path (pasting a
- * command into a terminal is ubiquitous) that the keyboardActor handles via its
- * `paste` listener. Crucially, paste captures the send target (active pane) ONCE
- * and emits one `set-buffer` + `paste-buffer -p` pair, so the still-settling
- * v86 boot can't flap the target between characters. Per-keystroke send-keys
- * races that instability and drops/misroutes chars; paste is deterministic
- * while still driving the full real chain (keyboardActor → send-keys →
- * emulated tmux → bash → %output → WASM core → render).
- *
- * The line is then run with Enter, as a user runs a pasted one: the guest's
- * bash asks for bracketed paste, and a newline inside a bracketed paste is
- * text in the line, not a Return.
+ * Enter a command line by pasting it, then run it with Enter. A paste reads
+ * the send target once (one `set-buffer` + `paste-buffer -p`), so the
+ * still-settling v86 boot cannot flap the active pane between characters the
+ * way per-keystroke send-keys does. Enter is separate because the guest's bash
+ * asks for bracketed paste, where a newline is text in the line, not a Return.
  */
 export function pasteLine(text: string): void {
   const data = new DataTransfer();
@@ -44,12 +37,10 @@ export type Canvas = ReturnType<typeof within>;
 export const paneGroups = (canvas: Canvas) => canvas.getAllByRole('group', { name: /^Pane %/i });
 
 /**
- * Progress-aware wait for a streamed output burst. Throughput stories guard
- * INTEGRITY (no dropped/corrupted bytes), not latency: on a loaded CI runner
- * the shared emulator streams arbitrarily slowly, and a fixed deadline flakes
- * exactly when the machine is busiest. Keeps waiting while the pane content
- * still makes progress; throws only when the stream stalls short of the
- * expected tail, or at a hard cap.
+ * Waits while the pane content still makes progress; fails only on a stall
+ * short of the tail, or at the cap. Throughput stories guard integrity, not
+ * latency: on a loaded CI runner the emulator streams arbitrarily slowly, and
+ * a fixed deadline flakes exactly when the machine is busiest.
  */
 export async function waitForBurstTail(
   canvas: Canvas,
@@ -69,7 +60,7 @@ export async function waitForBurstTail(
       last = cur;
       lastProgress = performance.now();
     } else if (performance.now() - lastProgress > stallMs) {
-      break; // stream stalled without reaching the expected tail
+      break;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
@@ -77,12 +68,10 @@ export async function waitForBurstTail(
 }
 
 /**
- * Wait for the booted 2-pane session, focus the first pane, and — crucially —
- * wait for the select-pane round-trip so the active-pane send target is stable
- * before we drive input. The still-settling v86 boot (initial list-panes/
- * list-windows sync) transiently flaps the active pane; without this wait, input
- * would split across panes. Mirrors a real user: click, see the pane activate,
- * then act.
+ * Focus the first pane of the booted 2-pane session and wait for the
+ * select-pane round trip. The still-settling v86 boot (its initial
+ * list-panes/list-windows sync) flaps the active pane; without this wait,
+ * input splits across panes.
  */
 export async function focusFirstPane(
   canvas: Canvas,
@@ -92,16 +81,12 @@ export async function focusFirstPane(
     timeout: 45000,
     interval: 500,
   });
-  // Wait for the boot's initial active-pane sync to settle BEFORE clicking —
-  // clicking mid-sync races the select-pane against in-flight active-pane
-  // updates and the click can be permanently overridden. A real user clicks
-  // after seeing the active highlight appear.
+  // A click mid-sync races the select-pane against in-flight active-pane
+  // updates and can be overridden for good.
   await waitFor(() => expect(activePaneId()).toMatch(/^%\d+$/), { timeout: 20000, interval: 200 });
-  // Also wait for the client resize round-trip to settle: each story mounts
-  // at its own viewport, and interacting while set_client_size is still in
-  // flight lets the mid-story re-layout (intermediate tmux layouts + the
-  // status-row shuffle) land inside the story's glitch window — that, not
-  // op prediction, was the source of the phantom kill/split size jumps.
+  // Each story mounts at its own viewport: input while set_client_size is in
+  // flight lets the re-layout land inside the story's glitch window, read as
+  // phantom kill/split size jumps.
   await waitFor(
     () => {
       const c = (
@@ -129,7 +114,6 @@ export async function focusFirstPane(
   await waitFor(() => expect(activePaneId()).toBe(paneId), { timeout: 15000, interval: 200 });
 }
 
-/** All windows the WASM core has reconstructed, with their tmuxy type + group. */
 export type ReconstructedWindow = {
   id: string;
   name: string;
@@ -143,11 +127,7 @@ export const windows = (): ReconstructedWindow[] =>
     window as unknown as { app: { getSnapshot(): { context: { windows: ReconstructedWindow[] } } } }
   ).app.getSnapshot().context.windows;
 
-/**
- * Pane groups keyed by group id (`@tmuxy-group-id`). Group membership is
- * intrinsic to panes now, not encoded in a group window, so these tests read
- * the reconstructed `paneGroups` map rather than scanning windows.
- */
+/** Pane groups keyed by group id (`@tmuxy-group-id`). */
 export const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
   Object.values(
     (
@@ -161,7 +141,6 @@ export const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
     ).app.getSnapshot().context.paneGroups ?? {},
   );
 
-/** A 1×1 PNG, base64 — small enough to inline in an iTerm2 image escape. */
 export const sessionName = (): string =>
   (
     window as unknown as { app: { getSnapshot(): { context: { sessionName: string } } } }
@@ -177,7 +156,6 @@ export function paneRect(canvas: Canvas, id: string): DOMRect {
 export const paneIds = (canvas: Canvas): string[] =>
   paneGroups(canvas).map((p: HTMLElement) => p.getAttribute('data-pane-id') ?? '');
 
-/** Pick the horizontal (wide) or vertical (tall) `.resize-divider`. */
 export function pickDivider(
   canvasElement: HTMLElement,
   kind: 'horizontal' | 'vertical',
@@ -192,19 +170,9 @@ export function pickDivider(
 }
 
 /**
- * Wait for a divider of `kind` to exist, then return it.
- *
- * `settleGeometry` only proves the GRID has settled — it says nothing about
- * whether the story's `initCommands` have landed. Those are two different
- * waits, and a story that splits before it drags needs both: the split's
- * `%layout-change` can arrive after the geometry is already stable, leaving
- * `pickDivider` looking at the pre-split layout.
- *
- * That race used to be hidden. The harness was sized in pixels, so the app
- * always measured a grid the guest had not booted at and a resize round-trip
- * ran first — long enough for the split to land by accident. Now that the
- * harness asks for exactly the size the guest boots at (80x30), no resize
- * happens and the gap closes to nothing.
+ * `settleGeometry` does not prove the story's `initCommands` have landed: a
+ * split's `%layout-change` can arrive after the geometry is already stable, so
+ * a story that splits before it drags waits for the divider too.
  */
 export async function waitForDivider(
   canvasElement: HTMLElement,
@@ -221,10 +189,8 @@ export async function waitForDivider(
 }
 
 /**
- * Drive a MONOTONIC divider drag with raw mouse events (the machine's
- * pointerTracker listens on window). Monotonic so the resulting geometry must
- * also be monotonic — any reversal the recorder catches is a real glitch.
- * Marks 'mouseup' on the recorder just before releasing.
+ * A monotonic divider drag, so the geometry must be monotonic too: any
+ * reversal the recorder catches is a real glitch.
  */
 export async function dragDivider(
   divider: HTMLElement,
@@ -255,7 +221,6 @@ export async function dragDivider(
   );
 }
 
-/** Send a raw tmux command through the live app machine (structural ops). */
 export function sendTmux(command: string): void {
   (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
     type: 'SEND_TMUX_COMMAND',
@@ -266,15 +231,13 @@ export function sendTmux(command: string): void {
 export const activeWindow = (): ReconstructedWindow | undefined => windows().find((w) => w.active);
 export const tabWindows = (): ReconstructedWindow[] =>
   windows().filter((w) => w.windowType === 'tab');
-// Real (tmux-confirmed) tab windows only — optimistic placeholder windows carry
-// non-@ ids until reconciled and must not satisfy a "window created" assertion.
+// Optimistic placeholder windows carry non-@ ids until reconciled and must not
+// satisfy a "window created" assertion.
 export const realTabWindows = (): ReconstructedWindow[] =>
   tabWindows().filter((w) => /^@\d+$/.test(w.id));
-// WindowTabs bar entries only (pane-header tabs are also role=tab; the window
-// tabs are distinguishable by their "Tab N: name" accessible name).
+// Pane-header tabs are role=tab too; the window tabs are named "Tab N: name".
 export const windowTabEls = (canvas: Canvas) => canvas.getAllByRole('tab', { name: /^Tab \d+:/ });
 
-/** tmux-reported scrollback size of a pane (drives the wheel handler's gate). */
 export const paneHistory = (id: string): number =>
   (
     window as unknown as {
@@ -284,7 +247,7 @@ export const paneHistory = (id: string): number =>
     .getSnapshot()
     .context.panes.find((p) => p.tmuxId === id)?.historySize ?? 0;
 
-/** tmux-reported copy-mode state of a pane (inMode comes from %pane-mode-changed). */
+/** inMode comes from tmux's %pane-mode-changed. */
 export const paneMode = (id: string): boolean =>
   (
     window as unknown as {
@@ -294,12 +257,7 @@ export const paneMode = (id: string): boolean =>
     .getSnapshot()
     .context.panes.find((p) => p.tmuxId === id)?.inMode === true;
 
-/**
- * Client-side scrollback state of a pane — one record holding the loaded
- * history lines, the scroll offset and the selection, plus the `mode` saying
- * which view it is: the native-like `scroll` view or tmux's `copy` mode (see
- * COPY-MODE.md). Undefined when the pane is following live output.
- */
+/** Undefined when the pane is following live output (docs/COPY-MODE.md). */
 export type PaneScrollbackState = {
   mode: 'scroll' | 'copy';
   scrollTop: number;
@@ -318,16 +276,11 @@ export const paneCopyState = (id: string): PaneScrollbackState | undefined =>
     }
   ).app.getSnapshot().context.copyModeStates[id];
 
-/** Every role a menu item can carry, so a checkbox or radio item is findable too. */
 export const MENU_ITEM_ROLES = '[role=menuitem], [role=menuitemcheckbox], [role=menuitemradio]';
 
 /**
- * A menu item's label as a user HEARS it, not as the DOM spells it.
- *
- * A submenu item draws a `▶` and a radio item a bullet, both in `aria-hidden`
- * spans — decoration, correctly absent from the accessible name. Raw
- * `textContent` keeps them, so `/^Help$/` tested against "Help▶" and five
- * stories failed on markup no user or screen reader perceives.
+ * A menu item's label as a screen reader hears it: the submenu `▶` and the
+ * radio bullet are `aria-hidden` decoration that raw `textContent` keeps.
  */
 export function menuItemLabel(el: Element): string {
   const clone = el.cloneNode(true) as HTMLElement;
@@ -335,7 +288,6 @@ export function menuItemLabel(el: Element): string {
   return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-/** The visible menu item whose label matches, waiting for the menu to render it. */
 export async function findMenuItem(doc: Document, label: RegExp): Promise<HTMLElement> {
   let el: HTMLElement | undefined;
   await waitFor(
@@ -369,19 +321,15 @@ export const appError = (): string | null =>
     }
   ).app.getSnapshot().context.notifications[0]?.text ?? null;
 
-/** Sorted real (%N) pane ids currently rendered. */
 export const realPaneIdsSorted = (canvas: Canvas): string[] =>
   paneIds(canvas)
     .filter((id) => /^%\d+$/.test(id))
     .sort();
 
 /**
- * Wait for pane geometry to be at rest: tmux has caught up, the layout's
- * transitions have finished, and one more round trip changes nothing — the
- * boot-time `refresh-client -C` resize can land seconds into a story and
- * invalidates any rect captured before it. Sampling across round trips
- * rather than a fixed 400ms keeps a slow runner from reading as "at rest"
- * before the resize has even arrived.
+ * At rest means one more round trip changes nothing: the boot-time
+ * `refresh-client -C` resize can land seconds into a story, and a fixed delay
+ * lets a slow runner read "at rest" before it has even arrived.
  */
 export async function settleGeometry(canvas: Canvas): Promise<void> {
   const layout = document.querySelector('.pane-layout');
@@ -398,7 +346,6 @@ export async function settleGeometry(canvas: Canvas): Promise<void> {
   }
 }
 
-/** Stable geometry signature of every real pane, for exact-restore asserts. */
 export const rectSignature = (canvas: Canvas): string =>
   realPaneIdsSorted(canvas)
     .map((id: string) => {
@@ -408,10 +355,8 @@ export const rectSignature = (canvas: Canvas): string =>
     .join('|');
 
 /**
- * Watch an element's `class` attribute and record every value it passes
- * through (via oldValue chaining + the final live value). Used to prove an
- * optimistic highlight never flapped during the server reconcile — polling
- * would miss a single-frame revert; the mutation log cannot.
+ * Every value an element's `class` passes through: polling would miss a
+ * single-frame revert of an optimistic highlight, the mutation log cannot.
  */
 export function recordClassHistory(el: Element): {
   history: () => string[];

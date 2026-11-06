@@ -1,12 +1,7 @@
 /**
- * The phone layout, at a 390 × 844 phone's width, over a recording of real
- * tmux at the 80 × 24 grid the layout asks for.
- *
- * A tab strip on top — the tabs and a "+" at its right end, nothing else —
- * then the whole 80 × 25 terminal, 80 columns spanning the screen edge to
- * edge with tmux's status line as the 25th row, then the key row, then the
- * tab/pane tree. No bottom bar of the app's own. The frame is not the viewport
- * the media query reads, so the story asks for the layout through the config.
+ * The phone layout at a 390 × 844 phone's width, over a recording of real tmux
+ * at the 80 × 24 grid the layout asks for. The story frame is not the viewport
+ * the media query reads, so the layout is asked for through the config.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -26,7 +21,6 @@ const meta: Meta<typeof FixtureApp> = {
     start: 'main-active',
     config: { phoneLayout: true },
   },
-  // The phone's screen, not the grid's box: the layout fits the grid to it.
   render: ({ fixture, start, config }) => (
     <FixtureProvider fixture={fixture} start={start} config={config} width={390} height={844}>
       <TmuxyApp />
@@ -56,11 +50,9 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
-    // No bottom bar of the app's own.
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    // The tab strip: the menu at its left end, then both tabs, and nothing
-    // else — no "+" (the menu opens a tab).
+    // No "+": the menu opens a tab.
     const strip = canvasElement.querySelector('.phone-tab-strip')!;
     expect([...strip.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual([
       expect.stringContaining('main'),
@@ -73,14 +65,12 @@ export const PhoneKeyboardDown: Story = {
     expect(strip.querySelector('.tab-add')).toBeNull();
     expect(strip.querySelectorAll('button').length).toBe(1);
 
-    // 80 columns asked for, and 80 columns span the screen less 4px of
-    // padding each side (the grid's outer borders), the status line under
-    // them the screen's width.
+    // 80 columns span the screen less 4px of padding each side (the grid's
+    // outer borders).
     await waitFor(
       () => {
         expect(ctx().targetCols).toBe(80);
         expect(ctx().targetRows).toBe(24);
-        // The phone's screen: the app's own box, not the story frame around it.
         const screen = box(canvasElement.querySelector('.app-container'));
         const layout = box(canvasElement.querySelector('.phone-pty .pane-layout'));
         expect(80 * ctx().charWidth).toBeCloseTo(screen.width - 8, 1);
@@ -97,8 +87,6 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
-    // Top to bottom: the tabs, the grid, the status line as its last row,
-    // the keys, the tree.
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     expect(grid.top).toBeGreaterThanOrEqual(box(strip).bottom - 1);
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
@@ -108,15 +96,11 @@ export const PhoneKeyboardDown: Story = {
     expect(keys.top).toBeGreaterThanOrEqual(status.bottom - 1);
     expect(tree.top).toBeGreaterThanOrEqual(keys.bottom - 1);
     expect(tree.height).toBeGreaterThan(100);
-    // The tree is the chrome's size, not the terminal's shrunken one.
     const row = canvasElement.querySelector('.phone-tree [role="treeitem"]');
     expect(row).not.toBeNull();
     expect(parseFloat(getComputedStyle(row!).fontSize)).toBeGreaterThanOrEqual(11);
 
-    // The desktop's line: the hints at its left edge, the host beside the
-    // session at its right, all of it on the screen — the hints are written
-    // for 80 columns, and the line is drawn in the small type at the phone's
-    // cell, on a row just tall enough for it.
+    // The hints are written for 80 columns, so the whole line fits the screen.
     const screenBox = box(canvasElement.querySelector('.app-container'));
     const hints = box(canvasElement.querySelector('.phone-pty .statusline-hints'));
     const host = box(canvasElement.querySelector('.phone-pty .statusline-host'));
@@ -138,9 +122,6 @@ export const PhoneKeyboardDown: Story = {
     expect(smallType('.phone-pty .statusline-hints')).toBeCloseTo(termType * 0.8, 1);
     expect(smallType('.phone-pty .statusline-host')).toBeCloseTo(termType * 0.8, 1);
 
-    // Two rows of six, every key the same width: esc, tab, ctrl, alt, the
-    // prefix and the keyboard; the arrows, enter and the zoom. Each a thumb's
-    // size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
     expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);
@@ -154,10 +135,8 @@ export const PhoneKeyboardDown: Story = {
     expect(keyAt('⏎').top).toBeCloseTo(keyAt('←').top, 0);
     expect(keyAt('zoom').top).toBeCloseTo(keyAt('←').top, 0);
     expect(keyAt('zoom').left).toBeGreaterThan(keyAt('⏎').left);
-    // The zoom key is a magnifier, not a glyph.
     expect(canvasElement.querySelector('[data-key-row="zoom"] svg circle')).not.toBeNull();
 
-    // ctrl: latched, locked, off.
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
     await userEvent.click(ctrl);
     expect(ctrl.getAttribute('aria-pressed')).toBe('true');
@@ -170,7 +149,6 @@ export const PhoneKeyboardDown: Story = {
     await userEvent.click(ctrl);
     expect(ctrl.getAttribute('aria-pressed')).toBe('false');
 
-    // A latch lets go after the next key.
     await userEvent.click(ctrl);
     await userEvent.click(canvasElement.querySelector('[data-key-row="⏎"]') as HTMLElement);
     expect(ctrl.getAttribute('aria-pressed')).toBe('false');
@@ -229,7 +207,6 @@ export const AppMenuFromTheTabStrip: Story = {
 };
 
 export const LandscapeAndTheKeyboard: Story = {
-  // The phone turned sideways: 844 × 390.
   render: ({ fixture, start, config }) => (
     <FixtureProvider fixture={fixture} start={start} config={config} width={844} height={390}>
       <TmuxyApp />
@@ -257,7 +234,6 @@ export const LandscapeAndTheKeyboard: Story = {
     const side = box(canvasElement.querySelector('.phone-side'));
     const pty = box(canvasElement.querySelector('.phone-pty'));
 
-    // The chrome on the left, the terminal on the right, both the screen's height.
     expect(side.left).toBeCloseTo(screen.left, 0);
     expect(pty.right).toBeCloseTo(screen.right, 0);
     expect(side.right).toBeLessThanOrEqual(pty.left + 1);
@@ -266,12 +242,10 @@ export const LandscapeAndTheKeyboard: Story = {
     for (const part of ['.phone-tab-strip', '.key-row', '.phone-tree']) {
       expect(box(canvasElement.querySelector(`.phone-side ${part}`)).width).toBeGreaterThan(0);
     }
-    // All 24 rows and tmux's line on screen: the line ends inside it.
     const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     expect(line.bottom).toBeLessThanOrEqual(screen.bottom + 0.5);
     expect(line.bottom).toBeGreaterThan(screen.bottom - 25);
 
-    // The keyboard comes up: the screen is 190px tall.
     const rowHeight = ctx().charHeight;
     const frame = canvasElement.querySelector('.app-container')!.parentElement as HTMLElement;
     frame.style.height = '190px';
@@ -330,7 +304,6 @@ export const DoubleTapZoomsTheTerminal: Story = {
       expect(zoomKey.getAttribute('aria-pressed')).toBe('true');
     });
     expect(ctx().targetCols).toBe(80);
-    // The viewport itself keeps the grid's unzoomed size.
     expect(box(viewport).width).toBeCloseTo(grid.width, 0);
 
     await userEvent.click(zoomKey);
@@ -377,7 +350,6 @@ export const PrefixKeyArmed: Story = {
     await userEvent.click(key);
     await waitFor(() => expect(key.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });
     expect(getComputedStyle(key).backgroundColor).not.toBe(dark);
-    // Lit the way a latched ctrl is: the same accent.
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
     await userEvent.click(ctrl);
     await waitFor(() => expect(ctrl.getAttribute('aria-pressed')).toBe('true'), { timeout: 5000 });

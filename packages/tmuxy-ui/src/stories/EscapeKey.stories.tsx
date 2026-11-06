@@ -19,16 +19,14 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-/** The adapter of the story on screen, to read what the app sent. */
 let adapter: FixtureAdapter | null = null;
 function keepAdapter(a: FixtureAdapter) {
   adapter = a;
 }
 
 /**
- * With a float focused, Escape closes it: the app kills the float's pane and
- * the overlay goes. With a plain pane focused, Escape is the application's:
- * it goes to that pane as a key, and nothing closes.
+ * With a float focused, Escape closes it (the app kills the float's pane).
+ * With a plain pane focused, Escape is the application's: it goes to the pane.
  */
 export const EscapeSemanticsMatrix: Story = {
   args: { transitions: [{ match: /^kill-pane -t %1$/, to: 'float-closed' }] },
@@ -44,7 +42,6 @@ export const EscapeSemanticsMatrix: Story = {
         }
       ).app.getSnapshot().context.focusedFloatPaneId;
 
-    // The float opens over the tab and takes the keyboard.
     await waitFor(
       () => {
         const overlay = doc.querySelector('.float-container') as HTMLElement | null;
@@ -64,7 +61,6 @@ export const EscapeSemanticsMatrix: Story = {
     );
     expect(adapter!.commands).toContain('kill-pane -t %1');
 
-    // A plain pane: Escape is sent to it.
     await user.click(paneGroups(canvas)[0]);
     await waitFor(() => expect(activePaneId()).toBe('%0'), { timeout: 10000 });
     const before = adapter!.commands.length;

@@ -1,19 +1,6 @@
-/**
- * Resilience stories — verify the UI behaves well under hostile timing /
- * error conditions in the tmux actor, over states recorded from real tmux:
- *
- * - SlowTabCreate: backend takes 250ms to ack a `new-window`. The optimistic
- *   tab must appear at once and not blink while we wait.
- * - TabCreateRejected: backend rejects `new-window`. The optimistic tab must
- *   disappear and the active tab fall back to a real one.
- * - SlowKillPane / KillPaneRejected: the same two shapes for `kill-pane`.
- * - SlowAckKeepsPlaceholder: a split acked after the quick stale timeout
- *   keeps its placeholder through a server snapshot, then morphs into the
- *   real pane.
- *
- * The slow and rejected split are Scenarios/Animations › SlowSplitOptimistic
- * and SplitRejectedRollback.
- */
+// The UI under hostile timing and errors from the tmux actor, over states
+// recorded from real tmux. The slow and rejected split are Animations ›
+// SlowSplitOptimistic and SplitRejectedRollback.
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
@@ -23,11 +10,8 @@ import panes from './fixtures/gen/panes.json';
 import oneTabThenTwo from './fixtures/gen/one-tab-then-two.json';
 import { PaneId } from '../domain/ids';
 
-/** A new tab answered with the two tabs tmux drew, the new one current. */
 const NEW_TAB = [{ match: /^new-window\b/, to: 'two-tabs' }];
-/** A kill answered with the one pane left. */
 const KILL = [{ match: /^kill-pane\b/, to: 'one' }];
-/** A split answered with the two panes tmux drew. */
 const SPLIT = [{ match: /^split-window\b/, to: 'side-by-side' }];
 
 const meta: Meta<typeof FixtureApp> = {
@@ -48,10 +32,6 @@ export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-// ---------------------------------------------------------------------------
-// Slow tmux responses — optimistic UI must remain stable while we wait
-// ---------------------------------------------------------------------------
 
 export const SlowTabCreate: Story = {
   args: { commandDelayMs: 250 },
@@ -74,7 +54,6 @@ export const SlowTabCreate: Story = {
     const newTabButton = canvas.getByRole('button', { name: /create new tab/i });
     await user.click(newTabButton);
 
-    // Optimistic patch should add a tab immediately.
     await waitFor(
       () => {
         const tabs = canvas.getAllByRole('tab');
@@ -83,22 +62,16 @@ export const SlowTabCreate: Story = {
       { timeout: 200 },
     );
 
-    // Tab count must stay stable while we wait for the slow ack.
     for (let i = 0; i < 5; i++) {
       const tabs = canvas.getAllByRole('tab');
       expect(tabs.length).toBe(beforeTabs + 1);
       await wait(40);
     }
 
-    // After the ack, still the same count.
     await wait(150);
     expect(canvas.getAllByRole('tab').length).toBe(beforeTabs + 1);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Error responses — optimistic UI must roll back cleanly
-// ---------------------------------------------------------------------------
 
 export const TabCreateRejected: Story = {
   args: {
@@ -121,10 +94,8 @@ export const TabCreateRejected: Story = {
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     const beforeTabs = canvas.getAllByRole('tab').length;
 
-    // The optimistic tab lives only ~60ms (until the rejection lands), so a
-    // polling waitFor misses it on a loaded machine — record the peak tab
-    // count with a MutationObserver instead (mutation records are queued
-    // synchronously, independent of poll timing).
+    // The optimistic tab lives ~60ms, so a polling waitFor misses it on a loaded
+    // machine; a MutationObserver's records are queued synchronously.
     let maxTabs = beforeTabs;
     const observer = new MutationObserver(() => {
       maxTabs = Math.max(maxTabs, canvas.queryAllByRole('tab').length);
@@ -134,7 +105,6 @@ export const TabCreateRejected: Story = {
     const newTabButton = canvas.getByRole('button', { name: /create new tab/i });
     await user.click(newTabButton);
 
-    // Rejection rolls the optimistic tab back.
     await waitFor(
       () => {
         const tabs = canvas.getAllByRole('tab');
@@ -144,18 +114,12 @@ export const TabCreateRejected: Story = {
     );
     observer.disconnect();
 
-    // The optimistic tab DID appear at some point before the rollback.
     expect(maxTabs).toBe(beforeTabs + 1);
 
-    // The app is still alive — at least one tab is marked active.
     const tabsAfter = canvas.getAllByRole('tab');
     expect(tabsAfter.some((t) => t.getAttribute('aria-selected') === 'true')).toBe(true);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Optimistic kill-pane — removal on click, rollback on rejection
-// ---------------------------------------------------------------------------
 
 export const SlowKillPane: Story = {
   args: {
@@ -181,11 +145,8 @@ export const SlowKillPane: Story = {
     await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
-    // Optimistic removal applies immediately (no removingPane hold),
-    // well before the 800ms ack.
     await waitFor(() => expect(paneCount()).toBe(1), { timeout: 600 });
 
-    // Stays gone through the ack — no flicker back to 2.
     for (let i = 0; i < 6; i++) {
       expect(paneCount()).toBe(1);
       await wait(80);
@@ -223,27 +184,20 @@ export const KillPaneRejected: Story = {
     await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
-    // Sample through the rejection window: the pane never visibly disappears.
-    // The loop is the assertion, so it keeps sampling until the rejection has
-    // actually surfaced rather than for a fixed stretch — on a loaded machine
-    // the round trip outlived the old ten-sample window and the story failed
-    // on a notification that had simply not arrived yet.
+    // Keeps sampling until the rejection has surfaced rather than for a fixed
+    // stretch: on a loaded machine the round trip outlived a fixed window.
     const rejected = () => win.app!.getSnapshot().context.notifications.length > 0;
     for (let i = 0; i < 120 && !rejected(); i++) {
       expect(paneCount(), 'the pane disappeared before the rejection landed').toBe(2);
       await wait(70);
     }
-    // The rejection reaches the user as a snackbar entry.
     expect(rejected(), 'the rejection never reached the user').toBe(true);
-    // ...and the rollback left both panes standing.
     expect(paneCount()).toBe(2);
   },
 };
 
-// ---------------------------------------------------------------------------
-// Slow-ack survival — an in-flight op outlasting the quick sweep must NOT
-// blink away; the placeholder persists and morphs when the ack lands
-// ---------------------------------------------------------------------------
+// An in-flight op outlasting the quick stale sweep must not blink away; the
+// placeholder persists and morphs when the ack lands.
 
 export const SlowAckKeepsPlaceholder: Story = {
   tags: ['nightly'],
@@ -275,21 +229,17 @@ export const SlowAckKeepsPlaceholder: Story = {
     expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
 
     win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
-    // The optimistic patch lands immediately.
     await waitFor(() => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2), {
       timeout: 200,
     });
 
-    // Past the quick stale timeout, a server snapshot (still showing 1 pane —
-    // the delayed command hasn't executed) arrives. The op is in-flight, so
-    // the placeholder must SURVIVE: no blink-out-and-remount.
+    // Past the quick stale timeout a server snapshot still showing 1 pane
+    // arrives; the op is in flight, so the placeholder must survive.
     await wait(2200);
     win.__staleAdapter!.emitStateSnapshot();
     await wait(300);
     expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2);
 
-    // The late ack executes: the placeholder morphs into the REAL pane —
-    // still 2 panes, real ids only, focus sane.
     await waitFor(
       () => {
         const groups = canvas.getAllByRole('group', { name: /^Pane /i });

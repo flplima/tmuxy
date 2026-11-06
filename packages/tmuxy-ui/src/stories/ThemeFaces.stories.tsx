@@ -1,14 +1,9 @@
 /**
- * The app shell on every theme face: seven themes, dark and light, fourteen
- * stories, all over one recording of real tmux — a tab named `main` split
- * side by side, the new pane having printed a 256-colour cell.
- *
- * A theme is only a re-declaration of the token names, so each story loads
- * one face and checks the chrome paints those names where the design says:
- * the theme's accent on the current tab and the active pane's outline, the
- * status line on its own band, the panes on the theme's background. The
- * probe's axe pass reads the same painted page for contrast. What the values
- * must be is `infra/__tests__/themeFaces.test.ts`; this is that they arrive.
+ * The app shell on every theme face (seven themes, dark and light) over one
+ * recording of real tmux: a tab `main` split side by side, the new pane having
+ * printed a 256-colour cell. Each story checks the face's tokens arrive where
+ * the design paints them; the probe's axe pass reads the same page for
+ * contrast. What the values must be is `infra/__tests__/themeFaces.test.ts`.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -50,15 +45,13 @@ const app = () =>
   (window as unknown as { app: { send(event: { type: string; [k: string]: unknown }): void } }).app;
 
 /**
- * A token's colour as channels. Read off the root rather than painted on a
- * probe element: `waitFor` re-runs on every DOM mutation, and a probe added
- * and removed inside it is one, so the check would re-trigger itself forever.
+ * Read off the root rather than a probe element: `waitFor` re-runs on every
+ * DOM mutation, and adding a probe inside it would re-trigger it forever.
  */
 function token(name: string): number[] {
   return channels(getComputedStyle(document.documentElement).getPropertyValue(name));
 }
 
-/** A painted colour property of an element, as channels. */
 function paint(el: Element, property: 'color' | 'outlineColor' | 'backgroundColor'): number[] {
   return channels(getComputedStyle(el)[property]);
 }
@@ -72,11 +65,9 @@ function face(theme: Theme, mode: Mode): Story {
         { timeout: 8000 },
       );
 
-      // The old face's sheet stays in force until the new one has loaded,
-      // and every check below would pass against the colours being replaced.
-      // The new sheet loads in a link of its own and takes the `tmuxy-theme`
-      // id only once it has (themeManager): that id on the new href is what
-      // says the face is in.
+      // The old face's sheet stays in force until the new one loads, in a link
+      // of its own that takes the `tmuxy-theme` id only once it has
+      // (themeManager): that id on the new href says the face is in.
       app().send({ type: 'SET_THEME', name: theme });
       app().send({ type: 'SET_THEME_MODE', mode });
       await waitFor(
@@ -96,12 +87,11 @@ function face(theme: Theme, mode: Mode): Story {
         '.pane-layout-item.pane-active',
       ) as HTMLElement;
       const status = canvasElement.querySelector('.tmux-status-bar') as HTMLElement;
-      // Retried: the old face stays applied for a beat after the new sheet
-      // loads, and the chrome's colours transition into the new face's.
+      // The old face stays applied for a beat after the new sheet loads, and
+      // the chrome's colours transition into the new face's.
       await waitFor(
         () => {
           const accent = token('--theme-accent');
-          // The current tab wears the face's accent.
           expect(paint(tab, 'color')).toEqual(accent);
           expect(paint(activePane, 'outlineColor')).toEqual(accent);
           expect(paint(status, 'backgroundColor')).toEqual(token('--tmux-status-bg'));
@@ -110,11 +100,9 @@ function face(theme: Theme, mode: Mode): Story {
         { timeout: 5000, interval: 100 },
       );
 
-      // A 256-colour cell (196, pure red) is the face's too: its own colour
-      // for --term-extended-colors of it, the rest its lightness (21%)
-      // between the pane's foreground and background — exactly red on most
-      // faces, and on a monochrome one a blend of its two colours. The cell
-      // is the `RED196` the active pane printed in that colour.
+      // A 256-colour cell (196, pure red) draws --term-extended-colors of its own
+      // colour and the rest its lightness (21%) between the pane's foreground
+      // and background: red on most faces, a blend of the two on a monochrome one.
       const cell = [...activePane.querySelectorAll('span')].find(
         (span) => span.textContent === 'RED196',
       );
@@ -132,10 +120,8 @@ function face(theme: Theme, mode: Mode): Story {
       const painted = paint(cell, 'color');
       painted.forEach((c, i) => expect(Math.abs(c - expected[i])).toBeLessThanOrEqual(1));
 
-      // The face has arrived only once nothing is still fading into it: the
-      // chrome's colours transition, and the probe's contrast pass reads what
-      // is painted when the story ends — a label half-way from the old face's
-      // colour to the new one's. Transitions only: the cursor's blink never
+      // Nothing still fading in: the probe's contrast pass reads what is
+      // painted when the story ends. Transitions only: the cursor's blink never
       // ends.
       await waitFor(
         () =>

@@ -1,21 +1,12 @@
 /**
- * Panes changing size, on a clock, over states recorded from real tmux.
+ * Panes changing size animate, over states recorded from real tmux: the eye
+ * can follow a row opening up, where a jump cut reads as a glitch. A swap only
+ * changes which pane is in which box and must keep snapping (animated, the two
+ * panes slide through each other); that, and `@tmuxy-animations off`, are
+ * Animations Tabs & Groups' `SwapPanes` and `ConfigAnimationsOff`.
  *
- * A resize landing on whole cells, or a stack opening the row the focus moved
- * to, changes how big the panes ARE, and reads far better animated: the eye
- * can follow a row opening up, where a jump cut reads as a glitch. A swap
- * changes only WHICH pane is in which box and must keep snapping — animate a
- * permutation and the two panes slide through each other.
- *
- * The gate is `suppressLayoutTransition`, decided per model update in the app
- * machine (see machines/app/layoutChange.ts), and the config's
- * `@tmuxy-animations` switch overrides all of it. That a swap snaps, and that
- * the switch snaps a resize, are `Scenarios/Animations Tabs & Groups` →
- * `SwapPanes` and `ConfigAnimationsOff`.
- *
- * Each story samples the drawn boxes across frames rather than reading the
- * declared CSS: a transition that is declared and never runs looks exactly
- * like a snap to the user.
+ * Each story samples the drawn boxes rather than the declared CSS: a declared
+ * transition that never runs looks exactly like a snap.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -32,7 +23,6 @@ import {
   waitForPaneCount,
 } from './animationStoryHelpers';
 
-/** Two panes side by side, `%1` active: focusing `%0`, and growing it, answered as tmux did. */
 const SIDE_BY_SIDE = {
   fixture: asFixture(moves),
   start: 'two',
@@ -42,10 +32,7 @@ const SIDE_BY_SIDE = {
   ],
 };
 
-/**
- * A stack with the bottom row open; focusing the top row opens it, as the
- * server reshapes a stack when the focus moves.
- */
+/** A stack with the bottom row open; the server opens the row the focus moves to. */
 const STACK = {
   fixture: asFixture(stack),
   start: 'bottom-open',
@@ -75,17 +62,11 @@ const waitForPanes = (count: number, canvasElement: HTMLElement) =>
   waitForPaneCount(within(canvasElement), count);
 
 /**
- * Which geometry properties actually started transitioning after `act` ran.
- *
- * This is what "on a clock" means, and unlike counting sampled frames it does
- * not depend on the machine keeping up: a loaded CI runner can paint twice
- * across a 150ms animation and see only a before and an after.
- *
- * It waits for the evidence instead of sampling for a fixed stretch. The
- * command is a round trip through the transport, and on a loaded runner that
- * round trip alone outlasted the window, so the story read "no transition
- * started" off a transition that had simply not begun yet. Returns as soon as
- * a geometry transition starts, plus a settling beat for the rest of them.
+ * Which geometry properties started transitioning after `act` ran. Unlike
+ * counting sampled frames this does not depend on the machine keeping up: a
+ * loaded runner can paint twice across a 150ms animation. It waits for the
+ * evidence rather than a fixed stretch, because on a loaded runner the round
+ * trip alone outlasted the window.
  */
 async function geometryTransitions(canvasElement: HTMLElement, act: () => void): Promise<string[]> {
   const layout = getPaneLayout(canvasElement);
@@ -100,8 +81,7 @@ async function geometryTransitions(canvasElement: HTMLElement, act: () => void):
     await waitFor(() => expect(seen.size, 'no geometry transition started').toBeGreaterThan(0), {
       timeout: 8000,
     });
-    // The transitions land together; give the ones that started a frame later
-    // than the first the chance to be recorded too, then let them finish so
+    // Transitions starting a frame later than the first get recorded too, and
     // the caller measures settled boxes.
     await new Promise((r) => setTimeout(r, 700));
   } finally {
@@ -109,10 +89,6 @@ async function geometryTransitions(canvasElement: HTMLElement, act: () => void):
   }
   return [...seen];
 }
-
-// ---------------------------------------------------------------------------
-// A commanded resize grows on a clock
-// ---------------------------------------------------------------------------
 
 export const AResizeGrowsOnAClock: Story = {
   tags: ['nightly'],
@@ -135,16 +111,11 @@ export const AResizeGrowsOnAClock: Story = {
       run('resize-pane -t %0 -R 8');
     });
 
-    // The boxes moved on a clock rather than arriving in one frame.
     expect(animated).not.toEqual([]);
     const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().width);
     expect(Math.max(...after.map((w, i) => Math.abs(w - before[i])))).toBeGreaterThan(4);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Stack navigation opens the row it moves to
-// ---------------------------------------------------------------------------
 
 export const AStackOpensTheRowItMovesTo: Story = {
   args: STACK,
@@ -160,23 +131,17 @@ export const AStackOpensTheRowItMovesTo: Story = {
     await waitForPanes(2, canvasElement);
     await waitForAnimationsEnabled(getPaneLayout(canvasElement));
 
-    // Focus the collapsed top row: it expands and the bottom one collapses to
-    // its header.
     const before = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().height);
     const animated = await geometryTransitions(canvasElement, () => run('select-pane -t %0'));
 
-    // Both rows moved, and on a clock: a stack opening one row closes another,
-    // and they have to share the clock or the boxes shear apart mid-flight.
+    // A stack opening one row closes another, and they have to share the clock
+    // or the boxes shear apart mid-flight.
     expect(animated).not.toEqual([]);
     const after = paneNodes(canvasElement).map((n) => n.getBoundingClientRect().height);
     const moved = after.filter((h, i) => Math.abs(h - before[i]) > 4);
     expect(moved.length).toBeGreaterThan(1);
   },
 };
-
-// ---------------------------------------------------------------------------
-// The cursor never flies in from off the window while a row opens
-// ---------------------------------------------------------------------------
 
 export const TheCursorStaysInsideTheOpeningRow: Story = {
   tags: ['nightly'],
@@ -197,7 +162,6 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
     const shape = () => document.querySelector<HTMLElement>('.smooth-cursor-shape');
     const gridBox = () => getPaneLayout(canvasElement).getBoundingClientRect();
 
-    /** The top of the painted cursor, from the clip polygon it is drawn with. */
     const paintedTop = (): number | null => {
       const el = shape();
       if (!el || overlay()?.style.opacity !== '1') return null;
@@ -207,8 +171,6 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
       return ys.length ? Math.min(...ys) : null;
     };
 
-    // The focus is on the bottom row, with the top one collapsed. Move up: the
-    // top row opens, the bottom collapses.
     const seen: number[] = [];
     let sampling = true;
     const frame = () => {
@@ -221,7 +183,6 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
     await new Promise((r) => setTimeout(r, 1200));
     sampling = false;
 
-    // It was drawn at some point, and never above the grid it lives in.
     expect(seen.length, 'the cursor was never drawn').toBeGreaterThan(0);
     const top = gridBox().top;
     const highest = Math.min(...seen);
@@ -231,10 +192,6 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
     ).toBeGreaterThanOrEqual(top - 2);
   },
 };
-
-// ---------------------------------------------------------------------------
-// A pane's header is its title bar, so pressing it takes the pane
-// ---------------------------------------------------------------------------
 
 export const PressingAHeaderTakesThePane: Story = {
   args: SIDE_BY_SIDE,
@@ -261,7 +218,7 @@ export const PressingAHeaderTakesThePane: Story = {
     const header = canvasElement.querySelector<HTMLElement>(
       `.pane-layout-item[data-pane-id="${other}"] .pane-header`,
     )!;
-    // Press the header's own background, not a tab or a button on it.
+    // The header's own background, not a tab or a button on it.
     const box = header.getBoundingClientRect();
     fireEvent.mouseDown(header, {
       clientX: box.right - 60,
@@ -273,7 +230,6 @@ export const PressingAHeaderTakesThePane: Story = {
     await waitFor(() => expect(app.getSnapshot().context.activePaneId).toBe(other), {
       timeout: 6000,
     });
-    // ...and the pane shows it, which is what the user is looking for.
     await waitFor(() =>
       expect(
         canvasElement.querySelector(`.pane-layout-item[data-pane-id="${other}"] .pane-header`),

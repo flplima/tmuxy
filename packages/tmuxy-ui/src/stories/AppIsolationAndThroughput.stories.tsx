@@ -30,15 +30,11 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Shared-engine isolation canary: EVERY story in this file starts on the shared
- * engine after some other story mutated it — this one pins the reset contract
- * hard: exactly the snapshot's 2 panes and 1 tab window, no floats/groups, no
- * sentinel text from any other story's commands, default active state.
- *
- * Then the reattach the reset made must deliver each command exactly once:
- * several round-trips in a row, each rendered exactly twice (the typed line
- * and its output) — a third copy is a duplicated listener or a serial buffer
- * leaked from the reuse path.
+ * Shared-engine isolation canary: a story starts on the shared engine after
+ * others mutated it, and the reset must give exactly the snapshot (2 panes, 1
+ * window, no floats or groups, no other story's text). The reattach must then
+ * deliver each command once: a third copy of a line is a duplicated listener
+ * or a serial buffer leaked from the reuse path.
  */
 export const SharedIsolation: Story = {
   play: async ({ canvasElement }) => {
@@ -52,7 +48,6 @@ export const SharedIsolation: Story = {
     const text = paneGroups(canvas)
       .map((p: HTMLElement) => p.textContent ?? '')
       .join('');
-    // No residue from other stories' unique sentinels.
     expect(text).not.toMatch(
       /NOERR_9|BURST_Q\d+_END|STORY_LATENCY_6042|SHORT_AAA|SHORT_BBB|SYNC_ON_42|STREAM_DONE/,
     );
@@ -73,9 +68,8 @@ export const SharedIsolation: Story = {
 };
 
 /**
- * Sustained throughput: `seq 1 2000` streams ~9KB through the serial pump and
- * the WASM core. The tail must arrive intact and in order — the pane ends at
- * exactly 2000 (a dropped or reordered chunk breaks the trailing sequence).
+ * `seq 1 2000` streams ~9KB through the serial pump and the WASM core; the pane
+ * must end at exactly 2000 (a dropped or reordered chunk breaks the tail).
  */
 export const ThroughputSustained: Story = {
   play: async ({ canvasElement }) => {
@@ -86,21 +80,14 @@ export const ThroughputSustained: Story = {
   },
 };
 
-/**
- * Rapid command burst: ten commands pasted back-to-back must ALL run, in order,
- * exactly once — pressure-testing the byte-paced writer's queue under bursty
- * send-keys load.
- */
+/** Ten pasted commands must all run, in order, once: the byte-paced writer's queue under load. */
 export const RapidCommandBurst: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     for (let n = 1; n <= 10; n++) pasteLine(`echo BURST_Q${n}_END`);
-    // Ten commands emit ~20 rows (typed echo + output each) — more than the
-    // pane can show, so the EARLY commands' lines legitimately scroll out of
-    // the viewport and can't be asserted on. The last five (10 rows) always
-    // fit: require echo + output for each, in order. The queue pressure the
-    // story exists for still comes from all ten back-to-back pastes.
+    // ~20 rows is more than the pane shows, so the early commands scroll out;
+    // the last five always fit.
     await waitFor(
       () => {
         const text = paneGroups(canvas)
@@ -111,7 +98,6 @@ export const RapidCommandBurst: Story = {
             (text.match(new RegExp(`BURST_Q${n}_END`, 'g')) ?? []).length,
           ).toBeGreaterThanOrEqual(2);
         }
-        // In-order: the last command's OUTPUT must appear after the sixth's.
         expect(text.lastIndexOf('BURST_Q10_END')).toBeGreaterThan(text.indexOf('BURST_Q6_END'));
       },
       { timeout: 60000, interval: 700 },
@@ -120,13 +106,10 @@ export const RapidCommandBurst: Story = {
 };
 
 /**
- * A burst of layout work must not leave typing waiting behind it. Five new
- * tabs from the `+` with no pause between clicks each cost tmux a window and
- * the core a list-panes and a capture — kilobytes of commands on the serial
- * line. Every tab must resolve to a real window, and a command typed right
- * after must echo within a typing round trip, not after the queue drains:
- * the writer used to pace at 2 KB/s, so a burst like this put seconds between
- * a keystroke and the guest, and tracked commands timed out unwritten.
+ * Five new tabs from `+` with no pause cost kilobytes of commands on the serial
+ * line; a command typed right after must still echo within a typing round
+ * trip. The writer used to pace at 2 KB/s, so such a burst put seconds between
+ * a keystroke and the guest and tracked commands timed out unwritten.
  */
 export const LayoutBurstThenTypingStaysPrompt: Story = {
   play: async ({ canvasElement }) => {
@@ -159,20 +142,17 @@ export const LayoutBurstThenTypingStaysPrompt: Story = {
 };
 
 /**
- * 4.3 — Gemini-CLI-style clear+redraw burst against REAL tmux (the mock twin
- * lives in Mocked App/Resilience): a guest loop repeatedly clears the screen
- * and redraws; the rAF batching + aggregator debounce must deliver each frame
- * whole — zero pane-node flickers, no transient blank pane. Also audits that
- * the glitch recorder's ignore-selectors still match the live DOM (silent
- * selector drift would blind every budget in this file).
+ * A Gemini-CLI-style clear+redraw loop against real tmux (the mock twin is in
+ * Mocked App/Resilience) delivers each frame whole: no pane-node flicker, no
+ * blank pane.
  */
 export const SteadyStreamNoBlinkV86: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
 
-    // Ignore-selector audit: each excluded selector must still exist in the
-    // live DOM, or the recorder is silently blind to what it thinks it skips.
+    // Each excluded selector must still exist, or the recorder is silently
+    // blind to what it thinks it skips.
     for (const sel of ['.terminal-content', '.terminal-line']) {
       expect(canvasElement.querySelector(sel), `ignore-selector ${sel} matches`).not.toBeNull();
     }
@@ -191,8 +171,6 @@ export const SteadyStreamNoBlinkV86: Story = {
         ).toBe(true),
       { timeout: 45000, interval: 500 },
     );
-    // Every sampled frame during the burst must have shown a full redraw —
-    // no pane-node flicker, no size movement.
     glitches.assertNoGlitches('steadyStream');
   },
 };

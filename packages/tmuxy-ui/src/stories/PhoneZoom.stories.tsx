@@ -1,13 +1,7 @@
 /**
- * The phone's zoom with the keyboard up and down, upright and sideways.
- *
- * Zoomed (the key row's magnifier, or a double tap), the terminal is drawn at
- * twice its size: upright, the bottom view gives way so every one of its rows
- * is on screen, and the view scrolls sideways only; the key row stays under
- * it. A keyboard coming up cuts the terminal short, and it scrolls so the
- * cursor's row stays in view. No headless browser draws a keyboard, so the
- * stories bring up a mock one (keyboardMock.ts): the screen loses its height
- * and a keyboard is drawn there.
+ * The phone's zoom with the keyboard up and down, upright and sideways. No
+ * headless browser draws a keyboard, so the stories bring up a mock one
+ * (keyboardMock.ts): the screen loses its height and a keyboard is drawn there.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -37,16 +31,13 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-/** A keyboard of the size a phone's takes, upright and sideways. */
 const KEYBOARD_UPRIGHT = 300;
 const KEYBOARD_SIDEWAYS = 170;
 
-/** The terminal's rows on screen, in order. */
 const rows = (root: Element) => [
   ...root.querySelectorAll('.phone-pty .pane-active .terminal-line'),
 ];
 
-/** The cursor's box and the terminal's: the row being typed on must be inside. */
 async function expectCursorInView(root: Element) {
   await waitFor(
     () => {
@@ -83,7 +74,6 @@ export const ZoomShowsEveryRow: Story = {
     const before = box(canvasElement.querySelector('.phone-pty .pane-container'));
     await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
 
-    // Every row on screen, twice its size; the bottom view gone, the keys under it.
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull();
       expect(canvasElement.querySelector('[data-testid="phone-bottom"]')).toBeNull();
@@ -91,7 +81,7 @@ export const ZoomShowsEveryRow: Story = {
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
     const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
     await waitFor(() => {
-      // Every row of the pane: the window's 24, less the pane's header.
+      // The window's 24 rows, less the pane's header.
       const lines = rows(canvasElement);
       expect(lines.length).toBeGreaterThanOrEqual(23);
       const first = box(lines[0]);
@@ -109,7 +99,6 @@ export const ZoomShowsEveryRow: Story = {
       box(term).bottom - 0.5,
     );
 
-    // The keyboard comes up: the terminal is cut short and kept on the cursor.
     const putAway = mockKeyboard(canvasElement.querySelector('.app-container')!, KEYBOARD_UPRIGHT);
     try {
       await waitFor(() => expect(term.scrollHeight).toBeGreaterThan(term.clientHeight + 10), {
@@ -123,7 +112,6 @@ export const ZoomShowsEveryRow: Story = {
       putAway();
     }
 
-    // The magnifier again: back to the grid's own size, the bottom view back.
     await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).toBeNull();
@@ -163,7 +151,6 @@ export const ZoomSidewaysWithTheKeyboard: Story = {
       expect(term.scrollHeight).toBeGreaterThan(term.clientHeight + 10);
       expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth + 10);
     });
-    // Sideways the bottom view keeps its place in the column.
     expect(canvasElement.querySelector('.phone-side [data-testid="phone-bottom"]')).not.toBeNull();
 
     const putAway = mockKeyboard(canvasElement.querySelector('.app-container')!, KEYBOARD_SIDEWAYS);

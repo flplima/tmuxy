@@ -1,14 +1,8 @@
 /**
- * Paging an overflowing tab strip, over recordings of real tmux.
- *
- * The strip scrolls sideways with its scrollbar hidden, so past a certain
- * number of tabs the ones at the end are simply unreachable without a wheel.
- * The ‹ › pair in the header pages it by exactly one strip-width at a time,
- * and the browser clamps the last page to whatever is left.
- *
- * The buttons appear only when there is somewhere to scroll to, and each is
- * disabled at its own end rather than removed — a control that vanished would
- * shuffle the "+" beside it every time you reached an edge.
+ * Paging an overflowing tab strip, over recordings of real tmux. The strip
+ * hides its scrollbar, so without the ‹ › pair the tabs at the end are
+ * unreachable without a wheel. Each button is disabled at its own end rather
+ * than removed: a control that vanished would shuffle the "+" beside it.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -18,10 +12,7 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import manyTabs from './fixtures/gen/many-tabs.json';
 import tabs from './fixtures/gen/tabs.json';
 
-/**
- * Twelve tabs with long names, more than the strip shows, the last current;
- * switching to the first and back answered as tmux answered it.
- */
+/** Twelve long-named tabs, more than the strip shows, the last current. */
 const MANY_TABS = {
   fixture: asFixture(manyTabs),
   start: 'last-active',
@@ -30,7 +21,6 @@ const MANY_TABS = {
     { match: /^select-window -t @11$/, to: 'last-active' },
   ],
 };
-/** Two tabs, `main` and `logs`, with room to spare. */
 const TWO_TABS = { fixture: asFixture(tabs), start: 'logs-active' };
 
 const meta: Meta<typeof FixtureApp> = {
@@ -56,9 +46,9 @@ function strip(canvasElement: HTMLElement): HTMLElement {
 }
 
 /**
- * Click a pager until it has nothing left to do, letting each smooth scroll
- * settle first — pages fired on top of one another coalesce, the way they
- * would for a user hammering the button, and that is not what is under test.
+ * Clicks a pager until it has nothing left to do, letting each smooth scroll
+ * settle first: pages fired on top of one another coalesce, and that is not
+ * what is under test.
  */
 async function pageUntilDone(button: HTMLElement, list: HTMLElement): Promise<void> {
   for (let i = 0; i < 10; i++) {
@@ -66,7 +56,6 @@ async function pageUntilDone(button: HTMLElement, list: HTMLElement): Promise<vo
     const before = list.scrollLeft;
     await userEvent.click(button);
     await waitFor(() => expect(list.scrollLeft).not.toBe(before), { timeout: 4000 });
-    // Settled: two readings in a row the same.
     let last = -1;
     await waitFor(
       () => {
@@ -79,10 +68,6 @@ async function pageUntilDone(button: HTMLElement, list: HTMLElement): Promise<vo
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Overflowing — the pair appears and pages a screenful at a time
-// ---------------------------------------------------------------------------
 
 export const PagesAScreenfulAtATime: Story = {
   tags: ['nightly'],
@@ -105,10 +90,8 @@ export const PagesAScreenfulAtATime: Story = {
       timeout: 8000,
     });
 
-    // The newest tab is current, and the strip keeps the current tab in view,
-    // so it opens at the far end. Switch to the first tab to bring it home —
-    // paging is what is under test here, not where the strip sits when it
-    // opens — and let that settle before touching the pager.
+    // The strip keeps the current (newest) tab in view, so it opens at the far
+    // end; bring it home first, since paging is what is under test.
     const firstId = list.querySelector<HTMLElement>('.tab-name[data-window-id]')!.dataset.windowId;
     (window as unknown as { app: { send(e: unknown): void } }).app.send({
       type: 'SELECT_TAB',
@@ -119,18 +102,16 @@ export const PagesAScreenfulAtATime: Story = {
 
     const left = await canvas.findByTestId('tab-scroll-left');
     const right = await canvas.findByTestId('tab-scroll-right');
-    // Both are drawn, and big enough to hit.
     for (const button of [left, right]) {
       const box = button.getBoundingClientRect();
       expect(box.width).toBeGreaterThan(10);
       expect(box.height).toBeGreaterThan(10);
     }
-    // Parked at the start: nothing to the left, plenty to the right.
     expect(list.scrollLeft).toBeLessThan(8);
     expect(left).toBeDisabled();
     expect(right).toBeEnabled();
 
-    // One page right is one strip-width, or the end, whichever comes first.
+    // The browser clamps the last page to whatever is left.
     const page = list.clientWidth;
     const max = list.scrollWidth - list.clientWidth;
     await userEvent.click(right);
@@ -140,8 +121,6 @@ export const PagesAScreenfulAtATime: Story = {
     expect(list.scrollLeft).toBeLessThanOrEqual(max + 1);
     await waitFor(() => expect(left).toBeEnabled());
 
-    // Keep going: it stops at the end rather than running past it, and the
-    // button for that end goes quiet.
     await pageUntilDone(right, list);
     await waitFor(
       () => {
@@ -150,14 +129,12 @@ export const PagesAScreenfulAtATime: Story = {
       },
       { timeout: 6000 },
     );
-    // The last tab is on screen now, which is the point of the whole thing.
     const tabs = [...list.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')];
     const last = tabs[tabs.length - 1].getBoundingClientRect();
     const frame = list.getBoundingClientRect();
     expect(last.right).toBeLessThanOrEqual(frame.right + 2);
     expect(last.left).toBeGreaterThanOrEqual(frame.left - 2);
 
-    // And back: ‹ pages the other way, all the way home.
     await pageUntilDone(left, list);
     await waitFor(
       () => {
@@ -168,10 +145,6 @@ export const PagesAScreenfulAtATime: Story = {
     );
   },
 };
-
-// ---------------------------------------------------------------------------
-// Everything fits — no buttons at all
-// ---------------------------------------------------------------------------
 
 export const NoButtonsWhenEverythingFits: Story = {
   args: TWO_TABS,
@@ -193,14 +166,9 @@ export const NoButtonsWhenEverythingFits: Story = {
 
     expect(canvasElement.querySelector('[data-testid="tab-scroll-left"]')).toBeNull();
     expect(canvasElement.querySelector('[data-testid="tab-scroll-right"]')).toBeNull();
-    // The "+" is still there — the pair coming and going must not disturb it.
     expect(canvas.getByLabelText('Create new tab')).toBeInTheDocument();
   },
 };
-
-// ---------------------------------------------------------------------------
-// Switching to a tab that is off the strip brings it back
-// ---------------------------------------------------------------------------
 
 export const SwitchingScrollsTheTabIntoView: Story = {
   args: MANY_TABS,
@@ -231,9 +199,6 @@ export const SwitchingScrollsTheTabIntoView: Story = {
     const byId = (id: string) => tabs().find((t) => t.dataset.windowId === id)!;
     const app = (window as unknown as { app: { send(e: unknown): void } }).app;
 
-    // The newest tab is the current one, and it is the last on a strip that
-    // does not fit — so the strip has already brought it into view rather
-    // than leaving the tab you are looking at off the end.
     const last = tabs()[tabs().length - 1];
     const lastId = last.dataset.windowId as string;
     expect(last.classList.contains('tab-name-active'), 'newest tab is current').toBe(true);
@@ -241,8 +206,7 @@ export const SwitchingScrollsTheTabIntoView: Story = {
       timeout: 6000,
     });
 
-    // Switch to the first tab, which is off the other end, without touching
-    // the strip — the way ctrl+1 or prefix p does it.
+    // Without touching the strip, the way ctrl+1 or prefix p does it.
     const firstId = tabs()[0].dataset.windowId as string;
     expect(onScreen(byId(firstId))).toBe(false);
     app.send({ type: 'SELECT_TAB', windowId: firstId });
@@ -254,11 +218,9 @@ export const SwitchingScrollsTheTabIntoView: Story = {
       },
       { timeout: 6000 },
     );
-    // It moved by the least amount that does it: the strip is back at its
-    // start rather than having centred anything.
+    // By the least amount that does it: back at its start, nothing centred.
     expect(list.scrollLeft).toBeLessThan(20);
 
-    // ...and back to the far end again.
     app.send({ type: 'SELECT_TAB', windowId: lastId });
     await waitFor(
       () => {
@@ -272,10 +234,6 @@ export const SwitchingScrollsTheTabIntoView: Story = {
     );
   },
 };
-
-// ---------------------------------------------------------------------------
-// No ✕ on a tab
-// ---------------------------------------------------------------------------
 
 export const TabsCarryNoCloseButton: Story = {
   args: TWO_TABS,
@@ -296,7 +254,6 @@ export const TabsCarryNoCloseButton: Story = {
 
     expect(list.querySelector('.tab-close')).toBeNull();
     expect(canvas.queryByLabelText(/^Close tab/)).toBeNull();
-    // Clicking anywhere on a tab selects it; there is no sub-target to miss.
     for (const tab of list.querySelectorAll('.tab-name[data-window-id]')) {
       expect(tab.querySelector('button')).toBeNull();
     }

@@ -9,8 +9,6 @@ import type { TmuxViewMode } from './tmuxView';
 import './tmuxView.css';
 
 function VgaPanel({ mode }: { mode: Exclude<TmuxViewMode, 'off'> }) {
-  // Ref callback with cleanup: mounts the mirror when the panel enters the DOM
-  // and tears it down (detaches the VGA client, stops painting) when it leaves.
   const ref = (el: HTMLDivElement | null) => {
     if (!el) return;
     const mirror = new VgaMirror();

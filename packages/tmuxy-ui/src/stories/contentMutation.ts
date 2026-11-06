@@ -1,33 +1,12 @@
 /**
- * MutationObserver content-blink recorder for Storybook play functions.
- *
- * The three existing recorders leave a gap:
- *   - `glitchRecorder.ts` watches the pane *chrome* and deliberately IGNORES
- *     `.terminal-content` / `.terminal-line` / `.terminal-cursor`.
- *   - `contentStability.ts` (rAF) proves marker *text* stays present, but only
- *     samples `textContent.includes(marker)` — it can't see a content subtree
- *     being torn down and rebuilt if the text ends up identical.
- *   - `animationObservers.ts` proves *intended* mutations happened.
- *
- * This recorder watches the terminal *content* subtree with a MutationObserver
- * and flags the one mutation that reads as a user-visible blink: a whole content
- * container (`.pane-wrapper` / `.pane-content` / `.terminal-container` /
- * `.terminal-content`) being REMOVED for a pane that is supposed to persist —
- * i.e. React remounting the pane's terminal instead of updating it in place. A
- * remount blanks the pane for a paint and repopulates it: the "everything
- * blinked" bug.
- *
- * What it deliberately does NOT flag (all legitimate, measured against real
- * tmux): `.terminal-line` add/remove as a pane's height changes on split/resize,
- * the `.terminal-cursor` span moving with focus, and the removal of a whole
- * `.pane-layout-item` when its pane is killed. Container teardown for a SURVIVING
- * pane is the only signal.
- *
- * Pure DOM — no Storybook / testing-library imports — usable from any play
- * function.
+ * Flags a content container torn down for a pane that survives: React
+ * remounting the pane's terminal instead of updating it, which blanks the
+ * pane for a paint. `glitchRecorder.ts` ignores the terminal content, and
+ * `contentStability.ts` cannot see a subtree rebuilt with identical text.
+ * Lines added and removed on a resize, the cursor moving with focus, and a
+ * killed pane's removal are legitimate and not flagged.
  */
 
-/** Selectors for the per-pane content containers whose teardown = a blink. */
 const CONTENT_CONTAINER = [
   '.pane-wrapper',
   '.pane-content',
@@ -36,10 +15,9 @@ const CONTENT_CONTAINER = [
 ];
 
 /**
- * Resolve the owning pane id. Prefer the node itself, but a removed node is
- * already detached by the time the (async) MutationObserver runs, so `closest`
- * finds nothing — pass the MutationRecord's `target` (the surviving parent,
- * still connected and carrying `data-pane-id`) as a fallback.
+ * A removed node is already detached when the MutationObserver runs, so
+ * `closest` finds nothing on it: the record's `target`, the surviving parent,
+ * is the fallback.
  */
 function paneIdOf(el: Element, parent?: Node | null): string {
   const own =
@@ -65,29 +43,22 @@ function matchesContainer(node: Node): string | null {
 }
 
 export interface ContentTeardown {
-  /** tmux id of the pane whose content container was torn down. */
   readonly paneId: string;
-  /** Which container selector was removed (e.g. `.terminal-container`). */
   readonly selector: string;
-  /** ms after start() at which it was removed. */
+  /** ms since the recorder started. */
   readonly ts: number;
-  /** True if a fresh container for the same pane was re-added (a remount). */
   readonly remounted: boolean;
 }
 
 export class ContentMutationRecorder {
   private readonly observer: MutationObserver;
   private readonly startTs = performance.now();
-  /** Pane ids whose teardown is intentional (killed / moved away). */
   private dead = new Set<string>();
   private readonly removals: { paneId: string; selector: string; ts: number }[] = [];
   private readonly readds = new Set<string>();
   private removedNodeTotal = 0;
   private stopped = false;
 
-  /**
-   * @param scope Element whose subtree is watched — usually `.pane-layout`.
-   */
   constructor(scope: Element) {
     this.observer = new MutationObserver((records) => this.ingest(records));
     this.observer.observe(scope, { childList: true, subtree: true });
@@ -109,15 +80,11 @@ export class ContentMutationRecorder {
     }
   }
 
-  /**
-   * Mark pane ids whose content teardown is EXPECTED (e.g. just before killing a
-   * pane, or moving it to another tab). Their removals won't be flagged.
-   */
+  /** Panes about to be killed or moved to another tab. */
   expectGone(paneIds: string[]): void {
     for (const id of paneIds) this.dead.add(id);
   }
 
-  /** Teardowns of containers belonging to panes that were meant to survive. */
   teardowns(): ContentTeardown[] {
     return this.removals
       .filter((r) => !this.dead.has(r.paneId))
@@ -129,7 +96,7 @@ export class ContentMutationRecorder {
       }));
   }
 
-  /** Total nodes removed anywhere in scope — lets a story assert it observed churn. */
+  /** Lets a story assert it observed churn at all. */
   get observedRemovals(): number {
     return this.removedNodeTotal;
   }
@@ -140,7 +107,6 @@ export class ContentMutationRecorder {
     this.observer.disconnect();
   }
 
-  /** Stop and throw a readable report if any surviving pane's content was torn down. */
   assertNoBlink(operation: string): void {
     this.stop();
     const teardowns = this.teardowns();

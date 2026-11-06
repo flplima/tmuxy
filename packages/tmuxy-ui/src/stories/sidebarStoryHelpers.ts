@@ -35,7 +35,6 @@ export function tabPanes() {
   return app().context.panes.filter((p) => tabWindowIds.has(p.windowId));
 }
 
-/** Wait until the sidebar drawer + tree portal into document.body with rendered rows. */
 export async function waitForTree(): Promise<HTMLElement> {
   return waitFor(
     () => {
