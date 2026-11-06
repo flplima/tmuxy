@@ -34,16 +34,16 @@ impl PaneState {
         self.image_parser.update_cursor(init_row, init_col);
 
         // Temporarily take `image_parser` so the clean-bytes callback can
-        // mutate `self` (feeding `osc_parser` and `vt100` and shifting image
-        // placements on scroll) right before each image escape is placed.
+        // mutate `self` (feeding vt100 and shifting image placements on
+        // scroll) right before each image escape is placed.
         let mut image_parser = std::mem::take(&mut self.image_parser);
         let new_images = image_parser.process_with(content, |clean_bytes, parser| {
-            // Put placements on `self.image_parser` while `feed_terminal`
-            // runs so `sync_url_scroll` shifts them by any scroll delta
-            // caused by `clean_bytes`.
+            // Put placements on `self.image_parser` while vt100 runs so
+            // `sync_image_scroll` shifts them by any scroll delta caused by
+            // `clean_bytes`.
             std::mem::swap(&mut self.image_parser.placements, &mut parser.placements);
-            let osc = self.osc_parser.process(clean_bytes);
-            self.feed_terminal(osc);
+            self.terminal.process(clean_bytes);
+            self.sync_image_scroll();
             std::mem::swap(&mut self.image_parser.placements, &mut parser.placements);
             let (row, col) = self.terminal.screen().cursor_position();
             parser.update_cursor(row, col);
@@ -98,7 +98,7 @@ impl PaneState {
         // announcing a new title left the header showing the old one for up
         // to fifteen seconds. tmux sees the same escape and agrees at the
         // next poll; this only removes the lag.
-        if let Some(title) = self.osc_parser.take_title() {
+        if let Some(title) = self.terminal.callbacks_mut().take_title() {
             self.set_title(title);
         }
 
@@ -115,9 +115,10 @@ impl PaneState {
     /// no cursor positioning, so the grid is reset to top-left before it is
     /// written, and the cursor is placed after.
     pub fn apply_capture(&mut self, content: &[u8]) {
-        // Snapshot DEC line-size attributes before the grid is rebuilt:
-        // tmux strips `ESC # 3..6` from `capture-pane` output, so we re-apply
-        // the line size on any row whose trimmed text still matches.
+        // Snapshot the sizes before the grid is rebuilt: tmux strips
+        // `ESC # 3..6` and `OSC 66` from `capture-pane` output, so a row's
+        // DEC line size comes back where the row's trimmed text still
+        // matches, and a cell's OSC 66 size where its character does.
         let prev_screen = self.terminal.screen();
         let (prev_rows, prev_cols) = prev_screen.size();
         let saved_line_sizes: Vec<(u16, vt100::LineSize, String)> = (0..prev_rows)
@@ -134,6 +135,14 @@ impl PaneState {
                 Some((r, ls, text))
             })
             .collect();
+        let saved_text_sizes: Vec<(u16, u16, vt100::TextSize, String)> = (0..prev_rows)
+            .flat_map(|r| (0..prev_cols).map(move |c| (r, c)))
+            .filter_map(|(r, c)| {
+                let size = prev_screen.cell(r, c)?.text_size();
+                (size != vt100::TextSize::Normal)
+                    .then(|| (r, c, size, crate::screen_cell_char(prev_screen, r, c)))
+            })
+            .collect();
 
         self.reset(Reset::Capture);
         let normalized = normalize_capture_bytes(content);
@@ -148,6 +157,11 @@ impl PaneState {
                 .to_string();
             if cur_text == prev_text {
                 self.terminal.screen_mut().set_row_line_size(r, ls);
+            }
+        }
+        for (r, c, size, prev_char) in saved_text_sizes {
+            if crate::screen_cell_char(self.terminal.screen(), r, c) == prev_char {
+                self.terminal.screen_mut().set_cell_text_size(r, c, size);
             }
         }
         // The capture leaves vt100's cursor at the end of the content (the
@@ -172,9 +186,9 @@ impl PaneState {
     }
 
     /// Rebuild the emulator for this pane's size, in the modes tmux reports
-    /// (`fresh_terminal`). Every reset clears the same set: the grid, the
-    /// hyperlink marks, the content cache and the scroll baseline. What it
-    /// keeps depends on `kind`.
+    /// (`fresh_terminal`). Every reset clears the same set: the grid (with
+    /// the links and sizes written into it), the content cache and the scroll
+    /// baseline. What it keeps depends on `kind`.
     fn reset(&mut self, kind: Reset) {
         let history = match kind {
             // A capture is the screen as it is now, and the rows that scrolled
@@ -189,18 +203,10 @@ impl PaneState {
         }
         match kind {
             // The capture text can't recreate image placements (tmux strips
-            // image escapes from captured history), and OSC 66 `sized_cells`
-            // are validated against live characters (`OscParser::row_sizes`).
-            Reset::Capture => {
-                self.image_parser.reset_for_capture();
-                self.osc_parser.reset_for_capture();
-            }
-            Reset::Moved => {
-                self.image_parser.reset();
-                self.osc_parser.reset();
-            }
+            // image escapes from captured history).
+            Reset::Capture => self.image_parser.reset_for_capture(),
+            Reset::Moved => self.image_parser.reset(),
         }
-        self.osc_parser.set_viewport_height(self.height);
         self.content_dirty = true;
         self.cached_content = None;
         self.rebaseline_scroll();
@@ -233,10 +239,15 @@ impl PaneState {
     /// the flag true, so plain `?1000h` restores it whichever variant
     /// (1000/1002/1003) the application actually chose; a later `?1000l` from
     /// the application still clears it.
-    fn fresh_terminal(&self) -> vt100::Parser {
+    fn fresh_terminal(&self) -> vt100::Parser<super::osc::OscRequests> {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
-        let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
+        let mut terminal = vt100::Parser::new_with_callbacks(
+            h,
+            w,
+            crate::constants::REFLOW_SCROLLBACK_ROWS,
+            super::osc::OscRequests::default(),
+        );
         if self.alternate_on {
             terminal.process(b"\x1b[?1049h");
         }
@@ -254,7 +265,7 @@ impl PaneState {
 
     /// The OSC 52 clipboard write the output since the last call asked for.
     pub(in crate::control_mode::state) fn take_clipboard(&mut self) -> Option<String> {
-        self.osc_parser.take_clipboard()
+        self.terminal.callbacks_mut().take_clipboard()
     }
 
     /// Resize the terminal.
@@ -282,16 +293,50 @@ impl PaneState {
             // replay was added for (content is reflowed, never lost).
             self.terminal.screen_mut().set_size(h, w);
             self.image_parser.reset_for_resize(self.alternate_on);
-            // Drop stale hyperlink cell mappings (reflowed coordinates no longer
-            // match) and realign the scroll compensation to the new height.
-            self.osc_parser.reset();
-            self.osc_parser.set_viewport_height(height);
             self.rebaseline_scroll();
             let (row, col) = self.terminal.screen().cursor_position();
             self.image_parser.update_cursor(row, col);
             true
         } else {
             false
+        }
+    }
+
+    /// Take the current grid's scroll counter as the new zero point, without
+    /// shifting anything. Called after the grid is replaced or reflowed, when
+    /// no delta is meaningful.
+    fn rebaseline_scroll(&mut self) {
+        let screen = self.terminal.screen();
+        self.scroll_baseline_alt = screen.alternate_screen();
+        self.last_scroll_delta = screen.scroll_delta();
+    }
+
+    /// Shift image placements by however far vt100 actually scrolled since
+    /// the last check, so a picture stays on the lines it was drawn on.
+    fn sync_image_scroll(&mut self) {
+        let screen = self.terminal.screen();
+        let alt = screen.alternate_screen();
+        let now = screen.scroll_delta();
+
+        if alt != self.scroll_baseline_alt {
+            // A different grid entirely: its counter is unrelated to the one
+            // the placements were taken against, so re-base rather than shift
+            // by a meaningless delta.
+            self.scroll_baseline_alt = alt;
+            self.last_scroll_delta = now;
+            return;
+        }
+
+        let delta = now - self.last_scroll_delta;
+        self.last_scroll_delta = now;
+        match delta.cmp(&0) {
+            std::cmp::Ordering::Greater => self
+                .image_parser
+                .shift_rows_up(delta as u32, crate::constants::IMAGE_HISTORY_ROWS),
+            std::cmp::Ordering::Less => self
+                .image_parser
+                .shift_rows_down(delta.unsigned_abs() as u32),
+            std::cmp::Ordering::Equal => {}
         }
     }
 }

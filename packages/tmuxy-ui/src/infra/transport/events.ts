@@ -16,6 +16,8 @@ export type TransportEvent = Data.TaggedEnum<{
     readonly defaultShell: string;
     /** The server machine's name; null when the transport cannot say. */
     readonly hostname: string | null;
+    /** Whether the host records a trace the client should ship its events to; absent when it has none. */
+    readonly traceEnabled?: boolean;
   };
   /** The channel dropped (true) or came back (false). */
   Reconnection: { readonly reconnecting: boolean };

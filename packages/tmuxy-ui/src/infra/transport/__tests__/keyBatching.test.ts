@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { KeyBatcher, unescapeLiteralText } from '../keyBatching';
-import { quote } from '../../../domain/commands';
+import { KeyBatcher } from '../keyBatching';
+import { quote, toTmuxCommand, TmuxOp } from '../../../domain/commands';
+import { pid } from '../../../test/wire';
 
 describe('KeyBatcher', async () => {
   let sent: string[];
@@ -9,10 +10,7 @@ describe('KeyBatcher', async () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sent = [];
-    batcher = new KeyBatcher((cmd, args) => {
-      expect(cmd).toBe('run_tmux_command');
-      sent.push(args.command as string);
-    });
+    batcher = new KeyBatcher((op) => sent.push(toTmuxCommand(op)));
   });
 
   afterEach(() => {
@@ -20,12 +18,8 @@ describe('KeyBatcher', async () => {
     vi.useRealTimers();
   });
 
-  const literal = (text: string) =>
-    batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s0 -l -- ${quote(text)}`,
-    });
-  const special = (keys: string) =>
-    batcher.intercept('run_tmux_command', { command: `send-keys -t s0 ${keys}` });
+  const literal = (text: string, target = 's0') => batcher.take(TmuxOp.SendText({ target, text }));
+  const special = (keys: string, target = 's0') => batcher.take(TmuxOp.SendKeys({ target, keys }));
 
   it('sends an isolated literal keystroke immediately (leading edge)', async () => {
     expect(literal('a')).toBe(true);
@@ -42,15 +36,12 @@ describe('KeyBatcher', async () => {
     expect(sent).toHaveLength(1);
   });
 
-  it('leaves a quoted target alone rather than cutting it at its first space', async () => {
-    // A session name with a space is the one target that arrives quoted; read
-    // as `\S+` it became the target `'my` and the keys `work' Enter`.
-    const keys = "send-keys -t 'my work' Enter";
-    const text = "send-keys -t 'my work' -l -- 'a'";
-    expect(batcher.intercept('run_tmux_command', { command: keys })).toBe(false);
-    expect(batcher.intercept('run_tmux_command', { command: text })).toBe(false);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(sent).toEqual([]);
+  it('batches for a quoted target as for any other, quoting it once on the way out', async () => {
+    // A session name with a space is the one target that goes out quoted.
+    literal('a', 'my work');
+    literal('b', 'my work');
+    await vi.advanceTimersByTimeAsync(16);
+    expect(sent).toEqual(["send-keys -t 'my work' -l -- 'a'", "send-keys -t 'my work' -l -- 'b'"]);
   });
 
   it('coalesces a rapid literal burst after the leading send', async () => {
@@ -129,28 +120,23 @@ describe('KeyBatcher', async () => {
     expect(sent).toEqual(['send-keys -t s0 Up', 'send-keys -t s0 Down Left']);
   });
 
-  it('never intercepts hex-byte sends (-H)', async () => {
-    const intercepted = batcher.intercept('run_tmux_command', {
-      command: 'send-keys -t s0 -H 1b 5b 41',
-    });
-    expect(intercepted).toBe(false);
+  it('sends key names that start with a flag alone, and any op that is not a keystroke', async () => {
+    expect(special('-X cancel')).toBe(false);
+    expect(
+      batcher.take(TmuxOp.SendMouse({ paneId: pid('%1'), button: 0, x: 1, y: 1, release: false })),
+    ).toBe(false);
+    expect(batcher.take(TmuxOp.SelectPane({ paneId: pid('%1') }))).toBe(false);
     expect(sent).toHaveLength(0);
   });
 
-  it('never intercepts double-quoted control-char literals, flushing pending keys first', async () => {
+  it('joins text holding control characters like any other, quoted for control mode', async () => {
     literal('a');
     await vi.advanceTimersByTimeAsync(5);
-    literal('b'); // pending in the batch window
-    const tabCmd = `send-keys -t s0 -l -- ${quote('c\td')}`;
-    expect(quote('c\td').startsWith('"')).toBe(true);
-    expect(batcher.intercept('run_tmux_command', { command: tabCmd })).toBe(false);
-    // Pending 'b' was flushed before returning false so the caller sends tabCmd in order.
-    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", "send-keys -t s0 -l -- 'b'"]);
-  });
-
-  it('never intercepts non-send-keys commands', async () => {
-    expect(batcher.intercept('run_tmux_command', { command: 'selectp -t %1' })).toBe(false);
-    expect(batcher.intercept('list_panes', {})).toBe(false);
+    literal('b');
+    literal('c\td');
+    await vi.advanceTimersByTimeAsync(11);
+    expect(sent).toEqual(["send-keys -t s0 -l -- 'a'", `send-keys -t s0 -l -- ${quote('bc\td')}`]);
+    expect(quote('bc\td').startsWith('"')).toBe(true);
   });
 
   it('flushAll drains pending batches and closes the windows', async () => {
@@ -166,20 +152,10 @@ describe('KeyBatcher', async () => {
 
   it('keeps sessions separate within one window', async () => {
     literal('a'); // opens the literal window (leading, session s0)
-    batcher.intercept('run_tmux_command', {
-      command: `send-keys -t s1 -l -- ${quote('z')}`,
-    });
+    literal('z', 's1');
     await vi.advanceTimersByTimeAsync(16);
     expect(sent).toContain("send-keys -t s0 -l -- 'a'");
     expect(sent).toContain("send-keys -t s1 -l -- 'z'");
     expect(sent).toHaveLength(2);
-  });
-});
-
-describe('quote / unescapeLiteralText', async () => {
-  it('round-trips plain and quoted text', async () => {
-    for (const text of ['abc', "it's", "a'b'c", ' spaced  ', "'"]) {
-      expect(unescapeLiteralText(quote(text))).toBe(text);
-    }
   });
 });

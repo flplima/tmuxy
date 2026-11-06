@@ -68,21 +68,10 @@ What one finger does on the terminal is `components/terminal/usePaneTouch.ts` ov
 
 `appMachine.ts` holds the lifecycle (connecting / idle / reconnecting / detached / disconnected) and the actor wiring; `dispatch.ts` is the one command path every tmux command goes through. Everything else is grouped by the context fields it owns: `machines/app/states/<concern>.ts` holds that concern's event handlers (an `on` map spread into the machine), and `machines/app/actions/<concern>.ts` the named actions they refer to, helpers in `actions/<concern>/`. `connection` owns the stream and what the server reports, `viewport` the cell and the size this client asks for. `context.ts` builds the initial context and owns the field-ownership map. Optimistic tmux state is not machine state at all: it lives in the store under `src/domain/store/`.
 
-**One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every
-`AppMachineContext` field to the slice that owns it. The
-`tmuxy/state-field-ownership` ESLint rule (in `packages/tmuxy-ui/eslint-rules/`)
-reads that map out of `context.ts` itself and enforces it on every file in
-`machines/app/`: an `assign({...})` (or `assignCtx({...})`) in a slice's files
-may only write that slice's fields, and the machine's other files own none.
-A handler that writes across slices (a session switch, the model-update
-mirror) says so: `// cross-cutting: <reason>` on the assign.
-
-Action names are prefixed with the owning state (`uiPrefs_applyTheme`,
-`layout_selectTab`, etc.) so they don't collide when merged into the
-parent's `setup({ actions })` block.
+**One-owner-per-field invariant.** `FIELD_OWNERS` in `context.ts` maps every field to its slice; the `tmuxy/state-field-ownership` ESLint rule (`packages/tmuxy-ui/eslint-rules/`) reads it and holds every file in `machines/app/` to it: a slice's `assign`/`assignCtx` writes only its fields, other files none, and a cross-slice write says why (`// cross-cutting: <reason>`). Action names carry their slice (`layout_selectTab`).
 
 ### Domain and infrastructure
 
-The frontend splits along one line: `src/domain/` is pure — branded ids (`ids.ts`), the wire schemas and the decoding into them (`wire.ts`), the client model derived from the wire (`client.ts`), the command vocabulary (`commands.ts`: `TmuxOp` and `toTmuxCommand`, the only code that spells a tmux command), and the store's pure model (`store/`: predict, reconcile, replay). `src/infra/` is everything with an effect, as Effect services and Layers: the `TmuxTransport` service and its four Layers (`transport/`, see [DATA-FLOW.md](DATA-FLOW.md)), the one `ManagedRuntime` the app runs them on (`runtime.ts`), the store that holds the model and sends ops (`store/TmuxStore.ts`), the tracer and the latency tracker. XState machines orchestrate between the two: the actors run effects on the runtime, and machine actions call domain functions.
+The frontend splits along one line: `src/domain/` is pure — branded ids (`ids.ts`), the wire schemas and the decoding into them (`wire.ts`), the client model derived from the wire (`client.ts`), the command vocabulary (`commands.ts`: `TmuxOp` and `toTmuxCommand`, the only code that spells a tmux command), every command a backend takes with its argument and answer schemas (`backendCalls.ts`), and the store's pure model (`store/`: predict, reconcile, replay). `src/infra/` is everything with an effect, as Effect services and Layers: the `TmuxTransport` service and its four Layers (`transport/`, see [DATA-FLOW.md](DATA-FLOW.md)) — the service owns the one serial lane every op and call takes and the keystroke batching on it (`commandLane.ts`), and the drivers under it only move calls and answers — the one `ManagedRuntime` the app runs them on (`runtime.ts`), the store that holds the model and sends ops (`store/TmuxStore.ts`), the tracer and the latency tracker. XState machines orchestrate between the two: the actors run effects on the runtime, and machine actions call domain functions.
 
 Failures are one tagged union (`infra/transport/AdapterError.ts`): `TmuxError` when tmux itself refused a command (the server's `kind: "tmux"`), `TransportError` for everything a transport reports otherwise (no monitor, a timeout, a malformed or forbidden request), and `ProtocolError` for a payload that does not decode. The tmux actor turns a failure into `TMUX_ERROR { error }`, a display string for the snackbar.

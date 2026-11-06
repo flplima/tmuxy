@@ -413,6 +413,8 @@ mod tests_panes;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
 #[cfg(test)]
+mod tests_text_sizes;
+#[cfg(test)]
 mod tests_view_mode;
 #[cfg(test)]
 mod tests_windows_and_stash;

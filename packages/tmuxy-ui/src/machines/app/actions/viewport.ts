@@ -32,13 +32,7 @@ export function syncClientSize(
   });
   if (grid.cols <= 0) return;
   if (context.connected && (target.cols !== grid.cols || target.rows !== grid.rows)) {
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_client_size',
-        args: { cols: target.cols, rows: target.rows },
-      }),
-    );
+    enqueue(sendTo('tmux', { type: 'SET_CLIENT_SIZE' as const, ...target }));
   } else if (!context.enableAnimations && settled) {
     enqueue(raise({ type: 'ANIMATIONS_SETTLED' as const }));
   }

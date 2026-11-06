@@ -16,7 +16,8 @@ shared artefact that makes the drift visible.
 | `event_state_update_full.json`  | The `state-update` event carrying a full snapshot                                                              |
 | `event_state_update_delta.json` | The `state-update` event carrying a delta, including pane/window removals and sparse content                   |
 | `events.json`                   | Every other event, one per `HostEvent` variant: `{ event, data }`, the SSE frame and the Tauri event's payload |
-| `command_results.json`          | One answer per client command, by its wire name, as both hosts answer it                                       |
+| `command_requests.json`         | One request per client command, `{ cmd, args }` with every optional argument given, as both hosts receive it   |
+| `command_results.json`          | Every answer of every client command, by its wire name, as both hosts answer it                                |
 | `command_errors.json`           | The error bodies a client has to render: `{ error, kind }`, one of each kind                                   |
 
 Each state and delta populates **every** field, so nothing is skipped by
@@ -32,7 +33,9 @@ Each state and delta populates **every** field, so nothing is skipped by
   asserts no key in a fixture is dropped on the way through. Every event is
   read through the one table both adapters listen with (`hostEvents.ts`), so
   an event no client listens for turns `vitest` red too, as does a field the
-  Rust side sends and the schema does not model.
+  Rust side sends and the schema does not model. Every request and answer is
+  read through the client's one command table (`domain/backendCalls.ts`): a
+  command or an argument one side has and the other lacks fails there.
 
 ## Regenerating
 

@@ -21,8 +21,8 @@ use crate::control_mode::LogKind;
 use crate::transport::{KeyBinding, KeyBindings};
 use crate::{CommandError, StateUpdate};
 
-mod answers;
 mod canonical;
+mod commands;
 use canonical::{canonical_delta, canonical_state, cell, styled_cell};
 
 /// Where the committed fixtures live, shared with the Vitest suite.

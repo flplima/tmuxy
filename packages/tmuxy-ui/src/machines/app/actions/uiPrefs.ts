@@ -13,6 +13,7 @@
 import { appearancePrefs } from '../appearance';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
+import { invokeEvent } from '../../actors/tmuxActor';
 import {
   applyTheme,
   applyThemeMode,
@@ -50,13 +51,7 @@ export const uiPrefsActions = {
     // every other client watching — a phone, the desktop app — is sent it
     // (THEME_REV_CHANGED). localStorage only paints the next load's first
     // frame before the backend has answered.
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme',
-        args: { name: event.name },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_theme', args: { name: event.name } })));
   }),
 
   uiPrefs_applyThemeMode: act(({ event, context, enqueue }) => {
@@ -66,13 +61,7 @@ export const uiPrefsActions = {
     saveThemePref(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
     // The session's, as the theme is (uiPrefs_applyTheme).
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme_mode',
-        args: { mode: event.mode },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_theme_mode', args: { mode: event.mode } })));
   }),
 
   // This device's notifications on or off. The permission prompt has to come
@@ -151,13 +140,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.cursorBlink)) return;
     const enabled = !context.cursorBlink;
     enqueue(assign({ cursorBlink: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_cursor_blink',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_cursor_blink', args: { enabled } })));
   }),
 
   uiPrefs_toggleSendAsk: act(({ event, context, enqueue }) => {
@@ -165,13 +148,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.sendAsk)) return;
     const enabled = !context.sendAsk;
     enqueue(assign({ sendAsk: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_send_ask',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_send_ask', args: { enabled } })));
   }),
 
   // The desktop app answers with fresh theme settings, which repaint the
@@ -181,13 +158,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.transparency)) return;
     const enabled = !context.transparency;
     enqueue(assign({ transparency: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_transparency',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_transparency', args: { enabled } })));
   }),
 
   // The list is also how a theme that went away is noticed: a plugin's theme

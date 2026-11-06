@@ -98,7 +98,7 @@ Bytes emitted by any command running in a pane reach parsers, image decoders, an
 
 2. **Unsafe Hyperlinks (OSC 8 & Linkifiers)**
    - _Vector:_ Explicit OSC 8 hyperlinks (`\e]8;;<URL>\e\\`) or implicit URL regex linkifiers matching dangerous schemes (e.g. `javascript:`, `data:`, `file:`, `blob:`).
-   - _Policy:_ URLs must pass an explicit allowlist of safe schemes (`http:`, `https:`, `mailto:`, `git:`). Any URL using a prohibited or unknown scheme must either be stripped or rendered as plain, unclickable text. Clicks must open in a new context with `rel="noopener noreferrer"`. The URL is also pane output as far as memory goes: one longer than `MAX_HYPERLINK_URL_BYTES` opens no link, and the cells one OSC 8 pair covers share a single copy of it (`control_mode/osc.rs`) rather than each holding its own.
+   - _Policy:_ URLs must pass an explicit allowlist of safe schemes (`http:`, `https:`, `mailto:`, `git:`). Any URL using a prohibited or unknown scheme must either be stripped or rendered as plain, unclickable text. Clicks must open in a new context with `rel="noopener noreferrer"`. The URL is also pane output as far as memory goes: one longer than `MAX_HYPERLINK_URL_BYTES` opens no link, cells hold an id into one copy of it, and a screen keeps a capped number and size of them (`packages/vt100/src/hyperlinks.rs`).
 
 3. **Image Decoder Exploits & Memory Exhaustion**
    - _Vector:_ Protocols supporting embedded graphics (OSC 1337 iTerm2 images, Kitty graphics protocol, Sixel) transmitting malformed base64 payloads, decompression bombs, or extreme dimensions (e.g. 65535x65535 canvas).

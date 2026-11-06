@@ -9,6 +9,7 @@ import { takeKeyboard } from '../helpers';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
 import { writeClipboard, clipboardWriteMessage } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
+import { invokeEvent } from '../../actors/tmuxActor';
 import { memorableSessionName } from '../../../domain/sessionNames';
 import { isTauri } from '../../../infra/platform';
 
@@ -114,11 +115,13 @@ export const connectionActions = {
     // one of them next opens. A refresh that finds the connect failed corrects it.
     enqueue(assign({ currentServerId: event.serverId }));
     enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'connect_server',
-        args: { id: event.serverId, session: event.session ?? null },
-      }),
+      sendTo(
+        'tmux',
+        invokeEvent({
+          cmd: 'connect_server',
+          args: { id: event.serverId, session: event.session ?? null },
+        }),
+      ),
     );
   }),
 
@@ -127,12 +130,7 @@ export const connectionActions = {
   }),
 
   connection_detachClient: act(({ enqueue }) => {
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'detach_client',
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'detach_client', args: {} })));
   }),
 
   // Create a session AND switch to it, so the action has a visible effect. On

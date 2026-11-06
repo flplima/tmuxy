@@ -63,6 +63,13 @@ pub struct Screen {
     attrs: crate::attrs::Attrs,
     saved_attrs: crate::attrs::Attrs,
 
+    /// The OSC 8 link and OSC 66 size text is written with. Not SGR state:
+    /// `SGR 0` and DECSC/DECRC leave both alone, as an `ls --hyperlink
+    /// --color` resets its colours inside the link it opened.
+    pen_link: crate::attrs::LinkId,
+    pen_size: crate::TextSize,
+    links: crate::hyperlinks::Hyperlinks,
+
     modes: u8,
     mouse_protocol_mode: MouseProtocolMode,
     mouse_protocol_encoding: MouseProtocolEncoding,
@@ -79,6 +86,10 @@ impl Screen {
 
             attrs: crate::attrs::Attrs::default(),
             saved_attrs: crate::attrs::Attrs::default(),
+
+            pen_link: crate::attrs::LinkId::NONE,
+            pen_size: crate::TextSize::Normal,
+            links: crate::hyperlinks::Hyperlinks::default(),
 
             modes: 0,
             mouse_protocol_mode: MouseProtocolMode::default(),
@@ -377,6 +388,35 @@ impl Screen {
         }
     }
 
+    /// The URL of the OSC 8 link `cell` (one of this screen's) was written
+    /// under, if any. A link the screen has since forgotten (see
+    /// `Hyperlinks`) reads as none.
+    #[must_use]
+    pub fn hyperlink(&self, cell: &crate::Cell) -> Option<&str> {
+        self.links.get(cell.link())
+    }
+
+    /// Sets the `OSC 66` text size of the drawing cell at (`row`, `col`).
+    pub fn set_cell_text_size(&mut self, row: u16, col: u16, size: crate::TextSize) {
+        if let Some(cell) = self
+            .grid_mut()
+            .drawing_cell_mut(crate::grid::Pos { row, col })
+        {
+            cell.set_text_size(size);
+        }
+    }
+
+    /// OSC 8: write what follows under `url`, or under no link when `url`
+    /// is empty (the closing `OSC 8 ; ;`).
+    pub(crate) fn osc8(&mut self, url: &[u8]) {
+        self.pen_link = self.links.open(url);
+    }
+
+    /// The `OSC 66` size of the text written from now on.
+    pub(crate) fn set_text_size(&mut self, size: crate::TextSize) {
+        self.pen_size = size;
+    }
+
     pub(crate) fn dec_line_size(&mut self, size: crate::row::LineSize) {
         self.grid_mut().current_row_mut().set_line_size(size);
     }
@@ -624,6 +664,11 @@ impl Screen {
         let pos = self.grid().pos();
         let size = self.grid().size();
         let attrs = self.attrs;
+        // What the character itself (and its continuation half) is written
+        // with; whatever it clears around it gets the plain attributes.
+        let mut pen = attrs;
+        pen.link = self.pen_link;
+        pen.set_text_size(self.pen_size);
 
         let width = c.width();
         if width.is_none() && (u32::from(c)) < 256 {
@@ -748,7 +793,7 @@ impl Screen {
             // called col_wrap() immediately before this, which ensures
             // that self.grid().pos().col has a valid value.
             .unwrap();
-        cell.set(c, attrs);
+        cell.set(c, pen);
         // The clamped width, not the character's: a wide character drawn
         // into a one-column grid is a narrow cell, with no continuation half
         // in a column that does not exist.
@@ -809,8 +854,9 @@ impl Screen {
                 .unwrap();
             // Same colours as the wide character itself (see the widen path
             // above): a default-cleared continuation is a hole in a coloured
-            // row, like the cursor line of an editor.
-            next_cell.clear(attrs);
+            // row, like the cursor line of an editor. Same link and size too,
+            // so the whole glyph is one link of one size.
+            next_cell.clear(pen);
             next_cell.set_wide_continuation(true);
             self.grid_mut().col_inc(1);
         }
