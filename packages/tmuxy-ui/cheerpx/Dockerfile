@@ -35,4 +35,5 @@ RUN for app in vi less more top; do ln -sf /usr/local/bin/tmuxy-no-tui "$(comman
 # the entry conf sets to /root/.local/share/tmuxy.
 RUN ln -sf /opt/tmuxy/bin/tmuxy-cli /usr/bin/tmuxy \
  && mkdir -p /root/.local/share/tmuxy/bin \
- && ln -sfn /opt/tmuxy/bin/tmuxy /root/.local/share/tmuxy/bin/tmuxy
+ && ln -sfn /opt/tmuxy/bin/tmuxy /root/.local/share/tmuxy/bin/tmuxy \
+ && ln -sf /opt/tmuxy/bin/tmuxy-cli /root/.local/share/tmuxy/bin/tmuxy-cli

@@ -200,26 +200,8 @@ pub enum ServerAction {
     Stop,
     /// Show server status
     Status,
-    /// Inspect a local action-trace file: print a summary, or export a
-    /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
-    Trace(crate::trace_view::TraceViewArgs),
-    /// Save, restore, list or forget session snapshots. Backs
-    /// `tmuxy session save|restore|snapshots|forget`.
-    Session(crate::session_cli::SessionArgs),
-    /// Pane-group operations. Backs the `packages/tmuxy-cli/bin/tmuxy/pane-group` script,
-    /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
-    /// the user's way in.
-    #[command(hide = true)]
-    Group(tmuxy_group::GroupArgs),
-    /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks
-    /// that show their state, and the tmuxy skill. Backs `tmuxy agent`.
-    Agent(crate::agents::AgentArgs),
-    /// Install, list, update and remove plugins, and run their actions.
-    /// Backs `tmuxy plugin` (docs/PLUGINS.md).
-    Plugin(crate::plugin_cli::PluginArgs),
-    /// The config verbs whose work is a file tmuxy-core owns: `paths`,
-    /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
-    Config(crate::config_cli::ConfigArgs),
+    #[command(flatten)]
+    Verb(tmuxy_verbs::Verb),
 }
 
 /// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
@@ -277,12 +259,7 @@ pub async fn run(args: ServerArgs) {
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
-        Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
-        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
-        Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
-        Some(ServerAction::Agent(agent_args)) => crate::agents::run(agent_args),
-        Some(ServerAction::Plugin(plugin_args)) => crate::plugin_cli::run(plugin_args),
-        Some(ServerAction::Config(config_args)) => crate::config_cli::run(config_args),
+        Some(ServerAction::Verb(verb)) => tmuxy_verbs::run(verb).await,
     }
 }
 

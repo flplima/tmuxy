@@ -1,0 +1,12 @@
+#!/bin/bash
+# Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.
+# Rewrite with UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants
+# Sourced by _lib.
+# shellcheck disable=SC2034
+
+# The session parked pane-group members live in: never a real session.
+STASH_SESSION='__tmuxy_stash'
+
+# A pane's title with tmux's host-name seed filtered out: tmux seeds every
+# pane's title with the host name.
+APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'

@@ -62,15 +62,6 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
         .collect()
 }
 
-/// Whether a process name is a bare version: Claude Code runs as
-/// `…/claude/versions/<version>`, so its pane's command reads `2.1.30`.
-pub fn is_version(command: &str) -> bool {
-    command.contains('.')
-        && command
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-}
-
 /// Every pane on the socket, read with one read-only `list-panes -a`;
 /// `None` when there is no tmux server to ask.
 pub fn read_panes() -> Option<Vec<PaneRow>> {
@@ -146,13 +137,5 @@ mod tests {
         assert_eq!(rows[1].label, "build");
         assert_eq!(rows[1].window, "side\twith\ttabs");
         assert!(rows[2].asking);
-    }
-
-    #[test]
-    fn a_bare_version_is_a_version() {
-        assert!(is_version("2.1.30"));
-        assert!(!is_version("claude"));
-        assert!(!is_version("2..1"));
-        assert!(!is_version("v2.1"));
     }
 }

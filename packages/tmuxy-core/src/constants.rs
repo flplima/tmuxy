@@ -115,19 +115,19 @@ pub mod tmux_options {
     /// shell scripts' `_contract`).
     pub const PANE_LABEL: &str = "@tmuxy-label";
 
-    /// Pane-scoped pending confirmation, set by `tmuxy pane send -t` on the pane the
-    /// keys are meant for. The value is base64 of a JSON object
-    /// (`{token, question, description}`), so the payload survives the
-    /// comma-separated `list-panes` format that free text would break.
-    /// Unset means no question is pending.
+    /// Pane-scoped pending confirmation, set by a send (`tmuxy pane send -t`,
+    /// the MCP endpoint's `pane_send_keys`, `crate::ask`) on the pane the keys
+    /// are meant for. The value is base64 of a JSON object
+    /// (`{token, caller, keys}`), so the payload survives the comma-separated
+    /// `list-panes` format that free text would break. Unset means no
+    /// question is pending.
     pub const ASK: &str = "@tmuxy-ask";
 
     /// Pane-scoped answer to the pending [`ASK`], written by the client the
-    /// user answered in and read back by the waiting `tmuxy pane send`. The value is
-    /// `<token>:yes` or `<token>:no` — the token pins the answer to the
-    /// question that was on screen, so a stale answer to a question already
-    /// withdrawn is ignored rather than acted on. Rust never touches it; it is
-    /// here for the CLI/core lockstep test in `tmuxy-server/tests/version_skew.rs`.
+    /// user answered in and read back by the waiting sender (`crate::ask`).
+    /// The value is `<token>:yes` or `<token>:no` — the token pins the answer
+    /// to the question that was on screen, so a stale answer to a question
+    /// already withdrawn is ignored rather than acted on.
     pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
 
     /// Pane-scoped authorisation for a widget, written by `tmuxy-widget` on the
@@ -181,11 +181,10 @@ pub mod tmux_options {
     /// it has not.
     pub const CURSOR_BLINK: &str = "@tmuxy-cursor-blink";
     /// `on`/`off`: whether `tmuxy pane send` into a pane the caller does
-    /// not own asks the user there first (`packages/tmuxy-cli/bin/tmuxy/send`).
+    /// not own asks the user there first (`crate::ask`).
     pub const SEND_ASK: &str = "@tmuxy-send-ask";
     /// Comma list of caller process names and target pane ids whose sends
-    /// skip that question. Read by the CLI's `send` and the MCP endpoint's
-    /// `pane_send_keys`.
+    /// skip that question. Read by every sender (`crate::ask`).
     pub const SEND_ALLOW: &str = "@tmuxy-send-allow";
     /// Comma list of programs (`claude,agy`): a send into a pane whose
     /// program in front is one of them skips that question — an agent's

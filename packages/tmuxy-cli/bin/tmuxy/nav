@@ -28,18 +28,15 @@ nav_prev() {
   _tmux last-pane 2>/dev/null || true
   after=$(_tmux display-message -p '#{pane_id}')
   if [ "$before" != "$after" ]; then
-    refresh_panes
     return
   fi
   # Only 1 pane — try last-window
   _tmux last-window 2>/dev/null || true
-  refresh_panes
 }
 
 nav_vertical() {
   local tmux_dir="$1"
   _tmux selectp "$tmux_dir" -t "$PANE_ID"
-  refresh_panes
 }
 
 nav_horizontal() {
@@ -105,7 +102,6 @@ EOF
 
   # Step 3: a neighbour exists in that direction — move to it.
   _tmux selectp "$tmux_dir" -t "$PANE_ID" 2>/dev/null || true
-  refresh_panes
 }
 
 case "$DIR" in

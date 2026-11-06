@@ -8,9 +8,10 @@
 # Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
 # hands its arguments to the server binary's `group` verb (`group_verb`).
 
-# The session hidden pane-group members are parked in. Kept out of every session
-# picker/tree (matches tmuxy-core `STASH_SESSION`).
-STASH_SESSION="__tmuxy_stash"
+# The values tmuxy-core shares with the scripts (STASH_SESSION, the session
+# hidden pane-group members are parked in; APP_PANE_TITLE_FMT), generated
+# from it into `_options`.
+source "${BASH_SOURCE[0]%/*}/_options"
 
 # Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
 # (session::config_dir, paths::data_dir, paths::state_dir):
@@ -73,13 +74,14 @@ tmuxy_state_dir() {
   fi
 }
 
+# The scripts' directory, which is this file's own, whoever sources it.
 # Resolved with parameter expansion, not `dirname`. These scripts run from
 # `run-shell` on a keypress, and every external binary is another process
 # spawn — tens of milliseconds on macOS, felt latency for something the shell
 # does for free. The `cd`+`pwd` fork survives only for the relative-path case,
 # which `run-shell` and `tmuxy-cli` never produce.
-_dir="${0%/*}"
-[ "$_dir" = "$0" ] && _dir="."
+_dir="${BASH_SOURCE[0]%/*}"
+[ "$_dir" = "${BASH_SOURCE[0]}" ] && _dir="."
 case "$_dir" in
   /*) SCRIPTS_DIR="$_dir" ;;
   *) SCRIPTS_DIR="$(cd "$_dir" && pwd)" ;;
@@ -206,9 +208,7 @@ shquote() {
 
 # The exit codes, `_fail`/`_die_usage`, JSON answers and `_resolve_target`
 # live in `_contract`, sourced here so every script that has `_lib` has them.
-# Beside THIS file: SCRIPTS_DIR is `$0`'s directory, which is tmuxy-cli's own
-# when it is the one sourcing.
-source "${BASH_SOURCE[0]%/*}/_contract"
+source "$SCRIPTS_DIR/_contract"
 
 # --- The server binary -----------------------------------------------------
 #
@@ -406,11 +406,6 @@ reap_pids() {
 # Get a pane's window ID
 pane_window() {
   _tmux display-message -t "$1" -p '#{window_id}'
-}
-
-# Force a list-panes refresh (so server pushes new state to clients)
-refresh_panes() {
-  _tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1
 }
 
 # The name for a session the user did not name: an adjective and a noun from

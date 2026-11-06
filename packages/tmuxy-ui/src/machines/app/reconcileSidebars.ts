@@ -26,13 +26,6 @@ export function reconcileFloatAndSidebarLifecycle(
   floatPanes: Record<PaneId, FloatPaneState>,
   enqueue: Enqueue,
 ): void {
-  // Detect float removal — check for session switch env var
-  const prevFloatCount = Object.keys(context.floatPanes).length;
-  const newFloatCount = Object.keys(floatPanes).length;
-  if (prevFloatCount > 0 && newFloatCount < prevFloatCount) {
-    enqueue(sendTo('tmux', { type: 'CHECK_SESSION_SWITCH' as const }));
-  }
-
   // Auto-focus float management over the floats of the active tab
   const visibleFloatIds = visibleFloats(
     floatPanes,

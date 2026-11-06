@@ -7,7 +7,7 @@ use super::super::manifest::{Dim, Size, Surface};
 use super::super::registry::{resolve_command, Registry};
 use super::super::{PluginError, Result};
 use super::token::{is_pane_id, status_path, token_path, PaneInfo, Token, Trigger};
-use crate::constants::tmux_options;
+use crate::float::{free_index, Backdrop, Float};
 use crate::paths::Layout;
 
 /// What `tmuxy plugin action` was asked to do.
@@ -52,12 +52,12 @@ const DEFAULT_FLOAT: Size = Size {
 };
 
 /// The one tmux command list (`;` as its own argument) that opens `surface`
-/// on `target`, running `run` in `root`, and prints the new pane's id.
+/// on `target`, running `run` in `root`, and prints the new pane's id. A
+/// float or popup is [`crate::float::Float`]'s list.
 ///
 /// `split-window` without `-d` makes the new pane the current one for the
-/// commands after it in the same list, so the untargeted `break-pane` and
-/// `resize-pane -Z` act on it — the rule `bin/tmuxy/float-create` builds a
-/// float with, which also keeps the intermediate split from ever being drawn.
+/// commands after it in the same list, so the untargeted `resize-pane -Z`
+/// and `break-pane` act on it.
 pub fn surface_argv(
     surface: Surface,
     size: Option<Size>,
@@ -66,6 +66,29 @@ pub fn surface_argv(
     run: &str,
     name: &str,
 ) -> Vec<String> {
+    if matches!(surface, Surface::Float | Surface::Popup) {
+        let size = size.unwrap_or(DEFAULT_FLOAT);
+        let fit = |dim: Option<Dim>, default: Option<Dim>, cells: u32| {
+            dim.or(default)
+                .map(|d| d.resolve(cells))
+                .unwrap_or(1)
+                .min(cells.max(1))
+        };
+        let popup = surface == Surface::Popup;
+        return Float {
+            from_pane: Some(target.pane.clone()),
+            cwd: Some(root.display().to_string()),
+            command: Some(run.to_string()),
+            at: format!("{}:{}", target.session_id, target.free_index),
+            parent_window: Some(target.window.clone()),
+            width: Some(fit(size.width, DEFAULT_FLOAT.width, target.window_width)),
+            height: Some(fit(size.height, DEFAULT_FLOAT.height, target.window_height)),
+            drawer: None,
+            backdrop: popup.then_some(Backdrop::Dim),
+            no_header: popup,
+        }
+        .argv();
+    }
     let mut argv: Vec<String> = vec!["split-window".into()];
     if surface == Surface::Split {
         argv.push("-h".into());
@@ -80,50 +103,10 @@ pub fn surface_argv(
         "#{pane_id}".into(),
         run.to_string(),
     ]);
-    let mut then = |cmd: &[&str]| {
-        argv.push(";".into());
-        argv.extend(cmd.iter().map(|s| s.to_string()));
-    };
     match surface {
-        Surface::Split => {}
-        Surface::Zoomed => then(&["resize-pane", "-Z"]),
-        Surface::Tab => then(&["break-pane", "-n", name]),
-        Surface::Float | Surface::Popup => {
-            let at = format!("{}:{}", target.session_id, target.free_index);
-            let size = size.unwrap_or(DEFAULT_FLOAT);
-            let width = size
-                .width
-                .or(DEFAULT_FLOAT.width)
-                .map(|d| d.resolve(target.window_width))
-                .unwrap_or(1)
-                .min(target.window_width.max(1))
-                .to_string();
-            let height = size
-                .height
-                .or(DEFAULT_FLOAT.height)
-                .map(|d| d.resolve(target.window_height))
-                .unwrap_or(1)
-                .min(target.window_height.max(1))
-                .to_string();
-            let float = crate::WindowType::Float.as_str();
-            then(&["break-pane", "-d", "-n", float, "-t", &at]);
-            let mut tag = |option: &str, value: &str| {
-                then(&["set-option", "-w", "-t", &at, option, value]);
-            };
-            tag(tmux_options::WINDOW_TYPE, float);
-            tag(tmux_options::FLOAT_PARENT, &target.window);
-            tag(tmux_options::FLOAT_WIDTH, &width);
-            tag(tmux_options::FLOAT_HEIGHT, &height);
-            if surface == Surface::Popup {
-                tag(tmux_options::FLOAT_NOHEADER, "1");
-                tag(tmux_options::FLOAT_BG, "dim");
-            }
-            then(&["resize-pane", "-t", &at, "-x", &width]);
-            then(&["resize-pane", "-t", &at, "-y", &height]);
-            // break-pane took the caller's active pane away; give it back,
-            // as float-create does.
-            then(&["select-pane", "-t", &target.pane]);
-        }
+        Surface::Zoomed => argv.extend([";", "resize-pane", "-Z"].map(String::from)),
+        Surface::Tab => argv.extend([";", "break-pane", "-n", name].map(String::from)),
+        _ => {}
     }
     argv
 }
@@ -203,20 +186,6 @@ fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
         cwd: f[6].to_string(),
     };
     Ok((target, info))
-}
-
-/// The lowest window index not in use, scanning up from the lowest one, as
-/// `float-create`'s `free_window_index` does.
-pub fn free_index(listing: &str) -> u32 {
-    let used: std::collections::BTreeSet<u32> = listing
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .collect();
-    let mut i = used.iter().next().copied().unwrap_or(0);
-    while used.contains(&i) {
-        i += 1;
-    }
-    i
 }
 
 /// Open an action's surface. The reads run as they are; the command list

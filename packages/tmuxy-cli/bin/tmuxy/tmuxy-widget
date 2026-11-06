@@ -11,7 +11,7 @@ TITLE="${2:-$COMPONENT}"
 
 # `shquote` / `_run_safe` (mutations go through `tmux run-shell`, see
 # docs/TMUX.md).
-source "$(cd "$(dirname "$0")" && pwd)/_lib"
+source "${0%/*}/_lib"
 # What the pane calls itself while the widget runs. A widget's own title
 # normally comes from the UI — but a pane PARKED in a group's stash streams no
 # content, so the only thing a group's tab strip has for it is tmux's

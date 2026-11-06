@@ -58,8 +58,7 @@ export type TmuxActorEvent =
       action: string;
       paneId: PaneId;
       selection: string | null;
-    }
-  | { type: 'CHECK_SESSION_SWITCH' };
+    };
 
 /** The tmux actor's event for a plain command, typed where `sendTo` is not. */
 export const invokeEvent = (call: PlainCall): TmuxActorEvent => ({ type: 'INVOKE', ...call });
@@ -453,25 +452,6 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.switchSession(event.sessionName)),
           {
             logPrefix: `switch-session ${event.sessionName}`,
-          },
-        );
-      } else if (event.type === 'CHECK_SESSION_SWITCH') {
-        run(
-          withTransport((t) => t.query('show-environment -g TMUXY_SWITCH_TO')),
-          {
-            onSuccess: (result) => {
-              const match = result.match(/TMUXY_SWITCH_TO=(.+)/);
-              if (!match) return;
-              const sessionName = match[1].trim();
-              parent.send({ type: 'SWITCH_SESSION', sessionName });
-              // Clear the env var (fire-and-forget)
-              run(
-                withTransport((t) => t.run(TmuxOp.ClearSwitchRequest())),
-                { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
-              );
-            },
-            silentFail: true,
-            logPrefix: 'check session switch',
           },
         );
       }

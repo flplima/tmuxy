@@ -52,35 +52,6 @@ fn the_config_readme_lists_every_file_and_no_other() {
     }
 }
 
-/// `tmuxy config paths` still prints its own copy of the table from the
-/// shell (`config_paths_table` in the CLI's cli-config.sh); it says what
-/// this one does, word for word, until the CLI prints this one.
-#[test]
-fn the_cli_table_is_this_table() {
-    let script = include_str!("../../../tmuxy-cli/bin/tmuxy/cli-config.sh");
-    let body = script
-        .split("config_paths_table() {\n  cat <<'EOF'\n")
-        .nth(1)
-        .and_then(|rest| rest.split("\nEOF\n").next())
-        .expect("config_paths_table");
-    let expected: Vec<String> = FILES
-        .iter()
-        .map(|f| {
-            let yn = |b: bool| if b { "yes" } else { "no" };
-            format!(
-                "{}|{}|{}|{}|{}|{}",
-                f.dir.as_str(),
-                f.name,
-                f.dir.owner(),
-                yn(f.safe_to_edit),
-                yn(f.safe_to_symlink()),
-                f.about
-            )
-        })
-        .collect();
-    assert_eq!(body.lines().collect::<Vec<_>>(), expected);
-}
-
 #[test]
 fn a_layout_resolves_every_file_under_its_dir() {
     let layout = Layout {
