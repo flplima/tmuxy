@@ -4,6 +4,7 @@ import './components/widgets/init';
 
 export { AppProvider as TmuxyProvider } from './machines/AppContext';
 export { useAppFocused } from './machines/appHooks';
+export { phoneMediaQuery } from './infra/dom/phoneLayout';
 export type { AppConfig } from './machines/appContexts';
 export { default as TmuxyApp } from './App';
 export type { RenderTabline } from './components/StatusBar';

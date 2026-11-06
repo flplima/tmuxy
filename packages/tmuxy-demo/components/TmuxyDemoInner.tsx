@@ -7,6 +7,7 @@ import {
   V86TmuxAdapter,
   GuestTransportLive,
   cheerpxAvailable,
+  phoneMediaQuery,
   useAppFocused,
   type RenderTabline,
 } from 'tmuxy-ui';
@@ -96,7 +97,8 @@ const INIT_COMMANDS_MOBILE = [
 
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    // The app's own phone test, so the session is built for the layout it draws.
+    const isMobile = phoneMediaQuery()?.matches ?? false;
     const options = {
       initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
       initDoneOption: INIT_DONE,
