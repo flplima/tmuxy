@@ -15,7 +15,6 @@ export const PaneTab = memo(function PaneTab({
   isSelectedTab,
   isActivePane,
   titleOverride,
-  widgetName,
   renaming,
   onRenameEnd,
   onClick,
@@ -28,7 +27,6 @@ export const PaneTab = memo(function PaneTab({
   isSelectedTab: boolean;
   isActivePane: boolean;
   titleOverride?: string;
-  widgetName?: string;
   /** This pane's title is being edited in place. */
   renaming: boolean;
   /** The new title, or null if the edit was abandoned. */
@@ -70,7 +68,6 @@ export const PaneTab = memo(function PaneTab({
       ) : (
         <PaneIcon
           pane={pane}
-          widgetName={widgetName}
           titleOverride={titleOverride}
           className="pane-tab-icon pane-tab-icon-static"
         />

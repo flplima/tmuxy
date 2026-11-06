@@ -24,8 +24,6 @@ interface PaneHeaderProps {
   paneId: PaneId;
   /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
-  /** Widget name for icon lookup (e.g., "session") */
-  widgetName?: string;
   /** Float pane mode: hides group add button, wires close to onFloatClose */
   isFloat?: boolean;
   /** Called when the close button is clicked in float mode */
@@ -39,13 +37,7 @@ interface ContextMenuState {
   targetPaneId: PaneId | null;
 }
 
-export function PaneHeader({
-  paneId,
-  titleOverride,
-  widgetName,
-  isFloat,
-  onFloatClose,
-}: PaneHeaderProps) {
+export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: PaneHeaderProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
   const { groupPanes, activePaneId } = usePaneGroup(paneId);
@@ -370,7 +362,6 @@ export function PaneHeader({
               isSelectedTab={isSelectedTab}
               isActivePane={isActivePane}
               titleOverride={tabPane.tmuxId === paneId ? titleOverride : undefined}
-              widgetName={tabPane.tmuxId === paneId ? widgetName : undefined}
               renaming={renamingPaneId === tabPane.tmuxId}
               onRenameEnd={(name) => {
                 send({ type: 'PANE_RENAME_END' });

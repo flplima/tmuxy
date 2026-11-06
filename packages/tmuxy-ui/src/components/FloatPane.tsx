@@ -16,8 +16,7 @@ import { Terminal } from './terminal/Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
-import { getWidget } from './widgets/registry';
-import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
+import { paneWidgetOf } from './widgets/registry';
 import { getTabText } from './paneTabDisplay';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import {
@@ -53,9 +52,6 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
   );
   const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
   const isFocused = focusedFloatPaneId === floatState.paneId;
-  // A float can hold a widget too — the session switcher opens as one. Same
-  // classification the tiled panes use, so a marker never renders as text.
-  const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const paddingX = containerPaddingX(useAppSelector(selectPhoneLayout));
@@ -126,12 +122,7 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
           style={{ width: floatWidth, height: terminalHeight }}
           onClick={handleClick}
         >
-          <FloatBody
-            pane={pane}
-            widgetInfo={widgetInfo}
-            isFocused={isFocused}
-            terminalRows={terminalRows}
-          />
+          <FloatBody pane={pane} isFocused={isFocused} terminalRows={terminalRows} />
         </div>
       </Modal>
     );
@@ -171,12 +162,7 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
           <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
         )}
         <div className="float-content" style={{ height: floatState.height }}>
-          <FloatBody
-            pane={pane}
-            widgetInfo={widgetInfo}
-            isFocused={isFocused}
-            terminalRows={terminalRows}
-          />
+          <FloatBody pane={pane} isFocused={isFocused} terminalRows={terminalRows} />
           {/* A float is a pane like any other, so `tmuxy pane send -t` can hang a
               question on it — and it is drawn over the tab, so leaving it out
               would put a question on screen with no way to answer it. */}
@@ -189,8 +175,9 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
 }
 
 /**
- * What a float draws inside its content box: the widget its pane declared, or
- * the terminal.
+ * What a float draws inside its content box: the widget its pane shows (a
+ * float can hold one too — the session switcher opens as one), or the
+ * terminal.
  *
  * Deliberately NOT `WidgetPane`. That wraps the widget in its own
  * `pane-wrapper` at `height: 100%` with its own `PaneHeader` — but a float
@@ -199,19 +186,17 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
  */
 function FloatBody({
   pane,
-  widgetInfo,
   isFocused,
   terminalRows,
 }: {
   pane: TmuxPane;
-  widgetInfo: PaneWidgetInfo;
   isFocused: boolean;
   terminalRows: number;
 }) {
-  const definition = widgetInfo ? getWidget(widgetInfo.widgetName) : undefined;
-  if (widgetInfo && definition) {
-    const WidgetComponent = definition.component;
-    return <WidgetComponent paneId={pane.tmuxId} lines={widgetInfo.contentLines} />;
+  const widget = paneWidgetOf(pane);
+  if (widget) {
+    const WidgetComponent = widget.definition.component;
+    return <WidgetComponent paneId={pane.tmuxId} lines={widget.lines} />;
   }
   return (
     <Terminal

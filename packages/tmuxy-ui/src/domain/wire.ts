@@ -75,7 +75,7 @@ export const WirePane = Schema.Struct({
   /**
    * `@tmuxy-pane-widget`: which widget this pane may render. The
    * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
-   * own — see `detectWidget`.
+   * own — see `findPaneWidget` (paneWidget.ts).
    */
   pane_widget: OptionalNull(Schema.String),
   /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
