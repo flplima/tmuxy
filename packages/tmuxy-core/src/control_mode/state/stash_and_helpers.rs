@@ -17,39 +17,12 @@ pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
     out
 }
 
-/// The process name to show for a pane, given tmux's `#{pane_current_command}`.
-///
-/// tmux reads that field from the kernel's `p_comm`, which is the resolved
-/// executable's file name — not the name of the symlink that was invoked. A
-/// launcher that pins its version by directory, as Claude Code does
-/// (`~/.local/share/claude/versions/2.1.280`), therefore reports a bare version
-/// string, and every surface that names the process by its command (the sidebar
-/// tree, the pane tabs, the CLI) shows `2.1.280` where the user
-/// expects `claude`.
-///
-/// Normalising here rather than per surface means the backend state is the one
-/// place that has to know about it. The only pattern claimed is a command that
-/// is *entirely* a dotted version number, which no real executable is called.
+/// The process name to show for a pane, given tmux's `#{pane_current_command}`:
+/// normalised once here, in the backend state, so no surface shows Claude
+/// Code's version number where the user expects `claude`
+/// ([`crate::program::program_name`]).
 pub(super) fn normalize_pane_command(command: &str) -> String {
-    if is_version(command) {
-        return "claude".to_string();
-    }
-    command.to_string()
-}
-
-/// Whether a process name is a bare version, nothing but a dotted run of
-/// digits (`2.1.280`, `0.9`): Claude Code runs as
-/// `…/claude/versions/<version>`, so its pane's command reads `2.1.30`.
-pub fn is_version(value: &str) -> bool {
-    let mut parts = value.split('.');
-    let mut count = 0;
-    for part in &mut parts {
-        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
-            return false;
-        }
-        count += 1;
-    }
-    count >= 2
+    crate::program::program_name(command).to_string()
 }
 
 /// A HIDDEN pane-group member living in the stash session — just enough to

@@ -271,111 +271,39 @@ describe('CLI pane subcommands', () => {
     });
   });
 
-  describe('pane send', () => {
-    test('sends keys', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'send', 'ls', 'Enter'], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: String(process.pid) },
-      });
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls.find((call) => call.args[0] === 'run-shell').args).toEqual([
-        'run-shell',
-        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%1' -- 'ls' 'Enter'",
-      ]);
-    });
-
-    test('errors with no keys', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'send']);
-      expect(exitCode).toBe(2);
-      expect(stderr).toContain('keys required');
-      expect(tmuxCalls).toHaveLength(0);
-    });
-  });
-
-  describe('pane paste', () => {
+  /**
+   * Both hand their keys to the server binary's `send` verb (`cli-send.test.js`),
+   * which strips a paste's controls and asks before typing into another pane
+   * (`packages/tmuxy-verbs/src/send_cli/tests.rs`).
+   */
+  describe('pane send and paste', () => {
     const IN_PANE_1 = {
       TMUX_SOCKET: 'tmuxy',
       TMUX_PANE: '%1',
       MOCK_TMUX_PANE_PID: String(process.pid),
     };
 
-    test('pastes text into the caller’s own pane', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world'], { env: IN_PANE_1 });
+    test('send hands its keys to the send verb', () => {
+      const { exitCode, stdout } = runCLI(['pane', 'send', 'ls', 'Enter'], { env: IN_PANE_1 });
       expect(exitCode).toBe(0);
-      // load-buffer first (per-PID buffer name), then run-shell pasteb
-      const load = tmuxCalls.findIndex((call) => call.args[0] === 'load-buffer');
-      expect(tmuxCalls[load].args[0]).toBe('load-buffer');
-      expect(tmuxCalls[load].args[1]).toBe('-b');
-      expect(tmuxCalls[load].args[2]).toMatch(/^tmuxy-cli-paste-\d+$/);
-      expect(tmuxCalls[load].args[3]).toBe('-');
-      const bufName = tmuxCalls[load].args[2];
-      expect(tmuxCalls[load + 1].args).toEqual([
-        'run-shell',
-        `TMUX_PANE=%1 tmux -L tmuxy pasteb -p -d -b ${bufName} -t '%1'`,
-      ]);
+      expect(stdout).toMatch(/mock-server-started send --target %1 .* -- ls Enter/);
     });
 
-    /** A paste into another pane is a send: the same question, first. */
-    test('asks before pasting into another pane, and pastes nothing on no', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', '-t', '%3', 'rm -rf dist'], {
-        env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' },
+    test('paste hands its text, as one argument, to the send verb', () => {
+      const { exitCode, stdout } = runCLI(['pane', 'paste', '-t', '%3', 'hello', 'world'], {
+        env: IN_PANE_1,
       });
-      expect(exitCode).toBe(1);
-      const lines = tmuxCalls.map((call) => call.args.join(' '));
-      expect(lines.some((line) => line.includes('@tmuxy-ask '))).toBe(true);
-      expect(lines.some((line) => line.includes('pasteb'))).toBe(false);
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/mock-server-started send --target %3 .* --paste -- hello world$/m);
     });
 
-    /**
-     * Any spelling of the end marker would end a bracketed paste early and
-     * run what follows it, so the text loses every control but tab, LF and
-     * CR, without appending an extra trailing newline.
-     */
     test.each([
-      ['markers nested in each other', 'a\x1b[20\x1b[201~1~\nid', 'a[20[201~1~\nid'],
-      ['a zero-padded parameter', 'echo safe\x1b[0201~; id', 'echo safe[0201~; id'],
-      ['the 8-bit C1 CSI', 'echo safe\u009b201~; id', 'echo safe201~; id'],
-      ['C0, DEL and C1 among the kept tab, CR and LF', 'a\x01\x07\t\x7f\r\u0085\nb', 'a\t\r\nb'],
-      // © and NBSP are C2 A9 and C2 A0 in UTF-8: the C1 lead byte, kept.
-      ['CJK, accents and emoji', '中文 é © Â 😀  ok', '中文 é © Â 😀  ok'],
-    ])('pastes %s without its controls', (_name, text, pasted) => {
-      const buffer = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-paste-')), 'buffer');
-      const { exitCode } = runCLI(['pane', 'paste', text], {
-        env: { ...IN_PANE_1, MOCK_TMUX_BUFFER_FILE: buffer },
-      });
-      expect(exitCode).toBe(0);
-      expect(fs.readFileSync(buffer, 'utf8')).toBe(pasted);
-    });
-
-    test('a text of nothing but controls pastes nothing and asks nothing', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(
-        ['pane', 'paste', '-t', '%3', '\x1b\x07\u009b\x7f'],
-        { env: IN_PANE_1 },
-      );
-      expect(exitCode).toBe(0);
-      expect(stderr).toContain('nothing to paste');
-      const lines = tmuxCalls.map((call) => call.args.join(' '));
-      expect(lines.some((line) => /load-buffer|pasteb|@tmuxy-ask /.test(line))).toBe(false);
-    });
-
-    /** The question shows what would land, not the text before the filter. */
-    test('the question into another pane carries the text without its controls', () => {
-      const { exitCode, tmuxCalls } = runCLI(
-        ['pane', 'paste', '-t', '%3', 'echo safe\u009b201~;\tid 中文'],
-        { env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' } },
-      );
-      expect(exitCode).toBe(1);
-      const write = tmuxCalls
-        .map((call) => call.args.join(' '))
-        .find((line) => /@tmuxy-ask '/.test(line));
-      const encoded = write.match(/@tmuxy-ask '([A-Za-z0-9+/=]*)'/)[1];
-      const payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
-      expect(payload.keys).toEqual(['echo safe201~;\tid 中文']);
-    });
-
-    test('errors with no text', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'paste']);
+      [['pane', 'send'], 'keys required'],
+      [['pane', 'paste'], 'text required'],
+    ])('%j with nothing to type is a usage error', (args, message) => {
+      const { stderr, exitCode, tmuxCalls } = runCLI(args);
       expect(exitCode).toBe(2);
-      expect(stderr).toContain('text required');
+      expect(stderr).toContain(message);
       expect(tmuxCalls).toHaveLength(0);
     });
   });

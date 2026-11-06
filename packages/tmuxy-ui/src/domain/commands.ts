@@ -25,10 +25,11 @@ import {
   pastedText,
   pluginAction,
   script,
-  settlingScript,
+  scriptWith,
   target,
   tmuxDoubleQuoted,
 } from './commandHelpers';
+import { LEFT_SIDEBAR_WIDGET } from './tmuxyConstants.gen';
 
 /** The bundled scripts, in the data dir the config chain publishes to tmux. */
 export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
@@ -44,10 +45,11 @@ export const SIDEBAR_WINDOW_NAME = { left: '__sidebar-left', right: '__sidebar-r
  * The tree is the bundled script by its installed path, as every other script
  * the client runs: a bare `tmuxy` is whatever PATH holds, and a stale one (a
  * launcher left pointing at an unmounted AppImage) exited at once, its window
- * went with it, and the column sat on "starting…" for good.
+ * went with it, and the column sat on "starting…" for good. A restore
+ * recognises a sidebar by it, so it is tmuxy-core's (`LEFT_SIDEBAR_WIDGET`).
  */
 const SIDEBAR_RUN = {
-  left: `${SCRIPTS_DIR}/tmuxy-widget-tree`,
+  left: LEFT_SIDEBAR_WIDGET,
   right: null,
 } as const;
 
@@ -216,8 +218,6 @@ export type TmuxOp = Data.TaggedEnum<{
   SourceConfig: NoFields;
   /** Clear the one-shot focus request a shell helper queued. */
   ClearFocusRequest: { readonly session: string };
-  /** Clear the session switch a shell helper queued. */
-  ClearSwitchRequest: NoFields;
 
   // ── Plugins ────────────────────────────────────────────
   /** A plugin's action on a pane (`tmuxy plugin action`); `token` carries a selection. */
@@ -287,9 +287,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'Split':
       return op.direction === 'vertical' ? 'split-window -h' : 'split-window -v';
     case 'Navigate':
-      return op.script
-        ? `run-shell "bash ${SCRIPTS_DIR}/nav ${NAV_WORD[op.direction]} #{pane_id}"`
-        : `select-pane -${op.direction}`;
+      return op.script ? `tmuxy-nav-${NAV_WORD[op.direction]}` : `select-pane -${op.direction}`;
     case 'SelectPane':
       return `select-pane -t ${op.paneId}`;
     case 'CyclePane':
@@ -385,14 +383,21 @@ export function toTmuxCommand(op: TmuxOp): string {
         : `set-option -w -t ${op.windowId} @tmuxy-${op.tag} ${op.value}`;
     case 'GroupAdd':
       return op.pane
-        ? settlingScript('pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
-        : settlingScript('pane-group', 'add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
+        ? scriptWith('settle', 'pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
+        : scriptWith(
+            'settle',
+            'pane-group',
+            'add',
+            '#{pane_id}',
+            '#{pane_width}',
+            '#{pane_height}',
+          );
     case 'GroupClose':
-      return settlingScript('pane-group', 'close', op.paneId);
+      return scriptWith('settle', 'pane-group', 'close', op.paneId);
     case 'GroupSwitch':
-      return settlingScript('pane-group', 'switch', op.clickedPaneId);
+      return scriptWith('settle', 'pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':
-      return settlingScript('pane-group', op.direction, op.paneId ?? '#{pane_id}');
+      return scriptWith('settle', 'pane-group', op.direction, op.paneId ?? '#{pane_id}');
     case 'GroupMove':
       return script('pane-group', 'move', op.paneId, op.index);
     case 'GroupJoin':
@@ -425,8 +430,6 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `source-file ${CONFIG_FILE}`;
     case 'ClearFocusRequest':
       return `set-option -u -t ${target(op.session)} @tmuxy-focus-request`;
-    case 'ClearSwitchRequest':
-      return 'set-environment -g -u TMUXY_SWITCH_TO';
     case 'PluginAction':
       return pluginAction(op);
     case 'CommandPrompt':

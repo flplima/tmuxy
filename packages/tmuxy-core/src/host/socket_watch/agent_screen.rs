@@ -21,7 +21,6 @@ use std::collections::HashSet;
 use super::PaneRow;
 use crate::argv::run_shell_word;
 use crate::constants::tmux_options;
-use crate::control_mode::is_version;
 
 /// How far up a dialog is looked for: the bottom of the screen, where every
 /// agent draws its prompt, and not output that has scrolled above it.
@@ -46,10 +45,9 @@ const CURSORS: [char; 4] = ['❯', '›', '>', '▶'];
 /// Antigravity under either of its names.
 pub const AGENT_COMMANDS: [&str; 4] = ["claude", "codex", "agy", "antigravity"];
 
-/// Whether the pane runs one of the agents tmuxy installs hooks for. Claude
-/// Code runs as `…/claude/versions/<version>`, so a bare version is Claude.
+/// Whether the pane runs one of the agents tmuxy installs hooks for.
 pub fn is_agent(command: &str) -> bool {
-    AGENT_COMMANDS.contains(&command) || is_version(command)
+    AGENT_COMMANDS.contains(&crate::program::program_name(command))
 }
 
 /// Whether an option's line: the cursor or a number, then `N.`.

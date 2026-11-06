@@ -49,173 +49,26 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Act on the CALLER's pane, window and session, never on tmux's notion of the
-# current ones: with several clients attached to different sessions (a desktop
-# app on one, a web tab on another) "current" is whichever session was touched
-# last, and the float would be split from (and broken out into) the wrong
-# session. TMUX_PANE is set in every pane's shell; the commands below carry
-# these explicit targets because they run in the server's context, where that
-# variable is not guaranteed.
+# The float itself is the server binary's `float` verb (tmuxy_core::float):
+# one command list, split from the caller's pane, over its tab, in its session.
 CALLER_TARGET=${TMUX_PANE:+-t $TMUX_PANE}
-CALLER_SESSION=""
-if [ -n "${TMUX_PANE:-}" ]; then
-  CALLER_SESSION=$(_tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null || true)
-fi
-
 CURRENT_WIN=$(_tmux display-message -p $CALLER_TARGET '#{window_id}')
 CURRENT_TYPE=$(window_type "$CURRENT_WIN")
 
-# Default float size, in terminal cells (never a percentage - tmux sizes panes
-# in cells, and so does the UI that draws the float over them).
-# Every value below is interpolated into a command STRING that `run-shell`
-# hands to a shell and tmux expands `#(...)` in, so each one is checked here
-# rather than trusted. They reach this script from a client: a site can
-# navigate the user to a crafted `?session=` and the names travel onwards.
-case "${WIDTH:-}" in
-  '' | *[!0-9]*)
-    if [ -n "${WIDTH:-}" ]; then
-      echo "tmuxy float: --width takes a number of cells (got '$WIDTH')" >&2
-      exit 2
-    fi
-    ;;
-esac
-case "${HEIGHT:-}" in
-  '' | *[!0-9]*)
-    if [ -n "${HEIGHT:-}" ]; then
-      echo "tmuxy float: --height takes a number of cells (got '$HEIGHT')" >&2
-      exit 2
-    fi
-    ;;
-esac
-case "${BG:-}" in
-  '' | dim | blur | none) ;;
-  *)
-    echo "tmuxy float: --bg takes dim, blur or none (got '$BG')" >&2
-    exit 2
-    ;;
-esac
+FLOAT_ARGS=(float ${TMUX_PANE:+--pane "$TMUX_PANE"})
+[ -n "$DRAWER" ] && FLOAT_ARGS+=(--drawer "$DRAWER")
+[ -n "$WIDTH" ] && FLOAT_ARGS+=(--width "$WIDTH")
+[ -n "$HEIGHT" ] && FLOAT_ARGS+=(--height "$HEIGHT")
+[ -n "$BG" ] && FLOAT_ARGS+=(--bg "$BG")
+[ -n "$HIDE_HEADER" ] && FLOAT_ARGS+=(--hide-header)
 
-DEFAULT_WIDTH=60
-DEFAULT_HEIGHT=15
-
-# The default height, never taller than the tab it floats over: a float with
-# more rows than the window has nowhere to put them, and tmux would size the
-# pane down to the window anyway while the UI kept drawing the box past its
-# edge. Only the DEFAULT is capped - an explicit --height is the caller's call.
-WINDOW_ROWS=$(_tmux display-message -p $CALLER_TARGET '#{window_height}' 2>/dev/null || true)
-default_height() {
-  local rows
-  case "${WINDOW_ROWS:-}" in
-    '' | *[!0-9]*) rows=0 ;;
-    *) rows=$WINDOW_ROWS ;;
-  esac
-  if [ "$rows" -gt 0 ] && [ "$rows" -lt "$DEFAULT_HEIGHT" ]; then
-    printf '%s' "$rows"
-  else
-    printf '%s' "$DEFAULT_HEIGHT"
-  fi
-}
-
-# Apply default dimensions based on mode. A left/right drawer spans the full
-# height and a top/bottom one the full width, so each takes only the dimension
-# it actually docks by.
-if [ -z "$WIDTH" ] && [ -z "$HEIGHT" ]; then
-  case "$DRAWER" in
-    left|right)  WIDTH=$DEFAULT_WIDTH ;;
-    top|bottom)  HEIGHT=$(default_height) ;;
-    *)           WIDTH=$DEFAULT_WIDTH; HEIGHT=$(default_height) ;;
-  esac
-elif [ -z "$WIDTH" ] && [ -n "$DRAWER" ]; then
-  case "$DRAWER" in left|right) WIDTH=$DEFAULT_WIDTH ;; esac
-elif [ -z "$HEIGHT" ] && [ -n "$DRAWER" ]; then
-  case "$DRAWER" in top|bottom) HEIGHT=$(default_height) ;; esac
-fi
-
-# The lowest window index the caller's session is not using, scanning up from
-# its lowest one (so a `base-index 1` session never gets a stray window 0).
-#
-# break-pane picks this index on its own, but it does not say which window it
-# made, and `set-option -w` with no target resolves against the session's
-# CURRENT window, which `break-pane -d` deliberately leaves alone. Naming the
-# index up front is what lets the whole float be built in one command list.
-# Mirrors `freeWindowIndex` in machines/app/actions/groupsAndFloats.ts.
-free_window_index() {
-  _tmux list-windows ${CALLER_SESSION:+-t "$CALLER_SESSION"} -F '#{window_index}' 2>/dev/null | awk '
-    { used[$1] = 1; if (NR == 1 || $1 + 0 < min) min = $1 + 0 }
-    END { i = (NR ? min : 0); while (i in used) i++; print i }'
-}
-
-# Build the ONE tmux command list that makes a float: the split, the break-pane
-# that moves the new pane into its own window, every @tmuxy-* tag, the requested
-# size, and the select-pane that gives the caller's pane back.
-#
-# One list is one command queue, so a client sees the split and the break in the
-# same batch of control-mode notifications and never renders the intermediate
-# state. Doing it in two steps (split, read the new pane id, break) let the new
-# pane sit in the caller's tab for as long as the shell took to round-trip -
-# visibly, as a pane that appeared and then vanished.
-#
-# Nothing in the list names the new pane, because its id does not exist until
-# split-window has run. Two tmux rules stand in: `split-window` without -d makes
-# the new pane current for the commands that follow it (so an untargeted
-# break-pane moves that pane), and the new window's INDEX, named up front, is
-# how every command after the break reaches a window whose id we do not know.
-# Args: $1=target window (session:index)  $2=command for the new pane (optional)
-build_float_command() {
-  local target="$1" cmd="${2:-}"
-  [[ "$target" =~ ^[A-Za-z0-9._/@+:-]+$ ]] || target="$(shquote "$target")"
-  printf 'split-window'
-  if [ -n "$CALLER_TARGET" ]; then printf ' %s' "$CALLER_TARGET"; fi
-  if [ -n "$cmd" ]; then printf ' %s' "$(shquote "$cmd")"; fi
-  printf ' \; break-pane -d -n float -t %s' "$target"
-  printf ' \; set-option -w -t %s @tmuxy-window-type float' "$target"
-  if [ -n "$CURRENT_WIN" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-parent %s' "$target" "$CURRENT_WIN"
-  fi
-  if [ -n "$WIDTH" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-width %s' "$target" "$WIDTH"
-  fi
-  if [ -n "$HEIGHT" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-height %s' "$target" "$HEIGHT"
-  fi
-  if [ -n "$DRAWER" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-drawer %s' "$target" "$DRAWER"
-  fi
-  if [ -n "$BG" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-bg %s' "$target" "$BG"
-  fi
-  if [ -n "$HIDE_HEADER" ]; then
-    printf ' \; set-option -w -t %s @tmuxy-float-noheader 1' "$target"
-  fi
-  # A single-pane window cannot be shrunk by resize-pane on every backend, so
-  # the @tmuxy-float-width/height tags above are what the UI actually sizes the
-  # float by; these keep the tmux-side pane in step where it can be resized.
-  if [ -n "$WIDTH" ]; then printf ' \; resize-pane -t %s -x %s' "$target" "$WIDTH"; fi
-  if [ -n "$HEIGHT" ]; then printf ' \; resize-pane -t %s -y %s' "$target" "$HEIGHT"; fi
-  # break-pane takes the caller's ACTIVE pane away (split-window had to make the
-  # new pane active for the break to find it), and tmux then picks a survivor of
-  # its own choosing. Hand the caller's pane back so opening a float never moves
-  # the user's cursor to a different pane of the tab they left.
-  if [ -n "${TMUX_PANE:-}" ]; then printf ' \; select-pane -t %s' "$TMUX_PANE"; fi
-  # The float's pane and window ids, read in the same list, while the float
-  # certainly exists: a command that exits at once closes it before the next
-  # tmux call, and display-message answers for a target that is gone with the
-  # CALLER's pane - which the close below then killed, tab and all. The `#`s
-  # are doubled to survive run-shell's own format expansion.
-  printf " \\; display-message -p -t %s '##{pane_id} ##{window_id}'" "$target"
-  printf '\n'
-}
-
-# Create the float (build_float_command's arguments) and set NEW_PANE_ID and
-# NEW_WIN_ID to its pane and window, or fail.
+# Create the float, its pane running $1 (a shell line) when given, and set
+# NEW_PANE_ID and NEW_WIN_ID to its pane and window, or fail.
 create_float() {
   local ids
-  ids=$(_run_safe "$(build_float_command "$@")" | tail -n 1)
+  find_server_cmd || exit 1
+  ids=$("${SERVER_CMD[@]}" "${FLOAT_ARGS[@]}" ${1:+--command "$1"}) || exit $?
   read -r NEW_PANE_ID NEW_WIN_ID <<<"$ids"
-  if [ -z "${NEW_PANE_ID:-}" ] || [ -z "${NEW_WIN_ID:-}" ]; then
-    echo "Error: failed to create float pane" >&2
-    exit 1
-  fi
 }
 
 if [ "$CURRENT_TYPE" = "float" ]; then
@@ -230,19 +83,14 @@ if [ "$CURRENT_TYPE" = "float" ]; then
   exit $?
 fi
 
-TARGET="${CALLER_SESSION:-}:$(free_window_index)"
-
 if [ $# -eq 0 ]; then
   # Interactive mode: create the float with a shell, output its pane id.
-  #
-  # Route the command list through run-shell to avoid hangs on tmux 3.5a:
-  # direct subprocess calls can deadlock with control mode.
-  create_float "$TARGET"
+  create_float
   echo "$NEW_PANE_ID"
 elif [ -n "$DETACH" ]; then
   # Detached: the command is the float's program, each word quoted for the
   # shell tmux runs it with, and nothing waits on it.
-  create_float "$TARGET" "$(printf '%q ' "$@")"
+  create_float "$(printf '%q ' "$@")"
   echo "$NEW_PANE_ID"
 else
   # Command mode: run the command in the float, capture its stdout, auto-close.
@@ -265,7 +113,7 @@ else
   } > "$WRAPPER"
   chmod 700 "$WRAPPER"
 
-  create_float "$TARGET" "bash $(printf '%q' "$WRAPPER")"
+  create_float "bash $(printf '%q' "$WRAPPER")"
 
   # Wait for the command to finish
   _tmux wait-for "$WAIT_CHAN"

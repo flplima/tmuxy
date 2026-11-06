@@ -163,16 +163,18 @@ pub fn relists_after(list: &CommandList) -> Relists {
 
 /// What a tmuxy script that changes tmux in several separate steps — split,
 /// break, set-option, swap, resize — puts ahead of its shell command, as a
-/// shell variable assignment the shell ignores: `run-shell "TMUXY_SETTLE=1
+/// shell variable assignment the shell ignores: `run-shell "TMUXY_EFFECT=settle
 /// …/pane-group add …"`. Each step fires its own `%layout-change` or
 /// `%window-add`; the monitor holds the emissions back until they settle, or
 /// the clients would draw the intermediate split before the final layout.
-pub const SETTLE_TAG: &str = "TMUXY_SETTLE=1";
+/// The UI (`scriptWith` in `tmuxy-ui/src/domain/commandHelpers.ts`) and the
+/// essentials aliases write it.
+pub const SETTLE_TAG: &str = "TMUXY_EFFECT=settle";
 
 /// What a tmuxy script that writes options tmux does not announce puts ahead
 /// of its shell command, the same way (the stack script and its
 /// `@tmuxy-collapsible`): the windows are re-listed behind it.
-pub const RELIST_TAG: &str = "TMUXY_RELIST=1";
+pub const RELIST_TAG: &str = "TMUXY_EFFECT=relist-windows";
 
 /// Whether `list` starts a script tagged to settle ([`SETTLE_TAG`]).
 pub fn settles(list: &CommandList) -> bool {
@@ -318,7 +320,7 @@ mod tests {
     #[test]
     fn option_writes_and_the_stack_script_re_list_the_windows() {
         assert!(windows(
-            "select-window -t @0 ; select-pane -t %2 ; run-shell \"TMUXY_RELIST=1 bash /x/tmuxy/stack off #{window_id}\""
+            "select-window -t @0 ; select-pane -t %2 ; run-shell \"TMUXY_EFFECT=relist-windows bash /x/tmuxy/stack off #{window_id}\""
         ));
         // A binding names the alias; its body, in tmuxy.essentials.conf, is
         // what runs.
@@ -365,14 +367,16 @@ mod tests {
     fn a_script_tagged_to_settle_is_seen_however_it_is_started() {
         let settles = |c: &str| settles(&tmux_command::parse(c));
         assert!(settles(
-            "select-pane -t %3 ; run-shell \"TMUXY_SETTLE=1 $TMUXY_DATA_DIR/bin/tmuxy/pane-group add %3 80 24\""
+            "select-pane -t %3 ; run-shell \"TMUXY_EFFECT=settle $TMUXY_DATA_DIR/bin/tmuxy/pane-group add %3 80 24\""
         ));
         assert!(settles("tmuxy-pane-group-add"));
         assert!(settles("tmuxy-float"));
         assert!(!settles(
             "run-shell \"$TMUXY_DATA_DIR/bin/tmuxy/pane-group join %3 %1 0\""
         ));
-        assert!(!settles("send-keys -t %1 -l 'TMUXY_SETTLE=1 run-shell x'"));
+        assert!(!settles(
+            "send-keys -t %1 -l 'TMUXY_EFFECT=settle run-shell x'"
+        ));
         assert!(!settles("tmuxy-nav-left"));
     }
 

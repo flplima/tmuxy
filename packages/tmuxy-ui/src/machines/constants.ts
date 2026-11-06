@@ -5,6 +5,7 @@
  */
 
 import { CHAR_HEIGHT } from '../constants/layout';
+import { SIDEBAR_DOCK } from '../domain/tmuxyConstants.gen';
 
 /** Default character width for grid calculations (px) */
 export const DEFAULT_CHAR_WIDTH = 9.6;
@@ -35,24 +36,21 @@ export const RECONNECT_NOTICE_DELAY_MS = 2000;
  * Width of the left sidebar column (the tab/pane tree widget), in columns.
  *
  * Both sidebars are REAL tmux panes, so these numbers are also the width tmux
- * wraps their content at: they must match `sidebar_dock::LEFT_COLS` /
- * `RIGHT_COLS` in `tmuxy-core/src/constants.rs`, which is what the backend
- * resizes each `sidebar-*`-typed window to. If the two sides disagree, the
- * pane wraps at a width the UI never draws.
+ * wraps their content at: the backend's `sidebar_dock`, which it resizes each
+ * `sidebar-*`-typed window to, generated into `tmuxyConstants.gen.ts`.
  *
  * The pixel width derives from cols × charWidth, so a column stays in lockstep
  * with the pane grid across font-size changes.
  */
-export const LEFT_SIDEBAR_COLS = 30;
+export const LEFT_SIDEBAR_COLS = SIDEBAR_DOCK.leftCols;
 
 /** Width of the right sidebar column (the pinned terminal), in columns. */
-export const RIGHT_SIDEBAR_COLS = 35;
+export const RIGHT_SIDEBAR_COLS = SIDEBAR_DOCK.rightCols;
 
 /**
- * Bounds a sidebar column may be dragged between, in columns. Mirror
- * `sidebar_dock::MIN_COLS` / `MAX_COLS` in `tmuxy-core/src/constants.rs`, which
- * clamps the same way — so a drag can never preview a width the backend would
- * then refuse to size the pane to.
+ * Bounds a sidebar column may be dragged between, in columns: the backend's,
+ * which clamps the same way — so a drag can never preview a width the backend
+ * would then refuse to size the pane to.
  */
-export const SIDEBAR_MIN_COLS = 16;
-export const SIDEBAR_MAX_COLS = 120;
+export const SIDEBAR_MIN_COLS = SIDEBAR_DOCK.minCols;
+export const SIDEBAR_MAX_COLS = SIDEBAR_DOCK.maxCols;

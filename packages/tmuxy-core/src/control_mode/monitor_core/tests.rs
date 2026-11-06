@@ -364,7 +364,7 @@ fn a_keystroke_goes_out_bare_and_a_refused_command_is_reported() {
 fn a_command_settles_or_relists_as_its_commands_say() {
     let (mut core, now) = core("app");
     core.command(
-        "run-shell \"TMUXY_SETTLE=1 bash x/pane-group add\"",
+        "run-shell \"TMUXY_EFFECT=settle bash x/pane-group add\"",
         None,
         now,
     );

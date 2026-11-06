@@ -1,5 +1,7 @@
 #[cfg(feature = "cli")]
 pub mod argv;
+#[cfg(feature = "native")]
+pub mod ask;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;
@@ -9,11 +11,16 @@ pub mod groups;
 pub mod ids;
 
 pub mod command_router;
+#[cfg(feature = "cli")]
+pub mod float;
+
 #[cfg(feature = "native")]
 pub mod host;
 pub mod layout;
 #[cfg(feature = "cli")]
 pub mod list_keys;
+#[cfg(feature = "native")]
+pub mod logging;
 pub mod mime;
 #[cfg(feature = "cli")]
 pub mod paths;
@@ -23,6 +30,7 @@ pub mod plugins;
 pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
+pub mod program;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]

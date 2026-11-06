@@ -138,13 +138,4 @@ mod tests {
         assert_eq!(rows[1].window, "side\twith\ttabs");
         assert!(rows[2].asking);
     }
-
-    #[test]
-    fn a_bare_version_is_a_version() {
-        use crate::control_mode::is_version;
-        assert!(is_version("2.1.30"));
-        assert!(!is_version("claude"));
-        assert!(!is_version("2..1"));
-        assert!(!is_version("v2.1"));
-    }
 }

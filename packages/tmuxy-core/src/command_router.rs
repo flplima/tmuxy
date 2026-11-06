@@ -322,7 +322,6 @@ mod tests {
             "display-message -p caught-up",
             "display-message -p -F '#{socket_path}'",
             "display -p -t %9 \"#{pane_id}\"",
-            "show-environment -g TMUXY_SWITCH_TO",
             "list-windows -a -F '#{session_name} #{window_id}'",
             "list-panes -a -F '#{pane_id}\t#{window_id}'",
             "list-panes -t @3",

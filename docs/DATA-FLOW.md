@@ -177,7 +177,7 @@ A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or r
 [1. ssh / localhost] ──► [2. tmux -V] ──► [3. listing sessions] ──► [4. attach]
 ```
 
-Each stage prints `✓` on success or `✗` with verbatim `ssh`/`tmux` stderr on failure. The server is saved to `servers.json`, and the attach is published as `TMUXY_CONNECT_*` for the desktop app to pick up (see [TMUX-CONFIG.md](TMUX-CONFIG.md)).
+Each stage prints `✓` on success or `✗` with verbatim `ssh`/`tmux` stderr on failure. Its last stage, the server binary's `connect --save`, saves the server to `servers.json` and publishes `TMUXY_CONNECT` for the desktop app ([TMUX-CONFIG.md](TMUX-CONFIG.md)).
 
 ---
 

@@ -19,15 +19,30 @@ export function script(name: string, ...args: Array<string | number>): string {
 }
 
 /**
- * The tag a script that changes tmux in several steps starts with, as the
- * server reads it (`SETTLE_TAG` in `tmuxy-core/src/tmux_compat.rs`): it holds
- * the clients' updates back until the steps settle.
+ * What the backend must know of a script run: `settle` for a script that takes
+ * several tmux steps (the clients see only where it lands), `relist-windows`
+ * for one that writes `@tmuxy-*` options tmux never announces. The marker is
+ * the first word of the line `run-shell` hands the shell — an environment
+ * assignment the script ignores — and the essentials aliases' bodies carry
+ * the same word, so the monitor reads one marker whoever sent the command.
  */
-export const SETTLE_TAG = 'TMUXY_SETTLE=1';
+export type ScriptEffect = 'settle' | 'relist-windows';
 
-/** A bundled multi-step script, run by tmux and tagged to settle. */
-export function settlingScript(name: string, ...args: Array<string | number>): string {
-  return `run-shell "${[SETTLE_TAG, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+const EFFECT_MARKER = /^run-shell\s+"?TMUXY_EFFECT=(settle|relist-windows)\s/;
+
+/** {@link script}, marked with the effect the backend must apply. */
+export function scriptWith(
+  effect: ScriptEffect,
+  name: string,
+  ...args: Array<string | number>
+): string {
+  return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/** The effect a raw command's script run is marked with, if any. */
+export function scriptEffect(command: string): ScriptEffect | null {
+  const effect = EFFECT_MARKER.exec(command.trim())?.[1];
+  return effect === 'settle' || effect === 'relist-windows' ? effect : null;
 }
 
 /** Commands run as one list (` \; ` between them). */
@@ -193,7 +208,7 @@ export function mouseReport(op: TmuxOpOf<'SendMouse'>): string {
 /**
  * The `split-window ; break-pane ; set-option` list that creates a chrome
  * window running `run` (the default shell when `null`) and tags it in one
- * shot — the list `packages/tmuxy-cli/bin/tmuxy/float-create` builds for a float.
+ * shot — the list `tmuxy-core/src/float.rs` builds for a float.
  *
  * `at` names the new window: a float by its index (picked free up front —
  * `set-option -w` with no target would land on the session's CURRENT window,

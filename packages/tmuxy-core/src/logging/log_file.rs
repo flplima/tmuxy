@@ -10,20 +10,20 @@ use std::sync::Mutex;
 /// The size past which the log starts over, keeping the old one as `.1`.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-pub(crate) struct RotatingLog {
+pub(super) struct RotatingLog {
     path: PathBuf,
     max_bytes: u64,
     state: Mutex<(File, u64)>,
 }
 
 impl RotatingLog {
-    pub(crate) fn open(path: &Path) -> io::Result<Self> {
+    pub(super) fn open(path: &Path) -> io::Result<Self> {
         Self::open_capped(path, MAX_BYTES)
     }
 
     fn open_capped(path: &Path, max_bytes: u64) -> io::Result<Self> {
         if let Some(dir) = path.parent() {
-            tmuxy_core::private_files::create_dir_all(dir)?;
+            crate::private_files::create_dir_all(dir)?;
         }
         let file = open_append(path)?;
         let size = file.metadata()?.len();

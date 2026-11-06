@@ -10,7 +10,11 @@ generated) on launch, so `bin/` here has the same layout as the installed
 copy. A new helper under `bin/tmuxy/` must be added to that list; a Rust test
 fails until it is. The scripts find tmuxy's three directories (config, data,
 state) with `tmuxy_config_dir`, `tmuxy_data_dir` and `tmuxy_state_dir` in
-`bin/tmuxy/_lib`, which resolve them as tmuxy-core does.
+`bin/tmuxy/_lib`, which resolve them as tmuxy-core does. The values the scripts share with tmuxy-core (the stash session's name,
+the pane-title format) are generated from it into `bin/tmuxy/_options`, which
+`_lib` sources; a Rust test (`tmuxy-core/tests/generated_constants.rs`) fails
+when the file is stale, and writes it with `UPDATE_GENERATED=1`. The UI's
+copy is `tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, from the same test.
 
 - **Mutations go through `tmux run-shell`.** An external `tmux` command that
   mutates while control mode is attached crashes tmux 3.3a–3.5a. `_run_safe`
@@ -19,9 +23,9 @@ state) with `tmuxy_config_dir`, `tmuxy_data_dir` and `tmuxy_state_dir` in
   [docs/TMUX.md](../../docs/TMUX.md).
 - **A script tells the server what it does** on the `run-shell` line that
   starts it, as a shell assignment ahead of the script (`tmux_compat.rs` in
-  tmuxy-core reads them): `TMUXY_SETTLE=1` for one that changes tmux in
+  tmuxy-core reads them): `TMUXY_EFFECT=settle` for one that changes tmux in
   several steps (`pane-group add`, `float-create`), so the clients are not
-  shown the steps; `TMUXY_RELIST=1` for one that writes options tmux does
+  shown the steps; `TMUXY_EFFECT=relist-windows` for one that writes options tmux does
   not announce (`stack`), so the windows are re-listed behind it.
 - **The contract with scripts and agents** (`tmuxy --help`): exit codes
   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·

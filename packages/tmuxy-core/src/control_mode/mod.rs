@@ -41,8 +41,7 @@ pub use osc::OscParser;
 pub use parser::{ControlModeEvent, Parser};
 pub(crate) use state::normalize_capture_bytes;
 pub use state::{
-    control_mode_lines, is_version, Batch, ChangeType, Instant, Markers, Notice, SideEffect,
-    StateAggregator, StepResult, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
-    CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER, MAX_CLIPBOARD_BYTES,
-    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    control_mode_lines, Batch, ChangeType, Instant, Markers, Notice, SideEffect, StateAggregator,
+    StepResult, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER,
+    LIST_BEGIN_MARKER, LIST_END_MARKER, MAX_CLIPBOARD_BYTES, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
