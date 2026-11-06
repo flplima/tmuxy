@@ -1,4 +1,5 @@
 use super::tests::*;
+use super::tests_capture::captures;
 use super::*;
 use crate::constants::tmux_formats::{TmuxList, WindowColumn};
 use crate::ids::test_ids::{pid, wid};
@@ -289,13 +290,10 @@ fn the_first_emission_waits_for_the_initial_sync_and_its_captures() {
     // follows. Neither is the whole picture while that capture is in flight.
     let panes = listed(&mut agg, TmuxList::Panes, &pane_row("%0", "@0", false));
     assert!(
-        panes.effects.iter().any(
-            |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
-        ),
+        panes.effects.iter().any(|e| captures(e, "%0")),
         "a new pane is captured ({:?})",
         panes.effects
     );
-    agg.queue_captures(&[pid("%0")]);
     assert!(
         agg.to_state_update().is_none(),
         "panes listed, capture pending"

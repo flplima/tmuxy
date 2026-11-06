@@ -67,16 +67,3 @@ export interface TransportDriver<E extends DriverEvent = TransportEvent> {
 export interface SequencedDriver extends TransportDriver<DriverEvent> {
   readonly sequencer: StateSequencer;
 }
-
-/**
- * The in-browser guest's shape (`GuestTmuxAdapter`), which answers commands
- * by name: `guestDriver` in `layers.ts` makes it a `TransportDriver`.
- */
-export interface TmuxAdapter {
-  readonly events: EventHub<TransportEvent>;
-  connect(): Promise<void>;
-  disconnect(): void;
-  invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T>;
-  query(command: string): Promise<string>;
-  switchSession(sessionName: string): Promise<void>;
-}

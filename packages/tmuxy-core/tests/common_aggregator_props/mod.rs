@@ -1,8 +1,8 @@
 use proptest::prelude::*;
 use tmuxy_core::control_mode::{
-    ControlModeEvent, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER,
-    CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
-    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    Batch, ControlModeEvent, Notice, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER,
+    BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER,
+    LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 
 /// Generate a synthetic `Output` event with a small randomised payload.
@@ -158,33 +158,50 @@ pub fn seam_event_strategy() -> impl Strategy<Value = Vec<ControlModeEvent>> {
     ]
 }
 
-/// The effect's variant, for the coverage check.
+/// The effect's variant (a batch's purpose for a send), for the coverage
+/// check.
 pub fn effect_kind(effect: &SideEffect) -> &'static str {
     match effect {
-        SideEffect::AdoptUntaggedWindows(_) => "AdoptUntaggedWindows",
-        SideEffect::StoreImages { .. } => "StoreImages",
-        SideEffect::WriteClipboard { .. } => "WriteClipboard",
-        SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
-        SideEffect::CommandReply { .. } => "CommandReply",
-        SideEffect::ShowMessage(_) => "ShowMessage",
-        SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
-        SideEffect::RefreshPanes { .. } => "RefreshPanes",
-        SideEffect::ResumePane(_) => "ResumePane",
-        SideEffect::EmitState { .. } => "EmitState",
+        SideEffect::Send { batch, .. } => match batch {
+            Batch::WindowSetup => "Send(WindowSetup)",
+            Batch::Own => "Send(Own)",
+            Batch::WindowRelist => "Send(WindowRelist)",
+            Batch::PaneRefresh => "Send(PaneRefresh)",
+            Batch::Resume => "Send(Resume)",
+        },
+        SideEffect::Notify(Notice::Images { .. }) => "Notify(Images)",
+        SideEffect::Notify(Notice::Clipboard { .. }) => "Notify(Clipboard)",
+        SideEffect::Notify(Notice::Message(_)) => "Notify(Message)",
+        SideEffect::Notify(Notice::Error(_)) => "Notify(Error)",
+        SideEffect::Reply { .. } => "Reply",
+        SideEffect::Emit(_) => "Emit",
     }
 }
 
 /// Where an effect sits in the order A1 documents.
 pub fn effect_rank(effect: &SideEffect) -> u8 {
     match effect {
-        SideEffect::AdoptUntaggedWindows(_) => 0,
-        SideEffect::StoreImages { .. }
-        | SideEffect::WriteClipboard { .. }
-        | SideEffect::ShowMessage(_) => 1,
-        SideEffect::SendTmuxCommand(_) | SideEffect::CommandReply { .. } => 2,
-        SideEffect::RefreshAfterWindowAdd => 3,
-        SideEffect::RefreshPanes { .. } => 4,
-        SideEffect::ResumePane(_) => 5,
-        SideEffect::EmitState { .. } => 6,
+        SideEffect::Send {
+            batch: Batch::WindowSetup,
+            ..
+        } => 0,
+        SideEffect::Notify(_) => 1,
+        SideEffect::Send {
+            batch: Batch::Own, ..
+        }
+        | SideEffect::Reply { .. } => 2,
+        SideEffect::Send {
+            batch: Batch::WindowRelist,
+            ..
+        } => 3,
+        SideEffect::Send {
+            batch: Batch::PaneRefresh,
+            ..
+        } => 4,
+        SideEffect::Send {
+            batch: Batch::Resume,
+            ..
+        } => 5,
+        SideEffect::Emit(_) => 6,
     }
 }

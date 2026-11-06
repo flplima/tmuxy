@@ -3,28 +3,6 @@ import { TmuxOp } from '../../domain/commands';
 /** Keystrokes within ~1 frame go out as one send. */
 const KEY_BATCH_INTERVAL_MS = 16;
 
-/**
- * Unescape literal text from tmux send-keys -l format.
- * Reverses: 'text' → text, 'it'\''s' → it's
- */
-export function unescapeLiteralText(escaped: string): string {
-  if (!escaped.startsWith("'")) return escaped;
-  let result = '';
-  let i = 1; // skip opening quote
-  while (i < escaped.length) {
-    if (escaped[i] === "'" && escaped.substring(i, i + 4) === "'\\''" && i + 4 <= escaped.length) {
-      result += "'";
-      i += 4;
-    } else if (escaped[i] === "'") {
-      break;
-    } else {
-      result += escaped[i];
-      i++;
-    }
-  }
-  return result;
-}
-
 type Kind = 'keys' | 'text';
 
 /** One window's worth of one kind of keystroke, per target. */

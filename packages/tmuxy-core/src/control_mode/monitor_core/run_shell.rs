@@ -32,10 +32,11 @@ pub(super) fn relay_key(id: u64) -> String {
 /// word, a word tmux would expand `~` at the start of).
 pub(super) fn relay_run_shell(command: &str, key: &str, tmux: &str) -> Option<String> {
     let commands = split_command_list(command)?;
-    let mut run_shells = commands
-        .iter()
-        .enumerate()
-        .filter(|(_, words)| matches!(words.first(), Some(&("run-shell" | "run"))));
+    let mut run_shells = commands.iter().enumerate().filter(|(_, words)| {
+        words
+            .first()
+            .is_some_and(|verb| crate::tmux_command::RUN_SHELL.named_by(verb))
+    });
     let (at, words) = run_shells.next()?;
     if run_shells.next().is_some() {
         return None;
@@ -218,53 +219,17 @@ fn split_flags<'a>(words: &[&'a str]) -> Option<(Vec<&'a str>, &'a str)> {
     Some((flags, shell?))
 }
 
-/// A tmux command list split into commands of words, each word exactly as
-/// written. `None` for what this does not model.
+/// A tmux command list as its commands' words, each word exactly as
+/// written (`tmux_command::parse`). `None` for what the relay does not
+/// model: a brace block, a comment, a `;` glued to a word, an open quote.
 fn split_command_list(line: &str) -> Option<Vec<Vec<&str>>> {
-    let mut commands = vec![Vec::new()];
-    let mut chars = line.char_indices().peekable();
-    while let Some(&(start, c)) = chars.peek() {
-        if c == ' ' || c == '\t' {
-            chars.next();
-            continue;
-        }
-        if matches!(c, '#' | '{' | '}') {
-            return None;
-        }
-        let mut quote: Option<char> = None;
-        let mut end = start;
-        let mut glued_semicolon = false;
-        while let Some(&(i, c)) = chars.peek() {
-            if quote.is_none() && (c == ' ' || c == '\t') {
-                break;
-            }
-            chars.next();
-            end = i + c.len_utf8();
-            glued_semicolon = false;
-            match (quote, c) {
-                (None, '\'' | '"') => quote = Some(c),
-                (Some(q), _) if c == q => quote = None,
-                (None | Some('"'), '\\') => {
-                    let (j, escaped) = chars.next()?;
-                    end = j + escaped.len_utf8();
-                }
-                (None, ';') => glued_semicolon = true,
-                _ => {}
-            }
-        }
-        if quote.is_some() {
-            return None;
-        }
-        let word = &line[start..end];
-        if word == ";" {
-            commands.push(Vec::new());
-        } else if glued_semicolon {
-            return None;
-        } else if let Some(command) = commands.last_mut() {
-            command.push(word);
-        }
+    let list = crate::tmux_command::parse(line);
+    if line.contains('\n') || list.has_blocks() || list.glued_separator || list.unterminated_quote {
+        return None;
     }
-    if commands.iter().any(Vec::is_empty) {
+    let commands: Vec<Vec<&str>> = list.top_level().map(|c| c.words().to_vec()).collect();
+    let unmodelled = |word: &&str| matches!(word.chars().next(), Some('#' | '{' | '}'));
+    if commands.iter().flatten().any(unmodelled) {
         return None;
     }
     Some(commands)

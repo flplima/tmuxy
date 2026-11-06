@@ -197,10 +197,24 @@ impl Markers {
     /// The re-list a window add or close needs, and the initial sync sends:
     /// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted
     /// before its panes are listed is a window with panes missing; the stash
-    /// list is independent of that order and goes last. The native monitor
-    /// and the wasm host both send exactly this.
+    /// list is independent of that order and goes last. Every re-list of
+    /// the windows is this one (the window add and close, the initial sync,
+    /// the metadata sync, the idle heartbeat, a reorder's).
     pub fn window_relist_commands(&self) -> [String; 3] {
         TmuxList::ALL.map(|list| self.list_command(list))
+    }
+
+    /// The re-list a command tmux leaves unannounced needs
+    /// (`tmux_compat::relists_after`): the windows in M2's order, panes
+    /// first, or the panes alone; nothing when it needs neither.
+    pub fn relist_commands(&self, relists: crate::tmux_compat::Relists) -> Vec<String> {
+        if relists.windows {
+            self.window_relist_commands().to_vec()
+        } else if relists.panes {
+            self.pane_refresh_commands(&[])
+        } else {
+            Vec::new()
+        }
     }
 
     /// The batch that refreshes `queued` panes: `list-panes` BEFORE every

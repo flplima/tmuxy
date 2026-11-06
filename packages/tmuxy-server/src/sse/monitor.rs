@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommandSender, MonitorConfig};
 use tmuxy_core::host::{self, Attempt, Ended, GaveUp, Host, HostEvent, SessionRuntime, Task};
-use tmuxy_core::{executor, TmuxError};
+use tmuxy_core::{tmux_quote, TmuxError};
 use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
@@ -157,22 +157,16 @@ impl Host for ServerHost {
         let working_dir = config
             .working_dir
             .as_ref()
-            .map(|d| format!(" -c {}", executor::tmux_quote(&d.display().to_string())))
+            .map(|d| format!(" -c {}", tmux_quote(&d.display().to_string())))
             .unwrap_or_default();
         let first_window = config
             .first_window
             .as_ref()
-            .map(|(name, cwd)| {
-                format!(
-                    " -n {} -c {}",
-                    executor::tmux_quote(name),
-                    executor::tmux_quote(cwd)
-                )
-            })
+            .map(|(name, cwd)| format!(" -n {} -c {}", tmux_quote(name), tmux_quote(cwd)))
             .unwrap_or_default();
         let create_cmd = format!(
             "new-session -d -s {} -x {} -y {}{}{}",
-            executor::tmux_quote(session),
+            tmux_quote(session),
             tmuxy_core::control_mode::INITIAL_PTY_COLS,
             tmuxy_core::control_mode::INITIAL_PTY_ROWS,
             working_dir,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { KeyBatcher, unescapeLiteralText } from '../keyBatching';
+import { KeyBatcher } from '../keyBatching';
 import { quote, toTmuxCommand, TmuxOp } from '../../../domain/commands';
 import { pid } from '../../../test/wire';
 
@@ -157,13 +157,5 @@ describe('KeyBatcher', async () => {
     expect(sent).toContain("send-keys -t s0 -l -- 'a'");
     expect(sent).toContain("send-keys -t s1 -l -- 'z'");
     expect(sent).toHaveLength(2);
-  });
-});
-
-describe('quote / unescapeLiteralText', async () => {
-  it('round-trips plain and quoted text', async () => {
-    for (const text of ['abc', "it's", "a'b'c", ' spaced  ', "'"]) {
-      expect(unescapeLiteralText(quote(text))).toBe(text);
-    }
   });
 });
