@@ -26,6 +26,13 @@ pub enum Drawer {
 }
 
 impl Drawer {
+    pub const ALL: [Drawer; 4] = [Drawer::Left, Drawer::Right, Drawer::Top, Drawer::Bottom];
+
+    /// The drawer [`Drawer::as_str`] names.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|d| d.as_str() == name)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Drawer::Left => "left",
@@ -51,6 +58,13 @@ pub enum Backdrop {
 }
 
 impl Backdrop {
+    pub const ALL: [Backdrop; 3] = [Backdrop::Dim, Backdrop::Blur, Backdrop::None];
+
+    /// The backdrop [`Backdrop::as_str`] names.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|b| b.as_str() == name)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Backdrop::Dim => "dim",

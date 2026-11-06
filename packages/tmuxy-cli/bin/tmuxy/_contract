@@ -42,6 +42,11 @@ json_ok() {
   printf '%s}\n' "$out"
 }
 
+# ` --json` when the answer is JSON, for a verb's command line.
+_json_flag() {
+  [ "$JSON_OUT" != true ] || printf ' --json'
+}
+
 _done() {
   [ "$JSON_OUT" = true ] || return 0
   json_ok "$@"

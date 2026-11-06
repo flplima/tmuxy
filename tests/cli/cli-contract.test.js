@@ -381,13 +381,14 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual({ ok: false, error: 'Unknown pane command: frob', code: 2 });
   });
 
-  test('session snapshots --json lists the snapshots as objects', () => {
-    const { stdout, exitCode } = runCLI(['session', 'snapshots', '--json'], {
-      env: { MOCK_SERVER_SNAPSHOTS: 'work\t2026-10-28 10:00\trunning' },
-    });
+  // A verb answers for itself: `--json` is handed on.
+  test.each([
+    [['session', 'snapshots'], 'session snapshots --json'],
+    [['session', 'save', 'work'], 'session save --json work'],
+    [['agent', 'status'], 'agent status --json'],
+  ])('%j --json asks its verb for JSON', (args, verb) => {
+    const { stdout, exitCode } = runCLI([...args, '--json']);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual([
-      { name: 'work', saved: '2026-10-28 10:00', state: 'running' },
-    ]);
+    expect(stdout.trim()).toBe(`mock-server-started ${verb}`);
   });
 });

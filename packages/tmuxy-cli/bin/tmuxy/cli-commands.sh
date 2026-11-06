@@ -191,17 +191,8 @@ cmd_session() {
 
     save|snapshots)
       # Reads only (tmux queries and `ps`), safe as a plain subprocess.
-      find_server_cmd
-      [ "$JSON_OUT" = true ] || exec "${SERVER_CMD[@]}" session "$sub" "$@"
-      local out status=0
-      out=$("${SERVER_CMD[@]}" session "$sub" "$@") || status=$?
-      [ "$status" -eq 0 ] || _fail "$status" "$out"
-      if [ "$sub" = snapshots ]; then
-        # The binary prints one `name<TAB>saved<TAB>state` per line.
-        printf '%s\n' "$out" | awk -F'\t' "$JSON_AWK"'BEGIN{printf "["} NF>0{ if(n++) printf ","; printf "{\"name\":\"%s\",\"saved\":\"%s\",\"state\":\"%s\"}", jstr($1), jstr($2), jstr($3)} END{printf "]\n"}'
-      else
-        json_ok "output=$(json_string "$out")"
-      fi
+      find_server_cmd || exit "$EXIT_FAILED"
+      exec "${SERVER_CMD[@]}" session "$sub" ${server_json[@]+"${server_json[@]}"} "$@"
       ;;
 
     restore)
@@ -227,8 +218,7 @@ cmd_session() {
       done
       [ -z "$stdin_tty" ] || [ ! -c "$stdin_tty" ] || tty_redir=" < $(shquote "$stdin_tty")"
       find_server_cmd
-      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted$tty_redir"
-      _done
+      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$(_json_flag)$quoted$tty_redir"
       ;;
 
     forget)
@@ -240,8 +230,7 @@ cmd_session() {
       local quoted=""
       for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
       find_server_cmd
-      _run_shell "$(shquote "${SERVER_CMD[@]}") session forget$quoted"
-      _done
+      _run_shell "$(shquote "${SERVER_CMD[@]}") session forget$(_json_flag)$quoted"
       ;;
 
     --help|-h)
