@@ -1,18 +1,8 @@
-//! Tmux Control Mode Integration
-//!
-//! This module provides event-driven communication with tmux using control mode (`tmux -CC`).
-//! Instead of polling with `capture-pane`, it receives real-time notifications of changes.
-//!
-//! ## Key components:
-//! - `octal` - Decode tmux's octal escape sequences
-//! - `parser` - Parse control mode notifications
-//! - `connection` - Manage the tmux -CC subprocess
-//! - `state` - Aggregate events into coherent state
-//! - `monitor_core` - The sans-IO client core every host runs
-//! - `monitor` - The tokio host of that core
-//! - `osc` - The title and clipboard requests vt100 reads from pane output
+//! Event-driven communication with tmux through control mode (`tmux -CC`):
+//! tmux pushes notifications of every change instead of being polled with
+//! `capture-pane`.
 
-// Sans-IO parse + state layer (wasm-safe).
+// Sans-IO, so these also build for wasm.
 pub mod images;
 mod log;
 mod octal;
@@ -20,10 +10,8 @@ mod osc;
 mod parser;
 mod state;
 
-// The sans-IO client core every host runs (wasm-safe).
 pub mod monitor_core;
 
-// Native async/pty transport, gated behind the `native` feature.
 #[cfg(feature = "native")]
 mod connection;
 #[cfg(feature = "native")]

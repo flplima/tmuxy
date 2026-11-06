@@ -61,8 +61,6 @@ impl Monitor {
         self.runtime.shut_down_connection().await;
     }
 
-    /// Detach this client: mark it, then end the connection. The loop parks
-    /// instead of reconnecting, and a later reconnect revives it.
     pub async fn detach(&self) {
         self.control.detached.store(true, Ordering::SeqCst);
         self.runtime.shut_down_connection().await;
@@ -89,7 +87,6 @@ pub async fn request_reconnect(app: &AppHandle, target: ConnectTarget) {
         ssh = target.ssh.as_deref().unwrap_or("(local)"),
         "reconnecting"
     );
-    // One write, seen whole by every thread.
     tmuxy_core::session::set_connect_target(target.clone());
     for window in crate::windows::list_all(app) {
         let (session, group) = if window.label == crate::windows::MAIN_LABEL {
@@ -116,8 +113,6 @@ pub async fn run_on(monitor: &Monitor, command: &str) {
     }
 }
 
-/// Start control-mode monitoring for one GUI window.
-///
 /// `group_target`, when set, names the session whose group the window's
 /// session joins on the create path — a second GUI window shares every
 /// window and pane with the first while keeping its own current window (see
@@ -146,7 +141,7 @@ pub async fn start_monitoring_window(monitor: Monitor, group_target: Option<Stri
 /// another server.
 struct DesktopHost {
     monitor: Monitor,
-    /// `mut` so a `tmuxy connect` reconnect can retarget the session in place.
+    /// Retargeted in place by a `tmuxy connect` reconnect.
     config: MonitorConfig,
     /// Set after giving up, or after a detach. The loop stays alive and waits
     /// for a deliberate user reconnect rather than returning — returning left

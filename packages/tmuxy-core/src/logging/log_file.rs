@@ -7,7 +7,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// The size past which the log starts over, keeping the old one as `.1`.
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 pub(super) struct RotatingLog {
@@ -43,7 +42,6 @@ impl Write for &RotatingLog {
         let (file, size) = &mut *guard;
         if *size > 0 && *size + buf.len() as u64 > self.max_bytes {
             let backup = PathBuf::from(format!("{}.1", self.path.display()));
-            // Best-effort: a failed rotation keeps writing to the current file.
             if std::fs::rename(&self.path, &backup).is_ok() {
                 if let Ok(fresh) = open_append(&self.path) {
                     *file = fresh;

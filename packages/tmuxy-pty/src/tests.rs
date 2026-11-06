@@ -1,5 +1,3 @@
-//! The line discipline, keystroke by keystroke.
-
 use super::*;
 
 fn typed(keys: &[u8]) -> (Vec<u8>, Vec<Action>) {

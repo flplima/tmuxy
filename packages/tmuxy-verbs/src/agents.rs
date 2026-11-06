@@ -41,8 +41,6 @@ impl Agent {
         }
     }
 
-    /// The events tmuxy hooks, and the matcher that narrows one where the
-    /// agent would otherwise call the hook for nothing.
     fn hooks(self) -> &'static [Hook] {
         match self {
             Agent::Claude => CLAUDE_HOOKS,
@@ -164,8 +162,6 @@ pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str>
         _ => return None,
     })
 }
-
-// --- The command line -------------------------------------------------------
 
 #[derive(clap::Args, Debug)]
 pub struct AgentArgs {

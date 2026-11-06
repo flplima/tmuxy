@@ -209,7 +209,6 @@ mod tests {
             working_dir_outside_appdir(&appdir, Some(&owd), Some(&home)),
             Some(owd.clone())
         );
-        // When OWD points inside appdir (or is missing), fall back to home.
         assert_eq!(
             working_dir_outside_appdir(&appdir, Some(&appdir.join("usr")), Some(&home)),
             Some(home.clone())

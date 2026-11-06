@@ -12,7 +12,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The narrowest and shortest grid a fixed size may ask for.
 const MIN_FIXED: (u32, u32) = (10, 5);
 
 /// The smallest viewport a client is taken at its word for. A client whose
@@ -22,7 +21,6 @@ const MIN_FIXED: (u32, u32) = (10, 5);
 pub const MIN_CLIENT_COLS: u32 = 16;
 pub const MIN_CLIENT_ROWS: u32 = 4;
 
-/// A reported viewport, no smaller than the floor.
 pub fn clamp_client_size(cols: u32, rows: u32) -> (u32, u32) {
     (cols.max(MIN_CLIENT_COLS), rows.max(MIN_CLIENT_ROWS))
 }

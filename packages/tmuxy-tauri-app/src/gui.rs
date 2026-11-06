@@ -11,7 +11,6 @@ use crate::windows;
 
 pub(crate) use window_setup::{apply_blur, build_window, configure_window};
 
-/// Start the Tauri GUI application.
 pub fn run() {
     // The same subscriber as the server's, plus a copy of its lines in the
     // state dir: an app launched from Finder has no stderr anyone sees, and
@@ -63,8 +62,6 @@ pub fn run() {
                 )
                 .build(),
         )
-        // Several GUI windows over one tmux session group, and the style each
-        // window is in.
         .manage(windows::GuiWindows::default())
         .manage(WindowStyles::default())
         // The user's stylesheets — `/themes/<name>.css` and `/custom.css` —
@@ -77,9 +74,7 @@ pub fn run() {
         // Pictures a pane drew (Kitty, iTerm2, Sixel) are decoded by the
         // monitor and kept in its runtime; the webview fetches them through
         // this scheme. The web build serves the same bytes over
-        // `/api/images/<pane>/<id>`, a route that does not exist here — the
-        // frontend used to ask for it anyway and every image silently failed
-        // to load, which is why no image protocol rendered on the desktop.
+        // `/api/images/<pane>/<id>`, a route that does not exist here.
         .register_uri_scheme_protocol("tmuxyimg", |ctx, request| {
             window_setup::handle_tmuxyimg(ctx.app_handle(), request)
         })
@@ -129,27 +124,21 @@ pub fn run() {
                 tracing::warn!("invoked_exe() failed; tmuxy CLI shorthand not refreshed");
             }
 
-            // Create the main window programmatically so we can flip
-            // transparent + Overlay titlebar based on TMUXY_OPAQUE_WINDOW.
-            // tauri.conf.json's `windows: []` prevents auto-creation.
-            //
-            // Why: transparent windows need a compositor (Cocoa on macOS,
-            // Mutter/Picom/etc. on Linux). Xvfb has none, so the WebView
-            // paints onto a never-rendered surface and screenshots come
-            // out monochrome. TMUXY_OPAQUE_WINDOW=1 lets tests in headless
-            // CI/dev envs render visibly without changing prod defaults.
+            // tauri.conf.json's `windows: []` keeps tauri from creating this
+            // one: under Xvfb, which has no compositor, a transparent webview
+            // paints onto a never-rendered surface and screenshots come out
+            // monochrome, so `build_window` makes it opaque when
+            // TMUXY_OPAQUE_WINDOW=1.
             let main_window = build_window(app.handle(), windows::MAIN_LABEL)?;
 
             // The menu bar is the page's: it sets it from the menu spec once it
             // is up (`components/menus/NativeMenuBar.tsx`).
 
-            // Native blur and the platform hint.
             configure_window(&main_window);
 
             // The first window's monitor, on the base session; every tmux
             // command resolves its monitor through the window registry.
             windows::open_main(app.handle());
-            // Watch for `tmuxy connect` socket-switch requests.
             tauri::async_runtime::spawn(monitor::poll_connect_requests(app.handle().clone()));
             // Every pane on the socket, read for the agent-dialog correction
             // (`host::socket_watch`).
@@ -173,8 +162,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            // Every client command, for the window it came from — the same
-            // `{ cmd, args }` the web build POSTs to `/commands`.
             commands::dispatch,
             // Window chrome: the status bar doubles as the title bar
             commands::set_titlebar_height,

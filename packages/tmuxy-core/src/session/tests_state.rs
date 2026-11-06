@@ -1,13 +1,7 @@
-//! The files tmuxy writes for itself: the menu-state file (`tmuxy.state.json`)
-//! through its one writer, and the CLI it mirrors.
-
 use super::state::{read_managed_state_in, write_managed_state_in};
 use super::*;
 use crate::paths::Layout;
 
-/// The state file holds every menu choice: setting one keeps the rest and
-/// leaves valid JSON, whatever shape the file was in (`tmuxy config
-/// use-tmux-conf` writes through here).
 #[test]
 fn setting_one_choice_keeps_the_others_and_the_file_valid() {
     for (before, after) in [

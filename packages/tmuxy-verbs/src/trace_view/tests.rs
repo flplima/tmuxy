@@ -223,7 +223,6 @@ fn summarize_correlates_by_action_id() {
     let s = summarize(&events);
     assert!(s.contains("4 events over 10 ms"));
     assert!(s.contains("correlated actions (by action_id): 1"));
-    // the action's layer chain is shown
     assert!(s.contains("xstate → adapter → server"));
 }
 

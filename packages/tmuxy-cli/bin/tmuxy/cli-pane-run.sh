@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — `pane run`, `pane wait` and
-# `pane capture`: a program in a pane as a script sees it, with an exit status
-# to wait for instead of a screen to poll.
 
 # How often a waited-on pane is looked at. tmux emits no notification a
 # browser-side client could relay, and a read-only `display-message` is cheap.
@@ -9,7 +6,6 @@ WAIT_POLL_INTERVAL=0.15
 
 _wait_nap() { sleep "$WAIT_POLL_INTERVAL" 2>/dev/null || sleep 1; }
 
-# A duration (`90`, `90s`, `10m`, `2h`) in seconds; a bad one is a usage error.
 _duration_seconds() {
   local value="$1" n unit
   case "$value" in
@@ -24,8 +20,6 @@ _duration_seconds() {
   esac
 }
 
-# The answer to a wait: the program's status as the exit code, and as JSON.
-# Args: $1=pane id, $2=status
 _wait_done() {
   if [ "$JSON_OUT" = true ]; then
     local ok=false

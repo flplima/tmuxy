@@ -77,7 +77,7 @@ pub enum TraceLevel {
 }
 
 impl TraceLevel {
-    /// Wire/config name. Paired with [`TraceLevel::parse`].
+    /// Wire/config name.
     pub fn as_str(self) -> &'static str {
         match self {
             TraceLevel::Shape => "shape",
@@ -113,13 +113,10 @@ fn level() -> TraceLevel {
     TraceLevel::from_u8(LEVEL.load(Ordering::Relaxed))
 }
 
-/// Human name of the active level, for the startup announce and the UI.
 pub fn level_name() -> &'static str {
     level().as_str()
 }
 
-/// Change the level for subsequent events. Takes effect immediately — already
-/// written lines keep the level they were recorded at.
 fn set_level(level: TraceLevel) {
     LEVEL.store(level as u8, Ordering::Relaxed);
 }
@@ -160,8 +157,6 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
         return None;
     }
     let saved = load_prefs();
-    // TMUXY_TRACE_LEVEL still wins for a one-off run; otherwise the saved
-    // choice, otherwise the safe default.
     set_level(match std::env::var("TMUXY_TRACE_LEVEL") {
         Ok(v) => TraceLevel::parse(&v),
         Err(_) => saved.as_ref().map(|p| p.level).unwrap_or(TraceLevel::Shape),
@@ -172,9 +167,8 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
         saved.as_ref().map(|p| p.enabled),
         dev_mode || cfg!(debug_assertions),
     );
-    // Remember where tracing WOULD write, without creating anything: the UI can
-    // show and copy the path, and a later switch-on has somewhere to go. Off
-    // means off — a normal install must leave no file behind at all.
+    // Resolve the path without creating anything: a normal install with tracing
+    // off must leave no file behind.
     if let Some(p) = flag.flatten().filter(|s| !s.is_empty()) {
         let named = PathBuf::from(p);
         let taken = RESOLVED_PATH.set(named).err();
@@ -209,20 +203,15 @@ pub fn init(flag: Option<Option<String>>, dev_mode: bool) -> Option<PathBuf> {
     Some(path)
 }
 
-/// The gating rules of [`init`] as a pure function of their inputs, so the
-/// precedence is testable without touching the global writer or the disk. The
-/// kill switch is handled by the caller (it also suppresses path resolution).
+/// [`init`]'s precedence below the kill switch, which the caller checks first
+/// (it also suppresses path resolution).
 fn resolve_enabled(flag: bool, saved: Option<bool>, dev: bool) -> bool {
     if flag {
         return true;
     }
-    // A saved choice beats the development-build default in BOTH directions:
-    // it is how a user turns a dev build's automatic tracing off.
     saved.unwrap_or(dev)
 }
 
-/// Spawn the writer thread once and return the file it owns. Called only when
-/// tracing actually starts recording — creating the file is what "on" means.
 fn start_writer() -> std::io::Result<PathBuf> {
     if let Some(existing) = WRITER.get() {
         return Ok(existing.path.clone());
@@ -235,20 +224,16 @@ fn start_writer() -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-/// Whether tracing is currently recording. Cheap: a single atomic load.
 pub fn is_enabled() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// The file tracing writes to, whether or not it is currently recording, so the
-/// UI can show and copy it: the `--trace <path>` the operator named, else the
-/// state dir's. Resolving does NOT create it.
+/// The file tracing writes to, whether or not it is recording. Resolving does
+/// not create it.
 pub fn trace_path() -> PathBuf {
     RESOLVED_PATH.get_or_init(crate::paths::trace_file).clone()
 }
 
-/// Whether the kill switch forbids tracing in this process. The UI disables its
-/// switch when true rather than offering a toggle that cannot take effect.
 pub fn is_locked_off() -> bool {
     kill_switch()
 }
@@ -263,7 +248,6 @@ pub fn set_enabled(on: bool) -> bool {
     effective
 }
 
-/// Change the level and remember it, for the UI's level picker.
 pub fn set_level_persisted(level: TraceLevel) {
     set_level(level);
     save_prefs(is_enabled(), level);
@@ -271,9 +255,8 @@ pub fn set_level_persisted(level: TraceLevel) {
 
 // --- Saved preference -------------------------------------------------------
 
-/// The user's Debug-menu choice, in the state dir beside the trace itself
-/// (`trace.json`): this machine's choice, not config. Deliberately tiny and
-/// hand-editable.
+/// The user's Debug-menu choice, kept in the state dir (`trace.json`) because it
+/// belongs to this machine, not to the config.
 struct TracePrefs {
     enabled: bool,
     level: TraceLevel,
@@ -314,8 +297,6 @@ fn kill_switch() -> bool {
     kill_switch_in(|var| std::env::var(var).ok())
 }
 
-/// [`kill_switch`] over a reader of the environment, so the rule is testable
-/// without touching the process's.
 fn kill_switch_in(var: impl Fn(&str) -> Option<String>) -> bool {
     ["DO_NOT_TRACK", "TMUXY_NO_TRACE"]
         .into_iter()
@@ -343,12 +324,10 @@ pub fn record_client_batch(events: Vec<Map<String, Value>>) {
     }
 }
 
-/// Sanitize + record a client-originated trace event. The browser/Tauri tracer
-/// is designed to send only content-free shapes, but the ingest path never
-/// trusts it: every field goes through the same [`admit`] as a Rust event's,
-/// so a field carrying content is dropped or hashed here too. No-op when
-/// tracing is disabled. Client-supplied `ts_wall`/`ts_mono` are preserved
-/// (they belong to the client's clock); the server fills them only if absent.
+/// The ingest path never trusts the client tracer: every field goes through the
+/// same [`admit`] as a Rust event's, so a field carrying content is dropped or
+/// hashed here too. Client-supplied `ts_wall`/`ts_mono` are kept (they belong to
+/// the client's clock).
 pub fn record_client_event(fields: Map<String, Value>) {
     if !is_enabled() {
         return;
@@ -356,7 +335,6 @@ pub fn record_client_event(fields: Map<String, Value>) {
     emit(sanitize_client_fields(fields, level()));
 }
 
-/// Every field of a client's event that [`admit`] keeps.
 fn sanitize_client_fields(input: Map<String, Value>, lvl: TraceLevel) -> Map<String, Value> {
     input
         .into_iter()
@@ -364,19 +342,16 @@ fn sanitize_client_fields(input: Map<String, Value>, lvl: TraceLevel) -> Map<Str
         .collect()
 }
 
-/// The longest structural value a client may send.
 const MAX_STRUCTURAL: usize = 64;
 
-/// `[A-Za-z0-9_.:-]{1,64}`: what an event type or command name looks like.
 fn is_identifier(s: &str) -> bool {
     (1..=MAX_STRUCTURAL).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
 }
 
-/// The one field policy (`schema::class_of`), for a Rust event's fields and
-/// a client's alike: what `key` may record of `value` at `lvl`, or `None`
-/// to drop it.
+/// The one field policy, for a Rust event's fields and a client's alike: what
+/// `key` may record of `value` at `lvl`, or `None` to drop it.
 fn admit(key: &str, value: Value, lvl: TraceLevel) -> Option<Value> {
     use schema::FieldClass;
     let text = |value: &Value| value.as_str().map(str::to_string);

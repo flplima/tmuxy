@@ -16,7 +16,6 @@ use crate::session::{is_safe_session_name, is_safe_socket, is_ssh_destination};
 /// The tmux global environment variable a request is written to.
 pub const CONNECT_REQUEST: &str = "TMUXY_CONNECT";
 
-/// Where to reconnect: a socket on this machine, or on an ssh host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectRequest {
     pub socket: String,
@@ -57,7 +56,6 @@ impl ConnectRequest {
         Ok(())
     }
 
-    /// The variable's value.
     pub fn encode(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }

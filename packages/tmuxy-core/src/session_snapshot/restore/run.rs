@@ -1,6 +1,3 @@
-//! Running a restore plan: the `#<key>#` answers threaded through the steps
-//! after the one that asked, and the one `run` that touches tmux.
-
 use std::collections::BTreeMap;
 use std::future::Future;
 
@@ -20,13 +17,9 @@ pub fn fill(argv: &[String], answers: &BTreeMap<String, String>) -> TmuxArgv {
 }
 
 /// Run every step of `steps` through `run`, threading answers into the steps
-/// after them.
-///
-/// `run` is the only thing that touches tmux — a monitor's reply channel
-/// (`via_monitor`), a subprocess from the CLI, or a fake in a test — which is
-/// what lets a plan be tested by reading it back and the executor be tested
-/// without tmux. It takes one tmux command as argv (without `tmux`) and
-/// returns what the command printed.
+/// after them. `run` takes one tmux command as argv (without `tmux`) and
+/// returns what it printed: a monitor's reply channel (`via_monitor`), a
+/// subprocess from the CLI, or a fake in a test.
 pub async fn run_steps<F, Fut>(steps: &[Step], mut run: F) -> Result<(), TmuxError>
 where
     F: FnMut(Vec<String>) -> Fut,

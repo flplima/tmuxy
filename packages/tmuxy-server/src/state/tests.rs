@@ -250,15 +250,14 @@ fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
     )
 }
 
-/// The route table as `api_routes` declares it, read out of this file's own
-/// source.
+/// The route table as `api_routes` declares it, read out of `state.rs`.
 ///
 /// The guard is the `.layer()` in `api_routes`, and it covers the routes
-/// declared above it. A route added anywhere else
-/// — or a whole new route nobody thought to test — is served with no
-/// origin check at all, which on this API means a remote shell. So the
-/// routes are enumerated rather than listed by hand: a new one that the
-/// coverage table below does not know about fails this test by name.
+/// declared above it. A route added anywhere else — or a whole new route
+/// nobody thought to test — is served with no origin check at all, which on
+/// this API means a remote shell. So the routes are enumerated rather than
+/// listed by hand: a new one that `COVERED_ROUTES` does not know about fails
+/// this test by name.
 fn declared_routes() -> Vec<String> {
     let source = include_str!("../state.rs");
     let start = source

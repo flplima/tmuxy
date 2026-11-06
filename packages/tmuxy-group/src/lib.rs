@@ -1,9 +1,6 @@
-//! The pane-group operations, run: `tmuxy-group <verb>`, and the same verbs
-//! as `tmuxy-server group <verb>`.
-//!
-//! The rules live in `tmuxy_core::groups`; this reads the panes once, asks it
-//! for the commands and runs them. The `packages/tmuxy-cli/bin/tmuxy/pane-group` script is its
-//! name: the UI, the key bindings and session restore call it inside
+//! The pane-group operations, as `tmuxy-group <verb>` and `tmuxy-server group
+//! <verb>`. The `packages/tmuxy-cli/bin/tmuxy/pane-group` script is their name:
+//! the UI, the key bindings and session restore call it inside
 //! `tmux run-shell`, where these tmux calls are tmux-internal (see
 //! `tmuxy_core::session::tmux_output`). A refusal prints
 //! `pane-group <verb>: <why>` and exits 1.
@@ -78,7 +75,6 @@ pub enum GroupVerb {
     },
 }
 
-/// The exit status of `next`/`prev --no-wrap` with no member to step to.
 const NOTHING_TO_STEP_TO: i32 = 3;
 
 impl GroupVerb {
@@ -111,7 +107,6 @@ pub fn run(args: GroupArgs) {
     }
 }
 
-/// How a verb ends other than in success.
 enum Outcome {
     Fail(String),
     Exit(i32),
@@ -228,8 +223,8 @@ fn step(pane: &str, direction: Direction, no_wrap: bool) -> Result<Option<String
     Ok(None)
 }
 
-/// `--tab` (or nothing, or anything else) / `--beside <pane> <side>`, as the
-/// script has always read them; an empty side is `right`.
+/// Read as the `pane-group` script always has: anything but `--beside` is
+/// `--tab`, and an empty side is `right`.
 fn leave_target(to: &[String]) -> Result<Leave, Outcome> {
     let word = |i: usize| to.get(i).map(String::as_str).unwrap_or("");
     if word(0) != "--beside" {
@@ -253,9 +248,8 @@ fn signed(value: &str) -> Result<i64, Outcome> {
         .map_err(|_| Outcome::Fail(format!("index must be a number: {value:?}")))
 }
 
-/// What the operations need beyond the read: the close script a member's
-/// `pane-died` hook runs — the one next to the script that called us — and a
-/// fresh `@tmuxy-group-rev`.
+/// `close_command` is what a member's `pane-died` hook runs: the `pane-group`
+/// next to the script that called us.
 fn context() -> Context {
     let scripts = std::env::var("TMUXY_SCRIPTS_DIR")
         .ok()
@@ -277,7 +271,6 @@ fn context() -> Context {
     }
 }
 
-/// The one read every operation decides from.
 fn read() -> Result<Panes, Outcome> {
     let output = tmux(&[
         "list-panes".to_string(),
@@ -288,7 +281,6 @@ fn read() -> Result<Panes, Outcome> {
     Ok(Panes::parse(&output))
 }
 
-/// The pane a tmux target (`work:0.0`, `%3`, …) names.
 fn resolve_pane(target: &str) -> Result<PaneId, Outcome> {
     let output = tmux(&[
         "display-message".to_string(),
@@ -300,7 +292,6 @@ fn resolve_pane(target: &str) -> Result<PaneId, Outcome> {
     Ok(PaneId::parse(output.trim())?)
 }
 
-/// Run a plan's first half and its split; the new pane's id.
 fn split(plan: &groups::SplitPlan) -> Result<PaneId, Outcome> {
     run_all(&plan.before)?;
     let output = tmux(&plan.split)?;

@@ -1,7 +1,6 @@
-//! `tmuxy plugin config <name> [<key> [<value>]] [--unset]`: a plugin's
-//! settings (`plugins::settings`). A secret is never printed, only whether
-//! it is set; setting one without a value reads it from the terminal with
-//! echo off, so it lands in neither the shell history nor `ps`.
+//! A secret setting is never printed, only whether it is set; setting one
+//! without a value reads it from the terminal with echo off, so it lands in
+//! neither the shell history nor `ps`.
 
 use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::registry::Registry;
@@ -90,7 +89,6 @@ pub(super) fn config(
     Ok(serde_json::json!({ "key": key, "value": shown }))
 }
 
-/// A line from the terminal with echo off.
 fn read_secret(prompt: &str) -> Result<String, Failure> {
     use std::io::{BufRead, Write};
     let tty = std::fs::OpenOptions::new()

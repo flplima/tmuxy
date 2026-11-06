@@ -1,6 +1,3 @@
-//! `tmuxy plugin install` end to end, against local git repositories: the
-//! real binary, the real git, a scratch home.
-//!
 //! What these hold is the install's one promise — nothing a plugin ships,
 //! and nothing the user's or the system's git config adds, runs before the
 //! user said yes — plus the lockfile reproducing an install on a fresh
@@ -171,7 +168,6 @@ fn a_hostile_repo_and_gitconfig_run_nothing_and_check_out_no_symlink() {
         stderr(&again)
     );
 
-    // The verb resolves, and runs the plugin's command.
     // `tmuxy plugin hostile` runs the plugin's command; a word nobody has
     // is a bad command line.
     let ran = s.tmuxy(&["hostile"]);

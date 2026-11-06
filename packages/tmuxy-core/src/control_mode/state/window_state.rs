@@ -1,21 +1,11 @@
 use super::*;
 use crate::{PaneId, TmuxWindow, WindowId, WindowType};
 
-/// Window state
 pub struct WindowState {
-    /// Window ID (e.g., "@0")
     pub id: WindowId,
-
-    /// Window index
     pub index: u32,
-
-    /// Window name
     pub name: String,
-
-    /// Whether this window is active
     pub active: bool,
-
-    /// Layout string
     pub layout: String,
     /// The layout's shape, parsed from `layout` when it changes.
     pub pane_tree: Option<crate::layout::PaneTree>,
@@ -51,18 +41,17 @@ pub struct WindowState {
     /// True if float hides its header chrome (@tmuxy-float-noheader = 1).
     pub float_noheader: bool,
 
-    /// Active pane ID in this window (tracked from %window-pane-changed events)
+    /// From `%window-pane-changed` and list-panes' `pane_active`.
     pub active_pane_id: Option<PaneId>,
 
-    /// Whether this window has a zoomed pane (from %layout-change flags containing 'Z')
+    /// From the `Z` layout flag and list-windows.
     pub zoomed: bool,
 }
 
 impl WindowState {
-    /// `index` is the window's positional index, which is independent of the
-    /// number in its id: `%window-add` carries only the id, so callers pass a
-    /// provisional index (see `next_window_index`) until list-windows reports
-    /// the real one.
+    /// `index` is positional, independent of the number in the id: a window
+    /// known only from `%window-add` gets a provisional one
+    /// (`next_window_index`) until list-windows reports it.
     pub fn new(id: WindowId, index: u32) -> Self {
         Self {
             index,
@@ -93,10 +82,8 @@ impl WindowState {
             index: self.index,
             name: self.name.clone(),
             active: self.active,
-            // Untagged windows in the attached session ARE tabs — tabs carry no
-            // `@tmuxy-window-type` marker. Only float/sidebar windows are
-            // tagged; everything else (including foreign `tmux neww` windows)
-            // surfaces as a tab.
+            // Tabs carry no `@tmuxy-window-type`: an untagged window (a plain
+            // `tmux neww` one included) is a tab.
             window_type: Some(self.window_type.unwrap_or(WindowType::Tab)),
             float_parent: self.float_parent.clone(),
             float_width: self.float_width,
@@ -114,11 +101,6 @@ impl WindowState {
     }
 }
 
-// ============================================================
-// Layout string parser
-// ============================================================
-
-/// Pane geometry extracted from a tmux layout string
 pub(super) struct LayoutPane {
     pub(super) id: PaneId,
     pub(super) index: u32,
@@ -128,9 +110,8 @@ pub(super) struct LayoutPane {
     pub(super) height: u32,
 }
 
-/// The leaves of a tmux layout string, in order, as pane geometries. The
-/// tree itself is `layout::parse`'s; positions are absolute (relative to the
-/// window origin). A layout that does not parse yields no panes.
+/// The leaves of a tmux layout string, in order; positions are relative to
+/// the window origin. A layout that does not parse yields no panes.
 pub(super) fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
     fn leaves(node: &crate::layout::Node, out: &mut Vec<LayoutPane>) {
         match node {
@@ -157,10 +138,9 @@ pub(super) fn parse_layout_panes(layout: &str) -> Vec<LayoutPane> {
 }
 
 impl StateAggregator {
-    /// Register in-flight capture-pane commands and return only pane IDs that
-    /// were actually queued (not already pending). The caller must send the
-    /// marker-bracketed `markers().capture_command(..)` form for each returned ID —
-    /// response routing relies on the markers, not on ordering.
+    /// Registers captures as in flight and returns the panes not already
+    /// pending. The caller must send `markers().capture_command(..)` for each:
+    /// replies are routed by their markers.
     pub fn queue_captures(&mut self, pane_ids: &[PaneId]) -> Vec<PaneId> {
         let mut queued = Vec::new();
         for pane_id in pane_ids {
@@ -213,24 +193,21 @@ impl StateAggregator {
         self.pane_refresh_commands(&panes)
     }
 
-    /// Forget the in-flight and follow-up captures of panes that are gone:
-    /// their marker-routed responses are discarded on arrival, and a dead
-    /// entry would hold back `initial_state_ready` forever.
+    /// A gone pane's capture reply is discarded on arrival, and its entry
+    /// would hold `initial_state_ready` back forever.
     pub(super) fn prune_capture_bookkeeping(&mut self) {
         self.pending_captures
             .retain(|id| self.panes.contains_key(id));
         self.recapture.retain(|id| self.panes.contains_key(id));
     }
 
-    /// Get the list of window IDs
     pub fn window_ids(&self) -> Vec<WindowId> {
         self.windows.keys().cloned().collect()
     }
 
-    /// Window IDs split by how the client-size pass must size them. Tabs and
-    /// floats take the whole viewport; each sidebar takes its own narrow column
-    /// (the two differ in width), so those come back paired with that width.
-    /// Returns `(viewport_sized, sidebar_sized_with_cols)`.
+    /// Windows split by how the client-size pass sizes them: `(viewport,
+    /// sidebars)`. Tabs and floats take the whole viewport; each sidebar
+    /// takes its own column, so it comes with that width.
     pub fn window_ids_by_sizing(&self) -> (Vec<WindowId>, Vec<SidebarSizing>) {
         let mut viewport = Vec::new();
         let mut sidebars = Vec::new();
@@ -266,21 +243,16 @@ impl StateAggregator {
         extent
     }
 
-    /// The session-scoped focus request read off the last `list-windows` poll,
-    /// if a shell helper has set one. See `tmux_options::FOCUS_REQUEST`.
+    /// See `tmux_options::FOCUS_REQUEST`.
     pub fn focus_request(&self) -> Option<&str> {
         self.focus_request.as_deref()
     }
 
-    /// Provisional positional index for a brand-new window: one past the
-    /// current highest. tmux window IDs (`@N`, monotonic allocation) and
-    /// window indices (positional) are independent, so an index parsed out of
-    /// the id is wrong the moment they diverge (any window close/create
-    /// churn). `%window-add`/`%window-renamed`
-    /// carry only the id; a correct index otherwise waits for the follow-up
-    /// list-windows. A new window is almost always appended at the end, so
-    /// max+1 is right immediately; list-windows corrects the rare
-    /// insert-in-the-middle case.
+    /// Provisional index for a window known only from `%window-add` or
+    /// `%window-renamed`, which carry only the id. tmux allocates ids
+    /// monotonically and indices by position, so an index read out of the id
+    /// is wrong once they diverge. A new window is almost always appended, so
+    /// max+1 is right at once; list-windows corrects an insert in the middle.
     pub(super) fn next_window_index(&self) -> u32 {
         self.windows
             .values()
@@ -289,20 +261,11 @@ impl StateAggregator {
             .map_or(0, |m| m + 1)
     }
 
-    /// Set up every window of the attached session, once per window and
+    /// Sets up every window of the attached session, once per window and
     /// again only when what it is changes (a window first seen untagged that
-    /// turns out to be a sidebar). This is the ONE list of what tmux needs
-    /// set on a window (`window_setup`), plus a defensive re-tag for a
-    /// float/sidebar window whose `@tmuxy-window-type` option somehow went
-    /// missing (they're tagged atomically on creation, so this normally never
-    /// fires). Tabs carry no marker — an untagged window IS a tab (derived at
-    /// emit), so a native `tmux neww` window shows up as a tab with no
-    /// adoption step.
-    ///
-    /// Name-based inference (defensive):
-    /// - `float` or `__float_*` → Float
-    /// - `__sidebar-left` / `__sidebar-right` → SidebarLeft / SidebarRight
-    /// - anything else → Tab (untagged, no marker written)
+    /// turns out to be a sidebar). Also re-tags, by name, a float or sidebar
+    /// whose `@tmuxy-window-type` went missing: they are tagged atomically on
+    /// creation, so this normally never fires.
     pub fn window_setup_commands(&mut self) -> Vec<String> {
         let window_type_opt = crate::constants::tmux_options::WINDOW_TYPE;
         let mut cmds = Vec::new();
@@ -339,29 +302,18 @@ impl StateAggregator {
         cmds
     }
 
-    /// Check if any pane is currently in copy mode
     pub fn has_pane_in_copy_mode(&self) -> bool {
         self.panes.values().any(|p| p.in_mode)
     }
 
-    /// Sans-IO entry point. Drives the aggregator with one control-mode event
-    /// and returns a `StepResult` describing every I/O action the runtime must
-    /// perform plus the `change_type` of this step.
-    ///
-    /// The aggregator does no I/O itself — every command send, state emit,
-    /// image store, and clipboard write is described, not performed. This
-    /// makes the state machine fully testable without tokio: drive it with
-    /// synthetic events and assert on the returned effects.
-    ///
-    /// `change_type` is always populated (even when `state_changed` is false)
-    /// so the monitor's settling state machine can extend its deadline on
-    /// window/layout changes that are currently being suppressed.
+    /// One control-mode event in, the effects the host runs in order out
+    /// (`SideEffect`).
     pub fn step(&mut self, event: ControlModeEvent) -> StepResult {
         self.step_at(event, Instant::now())
     }
 
-    /// Like `tick`, but sources `now` from the process clock. Used by non-native
-    /// hosts (wasm) that drive the settling flush on a timer.
+    /// `tick` on the process clock, for a host (wasm) that flushes settling
+    /// on a timer.
     pub fn tick_now(&mut self) -> Option<ChangeType> {
         self.tick(Instant::now())
     }

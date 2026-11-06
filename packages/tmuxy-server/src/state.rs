@@ -24,28 +24,20 @@ mod broadcast_tests;
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
-/// Number of recent broadcast messages retained per session for
-/// `Last-Event-Id` replay and lagged-subscriber recovery. A power of two, so
-/// it is exactly the broadcast channel's capacity (tokio rounds that up) and a
-/// client that lags by up to a full buffer recovers from the ring without a
-/// refetch; a larger gap reaches the client as a jump in delta seqs, which its
-/// sequencer answers with a full-state refetch (S2 in `docs/INVARIANTS.md`).
+/// A power of two, so it is exactly the broadcast channel's capacity (tokio
+/// rounds that up) and a client that lags by up to a full channel recovers
+/// from the ring without a refetch (S2 in `docs/INVARIANTS.md`). A ring
+/// smaller than the channel would drop, on every lag, events the channel
+/// still held.
 pub const EVENT_BUFFER_SIZE: usize = 128;
 
-/// The most bytes of serialized events the ring keeps per session.
-///
 /// A state delta carries the full content of every pane it changed — about
-/// 230 KB of JSON for one coloured 200x50 screen — so 128 of them after a
-/// burst of output held hundreds of MB, and kept holding it until 128 newer
-/// events pushed it out, which an idle session never sends. Past this budget
-/// the oldest events go first; a client resuming from before what is left
-/// gets a full state instead, the same as one that fell behind the count.
+/// 230 KB of JSON for one coloured 200x50 screen — so a ring bounded by count
+/// alone held hundreds of MB after a burst of output, until newer events
+/// pushed it out, which an idle session never sends.
 pub const EVENT_BUFFER_MAX_BYTES: usize = 16 * 1024 * 1024;
 
-/// An event as the SSE stream writes it: its name (the `event:` field) and
-/// its serialised frame (the `data:` field). Stored as `Arc<str>` so keeping
-/// an event in the replay ring and fanning it out across Tokio's broadcast
-/// slots shares one immutable allocation.
+/// The SSE `event:` and `data:` fields.
 #[derive(Debug, Clone)]
 pub struct Frame {
     pub name: &'static str,
@@ -57,30 +49,14 @@ pub struct Frame {
 /// across reconnects via the `Last-Event-Id` request header.
 type TaggedEvent = (u64, Frame);
 
-/// Wraps a `broadcast::Sender` with the monotonic `seq` counter and the
-/// recent-events ring buffer needed for `Last-Event-Id` resync.
-///
-/// All fields are sync-friendly so `SseEmitter` (whose trait methods are
-/// non-async) can `broadcast()` without awaiting. The `StdMutex` is held
-/// briefly to push to a small VecDeque; contention on it is negligible.
+/// Sync throughout, so `Sink::emit` (not async) can broadcast without
+/// awaiting.
 pub struct SessionBroadcast {
-    /// Tokio broadcast channel — each subscribed client gets its own
-    /// `EVENT_BUFFER_SIZE`-message lag buffer here. The capacity matches the
-    /// ring exactly (tokio rounds a channel's capacity up to a power of two,
-    /// so the constant is one) so a client that hit `RecvError::Lagged` is
-    /// served from `recent` everything the channel still had (the SSE
-    /// handler's `Lagged` arm calls `replay_since`); a ring smaller than the
-    /// channel would drop, on every lag, events the channel still held.
     pub tx: broadcast::Sender<TaggedEvent>,
-    /// Monotonic per-session counter — `fetch_add(1)` produces the next id.
-    /// Ids start at 1: the stream handler keeps "the last seq I sent" as a
+    /// Starts at 1: the stream handler keeps "the last seq I sent" as a
     /// plain number whose 0 means "nothing yet", so an id of 0 would be the
     /// one event every fresh subscriber drops.
     pub seq: AtomicU64,
-    /// Ring buffer of the most recent `EVENT_BUFFER_SIZE` tagged messages,
-    /// within `EVENT_BUFFER_MAX_BYTES`.
-    /// Front = oldest, back = newest. Used to resume a client that
-    /// reconnected with a `Last-Event-Id` header.
     pub recent: StdMutex<VecDeque<TaggedEvent>>,
 }
 
@@ -107,9 +83,6 @@ impl SessionBroadcast {
         }
     }
 
-    /// Broadcast a frame to every subscriber and store it in the ring buffer.
-    /// Returns the sequence id assigned to this message.
-    ///
     /// The id is taken, the ring written and the channel sent under the one
     /// lock: the monitor and the initial-sync task broadcast concurrently, and
     /// `replay_since` and `oldest_seq` read the ring as sorted (S1 in
@@ -144,8 +117,6 @@ impl SessionBroadcast {
         id
     }
 
-    /// Return every buffered event with `seq > since`, in order.
-    /// `since` is the `Last-Event-Id` the reconnecting client sent.
     pub fn replay_since(&self, since: u64) -> Vec<TaggedEvent> {
         match self.recent.lock() {
             Ok(buf) => buf.iter().filter(|(s, _)| *s > since).cloned().collect(),
@@ -153,9 +124,6 @@ impl SessionBroadcast {
         }
     }
 
-    /// Lowest sequence id still present in the buffer, or `None` if empty.
-    /// If the client's `Last-Event-Id` is below this, we can't replay
-    /// without gaps and need to send a full state snapshot instead.
     pub fn oldest_seq(&self) -> Option<u64> {
         self.recent
             .lock()
@@ -163,7 +131,6 @@ impl SessionBroadcast {
             .and_then(|b| b.front().map(|(s, _)| *s))
     }
 
-    /// Subscribe a new client to live broadcasts.
     pub fn subscribe(&self) -> broadcast::Receiver<TaggedEvent> {
         self.tx.subscribe()
     }
@@ -175,7 +142,6 @@ impl Default for SessionBroadcast {
     }
 }
 
-/// Where a session's events go on the web: its SSE broadcast.
 struct BroadcastSink(Arc<SessionBroadcast>);
 
 impl Sink for BroadcastSink {
@@ -184,11 +150,7 @@ impl Sink for BroadcastSink {
     }
 }
 
-/// What the web keeps per session a browser watches: its streams, its
-/// broadcast, the monitor task, and the session's runtime (the command
-/// channel, sizes, bindings, images — `tmuxy_core::host`).
 pub struct SessionConnections {
-    /// All connection IDs in order of connection time
     pub connections: Vec<u64>,
     /// Which idle guard is current. A guard captures the value when it is
     /// scheduled and acts only if it still matches when it fires: a client
@@ -196,12 +158,10 @@ pub struct SessionConnections {
     /// 5 s one from session creation, say, firing inside a reload's 2 s
     /// grace) leaves the session alone.
     pub idle_guard_gen: u64,
-    /// Broadcast channel + sequence id + replay buffer for this session.
-    /// Wrapped in `Arc` so the runtime's sink can broadcast without holding
-    /// the `sessions` write lock.
+    /// `Arc` so the runtime's sink can broadcast without holding the
+    /// `sessions` write lock.
     pub broadcast: Arc<SessionBroadcast>,
     pub runtime: Arc<SessionRuntime>,
-    /// Handle to the monitor task (so we can stop it when last client leaves)
     pub monitor_handle: Option<JoinHandle<()>>,
     /// Until when an agent on `/mcp` keeps the monitor up with no stream
     /// open. An agent holds no connection between calls, so without this an
@@ -239,14 +199,12 @@ impl SessionConnections {
         self.idle_guard_gen += 1;
     }
 
-    /// Whether the session's monitor task is running.
     pub fn monitored(&self) -> bool {
         self.monitor_handle
             .as_ref()
             .is_some_and(|h| !h.is_finished())
     }
 
-    /// How much longer an agent holds the monitor up, if it still does.
     pub fn agent_hold_remaining(&self, now: tokio::time::Instant) -> Option<std::time::Duration> {
         self.agent_hold_until
             .filter(|until| *until > now)
@@ -254,37 +212,22 @@ impl SessionConnections {
     }
 }
 
-/// The most `/events` streams this server serves at once.
-///
 /// Generous for real use — a browser opens one per tab, and tmuxy is not a
 /// broadcast service — and far below the point where the tasks and their
 /// buffers are the problem.
 pub const MAX_LIVE_STREAMS: u64 = 32;
 
 pub struct AppState {
-    /// Per-session connection tracking
     pub sessions: RwLock<HashMap<String, SessionConnections>>,
-    /// Counter for generating unique connection IDs
     pub next_conn_id: AtomicU64,
-    /// Structured shutdown: every background task spawned by the server lives
-    /// in this `JoinSet`. `server::shutdown_signal` calls
-    /// `join_set.shutdown().await` after firing `shutdown.cancel()` so we drain
-    /// to completion instead of leaking orphans on Ctrl+C.
     pub join_set: Mutex<JoinSet<()>>,
-    /// Cancellation token broadcast to every spawned task. Each task should
-    /// `tokio::select!` against `shutdown.cancelled()` so it exits its
-    /// long-running loop promptly.
     pub shutdown: CancellationToken,
 
-    /// Live `/events` streams, across every session.
-    ///
-    /// SEC-16: each one is a long-lived task holding a broadcast receiver and a
-    /// place in the `sessions` map, and nothing counted them. A connection
-    /// flood grew both without bound.
+    /// Each stream is a long-lived task holding a broadcast receiver and a
+    /// place in the `sessions` map: uncounted, a connection flood grows both
+    /// without bound.
     pub live_streams: AtomicU64,
 
-    /// The pages `preview` panes frame, staged by the client and served to
-    /// the pane's frame by `/api/preview/{pane}` (`tmuxy_core::preview`).
     pub preview_pages: Arc<tmuxy_core::preview::PreviewPages>,
 
     /// Whether a session this server creates is rebuilt from its snapshot
@@ -295,15 +238,11 @@ pub struct AppState {
     /// requests cannot race past `MAX_AUTO_CREATED_SESSIONS`.
     pub session_create_lock: Mutex<()>,
 
-    /// The names `/mcp` clients introduced themselves with (`crate::mcp`).
     pub mcp_clients: crate::mcp::Clients,
 
-    /// Web push: the VAPID key and the devices notifications go to
-    /// (`crate::push`).
     pub push: crate::push::Push,
 }
 
-/// A live `/events` stream's place in the server's budget, released on drop.
 pub struct StreamSlot {
     state: Arc<AppState>,
 }
@@ -332,10 +271,6 @@ impl Default for AppState {
 }
 
 impl AppState {
-    /// Claim a slot for a new `/events` stream, or `None` when full.
-    ///
-    /// The returned guard releases the slot when dropped, which is what the
-    /// stream generator being dropped on client disconnect does.
     pub fn claim_stream_slot(self: &Arc<Self>) -> Option<StreamSlot> {
         let limit = MAX_LIVE_STREAMS;
         let mut current = self.live_streams.load(Ordering::SeqCst);
@@ -359,7 +294,6 @@ impl AppState {
         }
     }
 
-    /// The runtime of a session this server watches, if it does.
     pub async fn runtime(&self, session: &str) -> Option<Arc<SessionRuntime>> {
         self.sessions
             .read()
@@ -383,11 +317,8 @@ impl AppState {
         }
     }
 
-    /// Spawn a background task into the shutdown-tracked `JoinSet`.
-    ///
-    /// Callers should incorporate `self.shutdown.cancelled()` into the
-    /// future's branching so the task exits promptly when shutdown fires.
-    /// Tasks that drop naturally (oneshot cleanup chores) don't need it.
+    /// Into the `JoinSet` shutdown drains. A long-running task selects on
+    /// `self.shutdown.cancelled()` so it exits promptly.
     pub async fn spawn<F>(&self, fut: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
@@ -396,8 +327,8 @@ impl AppState {
     }
 }
 
-/// Build the API routes shared between dev server and production CLI.
-/// Returns a Router that needs `.fallback_service(...)` and `.with_state(state)`.
+/// The caller adds the frontend as `.fallback_service(...)`, and
+/// `.with_state(state)`.
 ///
 /// Every route answers only the app itself: `host_policy` says which `Host`
 /// names count as this server (see `request_guard`). No CORS headers are sent,
@@ -407,18 +338,8 @@ pub fn api_routes(host_policy: HostPolicy) -> Router<Arc<AppState>> {
         .route("/events", get(crate::sse::sse_handler))
         .route("/commands", post(crate::sse::commands_handler))
         .route("/api/images/{pane_id}/{image_id}", get(image_handler))
-        // Client trace ingest (docs/TRACING.md). The handler reads at most
-        // 256 KiB of a request so a hostile client can't exhaust the disk in
-        // one call, and fails closed when tracing is off.
         .route("/trace", post(crate::sse::trace_handler))
-        // A `preview` pane's page: POSTed by the client once it has composed
-        // it, then loaded by the pane's frame (`tmuxy_core::preview`). The
-        // handler reads at most `MAX_STAGED_BYTES`, after tmux authorises it.
-        // The MCP endpoint (`crate::mcp`, docs/MCP.md): an agent's way to the
-        // session, behind the same guard and auth as the rest of the API.
         .route("/mcp", post(crate::mcp::mcp_handler))
-        // Web push (`crate::push`): the key a device subscribes with, and
-        // the subscription it hands over to turn notifications on or off.
         .route("/api/push", get(crate::push::key_handler))
         .route(
             "/api/push/subscription",

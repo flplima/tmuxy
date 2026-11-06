@@ -55,7 +55,6 @@ impl CommandError {
         Self::new(ErrorKind::Forbidden, error)
     }
 
-    /// The same failure, its message prefixed with what was being done.
     pub fn context(self, what: &str) -> Self {
         Self {
             error: format!("{what}: {}", self.error),
@@ -72,7 +71,6 @@ impl fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
-/// An id that does not parse is a malformed argument.
 impl From<crate::IdError> for CommandError {
     fn from(e: crate::IdError) -> Self {
         Self::invalid(e.to_string())

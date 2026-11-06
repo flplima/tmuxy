@@ -3,9 +3,6 @@ use tmuxy_core::transport;
 
 use crate::state::AppState;
 
-/// Watch the config dir for the user's edits, for the life of the server,
-/// and tell every session's runtime what changed (`SessionRuntime::
-/// config_changed`).
 pub async fn watch_config_dir(state: Arc<AppState>) {
     let shutdown = state.shutdown.clone();
     let watcher = state.clone();

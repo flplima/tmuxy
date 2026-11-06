@@ -1,14 +1,11 @@
 //! The one routing policy for commands a client asks tmuxy to run.
 //!
-//! Both transports — the web server's `RunTmuxCommand` and `QueryTmux`
-//! handlers and the desktop app's `run_tmux_command` and `query_tmux` — call
-//! [`route_command`] or [`route_query`] and then do only mechanics with the
-//! answer (write to their monitor's command channel). The policy used to be
-//! duplicated per transport, and had drifted: the desktop ran every
-//! single-line command as an external subprocess with a session-target
-//! rewrite that overrode the frontend's window/pane pin, so a split could
-//! land on whatever tab tmux happened to be on. A policy that exists once
-//! cannot diverge.
+//! Both transports reach it through `host::command` (the `RunTmuxCommand` and
+//! `QueryTmux` client commands, via `transport::route` and
+//! `transport::route_query`) and only write the answer to their monitor's
+//! command channel. A policy duplicated per transport drifts: the desktop's
+//! copy once ran single-line commands as external subprocesses with a
+//! session-target rewrite that overrode the frontend's window/pane pin.
 //!
 //! What the policy says, of every command a client sends — each control-mode
 //! line of it, and each command of each line, wherever tmux would split them,
@@ -43,7 +40,6 @@ use std::borrow::Cow;
 use crate::control_mode::control_mode_lines;
 use crate::tmux_command::{self, RESIZE_WINDOW};
 
-/// Where a client's command goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     /// Not run at all; the reason is for the log.
@@ -89,13 +85,12 @@ const READ_VERBS: &[&str] = &[
     "showw",
 ];
 
-/// The lines of `command`, each with its `\;` separators written as `;`.
 fn plain_lines(command: &str) -> impl Iterator<Item = Cow<'_, str>> {
     control_mode_lines(command).map(|line| tmux_command::parse(line).with_plain_separators())
 }
 
-/// Decide the route for a command. `size` is the viewport a freshly created
-/// window should be sized to, when one client has reported one.
+/// `size` is the viewport a freshly created window should be sized to, when
+/// one client has reported one.
 pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
     let mut lines = Vec::new();
     for line in plain_lines(command) {
@@ -117,8 +112,8 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
     Route::ControlMode(lines.join("\n"))
 }
 
-/// Decide the route for a query: refused unless every command in it reads,
-/// and then as it came but for its `\;` separators.
+/// Refused unless every command in it reads; then as it came but for its `\;`
+/// separators.
 pub fn route_query(command: &str) -> Route {
     let lines: Vec<String> = plain_lines(command).map(Cow::into_owned).collect();
     let lists: Vec<_> = lines.iter().map(|line| tmux_command::parse(line)).collect();

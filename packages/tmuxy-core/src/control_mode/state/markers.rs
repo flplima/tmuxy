@@ -1,15 +1,11 @@
-//! The marker lines an aggregator brackets its own reads with, and the
-//! control-mode lines a command is written as.
-
 use crate::constants::tmux_formats::TmuxList;
 use crate::PaneId;
 
-/// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
-/// capture-pane command, carrying the target pane id. Routing captures by
-/// marker instead of arrival order or output shape is what makes attribution
-/// exact: any other command's response (a send-keys ack has EMPTY output,
-/// indistinguishable from capturing a blank pane) can otherwise steal a
-/// pending capture and shunt one pane's content into another.
+/// Printed (`display-message -p`) right BEFORE the aggregator's own
+/// capture-pane, carrying the pane id. Routed by arrival order or output
+/// shape, any other reply (a send-keys ack has EMPTY output, just like a
+/// blank pane's capture) could steal a pending capture and put one pane's
+/// content into another.
 pub const CAPTURE_BEGIN_MARKER: &str = "TMUXY_CAP_BEGIN";
 /// Marker printed immediately AFTER a self-issued capture-pane command.
 pub const CAPTURE_END_MARKER: &str = "TMUXY_CAP_END";
@@ -86,7 +82,6 @@ impl Markers {
         }
     }
 
-    /// The text a marker line starts with: the marker's name and the token.
     pub fn tag(&self, marker: &str) -> String {
         format!("{marker} {}", self.token)
     }
@@ -102,17 +97,14 @@ impl Markers {
         (rest.is_empty() || rest.starts_with(' ')).then(|| rest.trim())
     }
 
-    /// Whether `line` is exactly `marker`, with no argument.
     fn is(&self, line: &str, marker: &str) -> bool {
         self.after(line, marker) == Some("")
     }
 
-    /// The numeric argument of a marker line of ours (a reply's id).
     pub(super) fn argument<T: std::str::FromStr>(&self, line: &str, marker: &str) -> Option<T> {
         self.after(line, marker)?.parse().ok()
     }
 
-    /// The read whose BEGIN marker `line` is, when it is one of ours.
     pub(super) fn read_begun(&self, line: &str) -> Option<Read> {
         // A pane id travels as bare digits (see `capture_command`).
         let pane = |marker| {
@@ -131,8 +123,6 @@ impl Markers {
         TmuxList::named(self.after(line, LIST_BEGIN_MARKER)?).map(Read::List)
     }
 
-    /// The command that prints `marker`, followed by `argument` when there
-    /// is one.
     fn print(&self, marker: &str, argument: Option<String>) -> String {
         let tag = self.tag(marker);
         match argument {
@@ -144,10 +134,9 @@ impl Markers {
     /// The control-mode lines that run `command` and get its output back.
     ///
     /// Control mode answers every line with a `%begin … %end|%error` block,
-    /// so output can be attributed to the command that produced it by
-    /// bracketing it with two marker lines whose blocks are unmistakable.
-    /// The runtime writes the lines in one flush and resolves the reply when
-    /// the END marker's block arrives (`SideEffect::CommandReply`).
+    /// so the blocks between the two marker blocks are the command's. The
+    /// host writes the lines in one flush; the END marker's block resolves
+    /// the reply (`SideEffect::Reply`).
     ///
     /// Separate LINES, not one `;` list: tmux stops a command list at its
     /// first error, so an END marker sharing the command's line would never
@@ -165,10 +154,9 @@ impl Markers {
         lines
     }
 
-    /// Build the marker-bracketed capture-pane command for a pane's visible
-    /// viewport. Each segment of a control-mode command list gets its own
-    /// %begin/%end block, so the three responses arrive consecutively:
-    /// BEGIN(pane) -> capture content -> END.
+    /// The marker-bracketed capture of a pane's visible viewport. Each
+    /// command of a control-mode list gets its own %begin/%end block, so the
+    /// three arrive in a row: BEGIN(pane), the content, END.
     ///
     /// The pane id is embedded WITHOUT its `%`: `display-message` runs the
     /// message through strftime-style expansion, and `%<digits>` is mangled
@@ -184,7 +172,6 @@ impl Markers {
         self.marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))
     }
 
-    /// The marker-wrapped command that lists `list`.
     pub fn list_command(&self, list: TmuxList) -> String {
         format!(
             "{} ; {} ; {}",
@@ -197,9 +184,7 @@ impl Markers {
     /// The re-list a window add or close needs, and the initial sync sends:
     /// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted
     /// before its panes are listed is a window with panes missing; the stash
-    /// list is independent of that order and goes last. Every re-list of
-    /// the windows is this one (the window add and close, the initial sync,
-    /// the metadata sync, the idle heartbeat, a reorder's).
+    /// list is independent of that order and goes last.
     pub fn window_relist_commands(&self) -> [String; 3] {
         TmuxList::ALL.map(|list| self.list_command(list))
     }
@@ -229,7 +214,6 @@ impl Markers {
         commands
     }
 
-    /// The marker-wrapped `show-buffer` that reads a yanked buffer back.
     pub(super) fn buffer_read_command(&self, buffer_name: &str) -> String {
         format!(
             "{} ; show-buffer -b {} ; {}",
@@ -249,8 +233,6 @@ impl Markers {
         )
     }
 
-    /// Shared marker-bracket format for both capture commands, so the BEGIN/END
-    /// bracketing can't drift between the plain and ranged variants.
     fn marker_wrapped_capture(&self, pane_id: &PaneId, range: &str) -> String {
         format!(
             "{} ; capture-pane -t {pane_id} -p -e{range} ; {}",

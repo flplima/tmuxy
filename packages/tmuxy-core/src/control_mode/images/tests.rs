@@ -133,7 +133,6 @@ fn complete_osc8_hyperlink_passes_through_image_parser() {
 
 #[test]
 fn kitty_png_single_chunk() {
-    // Pretend we transmit a PNG payload directly with action=T, format=100.
     let mut parser = ImageParser::new();
     // Minimal PNG-magic prefix so detect_mime_type returns image/png.
     let png = b"\x89PNG\r\n\x1a\n";
@@ -259,8 +258,8 @@ fn a_frame_redrawn_at_the_same_anchor_replaces_the_old_one() {
 
 #[test]
 fn kitty_delete_by_id_is_left_alone() {
-    // Narrow selectors address images by the kitty id, which we do not
-    // keep; dropping the wrong picture is worse than keeping it.
+    // Narrow selectors are left alone: dropping the wrong picture is worse
+    // than keeping it.
     let mut parser = ImageParser::new();
     let b64 = base64::engine::general_purpose::STANDARD.encode(b"\x89PNG\r\n\x1a\n");
     parser.process(format!("\x1b_Ga=T,f=100,c=4,r=2;{}\x1b\\", b64).as_bytes());
@@ -280,7 +279,6 @@ fn kitty_rgba_converted_to_png() {
     assert_eq!(parser.placements.len(), 1);
     let stored = &result.new_images[0].1;
     assert_eq!(stored.mime_type, "image/png");
-    // PNG magic must be present at the start of the encoded bytes.
     assert!(stored.data.starts_with(b"\x89PNG"));
 }
 
@@ -309,11 +307,8 @@ fn kitty_chunked_transfer_assembles() {
     assert_eq!(r2.new_images[0].1.mime_type, "image/png");
 }
 
-/// SEC-03. A chunked transfer is assembled across many well-formed
-/// escapes, and nothing watched the total: `MAX_PENDING_IMAGE` bounds the
-/// unparsed TAIL of the stream, which is a different thing. A program
-/// opening ids with `m=1` and never sending `m=0` grew the map for the
-/// life of the pane.
+/// Pane output is untrusted: a program opening ids with `m=1` and never
+/// sending `m=0` must not grow the map for the life of the pane.
 #[test]
 fn unfinished_chunked_transfers_are_bounded_in_number() {
     let mut parser = ImageParser::new();
@@ -350,10 +345,8 @@ fn one_chunked_transfer_cannot_grow_without_end() {
     );
 }
 
-/// The bounds must not cost a real image: one transfer at a time, finished
-/// properly, is what a terminal actually sends.
-/// SEC-03. A transfer that stopped sending is not kept for the life of
-/// the pane: once it is older than the age cap it goes on the next chunk.
+/// A transfer that stopped sending is not kept for the life of the pane:
+/// once it is older than the age cap it goes on the next chunk.
 #[test]
 fn an_abandoned_transfer_is_dropped_once_it_is_old() {
     let mut parser = ImageParser::default();
@@ -368,6 +361,8 @@ fn an_abandoned_transfer_is_dropped_once_it_is_old() {
     assert!(parser.kitty_chunk_order.is_empty());
 }
 
+/// The bounds must not cost a real image: one transfer at a time, finished
+/// properly, is what a terminal actually sends.
 #[test]
 fn a_finished_transfer_leaves_nothing_in_flight() {
     let mut parser = ImageParser::new();

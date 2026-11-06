@@ -1,10 +1,6 @@
-//! The values the UI and the CLI scripts share with tmuxy-core, written out of
-//! tmuxy-core into a TypeScript module and a shell file each of them reads,
-//! so no copy is kept by hand: the stash session, the pane-title format, the
-//! window types, the sidebar dock widths, the options a menu changes, what a
-//! left sidebar runs, the sidebar window prefix, the plugin key marker, the
-//! CLI dispatcher's name — and, for the browser guests' build scripts, the guest's
-//! tmuxy layout and the config chain tmux starts with there.
+//! The values the UI, the CLI scripts and the browser guests' build scripts
+//! share with tmuxy-core, written out of tmuxy-core into files each of them
+//! reads, so no copy is kept by hand.
 //!
 //! The files are committed; this test fails when one is stale. Rewrite them
 //! with `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants`.

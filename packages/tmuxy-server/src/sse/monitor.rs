@@ -56,8 +56,6 @@ impl ServerHost {
         !watched
     }
 
-    /// Tell every client the monitor has given up, and forget the session so
-    /// a fresh monitor can start next time.
     async fn fatal(&self, message: &str) {
         self.runtime.emit(HostEvent::Fatal {
             message: message.to_string(),
@@ -70,7 +68,6 @@ impl ServerHost {
 impl Host for ServerHost {
     async fn before_attempt(&mut self, ever_ran: bool) -> Attempt {
         let session = &self.session;
-        // Server shutdown signalled — exit promptly instead of reconnecting.
         if self.state.shutdown.is_cancelled() {
             info!(%session, "shutdown signalled, stopping monitor loop");
             self.forget_session().await;
@@ -82,12 +79,9 @@ impl Host for ServerHost {
             return Attempt::Stop;
         }
 
-        // On reconnect (not first connect), check if the tmux session still
-        // exists. If it was intentionally destroyed (by test cleanup or user)
-        // AND we had a successful run before, stop the monitor loop. If the
-        // session died before ever running successfully (crash on startup)
-        // and this monitor was started to create it, retry with
-        // create_session=true to recreate it.
+        // A session gone after a successful run was torn down on purpose (by
+        // the user or a test); one that died before ever running, in a
+        // monitor started to create it, is created again.
         let mut config = self.config.clone();
         if !self.first_connect {
             if host::session_exists(session).await {
@@ -106,9 +100,9 @@ impl Host for ServerHost {
         Attempt::Connect(config)
     }
 
-    /// Route the `new-session -d` through an existing monitor's CC connection
-    /// when there is one. Running external `tmux new-session -d` while a CC
-    /// client is attached crashes tmux 3.5a; routing through CC avoids this.
+    /// Through an existing monitor's CC connection when there is one: an
+    /// external `tmux new-session -d` while a CC client is attached crashes
+    /// tmux 3.5a.
     async fn create_session(&mut self, config: &mut MonitorConfig) {
         let session = &self.session;
         // Only a peer whose tmux session actually EXISTS can run the command:
@@ -121,9 +115,8 @@ impl Host for ServerHost {
         // it is born to a connection that closes a second later. With no
         // watched peer, the direct `-CC new-session` is the path. (A
         // courier-made session's shell has printed before our monitor
-        // attaches, so its content arrives in the very first states — which
-        // is what exposed the client's initial-state race, `adoptInitialState`
-        // in tmuxy-ui's deltaProtocol.ts.)
+        // attaches, so its content arrives in the very first states: the
+        // client's `adoptInitialState`, tmuxy-ui's stateSequencer.ts, holds it.)
         let candidates: Vec<(String, MonitorCommandSender, usize)> = {
             let sessions = self.state.sessions.read().await;
             sessions
@@ -183,14 +176,12 @@ impl Host for ServerHost {
             warn!(%session, %via_session, "the courier's monitor is gone, creating directly");
             return;
         }
-        // Wait for the session to actually exist before attaching CC. The
-        // RunCommand is async — it goes through the monitor's event loop and
-        // then tmux processes it. Poll has-session to confirm.
+        // The RunCommand is queued through the courier's event loop: poll
+        // until tmux has made the session.
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(100)).await;
             if host::session_exists(session).await {
                 info!(%session, "session created successfully via CC");
-                // Session exists, just attach (no creation needed).
                 config.create_session = false;
                 return;
             }
@@ -236,8 +227,7 @@ impl Host for ServerHost {
         self.state.spawn(task).await;
     }
 
-    /// Cancellable: Ctrl+C during a retry shouldn't have to wait out the full
-    /// sleep before the next loop iteration sees the cancellation.
+    /// Cancellable, so a Ctrl+C during a retry is seen at once.
     async fn sleep(&self, duration: Duration) {
         tokio::select! {
             _ = tokio::time::sleep(duration) => {}

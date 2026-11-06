@@ -90,8 +90,7 @@ fn list_windows_carries_the_sidebar_hidden_flag() {
     assert!(!agg.windows.get("@4").expect("window parsed").sidebar_hidden);
 }
 
-/// The group id rides in the final `list-panes` tail field.
-/// SEC-18. The `__TMUXY_WIDGET__:` marker is pane OUTPUT, so the client
+/// The `__TMUXY_WIDGET__:` marker is pane OUTPUT, so the client
 /// needs something the output cannot forge before it replaces a pane with
 /// a widget. `tmuxy-widget` writes this option; the marker alone means
 /// nothing.
@@ -119,7 +118,7 @@ fn list_panes_leaves_an_untagged_pane_unauthorised_for_any_widget() {
 #[test]
 fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
     let mut agg = StateAggregator::new();
-    // tail: alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
+    // tail: alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore,plugins_rev
     agg.parse_list_panes_line(
         "%3,0,0,0,80,24,0,0,1,zsh,t,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,2,idle,,,claude --resume x%2C y,",
     );
@@ -134,7 +133,7 @@ fn list_panes_reads_the_group_position_and_a_restore_line_with_commas() {
 #[test]
 fn list_panes_parses_group_id() {
     let mut agg = StateAggregator::new();
-    // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,POS,STATE,ASK,WIDGET,RESTORE
+    // id,idx,x,y,w,h,cx,cy,active,cmd,title,in_mode,cx,cy,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,GID,POS,STATE,ASK,WIDGET,RESTORE,PLUGINS_REV
     agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
     assert_eq!(
         agg.panes.get("%3").expect("pane parsed").group_id.clone(),
@@ -301,7 +300,6 @@ fn stash_members_emit_stubs_only_for_active_groups() {
 #[test]
 fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
     let mut agg = StateAggregator::new();
-    // @id,index,active,type(empty),float*,zoomed,name
     agg.parse_list_windows_line(&window_row("@5", 0, true, "shell").build());
 
     let cmds = agg.window_setup_commands();

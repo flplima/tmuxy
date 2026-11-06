@@ -1,6 +1,3 @@
-//! What the migration drops from an older `tmuxy.conf`, and what it keeps:
-//! `clean_user_conf` on the text alone, no directories involved.
-
 use super::migrate::{clean_user_conf, StaleBlock};
 use super::tests_layout::{CTRL_HJKL_BLOCK, CTRL_TAB_BLOCK, V014_CONF};
 use super::*;

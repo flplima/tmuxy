@@ -16,10 +16,6 @@ use super::clients::open_client;
 use super::SessionQuery;
 use crate::state::AppState;
 
-// ============================================
-// Command Types
-// ============================================
-
 /// A command's answer. A failure is a `CommandError` instead —
 /// `{ "error", "kind" }` — sent with a 4xx status.
 #[derive(Debug, Serialize)]
@@ -27,19 +23,15 @@ pub(super) struct CommandResponse {
     pub(super) result: serde_json::Value,
 }
 
-/// A failed command, as `POST /commands` answers it.
 pub(super) fn command_failure(status: StatusCode, error: CommandError) -> Response {
     (status, Json(error)).into_response()
 }
 
-/// Maximum request body accepted on `POST /commands` (2 MiB).
 const COMMANDS_MAX_BYTES: usize = 2 * 1024 * 1024;
-/// Maximum request body accepted on `POST /trace` (256 KiB).
 const TRACE_MAX_BYTES: usize = 256 * 1024;
 
-/// Require a single `Content-Type: application/json` header (with optional
-/// parameters such as `; charset=utf-8`) so HTML `<form>` submissions and
-/// no-preflight `text/plain` fetches are refused even without Fetch Metadata.
+/// HTML `<form>` submissions and no-preflight `text/plain` fetches are
+/// refused by this even without Fetch Metadata.
 pub(crate) fn has_json_content_type(headers: &HeaderMap) -> bool {
     let mut values = headers.get_all(header::CONTENT_TYPE).iter();
     match (values.next(), values.next()) {
@@ -51,10 +43,6 @@ pub(crate) fn has_json_content_type(headers: &HeaderMap) -> bool {
         _ => false,
     }
 }
-
-// ============================================
-// Commands Handler (POST /commands)
-// ============================================
 
 pub async fn commands_handler(
     State(state): State<Arc<AppState>>,
@@ -79,19 +67,16 @@ pub async fn commands_handler(
         );
     };
 
-    // Connection ID from the header. Every SSE client is handed its own id in
-    // the `connection-info` greeting, so a missing header means the caller
-    // never opened a stream. Keep it as None rather than defaulting to 0 —
-    // 0 is a real allocated id, and header-less callers used to overwrite that
-    // connection's viewport entry and skew the min-size computation.
+    // Every stream is handed its id in the `connection-info` greeting, so no
+    // header means no stream. Not 0: that is a real id, and its viewport
+    // entry would be overwritten.
     let conn_id: Option<u64> = headers
         .get("x-connection-id")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
-    // Action tracing (docs/TRACING.md): if the client tagged this command with
-    // an action id, record it so the trace can correlate the request leg
-    // (client send → server receive) exactly. Content-free — just the id.
+    // The request leg of an action's trace (docs/TRACING.md); the id only,
+    // never the content.
     if let Some(action_id) = headers.get("x-action-id").and_then(|v| v.to_str().ok()) {
         tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
     }
@@ -121,8 +106,6 @@ pub async fn commands_handler(
         };
     }
 
-    // Decode into the typed enum. A malformed payload — a misspelt field, a
-    // pane id that is not one — is a 400 of kind `invalid`.
     let cmd = match ClientCommand::from_value(value) {
         Ok(c) => c,
         Err(e) => {
@@ -144,15 +127,9 @@ pub async fn commands_handler(
 /// side effects.
 pub(super) const ENSURE_SESSION: &str = "ensure_session";
 
-// ============================================
-// Trace Ingest Handler (POST /trace)
-// ============================================
-
-/// Ingest client-originated trace events (browser/Tauri tracer) into the shared
-/// NDJSON file. **Fails closed**: if tracing is not enabled on this server the
-/// body is dropped regardless of what the client believes, so a stale client
-/// flag can never reopen the sink. Every event is re-sanitized server-side
-/// (`trace::record_client_batch`) before it touches the file.
+/// Fails closed: with tracing off on this server the body is dropped whatever
+/// the client believes, so a stale client flag cannot reopen the sink. Every
+/// event is sanitized again here (`trace::record_client_batch`).
 pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
     if !has_json_content_type(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE;
@@ -171,10 +148,6 @@ pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
     tmuxy_core::trace::record_client_batch(events);
     StatusCode::NO_CONTENT
 }
-
-// ============================================
-// Command Handler
-// ============================================
 
 /// A command's view of the web host: the session's runtime, and the client
 /// when its stream is open. The web serves the socket it was started on, so
@@ -195,7 +168,6 @@ impl HostCtx for WebCtx {
     }
 }
 
-/// Where the events of a session the server does not watch go: nowhere.
 struct Unwatched;
 
 impl Sink for Unwatched {

@@ -1,6 +1,3 @@
-//! The tmux side of the MCP tools: one session's control-mode connection,
-//! and the panes and tabs read off it.
-//!
 //! Reads go through `route_query` and mutations through `route_command`
 //! (`command_router`), on the monitor's own channel — the same policy and the
 //! same path as a browser's commands. A value written into a command line is
@@ -16,7 +13,6 @@ use tmuxy_core::{tmux_quote, transport, CommandError, PaneId};
 
 use crate::state::AppState;
 
-/// A session an agent is driving, attached.
 #[derive(Clone)]
 pub(super) struct Tmux {
     state: Arc<AppState>,
@@ -25,7 +21,6 @@ pub(super) struct Tmux {
 }
 
 impl Tmux {
-    /// The session's monitor, attached for the agent if no client has it.
     pub(super) async fn attach(
         state: &Arc<AppState>,
         session: &SessionName,
@@ -55,12 +50,10 @@ impl Tmux {
         &self.session
     }
 
-    /// Keep holding the monitor through a long wait (`AGENT_HOLD`).
     pub(super) async fn keep_alive(&self) {
         crate::sse::hold_for_agent(&self.state, &self.session).await;
     }
 
-    /// How many browser streams are watching the session.
     pub(super) async fn viewers(&self) -> usize {
         self.state
             .sessions
@@ -70,7 +63,6 @@ impl Tmux {
             .map_or(0, |conns| conns.connections.len())
     }
 
-    /// Run a command that only reads, and what it printed.
     pub(super) async fn read(&self, command: &str) -> Result<String, CommandError> {
         match transport::route_query(command) {
             Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
@@ -78,7 +70,6 @@ impl Tmux {
         }
     }
 
-    /// Run a mutation, and what it printed.
     pub(super) async fn mutate(&self, command: &str) -> Result<String, CommandError> {
         let size = crate::sse::new_window_client_size(&self.state, &self.session).await;
         transport::run_with_output(&self.tx, command, &self.session, size).await
@@ -133,7 +124,6 @@ impl Tmux {
     }
 }
 
-/// What kind of window a pane sits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum PaneKind {
@@ -162,7 +152,6 @@ pub(super) struct Pane {
     pub kind: PaneKind,
     pub width: u32,
     pub height: u32,
-    /// The program in front.
     pub command: String,
     /// The pane the user has focused: the active pane of the current window.
     pub active: bool,

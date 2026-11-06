@@ -1,11 +1,8 @@
 //! A watched session: everything a host keeps beside a session's monitor.
 //!
 //! The web server keeps one per session a browser watches, the desktop app
-//! one per window. Both used to rebuild it — the command channel and how a
-//! command waits for it, the snapshot keeper, the image store, the last key
-//! bindings, the clients' sizes, the emitter's body — and the copies drifted.
-//! A host now supplies only a [`Sink`], where an event goes, and the
-//! [`crate::transport::Host`] policy the monitor loop runs under.
+//! one per window. A host supplies only a [`Sink`], where an event goes, and
+//! the [`crate::transport::Host`] policy the monitor loop runs under.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
@@ -22,13 +19,11 @@ use crate::theme::ThemeSettings;
 use crate::transport::{self, ImageStore, KeyBindings};
 use crate::{CommandError, PaneId};
 
-/// Who a client is, as the host numbers them: the web's connection id, the
-/// desktop's 0 (one client per window).
+/// The web's connection id, or the desktop's 0 (one client per window).
 pub type ClientId = u64;
 
 /// Where a session's events go.
 pub trait Sink: Send + Sync + 'static {
-    /// Hand an event to the session's clients.
     fn emit(&self, event: HostEvent);
 
     /// The theme settings were read afresh: what the host does with them
@@ -39,11 +34,10 @@ pub trait Sink: Send + Sync + 'static {
 
 /// How long a command waits for a monitor that is still connecting. The
 /// monitor's own connect gives tmux ten seconds to answer, so any shorter
-/// wait refuses a command a connect still in progress would have served —
-/// and a page whose stream came back sends what was typed meanwhile at once.
+/// wait refuses a command a connect still in progress would have served (a
+/// page whose stream came back sends what was typed meanwhile at once).
 pub const MONITOR_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The monitor's link, as a command sees it.
 #[derive(Clone)]
 enum Link {
     /// The monitor loop is connecting, or about to go round again: wait.
@@ -53,7 +47,6 @@ enum Link {
     Down,
 }
 
-/// The clients' viewports and what reached tmux.
 #[derive(Default)]
 struct Sizes {
     clients: HashMap<ClientId, (u32, u32)>,
@@ -76,7 +69,6 @@ impl Sizes {
     }
 }
 
-/// What the host gives a session's runtime when it makes one.
 pub struct RuntimeConfig {
     pub session: String,
     /// The host's staged preview pages, and the scope this session's are
@@ -119,7 +111,6 @@ impl SessionRuntime {
         })
     }
 
-    /// The tmux session this runtime watches.
     pub fn session(&self) -> String {
         self.session
             .read()
@@ -127,8 +118,7 @@ impl SessionRuntime {
             .clone()
     }
 
-    /// Watch another session from the next connect on (the desktop's
-    /// `tmuxy connect`).
+    /// Takes effect from the next connect (the desktop's `tmuxy connect`).
     pub fn set_session(&self, session: String) {
         *self.session.write().unwrap_or_else(|e| e.into_inner()) = session;
     }
@@ -144,8 +134,6 @@ impl SessionRuntime {
     pub fn emit(&self, event: HostEvent) {
         self.sink.emit(event);
     }
-
-    // ----- the command channel -----
 
     /// The monitor loop is about to connect: commands wait for it.
     pub fn set_connecting(&self) {
@@ -174,7 +162,7 @@ impl SessionRuntime {
         self.lock_sizes().sent = None;
     }
 
-    /// The live command channel, without waiting.
+    /// The live command channel, without waiting for a connect.
     pub fn tx_now(&self) -> Option<MonitorCommandSender> {
         match &*self.link.borrow() {
             Link::Up(tx) => Some(tx.clone()),
@@ -202,7 +190,7 @@ impl SessionRuntime {
     }
 
     /// Tell the monitor to end its connection (a detach, a switch of
-    /// servers, a shutdown). Nothing to do when none is up.
+    /// servers, a shutdown).
     pub async fn shut_down_connection(&self) {
         if let Some(tx) = self.tx_now() {
             if tx.send(MonitorCommand::Shutdown).await.is_err() {
@@ -210,8 +198,6 @@ impl SessionRuntime {
             }
         }
     }
-
-    // ----- the clients' sizes -----
 
     fn lock_sizes(&self) -> std::sync::MutexGuard<'_, Sizes> {
         self.sizes.lock().unwrap_or_else(|e| e.into_inner())
@@ -265,7 +251,6 @@ impl SessionRuntime {
         }
     }
 
-    /// A client went away: the session is sized to the ones still watching.
     pub async fn client_left(&self, client: ClientId) {
         let had_size = {
             let mut sizes = self.lock_sizes();
@@ -279,7 +264,6 @@ impl SessionRuntime {
         }
     }
 
-    /// `@tmuxy-size`, as the config just said it.
     async fn set_size_policy(&self, policy: SizePolicy) {
         let changed = {
             let mut sizes = self.lock_sizes();
@@ -316,10 +300,8 @@ impl SessionRuntime {
         }
     }
 
-    // ----- what a config can change -----
-
-    /// The bindings the session's monitor last read: what a new client is
-    /// greeted with, at no tmux round trip.
+    /// The bindings the monitor last read, which a new client is greeted
+    /// with at no tmux round trip.
     pub fn bindings(&self) -> Option<KeyBindings> {
         self.bindings
             .lock()
@@ -327,7 +309,6 @@ impl SessionRuntime {
             .clone()
     }
 
-    /// Read the bindings over the monitor, keep them, and send them.
     pub async fn refresh_bindings(&self) {
         let Ok(tx) = self.channel().await else {
             return;
@@ -348,7 +329,6 @@ impl SessionRuntime {
         Ok(settings)
     }
 
-    /// Read the theme settings and send them.
     pub async fn push_theme_settings(&self) {
         match self.theme_settings().await {
             Ok(settings) => self.emit(HostEvent::ThemeSettings(Box::new(settings))),
@@ -358,17 +338,13 @@ impl SessionRuntime {
         }
     }
 
-    /// Everything a sourced config can change, sent afresh: the bindings,
-    /// then the theme and appearance.
     pub async fn push_config(&self) {
         self.refresh_bindings().await;
         self.push_theme_settings().await;
     }
 
-    /// The user saved a file under the config dir: a stylesheet is announced
-    /// so the clients re-fetch their CSS; a `tmuxy.conf` is sourced over the
-    /// monitor and followed by what it may have changed — what a client's own
-    /// `source-file` gets.
+    /// The user saved a file under the config dir. A saved `tmuxy.conf` gets
+    /// what a client's own `source-file` gets.
     pub async fn config_changed(&self, change: transport::ConfigChange) {
         match change {
             transport::ConfigChange::Css => self.emit(HostEvent::CssChanged),
@@ -400,9 +376,6 @@ impl SessionRuntime {
         .collect()
     }
 
-    // ----- pictures and previews -----
-
-    /// The picture a pane drew, by the id the client was given.
     pub fn image(&self, pane: &PaneId, id: u32) -> Option<StoredImage> {
         self.images
             .read()
@@ -415,12 +388,10 @@ impl SessionRuntime {
         &self.preview
     }
 
-    // ----- the last snapshot -----
-
     /// Save the session's snapshot now, as the autosave would after its
-    /// debounce — before a host goes down, so the last change is kept. A
-    /// session still being rebuilt is half of what its snapshot says: the
-    /// snapshot it is being rebuilt FROM is the one to keep.
+    /// debounce, before a host goes down. A session still being rebuilt is
+    /// half of what its snapshot says: the snapshot it is being rebuilt FROM
+    /// is the one to keep.
     pub async fn save_snapshot_now(&self, timeout: Duration) {
         if snapshot::autosave_disabled() || self.keeper.restoring() {
             return;

@@ -1,7 +1,6 @@
 //! What `tmuxy plugin check` prints: a manifest's problems, each with the
 //! line it is on.
 
-/// One problem with a manifest, with the line it is on when known.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub line: Option<usize>,
@@ -20,7 +19,6 @@ impl Diagnostic {
     }
 }
 
-/// Collects diagnostics, turning byte spans into lines.
 pub(super) struct Report<'a> {
     pub(super) text: &'a str,
     pub(super) diagnostics: Vec<Diagnostic>,

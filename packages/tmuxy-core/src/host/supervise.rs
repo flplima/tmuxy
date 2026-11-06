@@ -1,19 +1,11 @@
-//! The monitor loop both hosts run.
+//! The monitor loop both hosts run. The web server and the desktop app
+//! differ in what sits AROUND it (who may stop it, how a session is brought
+//! into being, what giving up means), and [`Host`] is that difference.
 //!
-//! Connect, serve, reconnect with backoff, give up after too many failures in
-//! a row; a snapshot restored before a session is created, an autosave for as
-//! long as the connection lives. The web server and the desktop app differ in
-//! what sits AROUND that loop — who may stop it, how a session is brought into
-//! being, what giving up means — and [`Host`] is that difference, so the loop
-//! itself is written once. The command channel it publishes is the
-//! [`SessionRuntime`]'s.
-//!
-//! A connect that succeeds and then dies at once is NOT a success, and the
-//! counters here are what stop it becoming a hot loop. Resetting the backoff
-//! on `connect` alone meant a session tmux could not hold was recreated about
-//! eight times a second forever: every iteration reset the backoff before the
-//! run that was about to fail. Only a run that lived [`MIN_HEALTHY_RUN`]
-//! resets them.
+//! A connect that succeeds and then dies at once is NOT a success. Resetting
+//! the backoff on `connect` alone recreated a session tmux could not hold
+//! about eight times a second forever; only a run that lived
+//! [`MIN_HEALTHY_RUN`] resets the counters.
 
 use std::future::Future;
 use std::path::Path;
@@ -30,62 +22,48 @@ use crate::TmuxError;
 /// the first to the cap, back to the first after a healthy run.
 pub const FIRST_BACKOFF: Duration = Duration::from_millis(100);
 pub const MAX_BACKOFF: Duration = Duration::from_secs(10);
-/// How many failures in a row make the loop give up.
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
 /// A connection that lived this long worked; a shorter one is a startup crash
-/// to count against the session. The crash it guards against is tmux exiting
-/// about 50 ms after the first `%end` (a Finder-launched app on macOS has
-/// seen it), so two seconds is forty times that; a longer bar would take a
-/// session killed in its first seconds for a startup crash and create it
-/// again.
+/// to count against the session. The crash is tmux exiting about 50 ms after
+/// the first `%end` (seen from a Finder-launched app on macOS); a longer bar
+/// would take a session killed in its first seconds for a startup crash and
+/// create it again.
 pub const MIN_HEALTHY_RUN: Duration = Duration::from_secs(2);
 
-/// What the host says before an attempt.
 pub enum Attempt {
-    /// Connect with this config.
     Connect(MonitorConfig),
-    /// Not now — look again after this long. Not a failure: nothing was tried.
+    /// Not now: look again after this long. Not a failure, nothing was tried.
     Wait(Duration),
-    /// The loop is over.
     Stop,
 }
 
-/// What the host says once a connection has ended.
 pub enum Ended {
     /// Judge the run by how long it lived, and go round again.
     Judge,
-    /// The host ended it on purpose — a switch of servers. Neither a failure
+    /// The host ended it on purpose (a switch of servers). Neither a failure
     /// nor a wait: straight round to `before_attempt`.
     Deliberate,
     /// The host ended it on purpose and holds the loop in `before_attempt`
-    /// until there is a reason to connect again — a detach. Commands are
+    /// until there is a reason to connect again (a detach). Commands are
     /// refused meanwhile rather than kept waiting.
     Parked,
-    /// The loop is over.
     Stop,
 }
 
-/// What the host says when the loop has given up.
 pub enum GaveUp {
-    /// The loop is over.
     Stop,
     /// Keep looping; the host's `before_attempt` holds it until there is a
     /// reason to try again.
     Park,
 }
 
-/// A task the host runs for the loop, the way it runs its own.
 pub type Task = Pin<Box<dyn Future<Output = ()> + Send>>;
 
-/// What differs between the hosts around the monitor loop.
 pub trait Host: Send {
-    /// Before each attempt: the config to connect with, a pause, or the end.
-    /// `ever_ran` says whether a connection has ever lived a healthy while.
+    /// `ever_ran`: whether a connection has ever lived [`MIN_HEALTHY_RUN`].
     fn before_attempt(&mut self, ever_ran: bool) -> impl Future<Output = Attempt> + Send;
 
-    /// Whether the session exists, asked before the host's own connection
-    /// is attached ([`super::session_exists`], the one rule both hosts use).
     fn session_exists(&self, session: &str) -> impl Future<Output = bool> + Send {
         super::session_exists(session)
     }
@@ -104,11 +82,10 @@ pub trait Host: Send {
         async { true }
     }
 
-    /// The connection ended: say how to go on.
     fn ended(&mut self) -> impl Future<Output = Ended> + Send;
 
-    /// A connect attempt failed. `Some` overrides the failure count — a wait
-    /// or a stop the host decides from the error; `None` counts it.
+    /// A connect attempt failed. `Some` overrides the failure count (a wait
+    /// or a stop the host decides from the error); `None` counts it.
     fn connect_failed(
         &mut self,
         _error: &TmuxError,
@@ -120,19 +97,19 @@ pub trait Host: Send {
     /// The loop has given up; `message` says why, for the user.
     fn gave_up(&mut self, message: String) -> impl Future<Output = GaveUp> + Send;
 
-    /// Run a task of the loop's — the restore of a snapshot — however the
-    /// host runs its background work.
+    /// Run a task of the loop's (the restore of a snapshot) however the host
+    /// runs its background work.
     fn spawn(&self, task: Task) -> impl Future<Output = ()> + Send;
 
-    /// Wait, the host's way: one that is shutting down returns early.
+    /// A host that is shutting down returns early.
     fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send;
 }
 
 /// A session about to be CREATED may have a snapshot to come back from.
-/// Decided once, before the connect: the first window is made as the snapshot
-/// wants it, and the rebuild runs onto it after attach
-/// ([`restore_after_attach`]) — over control mode, never with a clientless
-/// server.
+/// Decided before the connect, so however the host brings the session into
+/// being its first window is the one the snapshot wants; the rebuild runs
+/// onto it after attach ([`restore_after_attach`]), over control mode, never
+/// with a clientless server.
 fn restore_plan(dir: &Path, config: &mut MonitorConfig) -> Option<Snapshot> {
     let found = snapshot::restorable(dir, &config.session)?;
     config.first_window = found.first_window_hint(&snapshot::fallback_cwd());
@@ -140,8 +117,7 @@ fn restore_plan(dir: &Path, config: &mut MonitorConfig) -> Option<Snapshot> {
 }
 
 /// The rebuild onto the window `new-session` just made, for the caller to
-/// spawn once the monitor is in its loop — after the initial sync, which is
-/// the order it needs.
+/// spawn once the monitor is in its loop: it must run after the initial sync.
 ///
 /// The keeper is held from HERE, not from inside the task: the first delta of
 /// the fresh session must not race the task's start into a save of the
@@ -166,25 +142,22 @@ fn restore_after_attach(
     }
 }
 
-/// How a pass round the loop ended, past the connection itself.
 enum Outcome {
     /// Go round again after the backoff.
     Retry,
     /// Go round again now.
     Again,
-    /// The loop is over.
     Stop,
 }
 
-/// Run the monitor loop for `host` until it says stop, feeding `runtime`.
-/// The runtime's command channel is published while a connection is up;
-/// when the loop ends, commands are refused.
+/// Run the monitor loop for `host` until it says stop. The runtime's command
+/// channel is published while a connection is up; once the loop ends,
+/// commands are refused.
 pub async fn supervise<H: Host>(host: H, runtime: Arc<SessionRuntime>) {
     run_loop(host, &runtime).await;
     runtime.set_down();
 }
 
-/// The bookkeeping between failures: how many in a row, and the pause.
 struct Failures {
     count: u32,
     backoff: Duration,
@@ -196,8 +169,6 @@ impl Failures {
         self.backoff = FIRST_BACKOFF;
     }
 
-    /// Count one, telling the clients the link is being tried again, and give
-    /// up past [`MAX_CONSECUTIVE_FAILURES`] with `giving_up` as the reason.
     async fn count<H: Host>(
         &mut self,
         host: &mut H,
@@ -249,9 +220,6 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
         runtime.set_connecting();
         let session = config.session.clone();
 
-        // A session about to be CREATED may have a snapshot to come back
-        // from. Decided here, once, so however the host brings it into being
-        // the first window is the one the snapshot wants.
         let mut restore = None;
         if config.create_session && !host.session_exists(&session).await {
             if runtime.restores() {
@@ -269,9 +237,6 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
                 if !host.connected().await {
                     return;
                 }
-                // The rebuild, onto the window `new-session` just made. Queued
-                // on the command channel, so it runs once the monitor is in its
-                // loop.
                 if let Some(found) = restore.take() {
                     let rebuild = restore_after_attach(found, keeper.clone(), tx.clone());
                     let name = session.clone();
@@ -292,7 +257,6 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
                 if snapshot::autosave_disabled() {
                     monitor.run(runtime).await;
                 } else {
-                    // The autosave lives exactly as long as the connection.
                     tokio::select! {
                         _ = monitor.run(runtime) => {}
                         _ = keeper.run(session.clone(), snapshot_dir.clone(), tx.clone()) => {}

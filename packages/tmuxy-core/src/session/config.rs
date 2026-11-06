@@ -26,14 +26,11 @@ pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../assets/tmuxy.conf
 /// every option. Mirrored to the data dir as `README.md`.
 const CONFIG_README: &str = include_str!("../../assets/config-README.md");
 
-/// The tmux global environment variable naming the data dir, which the entry
-/// file sets before it sources anything. The bundled scripts are named by it
-/// everywhere tmux runs one — the essentials' command-aliases, the client's
-/// script commands, a restored sidebar — as `$TMUXY_DATA_DIR/bin/tmuxy/…`,
-/// expanded by tmux's parser (or a pane's shell) from that environment, so a
-/// data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves them all. The
-/// same name `paths::data_dir` reads, so a process started in a pane finds
-/// the data dir of the server it runs under.
+/// The tmux global environment variable naming the data dir, set by the entry
+/// file before it sources anything. Everywhere tmux runs a bundled script it
+/// names it as `$TMUXY_DATA_DIR/bin/tmuxy/…`, expanded by tmux's parser (or a
+/// pane's shell), so a moved data dir moves them all. `paths::data_dir` reads
+/// the same name, so a process started in a pane finds its server's data dir.
 pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
 
 /// The tmux global environment variable naming the entry file, set beside
@@ -260,8 +257,6 @@ pub fn guest_entry_conf(layout: &Layout) -> String {
     entry_conf(layout, false, &layout.user_conf(), "tmux")
 }
 
-/// Regenerate the entry file from the current `use-tmux-conf` choice and the
-/// state of the user's file; returns its path.
 fn write_entry(layout: &Layout) -> PathBuf {
     if let Err(e) = std::fs::create_dir_all(&layout.state) {
         warn!(dir = ?layout.state, error = %e, "could not create the state dir");

@@ -1,10 +1,7 @@
 name: Set up a Storybook story probe
 description: Node and the npm dependencies, Chromium, a Storybook dev server on :6006 and, for the v86 stories, their guest.
-# Everything a story probe needs before it runs: the per-commit probes
-# (lint-and-tests.yml), the nightly sweep and its re-run of the night's
-# failures on a fresh runner (nightly-v86.yml). With `v86: 'true'`, also the
-# guest the v86 stories boot (the v86-guest action). PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-# is set for the steps after it: the probes launch Chromium by path.
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH is set for the steps after it: the
+# probes launch Chromium by path.
 inputs:
   v86:
     description: "'true' to build tmuxy-wasm and the v86 guest assets"

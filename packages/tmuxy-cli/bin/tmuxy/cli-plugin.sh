@@ -1,6 +1,3 @@
-# `tmuxy plugin`: its usage and its dispatch, sourced by tmuxy-cli. Every verb
-# is the server binary's (`tmuxy_core::plugins`, docs/PLUGINS.md).
-
 usage_plugin() {
   cat <<'EOF'
 Usage: tmuxy plugin <command> [args...]

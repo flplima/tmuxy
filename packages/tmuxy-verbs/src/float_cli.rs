@@ -1,8 +1,7 @@
-//! `tmuxy-server float`: make a float over the caller's tab with
-//! `tmuxy_core::float`'s one command list, run inside `run-shell`, and print
-//! `<pane> <window>`. Backs `bin/tmuxy/float-create` (`tmuxy pane float`, the
-//! `tmuxy-float` alias, the MCP endpoint's `pane_float`), which keeps what a
-//! shell does: reusing a float it already runs in, and waiting on a command.
+//! Runs inside `run-shell`, behind `bin/tmuxy/float-create` (`tmuxy pane
+//! float`, the `tmuxy-float` alias, the MCP endpoint's `pane_float`), which
+//! keeps what a shell does: reusing a float it already runs in, and waiting on
+//! a command.
 
 use tmuxy_core::float::{free_index, Backdrop, Drawer, Float};
 
@@ -112,11 +111,9 @@ fn make(args: FloatArgs) -> Result<String, String> {
         .ok_or_else(|| "failed to create float pane".to_string())
 }
 
-/// The size a float is given: what the caller named, else the default — a
-/// drawer taking only the dimension it docks by, and the default height never
-/// taller than the tab it floats over (`rows`, 0 when unknown): a float with
-/// more rows than the window has nowhere to put them. An explicit height is
-/// the caller's call.
+/// The default height is never taller than the tab (`rows`, 0 when unknown):
+/// a float with more rows than the window has nowhere to put them. An explicit
+/// height is the caller's call.
 fn default_size(
     width: Option<u32>,
     height: Option<u32>,
@@ -142,8 +139,8 @@ fn default_size(
 mod tests {
     use super::*;
 
-    /// SEC-24. The sizes and the backdrop reach the float's command list from
-    /// a client; anything but a number, or a backdrop by name, is refused
+    /// The sizes and the backdrop reach the float's command list from a
+    /// client, so anything but a number, or a backdrop by name, is refused
     /// before a command is built.
     #[test]
     fn a_size_or_backdrop_that_is_not_one_is_refused() {

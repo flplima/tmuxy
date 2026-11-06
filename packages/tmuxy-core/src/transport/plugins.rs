@@ -1,13 +1,10 @@
-//! The client commands plugins add: a menu action's selection
-//! (`prepare_plugin_action`) and a clicked link (`open_link`, `open_text`).
-//! Each writes the invocation token the client then names in
-//! `TmuxOp.PluginAction`; the plugins and the token directory are this
-//! machine's, so a server reached over SSH has neither.
+//! The client commands plugins add. Each writes the invocation token the
+//! client then names in `TmuxOp.PluginAction`; the plugins and the token
+//! directory are this machine's, so a server reached over SSH has neither.
 
 use crate::plugins::links::Prepared;
 use crate::CommandError;
 
-/// Run a blocking plugin lookup off the async runtime, refusing over SSH.
 async fn locally<T: Send + 'static>(
     work: impl FnOnce(&crate::paths::Layout) -> crate::plugins::Result<T> + Send + 'static,
 ) -> Result<T, CommandError> {
@@ -24,9 +21,7 @@ async fn locally<T: Send + 'static>(
 
 /// The invocation token a plugin's menu action opens with, holding the
 /// selected text, so the text reaches the plugin in a file and never on a
-/// command line (`plugins::invoke`). Answers `{ token }`; the client then
-/// names the token in `TmuxOp.PluginAction`. The plugins and the token
-/// directory are this machine's, so a server reached over SSH has neither.
+/// command line (`plugins::invoke`).
 pub async fn prepare_plugin_action(
     plugin: String,
     action: String,
@@ -41,7 +36,6 @@ pub async fn prepare_plugin_action(
     Ok(PluginToken { token })
 }
 
-/// [`prepare_plugin_action`]'s answer.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PluginToken {
     pub token: String,

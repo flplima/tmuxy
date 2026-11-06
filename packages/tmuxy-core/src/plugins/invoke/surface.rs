@@ -10,7 +10,6 @@ use super::token::{is_pane_id, status_path, token_path, PaneInfo, Token, Trigger
 use crate::float::{free_index, Backdrop, Float};
 use crate::paths::Layout;
 
-/// What `tmuxy plugin action` was asked to do.
 #[derive(Debug, Clone)]
 pub struct OpenRequest {
     pub plugin: String,
@@ -24,7 +23,6 @@ pub struct OpenRequest {
     pub wait: bool,
 }
 
-/// What [`open`] did.
 #[derive(Debug, Clone)]
 pub struct Opened {
     pub token: String,
@@ -33,7 +31,6 @@ pub struct Opened {
     pub surface: Surface,
 }
 
-/// Where a surface opens: the target pane and what tmux says about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
     pub pane: String,
@@ -45,7 +42,6 @@ pub struct Target {
     pub free_index: u32,
 }
 
-/// The default size of a float or popup, when the manifest names none.
 const DEFAULT_FLOAT: Size = Size {
     width: Some(Dim::Percent(80)),
     height: Some(Dim::Percent(70)),
@@ -112,9 +108,9 @@ pub fn surface_argv(
 }
 
 /// The new pane's command: this build's binary running `plugin exec`, as a
-/// shell line ([`crate::argv::shell_line`]). Only the binary's path is free text, and a path with
-/// `#` is refused rather than escaped: tmux format-expands what it hands the
-/// shell, and the escape is not the same on every version.
+/// shell line. Only the binary's path is free text, and a path with `#` is
+/// refused rather than escaped: tmux format-expands what it hands the shell,
+/// and the escape is not the same on every version.
 pub fn exec_command_line(
     exe: &Path,
     subcommand: Option<&str>,
@@ -148,7 +144,6 @@ fn tmux(argv: &[String]) -> Result<String> {
     crate::session::tmux_output(argv).map_err(|e| PluginError::Invalid(e.to_string()))
 }
 
-/// What tmux says about `pane`: the surface's target and the context.
 fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
     let out = tmux(&[
         "display-message".into(),

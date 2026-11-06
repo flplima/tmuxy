@@ -1,5 +1,3 @@
-//! The tools that read: the session's shape, and what a pane shows.
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -35,7 +33,6 @@ pub(in crate::mcp) async fn status(tmux: &Tmux, caller: &Caller) -> Result<Value
 
 #[derive(Deserialize)]
 pub(in crate::mcp) struct PaneListArgs {
-    /// Only this tab's panes.
     tab: Option<String>,
 }
 
@@ -52,7 +49,6 @@ pub(in crate::mcp) async fn pane_list(
     Ok(json!({ "panes": panes }))
 }
 
-/// The most history lines a capture or a wait reads.
 pub(in crate::mcp) const MAX_SCROLLBACK: u32 = 10_000;
 
 #[derive(Deserialize)]
@@ -62,9 +58,6 @@ pub(in crate::mcp) struct CaptureArgs {
     scrollback: u32,
 }
 
-/// A pane's screen, `scrollback` history lines above it, wrapped lines
-/// joined, trailing blanks dropped; and the cursor, read in the same command
-/// list so both describe one moment.
 struct Screen {
     text: String,
     cursor: (u32, u32),
@@ -101,7 +94,6 @@ async fn capture(tmux: &Tmux, pane: &PaneId, scrollback: u32) -> Result<Screen, 
     })
 }
 
-/// Lines without their trailing blanks, and no blank lines at the end.
 pub(in crate::mcp) fn trim_screen(text: &str) -> String {
     let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
     let end = lines

@@ -2,7 +2,7 @@ use super::tests_sessions::{initial_state_with_viewport, resizes_seen, session_w
 use super::*;
 use tokio::sync::broadcast;
 
-/// SEC-16. Each `/events` stream is a long-lived task holding a broadcast
+/// Each `/events` stream is a long-lived task holding a broadcast
 /// receiver and a place in the sessions map, and every one of them also ran
 /// three external `tmux` processes on a worker thread. Nothing counted
 /// them, so a connection flood grew all of it without bound.
@@ -49,10 +49,6 @@ async fn a_size_for_a_connection_with_no_stream_is_ignored() {
     assert!(resizes.lock().await.is_empty());
     assert_eq!(state.sessions.read().await["s"].runtime.size(), None);
 }
-
-// ----------------------------------------------------------------
-// Lifecycle: a client that stops reading, and a client that vanishes
-// ----------------------------------------------------------------
 
 /// A slow consumer — a backgrounded tab, a stalled TCP window — stops
 /// draining its broadcast receiver while tmux keeps producing. Tokio drops
