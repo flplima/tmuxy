@@ -10,7 +10,7 @@
 //! The other version-specific behaviour tmuxy carries lives where it acts, and
 //! docs/TMUX-VERSION-BUGS.md is the account of all of it:
 //!
-//! - the `neww` rewrite (3.5a crash): `tmux_command::new_window_rewrite`,
+//! - the `neww` rewrite (3.5a crash): `tmux_command::NewTab`,
 //!   applied by `command_router::route_command` on every transport;
 //! - typed text cut at every `#{` (3.7a expands `send-keys -l`):
 //!   [`split_format_literals`], applied by the router too;

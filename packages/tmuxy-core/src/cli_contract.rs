@@ -23,22 +23,29 @@ pub fn json_string(value: &str) -> String {
 
 /// A success: `{"ok":true}` and `fields`, each value already a JSON literal.
 pub fn json_ok(fields: &[(&str, String)]) -> String {
-    let mut out = String::from(r#"{"ok":true"#);
-    for (name, value) in fields {
-        out.push_str(&format!(",{}:{value}", json_string(name)));
-    }
-    out + "}"
+    with_fields(String::from(r#"{"ok":true}"#), fields)
 }
 
-/// A failure, from [`JSON_FAILURE_FORMAT`].
-pub fn json_failure(code: i32, message: &str) -> String {
+fn with_fields(mut object: String, fields: &[(&str, String)]) -> String {
+    object.pop();
+    for (name, value) in fields {
+        object.push_str(&format!(",{}:{value}", json_string(name)));
+    }
+    object + "}"
+}
+
+/// A failure, from [`JSON_FAILURE_FORMAT`], and `fields` after its own.
+pub fn json_failure(code: i32, message: &str, fields: &[(&str, String)]) -> String {
     let mut parts = JSON_FAILURE_FORMAT.splitn(3, "%s");
     let (head, middle, tail) = (
         parts.next().unwrap_or_default(),
         parts.next().unwrap_or_default(),
         parts.next().unwrap_or_default(),
     );
-    format!("{head}{}{middle}{code}{tail}", json_string(message))
+    with_fields(
+        format!("{head}{}{middle}{code}{tail}", json_string(message)),
+        fields,
+    )
 }
 
 #[cfg(test)]
@@ -52,8 +59,12 @@ mod tests {
             r#"{"ok":true,"paneId":"%1","sent":true}"#
         );
         assert_eq!(
-            json_failure(EXIT_TARGET, "no pane %s here"),
+            json_failure(EXIT_TARGET, "no pane %s here", &[]),
             r#"{"ok":false,"error":"no pane %s here","code":3}"#
+        );
+        assert_eq!(
+            json_failure(1, "x", &[("status", "1".into())]),
+            r#"{"ok":false,"error":"x","code":1,"status":1}"#
         );
         assert_eq!(json_string("a\"b\u{1b}"), r#""a\"b\u001b""#);
     }

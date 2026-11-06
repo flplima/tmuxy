@@ -10,6 +10,7 @@ mod config_cli;
 mod connect_cli;
 mod float_cli;
 mod plugin_cli;
+mod run_cli;
 mod send_cli;
 mod session_cli;
 mod trace_view;
@@ -50,6 +51,14 @@ pub enum Verb {
     Connect(connect_cli::ConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
     Skill,
+    /// Run a tmux command that reads, arranges or closes, inside run-shell.
+    /// Backs `tmuxy run`.
+    #[command(hide = true)]
+    Run(run_cli::RunArgs),
+    /// A new tab beside the caller's pane, and its id. Backs
+    /// `tmuxy tab create`.
+    #[command(hide = true)]
+    NewTab(run_cli::NewTabArgs),
     /// Make a float over the caller's tab and print its pane and window.
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
@@ -68,5 +77,7 @@ pub async fn run(verb: Verb) {
         Verb::Connect(args) => connect_cli::run(args),
         Verb::Skill => print!("{}", agents::SKILL),
         Verb::Float(args) => float_cli::run(args),
+        Verb::Run(args) => run_cli::run(args),
+        Verb::NewTab(args) => run_cli::tab_create(args),
     }
 }

@@ -28,6 +28,9 @@
 //!   session target is resolved late against the session's live current
 //!   window and loses a race with any other client.
 //!
+//! `tmuxy run` ([`route_cli_run`], in `cli_run`) is narrower: it runs only the commands
+//! that read, arrange or close, by name, with every argument quoted.
+//!
 //! A query runs only commands that read (X6): a mutation sent as a query
 //! skipped what the mutation path does around it — the queue that keeps a
 //! client's mutations in order, the `run-shell` relay that keeps tmux 3.4 out
@@ -39,6 +42,9 @@ use std::borrow::Cow;
 
 use crate::control_mode::control_mode_lines;
 use crate::tmux_command::{self, RESIZE_WINDOW};
+
+mod cli_run;
+pub use cli_run::{route_cli_run, CliRun, RUN_VERBS};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
@@ -85,6 +91,13 @@ const READ_VERBS: &[&str] = &[
     "showw",
 ];
 
+/// Why `resize-window` is never run: tmuxy sizes each window to its clients'
+/// viewports (`set_client_size`), and a resize from outside is unreliable
+/// with control mode attached (tmux ignores it).
+pub(crate) const RESIZE_WINDOW_REFUSAL: &str =
+    "resize-window is blocked — it is unreliable with control mode attached \
+     (ignored when sent externally), and tmuxy sizes windows to its clients. Use resize-pane.";
+
 fn plain_lines(command: &str) -> impl Iterator<Item = Cow<'_, str>> {
     control_mode_lines(command).map(|line| tmux_command::parse(line).with_plain_separators())
 }
@@ -96,7 +109,7 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
     for line in plain_lines(command) {
         let list = tmux_command::parse(&line);
         if list.runs(&RESIZE_WINDOW) {
-            return Route::Blocked("resize-window must go through set_client_size");
+            return Route::Blocked(RESIZE_WINDOW_REFUSAL);
         }
         if let Some(rewritten) = list.rewrite_new_window(session, size) {
             lines.push(rewritten);

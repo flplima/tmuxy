@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
+use tmuxy_core::tmux_command::NewTab;
 use tmuxy_core::{tmux_quote, CommandError, PaneId};
 
 use super::super::tmux::Tmux;
@@ -216,28 +217,21 @@ pub(in crate::mcp) struct TabArgs {
     pub command: Option<String>,
 }
 
-/// A tab is a split broken out into a window of its own (`new-window`
-/// crashes tmux 3.5a), into the session by name, without selecting it; and
-/// the anchor's window gets its focused pane back, which the split took.
+/// A tab into the session by name, without selecting it, from the anchor's
+/// directory.
 pub(in crate::mcp) fn tab_command(session: &str, anchor: &PaneId, args: &TabArgs) -> String {
-    let program = args
-        .command
-        .as_deref()
-        .filter(|c| !c.trim().is_empty())
-        .map(|c| format!(" {}", tmux_quote(c)))
-        .unwrap_or_default();
-    let name = args
-        .name
-        .as_deref()
-        .filter(|n| !n.trim().is_empty())
-        .map(|n| format!(" -n {}", tmux_quote(n)))
-        .unwrap_or_default();
-    let session = tmux_quote(&format!("={session}:"));
-    format!(
-        "splitw -t {anchor} -c '#{{pane_current_path}}'{program} ; \
-         breakp -d -t {session}{name} -P -F '#{{window_id}}' ; \
-         select-pane -t {anchor}"
-    )
+    let into = format!("={session}");
+    NewTab {
+        from: Some(anchor.as_str()),
+        into: Some(&into),
+        name: args.name.as_deref().filter(|n| !n.trim().is_empty()),
+        cwd: Some("#{pane_current_path}"),
+        program: args.command.as_deref().filter(|c| !c.trim().is_empty()),
+        background: true,
+        print_id: true,
+        size: None,
+    }
+    .command_line()
 }
 
 pub(in crate::mcp) async fn tab_create(tmux: &Tmux, args: TabArgs) -> Result<Value, CommandError> {

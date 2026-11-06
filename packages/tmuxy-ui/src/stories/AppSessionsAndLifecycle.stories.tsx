@@ -80,7 +80,7 @@ export const FatalScreen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
-    pasteLine('tmuxy run kill-server');
+    pasteLine('tmux kill-server');
     await waitFor(
       () =>
         expect(

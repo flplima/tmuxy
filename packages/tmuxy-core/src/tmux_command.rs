@@ -10,19 +10,118 @@ use std::ops::Range;
 
 use crate::tmux_quote;
 
-/// Build the `new-window` rewrite: `new-window`/`neww` crashes tmux 3.5a with
-/// control mode attached, so both transports send `splitw ; breakp` instead.
-///
-/// `resizew` targets the current window, which is the new one after `breakp`,
-/// so the new window matches the viewport at creation rather than inheriting
-/// the half-width post-split size or the control-mode PTY default.
-pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
-    let session = tmux_quote(session);
-    match size {
-        Some((cols, rows)) => {
-            format!("splitw -t {session} ; breakp ; resizew -x {cols} -y {rows}")
+/// A new tab: a split broken out into a window of its own. `new-window`
+/// crashes tmux 3.5a with a control-mode client attached, so every new tab —
+/// the router's `new-window` rewrite, `tmuxy tab create`, the MCP's
+/// `tab_create` — is this command list.
+#[derive(Debug, Clone, Default)]
+pub struct NewTab<'a> {
+    /// The pane, window or session the split is made from; tmux's current
+    /// one otherwise.
+    pub from: Option<&'a str>,
+    /// The session the window is broken into (`breakp -t <session>:`). An
+    /// unattached client (`run-shell`'s) otherwise breaks it into the session
+    /// tmux touched last.
+    pub into: Option<&'a str>,
+    pub name: Option<&'a str>,
+    /// The new pane's directory (`splitw -c`, a format).
+    pub cwd: Option<&'a str>,
+    /// The new pane's command, one shell line; the default shell otherwise.
+    pub program: Option<&'a str>,
+    /// Leave focus where it was: `breakp -d`, and `from` gets its focused
+    /// pane back, which the split took.
+    pub background: bool,
+    /// `breakp -P`: print the new window's id.
+    pub print_id: bool,
+    /// The viewport the window is sized to. `resizew` targets the current
+    /// window, which is the new one after `breakp`, so the window matches the
+    /// viewport at creation rather than inheriting the half-width post-split
+    /// size or the control-mode PTY default.
+    pub size: Option<(u32, u32)>,
+}
+
+/// A word of a [`NewTab`] command: tmux's own (a verb, a flag, a number), or a
+/// value, which is quoted.
+enum Word {
+    Own(String),
+    Value(String),
+}
+
+impl NewTab<'_> {
+    fn commands(&self) -> Vec<Vec<Word>> {
+        let own = |w: &str| Word::Own(w.to_string());
+        let value = |w: &str| Word::Value(w.to_string());
+        let mut split = vec![own("splitw")];
+        if let Some(from) = self.from {
+            split.extend([own("-t"), value(from)]);
         }
-        None => format!("splitw -t {session} ; breakp"),
+        if let Some(cwd) = self.cwd {
+            split.extend([own("-c"), value(cwd)]);
+        }
+        if let Some(program) = self.program {
+            split.push(value(program));
+        }
+        let mut breakp = vec![own("breakp")];
+        if self.background {
+            breakp.push(own("-d"));
+        }
+        if let Some(into) = self.into {
+            breakp.extend([own("-t"), value(&format!("{into}:"))]);
+        }
+        if let Some(name) = self.name {
+            breakp.extend([own("-n"), value(name)]);
+        }
+        if self.print_id {
+            breakp.extend([own("-P"), own("-F"), value("#{window_id}")]);
+        }
+        let mut commands = vec![split, breakp];
+        if let Some((cols, rows)) = self.size {
+            commands.push(vec![
+                own("resizew"),
+                own("-x"),
+                own(&cols.to_string()),
+                own("-y"),
+                own(&rows.to_string()),
+            ]);
+        }
+        if let (true, Some(from)) = (self.background, self.from) {
+            commands.push(vec![own("select-pane"), own("-t"), value(from)]);
+        }
+        commands
+    }
+
+    /// The list as one line tmux's command parser reads (control mode).
+    pub fn command_line(&self) -> String {
+        self.commands()
+            .iter()
+            .map(|command| {
+                command
+                    .iter()
+                    .map(|word| match word {
+                        Word::Own(w) => w.clone(),
+                        Word::Value(w) => tmux_quote(w),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join(" ; ")
+    }
+
+    /// The list as a tmux client's argv, `;` a word of its own.
+    pub fn argv(&self) -> Vec<String> {
+        self.commands()
+            .into_iter()
+            .map(|command| {
+                command
+                    .into_iter()
+                    .map(|word| match word {
+                        Word::Own(w) | Word::Value(w) => w,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+            .join(&";".to_string())
     }
 }
 
@@ -209,7 +308,12 @@ impl<'a> CommandList<'a> {
         if !self.runs(&NEW_WINDOW) {
             return None;
         }
-        let rewrite = new_window_rewrite(session, size);
+        let rewrite = NewTab {
+            from: Some(session),
+            size,
+            ..NewTab::default()
+        }
+        .command_line();
         let span = |c: &Command| {
             let start = c.text.as_ptr() as usize - self.source.as_ptr() as usize;
             start..start + c.text.len()

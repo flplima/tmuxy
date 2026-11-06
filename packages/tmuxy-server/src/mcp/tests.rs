@@ -254,7 +254,7 @@ fn a_split_or_a_tab_leaves_the_users_focus_where_it_is() {
         tab.contains("breakp -d -t '=work:' -n 'it'\\''s' -P"),
         "{tab}"
     );
-    assert!(tab.ends_with("select-pane -t %4"), "{tab}");
+    assert!(tab.ends_with("select-pane -t '%4'"), "{tab}");
     // `new-window` crashes tmux 3.5a with control mode attached.
     assert!(!tab.contains("new-window") && !tab.contains("neww"));
 }

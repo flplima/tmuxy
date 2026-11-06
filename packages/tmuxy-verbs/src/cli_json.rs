@@ -2,7 +2,9 @@
 //! text, or under `--json` one object on stdout, and the exit code.
 
 use tmuxy_core::cli_contract::{json_failure, json_ok};
-pub use tmuxy_core::cli_contract::{json_string as string, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
+pub use tmuxy_core::cli_contract::{
+    json_string as string, EXIT_FAILED, EXIT_NO_SERVER, EXIT_TARGET, EXIT_USAGE,
+};
 
 pub struct Answer {
     json: bool,
@@ -22,9 +24,18 @@ impl Answer {
         }
     }
 
+    pub fn is_json(&self) -> bool {
+        self.json
+    }
+
     pub fn fail(&self, code: i32, message: &str) -> i32 {
+        self.fail_with(code, message, &[])
+    }
+
+    /// [`Answer::fail`], with `fields` after the failure's own under `--json`.
+    pub fn fail_with(&self, code: i32, message: &str, fields: &[(&str, String)]) -> i32 {
         if self.json {
-            println!("{}", json_failure(code, message));
+            println!("{}", json_failure(code, message, fields));
         } else {
             eprintln!("Error: {message}");
         }
