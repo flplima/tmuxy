@@ -85,6 +85,14 @@ where
         .unwrap_or_default();
     let windows = parse_windows(&windows_out);
     let panes = parse_panes(&panes_out);
+    // A session always has a window and a pane. None read back means the
+    // records did not parse (a format the parser no longer matches), and a
+    // snapshot of nothing would replace the last good one.
+    if windows.is_empty() || panes.is_empty() {
+        return Err(TmuxError::other(format!(
+            "no window or pane of '{session}' read back from tmux; the snapshot is not taken"
+        )));
+    }
     let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
     // `ps` is a subprocess; off the async runtime like the other reads.
     let found = tokio::task::spawn_blocking(move || discover_commands(&all))

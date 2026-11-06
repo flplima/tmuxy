@@ -13,9 +13,9 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
+use super::schema::{self, event, field};
 use super::{
-    bound, emit, full_only, hash_str, is_enabled, level, scrub, TraceLevel, CHANNEL_CAP, FULL_ONLY,
-    HASH_FIELDS, MAX_BYTES, MAX_FULL, SCRUB_FIELDS, VERBATIM,
+    admit, bound, emit, is_enabled, level, scrub, TraceLevel, CHANNEL_CAP, MAX_BYTES, MAX_FULL,
 };
 
 // =============================================================================
@@ -29,24 +29,22 @@ pub(super) struct TraceHandle {
 }
 
 impl TraceHandle {
-    pub(super) fn spawn(path: PathBuf) -> Option<Self> {
+    /// Open the file, then start the writer on it: a file that cannot be
+    /// opened is an error here, before anything says tracing is on.
+    pub(super) fn spawn(path: PathBuf) -> std::io::Result<Self> {
+        let file = open_append(&path)?;
         let (tx, rx) = sync_channel::<String>(CHANNEL_CAP);
         let dropped = Arc::new(AtomicU64::new(0));
         let writer_dropped = dropped.clone();
         let writer_path = path.clone();
         std::thread::Builder::new()
             .name("tmuxy-trace".to_string())
-            .spawn(move || writer_loop(rx, writer_path, writer_dropped))
-            .ok()?;
-        Some(Self { tx, path, dropped })
+            .spawn(move || writer_loop(rx, file, writer_path, writer_dropped))?;
+        Ok(Self { tx, path, dropped })
     }
 }
 
-fn writer_loop(rx: Receiver<String>, path: PathBuf, dropped: Arc<AtomicU64>) {
-    let mut file = match open_append(&path) {
-        Some(f) => f,
-        None => return,
-    };
+fn writer_loop(rx: Receiver<String>, mut file: File, path: PathBuf, dropped: Arc<AtomicU64>) {
     let mut size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let mut reported_dropped = 0u64;
 
@@ -65,8 +63,15 @@ fn writer_loop(rx: Receiver<String>, path: PathBuf, dropped: Arc<AtomicU64>) {
                 let d = dropped.load(Ordering::Relaxed);
                 if d != reported_dropped {
                     reported_dropped = d;
-                    let meta =
-                        format!("{{\"layer\":\"trace\",\"name\":\"overflow\",\"dropped\":{d}}}");
+                    let meta = serde_json::json!({
+                        field::LAYER: schema::Layer::Trace.as_str(),
+                        field::NAME: event::OVERFLOW,
+                        "dropped": d,
+                        field::TS_WALL: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(0, |t| t.as_millis() as u64),
+                    })
+                    .to_string();
                     write_line(&mut file, &mut size, &path, &meta);
                     let _ = file.flush();
                 }
@@ -98,17 +103,17 @@ fn write_line(file: &mut File, size: &mut u64, path: &Path, line: &str) {
 fn rotate(path: &Path) -> Option<(File, u64)> {
     let backup = PathBuf::from(format!("{}.1", path.display()));
     std::fs::rename(path, &backup).ok()?;
-    let file = open_append(path)?;
+    let file = open_append(path).ok()?;
     Some((file, 0))
 }
 
-fn open_append(path: &Path) -> Option<File> {
+fn open_append(path: &Path) -> std::io::Result<File> {
     // The state dir is created here rather than when the path is resolved, so
     // resolving a path for the UI leaves nothing behind while tracing is off.
     if let Some(dir) = path.parent() {
-        crate::private_files::create_dir_all(dir).ok()?;
+        crate::private_files::create_dir_all(dir)?;
     }
-    crate::private_files::open_append(path).ok()
+    crate::private_files::open_append(path)
 }
 
 // =============================================================================
@@ -154,7 +159,10 @@ where
                 }
             }
         }
-        obj.insert("layer".to_string(), Value::from(layer_for(target)));
+        obj.insert(
+            "layer".to_string(),
+            Value::from(schema::Layer::of_target(target).as_str()),
+        );
         obj.insert("component".to_string(), Value::from(target.to_string()));
         obj.insert(
             "name".to_string(),
@@ -197,7 +205,10 @@ where
             return;
         };
         let mut obj = state.fields.clone();
-        obj.insert("layer".to_string(), Value::from(layer_for(&state.target)));
+        obj.insert(
+            "layer".to_string(),
+            Value::from(schema::Layer::of_target(&state.target).as_str()),
+        );
         obj.insert("component".to_string(), Value::from(state.target.clone()));
         obj.insert("name".to_string(), Value::from(state.name.clone()));
         obj.insert("phase".to_string(), Value::from("span"));
@@ -223,22 +234,6 @@ pub(super) fn target_allowed(target: &str) -> bool {
         || target.starts_with("tmuxy_tauri")
 }
 
-fn layer_for(target: &str) -> &'static str {
-    if target.contains("control_mode") {
-        "monitor"
-    } else if target.contains("transport") {
-        "tmux"
-    } else if target.contains("emit") {
-        "emitter"
-    } else if target.contains("state") {
-        "aggregator"
-    } else if target.starts_with("tmuxy_server") || target.starts_with("tmuxy_tauri") {
-        "server"
-    } else {
-        "core"
-    }
-}
-
 /// Field visitor implementing the allowlist + scrub policy. Anything not
 /// explicitly admitted is silently dropped.
 #[derive(Default)]
@@ -248,6 +243,8 @@ pub(super) struct FieldVisitor {
 }
 
 impl FieldVisitor {
+    /// The event's message is its name, scrubbed like free text; every other
+    /// field goes through the one policy ([`admit`]).
     pub(super) fn put_str(&mut self, key: &str, value: &str) {
         let lvl = level();
         if key == "message" {
@@ -256,33 +253,18 @@ impl FieldVisitor {
             } else {
                 scrub(value)
             });
-        } else if VERBATIM.contains(&key) {
-            self.fields
-                .insert(key.to_string(), Value::from(bound(value, MAX_FULL)));
-        } else if HASH_FIELDS.contains(&key) {
-            // Shape hashes user-chosen names; Labeled/Full keep them plaintext.
-            let v = if lvl == TraceLevel::Shape {
-                hash_str(value)
-            } else {
-                bound(value, MAX_FULL)
-            };
-            self.fields.insert(key.to_string(), Value::from(v));
-        } else if SCRUB_FIELDS.contains(&key) {
-            let v = if lvl == TraceLevel::Full {
-                bound(value, MAX_FULL)
-            } else {
-                scrub(value)
-            };
-            self.fields.insert(key.to_string(), Value::from(v));
-        } else if FULL_ONLY.contains(&key) && lvl == TraceLevel::Full {
-            self.fields
-                .insert(key.to_string(), Value::from(full_only(value)));
+        } else {
+            self.put(key, Value::from(value), lvl);
         }
     }
 
     pub(super) fn put_num(&mut self, key: &str, value: Value) {
-        if VERBATIM.contains(&key) {
-            self.fields.insert(key.to_string(), value);
+        self.put(key, value, level());
+    }
+
+    fn put(&mut self, key: &str, value: Value, lvl: TraceLevel) {
+        if let Some(admitted) = admit(key, value, lvl) {
+            self.fields.insert(key.to_string(), admitted);
         }
     }
 }

@@ -279,7 +279,7 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
 
     let latest = latest_link(dir, &snapshot.session);
     if let Ok(existing) = std::fs::read_to_string(&latest) {
-        if same_shape(&existing, &json) {
+        if same_shape(&existing, snapshot) {
             return Ok(None);
         }
     }
@@ -293,16 +293,14 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
     Ok(Some(target))
 }
 
-/// Identical but for `saved_at`: a save that found nothing changed must not
-/// write a new file just because the clock moved.
-fn same_shape(a: &str, b: &str) -> bool {
-    let strip = |s: &str| {
-        s.lines()
-            .filter(|l| !l.trim_start().starts_with("\"saved_at\""))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    strip(a) == strip(b)
+/// Whether the snapshot `existing` holds is `snapshot` but for `saved_at`: a
+/// save that found nothing changed must not write a new file just because
+/// the clock moved.
+fn same_shape(existing: &str, snapshot: &Snapshot) -> bool {
+    parse(existing).is_ok_and(|mut old| {
+        old.saved_at = snapshot.saved_at;
+        old == *snapshot
+    })
 }
 
 /// The dated snapshots of a session, oldest first.

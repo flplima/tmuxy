@@ -1,5 +1,37 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tracer } from '../tracer';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+/** The string literals of the list a `const <name> = …[ … ]` holds. */
+function listed(source: string, start: RegExp): string[] {
+  const at = source.indexOf('[', source.indexOf('=', source.search(start)));
+  const body = source.slice(at, source.indexOf(']', at));
+  return [...body.matchAll(/'([a-z_]+)'|"([a-z_]+)"/g)].map((m) => m[1] ?? m[2]);
+}
+
+describe('the client allowlist', () => {
+  // The server re-applies its own policy (tmuxy-core trace::schema) to every
+  // client event, so a key the client ships that the server does not admit
+  // is a key the client thinks it records and never does.
+  it('ships only keys the server records', () => {
+    const rust = readFileSync(resolve(here, '../../../../tmuxy-core/src/trace/schema.rs'), 'utf8');
+    const admitted = new Set(
+      ['STRUCTURAL', 'VERBATIM', 'HASHED', 'SCRUBBED', 'CLIENT_NUMBERS'].flatMap((name) =>
+        listed(rust, new RegExp(`pub const ${name}: `)),
+      ),
+    );
+    const client = listed(
+      readFileSync(resolve(here, '../tracer.ts'), 'utf8'),
+      /const ALLOWED_KEYS/,
+    );
+    expect(client.length).toBeGreaterThan(10);
+    for (const key of client) expect(admitted.has(key), key).toBe(true);
+  });
+});
 
 describe('tracer redaction boundary', () => {
   beforeEach(() => {

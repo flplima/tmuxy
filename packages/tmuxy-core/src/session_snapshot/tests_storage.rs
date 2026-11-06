@@ -114,6 +114,20 @@ async fn apply_stops_at_the_first_failure() {
     assert_eq!(result.unwrap_err().to_string(), "tmux error: no");
 }
 
+/// Records that do not parse (tmux answering in a shape the parser no longer
+/// reads) are no snapshot at all, never an empty one written over the last.
+#[tokio::test]
+async fn a_capture_that_reads_back_no_window_is_refused() {
+    let taken = take("work", |argv| {
+        std::future::ready(Ok(match argv[0].as_str() {
+            "list-windows" => "a,record,of,another,shape\n".to_string(),
+            _ => String::new(),
+        }))
+    })
+    .await;
+    assert!(taken.is_err());
+}
+
 #[tokio::test]
 async fn parse_and_apply_refuse_unsafe_session_names() {
     for bad in ["-bad", "a:b", "a\nb", "../escape"] {
