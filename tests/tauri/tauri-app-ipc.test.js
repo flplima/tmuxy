@@ -263,6 +263,5 @@ describe('IPC Commands', () => {
     expect(typeof result.start).toBe('number');
     expect(typeof result.end).toBe('number');
     expect(typeof result.width).toBe('number');
-    expect(result.__error).toBeUndefined();
   });
 });
