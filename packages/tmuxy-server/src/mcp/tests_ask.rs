@@ -127,7 +127,7 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
             });
         }
     });
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let session = SessionName::parse("s").unwrap();
     (Tmux::with_channel(&state, &session, tx), pane)
 }

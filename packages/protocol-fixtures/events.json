@@ -2,7 +2,7 @@
   {
     "data": {
       "connection_id": 3,
-      "default_shell": "/bin/zsh",
+      "default_shell": "zsh",
       "hostname": "gaphs04",
       "trace_enabled": true
     },
@@ -13,6 +13,12 @@
       "message": "unknown command: frobnicate"
     },
     "event": "tmux-error"
+  },
+  {
+    "data": {
+      "message": "Failed to connect to control mode: no server (attempt 1 of 5)"
+    },
+    "event": "reconnecting"
   },
   {
     "data": {
@@ -48,9 +54,41 @@
   },
   {
     "data": {
+      "appearance": {
+        "activePaneOpacity": 1.0,
+        "activeTextOpacity": 1.0,
+        "animations": true,
+        "blur": true,
+        "cursorBlink": true,
+        "gesturePinchOverview": true,
+        "gesturePinchZoom": true,
+        "gestureSwipeTabs": true,
+        "inactivePaneOpacity": 0.7,
+        "inactiveTextOpacity": 0.7,
+        "nativeMenus": true,
+        "notify": true,
+        "opacity": 0.7,
+        "sendAsk": true,
+        "size": {
+          "cols": 120,
+          "mode": "fixed",
+          "rows": 40
+        },
+        "tabOverviewCols": 3,
+        "transparency": true
+      },
+      "cssVars": {
+        "term-red": "#ff0000"
+      },
+      "icons": {
+        "claude": "*",
+        "codex": "data:image/svg+xml;base64,PHN2Zy8+"
+      },
       "mode": "dark",
-      "name": "default",
-      "opacity": 0.9
+      "pinned": [
+        "@tmuxy-opacity"
+      ],
+      "theme": "nord"
     },
     "event": "theme-settings"
   },

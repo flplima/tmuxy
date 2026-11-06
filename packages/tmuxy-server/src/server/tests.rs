@@ -182,7 +182,7 @@ fn allowed_hosts_ride_along_on_a_loopback_bind() {
 fn served_app(password: Option<&str>) -> axum::Router {
     let app = crate::state::api_routes(loopback(vec![]))
         .fallback(serve_embedded)
-        .with_state(Arc::new(AppState::new()));
+        .with_state(Arc::new(AppState::default()));
     with_optional_auth(app, password.map(str::to_string), loopback(vec![]))
 }
 
@@ -454,7 +454,7 @@ async fn the_dev_frontend_is_served_under_the_framing_rules() {
 #[tokio::test]
 async fn a_preview_page_keeps_its_own_policy_and_can_be_framed_by_the_app() {
     use tower::ServiceExt;
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     state
         .preview_pages
         .stage(

@@ -130,7 +130,7 @@ fn embedded_file(path: &str) -> Response {
             Some(index) => build_response(
                 StatusCode::OK,
                 "text/html; charset=utf-8",
-                titled_index_html(&index.data, &crate::host_name()),
+                titled_index_html(&index.data, &tmuxy_core::host::host_name()),
             ),
             None => StatusCode::NOT_FOUND.into_response(),
         }
@@ -142,7 +142,7 @@ fn embedded_file(path: &str) -> Response {
         build_response(
             StatusCode::OK,
             "text/html; charset=utf-8",
-            titled_index_html(&index.data, &crate::host_name()),
+            titled_index_html(&index.data, &tmuxy_core::host::host_name()),
         )
     } else {
         StatusCode::NOT_FOUND.into_response()
@@ -404,35 +404,15 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
     // The last snapshot of every session, before anything is torn down: a
     // graceful shutdown is the common way a machine goes down, and the
     // autosave's debounce may be holding the final change.
-    if !tmuxy_core::session_snapshot::autosave_disabled() {
-        let dir = tmuxy_core::session_snapshot::default_dir();
-        let targets: Vec<(String, tmuxy_core::control_mode::MonitorCommandSender)> = {
-            let sessions = state.sessions.read().await;
-            sessions
-                .iter()
-                // A session still being rebuilt is half of what its snapshot
-                // says; the snapshot it is being rebuilt FROM is the one to keep.
-                .filter(|(_, conns)| {
-                    !conns
-                        .snapshot_keeper
-                        .as_ref()
-                        .is_some_and(|keeper| keeper.restoring())
-                })
-                .filter_map(|(name, conns)| {
-                    conns
-                        .monitor_command_tx
-                        .clone()
-                        .map(|tx| (name.clone(), tx))
-                })
-                .collect()
-        };
-        for (name, tx) in targets {
-            let _ = tokio::time::timeout(
-                FINAL_SNAPSHOT_TIMEOUT,
-                tmuxy_core::session_snapshot::save_now(&name, &dir, &tx),
-            )
-            .await;
-        }
+    let runtimes: Vec<_> = state
+        .sessions
+        .read()
+        .await
+        .values()
+        .map(|conns| std::sync::Arc::clone(&conns.runtime))
+        .collect();
+    for runtime in runtimes {
+        runtime.save_snapshot_now(FINAL_SNAPSHOT_TIMEOUT).await;
     }
 
     // Structured shutdown: broadcast cancellation, then drain every tracked

@@ -19,15 +19,26 @@ pub(super) async fn session_with_fake_monitor(
             }
         }
     });
-    let mut conns = SessionConnections::new();
-    conns.connections.push(1);
-    conns.monitor_command_tx = Some(tx);
+    watched_with(state, session, tx, &[1]).await;
+    resizes
+}
+
+/// Session `session`, watched by the streams `clients`, with `tx` as its
+/// monitor's channel.
+pub(super) async fn watched_with(
+    state: &Arc<AppState>,
+    session: &str,
+    tx: tmuxy_core::control_mode::MonitorCommandSender,
+    clients: &[u64],
+) {
+    let mut conns = SessionConnections::new(session, state);
+    conns.connections.extend_from_slice(clients);
+    conns.runtime.connected(tx).await;
     state
         .sessions
         .write()
         .await
         .insert(session.to_string(), conns);
-    resizes
 }
 
 /// `get_initial_state` carrying a viewport, dispatched the way the HTTP
@@ -74,9 +85,6 @@ fn a_server_serves_every_session_name() {
 /// a client is not meant to retry.
 #[test]
 fn a_session_past_the_budget_is_a_503() {
-    assert!(may_create_session(0));
-    assert!(may_create_session(MAX_AUTO_CREATED_SESSIONS - 1));
-    assert!(!may_create_session(MAX_AUTO_CREATED_SESSIONS));
     assert_eq!(
         SessionRejection::TooMany.into_response().status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -140,14 +148,7 @@ async fn session_with_resizing_monitor(state: &Arc<AppState>, session: &str) {
             }
         }
     });
-    let mut conns = SessionConnections::new();
-    conns.connections.push(1);
-    conns.monitor_command_tx = Some(tx);
-    state
-        .sessions
-        .write()
-        .await
-        .insert(session.to_string(), conns);
+    watched_with(state, session, tx, &[1]).await;
 }
 
 /// The first state a client is given agrees with the size it just set.
@@ -159,7 +160,7 @@ async fn session_with_resizing_monitor(state: &Arc<AppState>, session: &str) {
 /// `UI=200x49, tmux=139x26`, for as long as the session stays quiet.
 #[tokio::test]
 async fn a_clients_first_state_is_not_the_grid_from_before_its_resize() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_with_resizing_monitor(&state, "s").await;
 
     let answer = handle_command(
@@ -185,7 +186,7 @@ async fn a_clients_first_state_is_not_the_grid_from_before_its_resize() {
 /// this, and the client went back to the pre-resize grid half the time.
 #[tokio::test]
 async fn a_first_state_waits_for_a_resize_an_earlier_call_sent() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_with_resizing_monitor(&state, "s").await;
 
     // The viewport arrives first, on its own — as it does in the app.
@@ -223,7 +224,7 @@ async fn a_first_state_waits_for_a_resize_an_earlier_call_sent() {
 /// whatever the monitor has: there is no resize on its way to wait for.
 #[tokio::test]
 async fn a_client_that_sets_no_size_waits_for_nothing() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_with_resizing_monitor(&state, "s").await;
 
     let answer = handle_command(
@@ -263,13 +264,7 @@ async fn session_answering_queries(
             }
         }
     });
-    let mut conns = SessionConnections::new();
-    conns.monitor_command_tx = Some(tx);
-    state
-        .sessions
-        .write()
-        .await
-        .insert(session.to_string(), conns);
+    watched_with(state, session, tx, &[]).await;
     queries
 }
 
@@ -279,17 +274,19 @@ async fn session_answering_queries(
 /// copy the session keeps.
 #[tokio::test]
 async fn a_session_keeps_the_bindings_it_last_broadcast() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let queries =
         session_answering_queries(&state, "s", "C-space\nbind-key -T prefix c new-window\n").await;
     let mut stream = state.sessions.read().await["s"].broadcast.subscribe();
 
-    refresh_keybindings(&state, "s").await;
+    let runtime = state.runtime("s").await.unwrap();
+    runtime.refresh_bindings().await;
 
     assert_eq!(queries.load(Ordering::SeqCst), 1);
     let (_, frame) = stream.try_recv().expect("the open streams are told");
-    assert!(frame.contains("C-space"), "{frame}");
-    let kept = state.sessions.read().await["s"].key_bindings.clone();
+    assert_eq!(frame.name, "keybindings");
+    assert!(frame.data.contains("C-space"), "{}", frame.data);
+    let kept = runtime.bindings();
     assert_eq!(
         kept.expect("kept for the next greeting").prefix_key,
         "C-space"

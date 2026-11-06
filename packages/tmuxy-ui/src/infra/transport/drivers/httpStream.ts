@@ -1,17 +1,7 @@
 import { EventHub } from '../../eventHub';
-import { TransportEvent, type DriverEvent } from '../events';
-import {
-  ClipboardEvent,
-  CommandFailure,
-  ConnectionInfo,
-  DetachedEvent,
-  KeyBindings,
-  LogEvent,
-  MessageFrame,
-  ThemeSettings,
-  TmuxMessageEvent,
-} from '../../../domain/wire';
-import { decodeEvent } from '../wireDecode';
+import { type DriverEvent } from '../events';
+import { CommandFailure, ConnectionInfo } from '../../../domain/wire';
+import { HOST_EVENT_NAMES, receiveHostEvent, type HostEventHooks } from '../hostEvents';
 import { tracer } from '../../tracer';
 import { Effect, Schedule, Schema } from 'effect';
 
@@ -41,20 +31,7 @@ export const REOPEN_AFTER_DROP_MS = 250;
 const STREAM_SILENCE_MS = 5000;
 
 /** Every event the server sends; any of them shows the stream is alive. */
-const STREAM_EVENTS = [
-  'ping',
-  'connection-info',
-  'state-update',
-  'keybindings',
-  'theme-settings',
-  'css-changed',
-  'tmux-error',
-  'clipboard',
-  'tmux-message',
-  'log',
-  'detached',
-  'fatal',
-] as const;
+const STREAM_EVENTS = ['ping', ...HOST_EVENT_NAMES];
 
 export const isCommandFailure = Schema.is(CommandFailure);
 
@@ -250,7 +227,7 @@ export interface SseStreamCallbacks {
   isStopRetrying(): boolean;
   onConnected(data: ConnectionInfo): void;
   onDisconnected(shouldAnnounceReconnect: boolean): void;
-  onFatal(message: string): void;
+  onFatal(): void;
   onEstablishError(eventsUrl: string): void;
   shipTrace(events: Record<string, unknown>[]): void;
 }
@@ -304,85 +281,35 @@ export function openSseConnection(
       resume(Effect.fail(error));
     };
 
-    // Every frame is `{ event, data }` JSON; `data` is decoded against its
-    // schema and the handler only ever sees a payload that matched.
-    const on = <A, I>(
-      type: (typeof STREAM_EVENTS)[number],
-      schema: Schema.Schema<A, I>,
-      handle: (data: A) => void,
-    ): void => {
-      const decode = decodeEvent(schema, type);
-      es.addEventListener(type, (event: MessageEvent) => {
-        const data = decode(parseFrame(type, event));
-        if (data !== null) handle(data);
-      });
+    // What this link does on an event besides publishing it.
+    const hooks: HostEventHooks = {
+      'connection-info': (data) => {
+        cb.onConnected(data);
+        // Action tracing (docs/TRACING.md): the server tells us whether it
+        // is recording; only then do we ship our own events, and only through
+        // the same-origin /trace sink. The server independently rejects when
+        // off, so this is a hint, not the gate.
+        tracer.setServerEnabled(data.trace_enabled === true);
+        tracer.setSink((events) => cb.shipTrace(events));
+      },
+      // The backend gave up: terminal state, no more events. The flag the
+      // retry loop checks is set first, so the loop stops instead of
+      // reconnecting into a dead backend.
+      fatal: (data) => {
+        cb.onFatal();
+        endConnection(new Error(data.message || 'tmux unavailable'));
+      },
     };
 
-    on('connection-info', ConnectionInfo, (data) => {
-      cb.onConnected(data);
-
-      // Action tracing (docs/TRACING.md): the server tells us whether it
-      // is recording; only then do we ship our own events, and only through
-      // the same-origin /trace sink. The server independently rejects when
-      // off, so this is a hint, not the gate.
-      tracer.setServerEnabled(data.trace_enabled === true);
-      tracer.setSink((events) => cb.shipTrace(events));
-    });
-
-    // Decoded and sequenced by the stream stage (`stateFeed.ts`).
-    es.addEventListener('state-update', (event: MessageEvent) => {
-      cb.events.emit({ _tag: 'StateReceived', payload: parseFrame('state-update', event) });
-    });
-
-    on('keybindings', KeyBindings, (keybindings) =>
-      cb.events.emit(TransportEvent.KeyBindings({ keybindings })),
-    );
-
-    on('theme-settings', ThemeSettings, (settings) =>
-      cb.events.emit(TransportEvent.ThemeSettings({ settings })),
-    );
-
-    es.addEventListener('css-changed', () => cb.events.emit(TransportEvent.CssChanged()));
-
-    // Backend errors for the user (a rejected command, a failed sync). The
-    // wire name is `tmux-error`, not `error`: a server event named `error`
-    // also fires `es.onerror`, and every reported error would have bounced
-    // the connection.
-    on('tmux-error', MessageFrame, (data) =>
-      cb.events.emit(TransportEvent.Error({ message: data.message || 'Unknown error' })),
-    );
-
-    // OSC 52 clipboard write requests from terminal applications.
-    // Mirrored into the system clipboard via navigator.clipboard.writeText.
-    on('clipboard', ClipboardEvent, (data) =>
-      cb.events.emit(TransportEvent.Clipboard({ paneId: data.pane_id, text: data.text })),
-    );
-
-    // `display-message` output: the wire name is `tmux-message`, not
-    // `message`, which every EventSource also dispatches to `onmessage`.
-    on('tmux-message', TmuxMessageEvent, (data) =>
-      cb.events.emit(TransportEvent.Message({ text: data.text })),
-    );
-
-    on('log', LogEvent, (data) =>
-      cb.events.emit(TransportEvent.Log({ kind: data.kind, message: data.message })),
-    );
-
-    // The connection ended with tmux's own reason. Deliberately does NOT set
-    // `this.fatal`: that flag stops the retry loop for good, and a detach is
-    // something the user steps back from by reconnecting.
-    on('detached', DetachedEvent, (data) =>
-      cb.events.emit(TransportEvent.Detached({ reason: data.reason ?? null })),
-    );
-
-    // Backend gave up reconnecting — terminal state, no more events. Flip the
-    // flag the retry `while` predicate checks so the loop stops instead of
-    // reconnecting into a dead backend, then end the connection.
-    on('fatal', MessageFrame, (data) => {
-      const message = data.message || 'tmux unavailable';
-      cb.onFatal(message);
-      endConnection(new Error(message));
-    });
+    // Every frame is `{ event, data }` JSON; `data` is decoded against its
+    // event's schema (`hostEvents.ts`) and only a payload that matched is
+    // published.
+    for (const name of HOST_EVENT_NAMES) {
+      es.addEventListener(name, (event: MessageEvent) => {
+        const published = receiveHostEvent(name, parseFrame(name, event), hooks);
+        if (published) cb.events.emit(published);
+      });
+    }
 
     es.onerror = () => {
       const wasConnected = cb.isConnected();

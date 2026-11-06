@@ -26,7 +26,7 @@ static TMUX_PATH: OnceLock<String> = OnceLock::new();
 /// so the Tauri desktop app works when launched from Finder/Spotlight.
 fn find_tmux() -> String {
     // Explicit env override
-    if let Ok(path) = std::env::var("TMUX_BIN") {
+    if let Ok(path) = std::env::var(TMUX_BIN_ENV) {
         if std::path::Path::new(&path).exists() {
             return path;
         }

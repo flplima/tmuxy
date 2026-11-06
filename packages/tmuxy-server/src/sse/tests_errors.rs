@@ -7,9 +7,9 @@ use tmuxy_core::control_mode::MonitorCommand;
 /// take its port.
 #[tokio::test]
 async fn open_stream_ends_when_the_server_shuts_down() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     {
-        let mut conns = SessionConnections::new();
+        let mut conns = SessionConnections::new("s", &state);
         // A handle that never finishes, so the handler does not start a
         // real tmux monitor for this session.
         conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
@@ -55,9 +55,9 @@ async fn open_stream_ends_when_the_server_shuts_down() {
 async fn the_first_broadcast_reaches_a_client_that_subscribed_before_it() {
     use futures_util::StreamExt;
 
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let broadcast = {
-        let mut conns = SessionConnections::new();
+        let mut conns = SessionConnections::new("s", &state);
         conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
         let broadcast = Arc::clone(&conns.broadcast);
         state.sessions.write().await.insert("s".to_string(), conns);
@@ -86,8 +86,8 @@ async fn the_first_broadcast_reaches_a_client_that_subscribed_before_it() {
     }
     tokio::task::yield_now().await;
 
-    let first = broadcast.broadcast("{\"type\":\"first\"}".to_string());
-    let second = broadcast.broadcast("{\"type\":\"second\"}".to_string());
+    let first = broadcast.broadcast("state-update", "{\"type\":\"first\"}".to_string());
+    let second = broadcast.broadcast("state-update", "{\"type\":\"second\"}".to_string());
     while !text.contains(&format!("id: {second}")) {
         let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
             .await
@@ -112,9 +112,9 @@ async fn the_first_broadcast_reaches_a_client_that_subscribed_before_it() {
 async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
     use futures_util::StreamExt;
 
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let broadcast = {
-        let mut conns = SessionConnections::new();
+        let mut conns = SessionConnections::new("s", &state);
         conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
         let broadcast = Arc::clone(&conns.broadcast);
         state.sessions.write().await.insert("s".to_string(), conns);
@@ -133,7 +133,7 @@ async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
     .await;
     let mut newest = 0;
     for i in 0..(crate::state::EVENT_BUFFER_SIZE + 50) {
-        newest = broadcast.broadcast(format!("{{\"type\":\"m{i}\"}}"));
+        newest = broadcast.broadcast("state-update", format!("{{\"type\":\"m{i}\"}}"));
     }
     let oldest = broadcast.oldest_seq().unwrap();
 
@@ -155,39 +155,6 @@ async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
     let expected: Vec<u64> = (oldest..=newest).collect();
     assert_eq!(ids, expected, "the lagged stream served: {ids:?}");
     state.shutdown.cancel();
-}
-
-/// The SSE `event:` name must be the variant's own serde tag. An
-/// allowlist here once silently relabelled `detached` and
-/// `theme-settings` as `state-update`, and the client's listeners for
-/// them never fired.
-#[test]
-fn every_frames_sse_name_is_its_own_serde_tag() {
-    let names: Vec<String> = super::protocol_fixtures::every_other_sse_event()
-        .iter()
-        .map(|e| {
-            let payload = encode_event(e).unwrap();
-            let tag = serde_json::from_str::<serde_json::Value>(&payload).unwrap()["event"]
-                .as_str()
-                .unwrap()
-                .to_string();
-            assert_eq!(
-                sse_event_type(&payload),
-                tag,
-                "an SSE frame lost its own name on the way to the browser"
-            );
-            tag
-        })
-        .collect();
-    assert!(names.contains(&"detached".to_string()));
-    assert!(names.contains(&"theme-settings".to_string()));
-    // No two variants may share a name, or one of them is unroutable.
-    let unique: std::collections::HashSet<&String> = names.iter().collect();
-    assert_eq!(
-        unique.len(),
-        names.len(),
-        "duplicate SSE event names: {names:?}"
-    );
 }
 
 // ============================================
@@ -235,13 +202,7 @@ async fn session_where_tmux_refuses(state: &Arc<AppState>, session: &str) {
             }
         }
     });
-    let mut conns = SessionConnections::new();
-    conns.monitor_command_tx = Some(tx);
-    state
-        .sessions
-        .write()
-        .await
-        .insert(session.to_string(), conns);
+    super::tests_sessions::watched_with(state, session, tx, &[]).await;
 }
 
 fn assert_failure(
@@ -260,7 +221,7 @@ fn assert_failure(
 
 #[tokio::test]
 async fn tmux_rejecting_a_query_is_kind_tmux() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_where_tmux_refuses(&state, "s").await;
     let (status, body) = post(
         &state,
@@ -274,7 +235,7 @@ async fn tmux_rejecting_a_query_is_kind_tmux() {
 
 #[tokio::test]
 async fn no_monitor_is_kind_unavailable() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     assert_failure(
         post(
             &state,
@@ -289,7 +250,7 @@ async fn no_monitor_is_kind_unavailable() {
 
 #[tokio::test]
 async fn a_malformed_payload_or_argument_is_kind_invalid() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     assert_failure(
         post(
             &state,
@@ -325,7 +286,7 @@ async fn a_malformed_payload_or_argument_is_kind_invalid() {
 
 #[tokio::test]
 async fn a_blocked_query_is_kind_forbidden() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_where_tmux_refuses(&state, "s").await;
     assert_failure(
         post(
@@ -344,7 +305,7 @@ async fn a_blocked_query_is_kind_forbidden() {
 /// relay and queue.
 #[tokio::test]
 async fn a_mutation_sent_as_a_query_is_kind_forbidden() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_where_tmux_refuses(&state, "s").await;
     for command in ["run-shell 'true'", "display-message -p x ; kill-pane"] {
         assert_failure(
@@ -362,7 +323,7 @@ async fn a_mutation_sent_as_a_query_is_kind_forbidden() {
 
 #[tokio::test]
 async fn success_is_still_a_bare_result() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let (status, body) = post(
         &state,
         Some("s"),
@@ -381,10 +342,10 @@ async fn success_is_still_a_bare_result() {
 /// "Connecting…" for ever.
 #[tokio::test]
 async fn a_session_whose_monitor_ended_and_that_tmux_no_longer_has_is_a_404() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let name = format!("killed-{}", std::process::id());
     {
-        let mut conns = SessionConnections::new();
+        let mut conns = SessionConnections::new(&name, &state);
         let ended = tokio::spawn(async {});
         while !ended.is_finished() {
             tokio::task::yield_now().await;
@@ -410,9 +371,9 @@ async fn a_session_whose_monitor_ended_and_that_tmux_no_longer_has_is_a_404() {
 /// connection available" and lost.
 #[tokio::test]
 async fn a_command_waits_for_a_monitor_still_connecting_and_not_for_a_dead_one() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     {
-        let mut conns = SessionConnections::new();
+        let mut conns = SessionConnections::new("s", &state);
         conns.monitor_handle = Some(tokio::spawn(std::future::pending::<()>()));
         state.sessions.write().await.insert("s".to_string(), conns);
     }
@@ -421,13 +382,7 @@ async fn a_command_waits_for_a_monitor_still_connecting_and_not_for_a_dead_one()
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(150)).await;
             let (tx, _rx) = tokio::sync::mpsc::channel(1);
-            state
-                .sessions
-                .write()
-                .await
-                .get_mut("s")
-                .unwrap()
-                .monitor_command_tx = Some(tx);
+            state.runtime("s").await.unwrap().connected(tx).await;
             _rx
         })
     };
@@ -440,5 +395,5 @@ async fn a_command_waits_for_a_monitor_still_connecting_and_not_for_a_dead_one()
     // No monitor at all: refused at once, not after the wait.
     let started = std::time::Instant::now();
     assert!(state.monitor_tx("nobody").await.is_err());
-    assert!(started.elapsed() < AppState::MONITOR_START_WAIT);
+    assert!(started.elapsed() < tmuxy_core::host::MONITOR_READY_TIMEOUT);
 }

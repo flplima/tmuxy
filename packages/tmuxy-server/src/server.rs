@@ -169,15 +169,13 @@ fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-/// Stop before serving anything when there is no usable tmux: every client
-/// would otherwise sit reconnecting to a monitor that can never attach.
-fn require_tmux() {
-    match tmuxy_core::tmux_check::check_tmux() {
-        Ok(version) => tracing::info!(%version, "tmux found"),
-        Err(e) => {
-            eprintln!("tmuxy server: {e}");
-            std::process::exit(1);
-        }
+/// Get the process ready to serve (`tmuxy_core::host::prepare`), or stop
+/// with the reason: with no usable tmux every client would sit reconnecting
+/// to a monitor that can never attach.
+fn prepare() {
+    if let Err(e) = tmuxy_core::host::prepare::prepare() {
+        eprintln!("tmuxy server: {e}");
+        std::process::exit(1);
     }
 }
 
@@ -261,20 +259,21 @@ pub async fn run(args: ServerArgs) {
                         std::process::exit(2);
                     }
                 };
-            require_tmux();
+            prepare();
             // Action tracing per the gating rules (docs/TRACING.md), which
             // announces itself. Only on the actual server-start path — never
             // for stop/status/tree/connect.
             tmuxy_core::trace::init(args.trace.clone(), dev_mode);
-            if args.no_restore {
-                std::env::set_var("TMUXY_NO_RESTORE", "1");
-            }
             let frontend = if dev_mode {
                 Frontend::Dev
             } else {
                 Frontend::Embedded
             };
-            serve(frontend, args.port, listen, password).await
+            let state = AppState {
+                restore: !args.no_restore,
+                ..AppState::default()
+            };
+            serve(frontend, args.port, listen, password, state).await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
@@ -297,7 +296,13 @@ enum Frontend {
 }
 
 /// Serve the API and the frontend until a shutdown signal.
-async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<String>) {
+async fn serve(
+    frontend: Frontend,
+    port: u16,
+    listen: Listen,
+    password: Option<String>,
+    state: AppState,
+) {
     // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
     // told to bind that one, it wins the race; Vite fails silently, and the
     // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
@@ -316,19 +321,7 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     if frontend == Frontend::Embedded {
         write_pid_file(port);
     }
-    // Migrate an older install's config dir, mirror the shipped config and
-    // the built-in themes into the data dir, and build the config chain.
-    tmuxy_core::session::ensure_config();
-    tmuxy_core::session::ensure_themes();
-    // Materialize bundled CLI dispatcher and helper scripts so the in-config
-    // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
-    // direct "Add Pane to Group" menu commands resolve at
-    // `$TMUXY_DATA_DIR/bin/tmuxy/…`, the data dir the config chain publishes
-    // to tmux. Mirrors gui.rs setup().
-    tmuxy_core::session::ensure_bin_scripts();
-    tmuxy_core::plugins::gc::on_start();
-
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(state);
 
     let vite = match frontend {
         Frontend::Embedded => None,
@@ -344,8 +337,19 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
     };
 
     crate::sse::watch_config_dir(state.clone()).await;
-    crate::push::watch(state.clone()).await;
-    crate::agents::screen::watch(state.clone()).await;
+    // Every pane on the socket, read once for everything that follows them:
+    // the agent-dialog correction and push.
+    let (panes_tx, panes) = tmuxy_core::host::socket_watch::channel();
+    let shutdown = state.shutdown.clone();
+    state
+        .spawn(async move {
+            tokio::select! {
+                _ = tmuxy_core::host::socket_watch::run(panes_tx) => {}
+                _ = shutdown.cancelled() => {}
+            }
+        })
+        .await;
+    crate::push::watch(state.clone(), panes).await;
     let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),
