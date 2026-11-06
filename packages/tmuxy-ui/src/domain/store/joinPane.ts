@@ -1,9 +1,4 @@
-import {
-  type TmuxSnapshot,
-  type Patch,
-  type ReconcileVerdict,
-  FOCUS_CONFIRM_LINGER_MS,
-} from './types';
+import { type TmuxSnapshot, type Patch, type ReconcileVerdict, CONFIRM_LINGER_MS } from './types';
 import type { TmuxPane } from '../client';
 import type { TmuxOpOf } from '../commands';
 import type { PredictResult } from './ops';
@@ -68,5 +63,5 @@ export function reconcileJoinPane(
 ): ReconcileVerdict {
   const pane = panes.find((p) => p.tmuxId === meta.paneId);
   if (pane && pane.windowId !== meta.windowId) return { _tag: 'pending' };
-  return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+  return ageMs >= CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
 }

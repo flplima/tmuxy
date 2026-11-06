@@ -14,6 +14,7 @@ import { calculateTargetSize } from '../../../infra/dom/targetSize';
 import { releaseKeyboard, sidebarStartTimeoutId, takeKeyboard } from '../helpers';
 import { fixedGridSize } from '../../../domain/gridFit';
 import { fitWindowToSidebar } from '../../../infra/desktopWindow';
+import { toStore } from '../dispatch';
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */
 export const SIDEBAR_START_TIMEOUT_MS = 4000;
@@ -59,18 +60,21 @@ function retileFor(context: Ctx, enqueue: Enqueue, side: SidebarSide, willOpen: 
   enqueue.raise({ type: 'SET_TARGET_SIZE' as const, ...size });
 }
 
-/** Hide or show `side`'s window for every client (`@tmuxy-sidebar-hidden`). */
+/**
+ * Hide or show `side`'s window for every client (`@tmuxy-sidebar-hidden`).
+ * Through the store, which holds the flag as written until tmux's states
+ * agree, so reconcileSidebar never reads this client's own late echo as
+ * another client's toggle (P13).
+ */
 function setHidden(context: Ctx, enqueue: Enqueue, side: SidebarSide, hidden: boolean) {
   const pane = selectSidebarPane(context, side);
   if (!pane) return;
-  enqueue(
-    sendTo('tmux', {
-      type: 'SEND_OP' as const,
-      op: TmuxOp.SetWindowTag({
-        windowId: pane.windowId,
-        tag: 'sidebar-hidden',
-        value: hidden ? '1' : null,
-      }),
+  toStore(
+    enqueue,
+    TmuxOp.SetWindowTag({
+      windowId: pane.windowId,
+      tag: 'sidebar-hidden',
+      value: hidden ? '1' : null,
     }),
   );
 }

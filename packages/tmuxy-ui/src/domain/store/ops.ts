@@ -29,12 +29,14 @@ import {
   predictNewWindow,
   predictRenameWindow,
   predictSelectWindow,
+  predictWindowTag,
   reconcileGroupSwitch,
   reconcileKillWindow,
   reconcileMoveWindow,
   reconcileNewWindow,
   reconcileRenameWindow,
   reconcileSelectWindow,
+  reconcileWindowTag,
 } from './windowOps';
 
 /** The shell a predicted pane shows until tmux names its command, before the host has said which. */
@@ -87,6 +89,8 @@ export function predict(
       return predictGroupSwitch(op, snapshot);
     case 'GroupMove':
       return predictGroupMove(op, snapshot);
+    case 'SetWindowTag':
+      return predictWindowTag(op, snapshot);
     default:
       // Everything else changes what the client cannot know ahead of tmux
       // (a script's choices, a new session) or what it never draws.
@@ -144,6 +148,8 @@ export function reconcile(
       );
     case 'GroupMove':
       return reconcileGroupMove(meta, committed.panes);
+    case 'SetWindowTag':
+      return reconcileWindowTag(meta, committed.windows, now - pending.createdAt);
     default:
       // No prediction, so there's nothing to wait for.
       return { _tag: 'matched' };
