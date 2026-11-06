@@ -31,6 +31,7 @@ pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
 pub mod program;
+pub mod random;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]

@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::super::registry::Registry;
-use super::super::{private_dir, random_hex, PluginError, Result};
+use super::super::{private_dir, PluginError, Result};
 use crate::paths::Layout;
 
 /// A token older than this is refused: it belongs to a launch that failed.
@@ -127,7 +127,7 @@ impl Token {
     }
 
     pub fn create(&self, dirs: &Layout) -> Result<String> {
-        let id = random_hex()?;
+        let id = crate::random::token();
         self.write(dirs, &id)?;
         Ok(id)
     }

@@ -34,6 +34,8 @@ icy_sixel = "0.5"
 png = "0.18"
 base64.workspace = true
 flate2 = "1"
+# Unguessable tokens (`random`); the wasm build turns on its browser backend.
+getrandom = "0.4"
 
 # `cli`: the user's config directory.
 dirs = { workspace = true, optional = true }

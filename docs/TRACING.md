@@ -184,7 +184,7 @@ command before it is written — in the trace and in the server's own debug log
 (`redact_command` in `tmuxy-core/src/trace.rs`). `full` is a local-debug escape
 hatch, not a content firehose.
 
-Name/path **hashing is salted per process** (a random `RandomState` seed), so a
+Name/path **hashing is salted per process** (a random seed from the OS random source, `random.rs`), so a
 hashed value can't be confirmed by hashing a guessed name and can't be correlated
 across separate trace files — at the cost of ids not being stable across runs.
 
