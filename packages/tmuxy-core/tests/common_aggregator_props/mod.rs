@@ -84,10 +84,11 @@ pub fn terminal_bytes_strategy() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(fragment, 1..12).prop_map(|parts| parts.concat())
 }
 
-/// A pane side as tmux could report it: degenerate (0 to 2 cells), ordinary,
-/// or one past what a `u16` holds (which a cast would wrap to 0).
+/// A pane side as tmux could report it: degenerate (0 to 2 cells) or
+/// ordinary. Not huge: a grid is allocated whole, and a side past a `u16`
+/// saturates rather than wraps (`tests/degenerate_size.rs` covers that).
 fn pane_side() -> impl Strategy<Value = u32> {
-    prop_oneof![0u32..3, 3u32..120, Just(65_536)]
+    prop_oneof![0u32..3, 3u32..120]
 }
 
 /// Every event the monitor can hand `step`, aimed at the panes
