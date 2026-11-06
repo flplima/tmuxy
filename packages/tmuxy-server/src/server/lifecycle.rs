@@ -315,7 +315,7 @@ pub(super) fn server_status(port: u16) {
 
 /// How many seconds a server waits for its port to come free. A server told
 /// to stop keeps the port until its shutdown is done, which can take a final
-/// snapshot per session and a bounded drain (`FINAL_SNAPSHOT_TIMEOUT`,
+/// snapshot per session and a bounded drain (`host::FINAL_SNAPSHOT_TIMEOUT`,
 /// `SHUTDOWN_DRAIN_TIMEOUT`); an upgrade starts the new server straight after
 /// the `stop`, so the wait has to outlast the old one's slowest exit.
 pub(super) const BIND_RETRIES: u32 = 15;
@@ -347,8 +347,6 @@ pub(super) async fn bind_with_retry(
 
 const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-
 pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::ViteChild>) {
     // Installing the handler fails only without sigaction or out of file
     // descriptors, and a server that cannot react to Ctrl+C is unusable.
@@ -378,19 +376,8 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
     println!("\nShutting down...");
 
-    // The last snapshot of every session, before anything is torn down: a
-    // graceful shutdown is the common way a machine goes down, and the
-    // autosave's debounce may be holding the final change.
-    let runtimes: Vec<_> = state
-        .sessions
-        .read()
-        .await
-        .values()
-        .map(|conns| std::sync::Arc::clone(&conns.runtime))
-        .collect();
-    for runtime in runtimes {
-        runtime.save_snapshot_now(FINAL_SNAPSHOT_TIMEOUT).await;
-    }
+    // Before anything is torn down.
+    tmuxy_core::host::save_final_snapshots(&*state).await;
 
     state.shutdown.cancel();
     let mut join_set = state.join_set.lock().await;

@@ -81,9 +81,21 @@ pub async fn proxy_to_vite(req: Request) -> Response {
     }
 }
 
+/// The npm workspace Vite runs in: the nearest ancestor of the cwd whose
+/// package.json declares "workspaces" (a package's own does not), else the cwd.
+fn workspace_root() -> std::path::PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    cwd.ancestors()
+        .find(|dir| {
+            std::fs::read_to_string(dir.join("package.json"))
+                .is_ok_and(|json| json.contains("\"workspaces\""))
+        })
+        .map_or_else(|| cwd.clone(), std::path::Path::to_path_buf)
+}
+
 pub async fn spawn_vite() -> Option<ViteChild> {
     let label = "vite";
-    let workspace_root = crate::state::find_workspace_root();
+    let workspace_root = workspace_root();
 
     let mut cmd = Command::new("npm");
     cmd.args(["run", "dev", "-w", "tmuxy-ui"])

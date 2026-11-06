@@ -4,10 +4,10 @@
 
 use crate::client_size::SizePolicy;
 use crate::constants::tmux_options;
+use crate::control_mode::query;
 use crate::control_mode::MonitorCommandSender;
 use crate::session::{self, ManagedOption};
 use crate::tmux_quote;
-use crate::transport::query;
 use crate::CommandError;
 
 mod css_vars;

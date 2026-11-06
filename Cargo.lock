@@ -5377,6 +5377,7 @@ dependencies = [
  "criterion",
  "dirs",
  "flate2",
+ "getrandom 0.4.3",
  "icy_sixel",
  "libc",
  "nix",
@@ -5492,6 +5493,7 @@ name = "tmuxy-wasm"
 version = "0.1.4"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.4.3",
  "serde",
  "serde-wasm-bindgen",
  "tmuxy-core",

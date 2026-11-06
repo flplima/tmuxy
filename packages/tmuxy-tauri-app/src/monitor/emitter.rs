@@ -112,10 +112,12 @@ pub async fn poll_connect_requests(app: AppHandle) {
 /// Read a tmux global environment variable and unset it, so a request fires
 /// once. `None` when it is unset or blank.
 async fn take_global_env(tx: &MonitorCommandSender, name: &str) -> Option<String> {
-    let out = tmuxy_core::transport::query(tx, &format!("show-environment -g {name}"))
+    let out = tmuxy_core::control_mode::query(tx, &format!("show-environment -g {name}"))
         .await
         .ok()?;
-    if let Err(e) = tmuxy_core::transport::run(tx, &format!("set-environment -g -u {name}")).await {
+    if let Err(e) =
+        tmuxy_core::control_mode::run(tx, &format!("set-environment -g -u {name}")).await
+    {
         // Left set, the same request would fire again on every poll.
         tracing::warn!(error = %e, name, "could not clear a connect request; ignoring it");
         return None;

@@ -220,12 +220,7 @@ impl Question {
         keys: &[String],
         rules: &SendRules,
     ) -> Self {
-        let token = format!(
-            "{}-{sender}-{:016x}{:016x}",
-            pane.number(),
-            random_u64(),
-            random_u64()
-        );
+        let token = format!("{}-{sender}-{}", pane.number(), crate::random::token());
         let encoded = encode_question(&token, caller, keys);
         Self {
             pane: pane.clone(),
@@ -366,18 +361,6 @@ fn unset_pane(pane: &PaneId, option: &str) -> Argv {
 
 fn words(words: &[&str]) -> Argv {
     words.iter().map(|w| w.to_string()).collect()
-}
-
-fn random_u64() -> u64 {
-    use std::hash::{BuildHasher, Hasher};
-    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-    hasher.write_u128(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default(),
-    );
-    hasher.finish()
 }
 
 #[cfg(test)]

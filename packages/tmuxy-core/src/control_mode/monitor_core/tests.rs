@@ -1,3 +1,4 @@
+use super::attach::enforced_settings;
 use super::sizing::{needs_resize, resize_command, MAX_RESIZE_ATTEMPTS};
 use super::*;
 use crate::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};

@@ -179,16 +179,6 @@ pub(crate) fn private_dir(dir: &Path) -> Result<()> {
         .map_err(|e| PluginError::io(format!("creating {}", dir.display()), e))
 }
 
-/// 32 random hex digits.
-pub(crate) fn random_hex() -> Result<String> {
-    use std::io::Read;
-    let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| PluginError::io("reading /dev/urandom", e))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
-}
-
 /// After plugins changed (install, update, remove). The running apps are
 /// asked to reload their config because bindings reach a client only at
 /// connect and on a reload (docs/DATA-FLOW.md). With no tmux server there is

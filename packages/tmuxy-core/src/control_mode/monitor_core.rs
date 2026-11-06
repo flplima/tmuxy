@@ -31,7 +31,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tracing::debug;
 
-pub use attach::{enforced_settings, AttachConfig};
+pub use attach::AttachConfig;
 pub use reads::ReadPacing;
 
 /// How often the client polls a pane in copy mode: its cursor needs

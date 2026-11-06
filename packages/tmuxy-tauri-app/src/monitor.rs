@@ -107,7 +107,7 @@ pub async fn request_reconnect(app: &AppHandle, target: ConnectTarget) {
 /// error to.
 pub async fn run_on(monitor: &Monitor, command: &str) {
     if let Some(tx) = monitor.runtime.tx_now() {
-        if let Err(e) = tmuxy_core::transport::run(&tx, command).await {
+        if let Err(e) = tmuxy_core::control_mode::run(&tx, command).await {
             tracing::warn!(error = %e, "housekeeping command not sent");
         }
     }
@@ -217,19 +217,15 @@ impl Host for DesktopHost {
     }
 }
 
-/// The app is going: the last snapshot of every window's session, before
-/// the process ends — a change still on the autosave's debounce would be
-/// lost otherwise.
-pub async fn save_snapshots(app: &AppHandle) {
-    for window in crate::windows::list_all(app) {
-        window
-            .monitor
-            .runtime
-            .save_snapshot_now(FINAL_SNAPSHOT_TIMEOUT)
-            .await;
+/// Every window's session: what the desktop serves, for `host::start` and
+/// `host::save_final_snapshots`.
+pub struct Windows(pub AppHandle);
+
+impl host::Sessions for Windows {
+    async fn runtimes(&self) -> Vec<Arc<SessionRuntime>> {
+        crate::windows::list_all(&self.0)
+            .into_iter()
+            .map(|window| Arc::clone(&window.monitor.runtime))
+            .collect()
     }
 }
-
-/// How long the last snapshot of a session may take before quitting goes on
-/// without it.
-const FINAL_SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(2);

@@ -14,7 +14,6 @@ use crate::request_guard::HostPolicy;
 
 mod handlers;
 pub(crate) use handlers::build_response;
-pub use handlers::find_workspace_root;
 use handlers::image_handler;
 
 #[cfg(test)]
@@ -267,6 +266,17 @@ impl Default for AppState {
             mcp_clients: crate::mcp::Clients::default(),
             push: crate::push::Push::default(),
         }
+    }
+}
+
+impl tmuxy_core::host::Sessions for AppState {
+    async fn runtimes(&self) -> Vec<Arc<tmuxy_core::host::SessionRuntime>> {
+        self.sessions
+            .read()
+            .await
+            .values()
+            .map(|conns| Arc::clone(&conns.runtime))
+            .collect()
     }
 }
 

@@ -59,7 +59,7 @@ The typed envelope external code uses to drive the monitor (resize the window, r
 
 ### ControlModeConnection
 
-Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_commands` for writes (a line each, one flush). `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
+Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (`pty_process`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_commands` for writes (a line each, one flush). `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
 
 See `tmuxy-core/src/control_mode/connection.rs`.
 
@@ -92,11 +92,11 @@ Adding a transport means writing a sink and its `Host` policy, nothing else.
 
 Three timing policies the monitor applies on top of the aggregator's effects. All are about _when_ to flush state, not _what_ the state contains.
 
-- **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag; the monitor owns the debounce/safety timer that decides when to disarm it.
+- **Settling** suppresses intermediate window/layout emissions while a compound command (`splitw ; breakp ; set-option ...`) is mid-flight. The aggregator owns the suppression flag and its deadline, disarmed by its `tick`; the monitor sleeps until `MonitorCore::next_deadline` to run it.
 - **Adaptive throttling** caps state emissions during high-frequency output (rate-window hysteresis with a ~60fps ceiling) so terminal-output bursts don't drown the SSE channel. Below the threshold, emissions are immediate for low-latency typing feedback.
 - **Layout debounce** coalesces rapid layout changes (e.g., zoom-out cascades) into a single emission.
 
-The tunables are constants in `control_mode/monitor.rs` (only the throttle interval is a `MonitorConfig` field). The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."
+The tunables are constants in `control_mode/monitor/event_loop.rs` (only the throttle interval is a `MonitorConfig` field). The exact durations + thresholds drift as we tune for real workloads; the durable contract is "the aggregator is correct; the monitor decides cadence."
 
 ---
 

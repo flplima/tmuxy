@@ -164,14 +164,13 @@ pub(super) fn clip_listing(text: &str) -> String {
 fn quoted(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
-    for c in text.chars() {
+    for c in crate::argv::format_literal(text).chars() {
         match c {
             '"' | '\\' | '$' => {
                 out.push('\\');
                 out.push(c);
             }
             '\n' => out.push_str("\\n"),
-            '#' => out.push_str("##"),
             _ => out.push(c),
         }
     }

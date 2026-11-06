@@ -24,7 +24,7 @@ pub struct AttachConfig {
 /// options are set on each window as it is first seen
 /// (`window_setup_commands`): set here, they would reach only the window
 /// current at attach.
-pub fn enforced_settings() -> Vec<String> {
+pub(super) fn enforced_settings() -> Vec<String> {
     [
         ("mouse", "on"),
         ("focus-events", "on"),

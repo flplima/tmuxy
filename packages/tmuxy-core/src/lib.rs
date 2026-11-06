@@ -1,4 +1,3 @@
-#[cfg(feature = "cli")]
 pub mod argv;
 #[cfg(feature = "native")]
 pub mod ask;
@@ -31,6 +30,7 @@ pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
 pub mod program;
+pub mod random;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]
@@ -45,8 +45,6 @@ pub mod tmux_command;
 pub mod tmux_compat;
 #[cfg(feature = "native")]
 pub mod trace;
-#[cfg(feature = "native")]
-pub mod transport;
 #[cfg(feature = "native")]
 pub mod worktrees;
 

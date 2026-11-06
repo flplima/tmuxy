@@ -2,7 +2,7 @@
 //! lines it prints, and the one rule for a table that will not list.
 //!
 //! Every reader of the bindings goes through here — the client's key tables
-//! (`transport::KeyBindings`) and the plugin keys (`plugins::keys`), from the
+//! (`host::KeyBindings`) and the plugin keys (`plugins::keys`), from the
 //! monitor's control-mode connection and from a CLI verb's subprocess alike —
 //! so the line format is parsed once and a failed read means the same thing
 //! everywhere.

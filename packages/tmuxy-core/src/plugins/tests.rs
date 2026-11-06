@@ -38,7 +38,7 @@ pub(super) fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "tmuxy-plugins-test-{tag}-{}-{}",
         std::process::id(),
-        random_hex().unwrap()
+        crate::random::token()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     dir

@@ -291,7 +291,10 @@ fn action(
         }
     };
     if wait {
-        let status = invoke::wait(dirs, &opened.token, opened.pane.as_deref());
+        let status = match &opened.pane {
+            Some(pane) => invoke::wait(dirs, &opened.token, pane),
+            None => 1,
+        };
         if json {
             println!(
                 "{}",

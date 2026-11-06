@@ -397,3 +397,38 @@ fn a_collapsible_window_keeps_only_the_active_row_expanded() {
         Some(vec![10, 10, 10])
     );
 }
+
+/// A zoomed window's `%layout-change` carries the full layout (every pane at
+/// its split size) and the visible one (the zoomed pane at the window's size).
+/// The pane was resized to the first and then to the second: every zoom
+/// reflowed its emulator twice, and a layout that changed nothing still
+/// queued a capture, sized for the split.
+#[test]
+fn a_zoomed_pane_is_sized_once_to_what_is_drawn() {
+    let mut agg = StateAggregator::new();
+    agg.parse_list_windows_line(
+        &window_row("@1", 0, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
+    let full = "0000,80x24,0,0{40x24,0,0,1,39x24,41,0,2}";
+    let visible = "0000,80x24,0,0,1";
+    let zoom = || ControlModeEvent::LayoutChange {
+        window_id: wid("@1"),
+        layout: full.into(),
+        visible_layout: visible.into(),
+        flags: "*Z".into(),
+    };
+    agg.process_event(zoom());
+    let pane = agg.panes.get(&pid("%1")).expect("pane placed");
+    assert_eq!((pane.width, pane.height), (80, 24));
+    let hidden = agg.panes.get(&pid("%2")).expect("pane placed");
+    assert_eq!((hidden.width, hidden.x), (39, 41));
+
+    let again = agg.process_event(zoom());
+    assert!(
+        again.panes_needing_refresh.is_empty(),
+        "nothing changed size: {:?}",
+        again.panes_needing_refresh
+    );
+}
