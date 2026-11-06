@@ -12,6 +12,7 @@ import type { KeyBinding, KeyBindings } from './wire';
 import { toTmuxCommand, type TmuxOp } from './commands';
 import { boundAction, parseCommandToOp, runShellScript } from './store/parseCommand';
 import { CLIENT_CHORDS, CLIENT_KEYS, splitTableSwitch, type ClientKey } from './keyTables';
+import { PLUGIN_KEY_MARKER } from './tmuxyConstants.gen';
 
 /** `text`, followed by the key that does it when one is bound: `Zoom (ctrl+a z)`. */
 export function withKeyHint(text: string, hint: string | undefined): string {
@@ -151,7 +152,7 @@ export function pluginKeyHint(
 ): string | undefined {
   if (!keybindings) return undefined;
   const ours = (command: string) =>
-    command.includes('--trigger key') && command.includes(`plugin action ${plugin}:${action} `);
+    command.includes(PLUGIN_KEY_MARKER) && command.includes(`plugin action ${plugin}:${action} `);
   for (const [table, bindings] of tables(keybindings)) {
     const binding = bindings.find((b) => ours(b.command));
     const label = binding && tableKeyLabel(keybindings, table, binding.key);

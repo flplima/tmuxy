@@ -1,9 +1,10 @@
 import { isPlaceholderId, type PaneId } from './ids';
 import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
+import { CLI_DISPATCHER } from './tmuxyConstants.gen';
 
 /** The bundled CLI dispatcher, beside the scripts. */
-const CLI_PATH = '$TMUXY_DATA_DIR/bin/tmuxy-cli';
+const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
 
 /** Longest literal a single `send-keys -l` carries before the text is split. */
 const LITERAL_CHUNK_SIZE = 500;

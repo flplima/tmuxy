@@ -280,7 +280,10 @@ impl StateAggregator {
                 let inferred = if window.name == "float" || window.name.starts_with("__float_") {
                     Some(WindowType::Float)
                 } else {
-                    match window.name.strip_prefix("__sidebar-") {
+                    match window
+                        .name
+                        .strip_prefix(crate::constants::SIDEBAR_WINDOW_PREFIX)
+                    {
                         Some("left") => Some(WindowType::SidebarLeft),
                         Some(_) => Some(WindowType::SidebarRight),
                         None => None,

@@ -2,7 +2,8 @@
 //! tmuxy-core into a TypeScript module and a shell file each of them reads,
 //! so no copy is kept by hand: the stash session, the pane-title format, the
 //! window types, the sidebar dock widths, the options a menu changes, what a
-//! left sidebar runs — and, for the browser guests' build scripts, the guest's
+//! left sidebar runs, the sidebar window prefix, the plugin key marker, the
+//! CLI dispatcher's name — and, for the browser guests' build scripts, the guest's
 //! tmuxy layout and the config chain tmux starts with there.
 //!
 //! The files are committed; this test fails when one is stale. Rewrite them
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use tmuxy_core::constants::sidebar_dock;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
-use tmuxy_core::constants::STASH_SESSION;
+use tmuxy_core::constants::{SIDEBAR_WINDOW_PREFIX, STASH_SESSION};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
@@ -99,6 +100,24 @@ fn typescript() -> String {
         "\n/** What a left sidebar runs, and a restore recognises (`session_snapshot::LEFT_SIDEBAR_WIDGET`). */\n\
          export const LEFT_SIDEBAR_WIDGET = {};",
         quoted(LEFT_SIDEBAR_WIDGET)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The name prefix a sidebar window is recognised by (`constants::SIDEBAR_WINDOW_PREFIX`). */\n\
+         export const SIDEBAR_WINDOW_PREFIX = {};",
+        quoted(SIDEBAR_WINDOW_PREFIX)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** What marks a key binding as a plugin key's (`plugins::keys::MARKER`). */\n\
+         export const PLUGIN_KEY_MARKER = {};",
+        quoted(tmuxy_core::plugins::keys::MARKER)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */\n\
+         export const CLI_DISPATCHER = {};",
+        quoted(tmuxy_core::paths::CLI_DISPATCHER)
     );
     out
 }
