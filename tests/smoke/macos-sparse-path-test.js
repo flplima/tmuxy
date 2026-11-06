@@ -155,6 +155,7 @@ async function run() {
       );
     }
 
+    // `CONNECTED_LINE` in tmuxy-core control_mode/connection/spawn.rs.
     const connectCount = (log.match(/control mode connected successfully/g) || []).length;
     if (connectCount === 0) {
       throw new Error(

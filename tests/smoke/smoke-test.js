@@ -74,7 +74,7 @@ function truncateDebugLog() {
  * while the app reconnected silently behind it (tmux crashed and was
  * reattached). No `FATAL:` (the bounded retry gave up; tauri `monitor.rs`
  * writes it) and at most two `control mode connected successfully` lines
- * (`tmuxy-core` `connection/spawn.rs`): more is a reconnect loop, the pattern
+ * (`CONNECTED_LINE` in `tmuxy-core` `control_mode/connection/spawn.rs`): more is a reconnect loop, the pattern
  * a macOS Finder launch once produced.
  */
 function assertHealthyDebugLog() {

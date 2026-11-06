@@ -395,10 +395,8 @@ impl ControlModeConnection {
 
         let outcome = tokio::time::timeout(CONNECT_TIMEOUT, opening).await;
         if let Ok(Ok(Opening::Connected)) = outcome {
-            // The smoke tests count this line in the desktop app's log
-            // file: more than two in a run is a reconnect loop.
-            tracing::info!("connect(): control mode connected successfully");
-            log_to(log, LogKind::Info, "control mode connected successfully");
+            tracing::info!("connect(): {CONNECTED_LINE}");
+            log_to(log, LogKind::Info, CONNECTED_LINE);
             return Ok(());
         }
         // A tmux that came up late is attached by now, and killing an
@@ -457,6 +455,11 @@ impl ControlModeConnection {
 
 /// How long tmux has to print its first control-mode line.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Logged once per control-mode connection. `tests/smoke/smoke-test.js` and
+/// `tests/smoke/macos-sparse-path-test.js` count it in the desktop app's log
+/// file (more than two in a run is a reconnect loop): rewording it blinds them.
+const CONNECTED_LINE: &str = "control mode connected successfully";
 
 #[cfg(test)]
 mod read_line_tests {
