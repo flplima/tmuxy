@@ -2,7 +2,8 @@
 //! tmuxy-core into a TypeScript module and a shell file each of them reads,
 //! so no copy is kept by hand: the stash session, the pane-title format, the
 //! window types, the sidebar dock widths, the options a menu changes, what a
-//! left sidebar runs.
+//! left sidebar runs — and, for the browser guests' build scripts, the guest's
+//! tmuxy layout and the config chain tmux starts with there.
 //!
 //! The files are committed; this test fails when one is stale. Rewrite them
 //! with `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants`.
@@ -13,6 +14,7 @@ use std::path::{Path, PathBuf};
 use tmuxy_core::constants::sidebar_dock;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
 use tmuxy_core::constants::STASH_SESSION;
+use tmuxy_core::paths::Layout;
 use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
 use tmuxy_core::WindowType;
@@ -120,6 +122,35 @@ fn shell() -> String {
     out
 }
 
+/// The guest's tmuxy layout: tmuxy's own on Linux for a `root` whose home is
+/// `/root`, as `paths` resolves it.
+fn guest_layout() -> Layout {
+    let home = PathBuf::from("/root");
+    Layout {
+        config: home.join(".config/tmuxy"),
+        data: home.join(".local/share/tmuxy"),
+        state: home.join(".local/state/tmuxy"),
+        home,
+    }
+}
+
+fn guest_json() -> String {
+    let layout = guest_layout();
+    let path = |p: PathBuf| p.display().to_string();
+    let value = serde_json::json!({
+        "_generated": HEADER.lines().collect::<Vec<_>>(),
+        "configDir": path(layout.config.clone()),
+        "dataDir": path(layout.data.clone()),
+        "stateDir": path(layout.state.clone()),
+        "entryConf": path(layout.entry_conf()),
+        "entryConfText": tmuxy_core::session::guest_entry_conf(&layout),
+    });
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&value).unwrap_or_default()
+    )
+}
+
 fn check(path: PathBuf, generated: String) {
     if std::env::var_os("UPDATE_GENERATED").is_some() {
         std::fs::write(&path, generated).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
@@ -144,4 +175,12 @@ fn the_ui_module_is_tmuxy_cores_values() {
 #[test]
 fn the_cli_file_is_tmuxy_cores_values() {
     check(packages().join("tmuxy-cli/bin/tmuxy/_options"), shell());
+}
+
+#[test]
+fn the_guest_layout_and_chain_are_tmuxy_cores() {
+    check(
+        packages().join("tmuxy-ui/scripts/lib/guest.gen.json"),
+        guest_json(),
+    );
 }
