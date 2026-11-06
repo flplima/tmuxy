@@ -11,7 +11,7 @@ use crate::client_size::SizePolicy;
 use crate::constants::tmux_options;
 use crate::control_mode::MonitorCommandSender;
 use crate::executor::tmux_quote;
-use crate::session;
+use crate::session::{self, ManagedOption};
 use crate::transport::query;
 use crate::CommandError;
 
@@ -151,12 +151,6 @@ const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::SIZE,
 ];
 
-/// The prefix of the options that each set one CSS variable on the page:
-/// `@tmuxy-css-term-background '#101010'` is `--term-background: #101010`
-/// applied over the theme file. One option per variable, so a script in a
-/// pane can set a colour without writing a stylesheet.
-pub const CSS_VAR_PREFIX: &str = tmux_options::CSS_VAR_PREFIX;
-
 /// One command list printing every settings option as `name=value`, a line
 /// each, then every global option for the `@tmuxy-css-*` ones among them.
 /// Named rather than positional: an unset option prints an empty value, and
@@ -171,10 +165,30 @@ fn settings_query() -> String {
         .join(" ; ")
 }
 
+/// The theme name and mode, the appearance, the `@tmuxy-css-*` variables and
+/// `@tmuxy-icon-*` icons, and the options the user's `tmuxy.conf` pins — the
+/// answer to `get_theme_settings` and the `theme-settings` event alike.
+/// `pinned` lists `@tmuxy-*` option names; the menu shows those as set in
+/// tmuxy.conf rather than offering to change them.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeSettings {
+    /// A stylesheet the client loads by path.
+    pub theme: String,
+    /// `dark`, `light` or `auto`.
+    pub mode: String,
+    pub appearance: Appearance,
+    /// `{ "<name>": "<value>" }`, the `--` dropped: one CSS declaration each.
+    pub css_vars: serde_json::Map<String, serde_json::Value>,
+    /// `{ "<process>": "<text or data: URL>" }`.
+    pub icons: serde_json::Map<String, serde_json::Value>,
+    pub pinned: Vec<&'static str>,
+}
+
 /// The settings from what [`settings_query`] printed, with the defaults for
-/// anything unset or malformed. Returns `{ "theme", "mode", "appearance",
-/// "cssVars", "icons" }`.
-fn parse_settings(output: &str) -> serde_json::Value {
+/// anything unset or malformed; the icons not yet read from disk and nothing
+/// pinned.
+fn parse_settings(output: &str) -> ThemeSettings {
     let lines: Vec<&str> = output.lines().map(str::trim).collect();
     let value = |option: &str| {
         lines
@@ -229,38 +243,41 @@ fn parse_settings(output: &str) -> serde_json::Value {
         native_menus: parse_flag(value(tmux_options::NATIVE_MENUS), defaults.native_menus),
         size: SizePolicy::parse(value(tmux_options::SIZE)),
     };
-    let css_vars = parse_css_vars(lines.iter().copied());
     let icons = icons::parse(lines.iter().copied());
-    serde_json::json!({
-        // The theme names a stylesheet the client loads by path.
-        // A theme that is gone (its plugin removed, its file deleted) falls
-        // back to the default rather than leaving the page unstyled.
-        "theme": if session::is_safe_css_name(theme) && crate::plugins::themes::resolve_css(&format!("themes/{theme}.css")).is_some() {
-            theme
+    // A theme that is gone (its plugin removed, its file deleted) falls back
+    // to the default rather than leaving the page unstyled.
+    let theme = if session::is_safe_css_name(theme)
+        && crate::plugins::themes::resolve_css(&format!("themes/{theme}.css")).is_some()
+    {
+        theme
+    } else {
+        DEFAULT_THEME
+    };
+    ThemeSettings {
+        theme: theme.to_string(),
+        mode: if matches!(mode, "dark" | "light" | "auto") {
+            mode
         } else {
-            DEFAULT_THEME
-        },
-        "mode": if matches!(mode, "dark" | "light" | "auto") { mode } else { DEFAULT_MODE },
-        "appearance": appearance,
-        "cssVars": css_vars,
-        "icons": icons,
-    })
+            DEFAULT_MODE
+        }
+        .to_string(),
+        appearance,
+        css_vars: parse_css_vars(lines.iter().copied()),
+        icons,
+        pinned: Vec::new(),
+    }
 }
 
-/// Read the active theme name + mode and the appearance from tmux in one
-/// round trip, applying the defaults, plus the options the user's
-/// `tmuxy.conf` pins. Returns `{ "theme", "mode", "appearance", "cssVars",
-/// "icons", "pinned" }` — the wire shape the `get_theme_settings` Tauri command, the
-/// `GetThemeSettings` SSE command and the `theme-settings` push (after the
-/// config is sourced) all share. `pinned` lists `@tmuxy-*` option names; the
-/// menu shows those as set in tmuxy.conf rather than offering to change them.
-pub async fn get_theme_settings(
-    tx: &MonitorCommandSender,
-) -> Result<serde_json::Value, CommandError> {
+/// Read the theme settings from tmux in one round trip, the SVG icons from
+/// the config dir, and the options the user's `tmuxy.conf` pins.
+pub async fn get_theme_settings(tx: &MonitorCommandSender) -> Result<ThemeSettings, CommandError> {
     let output = query(tx, &settings_query()).await?;
     let mut settings = parse_settings(&output);
-    icons::inline_svgs(&mut settings["icons"], &session::config_dir().join("icons"));
-    settings["pinned"] = serde_json::json!(session::pinned_options());
+    icons::inline_svgs(
+        &mut settings.icons,
+        &crate::paths::Layout::current().path(&crate::paths::USER_ICONS),
+    );
+    settings.pinned = session::pinned_options();
     Ok(settings)
 }
 
@@ -315,109 +332,59 @@ fn unpinned<'a>(
     Ok(free)
 }
 
-/// Set the [`unpinned`] options among `options`, and return which they were.
-async fn set_unpinned<'a>(
+/// Set the [`unpinned`] options among `options` in tmux, and remember the
+/// choice in `tmuxy.state.json` so it survives a tmux server restart. The
+/// live option is what the clients read; a failure to remember it is logged,
+/// not returned, since the option is already set.
+async fn set_managed(
     tx: &MonitorCommandSender,
-    options: &[(&'a str, &'a str)],
+    options: &[(ManagedOption, &str)],
     what: &str,
-) -> Result<Vec<&'a str>, CommandError> {
-    let free = unpinned(options, &session::pinned_options())?;
+) -> Result<(), CommandError> {
+    let named: Vec<(&str, &str)> = options.iter().map(|(o, v)| (o.name(), *v)).collect();
+    let free = unpinned(&named, &session::pinned_options())?;
     set_options(tx, &free, what).await?;
-    Ok(free.into_iter().map(|(option, _)| option).collect())
-}
-
-/// Remember a menu choice in `tmuxy.state.json`, so it survives a tmux server
-/// restart. A failure is non-fatal — the live option is already set — and is
-/// logged, not returned.
-fn remember(changes: session::ManagedState, what: &str) {
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist the {what} to tmuxy.state.json");
+    for (option, value) in options {
+        if !free.iter().any(|(name, _)| *name == option.name()) {
+            continue;
+        }
+        if let Err(e) = session::write_managed_state(option.remembering(value)) {
+            tracing::warn!(error = %e, "could not persist the {what} to tmuxy.state.json");
+        }
     }
+    Ok(())
 }
 
-/// Turn the cursor's blink on or off, and remember the choice.
-///
-/// The live tmux option is what the clients read; the state file is what
-/// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
-/// the user's own `tmuxy.conf` pins it: the menu cannot change it then.
-pub async fn set_cursor_blink(
+/// Turn one of the menus' switches on or off, and remember the choice. A line
+/// setting it in the user's own `tmuxy.conf` pins it: the menu cannot change
+/// it then.
+pub async fn set_flag(
     tx: &MonitorCommandSender,
+    option: ManagedOption,
     enabled: bool,
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
-    let changes = session::ManagedState {
-        cursor_blink: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "cursor blink");
-    Ok(())
+    set_managed(tx, &[(option, value)], option.name()).await
 }
 
-/// Turn the question a send into another pane asks on or off, and remember
-/// the choice, the way [`set_cursor_blink`] does.
-pub async fn set_send_ask(tx: &MonitorCommandSender, enabled: bool) -> Result<(), CommandError> {
-    let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
-    let changes = session::ManagedState {
-        send_ask: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "send ask");
-    Ok(())
-}
-
-/// Make the window see-through or opaque, and remember the choice, the way
-/// [`set_cursor_blink`] does. The opacities and the blur keep their values.
-pub async fn set_transparency(
-    tx: &MonitorCommandSender,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::TRANSPARENCY, value)], "transparency").await?;
-    let changes = session::ManagedState {
-        transparency: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "transparency");
-    Ok(())
-}
-
-/// Set the theme (and optionally the mode) in tmux and remember the choice so
-/// it survives a tmux server restart. Whichever of the two the user's
-/// `tmuxy.conf` pins is left as the file has it.
+/// Set the theme (and optionally the mode) in tmux and remember the choice.
+/// Whichever of the two the user's `tmuxy.conf` pins is left as the file has
+/// it.
 pub async fn set_theme(
     tx: &MonitorCommandSender,
     name: &str,
     mode: Option<&str>,
 ) -> Result<(), CommandError> {
-    let mut options = vec![(tmux_options::THEME, name)];
+    let mut options = vec![(ManagedOption::Theme, name)];
     if let Some(m) = mode {
-        options.push((tmux_options::THEME_MODE, m));
+        options.push((ManagedOption::ThemeMode, m));
     }
-    let applied = set_unpinned(tx, &options, "theme").await?;
-    let changes = session::ManagedState {
-        theme: applied
-            .contains(&tmux_options::THEME)
-            .then(|| name.to_string()),
-        theme_mode: mode
-            .filter(|_| applied.contains(&tmux_options::THEME_MODE))
-            .map(str::to_string),
-        ..Default::default()
-    };
-    remember(changes, "theme");
-    Ok(())
+    set_managed(tx, &options, "theme").await
 }
 
 /// Set only the mode (dark/light) and remember it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
-    set_unpinned(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
-    let changes = session::ManagedState {
-        theme_mode: Some(mode.to_string()),
-        ..Default::default()
-    };
-    remember(changes, "theme mode");
-    Ok(())
+    set_managed(tx, &[(ManagedOption::ThemeMode, mode)], "theme mode").await
 }
 
 /// Human-readable display name for a theme file stem:
@@ -439,28 +406,36 @@ pub fn display_theme_name(stem: &str) -> String {
         .join(" ")
 }
 
-/// Available themes as the `[{ name, displayName, modes }]` wire shape both
-/// transports serve. Backed by `session::list_themes()` (the same scan the
+/// Available themes. Backed by `session::list_themes()` (the same scan the
 /// native menu uses); `modes` is what each file's CSS declares a palette
 /// for, so the menu can grey out a mode the theme has not got.
-pub fn get_themes_list() -> serde_json::Value {
+pub fn get_themes_list() -> Vec<ThemeInfo> {
     let mut names = session::list_themes();
-    for (name, _) in crate::plugins::themes::list(&crate::plugins::Dirs::current()) {
+    for (name, _) in crate::plugins::themes::list(&crate::paths::Layout::current()) {
         if !names.contains(&name) {
             names.push(name);
         }
     }
-    let themes: Vec<serde_json::Value> = names
+    names
         .into_iter()
-        .map(|name| {
-            let display_name = display_theme_name(&name);
-            let modes = crate::plugins::themes::resolve_css(&format!("themes/{name}.css"))
+        .map(|name| ThemeInfo {
+            display_name: display_theme_name(&name),
+            modes: crate::plugins::themes::resolve_css(&format!("themes/{name}.css"))
                 .map(|css| session::theme_modes(&String::from_utf8_lossy(&css)))
-                .unwrap_or_default();
-            serde_json::json!({ "name": name, "displayName": display_name, "modes": modes })
+                .unwrap_or_default(),
+            name,
         })
-        .collect();
-    serde_json::json!(themes)
+        .collect()
+}
+
+/// One theme the View menu offers: its stylesheet's name, the name it is
+/// shown by, and the modes the stylesheet defines.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeInfo {
+    pub name: String,
+    pub display_name: String,
+    pub modes: Vec<&'static str>,
 }
 
 #[cfg(test)]

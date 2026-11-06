@@ -40,23 +40,6 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
 }
 
 #[test]
-fn a_tmux_word_quotes_what_tmux_would_otherwise_split_or_expand() {
-    // A bare `#` is a comment to tmux's parser: a format is always quoted.
-    assert_eq!(tmux_word("#{window_id}"), "\"#{window_id}\"");
-    assert_eq!(
-        tmux_word("#{s/,/%2C/:window_layout}"),
-        "\"#{s/,/%2C/:window_layout}\""
-    );
-    // `{` opens a command block: a side-by-side layout is quoted.
-    assert_eq!(
-        tmux_word("b1c2,80x24,0,0{40x24,0,0,1}"),
-        "\"b1c2,80x24,0,0{40x24,0,0,1}\""
-    );
-    assert_eq!(tmux_word("a b"), "\"a b\"");
-    assert_eq!(tmux_word("say \"hi\" $HOME"), "\"say \\\"hi\\\" \\$HOME\"");
-}
-
-#[test]
 fn a_delta_is_structural_when_the_shape_moves_not_when_output_arrives() {
     let mut d = crate::TmuxDelta {
         seq: 1,
@@ -129,6 +112,20 @@ async fn apply_stops_at_the_first_failure() {
     })
     .await;
     assert_eq!(result.unwrap_err().to_string(), "tmux error: no");
+}
+
+/// Records that do not parse (tmux answering in a shape the parser no longer
+/// reads) are no snapshot at all, never an empty one written over the last.
+#[tokio::test]
+async fn a_capture_that_reads_back_no_window_is_refused() {
+    let taken = take("work", |argv| {
+        std::future::ready(Ok(match argv[0].as_str() {
+            "list-windows" => "a,record,of,another,shape\n".to_string(),
+            _ => String::new(),
+        }))
+    })
+    .await;
+    assert!(taken.is_err());
 }
 
 #[tokio::test]

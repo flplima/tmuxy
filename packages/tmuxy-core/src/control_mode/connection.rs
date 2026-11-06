@@ -57,7 +57,7 @@ pub async fn session_creation_lock() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 /// Snapshot the recent-output buffer as a single newline-joined string.
-/// Used when send_command/connect fails so the error message can include
+/// Used when send_commands/connect fails so the error message can include
 /// whatever tmux emitted on its way out.
 async fn drain_recent_output(recent: &Arc<Mutex<Vec<String>>>) -> String {
     let guard = recent.lock().await;
@@ -83,7 +83,7 @@ pub struct ControlModeConnection {
     event_rx: mpsc::Receiver<ControlModeEvent>,
 
     /// Bounded buffer of recent raw lines from the PTY master (parsed or
-    /// otherwise). Consulted when send_command fails so the error message
+    /// otherwise). Consulted when send_commands fails so the error message
     /// can include whatever tmux said on its way out — e.g. an error
     /// message printed to stderr that came through the merged PTY stream.
     recent_output: Arc<Mutex<Vec<String>>>,
@@ -171,29 +171,6 @@ impl ControlModeConnection {
         })
     }
 
-    /// Send a tmux command through control mode.
-    ///
-    /// Commands are sent as plain text followed by newline.
-    /// The response will come as a `CommandResponse` event. Response
-    /// correlation happens via the aggregator's marker lines (`Markers`),
-    /// not command numbers, so nothing is returned on success.
-    pub async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
-        one_control_mode_line(cmd)?;
-        if let Err(e) = self
-            .pty_writer
-            .write_all(format!("{}\n", cmd).as_bytes())
-            .await
-        {
-            return Err(self.enrich_io_error("Failed to send command", &e).await);
-        }
-
-        if let Err(e) = self.pty_writer.flush().await {
-            return Err(self.enrich_io_error("Failed to flush stdin", &e).await);
-        }
-
-        Ok(())
-    }
-
     /// Append captured subprocess stderr to an io::Error message.
     /// Gives the user concrete evidence of *why* the pipe broke instead of
     /// the generic "Broken pipe (os error 32)".
@@ -207,23 +184,25 @@ impl ControlModeConnection {
         TmuxError::other(msg)
     }
 
-    /// Send multiple tmux commands in a batch with a single flush.
+    /// Send tmux commands through control mode, a line each, with a single
+    /// flush.
     ///
-    /// More efficient than calling send_command multiple times because
-    /// it reduces system calls by batching writes and flushing once.
-    pub async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
+    /// Each answer comes back as a `CommandResponse` event. Response
+    /// correlation happens via the aggregator's marker lines (`Markers`),
+    /// not command numbers, so nothing is returned on success.
+    pub async fn send_commands<S: AsRef<str>>(&mut self, commands: &[S]) -> Result<(), TmuxError> {
         if commands.is_empty() {
             return Ok(());
         }
         for cmd in commands {
-            one_control_mode_line(cmd)?;
+            one_control_mode_line(cmd.as_ref())?;
         }
 
         // Write all commands without flushing
         for cmd in commands {
             if let Err(e) = self
                 .pty_writer
-                .write_all(format!("{}\n", cmd).as_bytes())
+                .write_all(format!("{}\n", cmd.as_ref()).as_bytes())
                 .await
             {
                 return Err(self.enrich_io_error("Failed to send command", &e).await);
@@ -253,7 +232,7 @@ impl ControlModeConnection {
     pub async fn graceful_close(&mut self) {
         // Send detach-client to cleanly disconnect
         // Ignore errors - the connection might already be closing
-        let _ = self.send_command("detach-client").await;
+        let _ = self.send_commands(&["detach-client"]).await;
 
         // Wait for the process to exit (up to 3s).
         // detach-client should cause an almost-immediate exit, but give plenty

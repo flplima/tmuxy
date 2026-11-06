@@ -10,6 +10,7 @@ use super::config::ensure_config_in;
 use super::migrate::OLD_BUILT_IN_THEME_HEADER;
 use super::state::{read_managed_state_in, write_managed_state_in};
 use super::*;
+use crate::paths::Layout;
 
 pub(super) const V014_CONF: &str = include_str!("fixtures/v0.1.4/tmuxy.conf");
 const V014_DEFAULTS: &str = include_str!("fixtures/v0.1.4/tmuxy.defaults.conf");
@@ -486,5 +487,12 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
             a.layout.data.join("bin/tmuxy-cli").display()
         )
     );
-    assert!(lines[3].starts_with("source-file ") && lines[3].ends_with("tmuxy.essentials.conf'"));
+    assert_eq!(
+        lines[3],
+        format!(
+            "set-environment -g TMUX_BIN {}",
+            crate::executor::tmux_quote(crate::session::tmux_path())
+        )
+    );
+    assert!(lines[4].starts_with("source-file ") && lines[4].ends_with("tmuxy.essentials.conf'"));
 }

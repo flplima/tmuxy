@@ -180,7 +180,7 @@ impl StateAggregator {
 
     /// Forget the in-flight and follow-up captures of panes that are gone:
     /// their marker-routed responses are discarded on arrival, and a dead
-    /// entry would freeze content preservation in `to_state_update`.
+    /// entry would hold back `initial_state_ready` forever.
     pub(super) fn prune_capture_bookkeeping(&mut self) {
         self.pending_captures
             .retain(|id| self.panes.contains_key(id));
@@ -254,84 +254,50 @@ impl StateAggregator {
             .map_or(0, |m| m + 1)
     }
 
-    /// Set up every untagged window in the attached session. Tabs no longer
-    /// carry a marker — an untagged window IS a tab (derived at emit), so a
-    /// native `tmux neww` window shows up as a tab with no adoption step. This
-    /// returns the per-window `pane-border-status top` enforcement each new tab
-    /// needs, plus a defensive re-tag for a float/sidebar window whose
-    /// `@tmuxy-window-type` option somehow went missing (they're tagged
-    /// atomically on creation, so this normally never fires).
+    /// Set up every window of the attached session, once per window and
+    /// again only when what it is changes (a window first seen untagged that
+    /// turns out to be a sidebar). This is the ONE list of what tmux needs
+    /// set on a window (`window_setup`), plus a defensive re-tag for a
+    /// float/sidebar window whose `@tmuxy-window-type` option somehow went
+    /// missing (they're tagged atomically on creation, so this normally never
+    /// fires). Tabs carry no marker — an untagged window IS a tab (derived at
+    /// emit), so a native `tmux neww` window shows up as a tab with no
+    /// adoption step.
     ///
     /// Name-based inference (defensive):
     /// - `float` or `__float_*` → Float
     /// - `__sidebar-left` / `__sidebar-right` → SidebarLeft / SidebarRight
     /// - anything else → Tab (untagged, no marker written)
-    ///
-    /// Every Tab window must carry `pane-border-status top` so its topmost pane
-    /// sits at y=1, reserving the border row that PaneLayout draws the pane
-    /// header into. `enforce_settings`' session-level `set` is NOT inherited by
-    /// windows (verified: a fresh window reports `pane-border-status off`), and
-    /// `set -g` risks a tmux 3.5a control-mode crash — so it must be applied
-    /// per-window. `border_enforced` makes that idempotent now that tabs have no
-    /// marker to gate on.
-    pub fn collect_window_tag_commands(&mut self) -> Vec<String> {
-        // Snapshot the untagged windows first so we don't hold a `self.windows`
-        // borrow while touching `self.border_enforced`.
-        let untagged: Vec<(WindowId, String)> = self
-            .windows
-            .values()
-            .filter(|w| w.window_type.is_none())
-            .map(|w| (w.id.clone(), w.name.clone()))
-            .collect();
-
+    pub fn window_setup_commands(&mut self) -> Vec<String> {
         let window_type_opt = crate::constants::tmux_options::WINDOW_TYPE;
         let mut cmds = Vec::new();
-        for (id, name) in untagged {
-            if name == "float" || name.starts_with("__float_") {
-                if let Some(w) = self.windows.get_mut(&id) {
-                    w.window_type = Some(WindowType::Float);
-                }
-                cmds.push(format!("set-option -w -t {id} {window_type_opt} float"));
-            } else if let Some(side) = name.strip_prefix("__sidebar-") {
-                let kind = match side {
-                    "left" => WindowType::SidebarLeft,
-                    _ => WindowType::SidebarRight,
+        let ids: Vec<WindowId> = self.windows.keys().cloned().collect();
+        for id in ids {
+            let Some(window) = self.windows.get_mut(&id) else {
+                continue;
+            };
+            if window.window_type.is_none() {
+                let inferred = if window.name == "float" || window.name.starts_with("__float_") {
+                    Some(WindowType::Float)
+                } else {
+                    match window.name.strip_prefix("__sidebar-") {
+                        Some("left") => Some(WindowType::SidebarLeft),
+                        Some(_) => Some(WindowType::SidebarRight),
+                        None => None,
+                    }
                 };
-                if let Some(w) = self.windows.get_mut(&id) {
-                    w.window_type = Some(kind);
+                if let Some(kind) = inferred {
+                    window.window_type = Some(kind);
+                    cmds.push(format!(
+                        "set-option -w -t {id} {window_type_opt} {}",
+                        kind.as_str()
+                    ));
                 }
-                cmds.push(format!(
-                    "set-option -w -t {id} {window_type_opt} {}",
-                    kind.as_str()
-                ));
-            } else if self.border_enforced.insert(id.clone()) {
-                cmds.push(format!("set-option -w -t {id} pane-border-status top"));
-                cmds.push(format!("set-option -w -t {id} pane-border-format ' '"));
             }
+            let now = WindowSetup::of(window.window_type);
+            let before = self.window_setup.insert(id.clone(), now);
+            cmds.extend(window_setup(&id, before, now));
         }
-
-        // Take the border row OFF every sidebar window, once. A sidebar is
-        // drawn headerless and sized without that row, so leaving it on costs
-        // the pane a line of content — and it is on by default: the global
-        // `pane-border-status top` applies to every new window, whether the
-        // window was first adopted as a tab above (the marker lands a beat after
-        // `%window-add`) or arrived already typed because `list-windows` was
-        // re-run right behind the create command.
-        let bordered: Vec<WindowId> = self
-            .windows
-            .values()
-            .filter(|w| {
-                w.window_type.is_some_and(WindowType::is_sidebar)
-                    && !self.sidebar_border_cleared.contains(&w.id)
-            })
-            .map(|w| w.id.clone())
-            .collect();
-        for id in bordered {
-            self.border_enforced.remove(&id);
-            self.sidebar_border_cleared.insert(id.clone());
-            cmds.push(format!("set-option -w -t {id} pane-border-status off"));
-        }
-
         cmds
     }
 
@@ -367,7 +333,7 @@ impl StateAggregator {
 
     /// Like `tick`, but sources `now` from the process clock. Used by non-native
     /// hosts (wasm) that drive the settling flush on a timer.
-    pub fn tick_now(&mut self) -> Vec<SideEffect> {
+    pub fn tick_now(&mut self) -> Option<ChangeType> {
         self.tick(Instant::now())
     }
 
@@ -380,4 +346,66 @@ impl StateAggregator {
             .and_then(|p| p.image_store.get(&image_id))
             .map(|img| (img.data.clone(), img.mime_type.clone()))
     }
+}
+
+/// What a window is set up as (`window_setup`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WindowSetup {
+    /// A tab: its pane headers are drawn on tmux's border row.
+    Tab,
+    /// A docked sidebar column: headerless.
+    Sidebar,
+    /// A float, which keeps whatever border it was made with.
+    Other,
+}
+
+impl WindowSetup {
+    fn of(window_type: Option<WindowType>) -> Self {
+        match window_type {
+            None | Some(WindowType::Tab) => WindowSetup::Tab,
+            Some(kind) if kind.is_sidebar() => WindowSetup::Sidebar,
+            Some(_) => WindowSetup::Other,
+        }
+    }
+}
+
+/// The window options tmux needs set on `id`, now that it is `now` and was
+/// `before` (`None`: never set up on this connection).
+///
+/// Every one is a WINDOW option, so it is set on the window itself: a `set`
+/// without a target reaches only the current window, and a global one
+/// (`-g`) would reach every session on the server and is what
+/// docs/TMUX-CONFIG.md records crashing tmux 3.5a under control mode.
+fn window_setup(id: &WindowId, before: Option<WindowSetup>, now: WindowSetup) -> Vec<String> {
+    let mut cmds = Vec::new();
+    if before.is_none() {
+        // tmuxy sizes every window itself (`apply_client_size`). Under
+        // tmux's default `window-size latest`, tmux sizes the window to the
+        // latest attached client and undoes the `resizew`: the control-mode
+        // PTY is 200x50, which is exactly the grid a phone-width client was
+        // left stuck with.
+        cmds.push(format!("set-option -w -t {id} window-size manual"));
+        cmds.push(format!("set-option -w -t {id} aggressive-resize off"));
+    }
+    if before == Some(now) {
+        return cmds;
+    }
+    match now {
+        // A tab's topmost pane sits at y=1, leaving the border row that
+        // PaneLayout draws the pane header into; blank, so nothing of tmux's
+        // own shows through.
+        WindowSetup::Tab => {
+            cmds.push(format!("set-option -w -t {id} pane-border-status top"));
+            cmds.push(format!("set-option -w -t {id} pane-border-format ' '"));
+        }
+        // A sidebar is drawn headerless and sized without that row: leaving
+        // it on costs the pane a line of content. A window is first seen
+        // untagged (the marker lands a beat after `%window-add`), so it was
+        // set up as a tab before it turned out to be a sidebar.
+        WindowSetup::Sidebar => {
+            cmds.push(format!("set-option -w -t {id} pane-border-status off"));
+        }
+        WindowSetup::Other => {}
+    }
+    cmds
 }

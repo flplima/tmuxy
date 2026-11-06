@@ -5,14 +5,14 @@ use crate::ids::test_ids::pid;
 /// `(url, text)` — the same join `extract_cells_with_urls` does, which is
 /// what the frontend turns into `<a href>`.
 fn linked_text(pane: &PaneState) -> Vec<(String, String)> {
-    let screen = pane.terminal.screen();
+    let screen = pane.screen();
     let (rows, cols) = screen.size();
     let mut out: Vec<(String, String)> = Vec::new();
     for row in 0..rows {
         let chars: Vec<String> = (0..cols)
             .map(|col| crate::screen_cell_char(screen, row, col))
             .collect();
-        let urls = pane.osc_parser.row_urls(u32::from(row), &chars);
+        let urls = pane.osc().row_urls(u32::from(row), &chars);
         let mut run: Option<(String, String)> = None;
         for col in 0..cols {
             let url = urls[usize::from(col)];
@@ -180,8 +180,8 @@ fn a_refill_keeps_the_alternate_screen_tmux_reports() {
     // the flag back to false and the pane re-renders on each flap.
     let mut pane = PaneState::new(pid("%1"), 40, 4);
     pane.alternate_on = true;
-    pane.reset_and_process_capture(b"drawn on the alternate screen\n");
-    assert!(pane.terminal.screen().alternate_screen());
+    pane.apply_capture(b"drawn on the alternate screen\n");
+    assert!(pane.screen().alternate_screen());
     pane.process_output(b"more");
     assert!(
         pane.alternate_on,
@@ -191,8 +191,8 @@ fn a_refill_keeps_the_alternate_screen_tmux_reports() {
     // And a pane on the main screen stays there.
     let mut main = PaneState::new(pid("%2"), 40, 4);
     main.alternate_on = false;
-    main.reset_and_process_capture(b"shell\n");
-    assert!(!main.terminal.screen().alternate_screen());
+    main.apply_capture(b"shell\n");
+    assert!(!main.screen().alternate_screen());
     main.process_output(b"x");
     assert!(!main.alternate_on);
 }
@@ -210,7 +210,7 @@ fn a_refill_keeps_the_mouse_tracking_tmux_reports() {
     let mut pane = PaneState::new(pid("%1"), 40, 4);
     pane.alternate_on = true;
     pane.mouse_any_flag = true;
-    pane.reset_and_process_capture(b"a TUI that tracks the mouse\n");
+    pane.apply_capture(b"a TUI that tracks the mouse\n");
     pane.process_output(b"redraw");
     assert!(
         pane.mouse_any_flag,
@@ -228,7 +228,7 @@ fn a_refill_keeps_the_mouse_tracking_tmux_reports() {
     // A pane that never had tracking does not acquire it from a refill.
     let mut plain = PaneState::new(pid("%2"), 40, 4);
     plain.mouse_any_flag = false;
-    plain.reset_and_process_capture(b"shell\n");
+    plain.apply_capture(b"shell\n");
     plain.process_output(b"x");
     assert!(!plain.mouse_any_flag);
 }
@@ -243,7 +243,7 @@ fn a_link_after_a_capture_refresh_is_still_recorded() {
     let mut pane = PaneState::new(pid("%1"), 40, 4);
     // Scroll the grid so the counter is well past zero.
     pane.process_output(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng");
-    pane.reset_and_process_capture(b"fresh\n");
+    pane.apply_capture(b"fresh\n");
 
     pane.process_output(&osc8("https://example.com/after", "LINK"));
 
@@ -288,7 +288,7 @@ fn clear_from_home_erases_the_screen() {
     pane.process_output(
             b"c\x08clear\x1b[?2004l\r\r\n\x1b]0;clear\x07\x1b[H\x1b[J\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m       \r \r\x1b]0;zsh\x07\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\r\n\x1b[34m~\x1b[39m\r\n\x1b[35m\xe2\x9d\xaf\x1b[39m \x1b[K\x1b[?2004h",
         );
-    let text = pane.terminal.screen().contents();
+    let text = pane.screen().contents();
     assert!(
         !text.contains("one") && !text.contains("three"),
         "screen not cleared: {text:?}"

@@ -9,24 +9,12 @@
 //! 3.4 shows a `run-shell`'s output, and a "returned 1", in a view mode on
 //! the current pane instead of handing them to the client.
 
-use super::{private_dir, random_hex, Dirs, PluginError, Result};
-
-/// One word for a shell line that run-shell format-expands first: single
-/// quoted, `#` doubled.
-pub fn shell_word(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._/@%+-=:,".contains(&b));
-    if plain {
-        return word.to_string();
-    }
-    format!("'{}'", word.replace('\'', r"'\''")).replace('#', "##")
-}
+use super::{private_dir, random_hex, PluginError, Result};
+use crate::paths::Layout;
 
 /// Run one tmux command list (`;` as its own argument) inside `run-shell`
 /// and return what it printed.
-pub fn run(dirs: &Dirs, argv: &[String]) -> Result<String> {
+pub fn run(dirs: &Layout, argv: &[String]) -> Result<String> {
     let dir = dirs.run_dir().join(format!("job-{}", random_hex()?));
     private_dir(&dir)?;
     let result = run_in(&dir, argv);
@@ -35,16 +23,12 @@ pub fn run(dirs: &Dirs, argv: &[String]) -> Result<String> {
 }
 
 fn run_in(dir: &std::path::Path, argv: &[String]) -> Result<String> {
-    let tmux: Vec<String> = crate::session::tmux_argv(false)
-        .iter()
-        .map(|w| shell_word(w))
-        .collect();
-    let words: Vec<String> = argv.iter().map(|w| shell_word(w)).collect();
-    let file = |name: &str| shell_word(&dir.join(name).display().to_string());
+    use crate::argv::{run_shell_line, run_shell_word};
+    let file = |name: &str| run_shell_word(&dir.join(name).display().to_string());
     let line = format!(
         "{{ {} {} ; }} >{} 2>{}; echo $? >{}",
-        tmux.join(" "),
-        words.join(" "),
+        run_shell_line(&crate::session::tmux_argv(false)),
+        run_shell_line(argv),
         file("out"),
         file("err"),
         file("status"),
@@ -56,6 +40,9 @@ fn run_in(dir: &std::path::Path, argv: &[String]) -> Result<String> {
     let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
     let Ok(status) = read("status").trim().parse::<i32>() else {
         let why = String::from_utf8_lossy(&client.stderr).trim().to_string();
+        if crate::session::is_no_server(&why) {
+            return Err(PluginError::NoServer(why));
+        }
         return Err(PluginError::Invalid(if why.is_empty() {
             "tmux did not run the command".to_string()
         } else {

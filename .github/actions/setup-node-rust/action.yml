@@ -1,12 +1,18 @@
 name: Setup Node + Rust
+description: Node with the npm dependencies, and a stable Rust toolchain with its build cache.
 inputs:
   node-version:
+    description: The Node release.
     required: false
     default: '22'
-  rust-targets:
+  # `none` for a job that compiles nothing; `guest` adds the targets the wasm
+  # engine and the guest binaries are built for (`bin/toolchain rust-targets`).
+  rust:
+    description: "'host', 'guest' (with the guest targets) or 'none'"
     required: false
-    default: ''
+    default: host
   install-npm:
+    description: "'false' to skip restoring or installing node_modules"
     required: false
     default: 'true'
 runs:
@@ -17,18 +23,20 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: npm
 
-    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-      if: inputs.rust-targets != ''
-      with:
-        toolchain: stable
-        targets: ${{ inputs.rust-targets }}
+    - name: Name the rust targets
+      id: targets
+      if: inputs.rust == 'guest'
+      shell: bash
+      run: echo "list=$("$GITHUB_WORKSPACE/bin/toolchain" rust-targets | tr ' ' ',')" >> "$GITHUB_OUTPUT"
 
     - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-      if: inputs.rust-targets == ''
+      if: inputs.rust != 'none'
       with:
         toolchain: stable
+        targets: ${{ steps.targets.outputs.list }}
 
     - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      if: inputs.rust != 'none'
 
     - uses: ./.github/actions/install-node-modules
       if: inputs.install-npm == 'true'

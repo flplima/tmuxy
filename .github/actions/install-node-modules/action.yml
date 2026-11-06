@@ -1,4 +1,5 @@
 name: Install node modules
+description: The workspace's node_modules, from a cache keyed by the lockfile, or `npm ci` on a miss.
 # The workspace's node_modules trees, restored from a cache keyed by the
 # lockfile; `npm ci` runs only when the lockfile changed. setup-node's own
 # `cache: npm` keeps the tarballs, which still leaves ~20s of unpacking and

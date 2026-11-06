@@ -137,9 +137,9 @@ fn change_type_is_surfaced_even_when_emission_is_suppressed() {
 #[test]
 fn tick_is_noop_when_not_armed() {
     let mut agg = StateAggregator::new();
-    let effects = agg.tick(std::time::Instant::now());
-    assert!(
-        effects.is_empty(),
+    assert_eq!(
+        agg.tick(std::time::Instant::now()),
+        None,
         "tick without settling armed yields nothing"
     );
 }
@@ -198,13 +198,10 @@ fn tick_after_deadline_emits_and_clears_when_events_observed() {
     let deadline = agg
         .settling_deadline()
         .expect("settling must still be armed");
-    let effects = agg.tick(deadline + std::time::Duration::from_millis(1));
-    assert!(matches!(
-        effects.as_slice(),
-        [SideEffect::EmitState {
-            change: ChangeType::Full
-        }]
-    ));
+    assert_eq!(
+        agg.tick(deadline + std::time::Duration::from_millis(1)),
+        Some(ChangeType::Full)
+    );
     assert!(!agg.is_settling(), "tick after deadline clears settling");
 }
 
@@ -214,9 +211,9 @@ fn tick_safety_timeout_clears_silently_when_no_events() {
     let t0 = std::time::Instant::now();
     agg.arm_settling(t0);
     // No events arrive — the safety ceiling fires.
-    let effects = agg.tick(t0 + std::time::Duration::from_millis(600));
-    assert!(
-        effects.is_empty(),
+    assert_eq!(
+        agg.tick(t0 + std::time::Duration::from_millis(600)),
+        None,
         "safety timeout must not emit when no events were observed"
     );
     assert!(!agg.is_settling());

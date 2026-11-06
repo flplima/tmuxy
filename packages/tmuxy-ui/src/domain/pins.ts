@@ -8,7 +8,7 @@
  * an option greyed out and say where it is set.
  */
 
-/** The options a menu changes, by what the client calls them (tmuxy-core `MANAGED_OPTIONS`). */
+/** The options a menu changes, by what the client calls them (tmuxy-core `session::ManagedOption`). */
 export const PINNABLE = {
   theme: '@tmuxy-theme',
   themeMode: '@tmuxy-theme-mode',

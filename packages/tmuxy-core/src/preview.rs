@@ -25,9 +25,12 @@ use base64::Engine as _;
 
 use crate::constants::tmux_options::{PANE_PREVIEW, PANE_PREVIEW_NET, PANE_WIDGET};
 use crate::control_mode::MonitorCommandSender;
-use crate::mime::content_type_for_path;
+use crate::mime::{content_type_for_path, preview_use, PreviewUse};
 use crate::transport::query;
 use crate::{CommandError, PaneId};
+
+mod answer;
+pub use answer::*;
 
 /// The largest document a preview reads.
 pub const MAX_DOCUMENT_BYTES: u64 = 8 * 1024 * 1024;
@@ -60,10 +63,10 @@ pub enum DocumentKind {
 
 impl DocumentKind {
     pub fn of(path: &Path) -> Option<Self> {
-        match extension(path).as_deref() {
-            Some("html" | "htm") => Some(Self::Html),
-            Some("md" | "markdown") => Some(Self::Markdown),
-            _ => None,
+        match preview_use(&path.to_string_lossy()) {
+            PreviewUse::Html => Some(Self::Html),
+            PreviewUse::Markdown => Some(Self::Markdown),
+            PreviewUse::Resource | PreviewUse::None => None,
         }
     }
 
@@ -75,17 +78,11 @@ impl DocumentKind {
     }
 }
 
-/// The resource types a document may link: what a page loads to draw itself.
-/// Nothing that is merely a file (`.txt`, `.json`, `.pdf`, a key).
-const RESOURCE_EXTENSIONS: &[&str] = &[
-    "css", "js", "mjs", "png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp", "woff",
-    "woff2", "ttf", "otf",
-];
-
-fn extension(path: &Path) -> Option<String> {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
+/// Whether a document may link the file at `path`: one of the types a page
+/// loads to draw itself (`mime::PreviewUse::Resource`), nothing that is merely
+/// a file (`.txt`, `.json`, `.pdf`, a key).
+fn is_resource(path: &Path) -> bool {
+    preview_use(&path.to_string_lossy()) == PreviewUse::Resource
 }
 
 /// Parse tmux's answer to [`authorisation_query`]: the widget tag, the path
@@ -222,9 +219,8 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
     if written.is_absolute() || !written.components().all(plain_component) {
         return Err(refuse("outside the document's folder, or hidden"));
     }
-    match extension(written) {
-        Some(ext) if RESOURCE_EXTENSIONS.contains(&ext.as_str()) => {}
-        _ => return Err(refuse("not a type a page loads")),
+    if !is_resource(written) {
+        return Err(refuse("not a type a page loads"));
     }
 
     let folder = document
@@ -243,14 +239,14 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
     if inside.as_os_str().is_empty() || !inside.components().all(plain_component) {
         return Err(refuse("outside the document's folder, or hidden"));
     }
-    match extension(&resolved) {
-        Some(ext) if RESOURCE_EXTENSIONS.contains(&ext.as_str()) => Ok(resolved),
-        _ => Err(refuse("not a type a page loads")),
+    if !is_resource(&resolved) {
+        return Err(refuse("not a type a page loads"));
     }
+    Ok(resolved)
 }
 
-/// The document itself: `{ kind, name, text, net }`.
-pub fn read_document(auth: &Authorisation) -> Result<serde_json::Value, CommandError> {
+/// The document itself.
+pub fn read_document(auth: &Authorisation) -> Result<PreviewDocument, CommandError> {
     let (resolved, kind) = resolve_document(&auth.document)?;
     let bytes = read_capped(&resolved, MAX_DOCUMENT_BYTES)?;
     let name = auth
@@ -258,26 +254,26 @@ pub fn read_document(auth: &Authorisation) -> Result<serde_json::Value, CommandE
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    Ok(serde_json::json!({
-        "kind": kind.as_str(),
-        "name": name,
-        "text": String::from_utf8_lossy(&bytes),
-        "net": auth.net,
-    }))
+    Ok(PreviewDocument {
+        kind: kind.as_str(),
+        name,
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+        net: auth.net,
+    })
 }
 
-/// A resource the document links: `{ mime, data }`, the bytes in base64.
+/// A resource the document links.
 pub fn read_resource(
     auth: &Authorisation,
     relative: &str,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<PreviewResource, CommandError> {
     let (resolved_doc, _) = resolve_document(&auth.document)?;
     let path = resolve_resource(&resolved_doc, relative)?;
     let bytes = read_capped(&path, MAX_RESOURCE_BYTES)?;
-    Ok(serde_json::json!({
-        "mime": content_type_for_path(&path.to_string_lossy()),
-        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
-    }))
+    Ok(PreviewResource {
+        mime: content_type_for_path(&path.to_string_lossy()),
+        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+    })
 }
 
 /// `read_preview`, as both transports answer it: the document when `path` is
@@ -286,11 +282,11 @@ pub async fn read_preview(
     tx: &MonitorCommandSender,
     pane: &PaneId,
     path: Option<String>,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<PreviewRead, CommandError> {
     let auth = authorisation(tx, pane).await?;
     tokio::task::spawn_blocking(move || match path {
-        None => read_document(&auth),
-        Some(relative) => read_resource(&auth, &relative),
+        None => read_document(&auth).map(PreviewRead::Document),
+        Some(relative) => read_resource(&auth, &relative).map(PreviewRead::Resource),
     })
     .await
     .map_err(|e| CommandError::unavailable(format!("preview read task failed: {e}")))?

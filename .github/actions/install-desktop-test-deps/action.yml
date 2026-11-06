@@ -1,0 +1,40 @@
+name: Install the desktop test dependencies
+description: What the desktop suites drive the Linux app with — the WebKitGTK headers it builds against, Xvfb, the WebKit WebDriver and tauri-driver.
+# Package names and the tauri-driver pin are bin/toolchain's: the WebDriver's
+# package is named differently on the 22.04 images build-app.yml packages on.
+inputs:
+  # As install-tmux's: build-app.yml builds on several images of one OS.
+  cache-key-namespace:
+    description: The tauri-driver cache key's namespace.
+    required: false
+    default: ${{ runner.os }}
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      id: deps
+      shell: bash
+      run: |
+        set -euo pipefail
+        toolchain="$GITHUB_WORKSPACE/bin/toolchain"
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" update
+        # shellcheck disable=SC2046 # one package per word
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends \
+          $("$toolchain" packages webkit-dev) $("$toolchain" packages desktop-test)
+        echo "tauri-driver=$("$toolchain" tauri-driver-version)" >> "$GITHUB_OUTPUT"
+
+    # `cargo install tauri-driver` compiles from source on every run
+    # (~2 min). Pinned so the cache key describes exactly what is in it.
+    - name: Cache tauri-driver
+      id: tauri-driver-cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      with:
+        path: ~/.cargo/bin/tauri-driver
+        key: ${{ inputs.cache-key-namespace }}-tauri-driver-${{ steps.deps.outputs.tauri-driver }}
+
+    - name: Install tauri-driver (cache miss)
+      if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VERSION: ${{ steps.deps.outputs.tauri-driver }}
+      run: cargo install tauri-driver --version "$VERSION" --locked --force

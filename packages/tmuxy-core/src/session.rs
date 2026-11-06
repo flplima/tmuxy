@@ -26,7 +26,7 @@ static TMUX_PATH: OnceLock<String> = OnceLock::new();
 /// so the Tauri desktop app works when launched from Finder/Spotlight.
 fn find_tmux() -> String {
     // Explicit env override
-    if let Ok(path) = std::env::var("TMUX_BIN") {
+    if let Ok(path) = std::env::var(TMUX_BIN_ENV) {
         if std::path::Path::new(&path).exists() {
             return path;
         }
@@ -226,6 +226,26 @@ pub fn tmux_output(argv: &[String]) -> Result<String> {
     }
 }
 
+/// Whether what tmux said means there is no server to talk to: none running
+/// on the socket, or a socket file that is gone. The CLI's `_no_server_in`
+/// (`tmuxy-cli/bin/tmuxy/_contract`) reads tmux's words the same way.
+pub fn is_no_server(message: &str) -> bool {
+    [
+        "no server running",
+        "error connecting to",
+        "No such file or directory",
+    ]
+    .iter()
+    .any(|sign| message.contains(sign))
+}
+
+/// tmux on tmuxy's server, as a shell command line: what a job `run-shell`
+/// starts calls to reach the server that started it.
+pub fn tmux_shell_line() -> String {
+    let [flag, socket] = tmux_socket_args();
+    crate::argv::shell_line(&[tmux_path(), &flag, &socket])
+}
+
 /// Build the tmux shell command string with the socket flag for use in shell
 /// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy", or when tunneled
 /// "ssh user@host tmux -L tmuxy".
@@ -339,6 +359,14 @@ pub fn session_exists(name: &SessionName) -> Result<bool> {
         .output()?;
     tracing::debug!(session = %name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
+}
+
+/// [`session_exists`] as every tmuxy caller answers it: a name outside the
+/// session alphabet names no session, and a tmux that cannot be asked at all
+/// is taken to have it — a snapshot is restored, and a session created, only
+/// for one known to be gone, never on a guess.
+pub fn session_known(name: &str) -> bool {
+    SessionName::parse(name).is_some_and(|name| session_exists(&name).unwrap_or(true))
 }
 
 /// Names of every session the tmux server currently holds, from a read-only

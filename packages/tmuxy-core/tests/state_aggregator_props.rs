@@ -263,9 +263,9 @@ proptest! {
     }
 
     /// Settling timer end-to-end: regardless of how many window-typed events
-    /// arrive inside the settling window, `tick(now)` past the deadline must
-    /// (a) clear `is_settling` and (b) emit at most one consolidated
-    /// `EmitState`. This is the property that was previously untestable
+    /// arrive inside the settling window, none of them emits, and `tick(now)`
+    /// past the deadline clears `is_settling` (it returns at most one
+    /// consolidated emission by its type). This is the property that was previously untestable
     /// because the timing lived on the monitor's `RunState`.
     #[test]
     fn settling_window_emits_at_most_once_and_clears(
@@ -308,16 +308,11 @@ proptest! {
 
         // Advance to well past the safety ceiling and tick once.
         let post_deadline = t0 + std::time::Duration::from_secs(2);
-        let effects = agg.tick(post_deadline);
+        // `tick` returns at most one emission by its type.
+        agg.tick(post_deadline);
 
         prop_assert!(!agg.is_settling(),
             "tick past deadline must clear settling");
-
-        let emit_count = effects.iter().filter(|e|
-            matches!(e, SideEffect::EmitState { .. })).count();
-        prop_assert!(emit_count <= 1,
-            "at most one consolidated EmitState per settling window; got {}",
-            emit_count);
     }
 }
 
@@ -333,6 +328,8 @@ fn hostile_block() -> impl Strategy<Value = String> {
             "TMUXY_RPY_END",
             "TMUXY_BUF_BEGIN",
             "TMUXY_BUF_END",
+            "TMUXY_LS_BEGIN",
+            "TMUXY_LS_END",
         ])
     };
     prop_oneof![

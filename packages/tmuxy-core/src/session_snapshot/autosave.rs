@@ -69,22 +69,30 @@ where
     F: FnMut(Vec<String>) -> Fut,
     Fut: Future<Output = Result<String, TmuxError>>,
 {
-    // The name is spliced into the queries before they are split into words.
+    // A target outside the alphabet could name another thing (`a:1` is a
+    // window of `a`).
     if !crate::session::is_safe_session_name(session) {
         return Err(TmuxError::other(format!(
             "'{session}' is not a session name"
         )));
     }
-    let (qw, qp) = queries_for(session);
-    let windows_out = run(split_query(&qw)).await?;
-    let panes_out = run(split_query(&qp)).await?;
+    let windows_out = run(query_windows(session)).await?;
+    let panes_out = run(query_panes(session)).await?;
     // No stash session (no group was ever made) is the usual case, not an error.
-    let stash = run(split_query(QUERY_STASH_PANES))
+    let stash = run(query_stash_panes())
         .await
         .map(|out| parse_panes(&out))
         .unwrap_or_default();
     let windows = parse_windows(&windows_out);
     let panes = parse_panes(&panes_out);
+    // A session always has a window and a pane. None read back means the
+    // records did not parse (a format the parser no longer matches), and a
+    // snapshot of nothing would replace the last good one.
+    if windows.is_empty() || panes.is_empty() {
+        return Err(TmuxError::other(format!(
+            "no window or pane of '{session}' read back from tmux; the snapshot is not taken"
+        )));
+    }
     let all: Vec<PaneRecord> = panes.iter().chain(&stash).cloned().collect();
     // `ps` is a subprocess; off the async runtime like the other reads.
     let found = tokio::task::spawn_blocking(move || discover_commands(&all))
@@ -96,17 +104,6 @@ where
         snapshot,
         unsettled: found.unsettled,
     })
-}
-
-/// `list-panes -s -t x -F '…'` as argv: the format is the one quoted word.
-pub(super) fn split_query(query: &str) -> Vec<String> {
-    let (head, format) = query.split_once(" -F '").unwrap_or((query, ""));
-    let mut argv: Vec<String> = head.split_whitespace().map(str::to_string).collect();
-    if !format.is_empty() {
-        argv.push("-F".to_string());
-        argv.push(format.trim_end_matches('\'').to_string());
-    }
-    argv
 }
 
 /// Attach the last `lines` of each pane's screen to a snapshot, through `run`
@@ -205,37 +202,9 @@ pub fn is_structural(delta: &crate::TmuxDelta) -> bool {
 /// Run one tmux command through a monitor's control-mode connection: the
 /// hosts' `run` for `take`, `run_steps` and `attach_scrollback`.
 async fn via_monitor(tx: &MonitorCommandSender, argv: Vec<String>) -> Result<String, TmuxError> {
-    let command = argv
-        .iter()
-        .map(|a| tmux_word(a))
-        .collect::<Vec<_>>()
-        .join(" ");
-    crate::transport::query(tx, &command)
+    crate::transport::query(tx, &crate::argv::control_line(&argv))
         .await
         .map_err(|e| TmuxError::other(e.error))
-}
-
-/// One argv word as tmux's own command parser reads it: double-quoted, with
-/// the characters that mean something inside double quotes escaped.
-///
-/// A format such as `#{window_id}` MUST be quoted: to tmux's parser a bare
-/// `#` starts a comment, so an unquoted format vanishes and the command fails
-/// with "-F expects an argument". Inside double quotes it is just text, and
-/// the command expands it when it runs. Found by the first real save, which
-/// never wrote a file.
-///
-/// Braces too: `{` opens a command block to the same parser, so the layout of
-/// any side-by-side split (`…{40x24,0,0,1,…}`) was a syntax error, and the
-/// restore stopped there — before the tags, groups and commands it had left.
-pub fn tmux_word(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./=:@%+,".contains(c))
-    {
-        return word.to_string();
-    }
-    crate::tmux_double_quoted(word)
 }
 
 /// Rebuild a snapshot through a monitor's connection, step by step.

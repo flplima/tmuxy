@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-// The repo's one vitest root is this package; bin/ has no runner of its own,
-// so the rules that decide which CI jobs a push may skip are tested from here.
-import { decide } from '../../../bin/ci/ci-changes.mjs';
+import { decide } from './ci-changes.mjs';
 
 const EVERYTHING = {
   desktop: true,

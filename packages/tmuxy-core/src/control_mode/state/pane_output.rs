@@ -1,173 +1,19 @@
 use super::*;
-use crate::PaneId;
+use crate::{PaneId, WindowId};
 
-/// Split bytes into whole UTF-8 characters, so a hyperlinked run can be fed to
-/// vt100 one character at a time without tearing a multi-byte sequence. Any
-/// byte that is not a continuation byte (`10xxxxxx`) starts a new chunk, which
-/// also keeps a stray escape inside a link on its own chunk.
-fn utf8_chunks(data: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let mut starts: Vec<usize> = (0..data.len())
-        .filter(|&i| data[i] & 0xC0 != 0x80)
-        .collect();
-    starts.push(data.len());
-    (0..starts.len().saturating_sub(1)).map(move |i| &data[starts[i]..starts[i + 1]])
+/// What a pane's emulator reset keeps (`PaneState::reset`).
+enum Reset {
+    /// A capture refill: the history and the pictures stay.
+    Capture,
+    /// A move to another window: nothing stays.
+    Moved,
 }
 
 impl PaneState {
-    /// Feed vt100 the OSC-stripped bytes, recording which cells a hyperlink
-    /// covers as they are written.
-    ///
-    /// Output with no hyperlink in it takes one bulk `process()` call, exactly
-    /// as before. Only the bytes *inside* an OSC 8 pair take the slow path:
-    /// they go in one character at a time and vt100 is asked where the cursor
-    /// sat before and after each one, so the mark lands on the cell the
-    /// character actually occupies. That is the whole point — the parser used
-    /// to derive those coordinates from its own newline counting, which is
-    /// blind to CSI cursor movement and drifted the map onto unrelated text.
-    fn feed_terminal(&mut self, osc: super::osc::OscOutput) {
-        if osc.links.is_empty() && osc.sized.is_empty() {
-            self.terminal.process(&osc.bytes);
-            self.sync_url_scroll();
-            return;
-        }
-
-        if osc.sized.is_empty() {
-            let mut at = 0usize;
-            for (start, end, url) in &osc.links {
-                if *start > at {
-                    self.terminal.process(&osc.bytes[at..*start]);
-                    self.sync_url_scroll();
-                }
-                self.feed_linked(&osc.bytes[*start..*end], url);
-                at = *end;
-            }
-            if at < osc.bytes.len() {
-                self.terminal.process(&osc.bytes[at..]);
-                self.sync_url_scroll();
-            }
-            return;
-        }
-
-        let mut at = 0usize;
-        for (start, end, size, mirror_bottom) in &osc.sized {
-            if *start > at {
-                self.terminal.process(&osc.bytes[at..*start]);
-                self.sync_url_scroll();
-            }
-            let active_url = osc
-                .links
-                .iter()
-                .find(|(ls, le, _)| *ls <= *start && *end <= *le)
-                .map(|(_, _, u)| u);
-            for chunk in utf8_chunks(&osc.bytes[*start..*end]) {
-                let (mark_row, marks) = self.write_and_collect_marks(chunk);
-                for (c, ch) in marks {
-                    self.osc_parser.mark_sized_cell(
-                        u32::from(mark_row),
-                        u32::from(c),
-                        *size,
-                        &ch,
-                        *mirror_bottom,
-                    );
-                    if let Some(url) = active_url {
-                        self.osc_parser
-                            .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
-                    }
-                }
-            }
-            at = *end;
-        }
-        if at < osc.bytes.len() {
-            self.terminal.process(&osc.bytes[at..]);
-            self.sync_url_scroll();
-        }
-    }
-
-    fn write_and_collect_marks(&mut self, chunk: &[u8]) -> (u16, Vec<(u16, String)>) {
-        let (row, col) = self.terminal.screen().cursor_position();
-        self.terminal.process(chunk);
-        let scrolled = self.sync_url_scroll();
-        let (row2, col2) = self.terminal.screen().cursor_position();
-        let row_before = i64::from(row) - scrolled;
-        let (mark_row, from, to) = if i64::from(row2) == row_before {
-            (row2, col, col2)
-        } else {
-            (row2, 0, col2)
-        };
-        let marks = (from..to)
-            .map(|c| {
-                (
-                    c,
-                    crate::screen_cell_char(self.terminal.screen(), mark_row, c),
-                )
-            })
-            .collect();
-        (mark_row, marks)
-    }
-
-    /// Write one hyperlinked run, marking every cell it paints.
-    fn feed_linked(&mut self, bytes: &[u8], url: &std::sync::Arc<str>) {
-        for chunk in utf8_chunks(bytes) {
-            let (mark_row, marks) = self.write_and_collect_marks(chunk);
-            for (c, ch) in marks {
-                self.osc_parser
-                    .mark_cell(u32::from(mark_row), u32::from(c), url, &ch);
-            }
-        }
-    }
-
-    /// Take the current grid's scroll counter as the new zero point, without
-    /// shifting anything. Called after the grid is replaced or reflowed, when
-    /// the marks have just been cleared and no delta is meaningful.
-    fn rebaseline_scroll(&mut self) {
-        let screen = self.terminal.screen();
-        self.scroll_baseline_alt = screen.alternate_screen();
-        self.last_scroll_delta = screen.scroll_delta();
-    }
-
-    /// Shift recorded URL marks by however far vt100 actually scrolled since
-    /// the last check, and return that delta so a caller can re-base a cursor
-    /// position it read before the write.
-    fn sync_url_scroll(&mut self) -> i64 {
-        let screen = self.terminal.screen();
-        let alt = screen.alternate_screen();
-        let now = screen.scroll_delta();
-
-        if alt != self.scroll_baseline_alt {
-            // A different grid entirely: its counter is unrelated to the one
-            // the marks were taken against, and the text under them is not on
-            // screen. Re-base and drop the marks rather than shift by a
-            // meaningless delta — a stale URL landing on the alternate screen's
-            // content is the exact failure this whole path exists to prevent.
-            self.scroll_baseline_alt = alt;
-            self.last_scroll_delta = now;
-            self.osc_parser.clear_cells();
-            return 0;
-        }
-
-        let delta = now - self.last_scroll_delta;
-        self.last_scroll_delta = now;
-        match delta.cmp(&0) {
-            std::cmp::Ordering::Greater => {
-                let d = delta as u32;
-                self.osc_parser.shift_rows_up(d);
-                self.image_parser
-                    .shift_rows_up(d, crate::constants::IMAGE_HISTORY_ROWS);
-            }
-            std::cmp::Ordering::Less => {
-                let d = delta.unsigned_abs() as u32;
-                self.osc_parser.shift_rows_down(d);
-                self.image_parser.shift_rows_down(d);
-            }
-            std::cmp::Ordering::Equal => {}
-        }
-        delta
-    }
-
     /// Replay the `%output` that arrived for this pane before it existed —
     /// during a split, `%output` often lands before the `%layout-change` or
     /// list-panes row that creates the pane. Returns how many bytes it was.
-    pub(super) fn replay_early_output(
+    pub(in crate::control_mode::state) fn replay_early_output(
         &mut self,
         early_output: &mut HashMap<PaneId, Vec<u8>>,
     ) -> usize {
@@ -246,6 +92,15 @@ impl PaneState {
             vt100::MouseProtocolMode::None
         );
         self.cursor_hidden = self.terminal.screen().hide_cursor();
+        // An OSC 0/2 title, applied here rather than waiting for tmux to
+        // report `pane_title` on the next list-panes. That only happens on a
+        // metadata sync or the 15-second idle heartbeat, so a program
+        // announcing a new title left the header showing the old one for up
+        // to fifteen seconds. tmux sees the same escape and agrees at the
+        // next poll; this only removes the lag.
+        if let Some(title) = self.osc_parser.take_title() {
+            self.set_title(title);
+        }
 
         // Update image parser cursor position from vt100 state
         let screen = self.terminal.screen();
@@ -255,14 +110,12 @@ impl PaneState {
         self.image_parser.update_kitty_placeholders(screen, content);
     }
 
-    /// Reset terminal and process capture-pane output.
-    /// capture-pane returns plain text with ANSI colors but no cursor positioning,
-    /// so we need to reset to top-left before processing.
-    pub fn reset_and_process_capture(&mut self, content: &[u8]) {
-        self.content_dirty = true;
-        self.cached_content = None;
-
-        // Snapshot DEC line-size attributes before rebuilding `self.terminal`:
+    /// Replace the screen with a `capture-pane` of it and put the cursor where
+    /// tmux reports it. capture-pane returns plain text with ANSI colors but
+    /// no cursor positioning, so the grid is reset to top-left before it is
+    /// written, and the cursor is placed after.
+    pub fn apply_capture(&mut self, content: &[u8]) {
+        // Snapshot DEC line-size attributes before the grid is rebuilt:
         // tmux strips `ESC # 3..6` from `capture-pane` output, so we re-apply
         // the line size on any row whose trimmed text still matches.
         let prev_screen = self.terminal.screen();
@@ -282,20 +135,7 @@ impl PaneState {
             })
             .collect();
 
-        // A fresh terminal clears every mode and attribute the capture cannot
-        // carry; the history is kept across it. A capture is the screen as it
-        // is now, and the rows that scrolled off it before are still the rows
-        // that scrolled off it, which a later reflow pulls back down.
-        let history = self.terminal.screen_mut().take_scrollback();
-        self.terminal = self.fresh_terminal();
-        self.terminal.screen_mut().restore_scrollback(history);
-        // Keep image placements: the capture text can't recreate them (tmux
-        // strips image escapes from captured history).
-        self.image_parser.reset_for_capture();
-        // Clear stale hyperlink mappings while preserving OSC 66 `sized_cells`
-        // (validated against live characters in `OscParser::row_sizes`).
-        self.osc_parser.reset_for_capture();
-
+        self.reset(Reset::Capture);
         let normalized = normalize_capture_bytes(content);
         self.terminal.process(&normalized);
         for (r, ls, prev_text) in saved_line_sizes {
@@ -310,6 +150,59 @@ impl PaneState {
                 self.terminal.screen_mut().set_row_line_size(r, ls);
             }
         }
+        // The capture leaves vt100's cursor at the end of the content (the
+        // last row); tmux's is where the program left it.
+        let cursor = format!(
+            "\x1b[{};{}H",
+            self.tmux_cursor_y + 1,
+            self.tmux_cursor_x + 1
+        );
+        self.terminal.process(cursor.as_bytes());
+        self.rebaseline_scroll();
+        let (row, col) = self.terminal.screen().cursor_position();
+        self.image_parser.update_cursor(row, col);
+    }
+
+    /// The pane is now in `window_id` (a break-pane, a swap-pane). Nothing of
+    /// its old grid is its own any more — not the screen, not the history,
+    /// not a picture — so it is blank until its capture lands.
+    pub(in crate::control_mode::state) fn move_to_window(&mut self, window_id: WindowId) {
+        self.window_id = Some(window_id);
+        self.reset(Reset::Moved);
+    }
+
+    /// Rebuild the emulator for this pane's size, in the modes tmux reports
+    /// (`fresh_terminal`). Every reset clears the same set: the grid, the
+    /// hyperlink marks, the content cache and the scroll baseline. What it
+    /// keeps depends on `kind`.
+    fn reset(&mut self, kind: Reset) {
+        let history = match kind {
+            // A capture is the screen as it is now, and the rows that scrolled
+            // off it before are still the rows that scrolled off it, which a
+            // later reflow pulls back down.
+            Reset::Capture => Some(self.terminal.screen_mut().take_scrollback()),
+            Reset::Moved => None,
+        };
+        self.terminal = self.fresh_terminal();
+        if let Some(history) = history {
+            self.terminal.screen_mut().restore_scrollback(history);
+        }
+        match kind {
+            // The capture text can't recreate image placements (tmux strips
+            // image escapes from captured history), and OSC 66 `sized_cells`
+            // are validated against live characters (`OscParser::row_sizes`).
+            Reset::Capture => {
+                self.image_parser.reset_for_capture();
+                self.osc_parser.reset_for_capture();
+            }
+            Reset::Moved => {
+                self.image_parser.reset();
+                self.osc_parser.reset();
+            }
+        }
+        self.osc_parser.set_viewport_height(self.height);
+        self.content_dirty = true;
+        self.cached_content = None;
         self.rebaseline_scroll();
         let (row, col) = self.terminal.screen().cursor_position();
         self.image_parser.update_cursor(row, col);
@@ -340,7 +233,7 @@ impl PaneState {
     /// the flag true, so plain `?1000h` restores it whichever variant
     /// (1000/1002/1003) the application actually chose; a later `?1000l` from
     /// the application still clears it.
-    pub(super) fn fresh_terminal(&self) -> vt100::Parser {
+    fn fresh_terminal(&self) -> vt100::Parser {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
         let mut terminal = vt100::Parser::new(h, w, crate::constants::REFLOW_SCROLLBACK_ROWS);
@@ -357,6 +250,11 @@ impl PaneState {
             terminal.process(b"\x1b[?25l");
         }
         terminal
+    }
+
+    /// The OSC 52 clipboard write the output since the last call asked for.
+    pub(in crate::control_mode::state) fn take_clipboard(&mut self) -> Option<String> {
+        self.osc_parser.take_clipboard()
     }
 
     /// Resize the terminal.

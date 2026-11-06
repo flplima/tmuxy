@@ -42,7 +42,6 @@ function makePane(tmuxId: PaneId, content: CellLine[]): TmuxPane {
     copyCursorY: 0,
     alternateOn: false,
     mouseAnyFlag: false,
-    paused: false,
     historySize: 10,
     selectionPresent: false,
     selectionStartX: 0,

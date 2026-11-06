@@ -17,23 +17,13 @@ fn a_session_name_carrying_a_quote_is_escaped_not_terminated() {
     assert!(initial_resize_command("it's").starts_with(r"resizew -t 'it'\''s' "));
 }
 
-/// tmux will not take a `resizew` on a window still set to size itself to
-/// the latest client — it applies ours and then puts its own back. The
-/// options are per WINDOW, so the ones set at attach covered exactly one.
+/// A window is sized by its id, never by the current window.
 #[test]
-fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
-    let cmds = window_sizing_commands(&WindowId::from_number(3), (41, 29));
+fn a_window_is_resized_by_its_id() {
     assert_eq!(
-        cmds,
-        [
-            "setw -t @3 window-size manual".to_string(),
-            "setw -t @3 aggressive-resize off".to_string(),
-            "resizew -t @3 -x 41 -y 29".to_string(),
-        ]
+        resize_command(&WindowId::from_number(3), (41, 29)),
+        "resizew -t @3 -x 41 -y 29"
     );
-    // The order is the point: tmux would re-apply its own size between a
-    // resize and a later opt-out.
-    assert!(cmds[2].starts_with("resizew"));
 }
 
 /// The bug this replaced: `resizew` is fire-and-forget, and recording the

@@ -49,7 +49,7 @@ fn is_text_icon(value: &str) -> bool {
 /// The icon options among `show-options -g` lines:
 /// `{ "<process>": "<text or SVG file name>" }`. Process names are
 /// lowercased, as the client matches them.
-pub(super) fn parse<'a>(lines: impl Iterator<Item = &'a str>) -> Value {
+pub(super) fn parse<'a>(lines: impl Iterator<Item = &'a str>) -> Map<String, Value> {
     let mut map = Map::new();
     for line in lines {
         let Some(rest) = line.strip_prefix(tmux_options::ICON_PREFIX) else {
@@ -62,17 +62,14 @@ pub(super) fn parse<'a>(lines: impl Iterator<Item = &'a str>) -> Value {
             map.insert(name, Value::String(value));
         }
     }
-    Value::Object(map)
+    map
 }
 
 /// The SVG icons in `icons` (what [`parse`] returned) read from `dir`, as
 /// `data:` URLs. One that is missing, too large or not an SVG is dropped:
 /// the pane wears its built-in icon instead.
-pub(super) fn inline_svgs(icons: &mut Value, dir: &Path) {
-    let Some(map) = icons.as_object_mut() else {
-        return;
-    };
-    map.retain(|_, value| {
+pub(super) fn inline_svgs(icons: &mut Map<String, Value>, dir: &Path) {
+    icons.retain(|_, value| {
         let Some(file) = value.as_str().filter(|v| is_svg_name(v)) else {
             return true;
         };

@@ -1,6 +1,7 @@
 name: nightly tmux version matrix
 
-# Every other workflow pins ONE tmux (3.7a, source-built and cache-shared), so
+# Every other workflow pins ONE tmux (`bin/toolchain tmux-version`, source-built
+# and cache-shared), so
 # nothing in CI has ever executed the version-specific paths docs/TMUX.md is
 # full of: the 3.5a `neww` crash and the `splitw ; breakp` rewrite, the 3.4
 # auto-adopt race on `@tmuxy-window-type`, the control-mode differences the
@@ -12,8 +13,8 @@ name: nightly tmux version matrix
 #   - the tmuxy-core integration tests that drive a real `tmux -CC`
 #   - the snapshot E2E suite
 #   - tests/8-tui-alternate-screen.test.js (alternate-screen / TUI path)
-#   - the whole E2E suite, on every released version but 3.7a (which the
-#     per-commit jobs already run it on)
+#   - the whole E2E suite, on every released version but the pinned one
+#     (which the per-commit jobs already run it on)
 #
 # Blocking policy: the RELEASED versions gate this workflow. `HEAD`
 # (tmux master) does not — upstream can break, or change behaviour, on any
@@ -51,11 +52,13 @@ jobs:
     outputs:
       tmux: ${{ steps.matrix.outputs.tmux }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: matrix
         env:
           VERSION: ${{ inputs.version || 'all' }}
         # `version` is the release tag; `soft` marks a version whose failure
-        # must not fail the workflow. 3.8 is what Homebrew ships, and prints
+        # must not fail the workflow; `pinned` (added from bin/toolchain) the
+        # one every per-commit job runs. 3.8 is what Homebrew ships, and prints
         # #{window_layout} as JSON, which session snapshots convert back to
         # the classic string.
         run: |
@@ -67,7 +70,13 @@ jobs:
             {"name": "3.8", "version": "3.8"},
             {"name": "HEAD", "version": "HEAD", "soft": true}
           ]'
-          tmux=$(jq -c --arg v "$VERSION" 'map(select($v == "all" or .version == $v))' <<<"$all")
+          pin=$(bin/toolchain tmux-version)
+          if ! jq -e --arg pin "$pin" 'any(.version == $pin)' <<<"$all" >/dev/null; then
+            echo "::error::the pinned tmux $pin is not in the matrix"
+            exit 1
+          fi
+          tmux=$(jq -c --arg v "$VERSION" --arg pin "$pin" \
+            'map(select($v == "all" or .version == $v) | .pinned = (.version == $pin))' <<<"$all")
           if [ "$tmux" = "[]" ]; then
             echo "::error::no tmux $VERSION in the matrix"
             exit 1
@@ -83,41 +92,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/build-frontend
+
+      - uses: ./.github/actions/build-server
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
-
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
-
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Upload server binary
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: tmuxy-server-release
-          path: target/release/tmuxy-server
-          if-no-files-found: error
-          retention-days: 1
+          profile: release
 
   suites:
     needs: [plan, build-artifacts]
@@ -135,87 +114,41 @@ jobs:
       matrix:
         tmux: ${{ fromJSON(needs.plan.outputs.tmux) }}
 
-    # The suite's own tmux socket — the tests pin it themselves
-    # (tests/helpers/tmux-socket.js), this is what puts the server on it too.
-    env:
-      TMUX_SOCKET: tmuxy-test
-      # And the suite's own port, for the same reason — matches DEFAULT_PORT in
-      # tests/helpers/config.js, which is where the tests look for the server.
-      TMUXY_PORT: 9100
-      # A runner gets twice each wait budget, as in lint-and-tests.yml.
-      TMUXY_WAIT_SCALE: '2'
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
 
       # The core integration tests are compiled here, so this job needs a
       # toolchain (unlike the per-commit e2e job, which only consumes the
       # prebuilt server).
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
+      - uses: ./.github/actions/setup-node-rust
 
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
+      # A released tmux's build dependencies come with install-tmux, on a
+      # cache miss; master's are installed here.
       - name: Install system dependencies
+        env:
+          HEAD_DEPS: ${{ matrix.tmux.version == 'HEAD' && 'tmux-build-head' || '' }}
         run: |
           bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison \
-            autoconf automake pkg-config \
-            fzf neovim
+          # shellcheck disable=SC2046 # one package per word
+          bin/ci/apt-get install -y --no-install-recommends fzf neovim \
+            ${HEAD_DEPS:+$(bin/toolchain packages "$HEAD_DEPS")}
 
       # Released versions are cached exactly like the per-commit jobs cache
-      # 3.7a — and the 3.7a entry shares that cache key, so it costs nothing
-      # extra. HEAD is a moving target and is deliberately never cached.
+      # the pinned one — and the pinned entry shares that cache key, so it
+      # costs nothing extra. HEAD is a moving target and is deliberately never
+      # cached.
       - uses: ./.github/actions/install-tmux
         if: matrix.tmux.version != 'HEAD'
         with:
           version: ${{ matrix.tmux.version }}
 
-      # master has no release tarball and no generated configure script.
       - name: Build tmux from master
         if: matrix.tmux.version == 'HEAD'
         run: |
-          set -euo pipefail
-          git clone --depth 1 https://github.com/tmux/tmux.git tmux-head
-          cd tmux-head
-          echo "tmux master commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-          sh autogen.sh
-          ./configure
-          make -j"$(nproc)"
-          sudo make install
-          cd .. && rm -rf tmux-head
+          bin/toolchain build-tmux HEAD
           tmux -V
 
-      - name: Install npm dependencies
-        run: npm ci
-
       - uses: ./.github/actions/install-chromium
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
-
-      - name: Download server binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: tmuxy-server-release
-          path: target/release
-
-      # Artifacts do not preserve the executable bit.
-      - name: Make the server executable
-        run: chmod +x target/release/tmuxy-server
-
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
 
       # Every test step below is `continue-on-error` so that ALL three suites
       # report on every version — a 3.4 crash in the core tests should not hide
@@ -233,13 +166,14 @@ jobs:
             --test pinned_split_race \
             --test enforced_settings
 
+      # The E2E suites' server, as lint-and-tests.yml starts it: their socket,
+      # port, wait scale and snapshot policy, for every step after this one.
       - name: Start server
         id: server
         continue-on-error: true
-        run: |
-          eval "$(node tests/helpers/server-env.js)"
-          ./target/release/tmuxy-server --port "$TMUXY_PORT" 2>/tmp/tmuxy-server.log &
-          bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"
+        uses: ./.github/actions/start-test-server
+        with:
+          e2e: 'true'
 
       - name: Snapshot suite
         id: snapshots
@@ -260,11 +194,8 @@ jobs:
       # every test is tagged needs no listing anywhere.
       - name: Nightly E2E tier
         id: nightly-tier
-        if: matrix.tmux.version == '3.7a'
+        if: matrix.tmux.pinned
         continue-on-error: true
-        env:
-          TMUXY_NO_SNAPSHOT: '1'
-          TMUXY_NO_RESTORE: '1'
         run: npx jest tests/ --testNamePattern '\[nightly\]'
 
       # The whole E2E suite, on every released version the per-commit jobs do
@@ -274,11 +205,8 @@ jobs:
       # the mode, and 53 of 88 tests failed on a version Ubuntu 24.04 ships.
       - name: Full E2E suite
         id: full-e2e
-        if: matrix.tmux.version != '3.7a' && matrix.tmux.version != 'HEAD'
+        if: ${{ !matrix.tmux.pinned && matrix.tmux.version != 'HEAD' }}
         continue-on-error: true
-        env:
-          TMUXY_NO_SNAPSHOT: '1'
-          TMUXY_NO_RESTORE: '1'
         run: npx jest --runInBand tests/
 
       - name: Server logs (debug)
@@ -338,8 +266,8 @@ jobs:
           | server start | ${{ steps.server.outcome }} |
           | snapshots | ${{ steps.snapshots.outcome }} |
           | 8-tui-alternate-screen | ${{ steps.tui.outcome }} |
-          | nightly E2E tier (3.7a only) | ${{ steps.nightly-tier.outcome }} |
-          | full E2E suite (not 3.7a) | ${{ steps.full-e2e.outcome }} |
+          | nightly E2E tier (the pinned tmux only) | ${{ steps.nightly-tier.outcome }} |
+          | full E2E suite (not the pinned tmux) | ${{ steps.full-e2e.outcome }} |
 
           Run: $RUN_URL
           Commit: ${{ github.sha }}

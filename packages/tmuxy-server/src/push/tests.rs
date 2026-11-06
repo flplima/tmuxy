@@ -1,6 +1,6 @@
 use super::crypto::{self, b64url, from_b64url, origin, VapidKey};
 use super::store::{Store, Subscription, SubscriptionKeys, MAX_SUBSCRIPTIONS};
-use super::watch::{parse_rows, Notice, Watch};
+use super::watch::{Notice, Watch};
 use super::Push;
 use aes_gcm::aead::Aead;
 use aes_gcm::{AeadCore, Aes128Gcm, Key, KeyInit, Nonce};
@@ -10,6 +10,7 @@ use ring::rand::SystemRandom;
 use ring::signature::{UnparsedPublicKey as SignatureKey, ECDSA_P256_SHA256_FIXED};
 use sha2::Sha256;
 use std::sync::{Arc, Mutex};
+use tmuxy_core::host::socket_watch::{parse_rows, PaneRow};
 
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tmuxy-push-{name}-{}", std::process::id()));
@@ -232,11 +233,11 @@ fn only_a_push_service_subscription_is_taken() {
     assert!(short.checked().is_err());
 }
 
-fn rows(states: &[(&str, &str)], notify: &str) -> Vec<super::watch::PaneRow> {
+fn rows(states: &[(&str, &str)], notify: &str) -> Vec<PaneRow> {
     parse_rows(
         &states
             .iter()
-            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\tmain"))
+            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\tmain"))
             .collect::<Vec<_>>()
             .join("\n"),
     )
@@ -369,7 +370,7 @@ async fn a_device_subscribes_with_the_servers_key() {
     use tower::ServiceExt;
 
     let dir = scratch("routes");
-    let mut state = AppState::new();
+    let mut state = AppState::default();
     state.push = Push::with_store(Store::new(dir.clone()));
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(state));
     let request = |method: &str, path: &str, body: String| {

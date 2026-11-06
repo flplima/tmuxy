@@ -1,81 +1,89 @@
 use super::*;
+use tmux_formats::{
+    Column, Field, PaneColumn, Row, RowBuilder, StashColumn, TmuxList, WindowColumn,
+};
 
-/// The module's stated purpose is "a typo can't diverge a sender from its
-/// reader" — but `concat!` can't interpolate consts, so the format
-/// strings repeat the option names as literals. This test is the
-/// lockstep guard: every window-scoped `@tmuxy-*` option must appear
-/// verbatim in the list-windows format the parser consumes.
-#[test]
-fn list_windows_cmd_embeds_every_window_option() {
-    for option in [
-        tmux_options::WINDOW_TYPE,
-        tmux_options::FLOAT_PARENT,
-        tmux_options::FLOAT_WIDTH,
-        tmux_options::FLOAT_HEIGHT,
-        tmux_options::FLOAT_DRAWER,
-        tmux_options::FLOAT_BG,
-        tmux_options::FLOAT_NOHEADER,
-        tmux_options::FOCUS_REQUEST,
-        tmux_options::SIDEBAR_COLS,
-        tmux_options::SIDEBAR_HIDDEN,
-        tmux_options::SIDEBAR_ROWS,
-        tmux_options::COLLAPSIBLE,
-    ] {
-        assert!(
-            tmux_formats::LIST_WINDOWS_CMD.contains(&format!("#{{{option}}}")),
-            "LIST_WINDOWS_CMD is missing #{{{option}}} — the format string \
-             and the tmux_options constant have diverged"
-        );
-    }
+/// The `-F` format of `list`'s command, out of its quotes.
+fn format_of(list: TmuxList) -> &'static str {
+    let command = list.command();
+    let start = command.find("-F '").expect("every list names its format") + "-F '".len();
+    command[start..]
+        .strip_suffix('\'')
+        .expect("the format closes the command")
 }
 
-/// The pane row has exactly one field per column: the command is built from
-/// the same table the parser indexes with, and no column's format may put a
-/// top-level comma of its own into the row.
+/// Every list's row has exactly one field per column: the command is built
+/// from the same table the parser indexes with, and no column's format may
+/// put a top-level comma of its own into the row.
 #[test]
-fn the_pane_row_has_one_field_per_column() {
-    let format = tmux_formats::LIST_PANES_CMD
-        .strip_prefix("list-panes -s -F '")
-        .and_then(|rest| rest.strip_suffix('\''))
-        .expect("the command wraps the format in quotes");
-    let mut depth = 0usize;
-    let mut separators = 0usize;
-    for ch in format.chars() {
-        match ch {
-            '{' => depth += 1,
-            '}' => depth -= 1,
-            ',' if depth == 0 => separators += 1,
-            _ => {}
+fn every_list_row_has_one_field_per_column() {
+    fn check<C: Column>(list: TmuxList) {
+        let mut depth = 0usize;
+        let mut separators = 0usize;
+        for ch in format_of(list).chars() {
+            match ch {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                ',' if depth == 0 => separators += 1,
+                _ => {}
+            }
+        }
+        assert_eq!(separators + 1, C::ALL.len(), "{list:?}");
+        for column in C::ALL {
+            let format = column.field().format();
+            assert!(
+                format.starts_with("#{") && format.ends_with('}'),
+                "every column is one tmux format: {column:?} {format}"
+            );
         }
     }
-    assert_eq!(separators + 1, tmux_formats::PaneColumn::COUNT);
-    for column in tmux_formats::PANE_COLUMNS {
-        assert!(
-            column.starts_with("#{") && column.ends_with('}'),
-            "every column is one tmux format: {column}"
-        );
-    }
+    check::<PaneColumn>(TmuxList::Panes);
+    check::<WindowColumn>(TmuxList::Windows);
+    check::<StashColumn>(TmuxList::Stash);
 }
 
 /// A column whose value is free text is comma-escaped by the format, so a
-/// title, a border, a process name or a shell line full of commas is still
-/// one field.
+/// title, a border, a process name, a shell line or a window name full of
+/// commas is still one field.
 #[test]
-fn free_text_pane_columns_are_comma_escaped() {
-    use tmux_formats::{PaneColumn, PANE_COLUMNS};
-    for column in [
-        PaneColumn::Command,
-        PaneColumn::Title,
-        PaneColumn::BorderTitle,
-        PaneColumn::Restore,
-    ] {
-        let format = PANE_COLUMNS[column.index()];
+fn free_text_columns_are_comma_escaped() {
+    let escaped = format!("#{{s/,/{}/:", tmux_formats::COMMA_ESCAPE);
+    for format in [
+        PaneColumn::Command.field(),
+        PaneColumn::Title.field(),
+        PaneColumn::BorderTitle.field(),
+        PaneColumn::Restore.field(),
+        WindowColumn::Name.field(),
+        StashColumn::Command.field(),
+        StashColumn::Title.field(),
+    ]
+    .map(Field::format)
+    {
         assert!(
-            format.starts_with(&format!("#{{s/,/{}/:", tmux_formats::COMMA_ESCAPE)),
-            "{column:?} is free text and must be escaped: {format}"
+            format.starts_with(&escaped),
+            "free text, unescaped: {format}"
         );
     }
     assert_eq!(tmux_formats::unescape_commas("a%2C b%2C c"), "a, b, c");
+}
+
+/// A row written by the builder reads back field for field, commas in free
+/// text included: the fixtures and the parser share the column table.
+#[test]
+fn a_built_row_reads_back_through_its_table() {
+    let line = RowBuilder::<WindowColumn>::new()
+        .set(WindowColumn::WindowId, "@3")
+        .set(WindowColumn::Active, 1)
+        .set(WindowColumn::Name, "build, test")
+        .build();
+    let row = Row::<WindowColumn>::parse(&line).expect("one field per column");
+    assert_eq!(row.field(WindowColumn::WindowId), "@3");
+    assert!(row.flag(WindowColumn::Active));
+    assert_eq!(row.text(WindowColumn::Name), "build, test");
+    assert_eq!(row.option(WindowColumn::WindowType), None);
+
+    // A row of another list has another number of fields.
+    assert!(Row::<PaneColumn>::parse(&line).is_none());
 }
 
 /// The pane rows must ask WHICH mode the pane is in, never the broader
@@ -84,19 +92,14 @@ fn free_text_pane_columns_are_comma_escaped() {
 /// client) would vanish behind a scrollback view. View mode is told apart
 /// from the rest because the aggregator closes it.
 #[test]
-fn list_panes_cmd_asks_which_mode_not_any_mode() {
-    use tmux_formats::{PaneColumn, PANE_COLUMNS};
+fn list_panes_asks_which_mode_not_any_mode() {
     assert_eq!(
-        PANE_COLUMNS[PaneColumn::Mode.index()],
-        tmux_formats::PANE_MODE_FLAG
+        PaneColumn::Mode.field(),
+        Field::Format(tmux_formats::PANE_MODE_FLAG)
     );
     assert!(
-        tmux_formats::LIST_PANES_CMD.contains(tmux_formats::PANE_MODE_FLAG),
-        "LIST_PANES_CMD must request PANE_MODE_FLAG"
-    );
-    assert!(
-        !tmux_formats::LIST_PANES_CMD.contains("#{pane_in_mode}"),
-        "LIST_PANES_CMD must not use #{{pane_in_mode}} — it is 1 for view-mode too"
+        !TmuxList::Panes.command().contains("#{pane_in_mode}"),
+        "list-panes must not use #{{pane_in_mode}} — it is 1 for view-mode too"
     );
     // The values the parser reads (`parse_list_panes_line`): copy mode is
     // 1, view mode 2, and the field is one int whatever the mode.
@@ -112,62 +115,35 @@ fn list_panes_cmd_asks_which_mode_not_any_mode() {
 /// pane header would show a host name instead of falling back to the
 /// process name.
 #[test]
-fn list_panes_cmds_ask_for_the_app_set_title() {
-    for (name, cmd) in [
-        ("LIST_PANES_CMD", tmux_formats::LIST_PANES_CMD),
-        ("LIST_STASH_PANES_CMD", tmux_formats::LIST_STASH_PANES_CMD),
-    ] {
+fn pane_lists_ask_for_the_app_set_title() {
+    for list in [TmuxList::Panes, TmuxList::Stash] {
+        let cmd = list.command();
         assert!(
             cmd.contains(tmux_formats::APP_PANE_TITLE),
-            "{name} must request APP_PANE_TITLE, not a bare #{{pane_title}}"
+            "{list:?} must request APP_PANE_TITLE, not a bare #{{pane_title}}"
         );
         assert_eq!(
             cmd.matches("#{pane_title}").count(),
             tmux_formats::APP_PANE_TITLE
                 .matches("#{pane_title}")
                 .count(),
-            "{name} has a #{{pane_title}} outside APP_PANE_TITLE"
+            "{list:?} has a #{{pane_title}} outside APP_PANE_TITLE"
         );
     }
 }
 
-/// `@tmuxy-ask` rides in the pane format's fixed tail. A literal that
-/// drifted from the constant would leave every pending question invisible.
+/// The stash list reads the stash session's panes, whichever session is
+/// attached.
 #[test]
-fn list_panes_cmd_embeds_the_ask_options() {
-    for opt in [tmux_options::PANE_STATE, tmux_options::ASK] {
-        assert!(
-            tmux_formats::LIST_PANES_CMD.contains(&format!("#{{{opt}}}")),
-            "LIST_PANES_CMD is missing #{{{opt}}}"
-        );
-    }
-}
-
-/// The group id rides in the pane format now (pane-scoped), and the stash
-/// enumeration must carry it too — same lockstep guard against a divergent
-/// literal.
-#[test]
-fn list_panes_cmds_embed_group_id() {
-    let opt = tmux_options::GROUP_ID;
-    assert!(
-        tmux_formats::LIST_PANES_CMD.contains(&format!("#{{{opt}}}")),
-        "LIST_PANES_CMD is missing #{{{opt}}}"
-    );
-    assert!(
-        tmux_formats::LIST_STASH_PANES_CMD.contains(&format!("#{{{opt}}}")),
-        "LIST_STASH_PANES_CMD is missing #{{{opt}}}"
-    );
-    assert!(
-        tmux_formats::LIST_STASH_PANES_CMD.contains(STASH_SESSION),
-        "LIST_STASH_PANES_CMD must target the stash session by name"
-    );
+fn the_stash_list_targets_the_stash_session_by_name() {
+    assert!(TmuxList::Stash.command().contains(STASH_SESSION));
 }
 
 /// The pane-metadata subscription watches the pane options that change
 /// without tmux announcing it: the group scripts', and an agent's state.
 #[test]
 fn pane_meta_subscription_watches_the_group_options_and_the_pane_state() {
-    let cmd = tmux_formats::SUBSCRIBE_PANE_TITLES_CMD;
+    let cmd = tmux_formats::subscribe_pane_titles_command();
     assert!(cmd.contains(&format!("'{}:", tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME)));
     for opt in [
         tmux_options::GROUP_ID,
@@ -177,7 +153,7 @@ fn pane_meta_subscription_watches_the_group_options_and_the_pane_state() {
     ] {
         assert!(
             cmd.contains(&format!("#{{{opt}}}")),
-            "SUBSCRIBE_PANE_TITLES_CMD is missing #{{{opt}}}"
+            "the pane-metadata subscription is missing #{{{opt}}}"
         );
     }
 }

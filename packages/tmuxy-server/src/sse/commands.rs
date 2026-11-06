@@ -7,19 +7,13 @@ use axum::{
 };
 use serde::Serialize;
 use std::sync::Arc;
-use tmuxy_core::command_router::Route;
-use tmuxy_core::transport::{self, to_json};
-use tmuxy_core::CommandError;
-use tracing::trace;
-
-use super::clients::{new_window_client_size, note_client_activity, set_client_size};
-use super::emitter::{broadcast_theme_settings, refresh_keybindings, theme_settings_for};
-pub(super) use super::server_commands::wait_for_monitor;
-use super::server_commands::{
-    handle_connect_server, handle_list_servers, initial_state_for_size, query_via_control_mode,
+use tmuxy_core::host::{
+    self, ClientCommand, HostCtx, HostEvent, RuntimeConfig, SessionRuntime, Sink,
 };
+use tmuxy_core::CommandError;
+
+use super::clients::open_client;
 use super::SessionQuery;
-use crate::command::ClientCommand;
 use crate::state::AppState;
 
 // ============================================
@@ -102,9 +96,34 @@ pub async fn commands_handler(
         tracing::info!(target: "tmuxy_server::sse", action_id = %action_id, "client command");
     }
 
+    // `ensure_session` is this door's own request, not a client command:
+    // it creates the session `GET /events` will attach to, under the
+    // server's session cap, and its refusals have HTTP statuses of their own.
+    let value: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(e) => {
+            return command_failure(
+                StatusCode::BAD_REQUEST,
+                CommandError::invalid(format!("invalid command payload: {e}")),
+            );
+        }
+    };
+    if value.get("cmd").and_then(serde_json::Value::as_str) == Some(ENSURE_SESSION) {
+        return match super::clients::ensure_session(&state, &session).await {
+            Ok(()) => (
+                StatusCode::OK,
+                Json(CommandResponse {
+                    result: serde_json::Value::Null,
+                }),
+            )
+                .into_response(),
+            Err(rejection) => rejection.into_command_failure(),
+        };
+    }
+
     // Decode into the typed enum. A malformed payload — a misspelt field, a
     // pane id that is not one — is a 400 of kind `invalid`.
-    let cmd: ClientCommand = match ClientCommand::decode(&body) {
+    let cmd = match ClientCommand::from_value(value) {
         Ok(c) => c,
         Err(e) => {
             return command_failure(
@@ -114,38 +133,26 @@ pub async fn commands_handler(
         }
     };
 
-    if matches!(cmd, ClientCommand::EnsureSession) {
-        return match super::clients::ensure_session(&state, &session).await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(CommandResponse {
-                    result: serde_json::json!(null),
-                }),
-            )
-                .into_response(),
-            Err(rejection) => rejection.into_command_failure(),
-        };
-    }
-
     match handle_command(cmd, &session, &state, conn_id).await {
         Ok(result) => (StatusCode::OK, Json(CommandResponse { result })).into_response(),
         Err(error) => command_failure(StatusCode::BAD_REQUEST, error),
     }
 }
 
+/// The web door's own request: make `?session=` exist (with a monitor)
+/// before `GET /events` attaches to it, so the stream itself stays free of
+/// side effects.
+pub(super) const ENSURE_SESSION: &str = "ensure_session";
+
 // ============================================
 // Trace Ingest Handler (POST /trace)
 // ============================================
-
-/// Max client events accepted per request (a second cap behind the route's
-/// body-size limit) — a hostile client can't fill the disk in one call.
-const TRACE_MAX_EVENTS: usize = 1000;
 
 /// Ingest client-originated trace events (browser/Tauri tracer) into the shared
 /// NDJSON file. **Fails closed**: if tracing is not enabled on this server the
 /// body is dropped regardless of what the client believes, so a stale client
 /// flag can never reopen the sink. Every event is re-sanitized server-side
-/// (`trace::record_client_event`) before it touches the file.
+/// (`trace::record_client_batch`) before it touches the file.
 pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
     if !has_json_content_type(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE;
@@ -161,9 +168,7 @@ pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
             Ok(v) => v,
             Err(_) => return StatusCode::BAD_REQUEST,
         };
-    for obj in events.into_iter().take(TRACE_MAX_EVENTS) {
-        tmuxy_core::trace::record_client_event(obj);
-    }
+    tmuxy_core::trace::record_client_batch(events);
     StatusCode::NO_CONTENT
 }
 
@@ -171,150 +176,60 @@ pub async fn trace_handler(headers: HeaderMap, body: Body) -> StatusCode {
 // Command Handler
 // ============================================
 
+/// A command's view of the web host: the session's runtime, and the client
+/// when its stream is open. The web serves the socket it was started on, so
+/// it switches no servers, detaches no one and opens nothing on its own
+/// machine: those answer `unavailable` (`HostCtx`'s defaults).
+struct WebCtx {
+    runtime: Arc<SessionRuntime>,
+    client: Option<u64>,
+}
+
+impl HostCtx for WebCtx {
+    fn runtime(&self) -> &SessionRuntime {
+        &self.runtime
+    }
+
+    fn client(&self) -> Option<u64> {
+        self.client
+    }
+}
+
+/// Where the events of a session the server does not watch go: nowhere.
+struct Unwatched;
+
+impl Sink for Unwatched {
+    fn emit(&self, _event: HostEvent) {}
+}
+
 pub(super) async fn handle_command(
     cmd: ClientCommand,
     session: &str,
     state: &Arc<AppState>,
     conn_id: Option<u64>,
 ) -> Result<serde_json::Value, CommandError> {
-    match cmd {
-        ClientCommand::GetInitialState { cols, rows } => {
-            // Apply client size before capturing state.
-            if let (Some(c), Some(r)) = (cols, rows) {
-                if c > 0 && r > 0 {
-                    set_client_size(state, session, conn_id, c, r).await;
-                }
-            }
-            let snapshot = initial_state_for_size(state, session).await?;
-            to_json(snapshot, "state")
-        }
-        ClientCommand::SetClientSize { cols, rows } => {
-            if cols > 0 && rows > 0 {
-                set_client_size(state, session, conn_id, cols, rows).await;
-            }
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::RunTmuxCommand { command } => {
-            note_client_activity(state, session, conn_id).await;
-            // Policy and sequence live in tmuxy-core (`run_client_command`)
-            // and are shared with the desktop app; only the channel and the
-            // re-broadcast after a `source-file` are ours.
-            let tx = state.monitor_tx(session).await?;
-            transport::run_client_command(
-                &tx,
-                &command,
-                session,
-                new_window_client_size(state, session).await,
-                || async {
-                    refresh_keybindings(state, session).await;
-                    broadcast_theme_settings(state, session).await;
+    // A session no stream watches has no monitor: a command that needs one
+    // is refused at once, and the rest (the themes, the snapshots, the trace
+    // switch) are answered all the same.
+    let runtime = match state.runtime(session).await {
+        Some(runtime) => runtime,
+        None => {
+            let runtime = SessionRuntime::new(
+                RuntimeConfig {
+                    session: session.to_string(),
+                    preview: Arc::clone(&state.preview_pages),
+                    preview_scope: session.to_string(),
+                    restore: false,
                 },
-            )
-            .await?;
-            trace!(
-                ?conn_id,
-                command = %tmuxy_core::trace::redact_command(&command),
-                "client sent command via control mode"
+                Arc::new(Unwatched),
             );
-            Ok(serde_json::json!(null))
+            runtime.set_down();
+            runtime
         }
-        ClientCommand::QueryTmux { command } => {
-            let routed = match transport::route_query(&command) {
-                Route::Blocked(reason) => {
-                    return Err(CommandError::forbidden(reason));
-                }
-                Route::ControlMode(cmd) => cmd,
-            };
-            let output = query_via_control_mode(state, session, &routed).await?;
-            Ok(serde_json::json!(output))
-        }
-        ClientCommand::GetScrollbackCells {
-            pane_id,
-            start,
-            end,
-        } => {
-            let tx = state.monitor_tx(session).await?;
-            transport::scrollback_cells(&tx, &pane_id, start, end).await
-        }
-        ClientCommand::ReadPreview { pane_id, path } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::preview::read_preview(&tx, &pane_id, path).await
-        }
-        ClientCommand::GetThemeSettings => theme_settings_for(state, session).await,
-        // The theme is the session's, not the client's: every client
-        // watching it is sent the new settings at once. Clients of other
-        // monitors (the desktop app, another session) learn it from the
-        // pane-metadata subscription (`ThemeRev`) about a second later.
-        ClientCommand::SetTheme { name, mode } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await?;
-            broadcast_theme_settings(state, session).await;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SetCursorBlink { enabled } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_cursor_blink(&tx, enabled).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::SetSendAsk { enabled } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_send_ask(&tx, enabled).await?;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),
-        ClientCommand::ListGitWorktrees => {
-            let tx = state.monitor_tx(session).await?;
-            transport::git_worktrees_json(&tx).await
-        }
-        ClientCommand::SetThemeMode { mode } => {
-            let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_theme_mode(&tx, &mode).await?;
-            broadcast_theme_settings(state, session).await;
-            Ok(serde_json::json!(null))
-        }
-        ClientCommand::ListSnapshots => transport::list_snapshots_json().await,
-        ClientCommand::PreparePluginAction {
-            plugin,
-            action,
-            pane_id,
-            selection,
-        } => transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await,
-        ClientCommand::OpenLink { url, pane_id } => {
-            transport::open_plugin_link_json(url, pane_id).await
-        }
-        ClientCommand::OpenText {
-            pane_id,
-            line,
-            column,
-        } => transport::open_plugin_text_json(pane_id, line, column).await,
-        // Through THIS session's client: a new session made from inside a
-        // control-mode client is how the server already creates one.
-        ClientCommand::RestoreSession { session: name } => {
-            let tx = state.monitor_tx(session).await?;
-            transport::restore_named(&name, &tx).await?;
-            Ok(serde_json::json!(null))
-        }
-        // Debug menu (docs/TRACING.md). The trace file lives on THIS host, so
-        // a browser client can read the switch and the path but cannot open the
-        // file — the in-app menu hides that item off the desktop.
-        ClientCommand::GetTraceSettings => Ok(transport::trace_settings_json()),
-        ClientCommand::SetTraceEnabled { enabled } => {
-            Ok(serde_json::json!(tmuxy_core::trace::set_enabled(enabled)))
-        }
-        ClientCommand::SetTraceLevel { level } => {
-            Ok(serde_json::json!(transport::set_trace_level(&level)))
-        }
-        ClientCommand::ListServers => handle_list_servers(state, session).await,
-        ClientCommand::ConnectServer {
-            id,
-            session: session_override,
-        } => handle_connect_server(id, session_override).await,
-        ClientCommand::DetachClient => Ok(serde_json::json!(null)),
-        ClientCommand::EnsureSession => {
-            match super::clients::ensure_session(state, session).await {
-                Ok(()) => Ok(serde_json::json!(null)),
-                Err(rejection) => Err(CommandError::invalid(rejection.message())),
-            }
-        }
-    }
+    };
+    let ctx = WebCtx {
+        runtime,
+        client: open_client(state, session, conn_id).await,
+    };
+    host::handle(cmd, &ctx).await
 }

@@ -4,18 +4,19 @@
 //! `TmuxOp.PluginAction`; the plugins and the token directory are this
 //! machine's, so a server reached over SSH has neither.
 
+use crate::plugins::links::Prepared;
 use crate::CommandError;
 
 /// Run a blocking plugin lookup off the async runtime, refusing over SSH.
 async fn locally<T: Send + 'static>(
-    work: impl FnOnce(&crate::plugins::Dirs) -> crate::plugins::Result<T> + Send + 'static,
+    work: impl FnOnce(&crate::paths::Layout) -> crate::plugins::Result<T> + Send + 'static,
 ) -> Result<T, CommandError> {
     if crate::session::ssh_target().is_some() {
         return Err(CommandError::unavailable(
             "plugins answer only where tmuxy runs on the tmux server's machine",
         ));
     }
-    tokio::task::spawn_blocking(move || work(&crate::plugins::Dirs::current()))
+    tokio::task::spawn_blocking(move || work(&crate::paths::Layout::current()))
         .await
         .map_err(|e| CommandError::unavailable(e.to_string()))?
         .map_err(|e| CommandError::invalid(e.to_string()))
@@ -26,28 +27,34 @@ async fn locally<T: Send + 'static>(
 /// command line (`plugins::invoke`). Answers `{ token }`; the client then
 /// names the token in `TmuxOp.PluginAction`. The plugins and the token
 /// directory are this machine's, so a server reached over SSH has neither.
-pub async fn prepare_plugin_action_json(
+pub async fn prepare_plugin_action(
     plugin: String,
     action: String,
     pane_id: crate::PaneId,
     selection: Option<String>,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<PluginToken, CommandError> {
     let pane = pane_id.to_string();
     let token = locally(move |dirs| {
         crate::plugins::invoke::prepare(dirs, &plugin, &action, &pane, selection)
     })
     .await?;
-    Ok(serde_json::json!({ "token": token }))
+    Ok(PluginToken { token })
+}
+
+/// [`prepare_plugin_action`]'s answer.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct PluginToken {
+    pub token: String,
 }
 
 /// A URL clicked in `pane_id`: the action of the first link handler that
 /// takes it, prepared, or `null` for the browser.
-pub async fn open_plugin_link_json(
+pub async fn open_plugin_link(
     url: String,
     pane_id: crate::PaneId,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<Option<Prepared>, CommandError> {
     let pane = pane_id.to_string();
-    let prepared = locally(move |dirs| {
+    locally(move |dirs| {
         let registry = crate::plugins::registry::Registry::load(dirs)?;
         crate::plugins::links::prepare(
             dirs,
@@ -55,20 +62,19 @@ pub async fn open_plugin_link_json(
             &pane,
         )
     })
-    .await?;
-    Ok(serde_json::to_value(prepared).unwrap_or_default())
+    .await
 }
 
 /// Text clicked in `pane_id` (the whole line and the column, in
 /// characters): the action of the first text handler whose pattern covers
 /// the column, prepared, or `null`.
-pub async fn open_plugin_text_json(
+pub async fn open_plugin_text(
     pane_id: crate::PaneId,
     line: String,
     column: usize,
-) -> Result<serde_json::Value, CommandError> {
+) -> Result<Option<Prepared>, CommandError> {
     let pane = pane_id.to_string();
-    let prepared = locally(move |dirs| {
+    locally(move |dirs| {
         let registry = crate::plugins::registry::Registry::load(dirs)?;
         crate::plugins::links::prepare(
             dirs,
@@ -76,8 +82,7 @@ pub async fn open_plugin_text_json(
             &pane,
         )
     })
-    .await?;
-    Ok(serde_json::to_value(prepared).unwrap_or_default())
+    .await
 }
 
 /// What a config reload re-reads of the plugins: the inventory (the user's
@@ -89,24 +94,12 @@ pub async fn reload_plugins(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    for cmd in crate::plugins::inventory::commands(&crate::plugins::Dirs::current()) {
+    let commands = crate::plugins::inventory::commands(&crate::paths::Layout::current())
+        .map_err(|e| CommandError::invalid(e.to_string()))?;
+    for cmd in commands {
         super::run(tx, &cmd).await?;
     }
     apply_plugin_keys(tx).await
-}
-
-/// One word of a command line sent over control mode: a key name or a
-/// command name as it is, anything else quoted.
-fn tmux_word(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        word.to_string()
-    } else {
-        crate::executor::tmux_quote(word)
-    }
 }
 
 /// Bind the plugin keys (`plugins::keys`) over the control-mode connection:
@@ -120,16 +113,14 @@ pub async fn apply_plugin_keys(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    let registry = Registry::load(&crate::plugins::Dirs::current()).unwrap_or_default();
+    // A lockfile that does not load binds nothing and unbinds nothing: an
+    // empty registry would take every plugin key away.
+    let registry = Registry::load(&crate::paths::Layout::current())
+        .map_err(|e| CommandError::invalid(e.to_string()))?;
     let mut listings = Vec::new();
     for table in [KeyTable::Prefix, KeyTable::Root] {
-        let listing = match super::query(tx, &keys::list_command(table)).await {
-            Ok(listing) => listing,
-            // tmux refuses to list a table with no bindings: nothing in it.
-            Err(e) if e.kind == crate::ErrorKind::Tmux => String::new(),
-            // Unread is not empty: binding blind could take a user's key.
-            Err(e) => return Err(e),
-        };
+        let listing =
+            crate::list_keys::listing(super::query(tx, &keys::list_command(table)).await)?;
         listings.push((table, listing));
     }
     let (planned, cmds) = keys::commands(&registry, |table| {
@@ -141,12 +132,7 @@ pub async fn apply_plugin_keys(
     });
     let lines: Vec<String> = cmds
         .iter()
-        .map(|argv| {
-            argv.iter()
-                .map(|w| tmux_word(w))
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
+        .map(|argv| crate::argv::control_line(argv))
         .collect();
     tracing::debug!(
         target: "tmuxy_core::plugins",

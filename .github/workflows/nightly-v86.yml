@@ -50,8 +50,6 @@ jobs:
       - name: Probe v86 stories (shared engine, single page)
         continue-on-error: true
         run: |
-          mkdir -p perf
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           PROBE_TIMINGS_JSON="$PWD/tests/perf/v86-probe-timings.json" \
           PROBE_RESULTS_JSON="$RUNNER_TEMP/results-sweep.json" \
             npm run test-storybook:v86 -w tmuxy-ui
@@ -106,7 +104,6 @@ jobs:
         env:
           PROBE_TIER: all
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           PROBE_RESULTS_JSON="$RUNNER_TEMP/results-deterministic.json" \
             npm run test-storybook -w tmuxy-ui
 
@@ -151,7 +148,6 @@ jobs:
         env:
           IDS: ${{ needs.sweep.outputs.failed }}
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           # shellcheck disable=SC2086 # one id per word
           PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-v86.json" \
             npm run test-storybook:v86 -w tmuxy-ui -- $IDS
@@ -185,7 +181,6 @@ jobs:
           IDS: ${{ needs.deterministic.outputs.failed }}
           PROBE_TIER: all
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           # shellcheck disable=SC2086 # one id per word
           PROBE_EXACT=1 PROBE_RESULTS_JSON="$RUNNER_TEMP/results-reconfirm-deterministic.json" \
             npm run test-storybook -w tmuxy-ui -- $IDS

@@ -48,11 +48,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The frontend and the release server, built once for every job below that
+  # drives them. Release, not debug or the per-commit `ci` profile: a slower
+  # server's own cost would swamp the differences between interactions these
+  # harnesses exist to see, and a baseline has to describe what ships. Every
+  # trigger runs at least one consumer, so this job has no condition.
+  build-artifacts:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/build-frontend
+
+      - uses: ./.github/actions/build-server
+        with:
+          profile: release
+
   # Axis C on the platform the gate job runs on. Actions → "perf measurements"
   # → Run workflow; read the numbers in the PR it opens, then merge. Uncheck
   # `open_pr` for the artifact alone.
   interaction-baseline:
     if: github.event_name == 'workflow_dispatch'
+    needs: build-artifacts
     runs-on: ubuntu-26.04
     timeout-minutes: 40
     permissions:
@@ -62,54 +81,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
+          rust: none
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install system dependencies
-        run: |
-          bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison
-
-      # Same source-built 3.7a and cache key as every other job: the binding
+      # Same source-built pinned tmux and cache key as every other job: the binding
       # set and the run-shell cost this harness measures are version-sensitive,
       # and the baseline has to describe the tmux the gate job runs against.
       - uses: ./.github/actions/install-tmux
 
-      - name: Install npm dependencies
-        run: npm ci
-
       - uses: ./.github/actions/install-chromium
+        with:
+          export-path: 'true'
 
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
-
-      # Release, like the gate job: a debug server's own slowness would be
-      # baked into the baseline.
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
-
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
-
-      - name: Start server
-        run: |
-          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          bin/ci/wait-for-server http://localhost:9000
+      - uses: ./.github/actions/start-test-server
 
       # More samples than the 12 the gate job uses: this number is committed
       # and lived with, so it is worth a steadier p50.
       - name: Measure interactions
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run perf:interactions -- \
             --url http://localhost:9000 \
             --samples 25 \
@@ -212,57 +202,29 @@ jobs:
   # keystroke echo (compare-interactions.mjs); absolute milliseconds only warn.
   interaction-latency:
     if: github.event_name == 'schedule' || inputs.gates
+    needs: build-artifacts
     runs-on: ubuntu-26.04
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install system dependencies
-        run: |
-          bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison
+          rust: none
 
       # Same tmux the e2e job pins — the binding set and the run-shell cost
       # this harness measures are version-sensitive.
       - uses: ./.github/actions/install-tmux
 
-      - name: Install npm dependencies
-        run: npm ci
-
       - uses: ./.github/actions/install-chromium
+        with:
+          export-path: 'true'
 
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
-
-      # Release, not debug: a debug server's own slowness would swamp the
-      # differences between interactions this harness exists to see.
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
-
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
-
-      - name: Start server
-        run: |
-          ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          bin/ci/wait-for-server http://localhost:9000
+      - uses: ./.github/actions/start-test-server
 
       - name: Measure interactions
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run perf:interactions -- \
             --url http://localhost:9000 \
             --samples 12 \
@@ -292,63 +254,30 @@ jobs:
   # Its own tmux socket (`tmuxy-perf`, set by the harness).
   interaction-latency-desktop:
     if: github.event_name == 'schedule' || inputs.gates
+    needs: build-artifacts
     runs-on: ubuntu-26.04
     timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
+      - uses: ./.github/actions/setup-node-rust
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install system dependencies
-        run: |
-          bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            webkitgtk-webdriver xvfb x11-utils
+      - uses: ./.github/actions/install-desktop-test-deps
 
       - uses: ./.github/actions/install-tmux
 
-      - name: Cache tauri-driver
-        id: tauri-driver-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      - name: Download frontend dist
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          path: ~/.cargo/bin/tauri-driver
-          key: ${{ runner.os }}-tauri-driver-2.0.6
-
-      - name: Install tauri-driver (cache miss)
-        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked --force
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
+          name: frontend-dist
+          path: packages/tmuxy-ui/dist
 
       - name: Build Tauri app (release)
         run: npx tauri build --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: packages/tmuxy-tauri-app
 
-      - name: Start Xvfb
-        run: |
-          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          echo "XVFB_PID=$!" >> "$GITHUB_ENV"
-          for i in $(seq 1 20); do
-            xdpyinfo -display :99 >/dev/null 2>&1 && break
-            sleep 0.25
-          done
+      - uses: ./.github/actions/start-xvfb
 
       - name: Measure interaction latency (desktop)
         env:
@@ -393,8 +322,6 @@ jobs:
           install-npm: 'false'
 
       - uses: ./.github/actions/install-linux-deps
-        with:
-          profile: rust
 
       - name: Frontend dist placeholder
         run: mkdir -p packages/tmuxy-ui/dist
@@ -417,65 +344,39 @@ jobs:
   # until a corpus of nightly runs calibrates them (docs/PERFORMANCE.md).
   soak:
     if: github.event_name == 'schedule' || inputs.soak
+    needs: build-artifacts
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
+          rust: none
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install system dependencies
-        run: |
-          bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison
-
-      # The same source-built 3.7a and cache key as every other job: a leak in
+      # The same source-built pinned tmux and cache key as every other job: a leak in
       # pane teardown is version-sensitive, and the answer has to be about the
       # tmux the rest of CI runs against.
       - uses: ./.github/actions/install-tmux
 
-      - name: Install npm dependencies
-        run: npm ci
-
       - uses: ./.github/actions/install-chromium
+        with:
+          export-path: 'true'
 
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
-
-      # Release: a debug server's own allocation behaviour is not the thing
-      # being measured, and its RSS would swamp the signal.
-      - name: Build server (release)
-        run: cargo build --release -p tmuxy-server
-
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
-
-      # The pid is captured here rather than discovered: the harness reads
-      # server RSS for it, and a wrong pid reports `not measured` rather than
-      # failing, which would quietly drop a third of the signal.
+      # The pid (TMUXY_SERVER_PID) is the one the action started rather than
+      # one discovered: the harness reads server RSS for it, and a wrong pid
+      # reports `not measured` rather than failing, which would quietly drop a
+      # third of the signal.
       # A socket of its own, not the default `tmuxy`. The runner is empty so
       # nothing would collide today, but the harness types into whichever pane
       # is active and splits panes in the session it is given — on any machine
       # that is not empty, the default socket is someone's working session.
-      - name: Start server
-        run: |
-          TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server 2>/tmp/tmuxy-server.log &
-          echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
-          bin/ci/wait-for-server http://localhost:9000
+      - uses: ./.github/actions/start-test-server
+        env:
+          TMUX_SOCKET: tmuxy-soak
 
       - name: Soak the session
         run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
           npm run perf:soak -- \
             --url http://localhost:9000 \
             --output-mb 16 \

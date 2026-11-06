@@ -16,7 +16,8 @@ The web client uses two HTTP endpoints on the Axum server:
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
 - `tmux-message` — `{ text }`, a `display-message` tmux showed this client (its `%message` notification), shown in the snackbar. Named `tmux-message`, never `message`: that is `EventSource`'s default event type, which `onmessage` receives too. The desktop app emits the same name.
 - `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (see Reconnecting below)
-- `log`, `tmux-error`, `fatal` — Diagnostic and error notifications. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
+- `reconnecting` — the tmux connection is being retried: logged on the web, the link going down on the desktop
+- `log`, `tmux-error`, `fatal` — Diagnostic and error notifications; `tmux-error` is never about the link. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
 **`POST /commands?session=<name>`** — HTTP POST (client-to-server):
 
@@ -37,9 +38,7 @@ The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … c
 - **A stream that comes back asks for the state again.** `TMUX_RECONNECTED` fetches the state at the client's viewport just as the first connection does: the server may have restarted and been synced by another tab, and an idle session sends nothing on its own, so without the fetch the tab keeps its last frame until a keystroke. The sequencer has reopened on the new stream, so the answer is adopted as the starting state.
 - **Silence is a drop.** The server's keepalive is a named `ping` event rather than an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
 
-### A refused stream is not a dropped one
-
-`EventSource` reports every failure as the same bare error, with no status: a server that is restarting and a server that refuses the request look identical, and retrying the second never ends. So when a stream fails before it ever opened, the adapter asks the same URL with a plain `fetch` and reads the status. A 403 is the request guard's verdict on this page's `Host` or origin (see [SECURITY.md](SECURITY.md)) — the retry loop stops and the reason in the response body is shown as the fatal error. No answer, a 5xx, or a stream that does open are outages, and the supervised retry carries on.
+A stream refused before it ever opened is told from a dropped one by asking the URL again; see [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md#a-refused-stream-is-not-a-dropped-one).
 
 ### SSE resync via `Last-Event-Id`
 
@@ -47,7 +46,7 @@ Every event the server broadcasts is tagged with a monotonic per-session sequenc
 
 This is independent from the delta protocol's own `seq` field: the SSE id keeps the _transport_ in sync after a reconnect; the delta `seq` keeps the _application state_ in sync after each individual update.
 
-See [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md) for these sections: Transport: Tauri IPC (Desktop Version); Connection Lifecycle (Tauri); Real-World Deployment Scenarios; Additional API Endpoints.
+See [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md) for these sections: A refused stream is not a dropped one; Transport: Tauri IPC (Desktop Version); Connection Lifecycle (Tauri); Real-World Deployment Scenarios; Additional API Endpoints.
 
 ## Adapter Pattern
 
@@ -83,12 +82,13 @@ SideEffect dispatch (refresh-panes, emit-state, store-image, ...)
     │
     │  emit_state path:
     ▼                     ┌─────────────────────┐
-                          │   StateEmitter trait │
+                          │   SessionRuntime     │  (the StateEmitter)
                           └──────────┬──────────┘
+                                     │ HostEvent → Sink
               ┌──────────────────────┴──────────────────────┐
               ▼                                             ▼
-         SseEmitter                                  TauriEmitter
-   (per-session ring buffer + broadcast)            (app.emit())
+        BroadcastSink                                   TauriSink
+   (per-session ring buffer + broadcast)            (app.emit_to(window))
               │                                             │
         ┌─────┼─────┐                                       │
         ▼     ▼     ▼                                       ▼
@@ -107,7 +107,7 @@ Frontend `adapter.invoke(cmd, args)` is decoded into a typed `ClientCommand` var
 
 Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`tmuxy-core/src/transport.rs`, shared by both transports). Sync helpers in `executor::*` remain only for CLI paths with no client attached.
 
-**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`SseEvent::Error` / `tmux-error`), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
+**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Web (`ClientCommand::QueryTmux`) and desktop (the `query_tmux` Tauri command) implement both identically, and the frontend reaches them as `adapter.invoke('run_tmux_command', …)` and `adapter.query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
 
 **Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
 

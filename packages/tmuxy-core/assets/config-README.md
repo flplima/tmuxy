@@ -18,29 +18,34 @@ machine (`--json` for a script).
 
 ## The files, and who owns them
 
-| File                    | Dir    | Owner | Safe to edit | Safe to symlink | What it is                                                                                                                                    |
-| ----------------------- | ------ | ----- | ------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tmuxy.conf`            | config | you   | yes          | yes             | Your overrides. tmuxy sources its defaults before it and its essentials after it.                                                             |
-| `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.                                                                   |
-| `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme.                                                        |
-| `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                                                                            |
-| `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that.                                      |
-| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's own settings (`settings.toml`, set with `tmuxy plugin config`) and credentials. Kept on update, and on remove unless `--purge`. |
-| `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                                                                        |
-| `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                                                                               |
-| `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.                                                                  |
-| `themes/<built-in>.css` | data   | tmuxy | no           | no              | The bundled themes, to read or copy.                                                                                                          |
-| `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                                                                       |
-| `README.md`             | data   | tmuxy | no           | no              | This file.                                                                                                                                    |
-| `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.                                                                 |
-| `tmuxy.compat.conf`     | state  | tmuxy | no           | no              | Only while your `tmuxy.conf` still sources the old defaults: a copy without that line.                                                        |
-| `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).                                                                 |
-| `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.                                                            |
-| `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                                                                                |
-| `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                                                                          |
-| `tmuxy.pid`             | state  | tmuxy | no           | no              | The running web server's pid (`tmuxy-<port>.pid` on another port).                                                                            |
-| `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.                                                               |
-| `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.                                                            |
+| File                    | Dir    | Owner | Safe to edit | Safe to symlink | What it is                                                                                               |
+| ----------------------- | ------ | ----- | ------------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `tmuxy.conf`            | config | you   | yes          | yes             | Your overrides. tmuxy sources its defaults before it and its essentials after it.                        |
+| `custom.css`            | config | you   | yes          | yes             | Your CSS, loaded last. Create it to tweak anything the themes do not cover.                              |
+| `themes/<name>.css`     | config | you   | yes          | yes             | Your themes. A name of a built-in replaces that built-in; any other name adds a theme.                   |
+| `icons/<name>.svg`      | config | you   | yes          | yes             | SVG icons an `@tmuxy-icon-<process>` option names (`claude.svg`).                                        |
+| `tmuxy-plugin.toml`     | config | you   | yes          | yes             | Your own actions and verbs: the `user` plugin (see Plugins below).                                       |
+| `plugins.json`          | config | you   | yes          | yes             | The plugins installed, each pinned to a commit. Sync it; `tmuxy plugin install` reinstalls exactly that. |
+| `plugins/<name>/`       | config | you   | yes          | yes             | Each plugin's `settings.toml` (`tmuxy plugin config`) and credentials; kept unless `remove --purge`.     |
+| `tmuxy.defaults.conf`   | data   | tmuxy | no           | no              | tmuxy's taste: prefix, status line, bindings, the `@tmuxy-*` defaults.                                   |
+| `tmuxy.essentials.conf` | data   | tmuxy | no           | no              | The settings tmuxy cannot work without, sourced first and last.                                          |
+| `tmuxy.conf.example`    | data   | tmuxy | no           | no              | The starter `tmuxy.conf`; `tmuxy config init` copies it into the config dir.                             |
+| `themes/<built-in>.css` | data   | tmuxy | no           | no              | The bundled themes, to read or copy.                                                                     |
+| `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                                  |
+| `README.md`             | data   | tmuxy | no           | no              | This file.                                                                                               |
+| `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.                            |
+| `tmuxy.compat.conf`     | state  | tmuxy | no           | no              | Only while your `tmuxy.conf` still sources the old defaults: a copy without that line.                   |
+| `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).                            |
+| `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.                       |
+| `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                                           |
+| `trace.ndjson`          | state  | tmuxy | no           | no              | The action trace, written only while tracing is on (`tmuxy trace` reads it).                             |
+| `tmuxy.log`             | state  | tmuxy | no           | no              | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File).                              |
+| `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                                     |
+| `tmuxy.pid`             | state  | tmuxy | no           | no              | The running web server's pid (`tmuxy-<port>.pid` on another port).                                       |
+| `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.                          |
+| `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.                       |
+| `sessions/`             | state  | tmuxy | no           | no              | Session snapshots, one directory per tmux socket; a restart restores the latest.                         |
+| `push/`                 | state  | tmuxy | no           | no              | The web server's push key and the devices subscribed to its notifications.                               |
 
 ## Plugins
 

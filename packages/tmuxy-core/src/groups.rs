@@ -9,7 +9,7 @@
 //! where a reorder wrote one, then pane number — see [`order_key`].
 //!
 //! Everything here is pure. An operation takes the panes as one
-//! `list-panes -a` read ([`Panes`], parsed from [`LIST_PANES_FORMAT`]) and
+//! `list-panes -a` read ([`Panes`], parsed from [`list_panes_format`]) and
 //! returns the tmux commands that carry it out ([`Invocation`]s), so every rule
 //! is a value a unit test can look at. `tmuxy-server group <verb>` does the
 //! reading and the running (`group_cli.rs`), and the `packages/tmuxy-cli/bin/tmuxy/pane-group`
@@ -26,12 +26,21 @@ use crate::{GroupId, PaneId, WindowId};
 /// the sixth one. The separator is a space, not a tab: tmux 3.4 prints a
 /// control character in a format as `_`, and a row with no separators is no
 /// row at all.
-pub const LIST_PANES_FORMAT: &str = concat!(
-    "#{pane_id} #{window_id} #{@tmuxy-group-id} #{@tmuxy-group-pos} ",
-    "#{pane_width} #{pane_height} #{session_name}"
-);
+pub fn list_panes_format() -> String {
+    [
+        "pane_id",
+        "window_id",
+        tmux_options::GROUP_ID,
+        tmux_options::GROUP_POS,
+        "pane_width",
+        "pane_height",
+        "session_name",
+    ]
+    .map(|column| format!("#{{{column}}}"))
+    .join(&FIELD_SEPARATOR.to_string())
+}
 
-/// The field separator in [`LIST_PANES_FORMAT`].
+/// The field separator in [`list_panes_format`].
 const FIELD_SEPARATOR: char = ' ';
 
 /// The program the stash session's own first window runs. The window exists
@@ -41,7 +50,7 @@ const FIELD_SEPARATOR: char = ' ';
 /// `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`).
 pub const STASH_PAYLOAD: &str = "tail -f /dev/null";
 
-/// One pane, as [`LIST_PANES_FORMAT`] prints it.
+/// One pane, as [`list_panes_format`] prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneRow {
     pub pane: PaneId,
@@ -78,7 +87,7 @@ impl Panes {
         Self { rows }
     }
 
-    /// Parse a `list-panes -a -F LIST_PANES_FORMAT` read. A row that does not
+    /// Parse a `list-panes -a -F list_panes_format()` read. A row that does not
     /// parse is not a pane this module can act on, and is left out.
     pub fn parse(output: &str) -> Self {
         let rows = output

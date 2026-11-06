@@ -84,8 +84,6 @@ export const TmuxPane = Schema.mutable(
      * Absent means false. `swap-pane` / `join-pane` without a source act on it.
      */
     marked: Schema.optional(Schema.Boolean),
-    /** True if output is paused due to flow control (backpressure) */
-    paused: withDefault('paused', Schema.Boolean, () => false),
     /** Number of history lines (scrollback above the visible area) */
     historySize: withDefault('history_size', Schema.Number, () => 0),
     /** True if a selection is active in copy mode */

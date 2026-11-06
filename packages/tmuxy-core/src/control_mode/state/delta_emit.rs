@@ -8,34 +8,6 @@ impl StateAggregator {
     /// Returns None when nothing has changed (empty delta).
     pub fn to_state_update(&mut self) -> Option<crate::StateUpdate> {
         let mut current = self.to_tmux_state();
-
-        // Preserve previous content for panes with pending captures.
-        // After resize, pane.resize() clears the VT100 parser but capture-pane
-        // hasn't arrived yet. Without this, to_tmux_state() extracts empty/truncated
-        // content from the cleared parser and emits it to the frontend.
-        if !self.pending_captures.is_empty() {
-            if let Some(ref prev) = self.prev_state {
-                let prev_panes: HashMap<&PaneId, &crate::TmuxPane> =
-                    prev.panes.iter().map(|p| (&p.tmux_id, p)).collect();
-                for pane in &mut current.panes {
-                    if self.pending_captures.contains(&pane.tmux_id) {
-                        // Don't preserve prev_state for panes that moved windows.
-                        // Their prev_state has stale content from the old window;
-                        // better to show the current (empty/reset) VT100 content
-                        // until the authoritative capture-pane response arrives.
-                        if self.panes_moved_window.contains(&pane.tmux_id) {
-                            continue;
-                        }
-                        if let Some(prev_pane) = prev_panes.get(&pane.tmux_id) {
-                            pane.content = prev_pane.content.clone();
-                            pane.cursor_x = prev_pane.cursor_x;
-                            pane.cursor_y = prev_pane.cursor_y;
-                        }
-                    }
-                }
-            }
-        }
-
         // First state or no previous state - send full. Not before the
         // initial sync has landed: every unmarked ack of `sync_initial_state`
         // (`set window-size manual` first) reports a Full change, and a Full
@@ -110,7 +82,7 @@ impl StateAggregator {
                 }
                 Some(prev_pane) => {
                     // Check for changes
-                    let pane_delta = self.compute_pane_delta(prev_pane, curr_pane);
+                    let pane_delta = pane_delta(prev_pane, curr_pane);
                     if !pane_delta.is_empty() {
                         pane_deltas.insert((*id).clone(), Some(pane_delta));
                     }
@@ -136,7 +108,7 @@ impl StateAggregator {
                     new_windows.push((*curr_window).clone());
                 }
                 Some(prev_window) => {
-                    let window_delta = self.compute_window_delta(prev_window, curr_window);
+                    let window_delta = window_delta(prev_window, curr_window);
                     if !window_delta.is_empty() {
                         window_deltas.insert((*id).clone(), Some(window_delta));
                     }
@@ -189,189 +161,59 @@ impl StateAggregator {
             Some(crate::StateUpdate::Delta { delta })
         }
     }
+}
 
-    /// Compute delta between two panes
-    pub(super) fn compute_pane_delta(
-        &self,
-        prev: &crate::TmuxPane,
-        curr: &crate::TmuxPane,
-    ) -> crate::PaneDelta {
-        let mut delta = crate::PaneDelta::default();
-
-        if prev.window_id != curr.window_id {
-            delta.window_id = Some(curr.window_id.clone());
-        }
-        // Line-level content diff: only include changed lines. Panes whose
-        // content is untouched share the same Arc between prev and curr
-        // snapshots, so `ptr_eq` skips the per-line walk entirely.
-        if !std::sync::Arc::ptr_eq(&prev.content, &curr.content) {
-            let mut changed_lines: std::collections::HashMap<usize, crate::TerminalLine> =
-                std::collections::HashMap::new();
-            let max_lines = curr.content.len().max(prev.content.len());
-            for i in 0..max_lines {
-                let prev_line = prev.content.get(i);
-                let curr_line = curr.content.get(i);
-                if prev_line != curr_line {
-                    changed_lines.insert(i, curr_line.cloned().unwrap_or_default());
-                }
+/// Every listed field that differs between `prev` and `curr`, set on
+/// `delta` as `Some` of the current value: the one shape of a field diff.
+macro_rules! changed_fields {
+    ($delta:ident, $prev:ident, $curr:ident; $($field:ident),+ $(,)?) => {
+        $(
+            if $prev.$field != $curr.$field {
+                $delta.$field = Some(Clone::clone(&$curr.$field));
             }
-            if !changed_lines.is_empty() {
-                delta.content = Some(changed_lines);
-            }
+        )+
+    };
+}
+
+/// Delta between two snapshots of a pane.
+pub(super) fn pane_delta(prev: &crate::TmuxPane, curr: &crate::TmuxPane) -> crate::PaneDelta {
+    let mut delta = crate::PaneDelta::default();
+    // Line-level content diff: only include changed lines. Panes whose
+    // content is untouched share the same Arc between prev and curr
+    // snapshots, so `ptr_eq` skips the per-line walk entirely.
+    if !std::sync::Arc::ptr_eq(&prev.content, &curr.content) {
+        let max_lines = curr.content.len().max(prev.content.len());
+        let changed_lines: HashMap<usize, crate::TerminalLine> = (0..max_lines)
+            .filter(|&i| prev.content.get(i) != curr.content.get(i))
+            .map(|i| (i, curr.content.get(i).cloned().unwrap_or_default()))
+            .collect();
+        if !changed_lines.is_empty() {
+            delta.content = Some(changed_lines);
         }
-        if prev.cursor_x != curr.cursor_x {
-            delta.cursor_x = Some(curr.cursor_x);
-        }
-        if prev.cursor_y != curr.cursor_y {
-            delta.cursor_y = Some(curr.cursor_y);
-        }
-        if prev.width != curr.width {
-            delta.width = Some(curr.width);
-        }
-        if prev.height != curr.height {
-            delta.height = Some(curr.height);
-        }
-        if prev.x != curr.x {
-            delta.x = Some(curr.x);
-        }
-        if prev.y != curr.y {
-            delta.y = Some(curr.y);
-        }
-        if prev.active != curr.active {
-            delta.active = Some(curr.active);
-        }
-        if prev.command != curr.command {
-            delta.command = Some(curr.command.clone());
-        }
-        if prev.title != curr.title {
-            delta.title = Some(curr.title.clone());
-        }
-        if prev.border_title != curr.border_title {
-            delta.border_title = Some(curr.border_title.clone());
-        }
-        if prev.group_pos != curr.group_pos {
-            delta.group_pos = Some(curr.group_pos);
-        }
-        if prev.group_id != curr.group_id {
-            // `Some(None)` clears the group id (pane left a group); `Some(Some)`
-            // sets it. `skip_serializing_if` on the outer Option keeps unchanged
-            // panes off the wire.
-            delta.group_id = Some(curr.group_id.clone());
-        }
-        if prev.in_mode != curr.in_mode {
-            delta.in_mode = Some(curr.in_mode);
-        }
-        if prev.copy_cursor_x != curr.copy_cursor_x {
-            delta.copy_cursor_x = Some(curr.copy_cursor_x);
-        }
-        if prev.copy_cursor_y != curr.copy_cursor_y {
-            delta.copy_cursor_y = Some(curr.copy_cursor_y);
-        }
-        if prev.alternate_on != curr.alternate_on {
-            delta.alternate_on = Some(curr.alternate_on);
-        }
-        if prev.mouse_any_flag != curr.mouse_any_flag {
-            delta.mouse_any_flag = Some(curr.mouse_any_flag);
-        }
-        if prev.marked != curr.marked {
-            delta.marked = Some(curr.marked);
-        }
-        if prev.paused != curr.paused {
-            delta.paused = Some(curr.paused);
-        }
-        if prev.history_size != curr.history_size {
-            delta.history_size = Some(curr.history_size);
-        }
-        if prev.pane_state != curr.pane_state {
-            delta.pane_state = Some(curr.pane_state.clone());
-        }
-        if prev.pane_ask != curr.pane_ask {
-            delta.pane_ask = Some(curr.pane_ask.clone());
-        }
-        if prev.pane_widget != curr.pane_widget {
-            delta.pane_widget = Some(curr.pane_widget.clone());
-        }
-        if prev.pane_restore != curr.pane_restore {
-            delta.pane_restore = Some(curr.pane_restore.clone());
-        }
-        if prev.selection_present != curr.selection_present {
-            delta.selection_present = Some(curr.selection_present);
-        }
-        if prev.selection_start_x != curr.selection_start_x {
-            delta.selection_start_x = Some(curr.selection_start_x);
-        }
-        if prev.selection_start_y != curr.selection_start_y {
-            delta.selection_start_y = Some(curr.selection_start_y);
-        }
-        if prev.images != curr.images {
-            delta.images = Some(curr.images.clone());
-        }
-        if prev.cursor_shape != curr.cursor_shape {
-            delta.cursor_shape = Some(curr.cursor_shape);
-        }
-        if prev.cursor_hidden != curr.cursor_hidden {
-            delta.cursor_hidden = Some(curr.cursor_hidden);
-        }
-        delta
     }
+    // `group_id` is an `Option` of its own: `Some(None)` clears it (the pane
+    // left a group), and `skip_serializing_if` on the outer Option keeps
+    // unchanged panes off the wire.
+    changed_fields!(delta, prev, curr;
+        window_id, cursor_x, cursor_y, width, height, x, y, active, command, title,
+        border_title, group_pos, group_id, in_mode, copy_cursor_x, copy_cursor_y,
+        alternate_on, mouse_any_flag, marked, history_size, pane_state, pane_ask,
+        pane_widget, pane_restore, selection_present, selection_start_x,
+        selection_start_y, images, cursor_shape, cursor_hidden,
+    );
+    delta
+}
 
-    /// Compute delta between two windows
-    pub(super) fn compute_window_delta(
-        &self,
-        prev: &crate::TmuxWindow,
-        curr: &crate::TmuxWindow,
-    ) -> crate::WindowDelta {
-        let mut delta = crate::WindowDelta::default();
-
-        if prev.index != curr.index {
-            delta.index = Some(curr.index);
-        }
-        if prev.name != curr.name {
-            delta.name = Some(curr.name.clone());
-        }
-        if prev.active != curr.active {
-            delta.active = Some(curr.active);
-        }
-        if prev.window_type != curr.window_type {
-            delta.window_type = Some(curr.window_type);
-        }
-        if prev.float_parent != curr.float_parent {
-            delta.float_parent = Some(curr.float_parent.clone());
-        }
-        if prev.float_width != curr.float_width {
-            delta.float_width = Some(curr.float_width);
-        }
-        if prev.float_height != curr.float_height {
-            delta.float_height = Some(curr.float_height);
-        }
-        if prev.float_drawer != curr.float_drawer {
-            delta.float_drawer = Some(curr.float_drawer.clone());
-        }
-        if prev.float_bg != curr.float_bg {
-            delta.float_bg = Some(curr.float_bg.clone());
-        }
-        if prev.float_noheader != curr.float_noheader {
-            delta.float_noheader = Some(curr.float_noheader);
-        }
-        if prev.sidebar_cols != curr.sidebar_cols {
-            delta.sidebar_cols = Some(curr.sidebar_cols);
-        }
-        if prev.sidebar_hidden != curr.sidebar_hidden {
-            delta.sidebar_hidden = Some(curr.sidebar_hidden);
-        }
-        if prev.collapsible != curr.collapsible {
-            delta.collapsible = Some(curr.collapsible);
-        }
-        if prev.zoomed != curr.zoomed {
-            delta.zoomed = Some(curr.zoomed);
-        }
-        if prev.active_pane_id != curr.active_pane_id {
-            delta.active_pane_id = Some(curr.active_pane_id.clone());
-        }
-        if prev.pane_tree != curr.pane_tree {
-            delta.pane_tree = Some(curr.pane_tree.clone());
-        }
-
-        delta
-    }
+/// Delta between two snapshots of a window.
+pub(super) fn window_delta(
+    prev: &crate::TmuxWindow,
+    curr: &crate::TmuxWindow,
+) -> crate::WindowDelta {
+    let mut delta = crate::WindowDelta::default();
+    changed_fields!(delta, prev, curr;
+        index, name, active, window_type, float_parent, float_width, float_height,
+        float_drawer, float_bg, float_noheader, sidebar_cols, sidebar_hidden,
+        collapsible, zoomed, active_pane_id, pane_tree,
+    );
+    delta
 }

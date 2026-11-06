@@ -326,7 +326,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                         info!(count = cmds.len(), "auto-adopting untagged windows");
                         self.logged_adoption = true;
                     }
-                    if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+                    if let Err(e) = self.connection.send_commands(&cmds).await {
                         emitter.emit_error(format!("Failed to auto-adopt windows: {}", e));
                     }
                 }
@@ -346,7 +346,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 }
                 SideEffect::ResumePane(pane_id) => {
                     let cmd = format!("refresh-client -A '{}:continue'", pane_id);
-                    if let Err(e) = self.connection.send_command(&cmd).await {
+                    if let Err(e) = self.connection.send_commands(&[&cmd]).await {
                         emitter.emit_error(format!("Failed to resume pane {}: {}", pane_id, e));
                     }
                 }
@@ -357,7 +357,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 // `show-buffer` that mirrors a copy-mode yank to the clipboard
                 // — go over the same connection as everything else.
                 SideEffect::SendTmuxCommand(cmd) => {
-                    if let Err(e) = self.connection.send_command(&cmd).await {
+                    if let Err(e) = self.connection.send_commands(&[&cmd]).await {
                         emitter.emit_error(format!("Failed to send command: {}", e));
                     }
                 }

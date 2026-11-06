@@ -16,8 +16,6 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     agg.queue_captures(&[pid("%0"), pid("%1")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
@@ -77,8 +75,6 @@ fn capture_marker_survives_strftime_padding() {
     agg.queue_captures(&[pid("%69")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
@@ -103,8 +99,6 @@ fn capture_for_dead_pane_is_discarded_and_released() {
     agg.queue_captures(&[pid("%9")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
@@ -127,15 +121,13 @@ fn a_failed_capture_releases_its_pane_without_an_end_marker() {
     agg.queue_captures(&[pid("%9")]);
 
     let block = |output: &str, success: bool| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success,
     };
     agg.process_event(block(&marked(&agg, CAPTURE_BEGIN_MARKER, "9"), true));
     agg.process_event(block("can't find pane: %9\n", false));
     assert!(agg.pending_captures.is_empty());
-    assert!(agg.capture_armed.is_none());
+    assert!(agg.armed.is_none());
 
     let r = agg.process_event(block("GHOST\n", true));
     assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
@@ -460,8 +452,6 @@ fn a_moved_pane_whose_capture_fails_gets_its_output_back() {
 
     agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
     agg.process_event(ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: "can't find pane: %0\n".to_string(),
         success: false,
     });

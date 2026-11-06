@@ -136,7 +136,7 @@ A bug on a seam between layers — the aggregator's effect order, the server str
 
 Before wrapping up a task, run the local check that mirrors CI's lint job and the unit tests:
 
-- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test -- --run`
+- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test`
 
 The rest of the map, for when a change reaches further:
 
@@ -160,7 +160,7 @@ Work out the set from what you changed:
 
 | Changed                                     | Also run before pushing                                                                                    |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/tmuxy-ui/src/**` (app code)       | `npm test -- --run`, and the E2E suites covering the feature                                               |
+| `packages/tmuxy-ui/src/**` (app code)       | `npm test`, and the E2E suites covering the feature                                                        |
 | `packages/tmuxy-ui/src/stories/**`          | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story)                   |
 | `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
 | `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |

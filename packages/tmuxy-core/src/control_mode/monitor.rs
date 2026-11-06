@@ -16,8 +16,8 @@ use super::{parser, state};
 
 use super::connection::{ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS};
 use super::parser::ControlModeEvent;
-use super::state::{window_relist_commands, ChangeType, SideEffect, StateAggregator};
-use crate::constants::tmux_formats;
+use super::state::{ChangeType, SideEffect, StateAggregator};
+use crate::constants::tmux_formats::{self, TmuxList};
 use crate::error::TmuxError;
 use crate::{PaneId, StateUpdate, WindowId};
 #[cfg(test)]
@@ -276,10 +276,10 @@ pub struct TmuxMonitor<C: ControlLink = ControlModeConnection> {
 /// scripted one in a test, so the order the dispatcher sends commands in
 /// (M1 in `docs/INVARIANTS.md`) can be read back without a tmux.
 pub trait ControlLink: Send {
-    fn send_command(&mut self, cmd: &str) -> impl Future<Output = Result<(), TmuxError>> + Send;
-    fn send_commands_batch(
+    /// Write `commands`, one control-mode line each, in one flush.
+    fn send_commands<S: AsRef<str> + Sync>(
         &mut self,
-        commands: &[String],
+        commands: &[S],
     ) -> impl Future<Output = Result<(), TmuxError>> + Send;
     /// The next control-mode event; `None` once the link is closed.
     fn recv(&mut self) -> impl Future<Output = Option<ControlModeEvent>> + Send;
@@ -287,11 +287,11 @@ pub trait ControlLink: Send {
 }
 
 impl ControlLink for ControlModeConnection {
-    async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
-        ControlModeConnection::send_command(self, cmd).await
-    }
-    async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
-        ControlModeConnection::send_commands_batch(self, commands).await
+    async fn send_commands<S: AsRef<str> + Sync>(
+        &mut self,
+        commands: &[S],
+    ) -> Result<(), TmuxError> {
+        ControlModeConnection::send_commands(self, commands).await
     }
     async fn recv(&mut self) -> Option<ControlModeEvent> {
         ControlModeConnection::recv(self).await

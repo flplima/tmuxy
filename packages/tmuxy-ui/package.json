@@ -1,6 +1,5 @@
 {
   "name": "tmuxy-ui",
-  "version": "0.1.4",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -20,16 +19,12 @@
     "predev": "bash ../../bin/kill-port 9001",
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest",
     "storybook": "storybook dev -p 6006 --host 0.0.0.0",
-    "build-storybook": "storybook build",
     "test-storybook": "node scripts/probe-stories.mjs",
     "test-storybook:v86": "node scripts/probe-spikes.mjs",
     "fetch:v86-image": "node scripts/fetch-v86-image.mjs",
     "lint": "eslint src scripts eslint-rules .storybook",
     "lint:fix": "eslint src scripts eslint-rules .storybook --fix",
-    "format": "prettier --write src scripts eslint-rules .storybook",
     "build:v86-snapshot": "node scripts/build-v86-snapshot.mjs",
     "build:cheerpx-image": "node scripts/build-cheerpx-image.mjs",
     "smoke:cheerpx": "node scripts/serve-cheerpx-smoke.mjs"

@@ -1,7 +1,7 @@
 //! The `@tmuxy-css-*` options: each sets one CSS variable on the page over
 //! the theme file.
 
-use super::CSS_VAR_PREFIX;
+use crate::constants::tmux_options::CSS_VAR_PREFIX;
 use crate::session;
 
 /// A `show-options -g` line's value as tmux printed it: single-quoted

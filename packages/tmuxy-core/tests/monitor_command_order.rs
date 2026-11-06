@@ -10,8 +10,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use proptest::prelude::*;
-use tmuxy_core::constants::tmux_formats;
-use tmuxy_core::control_mode::{window_relist_commands, StateAggregator};
+use tmuxy_core::constants::tmux_formats::TmuxList;
+use tmuxy_core::control_mode::StateAggregator;
 use tmuxy_core::PaneId;
 
 fn position(commands: &[String], command: &str) -> usize {
@@ -25,14 +25,12 @@ fn position(commands: &[String], command: &str) -> usize {
 /// then the stash — and nothing else.
 #[test]
 fn a_window_relist_sends_panes_before_windows_and_the_stash_last() {
-    let cmds = window_relist_commands();
+    let agg = StateAggregator::new();
+    let markers = agg.markers();
     assert_eq!(
-        cmds,
-        [
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_WINDOWS_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ]
+        markers.window_relist_commands(),
+        [TmuxList::Panes, TmuxList::Windows, TmuxList::Stash]
+            .map(|list| markers.list_command(list))
     );
 }
 
@@ -48,8 +46,9 @@ proptest! {
             0..6,
         ),
     ) {
-        let cmds = StateAggregator::new().markers().pane_refresh_commands(&queued);
-        let list_at = position(&cmds, tmux_formats::LIST_PANES_CMD);
+        let agg = StateAggregator::new();
+        let cmds = agg.markers().pane_refresh_commands(&queued);
+        let list_at = position(&cmds, &agg.markers().list_command(TmuxList::Panes));
         let captures: Vec<&String> = cmds.iter().filter(|c| c.contains("capture-pane")).collect();
         prop_assert_eq!(captures.len(), queued.len(), "one capture per queued pane: {:?}", cmds);
         for (i, cmd) in cmds.iter().enumerate() {

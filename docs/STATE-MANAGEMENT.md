@@ -34,7 +34,7 @@ Same file as `AppState`.
 
 The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. Receives control-mode events, drives the aggregator step-by-step, and executes the typed `SideEffect`s the aggregator returns (sending tmux commands, refreshing panes, emitting state). Multiplexes control-mode events, periodic syncs, the settling/throttle/debounce timers, and external commands from the frontend.
 
-The reconnect loop re-creates the monitor on disconnect: one loop, `transport::supervise` in `tmuxy-core/src/transport/supervise.rs` (connect, serve, back off, give up after five failures in a row, restore a snapshot before a session is created, autosave while connected), with what differs per host — who may stop it, how a session is brought into being, where the command channel is kept, what giving up means — behind the `Host` trait that `tmuxy-server/src/sse/monitor.rs` and `tmuxy-tauri-app/src/monitor.rs` each implement. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
+The reconnect loop re-creates the monitor on disconnect: one loop, `host::supervise` in `tmuxy-core/src/host/supervise.rs` (connect, serve, back off, give up after five failures in a row, restore a snapshot before a session is created, autosave while connected), with what differs per host — who may stop it, how a session is brought into being, what giving up means — behind the `Host` trait; the command channel it publishes, and how a command waits for it, are the session's `SessionRuntime`'s that `tmuxy-server/src/sse/monitor.rs` and `tmuxy-tauri-app/src/monitor.rs` each implement. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
 
 See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants. The monitor is generic over its link to tmux (`ControlLink`): the real control-mode PTY in production, a scripted one in tests, which is how the order it puts commands on the wire is asserted without a tmux (see [INVARIANTS.md](INVARIANTS.md), M1).
 
@@ -44,7 +44,7 @@ The typed envelope external code uses to drive the monitor (resize the window, r
 
 ### ControlModeConnection
 
-Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_command` / `send_commands_batch` for writes. `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
+Manages the `tmux -CC` subprocess and the stdin/stdout framing on top of it. Spawns the subprocess under a PTY (via `script`), runs a background parser task that converts stdout lines into `ControlModeEvent`s, and exposes `send_commands` for writes (a line each, one flush). `graceful_close()` always sends `detach-client` and waits — abrupt kills crash tmux 3.5a (see [TMUX.md](TMUX.md)).
 
 See `tmuxy-core/src/control_mode/connection.rs`.
 
@@ -66,12 +66,12 @@ See `tmuxy-core/src/lib.rs`. The TypeScript side is Effect Schemas in `tmuxy-ui/
 
 ### StateEmitter trait
 
-The seam between the monitor and a specific transport. Two implementations:
+The seam between the monitor and the host. One implementation, `SessionRuntime` (`tmuxy-core/src/host/runtime.rs`): it does the bookkeeping every host needs (the preview pages, the session's image store, the snapshot keeper, the clipboard cap, the plugin keys, bindings and theme after the initial sync) and turns each update into a `HostEvent` (`host/event.rs`) for its `Sink`:
 
-- `SseEmitter` (`tmuxy-server/src/sse.rs`) — broadcasts via `SessionBroadcast` to every SSE client in the session.
-- `TauriEmitter` (`packages/tmuxy-tauri-app/src/monitor.rs`) — emits Tauri events to the desktop frontend.
+- the web server's `BroadcastSink` (`tmuxy-server/src/state.rs`) — the session's `SessionBroadcast`, to every SSE client in the session.
+- the desktop's `TauriSink` (`tmuxy-tauri-app/src/monitor/emitter.rs`) — Tauri events to the window's webview.
 
-The trait keeps `TmuxMonitor` transport-agnostic; adding a third transport means implementing the trait, nothing else.
+Adding a transport means writing a sink and its `Host` policy, nothing else.
 
 ### Settling, throttling, debouncing
 

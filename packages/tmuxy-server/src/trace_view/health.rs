@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value};
+use tmuxy_core::trace::schema::{event, field, Layer};
 
 /// A shell pane younger than this has not had a fair chance to print.
 pub(super) const SILENT_PANE_MIN_MS: u64 = 10_000;
@@ -23,41 +24,34 @@ pub(super) fn health_check(events: &[Map<String, Value>]) -> String {
     let mut total_rejected = 0;
     let mut total_errors = 0;
 
+    let mut dropped = 0;
     for ev in events {
+        if ev.get(field::NAME).and_then(Value::as_str) == Some(event::OVERFLOW) {
+            dropped += ev.get("dropped").and_then(Value::as_u64).unwrap_or(0);
+        }
         let session = ev
-            .get("session")
+            .get(field::SESSION)
             .and_then(Value::as_str)
             .unwrap_or("default")
             .to_string();
         let entry = by_session.entry(session).or_default();
         entry.actions += 1;
 
-        let name = ev.get("name").and_then(Value::as_str).unwrap_or("");
-        let layer = ev.get("layer").and_then(Value::as_str).unwrap_or("");
-        let is_fail = name == "fail" || ev.get("failed").and_then(Value::as_bool).unwrap_or(false);
-        let is_rejected = is_fail
-            || name.contains("rejected")
-            || ev.get("rejected").and_then(Value::as_bool).unwrap_or(false)
-            || ev
-                .get("status")
-                .and_then(Value::as_u64)
-                .is_some_and(|s| s == 400 || s == 403);
+        let name = ev.get(field::NAME).and_then(Value::as_str).unwrap_or("");
+        let layer = ev.get(field::LAYER).and_then(Value::as_str).unwrap_or("");
+        let is_rejected = name == event::FAIL || name.contains("rejected");
 
         let is_reconnect = name.contains("reconnect")
-            || ev
-                .get("reconnected")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-            || (layer == "monitor" && name == "connect" && {
+            || (layer == Layer::Monitor.as_str() && name == event::CONNECT && {
                 entry.connects += 1;
                 entry.connects > 1
             });
 
         let is_error = ev
-            .get("level")
+            .get(field::LEVEL)
             .and_then(Value::as_str)
             .is_some_and(|l| l.eq_ignore_ascii_case("error"))
-            || ev.get("error").is_some();
+            || ev.get(field::ERROR).is_some();
 
         if is_rejected {
             entry.rejected += 1;
@@ -80,7 +74,8 @@ pub(super) fn health_check(events: &[Map<String, Value>]) -> String {
     out.push_str(&format!("sessions tracked: {}\n", by_session.len()));
     out.push_str(&format!("reconnects: {}\n", total_reconnects));
     out.push_str(&format!("rejected commands: {}\n", total_rejected));
-    out.push_str(&format!("errors: {}\n\n", total_errors));
+    out.push_str(&format!("errors: {}\n", total_errors));
+    out.push_str(&format!("events the trace writer dropped: {dropped}\n\n"));
 
     out.push_str("sessions:\n");
     for (sess, h) in &by_session {
@@ -121,11 +116,12 @@ pub(super) fn health_check(events: &[Map<String, Value>]) -> String {
 /// The events between the marker labelled `label` and the marker after it.
 /// Empty when no marker has that label.
 pub fn window(events: &[Map<String, Value>], label: &str) -> Vec<Map<String, Value>> {
-    let is_mark =
-        |ev: &Map<String, Value>| ev.get("layer").and_then(Value::as_str) == Some("marker");
+    let is_mark = |ev: &Map<String, Value>| {
+        ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str())
+    };
     let Some(start) = events
         .iter()
-        .position(|ev| is_mark(ev) && ev.get("label").and_then(Value::as_str) == Some(label))
+        .position(|ev| is_mark(ev) && ev.get(field::LABEL).and_then(Value::as_str) == Some(label))
     else {
         return Vec::new();
     };
@@ -191,7 +187,7 @@ pub(super) fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> 
         size: Option<(u64, u64)>,
         during: Option<String>,
     }
-    let ts = |ev: &Map<String, Value>| ev.get("ts_wall").and_then(Value::as_u64).unwrap_or(0);
+    let ts = |ev: &Map<String, Value>| ev.get(field::TS_WALL).and_then(Value::as_u64).unwrap_or(0);
     let str_of = |ev: &Map<String, Value>, k: &str| {
         ev.get(k).and_then(Value::as_str).unwrap_or("").to_string()
     };
@@ -217,17 +213,17 @@ pub(super) fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> 
 
     for ev in events {
         end = end.max(ts(ev));
-        if ev.get("layer").and_then(Value::as_str) == Some("marker") {
-            last_mark = ev.get("label").and_then(Value::as_str).map(str::to_string);
+        if ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str()) {
+            last_mark = ev
+                .get(field::LABEL)
+                .and_then(Value::as_str)
+                .map(str::to_string);
             continue;
         }
-        let name = ev.get("name").and_then(Value::as_str).unwrap_or("");
-        if !name.starts_with("pane ") {
-            continue;
-        }
-        let key = (str_of(ev, "session"), str_of(ev, "pane"));
+        let name = ev.get(field::NAME).and_then(Value::as_str).unwrap_or("");
+        let key = (str_of(ev, field::SESSION), str_of(ev, field::PANE));
         match name {
-            "pane appeared" => {
+            event::PANE_APPEARED => {
                 // A pane id reused by a new tmux server is a new pane.
                 if let Some(old) = live.remove(&key) {
                     finish(&key, &old, ts(ev), &mut out);
@@ -235,34 +231,37 @@ pub(super) fn silent_panes(events: &[Map<String, Value>], min_alive_ms: u64) -> 
                 live.insert(
                     key,
                     Live {
-                        shell: ev.get("shell").and_then(Value::as_bool).unwrap_or(false),
-                        spoke: num(ev, "bytes").unwrap_or(0) > 0,
+                        shell: ev
+                            .get(field::SHELL)
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        spoke: num(ev, field::BYTES).unwrap_or(0) > 0,
                         since: ts(ev),
                         captures: 0,
-                        size: num(ev, "cols").zip(num(ev, "rows")),
+                        size: num(ev, field::COLS).zip(num(ev, field::ROWS)),
                         during: last_mark.clone(),
                     },
                 );
             }
-            "pane first output" => {
+            event::PANE_FIRST_OUTPUT => {
                 if let Some(p) = live.get_mut(&key) {
                     p.spoke = true;
                 }
             }
-            "pane captured" => {
+            event::PANE_CAPTURED => {
                 if let Some(p) = live.get_mut(&key) {
                     p.captures += 1;
-                    if num(ev, "lines").unwrap_or(0) > 0 {
+                    if num(ev, field::LINES).unwrap_or(0) > 0 {
                         p.spoke = true;
                     }
                 }
             }
-            "pane resized" => {
+            event::PANE_RESIZED => {
                 if let Some(p) = live.get_mut(&key) {
-                    p.size = num(ev, "cols").zip(num(ev, "rows"));
+                    p.size = num(ev, field::COLS).zip(num(ev, field::ROWS));
                 }
             }
-            "pane gone" => {
+            event::PANE_GONE => {
                 if let Some(p) = live.remove(&key) {
                     finish(&key, &p, ts(ev), &mut out);
                 }
@@ -284,7 +283,7 @@ pub(super) fn github_annotations(events: &[Map<String, Value>]) -> String {
     let silent = silent_panes(events, SILENT_PANE_MIN_MS);
     let marks = events
         .iter()
-        .filter(|ev| ev.get("layer").and_then(Value::as_str) == Some("marker"))
+        .filter(|ev| ev.get(field::LAYER).and_then(Value::as_str) == Some(Layer::Marker.as_str()))
         .count();
     for pane in &silent {
         // Annotation text is one line; `%`, `\r`, and `\n` must be percent-escaped

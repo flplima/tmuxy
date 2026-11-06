@@ -1,0 +1,18 @@
+name: Start Xvfb
+description: A virtual display on :99 for the rest of the job, its pid in XVFB_PID; a step that draws on it sets DISPLAY=:99 itself.
+runs:
+  using: composite
+  steps:
+    - name: Start Xvfb
+      shell: bash
+      run: |
+        Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
+        echo "XVFB_PID=$!" >> "$GITHUB_ENV"
+        # A display that never comes up fails here, not as a confusing
+        # failure in whatever runs on it next.
+        for _ in $(seq 1 40); do
+          xdpyinfo -display :99 >/dev/null 2>&1 && exit 0
+          sleep 0.25
+        done
+        echo "::error::Xvfb :99 did not come up within 10 s"
+        exit 1

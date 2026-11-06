@@ -34,7 +34,6 @@ function pane(tmuxId: PaneId, x: number, y: number, width: number, height: numbe
     copyCursorY: 0,
     alternateOn: false,
     mouseAnyFlag: false,
-    paused: false,
     historySize: 0,
     selectionPresent: false,
     selectionStartX: 0,

@@ -111,59 +111,21 @@ pub struct KeyBinding {
     pub repeat: bool,
 }
 
-/// Parse `tmux list-keys -T <table>` output into `KeyBinding`s.
-///
-/// One parser for every table — the prefix and root paths used to carry
-/// separate copies, and the root copy computed the `-r` indices but then
-/// hardcoded `repeat: false`, silently losing repeat bindings.
+/// The `KeyBinding`s of `table` in a `list-keys` listing
+/// ([`crate::list_keys::rows`], the one reader of its lines).
 pub(crate) fn parse_bindings(table: &str, output: &str) -> Vec<KeyBinding> {
-    let mut bindings = Vec::new();
-
-    for line in output.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-
-        // tmux list-keys output format:
-        //   bind-key    -T <table> KEY command...
-        //   bind-key -r -T <table> KEY command...
-        // The -r flag shifts all subsequent indices by 1.
-        let (key_idx, cmd_idx, is_repeat) = if parts.len() >= 6
-            && parts[0] == "bind-key"
-            && parts[1] == "-r"
-            && parts[3] == table
-        {
-            (4, 5, true)
-        } else if parts.len() >= 5 && parts[0] == "bind-key" && parts[2] == table {
-            (3, 4, false)
-        } else {
-            continue;
-        };
-
-        if cmd_idx >= parts.len() {
-            continue;
-        }
-
-        let bound_key = parts[key_idx];
-
-        // Unescape the key
-        let key = if bound_key.starts_with('\\') && bound_key.len() == 2 {
-            bound_key[1..].to_string()
-        } else {
-            bound_key.to_string()
-        };
-
-        // Get the command (everything after the key)
-        let command = parts[cmd_idx..].join(" ");
-        let description = describe_binding(parts[cmd_idx], &command);
-
-        bindings.push(KeyBinding {
-            key,
-            command,
-            description,
-            repeat: is_repeat,
-        });
-    }
-
-    bindings
+    crate::list_keys::rows(output)
+        .filter(|row| row.table == table)
+        .map(|row| {
+            let name = row.command.split(' ').next().unwrap_or_default();
+            KeyBinding {
+                key: row.key_name().to_string(),
+                description: describe_binding(name, &row.command),
+                command: row.command,
+                repeat: row.repeat,
+            }
+        })
+        .collect()
 }
 
 /// Human description for the common commands the menus surface.
@@ -199,8 +161,7 @@ fn describe_binding(command_name: &str, command: &str) -> String {
 }
 
 /// The prefix key and the key tables, as the client's keyboard handling reads
-/// them. The wire shape of the SSE `keybindings` frame and the desktop's
-/// `tmux-keybindings` event.
+/// them: the `keybindings` event's payload.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBindings {
     pub prefix_key: String,
@@ -216,22 +177,6 @@ pub struct KeyBindings {
 /// Tables `KeyBindings::tables` leaves out: the two it has fields for, and
 /// copy mode's, which the client handles itself.
 const UNLISTED_TABLES: [&str; 4] = ["prefix", "root", "copy-mode", "copy-mode-vi"];
-
-/// The table a `list-keys` line binds in, whether or not it carries `-r`.
-fn binding_table(line: &str) -> Option<&str> {
-    let mut parts = line.split_whitespace();
-    if parts.next() != Some("bind-key") {
-        return None;
-    }
-    let mut next = parts.next()?;
-    if next == "-r" {
-        next = parts.next()?;
-    }
-    if next != "-T" {
-        return None;
-    }
-    parts.next()
-}
 
 /// tmux's own prefix, for a server that answers nothing.
 const DEFAULT_PREFIX: &str = "C-b";
@@ -264,7 +209,7 @@ impl KeyBindings {
             .to_string();
         let names: std::collections::BTreeSet<&str> = output
             .lines()
-            .filter_map(binding_table)
+            .filter_map(|line| crate::list_keys::Row::parse(line).map(|row| row.table))
             .filter(|table| !UNLISTED_TABLES.contains(table))
             .collect();
         Self {

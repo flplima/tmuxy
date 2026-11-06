@@ -16,19 +16,24 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use super::assets::BUNDLED_BIN_SCRIPTS;
-use super::config::{legacy_defaults_source, Layout, DEFAULT_USER_CONF};
+use super::config::{legacy_defaults_source, DEFAULT_USER_CONF};
+use crate::paths::{self, Layout};
 
-/// Files an older build wrote into the config dir that are this machine's
-/// state, not the user's config.
-const STATE_FILES: [&str; 4] = ["tmuxy.state.json", "launcher", "trace.json", "servers.json"];
+/// Files an older build wrote into the config dir, under the names the state
+/// dir keeps them by: this machine's state, not the user's config.
+const STATE_FILES: [&paths::File; 4] = [
+    &paths::STATE_FILE,
+    &paths::LAUNCHER,
+    &paths::TRACE_PREFS,
+    &paths::SERVERS,
+];
 
 /// The confs an older build mirrored into the config dir on every launch.
 /// `tmuxy.user.conf` was the generated `~/.tmux.conf` bridge, which the chain
 /// now holds itself.
 const APP_CONFS: [&str; 3] = [
-    "tmuxy.defaults.conf",
-    "tmuxy.essentials.conf",
+    paths::DEFAULTS_CONF.name,
+    paths::ESSENTIALS_CONF.name,
     "tmuxy.user.conf",
 ];
 
@@ -176,12 +181,12 @@ pub fn migrate(layout: &Layout) -> Migration {
     // A linked config dir is the user's checkout: read from it, write nothing.
     let writable = is_real_dir(dir);
 
-    for name in STATE_FILES {
-        let src = dir.join(name);
+    for file in STATE_FILES {
+        let src = dir.join(file.name);
         if std::fs::symlink_metadata(&src).is_err() {
             continue;
         }
-        let dest = layout.state.join(name);
+        let dest = layout.path(file);
         if std::fs::symlink_metadata(&dest).is_err() {
             let copied = std::fs::read(&src).and_then(|bytes| {
                 std::fs::create_dir_all(&layout.state)?;
@@ -248,7 +253,7 @@ fn remove_app_files(dir: &Path, removed: &mut Vec<PathBuf>) {
     // bin/ was the app's whole — the scripts of this build and of every older
     // one, retired names included — when it holds the dispatcher it mirrored.
     let bin = dir.join("bin");
-    if is_real_dir(&bin) && is_file(&bin.join(BUNDLED_BIN_SCRIPTS[0].0)) {
+    if is_real_dir(&bin) && is_file(&bin.join(paths::CLI_DISPATCHER)) {
         remove_files_under(&bin, removed);
     }
 

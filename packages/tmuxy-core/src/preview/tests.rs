@@ -72,9 +72,9 @@ fn the_document_is_read_with_its_kind_and_anything_else_is_refused() {
         net: false,
     })
     .unwrap();
-    assert_eq!(doc["kind"], "markdown");
-    assert_eq!(doc["name"], "notes.md");
-    assert_eq!(doc["text"], "# Notes");
+    assert_eq!(doc.kind, "markdown");
+    assert_eq!(doc.name, "notes.md");
+    assert_eq!(doc.text, "# Notes");
 
     let html = folder.write("page.HTML", b"<h1>x</h1>");
     let doc = read_document(&Authorisation {
@@ -82,8 +82,8 @@ fn the_document_is_read_with_its_kind_and_anything_else_is_refused() {
         net: true,
     })
     .unwrap();
-    assert_eq!(doc["kind"], "html");
-    assert_eq!(doc["net"], true);
+    assert_eq!(doc.kind, "html");
+    assert_eq!(doc.net, true);
 
     let key = folder.write("id_rsa", b"secret");
     assert!(read_document(&Authorisation {
@@ -133,8 +133,8 @@ fn a_resource_inside_the_documents_folder_is_read() {
         "./css/site.css",
     )
     .unwrap();
-    assert_eq!(css["mime"], "text/css; charset=utf-8");
-    assert_eq!(css["data"], "Ym9keXt9");
+    assert_eq!(css.mime, "text/css; charset=utf-8");
+    assert_eq!(css.data, "Ym9keXt9");
     assert!(resolve_resource(&doc, "img/logo.png").is_ok());
 }
 
@@ -272,7 +272,6 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
         alternate_on: false,
         mouse_any_flag: false,
         marked: false,
-        paused: false,
         history_size: 0,
         selection_present: false,
         selection_start_x: 0,

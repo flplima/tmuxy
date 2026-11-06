@@ -3,8 +3,6 @@
 //! `[[themes]]`, as plain types, and the limits their validation
 //! (`super::validate`) holds them to.
 
-use std::collections::BTreeMap;
-
 use serde::Serialize;
 
 // ── Validated ───────────────────────────────────────────────────────────
@@ -236,12 +234,4 @@ pub fn normalize_key(key: &str) -> Option<String> {
         out.push_str(name);
         out
     })
-}
-
-/// The settings with their defaults, for the gate and `config`.
-pub fn defaults(settings: &[Setting]) -> BTreeMap<String, SettingValue> {
-    settings
-        .iter()
-        .filter_map(|s| s.default.clone().map(|d| (s.key.clone(), d)))
-        .collect()
 }

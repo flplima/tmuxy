@@ -328,7 +328,8 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSp
       label: 'Detach Session',
       icon: 'detach',
       keyHint: commandHint(keybindings, 'session-detach'),
-      disabled: env.isDemo,
+      // Only the desktop detaches; the web server answers `unavailable`.
+      disabled: env.isDemo || !env.isTauri,
       action: command('session-detach'),
     },
     // Destructive and one click away: it asks first.

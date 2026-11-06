@@ -38,7 +38,11 @@ export function openExternalUrl(url: string): void {
   // What was checked is what is opened.
   const link = url.trim();
   if (isTauri()) {
-    void desktopInvoke('open_url', { url: link }).catch(failing('open_url'));
+    void desktopInvoke(
+      'dispatch',
+      { request: { cmd: 'open_url', args: { url: link } } },
+      { traced: { cmd: 'open_url' } },
+    ).catch(failing('open_url'));
     return;
   }
   window.open(link, '_blank', 'noopener,noreferrer');

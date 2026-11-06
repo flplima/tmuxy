@@ -15,13 +15,6 @@ pub enum ControlModeEvent {
     /// Raw pane output (octal-decoded)
     Output { pane_id: PaneId, content: Vec<u8> },
 
-    /// Extended output with timing info (when flow control is enabled)
-    ExtendedOutput {
-        pane_id: PaneId,
-        age_ms: u64,
-        content: Vec<u8>,
-    },
-
     /// Layout change notification
     LayoutChange {
         window_id: WindowId,
@@ -81,12 +74,7 @@ pub enum ControlModeEvent {
     SessionsChanged,
 
     /// Command response block completed
-    CommandResponse {
-        timestamp: u64,
-        command_num: u32,
-        output: String,
-        success: bool,
-    },
+    CommandResponse { output: String, success: bool },
 
     /// Flow control: pane paused
     Pause { pane_id: PaneId },
@@ -129,8 +117,6 @@ pub struct Parser {
     /// The reply outgrew `max_response_bytes` and its body was dropped.
     response_overflowed: bool,
     max_response_bytes: usize,
-    response_timestamp: u64,
-    response_command_num: u32,
     /// The open block's guard — `%begin`'s time, command number and flags —
     /// which tmux repeats on the `%end`/`%error` that closes it.
     response_guard: String,
@@ -144,8 +130,6 @@ impl Parser {
             response_has_lines: false,
             response_overflowed: false,
             max_response_bytes: MAX_RESPONSE_BYTES,
-            response_timestamp: 0,
-            response_command_num: 0,
             response_guard: String::new(),
         }
     }
@@ -218,9 +202,8 @@ impl Parser {
         }
 
         // A stray %end/%error with no matching %begin would otherwise emit a
-        // CommandResponse carrying the previous block's stale timestamp/
-        // command_num and an empty body, which downstream treats as a real
-        // (state-changing) response.
+        // CommandResponse with an empty body, which downstream takes for the
+        // answer to a command it sent.
         if line.starts_with(ev::END) || line.starts_with(ev::ERROR) {
             return None;
         }
@@ -390,20 +373,12 @@ impl Parser {
         const SEPARATOR: &[u8] = b" : ";
         let sep_idx = rest.windows(SEPARATOR.len()).position(|w| w == SEPARATOR)?;
         let header = std::str::from_utf8(&rest[..sep_idx]).ok()?;
-        let mut header_parts = header.split_whitespace();
 
-        let pane_id = PaneId::parse(header_parts.next()?).ok()?;
-        let age_ms = header_parts
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        // The age that follows the pane id is read by nothing: the bytes
+        // are a pane's output like any other.
+        let pane_id = PaneId::parse(header.split_whitespace().next()?).ok()?;
         let content = decode_octal(&rest[sep_idx + SEPARATOR.len()..]);
-
-        Some(ControlModeEvent::ExtendedOutput {
-            pane_id,
-            age_ms,
-            content,
-        })
+        Some(ControlModeEvent::Output { pane_id, content })
     }
 
     fn parse_layout_change(&self, line: &str) -> Option<ControlModeEvent> {

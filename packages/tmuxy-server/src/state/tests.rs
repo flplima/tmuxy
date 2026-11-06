@@ -6,7 +6,7 @@ use axum::{
 use tower::ServiceExt;
 
 fn app() -> Router {
-    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
+    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::default()))
 }
 
 /// The POST a hostile page can make without a preflight: `text/plain`,
@@ -37,7 +37,7 @@ fn preview_page_request(site: &'static str) -> Request<Body> {
 /// preview was opened with `--net`, never sniffed or cached.
 #[tokio::test]
 async fn a_staged_page_is_served_sandboxed_and_offline() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     state
         .preview_pages
         .stage(
@@ -96,7 +96,7 @@ async fn a_staged_page_is_served_sandboxed_and_offline() {
 /// to ask, nothing is staged.
 #[tokio::test]
 async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
     let request = Request::post("/api/preview/3")
         .header("host", "localhost:9000")
@@ -188,7 +188,7 @@ async fn commands_and_trace_reject_non_json_content_types() {
 
 #[tokio::test]
 async fn events_route_does_not_auto_create_missing_sessions() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
     let request = Request::get("/events?session=tmuxy-missing-session-unit-probe")
         .header("host", "localhost:9000")
@@ -377,8 +377,10 @@ async fn the_image_route_never_reads_from_disk() {
 
 #[tokio::test]
 async fn image_route_serves_nosniff_sandbox_csp_and_same_origin_corp() {
-    let state = Arc::new(AppState::new());
-    state.image_store.write().await.insert(
+    use tmuxy_core::control_mode::StateEmitter;
+    let state = Arc::new(AppState::default());
+    let conns = crate::state::SessionConnections::new("s", &state);
+    conns.runtime.store_images(
         &tmuxy_core::PaneId::parse("%1").unwrap(),
         vec![(
             7,
@@ -388,6 +390,7 @@ async fn image_route_serves_nosniff_sandbox_csp_and_same_origin_corp() {
             },
         )],
     );
+    state.sessions.write().await.insert("s".to_string(), conns);
     let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
     let request = Request::get("/api/images/1/7")
         .header("host", "localhost:9000")
@@ -425,35 +428,4 @@ async fn an_oversized_trace_body_is_refused_before_it_is_read() {
         .unwrap();
     let response = app().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-}
-
-mod session_start_dir {
-    use super::super::handlers::session_start_dir_from;
-    use std::path::PathBuf;
-
-    #[test]
-    fn a_checkout_wins_so_the_dev_loop_starts_in_the_repo() {
-        let dir = session_start_dir_from(
-            Some(PathBuf::from("/src/tmuxy")),
-            Some(PathBuf::from("/home/u")),
-            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
-        );
-        assert_eq!(dir, PathBuf::from("/src/tmuxy"));
-    }
-
-    #[test]
-    fn outside_a_checkout_the_home_directory_not_the_process_cwd() {
-        let dir = session_start_dir_from(
-            None,
-            Some(PathBuf::from("/home/u")),
-            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
-        );
-        assert_eq!(dir, PathBuf::from("/home/u"));
-    }
-
-    #[test]
-    fn with_no_home_the_cwd_is_what_is_left() {
-        let dir = session_start_dir_from(None, None, Some(PathBuf::from("/")));
-        assert_eq!(dir, PathBuf::from("/"));
-    }
 }

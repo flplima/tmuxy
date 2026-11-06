@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::constants::tmux_options;
-use crate::{GroupId, PaneId, WindowId};
+use crate::{GroupId, PaneId, WindowId, WindowType};
 
 mod autosave;
 mod capture;
@@ -111,7 +111,7 @@ impl HiddenMember {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }
@@ -173,7 +173,7 @@ impl PaneSnapshot {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }
@@ -191,7 +191,7 @@ pub fn snapshot_dir(state_dir: &Path) -> PathBuf {
     let socket = crate::session::tmux_socket();
     // A socket path (`-S /x/y.sock`) keys by its file name, like `tmux -L`.
     let name = socket.rsplit('/').next().unwrap_or(&socket).to_string();
-    state_dir.join("sessions").join(name)
+    state_dir.join(crate::paths::SESSIONS.name).join(name)
 }
 
 /// `<name>.<stamp>.json` — the stamp sorts lexically in time order.
@@ -279,37 +279,28 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
 
     let latest = latest_link(dir, &snapshot.session);
     if let Ok(existing) = std::fs::read_to_string(&latest) {
-        if same_shape(&existing, &json) {
+        if same_shape(&existing, snapshot) {
             return Ok(None);
         }
     }
 
     let target = dir.join(snapshot_file_name(&snapshot.session, snapshot.saved_at));
-    let tmp = dir.join(format!(
-        ".{}.tmp",
-        snapshot_file_name(&snapshot.session, snapshot.saved_at)
-    ));
-    crate::private_files::write(&tmp, &json).map_err(io)?;
-    std::fs::rename(&tmp, &target).map_err(io)?;
+    crate::private_files::replace(&target, &json).map_err(io)?;
     // `latest` is a copy rather than a symlink: a symlink survives nothing on
     // a filesystem that has none, and a copy is one more atomic rename.
-    let tmp_latest = dir.join(format!(".{}.latest.tmp", snapshot.session));
-    crate::private_files::write(&tmp_latest, &json).map_err(io)?;
-    std::fs::rename(&tmp_latest, &latest).map_err(io)?;
+    crate::private_files::replace(&latest, &json).map_err(io)?;
     prune(dir, &snapshot.session, snapshot.saved_at);
     Ok(Some(target))
 }
 
-/// Identical but for `saved_at`: a save that found nothing changed must not
-/// write a new file just because the clock moved.
-fn same_shape(a: &str, b: &str) -> bool {
-    let strip = |s: &str| {
-        s.lines()
-            .filter(|l| !l.trim_start().starts_with("\"saved_at\""))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    strip(a) == strip(b)
+/// Whether the snapshot `existing` holds is `snapshot` but for `saved_at`: a
+/// save that found nothing changed must not write a new file just because
+/// the clock moved.
+fn same_shape(existing: &str, snapshot: &Snapshot) -> bool {
+    parse(existing).is_ok_and(|mut old| {
+        old.saved_at = snapshot.saved_at;
+        old == *snapshot
+    })
 }
 
 /// The dated snapshots of a session, oldest first.
@@ -414,6 +405,39 @@ pub fn forget(dir: &Path, session: &str) -> usize {
         removed += 1;
     }
     removed
+}
+
+/// What a restore of a session by name rebuilds from, and how, for the CLI's
+/// `tmuxy session restore` and a client's `restore_session` alike: refused
+/// when the name is not a usable session name, when the session is
+/// `running`, or when it has no snapshot. `run` runs each offered command
+/// instead of leaving it typed at the prompt.
+pub fn named_restore(
+    name: &str,
+    running: bool,
+    run: bool,
+) -> Result<(Snapshot, RestoreOptions), crate::CommandError> {
+    use crate::CommandError;
+    if crate::session::SessionName::parse(name).is_none() {
+        return Err(CommandError::invalid(format!(
+            "not a usable session name: {name:?}"
+        )));
+    }
+    if running {
+        return Err(CommandError::invalid(format!(
+            "session {name:?} is already running"
+        )));
+    }
+    let saved = read_latest(&default_dir(), name)
+        .map_err(|e| CommandError::unavailable(e.to_string()))?
+        .ok_or_else(|| CommandError::invalid(format!("no snapshot for {name:?}")))?;
+    let options = RestoreOptions {
+        run,
+        fallback_cwd: fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    Ok((saved, options))
 }
 
 #[cfg(test)]

@@ -268,31 +268,32 @@ pub fn enrich_and_scan_sockets(
     servers
 }
 
+/// The separator of [`LIST_SESSIONS`]'s fields. Only the name can hold it,
+/// and the name is the first field, so a row is split from the right.
+pub(super) const SESSION_FIELD_SEP: char = '|';
+
+/// The `list-sessions` command whose rows [`parse_session_list`] reads: name,
+/// window count, attached clients.
+pub const LIST_SESSIONS: &str =
+    "list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}'";
+
+/// The sessions [`LIST_SESSIONS`] printed, less tmuxy's stash. A row that does
+/// not have its three fields is skipped.
 pub fn parse_session_list(stdout: &str) -> Vec<RemoteSessionInfo> {
     stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let mut parts = line.split('\t');
-            let name = parts.next()?.trim();
+            let mut fields = line.trim().rsplitn(3, SESSION_FIELD_SEP);
+            let attached = fields.next()?.trim();
+            let windows = fields.next()?.trim().parse::<usize>().ok()?;
+            let name = fields.next()?.trim();
             if name.is_empty() || name == STASH_SESSION {
                 return None;
             }
-            let windows = parts
-                .next()
-                .and_then(|w| w.trim().parse::<usize>().ok())
-                .unwrap_or(1);
-            let attached = parts
-                .next()
-                .map(|a| a.trim() != "0" && !a.trim().is_empty())
-                .unwrap_or(false);
             Some(RemoteSessionInfo {
                 name: name.to_string(),
                 windows,
-                attached,
+                attached: !attached.is_empty() && attached != "0",
             })
         })
         .collect()

@@ -17,6 +17,8 @@
 #   bin/lint-gate check [<step>...]  # read-only; every step, or only the named
 #                                    # ones: policy prettier rustfmt eslint
 #                                    # types knip clippy clippy-wasm
+#   bin/lint-gate steps              # the step names, one per line (CI's
+#                                    # lint job runs each by name)
 #
 # Unit tests are not here: they are the `unit-tests` job, and `npm run
 # check:fast` is this gate followed by them.
@@ -42,6 +44,7 @@ PRETTIER_SCOPE=(
   'packages/tmuxy-ui/.storybook/*.ts'
   'packages/tmuxy-ui/eslint-rules/*.mjs'
   eslint.config.mjs
+  vitest.config.mjs
   'packages/tmuxy-demo/{app,components,lib,scripts}/**/*.{ts,tsx,mjs,css}'
   'packages/tmuxy-demo/*.{ts,mjs}'
 )
@@ -54,6 +57,7 @@ ESLINT_ROOT_SCOPE=(
   tests
   bin
   eslint.config.mjs
+  vitest.config.mjs
   packages/tmuxy-demo/scripts
   packages/tmuxy-demo/postcss.config.mjs
 )
@@ -140,6 +144,9 @@ case "${1:-}" in
   format)
     do_format
     ;;
+  steps)
+    printf '%s\n' "${ALL_STEPS[@]}"
+    ;;
   check)
     shift
     steps=("$@")
@@ -168,7 +175,7 @@ case "${1:-}" in
     printf '\nlint-gate: OK (%s)\n' "${steps[*]}"
     ;;
   *)
-    echo "usage: bin/lint-gate format | check [<step>...]" >&2
+    echo "usage: bin/lint-gate format | check [<step>...] | steps" >&2
     echo "steps: ${ALL_STEPS[*]}" >&2
     exit 2
     ;;

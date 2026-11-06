@@ -12,7 +12,7 @@
  * push edited the suites it lives in.
  *
  * The rules are data here, so they can be read and tested
- * (packages/tmuxy-ui/scripts/ci-changes.test.mjs) rather than buried in a
+ * (ci-changes.test.mjs, beside it) rather than buried in a
  * workflow's shell step. Two shapes:
  *
  *   SKIPPABLE — the job runs unless EVERY changed file is irrelevant to it.

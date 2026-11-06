@@ -44,10 +44,12 @@ pub(super) fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
-pub(super) fn dirs_in(base: &Path) -> Dirs {
-    Dirs {
+pub(super) fn dirs_in(base: &Path) -> Layout {
+    Layout {
         config: base.join("config"),
+        data: base.join("data"),
         state: base.join("state"),
+        home: base.to_path_buf(),
     }
 }
 
@@ -77,7 +79,7 @@ fn a_full_manifest_parses() {
     assert_eq!(m.name, "claude-artifacts");
     assert_eq!(m.requires, vec!["curl"]);
     assert_eq!(m.actions.len(), 2);
-    let open = m.action("open-url").unwrap();
+    let open = m.actions.iter().find(|a| a.id == "open-url").unwrap();
     assert_eq!(open.menu, Some(Menu::App));
     assert_eq!(open.surface, Surface::Popup);
     assert_eq!(
@@ -88,7 +90,7 @@ fn a_full_manifest_parses() {
         })
     );
     assert_eq!(open.command, vec!["bin/open-url", "--flag"]);
-    let plain = m.action("plain").unwrap();
+    let plain = m.actions.iter().find(|a| a.id == "plain").unwrap();
     assert_eq!(plain.surface, Surface::Split);
     assert_eq!(plain.menu, None);
     assert_eq!(m.cli[0].verb, "artifact");
@@ -289,7 +291,7 @@ fn a_linked_plugin_and_the_users_own_load() {
     lock.upsert(Entry::from_path("missing", &base.join("nowhere")));
     lock.save(&dirs).unwrap();
     std::fs::write(
-        dirs.user_manifest(),
+        dirs.user_plugin_manifest(),
         "[plugin]\napi = 1\nname = \"user\"\nversion = \"0\"\n\
          [[actions]]\nid = \"a\"\ntitle = \"A\"\ncommand = [\"x\"]\n\
          [[cli]]\nverb = \"list\"\ncommand = [\"x\"]\n\
@@ -390,16 +392,14 @@ fn the_inventory_is_compact_and_its_rev_follows_its_content() {
         "same inventory, same rev"
     );
     assert_ne!(inventory::encode(&[]).1, rev);
-    let cmds = inventory::commands(&dirs);
+    let cmds = inventory::commands(&dirs).unwrap();
     assert_eq!(cmds[0], format!("set-option -g @tmuxy-plugins {b64}"));
     assert_eq!(cmds[1], format!("set-option -g @tmuxy-plugins-rev {rev}"));
+    // A lockfile that no longer loads publishes nothing, rather than an
+    // inventory with no plugins in it.
+    std::fs::write(dirs.lockfile(), "{ not json").unwrap();
+    assert!(inventory::commands(&dirs).is_err());
     std::fs::remove_dir_all(base).unwrap();
-}
-
-#[test]
-fn a_shell_word_is_quoted_with_its_hashes_doubled() {
-    assert_eq!(job::shell_word("/usr/bin/tmux"), "/usr/bin/tmux");
-    assert_eq!(job::shell_word("/a b/it's#1"), r"'/a b/it'\''s##1'");
 }
 
 #[test]

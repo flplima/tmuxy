@@ -46,7 +46,7 @@ impl ImageParser {
             return Some((end, None));
         }
 
-        let decoded = base64_decode(base64_data);
+        let decoded = base64_decode(base64_data).unwrap_or_default();
         if decoded.is_empty() {
             return Some((end, None));
         }
@@ -466,23 +466,15 @@ pub(crate) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
     None
 }
 
-/// Decode standard base64 (and url-safe), tolerating embedded whitespace.
-pub(super) fn base64_decode(input: &str) -> Vec<u8> {
+/// Decode standard base64 (and url-safe), padded or not, tolerating embedded
+/// whitespace. `None` for anything that is not base64 in any of those forms.
+pub(crate) fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
     // Strip whitespace that real-world payloads often inject for readability.
     let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    if let Ok(b) = base64::engine::general_purpose::STANDARD.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::STANDARD_NO_PAD.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::URL_SAFE.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&cleaned) {
-        return b;
-    }
-    Vec::new()
+    [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(&cleaned).ok())
 }
 
 /// Detect a raster image MIME type from known magic bytes. Non-image payloads

@@ -1,6 +1,7 @@
 //! The marker lines an aggregator brackets its own reads with, and the
 //! control-mode lines a command is written as.
 
+use crate::constants::tmux_formats::TmuxList;
 use crate::PaneId;
 
 /// Marker printed (via `display-message -p`) immediately BEFORE a self-issued
@@ -28,9 +29,31 @@ pub const BUFFER_END_MARKER: &str = "TMUXY_BUF_END";
 pub const CLIENTS_BEGIN_MARKER: &str = "TMUXY_CLI_BEGIN";
 pub const CLIENTS_END_MARKER: &str = "TMUXY_CLI_END";
 
+/// Brackets for the aggregator's own `list-panes`, `list-windows` and stash
+/// list. The BEGIN marker names the list (`TmuxList::name`), so its rows are
+/// read as that list's and never told apart by what they look like.
+pub const LIST_BEGIN_MARKER: &str = "TMUXY_LS_BEGIN";
+pub const LIST_END_MARKER: &str = "TMUXY_LS_END";
+
 /// The `list-clients` format of [`Markers::clients_read_command`]: whether
 /// the client is a control client, and the group and name of its session.
 pub const LIST_CLIENTS_FORMAT: &str = "#{client_control_mode},#{session_group},#{session_name}";
+
+/// One of the aggregator's own reads: a single command whose answer is the
+/// block right after its BEGIN marker's (each command of a control-mode
+/// command list gets its own `%begin`/`%end` block, in order), so the answer
+/// is taken by position, never by what it says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Read {
+    /// A `capture-pane` of the pane.
+    Capture(PaneId),
+    /// The `list-clients` asked before a view mode on the pane is closed.
+    Clients(PaneId),
+    /// The `show-buffer` that mirrors a copy-mode yank.
+    Buffer,
+    /// One of the lists the aggregator keeps its state from.
+    List(TmuxList),
+}
 
 /// The marker lines one aggregator asks tmux to print, and recognises.
 ///
@@ -80,13 +103,32 @@ impl Markers {
     }
 
     /// Whether `line` is exactly `marker`, with no argument.
-    pub(super) fn is(&self, line: &str, marker: &str) -> bool {
+    fn is(&self, line: &str, marker: &str) -> bool {
         self.after(line, marker) == Some("")
     }
 
-    /// The numeric argument of a marker line of ours.
+    /// The numeric argument of a marker line of ours (a reply's id).
     pub(super) fn argument<T: std::str::FromStr>(&self, line: &str, marker: &str) -> Option<T> {
         self.after(line, marker)?.parse().ok()
+    }
+
+    /// The read whose BEGIN marker `line` is, when it is one of ours.
+    pub(super) fn read_begun(&self, line: &str) -> Option<Read> {
+        // A pane id travels as bare digits (see `capture_command`).
+        let pane = |marker| {
+            let number = self.after(line, marker)?.parse().ok()?;
+            Some(PaneId::from_number(number))
+        };
+        if let Some(pane) = pane(CAPTURE_BEGIN_MARKER) {
+            return Some(Read::Capture(pane));
+        }
+        if let Some(pane) = pane(CLIENTS_BEGIN_MARKER) {
+            return Some(Read::Clients(pane));
+        }
+        if self.is(line, BUFFER_BEGIN_MARKER) {
+            return Some(Read::Buffer);
+        }
+        TmuxList::named(self.after(line, LIST_BEGIN_MARKER)?).map(Read::List)
     }
 
     /// The command that prints `marker`, followed by `argument` when there
@@ -142,13 +184,32 @@ impl Markers {
         self.marker_wrapped_capture(pane_id, &format!(" -S {start} -E {end}"))
     }
 
+    /// The marker-wrapped command that lists `list`.
+    pub fn list_command(&self, list: TmuxList) -> String {
+        format!(
+            "{} ; {} ; {}",
+            self.print(LIST_BEGIN_MARKER, Some(list.name().to_string())),
+            list.command(),
+            self.print(LIST_END_MARKER, None),
+        )
+    }
+
+    /// The re-list a window add or close needs, and the initial sync sends:
+    /// panes BEFORE windows (M2 in `docs/INVARIANTS.md`). A window emitted
+    /// before its panes are listed is a window with panes missing; the stash
+    /// list is independent of that order and goes last. The native monitor
+    /// and the wasm host both send exactly this.
+    pub fn window_relist_commands(&self) -> [String; 3] {
+        TmuxList::ALL.map(|list| self.list_command(list))
+    }
+
     /// The batch that refreshes `queued` panes: `list-panes` BEFORE every
     /// `capture-pane` (M3 in `docs/INVARIANTS.md`), so the cursor positions the
     /// captures are placed against are the ones tmux reports now.
     pub fn pane_refresh_commands(&self, queued: &[PaneId]) -> Vec<String> {
         let mut commands = vec![
-            crate::constants::tmux_formats::LIST_PANES_CMD.to_string(),
-            crate::constants::tmux_formats::LIST_STASH_PANES_CMD.to_string(),
+            self.list_command(TmuxList::Panes),
+            self.list_command(TmuxList::Stash),
         ];
         commands.extend(queued.iter().map(|pane| self.capture_command(pane)));
         commands

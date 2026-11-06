@@ -15,14 +15,12 @@
   ],
   "scripts": {
     "devcontainer": "bash bin/devcontainer up",
-    "build": "npm run tauri:build && cargo build --release -p tmuxy-server",
     "build:wasm": "cargo build -p tmuxy-wasm --target wasm32-unknown-unknown --release --no-default-features && wasm-bindgen --target web --out-dir packages/tmuxy-wasm/pkg --out-name tmuxy_wasm target/wasm32-unknown-unknown/release/tmuxy_wasm.wasm",
     "start": "bash bin/dev-server start",
     "stop": "bash bin/dev-server stop",
     "restart": "bash bin/dev-server restart",
     "logs": "bash bin/dev-server logs",
-    "tauri:build": "cd packages/tmuxy-tauri-app && tauri build",
-    "test": "npm run test -w tmuxy-ui",
+    "test": "vitest run",
     "test:e2e": "jest --runInBand",
     "test:tauri": "NODE_OPTIONS='--experimental-vm-modules' jest --config tests/tauri/jest.config.js",
     "test:cli": "jest --config tests/cli/jest.config.js",
@@ -31,10 +29,9 @@
     "perf:compare": "node packages/tmuxy-ui/scripts/compare-interactions.mjs",
     "perf:soak": "node packages/tmuxy-ui/scripts/measure-soak.mjs",
     "lint": "bin/lint-gate check eslint",
-    "lint:tests": "eslint tests/",
     "prepare": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .github || true",
     "check:policy": "node bin/check-repo-policy.mjs && node bin/ci/workflow-pins.mjs",
-    "check:fast": "bin/lint-gate check && npm test -- --run",
+    "check:fast": "bin/lint-gate check && npm test",
     "check:full": "npm run check:fast && npm run test:cli && TERM=xterm-256color cargo test --workspace"
   },
   "devDependencies": {
@@ -47,6 +44,7 @@
     "jest-environment-node": "^29.7.0",
     "knip": "^5.88.1",
     "playwright": "^1.58.0",
+    "vitest": "^4.1.12",
     "webdriverio": "^9.24.0"
   },
   "overrides": {

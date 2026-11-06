@@ -14,14 +14,15 @@
 //!   by `command_router::route_command` on every transport;
 //! - every mutation from a script through `run-shell`, never a second client
 //!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
-//! - session-scoped rather than global option writes while attached (3.5a
-//!   crash): `control_mode/monitor/sync.rs`;
+//! - session- and window-scoped rather than global option writes while
+//!   attached (3.5a crash): `control_mode/monitor/sync.rs`,
+//!   `control_mode/state/window_state.rs` (`window_setup_commands`);
 //! - `run-shell` output redirected to files (3.4 shows it in view-mode):
 //!   `_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`, `ask_run_shell` in `session_snapshot`;
 //! - the copy-mode flag asked as `#{pane_mode}`, not `#{pane_in_mode}` (3.4
 //!   put a fresh pane in view-mode): `constants::tmux_formats`;
 //! - a space as the group listing's separator (3.4 prints a control
-//!   character as `_`): `groups::LIST_PANES_FORMAT`;
+//!   character as `_`): `groups::list_panes_format`;
 //! - `set -q` for `allow-passthrough` (absent on 3.2): `monitor/sync.rs`;
 //! - the JSON `#{window_layout}` of 3.8 read back into the classic string:
 //!   `layout::parse_json`;
@@ -44,10 +45,6 @@ pub struct Silent {
     pub verbs: &'static [&'static str],
     /// A further condition on the command — its flags, the option it names.
     pub when: fn(&str) -> bool,
-    /// The tmux versions it holds for.
-    pub tmux: &'static str,
-    /// What goes unannounced.
-    pub because: &'static str,
 }
 
 const fn always(_: &str) -> bool {
@@ -80,23 +77,24 @@ fn marks_a_pane(command: &str) -> bool {
 }
 
 /// Every command tmux leaves unannounced, and the list to read behind it.
+/// Each entry says what goes unannounced, and on which tmux versions.
 pub const SILENT_COMMANDS: &[Silent] = &[
+    // A user option (a dragged sidebar width, a hidden column, a focus request) changes without
+    // a notification, and the clients read it off list-windows (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &["set-option", "set", "set-window-option", "setw"],
         when: names_tmuxy_option,
-        tmux: "every version",
-        because: "a user option (a dragged sidebar width, a hidden column, a focus request) \
-                  changes without a notification, and the clients read it off list-windows",
     },
+    // The stack script writes @tmuxy-collapsible from inside run-shell, and the re-list is what
+    // turns the flag into a relayout (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &[],
         when: runs_the_stack_script,
-        tmux: "every version",
-        because: "the stack script writes @tmuxy-collapsible from inside run-shell, and the \
-                  re-list is what turns the flag into a relayout",
     },
+    // A reorder renumbers every window past the moved one and tmux announces none of them; the
+    // tab strip would show two tabs at one index (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &[
@@ -107,33 +105,27 @@ pub const SILENT_COMMANDS: &[Silent] = &[
             "renumber-windows",
         ],
         when: always,
-        tmux: "every version",
-        because: "a reorder renumbers every window past the moved one and tmux announces \
-                  none of them; the tab strip would show two tabs at one index",
     },
+    // #{pane_marked} changes without a notification (every version).
     Silent {
         relist: Relist::Panes,
         verbs: &["select-pane", "selectp"],
         when: marks_a_pane,
-        tmux: "every version",
-        because: "#{pane_marked} changes without a notification",
     },
+    // A pane-scoped @tmuxy-* write changes list-panes and nothing else: answering a `tmuxy pane
+    // send -t` clears @tmuxy-ask, and the question would stay on screen until the next event
+    // moved it (every version).
     Silent {
         relist: Relist::Panes,
         verbs: &["set-option", "set", "setp"],
         when: names_pane_scoped_tmuxy_option,
-        tmux: "every version",
-        because: "a pane-scoped @tmuxy-* write changes list-panes and nothing else: answering \
-                  a `tmuxy pane send -t` clears @tmuxy-ask, and the question would stay on \
-                  screen until the next event moved it",
     },
+    // No %layout-change follows a swap; on later versions the re-list only repeats what the
+    // notification brought (3.2).
     Silent {
         relist: Relist::Panes,
         verbs: &["swap-pane", "swapp"],
         when: always,
-        tmux: "3.2",
-        because: "no %layout-change follows a swap; on later versions the re-list only repeats \
-                  what the notification brought",
     },
 ];
 
@@ -236,12 +228,5 @@ mod tests {
         assert!(panes("selectp -M"));
         assert!(!panes("select-pane -t %3"));
         assert!(!panes("send-keys -t %1 'select-pane -m' Enter"));
-    }
-
-    #[test]
-    fn every_silent_command_says_which_tmux_and_why() {
-        for silent in SILENT_COMMANDS {
-            assert!(!silent.tmux.is_empty() && !silent.because.is_empty());
-        }
     }
 }

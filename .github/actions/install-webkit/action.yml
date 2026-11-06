@@ -1,4 +1,5 @@
 name: Install WebKit
+description: Playwright's WebKit with its download cached, and its system libraries.
 # Playwright's WebKit, with its browser download cached the way
 # install-chromium caches Chromium's. Its system libraries are not in the
 # runner image, so `install-deps` runs on every job; what the cache saves is

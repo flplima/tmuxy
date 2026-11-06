@@ -53,8 +53,9 @@ window.tmuxyGesture('slide', phase, dx, dy, t)
 **What the shell claims.** A scroll stream whose first steps are horizontal
 (the same axis rule the actor used to apply, `|dx| > 1.5·|dy|`) from a
 touchpad (`hasPreciseScrollingDeltas` on macOS; a touchpad device on Linux),
-while `@tmuxy-gesture-swipe-tabs` is on — the page is told the flag through
-a command whenever it changes. The claimed events, and the momentum tail
+while `@tmuxy-gesture-swipe-tabs` is on — the shell reads the flag from the
+theme settings it already reads for the blur, each time they are read
+(`monitor::TauriSink::appearance`). The claimed events, and the momentum tail
 that follows them, never reach the webview: the page does not scroll on
 them, and nothing has to `preventDefault`. Vertical scrolls and mouse wheels
 are left alone. A slide over a pane whose program tracks the mouse is still
