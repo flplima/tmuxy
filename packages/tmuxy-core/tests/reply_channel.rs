@@ -108,7 +108,7 @@ async fn replies_come_back_from_a_live_control_mode_connection() {
     //    command, and the END marker on its own line still closes the reply.
     let failed = ask(
         &tx,
-        "display-message -p FIRST \\; kill-window -t @999 \\; display-message -p NEVER",
+        "display-message -p FIRST ; kill-window -t @999 ; display-message -p NEVER",
     )
     .await;
     assert_eq!(

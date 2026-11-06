@@ -11,30 +11,38 @@ use tracing::{debug, warn};
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
 // panics on wasm32; web-time backs it with performance.now() in the browser.
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
+pub use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
-use web_time::Instant;
+pub use web_time::Instant;
 
-/// Type of change that occurred
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// What kind of change a step made: the classes a host's emission policy
+/// tells apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChangeType {
-    /// No change
+    /// No change.
     #[default]
     None,
-    /// Pane output changed (high frequency, may be debounced)
-    PaneOutput { pane_id: PaneId },
-    /// Pane layout/position changed
-    PaneLayout,
-    /// Window-related change (add, close, rename, focus)
+    /// Pane content changed: high frequency, throttled or debounced.
+    Output,
+    /// Pane geometry changed: coalesced over a short debounce.
+    Layout,
+    /// A window came, went, was renamed or became the current one.
     Window,
-    /// Pane focus changed within window
-    PaneFocus,
-    /// Session-related change
-    Session,
-    /// Full state refresh needed
-    Full,
-    /// Flow control: pane paused, to be resumed
-    FlowPause { pane_id: PaneId },
+    /// The focused pane of a window changed.
+    Focus,
+    /// Anything else (the session, a re-list): emitted at once.
+    Other,
+}
+
+impl ChangeType {
+    /// Whether the change belongs to a burst a multi-step script makes, the
+    /// kind settling holds back and waits out.
+    pub fn is_structural(self) -> bool {
+        matches!(
+            self,
+            ChangeType::Window | ChangeType::Layout | ChangeType::Focus
+        )
+    }
 }
 
 /// Is this "title" a graphics escape tmux mistook for one?
@@ -96,83 +104,91 @@ pub(crate) struct ProcessEventResult {
     /// Each entry is (pane_id, decoded text); no pane for a paste-buffer yank. Forwarded to the emitter so
     /// the frontend can mirror the request into the system clipboard.
     pub clipboard_writes: Vec<(Option<PaneId>, String)>,
-    /// tmux commands the runtime must send back over the control connection
-    /// (beyond the dedicated refresh/capture fields above). Used by the
-    /// push-based (wasm) path, e.g. reading a paste buffer after
-    /// %paste-buffer-changed.
+    /// The aggregator's own commands (a buffer read, a view mode closed, a
+    /// collapsed window's rows evened out).
     pub commands: Vec<String>,
     /// Completed reply-wrapped commands: (reply id, everything the command
     /// printed, whether every block succeeded). See `reply_wrapped_lines`.
     pub command_replies: Vec<(u64, String, Option<String>)>,
-    /// Notices for the person, about something the aggregator did on their
-    /// behalf (a view mode it closed).
+    /// Notices for the person: a `%message`, or something the aggregator
+    /// did on their behalf (a view mode it closed).
     pub messages: Vec<String>,
+    /// A pane tmux paused (flow control), to be resumed at once.
+    pub resume: Option<PaneId>,
 }
 
-/// Outcome of a single `StateAggregator::step` call.
-///
-/// Effects describe the I/O the runtime must perform. `change_type` is also
-/// returned out-of-band because the monitor's settling state machine needs to
-/// see *every* change (including suppressed ones), not just the ones that
-/// flowed through into an `EmitState` effect. Without this, the settling
-/// timer wouldn't extend during compound commands while window emissions are
-/// suppressed.
+/// Outcome of a single `StateAggregator::step` call: the effects, in the
+/// order the host must run them, and the class of change the step made
+/// (reported even when settling holds its emission back).
 #[derive(Debug, Clone, Default)]
 pub struct StepResult {
     pub effects: Vec<SideEffect>,
     pub change_type: ChangeType,
 }
 
-/// Typed side effect emitted by the sans-IO state machine.
-///
-/// The aggregator never performs I/O itself — it only describes what the
-/// runtime (currently `TmuxMonitor`) must do. This makes the state machine
-/// fully testable without tokio: drive it with synthetic events and assert
-/// on the returned `Vec<SideEffect>`.
+/// What a batch of the aggregator's commands is for. The order a step
+/// returns them in is load-bearing (A1 in `docs/INVARIANTS.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Batch {
+    /// Each window's options, set once per window and kind
+    /// (`window_setup_commands`), ahead of anything that sizes or draws it.
+    WindowSetup,
+    /// The aggregator's own commands: a yanked buffer read, a view mode
+    /// closed, a collapsed window's rows evened out.
+    Own,
+    /// A window was added or closed: panes, then windows, then the stash
+    /// (M2) — a window listed before its panes is a window with panes
+    /// missing.
+    WindowRelist,
+    /// Panes whose content is stale: `list-panes` (and the stash), then a
+    /// capture of each (M3), so the captures are placed against the cursor
+    /// tmux reports now.
+    PaneRefresh,
+    /// A pane tmux paused (flow control), resumed.
+    Resume,
+}
+
+/// Something for the person, or for the host's own stores.
 #[derive(Debug, Clone)]
-pub enum SideEffect {
-    /// Send a tmux command through control mode. The runtime is expected to
-    /// dispatch this via `ControlModeConnection::send_commands`.
-    SendTmuxCommand(String),
-    /// Capture-pane is needed for these pane ids — emit list-panes first,
-    /// then capture each. Surfaced as its own variant so the monitor can
-    /// preserve the ordering invariant documented in `refresh_panes`.
-    RefreshPanes { pane_ids: Vec<PaneId> },
-    /// After a window-add event, refresh both list-panes and list-windows.
-    /// Order is load-bearing (see `refresh_after_window_add`).
-    RefreshAfterWindowAdd,
-    /// Set up the windows with the supplied `set-option` commands
-    /// (`window_setup_commands`): once per window and kind.
-    AdoptUntaggedWindows(Vec<String>),
-    /// Indicate the runtime should emit a state update if the aggregator has
-    /// one queued. The variant carries the `ChangeType` so the runtime can
-    /// pick the right emission strategy (throttle, debounce, immediate).
-    EmitState { change: ChangeType },
-    /// Resume a paused pane (flow control).
-    ResumePane(PaneId),
-    /// Forward a freshly-decoded image set to the emitter.
-    StoreImages {
+pub enum Notice {
+    /// Freshly decoded images of a pane (a host serving image bytes keeps
+    /// them; the placements ride the state).
+    Images {
         pane_id: PaneId,
         images: Vec<(u32, super::images::StoredImage)>,
     },
-    /// Forward an OSC 52 clipboard write to the system clipboard.
-    /// `pane_id` is the writer, or `None` for a paste-buffer yank.
-    WriteClipboard {
+    /// An OSC 52 clipboard write, or a copy-mode yank (`pane_id: None`).
+    Clipboard {
         pane_id: Option<PaneId>,
         text: String,
     },
-    /// A command sent with `reply_wrapped_lines` has finished: hand its output
-    /// back to whoever asked. `error` is tmux's message when a block of the
-    /// command was an `%error` — tmux stops a command list at the first
-    /// failure, so `output` is then what the commands before it printed.
-    CommandReply {
+    /// A notice shown like a `%message`.
+    Message(String),
+    /// A command tmux refused, or a link that failed.
+    Error(String),
+}
+
+/// What a step asks of the host. The aggregator does no I/O: every command
+/// it needs sent is here wire-ready, so a host only runs the effects in the
+/// order they come — the native monitor and the wasm guest alike
+/// (`monitor_core`).
+#[derive(Debug, Clone)]
+pub enum SideEffect {
+    /// Control-mode lines to write, in order, in one flush.
+    Send { batch: Batch, commands: Vec<String> },
+    /// A state emission is due; the class picks throttle, debounce or now.
+    Emit(ChangeType),
+    /// Something for the person or the host's stores.
+    Notify(Notice),
+    /// A command sent with `reply_wrapped_lines` has finished: `error` is
+    /// tmux's message when a block of it was an `%error` — tmux stops a
+    /// command list at the first failure, so `output` is then what the
+    /// commands before it printed.
+    Reply {
         id: u64,
         output: String,
         error: Option<String>,
     },
-    /// A notice for the person, shown like a `%message`: something the
-    /// aggregator did on their behalf, such as closing a view mode.
-    ShowMessage(String),
 }
 
 /// Aggregates control mode events into coherent state
@@ -188,7 +204,8 @@ pub struct StateAggregator {
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
     even_out_pending: Vec<WindowId>,
-    /// Session name (e.g., "tmuxy")
+    /// The session's name: the configured one until `%session-changed`
+    /// confirms it, then whatever tmux renames it to. Empty follows any.
     session_name: String,
     /// The attached session's id (`$0`), from `%session-changed`: tmux tells
     /// every control client of every session's rename, so this is what picks
@@ -302,11 +319,13 @@ pub struct StateAggregator {
 }
 
 impl StateAggregator {
+    /// An aggregator that follows whichever session its client attaches to.
     pub fn new() -> Self {
-        Self::with_session_name(crate::DEFAULT_SESSION_NAME)
+        Self::with_session_name("")
     }
 
-    /// Create with a specific session name
+    /// An aggregator for the session `session_name`: session events about
+    /// any other are not its own (`names_our_session`).
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
             session_name: session_name.to_string(),

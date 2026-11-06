@@ -1,49 +1,132 @@
-//! WASM binding over tmuxy-core's sans-IO control-mode engine.
+//! WASM binding over tmuxy-core's sans-IO control-mode client.
 //!
-//! The browser (v86 running real tmux over serial) feeds raw `tmux -CC`
-//! control-mode text into [`WasmTmux::feed`]; the SAME Rust parser + state
-//! aggregator the native server uses reconstructs `StateUpdate`s (full/delta)
-//! and reports the outbound tmux commands the host must dispatch back to tmux
-//! (capture-pane, list-panes, …) to fetch pane content.
+//! The browser (v86 or CheerpX running real tmux) feeds raw `tmux -CC`
+//! control-mode text into [`WasmTmux::feed`], and the SAME client core the
+//! native server runs (`control_mode::MonitorCore`: the parser, the state
+//! aggregator, reply correlation, the attach settings, the re-list timers,
+//! window sizing) says what to send back, what changed, and what to tell the
+//! person. The client's commands are routed by the same policy the native
+//! transports apply ([`route_command`], [`route_query`]).
 //!
 //! No client-side reimplementation, no VT emulator — one source of truth.
 
 use serde::Serialize;
+use tmuxy_core::command_router::{self, Route};
+use tmuxy_core::control_mode::{
+    Action, AttachConfig, ControlModeEvent, Instant, MonitorCore, Notice, Parser,
+};
 use wasm_bindgen::prelude::*;
 
-/// Serialize for JS with maps as plain objects — the delta protocol's
+#[wasm_bindgen(typescript_custom_section)]
+const TYPES: &'static str = r#"
+/** What the host does after a feed, a tick or a command. */
+export interface Feed {
+  /** Control-mode lines to write to tmux, in order. */
+  commands: string[];
+  /** The state changed: read `snapshot()` for it. */
+  changed: boolean;
+  /** OSC 52 writes and copy-mode yanks; `paneId` is null for a yank. */
+  clipboard: { paneId: string | null; text: string }[];
+  /** Notices for the person. */
+  messages: string[];
+  /** Commands tmux refused. */
+  errors: string[];
+  /** Answers to the commands run with a reply id. */
+  replies: { id: number; output: string; error: string | null }[];
+  /** tmux ended the connection (`%exit`); the reason, when it gave one. */
+  ended: { reason: string | null } | null;
+}
+
+/** Where a client's command goes: to tmux as `routed`, or `blocked`. */
+export type Routed = { routed: string } | { blocked: string };
+"#;
+
+/// Serialize for JS with maps as plain objects (the delta protocol's
 /// `TmuxDelta.panes/windows` are HashMaps, and serde-wasm-bindgen's default
-/// (ES `Map`) is invisible to the frontend's object-shaped delta handling.
+/// ES `Map` is invisible to the frontend) and `None` as `null`, as the wire
+/// schema reads it.
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    let ser = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    let ser = serde_wasm_bindgen::Serializer::new()
+        .serialize_maps_as_objects(true)
+        .serialize_missing_as_null(true);
     value
         .serialize(&ser)
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-use tmuxy_core::control_mode::{ControlModeEvent, Parser, SideEffect, StateAggregator};
-use tmuxy_core::StateUpdate;
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Clipboard {
+    pane_id: Option<String>,
+    text: String,
+}
 
-/// Result of feeding a chunk of control-mode text.
+#[derive(Serialize)]
+struct Reply {
+    id: u32,
+    output: String,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Ended {
+    reason: Option<String>,
+}
+
+/// What a feed, tick or command asks of the host (`Feed` in the TS types).
 #[derive(Serialize, Default)]
-struct FeedOutput {
-    /// State snapshots/deltas to render (serialized as the tmuxy wire shape).
-    updates: Vec<StateUpdate>,
-    /// tmux commands the host must send back over the control connection.
+struct Feed {
     commands: Vec<String>,
-    /// OSC 52 clipboard writes: (pane_id, decoded text); the pane id is empty
-    /// for a paste-buffer yank.
-    clipboard: Vec<(String, String)>,
-    /// One entry per command response (%begin/%end/%error block) in this feed,
-    /// in arrival order: (success, first line of the output, truncated). Lets
-    /// the host correlate marker-tagged commands with their outcomes — control
-    /// mode replies strictly in the order commands were sent.
-    responses: Vec<(bool, String)>,
+    changed: bool,
+    clipboard: Vec<Clipboard>,
+    messages: Vec<String>,
+    errors: Vec<String>,
+    replies: Vec<Reply>,
+    ended: Option<Ended>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum Routed {
+    Routed(String),
+    Blocked(String),
+}
+
+impl From<Route> for Routed {
+    fn from(route: Route) -> Self {
+        match route {
+            Route::ControlMode(command) => Routed::Routed(command),
+            Route::Blocked(reason) => Routed::Blocked(reason.to_string()),
+        }
+    }
+}
+
+/// The policy the native transports apply to a client's command
+/// (`command_router::route_command`): `size` is the viewport a new window is
+/// made at, when the client knows it.
+#[wasm_bindgen(js_name = routeCommand, unchecked_return_type = "Routed")]
+pub fn route_command(
+    command: &str,
+    session: &str,
+    cols: Option<u32>,
+    rows: Option<u32>,
+) -> Result<JsValue, JsValue> {
+    let size = cols.zip(rows);
+    to_js(&Routed::from(command_router::route_command(
+        command, session, size,
+    )))
+}
+
+/// The policy for a client's query (`command_router::route_query`): reads
+/// only.
+#[wasm_bindgen(js_name = routeQuery, unchecked_return_type = "Routed")]
+pub fn route_query(command: &str) -> Result<JsValue, JsValue> {
+    to_js(&Routed::from(command_router::route_query(command)))
 }
 
 struct Session {
     parser: Parser,
-    agg: StateAggregator,
+    core: MonitorCore<u32>,
     /// Incomplete trailing line carried across `feed` calls (serial arrives in
     /// arbitrary chunks, even byte-by-byte).
     pending: String,
@@ -53,50 +136,42 @@ impl Session {
     fn new(session_name: &str) -> Self {
         Self {
             parser: Parser::new(),
-            agg: StateAggregator::with_session_name(session_name),
+            // The guest's tmux is the default server, on the PATH.
+            core: MonitorCore::new(session_name, "tmux", Instant::now()),
             pending: String::new(),
         }
     }
 
-    fn apply_effects(&mut self, effects: Vec<SideEffect>, out: &mut FeedOutput) {
-        for effect in effects {
-            match effect {
-                SideEffect::EmitState { .. } => {
-                    if let Some(update) = self.agg.to_state_update() {
-                        out.updates.push(update);
-                    }
+    /// Run what the core asked for into `out`. The decoded images stay in the
+    /// pane's store (served by `image_url`); their placements ride the state.
+    fn apply(&mut self, actions: Vec<Action<u32>>, out: &mut Feed) {
+        for action in actions {
+            match action {
+                Action::Send(lines) => out.commands.extend(lines),
+                Action::Emit(_) => {
+                    out.changed |= self.core.aggregator_mut().to_state_update().is_some();
                 }
-                SideEffect::SendTmuxCommand(cmd) => out.commands.push(cmd),
-                SideEffect::AdoptUntaggedWindows(cmds) => out.commands.extend(cmds),
-                SideEffect::RefreshAfterWindowAdd => {
-                    out.commands
-                        .extend(self.agg.markers().window_relist_commands());
+                Action::Notify(Notice::Images { .. }) => {}
+                Action::Notify(Notice::Clipboard { pane_id, text }) => {
+                    out.clipboard.push(Clipboard {
+                        pane_id: pane_id.map(String::from),
+                        text,
+                    })
                 }
-                SideEffect::RefreshPanes { pane_ids } => {
-                    let queued = self.agg.queue_captures(&pane_ids);
-                    if !queued.is_empty() {
-                        out.commands
-                            .extend(self.agg.markers().pane_refresh_commands(&queued));
-                    }
-                }
-                SideEffect::ResumePane(id) => {
-                    out.commands
-                        .push(format!("refresh-client -A '{id}:continue'"));
-                }
-                SideEffect::WriteClipboard { pane_id, text } => {
-                    out.clipboard
-                        .push((pane_id.map(String::from).unwrap_or_default(), text));
-                }
-                // StoreImages: the decoded bytes are already kept in the pane's
-                // image store (surfaced via `image_url`); placements ride the
-                // snapshot. Flow-control effects are not surfaced yet.
-                _ => {}
+                Action::Notify(Notice::Message(text)) => out.messages.push(text),
+                Action::Notify(Notice::Error(error)) => out.errors.push(error),
+                Action::Answer(id, reply) => out.replies.push(Reply {
+                    id,
+                    output: reply.output,
+                    error: reply.error,
+                }),
+                Action::Ended(reason) => out.ended = Some(Ended { reason }),
             }
         }
     }
 
-    fn feed(&mut self, text: &str) -> FeedOutput {
-        let mut out = FeedOutput::default();
+    fn feed(&mut self, text: &str) -> Feed {
+        let mut out = Feed::default();
         self.pending.push_str(text);
         while let Some(nl) = self.pending.find('\n') {
             let mut line: String = self.pending.drain(..=nl).collect();
@@ -106,32 +181,33 @@ impl Session {
             let Some(event) = self.parser.parse_line(&line) else {
                 continue;
             };
-            if let ControlModeEvent::CommandResponse {
-                output, success, ..
-            } = &event
-            {
-                let first = output.lines().next().unwrap_or("");
-                let first = first.chars().take(120).collect::<String>();
-                out.responses.push((*success, first));
+            let ended = matches!(event, ControlModeEvent::Exit { .. });
+            let actions = self.core.step(event, Instant::now());
+            self.apply(actions, &mut out);
+            if ended {
+                break;
             }
-            let effects = self.agg.step(event).effects;
-            self.apply_effects(effects, &mut out);
         }
         out
     }
 
-    /// Drain the settling-debounce timer. Pane-output updates are debounced by
-    /// the aggregator and emitted here, so hosts must call this on a timer.
-    fn tick(&mut self) -> FeedOutput {
-        let mut out = FeedOutput::default();
-        if let Some(change) = self.agg.tick_now() {
-            self.apply_effects(vec![SideEffect::EmitState { change }], &mut out);
-        }
+    fn tick(&mut self) -> Feed {
+        let mut out = Feed::default();
+        let actions = self.core.tick(Instant::now());
+        self.apply(actions, &mut out);
         out
+    }
+
+    fn run(&mut self, command: &str, reply_id: Option<u32>) -> Feed {
+        let outgoing = self.core.command(command, reply_id, Instant::now());
+        Feed {
+            commands: outgoing.lines.into_iter().chain(outgoing.relists).collect(),
+            ..Feed::default()
+        }
     }
 }
 
-/// The stateful control-mode engine exposed to JS.
+/// The stateful control-mode client exposed to JS.
 #[wasm_bindgen]
 pub struct WasmTmux {
     inner: Session,
@@ -146,33 +222,68 @@ impl WasmTmux {
         }
     }
 
-    /// Feed control-mode text; returns `{ updates: StateUpdate[], commands: string[] }`.
+    /// The commands a freshly attached control client sends, the native
+    /// monitor's list: the window sizing at `cols`x`rows`, the enforced
+    /// settings, flow control, the full re-list and the subscriptions. The
+    /// guest image bakes the config in, so there is nothing to source.
+    pub fn attach(&self, cols: u32, rows: u32) -> Vec<String> {
+        self.inner
+            .core
+            .attach_commands((cols, rows), AttachConfig::default())
+    }
+
+    /// Feed control-mode text the guest wrote.
+    #[wasm_bindgen(unchecked_return_type = "Feed")]
     pub fn feed(&mut self, text: &str) -> Result<JsValue, JsValue> {
-        let out = self.inner.feed(text);
-        to_js(&out)
+        to_js(&self.inner.feed(text))
     }
 
-    /// Drain the settling-debounce timer (call on a ~50ms interval). Returns the
-    /// same `{ updates, commands }` shape. Debounced pane-output updates surface
-    /// here rather than from `feed`.
+    /// What is due now: the settling flush, the metadata re-list, the
+    /// copy-mode poll or heartbeat, replies that ran out of time. Call it at
+    /// `next_deadline_ms` or on a short interval.
+    #[wasm_bindgen(unchecked_return_type = "Feed")]
     pub fn tick(&mut self) -> Result<JsValue, JsValue> {
-        let out = self.inner.tick();
+        to_js(&self.inner.tick())
+    }
+
+    /// Run a client's command, already routed (`routeCommand` or
+    /// `routeQuery`): with `reply_id`, its answer comes back in a later
+    /// feed's `replies`; without, tmux's refusal comes back in `errors`.
+    #[wasm_bindgen(unchecked_return_type = "Feed")]
+    pub fn run(&mut self, command: &str, reply_id: Option<u32>) -> Result<JsValue, JsValue> {
+        to_js(&self.inner.run(command, reply_id))
+    }
+
+    /// The client's viewport: every window is sized to it.
+    #[wasm_bindgen(js_name = setClientSize, unchecked_return_type = "Feed")]
+    pub fn set_client_size(&mut self, cols: u32, rows: u32) -> Result<JsValue, JsValue> {
+        let mut out = Feed::default();
+        let actions = self.inner.core.set_client_size(cols, rows);
+        self.inner.apply(actions, &mut out);
         to_js(&out)
     }
 
-    /// The full current `TmuxState` snapshot (convenient for rendering; deltas
-    /// from `feed` are the efficient path once wired to the real UI).
-    pub fn snapshot(&mut self) -> Result<JsValue, JsValue> {
-        let state = self.inner.agg.to_tmux_state();
-        to_js(&state)
+    /// The full re-list (panes, windows, stash) the state is rebuilt from.
+    pub fn resync(&self) -> Vec<String> {
+        self.inner
+            .core
+            .aggregator()
+            .markers()
+            .window_relist_commands()
+            .to_vec()
     }
 
-    /// The commands a host should send once after attaching, to do a full sync
-    /// (list-panes + list-windows) — tmux doesn't replay these on attach, so
-    /// without them there's no active window/pane. The order is the native
-    /// monitor's (panes before windows).
-    pub fn initial_sync(&self) -> Vec<String> {
-        self.inner.agg.markers().window_relist_commands().to_vec()
+    /// Follow `session` from now on: the client is about to switch to it.
+    #[wasm_bindgen(js_name = expectSession)]
+    pub fn expect_session(&mut self, session: &str) {
+        self.inner.core.expect_session(session);
+    }
+
+    /// The full current `TmuxState`.
+    #[wasm_bindgen(unchecked_return_type = "ServerState")]
+    pub fn snapshot(&mut self) -> Result<JsValue, JsValue> {
+        let state = self.inner.core.aggregator_mut().to_tmux_state();
+        to_js(&state)
     }
 
     /// Parse raw `capture-pane -p -e` scrollback text into structured cells.
@@ -191,7 +302,8 @@ impl WasmTmux {
         use base64::Engine;
         let pane_id = tmuxy_core::PaneId::parse(pane_id).ok()?;
         self.inner
-            .agg
+            .core
+            .aggregator()
             .image_data(&pane_id, image_id)
             .map(|(data, mime)| {
                 format!(
@@ -204,28 +316,36 @@ impl WasmTmux {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
+    use tmuxy_core::control_mode::{
+        CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
+        REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    };
+
+    /// A command block as tmux answers it.
+    fn block(n: u32, body: &str, ok: bool) -> String {
+        let end = if ok { "%end" } else { "%error" };
+        format!("%begin {n} {n} 1\n{body}{end} {n} {n} 1\n")
+    }
 
     #[test]
     fn feed_reconstructs_panes_and_reports_no_spurious_commands() {
-        use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
-        use tmuxy_core::control_mode::{
-            CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
-        };
-
         let mut s = Session::new("m");
-        let markers = s.agg.markers().clone();
+        let markers = s.core.aggregator().markers().clone();
         // The aggregator's own marked list, as tmux answers it: three blocks.
         let list = |n: u32, list: TmuxList, rows: &str| {
-            let (a, b, c) = (n, n + 1, n + 2);
             format!(
-                "%begin {a} {a} 1\n{} {}\n%end {a} {a} 1\n\
-                 %begin {b} {b} 1\n{rows}%end {b} {b} 1\n\
-                 %begin {c} {c} 1\n{}\n%end {c} {c} 1\n",
-                markers.tag(LIST_BEGIN_MARKER),
-                list.name(),
-                markers.tag(LIST_END_MARKER),
+                "{}{}{}",
+                block(
+                    n,
+                    &format!("{} {}\n", markers.tag(LIST_BEGIN_MARKER), list.name()),
+                    true
+                ),
+                block(n + 1, rows, true),
+                block(n + 2, &format!("{}\n", markers.tag(LIST_END_MARKER)), true),
             )
         };
         let stream = format!(
@@ -240,10 +360,6 @@ mod tests {
              8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
         );
         let out = s.feed(&stream);
-        // Every %begin/%end block surfaces as a response for host-side
-        // command correlation (four blocks in this stream, all successful).
-        assert_eq!(out.responses.len(), 4);
-        assert!(out.responses.iter().all(|(ok, _)| *ok));
         // The listed panes are captured; nothing is shown before the
         // windows are listed and those captures have landed.
         let captures = out
@@ -253,16 +369,20 @@ mod tests {
             .count();
         assert_eq!(captures, 2, "one capture per new pane: {:?}", out.commands);
         assert!(
-            out.updates.is_empty(),
-            "nothing to show before the initial sync is complete: {:?}",
-            out.updates
+            !out.changed,
+            "nothing to show before the initial sync is complete"
         );
 
         let capture = |pane: &str| {
             format!(
-                "%begin 4 4 1\n{} {pane}\n%end 4 4 1\n%begin 5 5 1\n$ \n%end 5 5 1\n%begin 6 6 1\n{}\n%end 6 6 1\n",
-                markers.tag(CAPTURE_BEGIN_MARKER),
-                markers.tag(CAPTURE_END_MARKER),
+                "{}{}{}",
+                block(
+                    4,
+                    &format!("{} {pane}\n", markers.tag(CAPTURE_BEGIN_MARKER)),
+                    true
+                ),
+                block(5, "$ \n", true),
+                block(6, &format!("{}\n", markers.tag(CAPTURE_END_MARKER)), true),
             )
         };
         let window = RowBuilder::<WindowColumn>::new()
@@ -279,16 +399,85 @@ mod tests {
             capture("0"),
             capture("1")
         ));
-        assert!(
-            matches!(synced.updates.as_slice(), [StateUpdate::Full { state }] if state.panes.len() == 2),
-            "the first emission is the complete picture: {:?}",
-            synced.updates
-        );
+        assert!(synced.changed, "the first emission is the complete picture");
+        assert_eq!(s.core.aggregator_mut().to_tmux_state().panes.len(), 2);
+    }
 
-        // An %error block surfaces as a failed response with its message.
-        let err = s.feed("%begin 3 3 1\ncan't find session: nope\n%error 3 3 1\n");
-        assert_eq!(err.responses.len(), 1);
-        assert!(!err.responses[0].0);
-        assert!(err.responses[0].1.contains("can't find session"));
+    /// The guest gets what the native monitor gets: a command run with a
+    /// reply id is answered under it, a refused fire-and-forget command is
+    /// reported, a `%message` reaches the person and `%exit` ends the feed —
+    /// the effects the guest's own loop once dropped.
+    #[test]
+    fn replies_refusals_messages_and_the_end_reach_the_guest() {
+        let mut s = Session::new("m");
+        let markers = s.core.aggregator().markers().clone();
+        let wrapped = |s: &mut Session, command: &str, id: Option<u32>| {
+            let sent = s.run(command, id);
+            let begin = sent.commands[0].clone();
+            let n: u64 = begin
+                .split(&markers.tag(REPLY_BEGIN_MARKER))
+                .nth(1)
+                .and_then(|rest| rest.trim_end_matches('\'').trim().parse().ok())
+                .expect("a wrapped command");
+            n
+        };
+        let id = wrapped(&mut s, "display -p hi", Some(7));
+        let answered = s.feed(&format!(
+            "{}{}{}",
+            block(
+                1,
+                &format!("{} {id}\n", markers.tag(REPLY_BEGIN_MARKER)),
+                true
+            ),
+            block(2, "hi\n", true),
+            block(
+                3,
+                &format!("{} {id}\n", markers.tag(REPLY_END_MARKER)),
+                true
+            ),
+        ));
+        assert!(matches!(
+            answered.replies.as_slice(),
+            [Reply { id: 7, output, error: None }] if output == "hi"
+        ));
+
+        let id = wrapped(&mut s, "splitw -h", None);
+        let refused = s.feed(&format!(
+            "{}{}{}",
+            block(
+                4,
+                &format!("{} {id}\n", markers.tag(REPLY_BEGIN_MARKER)),
+                true
+            ),
+            block(5, "no space for new pane\n", false),
+            block(
+                6,
+                &format!("{} {id}\n", markers.tag(REPLY_END_MARKER)),
+                true
+            ),
+        ));
+        assert_eq!(refused.errors, ["no space for new pane"]);
+
+        let told = s.feed("%message build done\n");
+        assert_eq!(told.messages, ["build done"]);
+
+        let ended = s.feed("%exit server exited\n");
+        assert!(matches!(ended.ended, Some(Ended { reason: Some(ref r) }) if r == "server exited"));
+    }
+
+    /// The attach is the native one: SEC-01's `set-clipboard off` included,
+    /// panes listed before windows.
+    #[test]
+    fn the_attach_is_the_native_monitors() {
+        let s = WasmTmux::new("m");
+        let attach = s.attach(80, 30);
+        assert!(
+            attach.contains(&"set set-clipboard 'off'".to_string()),
+            "{attach:?}"
+        );
+        assert!(attach.contains(&"resizew -t 'm' -x 80 -y 30".to_string()));
+        let relist = s.resync();
+        let at = |command: &String| attach.iter().position(|c| c == command).expect("listed");
+        assert!(at(&relist[0]) < at(&relist[1]) && at(&relist[1]) < at(&relist[2]));
     }
 }

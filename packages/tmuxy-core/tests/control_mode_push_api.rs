@@ -95,7 +95,7 @@ fn serializes_to_the_frontend_wire_shape() {
 /// whole push API: %pane-mode-changed, %paste-buffer-changed, then tmux's
 /// answer to the marker-wrapped show-buffer the aggregator asks for.
 fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, String)> {
-    use tmuxy_core::control_mode::SideEffect;
+    use tmuxy_core::control_mode::{Batch, Notice, SideEffect};
 
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
@@ -109,9 +109,13 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     let event = parser.parse_line("%pane-mode-changed %0").unwrap();
     let relist = agg.step(event).effects;
     assert!(
-        relist
-            .iter()
-            .any(|e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids.len() == 1)),
+        relist.iter().any(|e| matches!(
+            e,
+            SideEffect::Send {
+                batch: Batch::PaneRefresh,
+                ..
+            }
+        )),
         "a mode change re-lists the pane: {relist:?}"
     );
     let in_copy_mode = pane_list(
@@ -126,7 +130,10 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     let cmd = effects
         .iter()
         .find_map(|e| match e {
-            SideEffect::SendTmuxCommand(c) => Some(c.clone()),
+            SideEffect::Send {
+                batch: Batch::Own,
+                commands,
+            } => commands.first().cloned(),
             _ => None,
         })
         .expect("show-buffer command emitted");
@@ -145,7 +152,7 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     for line in response.split('\n') {
         if let Some(event) = parser.parse_line(line) {
             for effect in agg.step(event).effects {
-                if let SideEffect::WriteClipboard { pane_id, text } = effect {
+                if let SideEffect::Notify(Notice::Clipboard { pane_id, text }) = effect {
                     clipboard.push((pane_id, text));
                 }
             }

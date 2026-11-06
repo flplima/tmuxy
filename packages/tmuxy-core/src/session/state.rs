@@ -126,7 +126,10 @@ impl ManagedOption {
 pub fn pinned_options_in(conf: &str) -> Vec<&'static str> {
     let text = without_comments(conf);
     let mut pinned = Vec::new();
-    for command in crate::executor::split_compound(&text) {
+    for command in crate::tmux_command::parse(&text)
+        .top_level()
+        .map(|c| c.text)
+    {
         let Some((name, unset)) = global_option_set(command) else {
             continue;
         };
@@ -245,7 +248,7 @@ pub fn managed_state_commands(state: &ManagedState, pinned: &[&str]) -> Vec<Stri
             Some(format!(
                 "set-option -g {} {}",
                 option.name(),
-                crate::executor::tmux_quote(&value)
+                crate::tmux_quote(&value)
             ))
         })
         .collect()

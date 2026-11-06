@@ -1,9 +1,10 @@
 use super::*;
-use crate::constants::tmux_formats::{RowBuilder, WindowColumn};
+use crate::constants::tmux_formats::{self, RowBuilder, TmuxList, WindowColumn};
 use crate::control_mode::state::{
     Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER,
     LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
+use crate::PaneId;
 
 /// One log of everything that leaves the monitor, in the order it left:
 /// the commands the link sends and what the emitter is handed, so an
@@ -60,7 +61,13 @@ async fn a_message_reaches_the_emitter_alone() {
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
-    let markers = monitor.aggregator.markers().clone();
+    let markers = monitor.core.aggregator().markers().clone();
+    // Sent by the client, fire-and-forget: `display-message 'hi
+    // #{session_name}'`, and `show-messages` typed at the prompt.
+    let [hi, shown] = ["display-message 'hi #{session_name}'", "show-messages"].map(|c| {
+        let sent = monitor.core.command(c, None, Instant::now());
+        sent.reply_id().expect("wrapped").to_string()
+    });
     let events = [
         ControlModeEvent::Message {
             text: "build done".to_string(),
@@ -68,28 +75,19 @@ async fn a_message_reaches_the_emitter_alone() {
         ControlModeEvent::Message {
             text: String::new(),
         },
-        // `display-message 'hi #{session_name}'` sent by the client.
-        marked(&markers, REPLY_BEGIN_MARKER, "4"),
+        marked(&markers, REPLY_BEGIN_MARKER, &hi),
         response("%message hi tmuxy"),
-        marked(&markers, REPLY_END_MARKER, "4"),
-        // `show-messages` typed at the prompt.
-        marked(&markers, REPLY_BEGIN_MARKER, "5"),
+        marked(&markers, REPLY_END_MARKER, &hi),
+        marked(&markers, REPLY_BEGIN_MARKER, &shown),
         response("Mon Nov  2 12:00:00 2026 client-1 message: hi tmuxy\n\n"),
-        marked(&markers, REPLY_END_MARKER, "5"),
+        marked(&markers, REPLY_END_MARKER, &shown),
     ];
     let count = events.len();
     monitor.connection.events.extend(events);
-    for id in [4, 5] {
-        monitor.pending_replies.insert(
-            id,
-            (ReplyWaiter::ReportFailure, tokio::time::Instant::now()),
-        );
-    }
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
     for _ in 0..count {
-        let event = monitor.connection.recv().await;
-        assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        assert!(step(&mut monitor, &emitter, &mut rs).await);
     }
     assert_eq!(
         *log.lock().unwrap(),
@@ -107,6 +105,17 @@ async fn a_message_reaches_the_emitter_alone() {
             "<message Mon Nov  2 12:00:00 2026 client-1 message: hi tmuxy>",
         ]
     );
+}
+
+/// The next event, run through the core and dispatched, as the loop does.
+async fn step<E: StateEmitter>(
+    monitor: &mut TmuxMonitor<Scripted>,
+    emitter: &E,
+    rs: &mut RunState,
+) -> bool {
+    let event = monitor.connection.recv().await.expect("a scripted event");
+    let actions = monitor.core.step(event, Instant::now());
+    monitor.dispatch(emitter, rs, actions).await
 }
 
 /// A link that logs every command in the order it was sent.
@@ -187,8 +196,16 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
-    let markers = monitor.aggregator.markers().clone();
+    let markers = monitor.core.aggregator().markers().clone();
     let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+    let (reply_tx, mut reply_rx) = oneshot::channel();
+    let asked = monitor
+        .core
+        .command("display-message -p ok", Some(reply_tx), Instant::now());
+    let id = asked
+        .reply_id()
+        .expect("a caller's command is wrapped")
+        .to_string();
     let events = [
         // Two panes the monitor knows, as the initial sync leaves them,
         // the second in copy mode so a paste buffer is worth reading.
@@ -242,9 +259,9 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             window_id: "@1".parse().unwrap(),
         },
         // A reply block: resolved in the monitor, nothing sent.
-        marked(&markers, REPLY_BEGIN_MARKER, "4"),
+        marked(&markers, REPLY_BEGIN_MARKER, &id),
         response("ok\n"),
-        marked(&markers, REPLY_END_MARKER, "4"),
+        marked(&markers, REPLY_END_MARKER, &id),
         // An inline image: stored, the output's emission deferred.
         ControlModeEvent::Output {
             pane_id: "%0".parse().unwrap(),
@@ -278,16 +295,10 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
     ];
     let count = events.len();
     monitor.connection.events.extend(events);
-    let (reply_tx, mut reply_rx) = oneshot::channel();
-    monitor.pending_replies.insert(
-        4,
-        (ReplyWaiter::Caller(reply_tx), tokio::time::Instant::now()),
-    );
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
     for _ in 0..count {
-        let event = monitor.connection.recv().await;
-        assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        assert!(step(&mut monitor, &emitter, &mut rs).await);
     }
 
     let log = log.lock().unwrap().clone();
@@ -398,11 +409,10 @@ async fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
-    monitor.client_size = Some((41, 29));
+    monitor.core.set_client_size(41, 29);
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
-    let event = monitor.connection.recv().await;
-    assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+    assert!(step(&mut monitor, &emitter, &mut rs).await);
 
     let log = log.lock().unwrap().clone();
     let at = |wanted: &str| {

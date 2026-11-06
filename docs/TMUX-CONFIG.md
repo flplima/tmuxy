@@ -29,7 +29,7 @@ A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`
 
 ### Live socket switch (desktop app)
 
-The **web server** binds its socket once at process launch (from the env), so it cannot change sockets without a restart. The **desktop (Tauri) app** can switch servers live: `tmuxy connect <socket> [session]` publishes the request as one tmux global env var on the current server, `TMUXY_CONNECT` (`tmuxy-core/src/servers/connect.rs`); a watcher in the app (`tmuxy-tauri-app/src/monitor/emitter.rs`) reads and clears it, sets `TMUX_SOCKET`/`TMUXY_SESSION` in-process, and drives the monitor loop to reconnect (a graceful `MonitorCommand::Shutdown` interrupts the live connection). Because every tmux call — the control-mode connection and the one-off executor commands alike — resolves its socket from the env, updating those two vars retargets the whole app. Adopting an existing server applies tmuxy's config and window-type tagging to it, so this is an explicit opt-in, distinct from the isolated default. While the app is attached to a server over SSH the watcher does not read the request: anything on that remote host can write them, and a request from there would point this machine at a socket or an SSH destination of the remote's choosing. Switching away from a remote server goes through the app's own server picker.
+The **web server** binds its socket once at process launch (from the env), so it cannot change sockets without a restart. The **desktop (Tauri) app** can switch servers live: `tmuxy connect <socket> [session]` publishes the request as one tmux global env var on the current server, `TMUXY_CONNECT` (`tmuxy-core/src/servers/connect.rs`); a watcher in the app (`tmuxy-tauri-app/src/monitor/emitter.rs`) reads and clears it, sets `TMUX_SOCKET`/`TMUXY_SESSION` in-process, and drives the monitor loop to reconnect (a graceful `MonitorCommand::Shutdown` interrupts the live connection). Because every tmux call — the control-mode connection and the one-off `tmux` calls alike — resolves its socket from the env, updating those two vars retargets the whole app. Adopting an existing server applies tmuxy's config and window-type tagging to it, so this is an explicit opt-in, distinct from the isolated default. While the app is attached to a server over SSH the watcher does not read the request: anything on that remote host can write them, and a request from there would point this machine at a socket or an SSH destination of the remote's choosing. Switching away from a remote server goes through the app's own server picker.
 
 ### Remote servers over SSH (desktop app)
 
@@ -109,8 +109,8 @@ Four layers protect the app, covering different things:
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| `enforce_settings()` | `control_mode/monitor/sync.rs`, every connect, per-session | `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `set-clipboard off` |
-| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
+| `enforced_settings()` | `control_mode/monitor_core/attach.rs`, every attach, per-session | `mouse`, `focus-events`, `set-titles`, `set-clipboard off` |
+| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`, `allow-rename`, `allow-passthrough`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
 | `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
 

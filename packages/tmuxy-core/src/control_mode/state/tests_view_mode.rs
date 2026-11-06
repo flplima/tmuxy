@@ -26,7 +26,7 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
         opened
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::SendTmuxCommand(cmd) if cmd == &asked)),
+            .any(|e| matches!(e, SideEffect::Send { batch: Batch::Own, commands } if commands.iter().any(|cmd| cmd == &asked))),
         "the row asks who is attached ({:?})",
         opened.effects
     );
@@ -36,7 +36,7 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
         !again
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::SendTmuxCommand(cmd) if cmd == &asked)),
+            .any(|e| matches!(e, SideEffect::Send { batch: Batch::Own, commands } if commands.iter().any(|cmd| cmd == &asked))),
         "a view mode already asked about is not asked about again"
     );
 
@@ -48,13 +48,13 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
         answer
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::SendTmuxCommand(cmd) if cmd == "copy-mode -q -t %0")),
+            .any(|e| matches!(e, SideEffect::Send { batch: Batch::Own, commands } if commands.iter().any(|cmd| cmd == "copy-mode -q -t %0"))),
         "the view mode is reset ({:?})",
         answer.effects
     );
     assert!(
         answer.effects.iter().any(
-            |e| matches!(e, SideEffect::ShowMessage(text) if text == "tmux opened a view in pane %0; closed it")
+            |e| matches!(e, SideEffect::Notify(Notice::Message(text)) if text == "tmux opened a view in pane %0; closed it")
         ),
         "the person is told ({:?})",
         answer.effects
@@ -67,7 +67,7 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
     assert!(reopened
         .effects
         .iter()
-        .any(|e| matches!(e, SideEffect::SendTmuxCommand(cmd) if cmd == &asked)));
+        .any(|e| matches!(e, SideEffect::Send { batch: Batch::Own, commands } if commands.iter().any(|cmd| cmd == &asked))));
 }
 
 /// A terminal client attached to the session, or to one grouped with it,
@@ -86,7 +86,10 @@ fn a_view_mode_a_terminal_client_is_reading_is_left_open() {
         assert!(
             !answer.effects.iter().any(|e| matches!(
                 e,
-                SideEffect::SendTmuxCommand(_) | SideEffect::ShowMessage(_)
+                SideEffect::Send {
+                    batch: Batch::Own,
+                    ..
+                } | SideEffect::Notify(Notice::Message(_))
             )),
             "{clients:?}: the terminal client keeps its view ({:?})",
             answer.effects
