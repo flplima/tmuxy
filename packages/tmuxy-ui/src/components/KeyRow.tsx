@@ -1,9 +1,8 @@
 /**
- * KeyRow — the keys a phone keyboard has no key for, in two rows of seven
- * under the terminal: esc, tab, ctrl, alt, the prefix, the keyboard and the
- * app menu on the first; the arrows, backspace, enter and the zoom on the
- * second. Two even rows, edge to edge, so each key is as wide as the screen
- * allows.
+ * KeyRow — the keys a phone keyboard has no key for, in two rows of six
+ * under the terminal: esc, tab, ctrl, alt, the prefix and the keyboard on the
+ * first; the arrows, enter and the zoom on the second. Two even rows, edge to
+ * edge, so each key is as wide as the screen allows.
  *
  * Each key is pressed through the keyboard path (`utils/keyLatch` → a keydown
  * on the window), so the prefix, the bindings and copy mode treat it as a
@@ -24,9 +23,8 @@
  * glass reads + while the terminal is at its size and − while it is zoomed.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
- * stays up while the row is used. The app menu's key, at the first row's
- * right end, is the menu's own button (components/menus/AppMenu.tsx): the
- * phone has no tab strip or status bar to hold it.
+ * stays up while the row is used. The app menu is a view of its own under
+ * the keys (components/PhoneMenu.tsx).
  */
 
 import { memo, useMemo, useSyncExternalStore, type PointerEvent } from 'react';
@@ -44,7 +42,6 @@ import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectPhoneZoom } from '../machines/selectors/layout';
 import { selectKeyBindings, selectPrefixActive } from '../machines/selectors/ui';
 import { keyEventInitOf } from '../machines/actors/keyboard/keyFormatting';
-import { AppMenu } from './menus/AppMenu';
 import './KeyRow.css';
 
 type RowKey =
@@ -52,8 +49,7 @@ type RowKey =
   | { kind: 'modifier'; label: string; modifier: Modifier; name: string }
   | { kind: 'prefix'; label: string; name: string }
   | { kind: 'keyboard'; label: string; name: string }
-  | { kind: 'zoom'; label: string; name: string }
-  | { kind: 'menu'; label: string; name: string };
+  | { kind: 'zoom'; label: string; name: string };
 
 const KEYS: readonly RowKey[] = [
   { kind: 'key', label: 'esc', key: 'Escape', name: 'Escape' },
@@ -62,12 +58,10 @@ const KEYS: readonly RowKey[] = [
   { kind: 'modifier', label: 'alt', modifier: 'alt', name: 'Alt' },
   { kind: 'prefix', label: 'prefix', name: 'Prefix' },
   { kind: 'keyboard', label: '⌨', name: 'Toggle keyboard' },
-  { kind: 'menu', label: '☰', name: 'Menu' },
   { kind: 'key', label: '←', key: 'ArrowLeft', name: 'Left', arrow: true },
   { kind: 'key', label: '↑', key: 'ArrowUp', name: 'Up', arrow: true },
   { kind: 'key', label: '↓', key: 'ArrowDown', name: 'Down', arrow: true },
   { kind: 'key', label: '→', key: 'ArrowRight', name: 'Right', arrow: true },
-  { kind: 'key', label: '⌫', key: 'Backspace', name: 'Backspace' },
   { kind: 'key', label: '⏎', key: 'Enter', name: 'Enter' },
   { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
 ];
@@ -122,8 +116,6 @@ export const KeyRow = memo(function KeyRow() {
         return toggleMobileKeyboard(activePaneId);
       case 'zoom':
         return send({ type: 'TOGGLE_PHONE_ZOOM' });
-      case 'menu':
-        return undefined;
       default:
         return pressKey(k.key);
     }
@@ -145,7 +137,6 @@ export const KeyRow = memo(function KeyRow() {
   return (
     <div className="key-row" role="toolbar" aria-label="Keys">
       {KEYS.map((k) => {
-        if (k.kind === 'menu') return <AppMenu key={k.label} className="key-row-key" />;
         const pressed =
           k.kind === 'modifier'
             ? latches[k.modifier] !== 'off'

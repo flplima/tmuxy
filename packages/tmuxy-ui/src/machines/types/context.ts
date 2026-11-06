@@ -1,3 +1,4 @@
+import type { BottomView } from '../../utils/bottomSlide';
 import type { PushState } from '../../utils/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
@@ -146,8 +147,8 @@ export interface AppMachineContext {
    * px; null for the middle). Null when not zoomed.
    */
   phoneZoom: { x: number | null; y: number | null } | null;
-  /** What the phone shows under the keys: the tree, or the pinned terminal (the dock). */
-  phoneBottomView: 'tree' | 'dock';
+  /** What the phone shows under the keys: the menu, the tree, or the pinned terminal (the dock). */
+  phoneBottomView: BottomView;
   /** The dock size last written to its window from the phone's bottom view. */
   phoneDockSizeSent: { windowId: WindowId; cols: number; rows: number } | null;
   /**

@@ -63,6 +63,10 @@ describe('Phone width (390px) with a touchscreen', () => {
           status: box(document.querySelector('.phone-pty .tmux-status-bar')),
           keys: box(document.querySelector('.key-row')),
           tree: box(document.querySelector('.phone-tree')),
+          tabs: box(document.querySelector('.phone-tabs')),
+          tabNames: [...document.querySelectorAll('.phone-tabs [role="tab"]')].map(
+            (t) => `${t.textContent}${t.getAttribute('aria-selected') === 'true' ? '*' : ''}`,
+          ),
           // What the grid was sized from, for a failure to be readable: the
           // client's target against what tmux actually reports, and the panes
           // it reports it for.
@@ -125,7 +129,8 @@ describe('Phone width (390px) with a touchscreen', () => {
     expect(layout.grid.containerWidth).toBeCloseTo(PHONE.width - 8, 0);
     expect(layout.pane.left).toBeGreaterThanOrEqual(1);
     // Top to bottom: the grid, tmux's line as its 25th row, the keys, the
-    // tree, down to the screen's bottom.
+    // tree, and the tab bar under it down to the screen's bottom: the menu,
+    // the tree in front, the side pane.
     expectOnScreen(layout.status, 'the status line');
     expect(layout.status.left).toBeCloseTo(0, 0);
     expect(layout.status.width).toBeCloseTo(PHONE.width, 0);
@@ -136,7 +141,10 @@ describe('Phone width (390px) with a touchscreen', () => {
     );
     expect(layout.keys.top).toBeGreaterThanOrEqual(layout.status.top + layout.status.height - 1);
     expect(layout.tree.top).toBeGreaterThanOrEqual(layout.keys.top + layout.keys.height - 1);
-    expect(layout.tree.top + layout.tree.height).toBeCloseTo(PHONE.height, 0);
+    expectOnScreen(layout.tabs, 'the tab bar');
+    expect(layout.tabNames).toEqual(['Menu', 'Tree*', 'Side pane']);
+    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.tree.top + layout.tree.height - 1);
+    expect(layout.tabs.top + layout.tabs.height).toBeCloseTo(PHONE.height, 0);
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 

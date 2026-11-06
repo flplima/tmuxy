@@ -35,6 +35,22 @@ describe('useVisualViewport', () => {
     expect(root.style.getPropertyValue('--app-height')).toBe('');
   });
 
+  it('marks the root while a keyboard covers the page, and not once it is away', () => {
+    const viewport = new FakeViewport();
+    viewport.height = window.innerHeight;
+    vi.stubGlobal('visualViewport', viewport);
+    const root = document.documentElement;
+    const { unmount } = renderHook(() => useVisualViewport(true));
+    expect(root.classList.contains('tmuxy-keyboard-up')).toBe(false);
+    viewport.resize(window.innerHeight - 300);
+    expect(root.classList.contains('tmuxy-keyboard-up')).toBe(true);
+    viewport.resize(window.innerHeight);
+    expect(root.classList.contains('tmuxy-keyboard-up')).toBe(false);
+    viewport.resize(window.innerHeight - 300);
+    unmount();
+    expect(root.classList.contains('tmuxy-keyboard-up')).toBe(false);
+  });
+
   it('does nothing off a phone', () => {
     vi.stubGlobal('visualViewport', new FakeViewport());
     renderHook(() => useVisualViewport(false));

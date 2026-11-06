@@ -12,7 +12,9 @@
  * the visible height — the visual viewport, `innerHeight`, `100dvh` — short by
  * the status bar's height while the page runs to the screen's bottom edge, so
  * the root stopped that far above it and left a blank band under the tree. The
- * slice it leaves out is put back (`standaloneShortfall`).
+ * slice it leaves out is put back (`standaloneShortfall`). While a keyboard
+ * is up the root carries `tmuxy-keyboard-up`, and the bottom view's tab bar
+ * and the home indicator's inset make way for it.
  *
  * What does not fit then is the terminal's lower rows, and the one that matters
  * is the cursor's: `useCursorInView` scrolls the clipped terminal so the row
@@ -23,6 +25,8 @@
 import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react';
 
 const PHONE_CLASS = 'tmuxy-phone';
+/** On the root while a keyboard covers the page's bottom (the styles make way). */
+const KEYBOARD_CLASS = 'tmuxy-keyboard-up';
 
 /** What the page knows of its height in an installed app, in CSS px. */
 export interface StandaloneHeights {
@@ -83,6 +87,8 @@ export function useVisualViewport(enabled: boolean): void {
         ? standaloneShortfall({ standalone, inner: window.innerHeight, visual, ...full })
         : 0;
       root.style.setProperty('--app-height', `${visual + shortfall}px`);
+      // A keyboard shrinks the visual viewport and nothing else.
+      root.classList.toggle(KEYBOARD_CLASS, visual < window.innerHeight - 1);
       root.style.setProperty('--app-top', `${viewport?.offsetTop ?? 0}px`);
     };
     const rotated = () => {
@@ -97,7 +103,7 @@ export function useVisualViewport(enabled: boolean): void {
       viewport?.removeEventListener('resize', update);
       viewport?.removeEventListener('scroll', update);
       window.removeEventListener('resize', rotated);
-      root.classList.remove(PHONE_CLASS);
+      root.classList.remove(PHONE_CLASS, KEYBOARD_CLASS);
       root.style.removeProperty('--app-height');
       root.style.removeProperty('--app-top');
     };

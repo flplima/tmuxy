@@ -68,6 +68,13 @@ html.tmuxy-phone #root {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* The keyboard covers the home indicator: while it is up
+   (hooks/usePhoneViewport.ts marks the root), the inset kept clear of it
+   would only be a gap above the keyboard. */
+html.tmuxy-phone.tmuxy-keyboard-up #root {
+  padding-bottom: 0;
+}
+
 /* The installed app's edges (App.tsx). iOS 26 draws a "scroll edge" blur
    over the top of a home-screen web app and a band of
    its own colour over the home indicator. WebKit leaves an edge alone when a

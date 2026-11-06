@@ -1,3 +1,4 @@
+import type { BottomView } from '../../utils/bottomSlide';
 import { DEFAULT_FONT_SIZE, smallFontSize } from '../../utils/fontSizeManager';
 import { sidebarCellMetrics } from '../../utils/cellMetrics';
 import { CHAR_HEIGHT } from '../../constants/layout';
@@ -254,8 +255,8 @@ export function selectPhoneZoom(context: AppMachineContext): AppMachineContext['
   return context.phoneZoom;
 }
 
-/** What the phone shows under the keys: the tree or the dock. */
-export function selectPhoneBottomView(context: AppMachineContext): 'tree' | 'dock' {
+/** What the phone shows under the keys: the menu, the tree or the dock. */
+export function selectPhoneBottomView(context: AppMachineContext): BottomView {
   return context.phoneBottomView;
 }
 

@@ -1,12 +1,12 @@
 /* KeyRow — the phone's extra keys, between the terminal and the tree, in two
-   rows of seven, edge to edge: no gap between the keys, a hairline between
+   rows of six, edge to edge: no gap between the keys, a hairline between
    neighbours (each key draws its right and bottom edge, the row the top and
    left), so the screen's width all goes to the keys. The chrome's own size,
    whatever the terminal's cell shrank to. */
 
 .key-row {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   flex: 0 0 auto;
   gap: 0;
   padding: 0;
@@ -28,14 +28,6 @@
   font: inherit;
   cursor: pointer;
   touch-action: manipulation;
-}
-
-/* The app menu's key: the menu's own button, drawn as a key (AppMenu.tsx). */
-.key-row-key.app-menu-button {
-  display: flex;
-  width: auto;
-  height: 40px;
-  color: var(--text-primary);
 }
 
 /* The arrows are one pad: a finger that lands on one and slides to another

@@ -1,8 +1,9 @@
 /**
- * The phone's bottom view, under the key row: the tabs/panes tree, or, after
- * a sideways swipe, the side pane — the pinned terminal the desktop keeps in
- * its right column. The swipe is a slide like the one between tabs
- * (components/PhoneBottomView.tsx, utils/bottomSlide.ts).
+ * The phone's bottom view, under the key row: three views side by side, the
+ * app menu, the tabs/panes tree and the side pane — the pinned terminal the
+ * desktop keeps in its right column. A sideways swipe moves to the view
+ * beside, a slide like the one between tabs (components/PhoneBottomView.tsx,
+ * utils/bottomSlide.ts); past an end it gives a little and goes back.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -42,7 +43,7 @@ export const BottomViewSlidesToTheSidePane: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'Under the keys, the tree; a sideways swipe on it slides the view to the side pane — the pinned terminal the desktop keeps in its right column, asked of tmux the same way on first use (here the recording answers nothing, so it waits on “starting…”). The view follows the finger with the side pane riding in from the right, as a tab slide shows both tabs; the release settles it in front. A swipe back slides the tree in from the left.',
+          'Under the keys, the tree; a sideways swipe on it slides the view to the side pane — the pinned terminal the desktop keeps in its right column, asked of tmux the same way on first use (here the recording answers nothing, so it waits on “starting…”). The view follows the finger with the side pane riding in from the right, as a tab slide shows both tabs; the release settles it in front. A swipe back slides the tree in from the left, and one more the menu; past the menu, the left end, the view gives a little and settles back.',
       },
     },
   },
@@ -111,5 +112,29 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(box(canvasElement.querySelector('.phone-tree')).left).toBeCloseTo(frame.left, 0);
     }, SETTLE);
     expect(canvasElement.querySelector('.phone-dock')).toBeNull();
+
+    // On the same way, the menu rides in from the left and stays in front.
+    await swipeTimed(bottom, yNow(), frame.left + 20, frame.right - 20);
+    await waitFor(() => {
+      expect(bottom.getAttribute('data-view')).toBe('menu');
+      expect(bottom.getAttribute('data-sliding')).toBeNull();
+      expect(box(canvasElement.querySelector('.phone-menu')).left).toBeCloseTo(frame.left, 0);
+    }, SETTLE);
+
+    // Past the left end: a third of the finger's travel, and back to rest.
+    const pullFrom = frame.left + 20;
+    touch(bottom, 'touchstart', pullFrom, yNow());
+    for (let i = 1; i <= 6; i++) touch(bottom, 'touchmove', pullFrom + 30 * i, yNow());
+    await waitFor(() => {
+      const moved = box(canvasElement.querySelector('.phone-menu')).left - frame.left;
+      expect(moved).toBeGreaterThan(30);
+      expect(moved).toBeLessThan(90);
+    }, SETTLE);
+    touch(bottom, 'touchend', pullFrom + 180, yNow());
+    await waitFor(() => {
+      expect(bottom.getAttribute('data-sliding')).toBeNull();
+      expect(bottom.getAttribute('data-view')).toBe('menu');
+      expect(box(canvasElement.querySelector('.phone-menu')).left).toBeCloseTo(frame.left, 0);
+    }, SETTLE);
   },
 };

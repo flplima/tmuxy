@@ -2,11 +2,12 @@
  * The phone layout, at a 390 × 844 phone's width, over a recording of real
  * tmux at the 80 × 24 grid the layout asks for.
  *
- * A tab strip on top — the tabs and a "+" at its right end, nothing else —
- * then the whole 80 × 25 terminal, 80 columns spanning the screen edge to
- * edge with tmux's status line as the 25th row, then the key row, then the
- * tab/pane tree. No bottom bar of the app's own. The frame is not the viewport
- * the media query reads, so the story asks for the layout through the config.
+ * The whole 80 × 25 terminal at the top, 80 columns spanning the screen edge
+ * to edge with tmux's status line as the 25th row, then the key row, then the
+ * bottom view — the tab/pane tree to begin with — over a tab bar that picks
+ * the menu, the tree or the side pane. No tab strip. The frame is not the
+ * viewport the media query reads, so the story asks for the layout through
+ * the config.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -91,16 +92,18 @@ export const PhoneKeyboardDown: Story = {
     );
 
     // Top to bottom: the grid, the status line as its last row, the keys,
-    // the tree, which reaches the screen's bottom.
+    // the tree, and the tab bar under it, which reaches the screen's bottom.
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     const keys = box(canvasElement.querySelector('.key-row'));
     const tree = box(canvasElement.querySelector('.phone-tree'));
+    const tabBar = box(canvasElement.querySelector('.phone-tabs'));
     expect(status.top).toBeGreaterThanOrEqual(grid.bottom - 1);
     expect(keys.top).toBeGreaterThanOrEqual(status.bottom - 1);
     expect(tree.top).toBeGreaterThanOrEqual(keys.bottom - 1);
     expect(tree.height).toBeGreaterThan(100);
-    expect(tree.bottom).toBeCloseTo(box(canvasElement.querySelector('.app-container')).bottom, 0);
+    expect(tabBar.top).toBeGreaterThanOrEqual(tree.bottom - 1);
+    expect(tabBar.bottom).toBeCloseTo(box(canvasElement.querySelector('.app-container')).bottom, 0);
     // The tree is the chrome's size, not the terminal's shrunken one.
     const row = canvasElement.querySelector('.phone-tree [role="treeitem"]');
     expect(row).not.toBeNull();
@@ -131,22 +134,18 @@ export const PhoneKeyboardDown: Story = {
     expect(smallType('.phone-pty .statusline-hints')).toBeCloseTo(termType * 0.8, 1);
     expect(smallType('.phone-pty .statusline-host')).toBeCloseTo(termType * 0.8, 1);
 
-    // Two rows of seven, every key the same width: esc, tab, ctrl, alt, the
-    // prefix, the keyboard and the app menu; the arrows, backspace, enter and
-    // the zoom. Each a thumb's size.
+    // Two rows of six, every key the same width: esc, tab, ctrl, alt, the
+    // prefix and the keyboard; the arrows, enter and the zoom. Each a
+    // thumb's size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
-    expect(keyboxes).toHaveLength(14);
+    expect(keyboxes).toHaveLength(12);
     expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);
     expect(keyboxes.every((k) => Math.abs(k.width - keyboxes[0].width) < 1)).toBe(true);
     const rowTops = [...new Set(keyboxes.map((k) => Math.round(k.top)))];
     expect(rowTops).toHaveLength(2);
-    expect(keyboxes.filter((k) => Math.round(k.top) === rowTops[0])).toHaveLength(7);
+    expect(keyboxes.filter((k) => Math.round(k.top) === rowTops[0])).toHaveLength(6);
     const keyAt = (label: string) => box(canvasElement.querySelector(`[data-key-row="${label}"]`));
     expect(keyAt('⌨').top).toBeCloseTo(keyAt('esc').top, 0);
-    const menuKey = box(canvasElement.querySelector('.key-row .app-menu-button'));
-    expect(menuKey.top).toBeCloseTo(keyAt('esc').top, 0);
-    expect(menuKey.left).toBeGreaterThan(keyAt('⌨').left);
-    expect(keyAt('⌫').top).toBeCloseTo(keyAt('←').top, 0);
     expect(keyAt('←').top).toBeGreaterThanOrEqual(keyAt('esc').bottom);
     expect(keyAt('⏎').top).toBeCloseTo(keyAt('←').top, 0);
     expect(keyAt('zoom').top).toBeCloseTo(keyAt('←').top, 0);
@@ -171,65 +170,6 @@ export const PhoneKeyboardDown: Story = {
     await userEvent.click(ctrl);
     await userEvent.click(canvasElement.querySelector('[data-key-row="⏎"]') as HTMLElement);
     expect(ctrl.getAttribute('aria-pressed')).toBe('false');
-  },
-};
-
-export const AppMenuFromTheKeyRow: Story = {
-  parameters: {
-    docs: {
-      story: { inline: false, iframeHeight: 844 },
-      description: {
-        story:
-          'The phone has no tab strip, so the app menu is a key: the first row’s right end, in a grid of seven by two with backspace in the second row, the keys edge to edge with no gap between them. Tapping it opens the menu on screen.',
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    await waitFor(() => expect(ctx().phoneLayout).toBe(true), { timeout: 8000 });
-    const button = await waitFor(
-      () => {
-        const el = canvasElement.querySelector('.key-row .app-menu-button') as HTMLElement | null;
-        expect(el).not.toBeNull();
-        return el!;
-      },
-      { timeout: 8000 },
-    );
-    // Seven by two, in order, the menu last on the first row.
-    const keys = [...canvasElement.querySelectorAll<HTMLElement>('.key-row > button')];
-    expect(keys.map((k) => k.dataset.keyRow ?? '☰')).toEqual([
-      ...['esc', 'tab', 'ctrl', 'alt', 'prefix', '⌨', '☰'],
-      ...['←', '↑', '↓', '→', '⌫', '⏎', 'zoom'],
-    ]);
-    const boxes = keys.map(box);
-    const row = box(canvasElement.querySelector('.key-row'));
-    for (const [r, start] of [
-      [0, 0],
-      [1, 7],
-    ]) {
-      const line = boxes.slice(start, start + 7);
-      expect(line.every((k) => Math.abs(k.top - line[0].top) < 1)).toBe(true);
-      // Edge to edge: each key starts where the one before it ends.
-      for (let k = 1; k < 7; k++) expect(line[k].left).toBeCloseTo(line[k - 1].right, 0);
-      expect(line[0].left).toBeLessThanOrEqual(row.left + 1);
-      expect(line[6].right).toBeGreaterThanOrEqual(row.right - 1);
-      expect(r === 0 ? line[0].bottom : line[0].top).toBeCloseTo(boxes[7].top, 0);
-    }
-    expect(box(button).height).toBeGreaterThanOrEqual(32);
-
-    await userEvent.click(button);
-    const item = await waitFor(
-      () => {
-        const el = document.querySelector('[role="menu"] [role="menuitem"]');
-        expect(el).not.toBeNull();
-        return el!;
-      },
-      { timeout: 5000 },
-    );
-    const shown = box(item);
-    expect(shown.width).toBeGreaterThan(0);
-    expect(shown.top).toBeGreaterThanOrEqual(0);
-    expect(shown.bottom).toBeLessThanOrEqual(window.innerHeight);
-    expect(shown.right).toBeLessThanOrEqual(window.innerWidth);
   },
 };
 

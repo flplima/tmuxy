@@ -1,3 +1,4 @@
+import type { BottomView } from '../../utils/bottomSlide';
 import type { PushState } from '../../utils/pushNotifications';
 import type { ServerState, KeyBindings, Appearance, ProcessIcons } from '../../domain/wire';
 import type { PaneContent } from '../../domain/wireCells';
@@ -106,7 +107,7 @@ export type AppMachineEvent =
   | { type: 'REFIT_GRID' }
   /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
-  | { type: 'SET_PHONE_BOTTOM_VIEW'; view: 'tree' | 'dock' }
+  | { type: 'SET_PHONE_BOTTOM_VIEW'; view: BottomView }
   | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }
   /** Break the dock's pane out if it does not exist yet (the sidebars slice). */
   | { type: 'START_RIGHT_SIDEBAR' }

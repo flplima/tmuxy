@@ -417,16 +417,79 @@
   line-height: 24px;
 }
 
-/* Under the keys: the tree, or the side pane (PhoneBottomView). The track
-   slides under the finger on an inline transform, the view in front filling
-   the box and the other one riding a box's width to the side it is pulled
-   in from; a released slide settles on the tab slide's curve. */
+/* Under the keys: the menu, the tree or the side pane (PhoneBottomView),
+   over the tab bar that picks one. The track slides under the finger on an
+   inline transform, the view in front filling the stage and its neighbour
+   riding a stage's width to the side it is pulled in from; a released slide
+   settles on the tab slide's curve. */
 .phone-bottom {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+}
+
+.phone-bottom-stage {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The tab bar: an icon over a name for each view, the one in front in the
+   theme's accent. */
+.phone-tabs {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+  background-color: rgb(var(--window-bg-rgb));
+}
+
+.phone-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color var(--transition-fast);
+}
+
+.phone-tab.is-active {
+  color: var(--theme-accent);
+}
+
+.phone-tab-icon {
+  display: block;
+}
+
+/* The phone's keyboard up (hooks/usePhoneViewport.ts marks the root): the
+   tab bar makes way (and standalone.css gives
+   back the home indicator's inset, which the keyboard covers). While the side pane has
+   the keyboard, the terminal above gives up its room first: the side pane
+   gets two parts of what is left to the terminal's one, and the terminal is
+   scrolled to keep its cursor in view (hooks/usePhoneViewport.ts). */
+html.tmuxy-keyboard-up .app-body-phone .phone-tabs {
+  display: none;
+}
+
+html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-pty {
+  flex: 1 1 0;
+}
+
+html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-bottom {
+  flex: 2 1 0;
 }
 
 .phone-bottom-track {

@@ -6,10 +6,10 @@
  * finger pans around it; the same again puts it back. App.tsx draws it and
  * scrolls to the point that was tapped.
  *
- * The bottom view: under the keys a phone shows the tabs/panes tree, and a
- * sideways swipe on it flips to the dock — the pinned terminal the desktop
- * keeps in its right column, the same `sidebar-right` window, created the
- * same way on first use. The dock's pane is sized to the view it is drawn in
+ * The bottom view: under the keys a phone shows the app menu, the tabs/panes
+ * tree or the dock — the pinned terminal the desktop keeps in its right
+ * column, the same `sidebar-right` window, created the same way on first
+ * use — picked by the tab bar under them or a sideways swipe. The dock's pane is sized to the view it is drawn in
  * (SET_PHONE_DOCK_SIZE, written to the window as the desktop's drag writes a
  * dragged width), and holds the keyboard while it is in front.
  */
@@ -34,7 +34,7 @@ export const phoneActions = {
     if (event.type !== 'SET_PHONE_BOTTOM_VIEW') return;
     if (event.view === context.phoneBottomView) return;
     enqueue(assign({ phoneBottomView: event.view }));
-    if (event.view === 'tree') {
+    if (event.view !== 'dock') {
       releaseKeyboard(context, enqueue, 'right');
       return;
     }
