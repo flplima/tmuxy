@@ -1,7 +1,6 @@
-/* The tmux window both panels render is 64x20: the app measures cols/rows as
-   floor(content / cell) from the pane container, so the story box is sized to
-   measure back to it (9px x 24px cells), with a few px of slack so sub-pixel
-   rounding can't drop a column or row. */
+/* The tmux window both panels render is --tmux-view-cols x --tmux-view-rows
+   (TmuxViewFrame.tsx): the story box is the grid box that measures back to
+   it (gridBox.ts), and the VGA console is cropped to it. */
 .tmux-view {
   position: relative;
 }
@@ -18,20 +17,12 @@
   background: #0f0f12;
 }
 
-/* 596x567 → 580px x 488px pane-container content → floor(580/9)=64 cols,
-   floor(488/24)=20 rows. */
 .tmux-view[data-mode='side'] > .tmux-view-story {
   flex: 0 0 auto;
 }
 .tmux-view[data-mode='side'] > .tmux-view-story > div {
-  width: 596px !important;
-  height: 567px !important;
-}
-
-/* Guard the column count against a wider app-body: cap the terminal CONTENT at
-   64 cols worth of snapped cells (64 * 9px = 576, +4 slack). */
-.tmux-view[data-mode='side'] .pane-container {
-  max-width: 580px;
+  width: var(--tmux-view-story-width) !important;
+  height: var(--tmux-view-story-height) !important;
 }
 
 .tmux-view[data-mode='side'] > .tmux-view-panel {
@@ -98,11 +89,11 @@
 }
 
 /* The v86 text console is 80x25 hardware, but the tmux window it mirrors is
-   64x20, drawn top-left: crop the screen to it. */
+   smaller, drawn top-left: crop the screen to it. */
 .tmux-view[data-mode='side'] .vga-screen {
   overflow: hidden;
-  width: 64ch;
-  height: calc(20 * var(--vga-line-height, 13px));
+  width: calc(var(--tmux-view-cols) * 1ch);
+  height: calc(var(--tmux-view-rows) * var(--vga-line-height, 13px));
   font: var(--vga-font-size, 11px) / var(--vga-line-height, 13px) var(--font-mono);
 }
 .tmux-view[data-mode='side'] .vga-screen > div {

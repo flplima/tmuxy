@@ -7,9 +7,9 @@
  * The client is read-only (`-r`) and excluded from window sizing
  * (`-f ignore-size`), so it never steals input or resizes the window the
  * tmuxy control client sized. The guest VGA console is a fixed 80x25
- * terminal; the tmux window the tmuxy client drives is 64x20, which tmux
- * draws top-left and leaves the rest of the console blank — the side-mode CSS
- * crops the screen to that 64x20 window so the panel reads as a 64x20 console
+ * terminal; the tmux window the tmuxy client drives is smaller
+ * (TmuxViewFrame.tsx), which tmux draws top-left and leaves the rest of the
+ * console blank — the side-mode CSS crops the screen to that window
  * (see tmuxView.css). A snapshot reset rewinds the guest and drops the client,
  * so it is re-attached on every engine `ready`.
  *
