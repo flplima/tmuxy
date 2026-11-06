@@ -276,9 +276,6 @@ impl StateAggregator {
         if prev.marked != curr.marked {
             delta.marked = Some(curr.marked);
         }
-        if prev.paused != curr.paused {
-            delta.paused = Some(curr.paused);
-        }
         if prev.history_size != curr.history_size {
             delta.history_size = Some(curr.history_size);
         }

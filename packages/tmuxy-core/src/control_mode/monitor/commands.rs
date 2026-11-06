@@ -60,14 +60,14 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 let lines: Vec<String> = super::state::control_mode_lines(&outgoing)
                     .map(str::to_string)
                     .collect();
-                self.connection.send_commands_batch(&lines).await
+                self.connection.send_commands(&lines).await
             }
             Some(waiter) => {
                 // The id `relay_key` was named after.
                 self.next_reply_id += 1;
                 let id = self.next_reply_id;
                 let lines = self.aggregator.markers().reply_wrapped_lines(id, &outgoing);
-                let sent = self.connection.send_commands_batch(&lines).await;
+                let sent = self.connection.send_commands(&lines).await;
                 match (&sent, waiter) {
                     (Ok(()), waiter) => {
                         self.pending_replies
@@ -106,7 +106,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if relists.windows {
             if let Err(e) = self
                 .connection
-                .send_command(tmux_formats::LIST_WINDOWS_CMD)
+                .send_commands(&[self.aggregator.markers().list_command(TmuxList::Windows)])
                 .await
             {
                 emitter.emit_error(format!("Failed to refresh windows: {}", e));
@@ -115,7 +115,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if relists.panes {
             if let Err(e) = self
                 .connection
-                .send_command(tmux_formats::LIST_PANES_CMD)
+                .send_commands(&[self.aggregator.markers().list_command(TmuxList::Panes)])
                 .await
             {
                 emitter.emit_error(format!("Failed to refresh panes: {}", e));
@@ -180,7 +180,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     // visible pane is right immediately; the rest follow when
                     // the window list lands.
                     let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
-                    if let Err(e) = self.connection.send_command(&resize_cmd).await {
+                    if let Err(e) = self.connection.send_commands(&[&resize_cmd]).await {
                         emitter.emit_error(format!("Failed to resize window: {}", e));
                     } else {
                         trace!(cmd = %resize_cmd, "sent resize command");

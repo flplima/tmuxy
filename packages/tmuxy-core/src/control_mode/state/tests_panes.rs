@@ -1,20 +1,17 @@
 use super::tests::*;
 use super::*;
+use crate::constants::tmux_formats::{PaneColumn, WindowColumn};
 use crate::ids::test_ids::{pid, wid};
 use crate::WindowType;
 
-/// Build a LIST_PANES_CMD line with the given title and border_title, in the
-/// exact field order of `constants::tmux_formats::PaneColumn`, with the
-/// commas in the two titles escaped the way the format has tmux send them.
+/// A list-panes row for `%3` in `window_id` with the given title and
+/// border title (see `pane_row_builder`); the builder escapes the commas in
+/// the two titles the way the format has tmux send them.
 pub(super) fn list_panes_line(title: &str, window_id: &str, border_title: &str) -> String {
-    // group_id, pane_state, ask and widget (the last four tail fields) are
-    // left empty here; each has its own test below.
-    let title = title.replace(',', "%2C");
-    let border_title = border_title.replace(',', "%2C");
-    format!(
-        // id,idx,x,y,w,h,cx,cy,active,command,TITLE,in_mode,copy_x,copy_y,scroll,WIN,BORDER,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore
-        "%3,0,0,0,80,24,0,0,1,zsh,{title},0,0,0,0,{window_id},{border_title},0,0,0,0,0,0,100,,,,,,,"
-    )
+    pane_row_builder("%3", window_id)
+        .set(PaneColumn::Title, title)
+        .set(PaneColumn::BorderTitle, border_title)
+        .build()
 }
 
 /// The cursor shape is whatever the program last asked for with DECSCUSR,
@@ -291,12 +288,14 @@ fn list_panes_commas_in_both_title_and_border_title() {
 
 #[test]
 fn list_windows_name_with_commas_keeps_fields_aligned() {
-    // Regression: window_name is free text; placing it LAST (see
-    // LIST_WINDOWS_CMD) means a name like "build, test" stays in the
-    // trailing field and can't shift window_active/@tmuxy-window-type/floats.
+    // Regression: window_name is free text; the format comma-escapes it, so
+    // a name like "build, test" stays one field and can't shift
+    // window_active/@tmuxy-window-type/floats.
     let name = "build, test";
-    // @id,index,active,type,float_parent,fw,fh,drawer,bg,noheader,focus,cols,hidden,collapsible,zoomed,rows,name
-    let line = format!("@7,3,1,tab,,,,,,,,,,,0,,{name}");
+    let line = format!(
+        "@7,3,1,tab,,,,,,,,,,,0,,{}",
+        name.replace(',', crate::constants::tmux_formats::COMMA_ESCAPE)
+    );
     let mut agg = StateAggregator::new();
     agg.parse_list_windows_line(&line);
     let w = agg.windows.get("@7").expect("window parsed");
@@ -315,11 +314,20 @@ fn list_windows_name_with_commas_keeps_fields_aligned() {
 #[test]
 fn list_windows_carries_the_zoom_flag() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,,1,editor");
+    agg.parse_list_windows_line(
+        &window_row("@9", 2, true, "editor")
+            .set(WindowColumn::WindowType, "tab")
+            .set(WindowColumn::Zoomed, 1)
+            .build(),
+    );
     assert!(agg.windows.get("@9").expect("window parsed").zoomed);
 
     // ...and clears it again when the window is no longer zoomed.
-    agg.parse_list_windows_line("@9,2,1,tab,,,,,,,,,,,0,editor");
+    agg.parse_list_windows_line(
+        &window_row("@9", 2, true, "editor")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
     assert!(!agg.windows.get("@9").expect("window parsed").zoomed);
 }
 
@@ -329,7 +337,12 @@ fn list_windows_carries_the_zoom_flag() {
 #[test]
 fn a_collapsible_window_keeps_only_the_active_row_expanded() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,1,0,shell");
+    agg.parse_list_windows_line(
+        &window_row("@1", 0, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .set(WindowColumn::Collapsible, "1")
+            .build(),
+    );
     // Three stacked rows, the middle one active.
     let layout = "0000,80x32,0,0[80x10,0,0,1,80x10,0,11,2,80x10,0,22,3]";
     let r = agg.process_event(ControlModeEvent::LayoutChange {
@@ -369,7 +382,11 @@ fn a_collapsible_window_keeps_only_the_active_row_expanded() {
     assert!(r.commands.is_empty());
 
     // The flag drops: the rows are evened back out on the next poll.
-    agg.parse_list_windows_line("@1,0,1,tab,,,,,,,,,,,0,shell");
+    agg.parse_list_windows_line(
+        &window_row("@1", 0, true, "shell")
+            .set(WindowColumn::WindowType, "tab")
+            .build(),
+    );
     let cmds = agg.collapsible_layout_commands(None);
     assert_eq!(cmds.len(), 1);
     let sent = cmds[0]

@@ -367,7 +367,7 @@ impl StateAggregator {
 
     /// Like `tick`, but sources `now` from the process clock. Used by non-native
     /// hosts (wasm) that drive the settling flush on a timer.
-    pub fn tick_now(&mut self) -> Vec<SideEffect> {
+    pub fn tick_now(&mut self) -> Option<ChangeType> {
         self.tick(Instant::now())
     }
 

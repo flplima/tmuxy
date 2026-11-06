@@ -1,5 +1,5 @@
 use super::*;
-use crate::constants::tmux_formats::{unescape_commas, PaneColumn};
+use crate::constants::tmux_formats::{Column, PaneColumn, Row, WindowColumn};
 use crate::{GroupId, PaneId, WindowId, WindowType};
 
 impl StateAggregator {
@@ -8,38 +8,31 @@ impl StateAggregator {
     /// Returns (pane_id, needs_capture) if successfully parsed.
     /// needs_capture is true if pane is new OR was resized.
     pub(super) fn parse_list_panes_line(&mut self, line: &str) -> Option<(PaneId, bool)> {
-        let parts: Vec<&str> = line.split(',').collect();
-        if parts.len() != PaneColumn::COUNT {
+        let Some(row) = Row::<PaneColumn>::parse(line) else {
             debug!(
-                fields = parts.len(),
-                expected = PaneColumn::COUNT,
+                expected = PaneColumn::ALL.len(),
                 row = line,
                 "a list-panes row with the wrong number of fields is dropped"
             );
             return None;
-        }
-        let field = |column: PaneColumn| parts[column.index()].trim();
-        let number = |column: PaneColumn| field(column).parse::<u32>().unwrap_or(0);
-        let flag = |column: PaneColumn| field(column) == "1";
-        let option = |column: PaneColumn| {
-            let value = field(column);
-            (!value.is_empty()).then(|| value.to_string())
         };
-        // The two titles keep their spacing: a border format that expands to
-        // a space is a space, as it was drawn.
-        let text = |column: PaneColumn| unescape_commas(parts[column.index()]);
+        let number = |column: PaneColumn| row.parse_field::<u32>(column).unwrap_or(0);
 
-        let pane_id = PaneId::parse(field(PaneColumn::PaneId)).ok()?;
-        let width = field(PaneColumn::Width).parse().unwrap_or(80);
-        let height = field(PaneColumn::Height).parse().unwrap_or(24);
-        let active = flag(PaneColumn::Active);
-        let command = normalize_pane_command(&unescape_commas(field(PaneColumn::Command)));
-        let title = text(PaneColumn::Title);
+        let pane_id = PaneId::parse(row.field(PaneColumn::PaneId)).ok()?;
+        let (Some(width), Some(height)) = (
+            row.parse_field(PaneColumn::Width),
+            row.parse_field(PaneColumn::Height),
+        ) else {
+            debug!(row = line, "a list-panes row without a size is dropped");
+            return None;
+        };
+        let active = row.flag(PaneColumn::Active);
+        let command = normalize_pane_command(row.text(PaneColumn::Command).trim());
         let mode = number(PaneColumn::Mode);
         let in_mode = mode == 1;
         let view_mode = mode == 2;
-        let window_id = WindowId::parse(field(PaneColumn::WindowId)).ok();
-        let restore = unescape_commas(field(PaneColumn::Restore));
+        let window_id = WindowId::parse(row.field(PaneColumn::WindowId)).ok();
+        let restore = row.text(PaneColumn::Restore).trim().to_string();
 
         // Check if this is a new pane
         let is_new_pane = !self.panes.contains_key(&pane_id);
@@ -70,12 +63,8 @@ impl StateAggregator {
         }
         pane.active = active;
         pane.command = command;
-        pane.title = if is_graphics_payload(&title) {
-            String::new()
-        } else {
-            title
-        };
-        pane.border_title = text(PaneColumn::BorderTitle);
+        pane.set_title(row.text(PaneColumn::Title));
+        pane.border_title = row.text(PaneColumn::BorderTitle);
         let was_in_mode = pane.in_mode;
         pane.in_mode = in_mode;
         if was_in_mode && !in_mode {
@@ -105,22 +94,22 @@ impl StateAggregator {
                 w.active_pane_id = Some(pane.id.clone());
             }
         }
-        pane.alternate_on = flag(PaneColumn::AlternateOn);
-        pane.mouse_any_flag = flag(PaneColumn::MouseAnyFlag);
-        pane.marked = flag(PaneColumn::Marked);
-        pane.selection_present = flag(PaneColumn::SelectionPresent);
+        pane.alternate_on = row.flag(PaneColumn::AlternateOn);
+        pane.mouse_any_flag = row.flag(PaneColumn::MouseAnyFlag);
+        pane.marked = row.flag(PaneColumn::Marked);
+        pane.selection_present = row.flag(PaneColumn::SelectionPresent);
         pane.selection_start_x = number(PaneColumn::SelectionStartX);
-        pane.selection_start_y = field(PaneColumn::SelectionStartY).parse().unwrap_or(0);
-        pane.history_size = field(PaneColumn::HistorySize).parse().unwrap_or(0);
-        pane.group_id = GroupId::parse(field(PaneColumn::GroupId)).ok();
-        pane.group_pos = field(PaneColumn::GroupPos).parse().ok();
-        pane.pane_state = option(PaneColumn::PaneState);
-        pane.pane_ask = option(PaneColumn::Ask);
-        pane.pane_widget = option(PaneColumn::Widget);
+        pane.selection_start_y = row.parse_field(PaneColumn::SelectionStartY).unwrap_or(0);
+        pane.history_size = row.parse_field(PaneColumn::HistorySize).unwrap_or(0);
+        pane.group_id = GroupId::parse(row.field(PaneColumn::GroupId)).ok();
+        pane.group_pos = row.parse_field(PaneColumn::GroupPos);
+        pane.pane_state = row.option(PaneColumn::PaneState);
+        pane.pane_ask = row.option(PaneColumn::Ask);
+        pane.pane_widget = row.option(PaneColumn::Widget);
         pane.pane_restore = (!restore.is_empty()).then_some(restore);
         // Global, so every row carries the same value; the last one parsed
         // wins, as `focus_request` does for the window rows.
-        self.plugins_rev = option(PaneColumn::PluginsRev);
+        self.plugins_rev = row.option(PaneColumn::PluginsRev);
 
         // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = number(PaneColumn::CursorX);
@@ -134,67 +123,41 @@ impl StateAggregator {
         Some((pane_id, needs_capture))
     }
 
-    /// Parse a line from list-windows output. Expected format (comma-separated,
-    /// see constants::LIST_WINDOWS_CMD):
-    /// `@id,index,active,window_type,float_parent,float_width,float_height,float_drawer,float_bg,float_noheader,focus_request,sidebar_cols,sidebar_hidden,collapsible,zoomed,sidebar_rows,name`
-    /// `window_name` is LAST and free text — we `splitn` so its own commas stay
-    /// in the trailing field and can't shift any parsed column. Every column
-    /// after `active` is a `@tmuxy-*` user option that may be empty.
-    pub(super) fn parse_list_windows_line(&mut self, line: &str) {
-        // 17 fields; splitn keeps window_name (the 17th) intact even with commas.
-        // The name is always the LAST field, so a row from a format that
-        // predates the trailing option columns still parses.
-        let parts: Vec<&str> = line.splitn(17, ',').collect();
-        if parts.len() < 15 {
-            return;
-        }
-
-        let Ok(window_id) = WindowId::parse(parts[0].trim()) else {
-            return;
-        };
-
-        let index: u32 = parts[1].parse().unwrap_or(0);
-        let active = parts[2] == "1";
-        let name = parts.last().map(|s| s.to_string()).unwrap_or_default();
-
-        let opt = |idx: usize| -> Option<String> {
-            parts
-                .get(idx)
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-        };
-
-        let window_type = opt(3).and_then(|s| WindowType::parse(&s));
-        let float_parent = opt(4).and_then(|s| WindowId::parse(&s).ok());
-        let float_width = opt(5).and_then(|s| s.parse::<u32>().ok());
-        let float_height = opt(6).and_then(|s| s.parse::<u32>().ok());
-        let float_drawer = opt(7);
-        let float_bg = opt(8);
-        let float_noheader = opt(9).is_some_and(|s| s == "1");
+    /// Parse a line from list-windows output: one field per
+    /// [`WindowColumn`], the name comma-escaped. Returns the window's id.
+    pub(super) fn parse_list_windows_line(&mut self, line: &str) -> Option<WindowId> {
+        let row = Row::<WindowColumn>::parse(line)?;
+        let window_id = WindowId::parse(row.field(WindowColumn::WindowId)).ok()?;
+        let index: u32 = row.parse_field(WindowColumn::Index).unwrap_or(0);
+        let active = row.flag(WindowColumn::Active);
+        let name = row.text(WindowColumn::Name);
+        let window_type = row
+            .option(WindowColumn::WindowType)
+            .and_then(|s| WindowType::parse(&s));
+        let float_parent = WindowId::parse(row.field(WindowColumn::FloatParent)).ok();
+        let float_width = row.parse_field(WindowColumn::FloatWidth);
+        let float_height = row.parse_field(WindowColumn::FloatHeight);
+        let float_drawer = row.option(WindowColumn::FloatDrawer);
+        let float_bg = row.option(WindowColumn::FloatBg);
+        let float_noheader = row.flag(WindowColumn::FloatNoheader);
         // Session-scoped, so every row carries the same value and the last one
         // parsed wins. Read from this poll rather than its own `show-options`
         // because the poll already runs; see `tmux_options::FOCUS_REQUEST`.
-        self.focus_request = opt(10);
+        self.focus_request = row.option(WindowColumn::FocusRequest);
         // A sidebar column the user has dragged off its default width.
-        let sidebar_cols = opt(11).and_then(|s| s.parse::<u32>().ok());
+        let sidebar_cols = row.parse_field(WindowColumn::SidebarCols);
         // A sidebar column the user has closed (its pane is kept alive).
-        let sidebar_hidden = opt(12).is_some_and(|s| s == "1");
+        let sidebar_hidden = row.flag(WindowColumn::SidebarHidden);
         // Collapsible panes (see `layout.rs`): the flag turning off evens the
         // first-level rows back out.
-        let collapsible = opt(13).is_some_and(|s| s == "1");
+        let collapsible = row.flag(WindowColumn::Collapsible);
         // Authoritative zoom state. Deriving it only from `%layout-change`
         // flags loses it whenever window state is rebuilt from list-windows —
         // e.g. every fresh client connect, which is exactly when a client
         // attaching to an already-zoomed window needs it.
-        let zoomed = opt(14).is_some_and(|s| s == "1");
-        // The dock's own row count (see `tmux_options::SIDEBAR_ROWS`); only a
-        // 17-field row carries it — in a shorter row field 15 is the name.
-        let sidebar_rows = if parts.len() >= 17 {
-            opt(15).and_then(|s| s.parse::<u32>().ok())
-        } else {
-            None
-        };
+        let zoomed = row.flag(WindowColumn::Zoomed);
+        // The dock's own row count (see `tmux_options::SIDEBAR_ROWS`).
+        let sidebar_rows = row.parse_field(WindowColumn::SidebarRows);
 
         let window = self
             .windows
@@ -221,8 +184,9 @@ impl StateAggregator {
         window.collapsible = collapsible;
 
         if active {
-            self.active_window_id = Some(window_id);
+            self.active_window_id = Some(window_id.clone());
         }
+        Some(window_id)
     }
 
     /// The `select-layout` commands that keep collapsible windows in shape:

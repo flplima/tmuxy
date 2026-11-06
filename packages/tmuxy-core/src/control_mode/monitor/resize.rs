@@ -187,7 +187,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             count = pending.len(),
             cols, rows, "applying client size to windows"
         );
-        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+        if let Err(e) = self.connection.send_commands(&cmds).await {
             emitter.emit_error(format!("Failed to resize windows: {}", e));
         } else {
             for (wid, size) in pending {
@@ -208,8 +208,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
     /// window leaves the new pane absent from `self.panes` until list-panes restores
     /// it; list-windows would otherwise emit state with the pane missing.
     pub(super) async fn refresh_after_window_add<E: StateEmitter>(&mut self, emitter: &E) {
-        let cmds = window_relist_commands();
-        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+        let cmds = self.aggregator.markers().window_relist_commands();
+        if let Err(e) = self.connection.send_commands(&cmds).await {
             emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
         }
     }
@@ -228,7 +228,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             .aggregator
             .markers()
             .pane_refresh_commands(&queued_panes);
-        if let Err(e) = self.connection.send_commands_batch(&commands).await {
+        if let Err(e) = self.connection.send_commands(&commands).await {
             emitter.emit_error(format!("Failed to batch capture panes: {}", e));
         }
     }

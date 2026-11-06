@@ -8,14 +8,14 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // trigger SIGWINCH to the shell (which causes prompt redraw %output
         // that races with our capture-pane responses).
         self.connection
-            .send_command("set window-size manual")
+            .send_commands(&["set window-size manual"])
             .await?;
 
         // Resize the window to the initial size to ensure panes aren't tiny.
         // When running in a background process, the PTY may start small.
         // The browser will send a proper resize once it connects.
         self.connection
-            .send_command(&initial_resize_command(&self.config.session))
+            .send_commands(&[&initial_resize_command(&self.config.session)])
             .await?;
 
         // Source the config chain (defaults, the user's tmuxy.conf, the
@@ -25,7 +25,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
                 "source-file {}",
                 crate::executor::tmux_quote(&config_path.to_string_lossy())
             );
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         // Re-apply the choices made through the UI (theme, mode, cursor blink).
@@ -33,7 +33,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // After the config, and only for what the user's tmuxy.conf leaves
         // unset: an option it sets is pinned, and config beats menu state.
         for cmd in crate::session::current_managed_state_commands() {
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         // Enforce critical settings on the current session regardless of config.
@@ -44,7 +44,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // Tell the helper scripts which binary runs this build's server verbs
         // (see `session::SERVER_BIN_ENV`).
         for cmd in crate::session::server_command_env() {
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         // The plugins this machine has, for the client's menus (a fresh tmux
@@ -53,7 +53,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         if crate::session::ssh_target().is_none() {
             let dirs = crate::plugins::Dirs::current();
             for cmd in crate::plugins::inventory::commands(&dirs) {
-                self.connection.send_command(&cmd).await?;
+                self.connection.send_commands(&[&cmd]).await?;
             }
             // The plugin keys need the tables read back, which only the
             // running loop answers: the host binds them once this sync is
@@ -64,24 +64,23 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // pause-after=5 means pause output if client is 5+ seconds behind
         // This prevents unbounded memory growth during heavy output
         self.connection
-            .send_command("refresh-client -f pause-after=5")
+            .send_commands(&["refresh-client -f pause-after=5"])
             .await?;
 
         // Panes before windows, then the stash session's hidden pane-group
         // members (empty, not an error, when there is no stash session): the
         // one order `window_relist_commands` documents.
-        for cmd in window_relist_commands() {
-            self.connection.send_command(&cmd).await?;
-        }
+        let relist = self.aggregator.markers().window_relist_commands();
+        self.connection.send_commands(&relist).await?;
 
         // Title changes have no notification of their own; this asks tmux to
-        // send one (see SUBSCRIBE_PANE_TITLES_CMD).
+        // send one (see `subscribe_pane_titles_command`). Nor does a theme
+        // change (see `subscribe_theme_command`).
         self.connection
-            .send_command(tmux_formats::SUBSCRIBE_PANE_TITLES_CMD)
-            .await?;
-        // Nor does a theme change (see SUBSCRIBE_THEME_CMD).
-        self.connection
-            .send_command(tmux_formats::SUBSCRIBE_THEME_CMD)
+            .send_commands(&[
+                tmux_formats::subscribe_pane_titles_command(),
+                tmux_formats::subscribe_theme_command(),
+            ])
             .await?;
 
         // Capture current content of each pane
@@ -124,7 +123,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             // settings + control mode + new-session -d crashes the server.
             // Each session's monitor enforces its own settings on connect.
             let cmd = format!("set {} '{}'", key, value);
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         // Options newer than the oldest tmux tmuxy supports. `-q` lets that
@@ -138,7 +137,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
 
         for (key, value) in &newer_settings {
             let cmd = format!("set -q {} '{}'", key, value);
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         // window-size manual is set earlier in sync_initial_state() before resizew,
@@ -153,7 +152,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
         for (key, value) in &window_settings {
             // Session-level to avoid tmux 3.5a global+CC crash.
             let cmd = format!("setw {} {}", key, value);
-            self.connection.send_command(&cmd).await?;
+            self.connection.send_commands(&[&cmd]).await?;
         }
 
         Ok(())
@@ -224,24 +223,12 @@ impl<C: ControlLink> TmuxMonitor<C> {
         rs.layout_emit_at = None;
     }
 
-    /// Settling deadline reached — drain `aggregator.tick(now)`. The aggregator
-    /// owns settling state now, so the only thing the monitor does is dispatch
-    /// the effects (today: at most one immediate `EmitState`).
+    /// Settling deadline reached — drain `aggregator.tick(now)`, which owns
+    /// the settling state, and emit the consolidated state it says is due.
     pub(super) fn on_settling_tick<E: StateEmitter>(&mut self, emitter: &E, rs: &mut RunState) {
-        let effects = self.aggregator.tick(Instant::now());
-        if effects.is_empty() {
-            trace!("settling tick: safety timeout or already cleared, no emit");
-            return;
-        }
-        for effect in effects {
-            match effect {
-                SideEffect::EmitState { change } => {
-                    self.handle_state_change(emitter, rs, &change);
-                }
-                other => {
-                    warn!(?other, "unexpected settling tick effect (future expansion)");
-                }
-            }
+        match self.aggregator.tick(Instant::now()) {
+            Some(change) => self.handle_state_change(emitter, rs, &change),
+            None => trace!("settling tick: safety timeout or already cleared, no emit"),
         }
     }
 
@@ -254,12 +241,9 @@ impl<C: ControlLink> TmuxMonitor<C> {
         rs: &mut RunState,
     ) {
         rs.metadata_sync_at = None;
-        let cmds = vec![
-            tmux_formats::LIST_WINDOWS_CMD.to_string(),
-            tmux_formats::LIST_PANES_CMD.to_string(),
-            tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-        ];
-        if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+        let cmds = [TmuxList::Windows, TmuxList::Panes, TmuxList::Stash]
+            .map(|list| self.aggregator.markers().list_command(list));
+        if let Err(e) = self.connection.send_commands(&cmds).await {
             emitter.emit_error(format!("Failed to sync metadata: {}", e));
         }
     }
@@ -280,7 +264,7 @@ impl<C: ControlLink> TmuxMonitor<C> {
             // cadence a slow response piled duplicate captures onto the
             // connection for panes whose capture was already in flight.
             let queued = self.aggregator.queue_captures(&copy_pane_ids);
-            let mut cmds = vec![tmux_formats::LIST_PANES_CMD.to_string()];
+            let mut cmds = vec![self.aggregator.markers().list_command(TmuxList::Panes)];
             for (pane_id, scroll_pos, height) in &copy_pane_info {
                 if !queued.contains(pane_id) {
                     continue;
@@ -297,17 +281,14 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     cmds.push(self.aggregator.markers().capture_command(pane_id));
                 }
             }
-            if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+            if let Err(e) = self.connection.send_commands(&cmds).await {
                 emitter.emit_error(format!("Failed to sync copy mode: {}", e));
             }
             rs.next_sync_at = tokio::time::Instant::now() + COPY_MODE_SYNC_INTERVAL;
         } else if is_idle {
-            let cmds = vec![
-                tmux_formats::LIST_WINDOWS_CMD.to_string(),
-                tmux_formats::LIST_PANES_CMD.to_string(),
-                tmux_formats::LIST_STASH_PANES_CMD.to_string(),
-            ];
-            if let Err(e) = self.connection.send_commands_batch(&cmds).await {
+            let cmds = [TmuxList::Windows, TmuxList::Panes, TmuxList::Stash]
+                .map(|list| self.aggregator.markers().list_command(list));
+            if let Err(e) = self.connection.send_commands(&cmds).await {
                 emitter.emit_error(format!("Failed to heartbeat sync: {}", e));
             }
             rs.next_sync_at = tokio::time::Instant::now() + HEARTBEAT_INTERVAL;

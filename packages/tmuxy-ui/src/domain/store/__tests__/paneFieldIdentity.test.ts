@@ -34,7 +34,6 @@ const full: TmuxPane = {
   alternateOn: false,
   mouseAnyFlag: false,
   marked: false,
-  paused: false,
   historySize: 0,
   selectionPresent: false,
   selectionStartX: 0,

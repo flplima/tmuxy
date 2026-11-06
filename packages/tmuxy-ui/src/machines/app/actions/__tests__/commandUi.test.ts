@@ -40,7 +40,6 @@ describe('fillTemplate & command prompt expansion', () => {
           copyCursorY: 0,
           alternateOn: false,
           mouseAnyFlag: false,
-          paused: false,
           historySize: 0,
           selectionPresent: false,
           selectionStartX: 0,

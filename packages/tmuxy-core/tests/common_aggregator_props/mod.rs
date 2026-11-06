@@ -1,7 +1,8 @@
 use proptest::prelude::*;
 use tmuxy_core::control_mode::{
     ControlModeEvent, SideEffect, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER,
-    CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
+    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 
 /// Generate a synthetic `Output` event with a small randomised payload.
@@ -54,8 +55,6 @@ pub fn any_event_strategy() -> impl Strategy<Value = ControlModeEvent> {
 /// A `%begin`/`%end` block as the parser hands it over.
 pub fn response(output: &str) -> ControlModeEvent {
     ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     }
@@ -65,13 +64,7 @@ pub fn response(output: &str) -> ControlModeEvent {
 /// marker's name (what the strategies here generate, unsigned) gets `agg`'s
 /// token after the name, as the aggregator's own marker commands print it.
 pub fn signed(agg: &StateAggregator, event: ControlModeEvent) -> ControlModeEvent {
-    let ControlModeEvent::CommandResponse {
-        timestamp,
-        command_num,
-        output,
-        success,
-    } = event
-    else {
+    let ControlModeEvent::CommandResponse { output, success } = event else {
         return event;
     };
     let markers = [
@@ -81,6 +74,8 @@ pub fn signed(agg: &StateAggregator, event: ControlModeEvent) -> ControlModeEven
         CAPTURE_END_MARKER,
         BUFFER_BEGIN_MARKER,
         BUFFER_END_MARKER,
+        LIST_BEGIN_MARKER,
+        LIST_END_MARKER,
     ];
     let output = markers
         .iter()
@@ -90,12 +85,7 @@ pub fn signed(agg: &StateAggregator, event: ControlModeEvent) -> ControlModeEven
                 .then(|| format!("{}{rest}", agg.markers().tag(marker)))
         })
         .unwrap_or(output);
-    ControlModeEvent::CommandResponse {
-        timestamp,
-        command_num,
-        output,
-        success,
-    }
+    ControlModeEvent::CommandResponse { output, success }
 }
 
 /// A pane the aggregator knows (`%0`, `%1`, `%2` in window `@0`, `%2` in copy
@@ -107,11 +97,13 @@ pub fn seeded_aggregator() -> StateAggregator {
     agg.step(ControlModeEvent::WindowAdd {
         window_id: "@0".parse().unwrap(),
     });
+    agg.step(signed(&agg, response("TMUXY_LS_BEGIN panes")));
     agg.step(response(
         "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
          %1,1,0,13,80,11,0,0,0,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
          %2,2,40,13,40,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
     ));
+    agg.step(signed(&agg, response("TMUXY_LS_END")));
     agg.step(ControlModeEvent::SessionWindowChanged {
         session_id: "$0".to_string(),
         window_id: "@0".parse().unwrap(),

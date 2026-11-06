@@ -44,10 +44,6 @@ pub struct Silent {
     pub verbs: &'static [&'static str],
     /// A further condition on the command — its flags, the option it names.
     pub when: fn(&str) -> bool,
-    /// The tmux versions it holds for.
-    pub tmux: &'static str,
-    /// What goes unannounced.
-    pub because: &'static str,
 }
 
 const fn always(_: &str) -> bool {
@@ -80,23 +76,24 @@ fn marks_a_pane(command: &str) -> bool {
 }
 
 /// Every command tmux leaves unannounced, and the list to read behind it.
+/// Each entry says what goes unannounced, and on which tmux versions.
 pub const SILENT_COMMANDS: &[Silent] = &[
+    // A user option (a dragged sidebar width, a hidden column, a focus request) changes without
+    // a notification, and the clients read it off list-windows (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &["set-option", "set", "set-window-option", "setw"],
         when: names_tmuxy_option,
-        tmux: "every version",
-        because: "a user option (a dragged sidebar width, a hidden column, a focus request) \
-                  changes without a notification, and the clients read it off list-windows",
     },
+    // The stack script writes @tmuxy-collapsible from inside run-shell, and the re-list is what
+    // turns the flag into a relayout (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &[],
         when: runs_the_stack_script,
-        tmux: "every version",
-        because: "the stack script writes @tmuxy-collapsible from inside run-shell, and the \
-                  re-list is what turns the flag into a relayout",
     },
+    // A reorder renumbers every window past the moved one and tmux announces none of them; the
+    // tab strip would show two tabs at one index (every version).
     Silent {
         relist: Relist::Windows,
         verbs: &[
@@ -107,33 +104,27 @@ pub const SILENT_COMMANDS: &[Silent] = &[
             "renumber-windows",
         ],
         when: always,
-        tmux: "every version",
-        because: "a reorder renumbers every window past the moved one and tmux announces \
-                  none of them; the tab strip would show two tabs at one index",
     },
+    // #{pane_marked} changes without a notification (every version).
     Silent {
         relist: Relist::Panes,
         verbs: &["select-pane", "selectp"],
         when: marks_a_pane,
-        tmux: "every version",
-        because: "#{pane_marked} changes without a notification",
     },
+    // A pane-scoped @tmuxy-* write changes list-panes and nothing else: answering a `tmuxy pane
+    // send -t` clears @tmuxy-ask, and the question would stay on screen until the next event
+    // moved it (every version).
     Silent {
         relist: Relist::Panes,
         verbs: &["set-option", "set", "setp"],
         when: names_pane_scoped_tmuxy_option,
-        tmux: "every version",
-        because: "a pane-scoped @tmuxy-* write changes list-panes and nothing else: answering \
-                  a `tmuxy pane send -t` clears @tmuxy-ask, and the question would stay on \
-                  screen until the next event moved it",
     },
+    // No %layout-change follows a swap; on later versions the re-list only repeats what the
+    // notification brought (3.2).
     Silent {
         relist: Relist::Panes,
         verbs: &["swap-pane", "swapp"],
         when: always,
-        tmux: "3.2",
-        because: "no %layout-change follows a swap; on later versions the re-list only repeats \
-                  what the notification brought",
     },
 ];
 
@@ -236,12 +227,5 @@ mod tests {
         assert!(panes("selectp -M"));
         assert!(!panes("select-pane -t %3"));
         assert!(!panes("send-keys -t %1 'select-pane -m' Enter"));
-    }
-
-    #[test]
-    fn every_silent_command_says_which_tmux_and_why() {
-        for silent in SILENT_COMMANDS {
-            assert!(!silent.tmux.is_empty() && !silent.because.is_empty());
-        }
     }
 }

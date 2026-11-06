@@ -102,9 +102,6 @@ pub struct PaneState {
     /// use it.
     pub marked: bool,
 
-    /// Whether this pane's output is paused due to flow control
-    pub paused: bool,
-
     /// Whether a selection is active in copy mode
     pub selection_present: bool,
 
@@ -160,6 +157,11 @@ pub struct PaneState {
 }
 
 impl PaneState {
+    /// Set the title tmux or the program reported (see [`shown_title`]).
+    pub(super) fn set_title(&mut self, title: String) {
+        self.title = shown_title(title);
+    }
+
     /// Whether the pane currently sits in `window`.
     pub fn in_window(&self, window: &WindowId) -> bool {
         self.window_id.as_ref() == Some(window)
@@ -203,7 +205,6 @@ impl PaneState {
             alternate_on: false,
             mouse_any_flag: false,
             marked: false,
-            paused: false,
             selection_present: false,
             selection_start_x: 0,
             selection_start_y: 0,
@@ -361,7 +362,6 @@ impl PaneState {
             alternate_on: self.alternate_on,
             mouse_any_flag: self.mouse_any_flag,
             marked: self.marked,
-            paused: self.paused,
             history_size: self.history_size,
             selection_present: self.selection_present,
             selection_start_x: sel_start_x,

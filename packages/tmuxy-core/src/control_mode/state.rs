@@ -33,10 +33,8 @@ pub enum ChangeType {
     Session,
     /// Full state refresh needed
     Full,
-    /// Flow control: pane paused
+    /// Flow control: pane paused, to be resumed
     FlowPause { pane_id: PaneId },
-    /// Flow control: pane resumed
-    FlowContinue { pane_id: PaneId },
 }
 
 /// Is this "title" a graphics escape tmux mistook for one?
@@ -52,7 +50,7 @@ pub enum ChangeType {
 /// `;payload` — so a program whose real title merely starts with a G keeps it.
 /// See docs/RICH-RENDERING.md for why wrapping the escape is the fix on the
 /// sending side.
-pub(super) fn is_graphics_payload(title: &str) -> bool {
+fn is_graphics_payload(title: &str) -> bool {
     let Some(rest) = title.strip_prefix('G') else {
         return false;
     };
@@ -71,6 +69,16 @@ pub(super) fn is_graphics_payload(title: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '+' | '.' | '_'))
     })
+}
+
+/// The title to show for a title tmux or a program reported: none for a
+/// graphics payload (see [`is_graphics_payload`]), the title itself otherwise.
+pub(super) fn shown_title(title: String) -> String {
+    if is_graphics_payload(&title) {
+        String::new()
+    } else {
+        title
+    }
 }
 
 /// Result of processing a control mode event
@@ -124,7 +132,7 @@ pub struct StepResult {
 #[derive(Debug, Clone)]
 pub enum SideEffect {
     /// Send a tmux command through control mode. The runtime is expected to
-    /// dispatch this via `ControlModeConnection::send_command(s)`.
+    /// dispatch this via `ControlModeConnection::send_commands`.
     SendTmuxCommand(String),
     /// Capture-pane is needed for these pane ids — emit list-panes first,
     /// then capture each. Surfaced as its own variant so the monitor can
@@ -212,23 +220,15 @@ pub struct StateAggregator {
     /// this aggregator was created — the first ones are the initial sync.
     panes_synced: bool,
     windows_synced: bool,
-    /// Pane the response between a `TMUXY_CAP_BEGIN <pane>` marker and its
-    /// `TMUXY_CAP_END` belongs to (each command in a control-mode command
-    /// list gets its own %begin/%end block, so the trio arrives consecutively).
-    capture_armed: Option<PaneId>,
-    /// Buffer names for pending marker-wrapped `show-buffer` reads (FIFO),
-    /// issued in response to %paste-buffer-changed (copy-mode yank mirror).
-    pending_buffer_reads: std::collections::VecDeque<String>,
-    /// True between the TMUXY_BUF_BEGIN marker response and the buffer-content
-    /// response that immediately follows it (each command in a control-mode
-    /// command list gets its own %begin/%end block).
-    buffer_read_armed: bool,
+    /// The read whose answer is the next block: its BEGIN marker's block
+    /// just arrived (see `Read`).
+    armed: Option<markers::Read>,
+    /// Marker-wrapped `show-buffer` reads in flight, issued in response to
+    /// %paste-buffer-changed (copy-mode yank mirror).
+    pending_buffer_reads: usize,
     /// Panes whose row just reported view mode: each is asked about
     /// (`clients_read_command`) on the step that parsed the row.
     view_mode_opened: Vec<PaneId>,
-    /// The pane whose `list-clients` answer is the next block, between its
-    /// `TMUXY_CLI_BEGIN <pane>` and `TMUXY_CLI_END` markers.
-    clients_read_armed: Option<PaneId>,
     /// The reply-wrapped command whose output is being collected: everything
     /// between its `TMUXY_RPY_BEGIN <id>` and `TMUXY_RPY_END <id>` marker
     /// blocks. See `reply_wrapped_lines`.
@@ -326,11 +326,9 @@ impl StateAggregator {
             recapture: std::collections::HashSet::new(),
             panes_synced: false,
             windows_synced: false,
-            capture_armed: None,
-            pending_buffer_reads: std::collections::VecDeque::new(),
-            buffer_read_armed: false,
+            armed: None,
+            pending_buffer_reads: 0,
             view_mode_opened: Vec::new(),
-            clients_read_armed: None,
             reply_in_flight: None,
             markers: Markers::fresh(),
 
@@ -379,21 +377,18 @@ mod stash_and_helpers;
 mod step_and_output;
 mod window_state;
 
-pub use command_response::window_relist_commands;
 use command_response::ReplyInFlight;
 pub use markers::{
     control_mode_lines, Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
-    CAPTURE_END_MARKER, CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER, LIST_CLIENTS_FORMAT,
-    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
+#[cfg(test)]
+pub(crate) use markers::{CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER};
 pub use pane_state::PaneState;
-pub use stash_and_helpers::{
-    accepted_clipboard_write, normalize_capture_bytes, MAX_CLIPBOARD_BYTES,
-    MAX_STORED_IMAGES_PER_PANE, MIN_CLIPBOARD_INTERVAL,
-};
-use stash_and_helpers::{
-    is_list_panes_line, is_stash_member_line, normalize_pane_command, StashMember,
-};
+pub(crate) use stash_and_helpers::normalize_capture_bytes;
+use stash_and_helpers::{accepted_clipboard_write, MAX_STORED_IMAGES_PER_PANE};
+use stash_and_helpers::{normalize_pane_command, StashMember};
+pub use stash_and_helpers::{MAX_CLIPBOARD_BYTES, MIN_CLIPBOARD_INTERVAL};
 use window_state::parse_layout_panes;
 pub use window_state::WindowState;
 

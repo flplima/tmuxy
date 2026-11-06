@@ -186,12 +186,6 @@ fn osc_title_and_clipboard_enforce_size_caps() {
 }
 
 #[test]
-fn test_base64_decode() {
-    assert_eq!(helpers::base64_decode("aGVsbG8=").unwrap(), b"hello");
-    assert_eq!(helpers::base64_decode("dGVzdA==").unwrap(), b"test");
-}
-
-#[test]
 fn dec_line_size_escapes_tag_rows_and_survive_capture_refresh() {
     let mut pane =
         crate::control_mode::state::PaneState::new(crate::PaneId::parse("%0").unwrap(), 20, 6);

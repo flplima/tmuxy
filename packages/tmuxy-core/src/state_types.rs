@@ -52,10 +52,6 @@ pub struct TmuxPane {
     /// indicator and offers swap/join with it.
     #[serde(default, skip_serializing_if = "is_false")]
     pub marked: bool,
-    /// True if this pane's output is paused due to flow control
-    /// When true, UI should show a pause indicator
-    #[serde(default)]
-    pub paused: bool,
     /// Number of history lines (scrollback above the visible area)
     #[serde(default)]
     pub history_size: u64,

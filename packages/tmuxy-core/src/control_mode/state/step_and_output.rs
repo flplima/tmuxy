@@ -100,15 +100,14 @@ impl StateAggregator {
     /// Time-driven transitions. Today this drains the settling deadline: when
     /// `now` is past `settling_until`, the aggregator clears its settling
     /// state, unsuppresses window emissions, and (if any events actually
-    /// arrived during the window) yields a consolidated `EmitState`. If the
-    /// safety ceiling fires with no events ever observed, the suppression
-    /// flag is cleared silently — no emit, no foot-gun for the runtime.
-    pub fn tick(&mut self, now: Instant) -> Vec<SideEffect> {
-        let Some(deadline) = self.settling_until else {
-            return Vec::new();
-        };
+    /// arrived during the window) returns the change a consolidated state
+    /// emission is due for. If the safety ceiling fires with no events ever
+    /// observed, the suppression flag is cleared silently — no emit, no
+    /// foot-gun for the runtime.
+    pub fn tick(&mut self, now: Instant) -> Option<ChangeType> {
+        let deadline = self.settling_until?;
         if now < deadline {
-            return Vec::new();
+            return None;
         }
         let was_awaiting = self.settling_awaiting_first_event;
         self.settling_until = None;
@@ -118,11 +117,9 @@ impl StateAggregator {
         if was_awaiting {
             // Safety timeout — no events arrived after the compound command.
             // Nothing to emit; just leave the aggregator unsuppressed.
-            return Vec::new();
+            return None;
         }
-        vec![SideEffect::EmitState {
-            change: ChangeType::Full,
-        }]
+        Some(ChangeType::Full)
     }
 
     /// The pane a keystroke would reach: the active pane of the active window.
@@ -218,13 +215,7 @@ impl StateAggregator {
                 // old one for up to fifteen seconds. tmux sees the same escape
                 // and agrees at the next poll; this only removes the lag.
                 if let Some(title) = pane.osc_parser.take_title() {
-                    // Same guard list-panes titles get: a Kitty graphics probe
-                    // read as a title names the pane after a protocol.
-                    pane.title = if is_graphics_payload(&title) {
-                        String::new()
-                    } else {
-                        title
-                    };
+                    pane.set_title(title);
                 }
                 return (true, new_imgs, clipboard);
             }

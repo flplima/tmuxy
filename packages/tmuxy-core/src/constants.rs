@@ -71,9 +71,9 @@ pub mod tmux_options {
     pub const FOCUS_REQUEST: &str = "@tmuxy-focus-request";
 
     /// How a pane says it should be brought back after a session restore
-    /// (`tmuxy pane restore-cmd`), read by `session_snapshot`'s own query
-    /// rather than the hot-path pane poll: it changes rarely and is only
-    /// wanted when a snapshot is taken.
+    /// (`tmuxy pane restore-cmd`): a column of the pane rows
+    /// (`tmux_formats::PaneColumn::Restore`), and of `session_snapshot`'s
+    /// own query.
     pub const PANE_RESTORE: &str = "@tmuxy-pane-restore";
 
     /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
@@ -263,13 +263,14 @@ pub mod sidebar_dock {
     }
 }
 
-// A macro as well as `STASH_SESSION` so format strings can splice the name in
-// with `concat!`, which only accepts literals.
+// A macro as well as `STASH_SESSION` so the session snapshot's format
+// strings can splice the name in with `concat!`, which only accepts literals.
 macro_rules! stash_session {
     () => {
         "__tmuxy_stash"
     };
 }
+#[cfg(feature = "native")]
 pub(crate) use stash_session;
 
 /// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
