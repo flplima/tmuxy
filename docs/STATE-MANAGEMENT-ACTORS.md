@@ -13,7 +13,6 @@ The context holds all frontend state. Key fields:
 - `activePaneId`, `activeWindowId` — Current focus
 - `totalWidth`, `totalHeight` — tmux grid dimensions
 - `keybindings` — Prefix key and all bindings from tmux config
-- `defaultShell` — Default shell (bash, zsh, etc.)
 
 **Client-only state:**
 
@@ -22,7 +21,6 @@ The context holds all frontend state. Key fields:
 - `paneGroups: Record<string, PaneGroup>` — Pane group tabs (hidden windows)
 - `floatPanes: Record<string, FloatPaneState>` — Floating pane positions
 - `commandMode` — Client-side command prompt (`:` mode)
-- `paneActivationOrder` — Most-recently-used pane order
 - `paneKeyOverrides` — Real-pane-id → placeholder-id mapping (mirrored from TmuxStore so React keys stay stable across optimistic-placeholder → real-pane id swaps)
 - `charWidth`, `charHeight`, `cellGap` — the cell grid: `charWidth` is the font advance measured once and snapped to a whole device pixel, `cellGap` the letter-spacing that makes text advance by exactly that width; both are published to CSS as `--cell-w` / `--cell-gap` on the app root (see `infra/dom/cellMetrics.ts`, [RICH-RENDERING.md](RICH-RENDERING-CELL-GRID.md#the-cell-grid-invariant))
 - `measuredCell` — the cell the size actor measured (or cut for the phone) before any fit; `charWidth`/`charHeight`/`cellGap`/`gridFontSize` are the grid's cell fitted from it (`fittedGridCell`), and the sidebar columns and `targetCols`/`targetRows` are measured in it
@@ -46,7 +44,7 @@ The machine invokes five persistent actors:
 
 **`tmuxActor`** (`tmuxy-ui/src/machines/actors/tmuxActor.ts`) — Bridge to the backend. Receives `SEND_OP`, `INVOKE`, `FETCH_*` and the like from the parent. Sends `TMUX_CONNECTED`, `TMUX_STATE_UPDATE`, `TMUX_ERROR`, `CONNECTION_INFO`, `KEYBINDINGS_RECEIVED`, `TMUX_CLIPBOARD` to the parent.
 
-**`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the client model (`TmuxStore`) into XState. Receives `STORE_DISPATCH` (a routed op, sent only by `toStore` in `machines/app/dispatch.ts`), `RECONCILE_SERVER` (a snapshot), `CLEAR` and `UPDATE_PREDICT_CONTEXT`; forwards every model change back as `TMUX_MODEL_UPDATE`.
+**`tmuxStoreActor`** (`tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`) — Bridges the client model (`TmuxStore`) into XState. Receives `STORE_DISPATCH` (a routed op, sent only by `toStore` in `machines/app/dispatch.ts`), `RECONCILE_SERVER` (a snapshot), `CLEAR` and `SET_DEFAULT_SHELL`; forwards every model change back as `TMUX_MODEL_UPDATE`.
 
 **`keyboardActor`** (`tmuxy-ui/src/machines/actors/keyboardActor.ts`) — DOM keyboard input handling. Manages prefix mode, the text-vs-chord classification that decides whether a keydown is sent as literal text or as a tmux key name (dead keys, macOS Option and AltGr all compose characters behind chord-looking flags — see [DATA-FLOW.md](DATA-FLOW.md)), IME composition support (a hidden input in `tmuxy-ui/src/infra/dom/mobileKeyboard.ts` holds browser focus on every device and follows the pane, float or dock holding the keyboard so a composition can start; individual keydowns are suppressed during CJK input and the composed string is committed to the pane where the composition began), the Tab rule (Tab is the terminal's while a pane holds the keyboard; on a chrome control the keyboard reached, such as a header button, a tab strip or the tree's selected row, it walks the page's tab order, while a clicked control hands the focus straight back to the pane; panes are focusable for the pointer but never Tab stops; see `tmuxy-ui/src/infra/dom/chromeTab.ts`), copy mode interception (all keys captured and sent as `COPY_MODE_KEY` when the active pane is in client-side copy mode), root bindings (bypass prefix), and paste (one `PasteText` op). Sends keys as `DISPATCH_OP` (`SendText`/`SendKeys`, batched by the lane), bindings as `SEND_TMUX_COMMAND`, and `KEY_PRESS`, `COPY_SELECTION` to the parent. It reads the machine only through one selector's view (`selectKeyContext`): who holds the keyboard (`keyboardOwner`), the target, the bindings. A key becomes its slice's event (`ASK_KEY`, `COPY_MODE_KEY`) and the slice decides.
 

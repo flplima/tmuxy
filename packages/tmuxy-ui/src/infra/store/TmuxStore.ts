@@ -13,7 +13,8 @@ import {
   rollbackOp,
   type RollbackEntry,
 } from '../../domain/store/model';
-import { type PredictContext, predict } from '../../domain/store/ops';
+import { DEFAULT_SHELL, predict } from '../../domain/store/ops';
+import type { PaneId } from '../../domain/ids';
 import {
   type OpError,
   type OpId,
@@ -80,7 +81,8 @@ export interface TmuxStore {
    */
   readonly subscribe: (listener: StoreListener) => () => void;
 
-  readonly setPredictContext: (ctx: PredictContext) => void;
+  /** The host's default shell (its greeting): what a predicted pane runs. */
+  readonly setDefaultShell: (shell: string) => void;
 
   /**
    * Hear every op a reconcile pass rolled back, whether the pass was driven
@@ -92,12 +94,19 @@ export interface TmuxStore {
 
 export function makeTmuxStore(): TmuxStore {
   let model: TmuxClientModel = EMPTY_MODEL;
-  let predictContext: PredictContext = { defaultShell: 'bash', paneActivationOrder: [] };
+  let defaultShell = DEFAULT_SHELL;
+  // Panes most recently active first, for the predictions that pick a pane as
+  // tmux would (Navigate's tie-break, where KillPane/KillWindow land).
+  let activation: PaneId[] = [];
   const listeners = new Set<StoreListener>();
   const rollbackListeners = new Set<RollbackListener>();
 
   const commit = (next: TmuxClientModel): void => {
     model = next;
+    const active = next.derived.activePaneId;
+    if (active && activation[0] !== active) {
+      activation = [active, ...activation.filter((id) => id !== active)];
+    }
     for (const l of listeners) {
       try {
         l(next);
@@ -145,7 +154,12 @@ export function makeTmuxStore(): TmuxStore {
 
   const applyOptimistic = (op: TmuxOp, command: string): OpId => {
     const opId = generateOpId();
-    const result = predict(op, model.derived, predictContext, opId);
+    const result = predict(
+      op,
+      model.derived,
+      { defaultShell, paneActivationOrder: activation },
+      opId,
+    );
     const pending = result
       ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
       : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
@@ -217,6 +231,7 @@ export function makeTmuxStore(): TmuxStore {
 
     clear: () => {
       appliedSeq = null;
+      activation = [];
       commit(EMPTY_MODEL);
     },
 
@@ -232,8 +247,8 @@ export function makeTmuxStore(): TmuxStore {
       };
     },
 
-    setPredictContext: (ctx) => {
-      predictContext = ctx;
+    setDefaultShell: (shell) => {
+      defaultShell = shell;
     },
 
     subscribeRollbacks: (listener) => {

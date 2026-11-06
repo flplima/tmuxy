@@ -15,7 +15,7 @@ Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src
 
 A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
 
-1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context (default shell + MRU pane activation order for the Navigate tiebreak) is mirrored from the machine on every model update via `UPDATE_PREDICT_CONTEXT`.
+1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context is the store's own: the MRU pane activation order (Navigate's tiebreak, where a kill lands) from the snapshots it commits, and the host's default shell from its greeting (`SET_DEFAULT_SHELL`).
 2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → rolls the patch back if the send fails. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
 

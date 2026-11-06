@@ -90,7 +90,8 @@ export const connectionActions = {
 
   connection_connectionInfo: act(({ event, enqueue }) => {
     if (event.type !== 'CONNECTION_INFO') return;
-    enqueue(assign({ defaultShell: event.defaultShell, serverHostname: event.hostname }));
+    enqueue(assign({ serverHostname: event.hostname }));
+    enqueue(sendTo('tmuxStore', { type: 'SET_DEFAULT_SHELL' as const, shell: event.defaultShell }));
     enqueue(() => {
       if (typeof document !== 'undefined' && !isTauri() && event.hostname) {
         document.title = `tmuxy on ${event.hostname}`;

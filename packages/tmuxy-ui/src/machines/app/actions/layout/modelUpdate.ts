@@ -64,11 +64,6 @@ function resizePreviewSettled(
   });
 }
 
-function updateActivationOrder(order: PaneId[], paneId: PaneId | null): PaneId[] {
-  if (!paneId) return order;
-  return [paneId, ...order.filter((id) => id !== paneId)];
-}
-
 export const layoutModelUpdateActions = {
   layout_reconnectingModelUpdate: assignCtx(({ event }) => {
     if (event.type !== 'TMUX_MODEL_UPDATE') return {};
@@ -299,10 +294,6 @@ export const layoutModelUpdateActions = {
             : [],
         ),
         paneKeyOverrides: event.model.paneKeyOverrides,
-        paneActivationOrder:
-          effectiveActivePaneId !== ctx.activePaneId
-            ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
-            : ctx.paneActivationOrder,
       })),
     );
 
@@ -323,14 +314,6 @@ export const layoutModelUpdateActions = {
         }),
       );
     }
-
-    enqueue(
-      sendTo('tmuxStore', ({ context: ctx }) => ({
-        type: 'UPDATE_PREDICT_CONTEXT' as const,
-        defaultShell: ctx.defaultShell,
-        paneActivationOrder: ctx.paneActivationOrder,
-      })),
-    );
 
     const grid = gridExtent(transformed.panes, transformed.activeWindowId, {
       cols: transformed.totalWidth,

@@ -11,7 +11,6 @@
 
 import { isStructural } from '../../domain/opTraits';
 import { Exit, Cause } from 'effect';
-import type { PaneId } from '../../domain/ids';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../infra/store/TmuxStore';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
@@ -47,11 +46,7 @@ export type TmuxStoreActorEvent =
    * stale (OP_STALE_TIMEOUT_MS).
    */
   | { type: 'CLEAR' }
-  | {
-      type: 'UPDATE_PREDICT_CONTEXT';
-      defaultShell: string;
-      paneActivationOrder: readonly PaneId[];
-    };
+  | { type: 'SET_DEFAULT_SHELL'; shell: string };
 
 export interface TmuxStoreActorInput {
   parent: AnyActorRef;
@@ -130,11 +125,8 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
         return;
       }
 
-      if (event.type === 'UPDATE_PREDICT_CONTEXT') {
-        store.setPredictContext({
-          defaultShell: event.defaultShell,
-          paneActivationOrder: event.paneActivationOrder,
-        });
+      if (event.type === 'SET_DEFAULT_SHELL') {
+        store.setDefaultShell(event.shell);
         return;
       }
     });
