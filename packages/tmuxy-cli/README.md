@@ -10,7 +10,11 @@ generated) on launch, so `bin/` here has the same layout as the installed
 copy. A new helper under `bin/tmuxy/` must be added to that list; a Rust test
 fails until it is. The scripts find tmuxy's three directories (config, data,
 state) with `tmuxy_config_dir`, `tmuxy_data_dir` and `tmuxy_state_dir` in
-`bin/tmuxy/_lib`, which resolve them as tmuxy-core does.
+`bin/tmuxy/_lib`, which resolve them as tmuxy-core does. The values the scripts share with tmuxy-core (the stash session's name,
+the pane-title format) are generated from it into `bin/tmuxy/_options`, which
+`_lib` sources; a Rust test (`tmuxy-core/tests/generated_constants.rs`) fails
+when the file is stale, and writes it with `UPDATE_GENERATED=1`. The UI's
+copy is `tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, from the same test.
 
 - **Mutations go through `tmux run-shell`.** An external `tmux` command that
   mutates while control mode is attached crashes tmux 3.3a–3.5a. `_run_safe`

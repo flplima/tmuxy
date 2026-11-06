@@ -5,7 +5,7 @@ async fn main() {
     if let Some(exe) = tmuxy_core::session::invoked_exe() {
         tmuxy_core::session::set_server_command(exe, None);
     }
-    tmuxy_server::init_logging();
+    tmuxy_core::logging::init_logging();
 
     server::run_argv(std::env::args_os()).await;
 }

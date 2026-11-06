@@ -6,13 +6,10 @@
 import type { TmuxOp } from './commands';
 import { commandListParts, isLayoutCommand, runShellScript } from './store/parseCommand';
 
-/** The `pane-group` verbs that restructure windows over several steps. */
-const MULTI_STEP_GROUP_VERBS = new Set(['add', 'close', 'switch', 'next', 'prev']);
-
 /**
  * Ops that run a multi-step server script or create a window, whose
- * intermediate geometry must not animate. A raw string is classified by the
- * scripts it names.
+ * intermediate geometry must not animate. A raw string (a key binding's,
+ * an essentials alias expanded) by the effect its script run is marked with.
  */
 export function isMultiStep(op: TmuxOp): boolean {
   switch (op._tag) {
@@ -23,14 +20,7 @@ export function isMultiStep(op: TmuxOp): boolean {
     case 'GroupStep':
       return true;
     case 'RawCommand':
-      return commandListParts(op.command).some((part) => {
-        const script = runShellScript(part);
-        return (
-          script !== null &&
-          (script.name === 'float-create' ||
-            (script.name === 'pane-group' && MULTI_STEP_GROUP_VERBS.has(script.args[0])))
-        );
-      });
+      return commandListParts(op.command).some((part) => runShellScript(part)?.effect === 'settle');
     default:
       return false;
   }

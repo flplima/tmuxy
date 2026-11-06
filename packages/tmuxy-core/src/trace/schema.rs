@@ -1,7 +1,7 @@
 //! The trace's vocabulary, in one place: the layer a Rust event belongs to,
 //! how each field key may be recorded, and the names of the events and
 //! fields the tools read back (`tmuxy trace --check`,
-//! `tmuxy-server/src/trace_view/health.rs`). The client's own allowlist
+//! `tmuxy-verbs/src/trace_view/health.rs`). The client's own allowlist
 //! (`tmuxy-ui/src/infra/tracer.ts`) is tested against these lists.
 
 /// The layer a line belongs to (docs/TRACING-DESIGN.md). The client names

@@ -23,8 +23,7 @@ mod surface;
 mod token;
 
 pub use surface::{
-    exec_command_line, free_index, notify_failure, open, surface_argv, wait, OpenRequest, Opened,
-    Target,
+    exec_command_line, notify_failure, open, surface_argv, wait, OpenRequest, Opened, Target,
 };
 pub use token::{is_pane_id, prepare, status_path, PaneInfo, Token, Trigger, MAX_SELECTION_BYTES};
 

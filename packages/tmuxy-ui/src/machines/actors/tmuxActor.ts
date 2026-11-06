@@ -61,8 +61,7 @@ export type TmuxActorEvent =
       action: string;
       paneId: PaneId;
       selection: string | null;
-    }
-  | { type: 'CHECK_SESSION_SWITCH' };
+    };
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
@@ -456,33 +455,6 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.switchSession(event.sessionName)),
           {
             logPrefix: `switch-session ${event.sessionName}`,
-          },
-        );
-      } else if (event.type === 'CHECK_SESSION_SWITCH') {
-        // A read, so it must be a query: run_tmux_command resolves null on
-        // every transport, and matching on String(null) is how this check
-        // sat dead on the web for a while.
-        run(
-          withTransport((t) => t.query('show-environment -g TMUXY_SWITCH_TO')),
-          {
-            onSuccess: (result) => {
-              const str = String(result);
-              const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
-              if (!match) return;
-              const sessionName = match[1].trim();
-              parent.send({ type: 'SWITCH_SESSION', sessionName });
-              // Clear the env var (fire-and-forget)
-              run(
-                withTransport((t) =>
-                  t.invoke('run_tmux_command', {
-                    command: toTmuxCommand(TmuxOp.ClearSwitchRequest()),
-                  }),
-                ),
-                { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
-              );
-            },
-            silentFail: true,
-            logPrefix: 'check session switch',
           },
         );
       }

@@ -4,10 +4,10 @@
 # Usage: tmuxy session connect [<dest>] [--socket <name>] [--session <name>]
 #
 # Runs the 4-stage connect sequence (ssh -> tmux <ver> on socket -> listing
-# sessions -> attach), printing each stage's status to stdout/stderr, saves
-# the server to servers.json in the state dir with `last_used`, and publishes
-# TMUXY_CONNECT_SSH / TMUXY_CONNECT_SESSION / TMUXY_CONNECT_TO through
-# run-shell for the monitor to attach.
+# sessions -> attach), printing each stage's status to stdout/stderr. The
+# last stage is the server binary's `connect --save`: it saves the server to
+# servers.json in the state dir with `last_used`, and publishes the request
+# the desktop app's monitor attaches to (tmuxy_core::servers::connect).
 set -euo pipefail
 source "${0%/*}/_lib"
 
@@ -37,10 +37,6 @@ Options:
   -h, --help        Show this help
 EOF
       exit 0
-      ;;
-    --web)
-      echo "SSH connections are only available in the Tauri desktop app."
-      exit 1
       ;;
     --socket)
       shift
@@ -165,8 +161,7 @@ else
 fi
 rm -f "$ver_err_file"
 tmux_ver="${raw_ver#tmux }"
-tmux_ver="${tmux_ver:-3.5a}"
-echo "✓ tmux $tmux_ver on the socket $target_socket"
+echo "✓ tmux${tmux_ver:+ $tmux_ver} on the socket $target_socket"
 
 # --- Stage 3: listing sessions ---
 sess_err_file=$(mktemp)
@@ -185,72 +180,10 @@ if [ -z "$session_name" ] && [ -n "$sessions_out" ]; then
 fi
 echo "✓ listing sessions"
 
-# --- Persist to servers.json when remote or non-live local socket ---
-slugify() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/^-*//; s/-*$//'
-}
-
-save_server_entry() {
-  local state_dir
-  state_dir="$(tmuxy_state_dir)"
-  local file="$state_dir/servers.json"
-  local now
-  now=$(date +%s)
-  mkdir -m 700 -p "$state_dir"
-  local id label kind host user
-  if $is_remote; then
-    id="ssh-$(slugify "$dest")-$(slugify "$target_socket")"
-    label="$dest"
-    kind="ssh"
-    if [[ "$dest" == *@* ]]; then
-      user="${dest%%@*}"
-      host="${dest#*@}"
-    else
-      user=""
-      host="$dest"
-    fi
-    host="${host%%:*}"
-  else
-    [ "$target_socket" = "$TMUX_SOCKET" ] && return 0
-    id="local-$(slugify "$target_socket")"
-    label="$target_socket"
-    kind="local"
-    host=""
-    user=""
-  fi
-  if command -v jq &>/dev/null; then
-    local existing="[]"
-    [ -f "$file" ] && existing=$(cat "$file" 2>/dev/null || echo "[]")
-    printf '%s' "$existing" | jq \
-      --arg id "$id" \
-      --arg label "$label" \
-      --arg kind "$kind" \
-      --arg socket "$target_socket" \
-      --arg host "$host" \
-      --arg user "$user" \
-      --argjson last_used "$now" \
-      'map(select(.id != $id)) + [
-        if $kind == "ssh" then
-          {id: $id, label: $label, kind: $kind, socket: $socket, last_used: $last_used, ssh: (if $user != "" then {host: $host, user: $user} else {host: $host} end)}
-        else
-          {id: $id, label: $label, kind: $kind, socket: $socket, last_used: $last_used}
-        end
-      ]' | (umask 077 && cat > "$file.tmp") 2>/dev/null && mv "$file.tmp" "$file" || rm -f "$file.tmp"
-  fi
-}
-
-save_server_entry
-
 # --- Stage 4: attach ---
-# Order matters: TMUXY_CONNECT_TO is the trigger polled by the desktop/server
-# watcher, so publish TMUXY_CONNECT_SSH and TMUXY_CONNECT_SESSION first.
-if $is_remote; then
-  _run_safe "set-environment -g TMUXY_CONNECT_SSH $(shquote "$dest")"
-else
-  _run_safe "set-environment -g -u TMUXY_CONNECT_SSH"
-fi
-if [ -n "$session_name" ]; then
-  _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session_name")"
-fi
-_run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$target_socket")"
+connect_args=(connect --save --socket "$target_socket")
+[ -n "$session_name" ] && connect_args+=(--session "$session_name")
+$is_remote && connect_args+=(--ssh "$dest")
+find_server_cmd || exit 1
+"${SERVER_CMD[@]}" "${connect_args[@]}" || exit $?
 echo "✓ attach"

@@ -96,7 +96,7 @@ cmd_run() {
 
   echo "[dev] Starting development server with hot reload..."
   echo "[dev] Port: $port, Socket: $TMUX_SOCKET"
-  echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src"
+  echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src, packages/tmuxy-verbs/src"
   echo ""
 
   # Keep target/ from outgrowing the disk (once a day at most).
@@ -134,6 +134,7 @@ cmd_run() {
   exec cargo watch \
     -w packages/tmuxy-core/src \
     -w packages/tmuxy-server/src \
+    -w packages/tmuxy-verbs/src \
     -x "run -p tmuxy-server -- --port $port --host $host --no-auth --dev$allowed"
 }
 

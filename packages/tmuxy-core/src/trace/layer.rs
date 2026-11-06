@@ -121,7 +121,7 @@ fn open_append(path: &Path) -> std::io::Result<File> {
 // =============================================================================
 
 /// The `tracing_subscriber` layer that turns admitted spans/events into NDJSON
-/// lines. Registered once by `tmuxy_server::init_logging`; a no-op until
+/// lines. Registered once by `tmuxy_core::logging::init_logging`; a no-op until
 /// [`super::init`] installs the writer.
 pub struct TraceLayer;
 

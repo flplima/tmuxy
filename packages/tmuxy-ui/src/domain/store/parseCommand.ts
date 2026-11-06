@@ -12,6 +12,7 @@
 
 import { TmuxOp, type PaneDirection } from '../commands';
 import { isPaneId, isWindowId } from '../ids';
+import type { ScriptEffect } from '../commandHelpers';
 
 /**
  * One word of a command as tmux's parser reads it, with where it sits in the
@@ -89,26 +90,33 @@ export function stripPin(command: string): string {
 
 /**
  * The script a `run-shell` command runs — `name` is its file name, `bundled`
- * whether it is one of tmuxy's own (`bin/tmuxy/`) — with its arguments; null
- * for any other command. `bash`/`sh` in front of the path are skipped, as
- * the config's aliases put it there.
+ * whether it is one of tmuxy's own (`bin/tmuxy/`) — with its arguments and
+ * the effect its line is marked with (`TMUXY_EFFECT=…`, see `scriptWith`);
+ * null for any other command. Variable assignments and `bash`/`sh` in front
+ * of the path are skipped, as the config's aliases put them there.
  */
 export function runShellScript(
   command: string,
-): { name: string; bundled: boolean; args: string[] } | null {
+): { name: string; bundled: boolean; args: string[]; effect: ScriptEffect | null } | null {
   const words = commandWords(command);
   if (words[0] !== 'run-shell') return null;
   let i = 1;
   while (i < words.length && words[i].startsWith('-')) i += /^-[dt]$/.test(words[i]) ? 2 : 1;
   if (i >= words.length) return null;
   const shell = commandWords(words[i]);
-  const at = shell[0] === 'bash' || shell[0] === 'sh' ? 1 : 0;
+  let at = 0;
+  let effect: ScriptEffect | null = null;
+  for (let m; at < shell.length && (m = shell[at].match(/^(\w+)=(.*)$/)); at++) {
+    if (m[1] === 'TMUXY_EFFECT' && (m[2] === 'settle' || m[2] === 'relist-windows')) effect = m[2];
+  }
+  if (shell[at] === 'bash' || shell[at] === 'sh') at++;
   const path = shell[at];
   if (path === undefined) return null;
   return {
     name: path.slice(path.lastIndexOf('/') + 1),
     bundled: path.includes('bin/tmuxy/'),
     args: shell.slice(at + 1),
+    effect,
   };
 }
 

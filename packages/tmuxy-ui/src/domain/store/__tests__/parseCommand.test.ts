@@ -54,12 +54,17 @@ describe('runShellScript', () => {
       name: 'pane-group',
       bundled: true,
       args: ['next', '%3'],
+      effect: null,
     });
     expect(runShellScript('run-shell -b "float-create"')).toEqual({
       name: 'float-create',
       bundled: false,
       args: [],
+      effect: null,
     });
+    expect(
+      runShellScript(`run-shell "TMUXY_EFFECT=settle bash ${S}/float-create > /dev/null"`),
+    ).toMatchObject({ name: 'float-create', effect: 'settle' });
     expect(runShellScript('split-window -h')).toBeNull();
   });
 });

@@ -19,14 +19,18 @@ EXIT_NO_SERVER=4
 # stdout.
 JSON_OUT="${JSON_OUT:-false}"
 
-# One string as a JSON string literal (quotes included): the characters JSON
-# forbids raw are escaped, every other control character dropped. awk and sed
+# The CLI's one JSON string encoder, as an awk function: `jstr(s)` is `s`
+# with the characters JSON forbids raw escaped (backslash, quote, tab, CR),
+# every other control character dropped. A row printer splices it into its own
+# awk program (`awk "$JSON_AWK"'…'`); `json_string` runs it on one value. awk
 # only, since neither jq nor python is a dependency of the CLI.
+JSON_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\t/, "\\t", s); gsub(/\r/, "\\r", s); gsub(/[[:cntrl:]]/, "", s); return s } '
+
+# One string as a JSON string literal (quotes included), its lines joined by
+# `\n`.
 json_string() {
   printf '"'
-  printf '%s' "$1" \
-    | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' -e 's/[[:cntrl:]]//g' \
-    | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }'
+  printf '%s' "$1" | LC_ALL=C awk "$JSON_AWK"'{ if (NR > 1) printf "\\n"; printf "%s", jstr($0) }'
   printf '"'
 }
 
@@ -39,6 +43,12 @@ json_ok() {
     out="$out,\"${pair%%=*}\":${pair#*=}"
   done
   printf '%s}\n' "$out"
+}
+
+# A mutation's answer: the JSON object under `--json`, else nothing.
+_done() {
+  [ "$JSON_OUT" = true ] || return 0
+  json_ok "$@"
 }
 
 # Where a JSON failure goes: the real stdout. tmuxy-cli keeps it open as fd 3,
@@ -110,7 +120,9 @@ _resolve_target() {
       return 0
       ;;
   esac
-  rows="$(_tmux_read list-panes -a -F $'#{pane_id}\t#{@tmuxy-label}\t#{pane_title}\t#{session_name}:#{window_index}' 2>/dev/null || true)"
+  # The title is the app's (APP_PANE_TITLE_FMT): tmux seeds every untitled
+  # pane's title with the host name, which would otherwise name them all.
+  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{@tmuxy-label}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $4 "\t" $2 }')"
   if [ -z "$matches" ]; then
     matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$3 == want { print $1 "\t" $4 "\t" $3 }')"
