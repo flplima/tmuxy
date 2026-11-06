@@ -44,11 +44,42 @@ fn client_key(option: ManagedOption) -> String {
         .unwrap_or_default()
 }
 
+// ---- The UI's script-effect marks (`tmux_compat`): its own section, so the
+// other values above and below can grow without touching it.
+
+/// The marks a tmuxy script run carries ahead of its shell command, by the
+/// effect each names: what the UI writes and reads back.
+fn script_effect_tags(out: &mut String) {
+    let _ = writeln!(
+        out,
+        "\n/** What a script run that settles or re-lists is marked with (`tmux_compat::SETTLE_TAG`, `RELIST_TAG`). */\n\
+         export const SCRIPT_EFFECT_TAGS = {{"
+    );
+    for tag in [
+        tmuxy_core::tmux_compat::SETTLE_TAG,
+        tmuxy_core::tmux_compat::RELIST_TAG,
+    ] {
+        let effect = tag.split_once('=').map_or(tag, |(_, effect)| effect);
+        // Quoted only where a key must be, as prettier writes it.
+        let key = if effect
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            effect.to_string()
+        } else {
+            quoted(effect)
+        };
+        let _ = writeln!(out, "  {key}: {},", quoted(tag));
+    }
+    out.push_str("} as const;\n");
+}
+
 fn typescript() -> String {
     let mut out = String::new();
     for line in HEADER.lines() {
         let _ = writeln!(out, "// {line}");
     }
+    script_effect_tags(&mut out);
     let _ = writeln!(
         out,
         "\n/** The session parked pane-group members live in (`STASH_SESSION`). */\n\

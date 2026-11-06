@@ -1,7 +1,7 @@
 import { realId, type PaneId } from './ids';
 import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
-import { CLI_DISPATCHER } from './tmuxyConstants.gen';
+import { CLI_DISPATCHER, SCRIPT_EFFECT_TAGS } from './tmuxyConstants.gen';
 
 const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
 
@@ -23,14 +23,14 @@ export function script(name: string, ...args: Array<string | number>): string {
  * assignment the script ignores — and the essentials aliases' bodies carry
  * the same word, so the monitor reads one marker whoever sent the command.
  */
-export type ScriptEffect = 'settle' | 'relist-windows';
+export type ScriptEffect = keyof typeof SCRIPT_EFFECT_TAGS;
 
 export function scriptWith(
   effect: ScriptEffect,
   name: string,
   ...args: Array<string | number>
 ): string {
-  return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+  return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
 export function list(commands: ReadonlyArray<string>): string {
