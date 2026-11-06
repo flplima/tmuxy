@@ -257,17 +257,12 @@ impl StateAggregator {
         self.pane_reports = self.pane_reports.wrapping_add(1);
         self.panes_synced = true;
 
-        self.panes.retain(|pane_id, pane| {
-            if seen_panes.contains(pane_id) {
-                return true;
+        self.panes.retain(|pane_id, _| {
+            let listed = seen_panes.contains(pane_id);
+            if !listed {
+                debug!(pane = %pane_id, "pane gone");
             }
-            // A pane with no window came from another session's `%output`;
-            // `to_tmux_state` leaves it out.
-            if pane.window_id.is_none() {
-                return true;
-            }
-            debug!(pane = %pane_id, "pane gone");
-            false
+            listed
         });
         self.prune_capture_bookkeeping();
         resized_panes
