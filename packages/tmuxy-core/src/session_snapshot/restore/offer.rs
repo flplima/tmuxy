@@ -1,6 +1,3 @@
-//! A restored pane's command, offered or run: the `@tmuxy-ask` offer a
-//! restore hangs on a pane, and reading one back.
-
 use super::*;
 
 /// A restored pane's command, brought back. Run at once when asked to (or

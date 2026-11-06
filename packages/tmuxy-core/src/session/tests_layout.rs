@@ -1,7 +1,3 @@
-//! The config dir split by owner: what a launch writes where, the first-run
-//! starter, the theme lookup, and the migration of an older install. Every
-//! test works on a scratch [`Layout`], never the environment's directories.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

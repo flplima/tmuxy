@@ -2,7 +2,6 @@ use super::*;
 use crate::client_size::{SizePolicy, MIN_CLIENT_COLS, MIN_CLIENT_ROWS};
 use crate::control_mode::{StateEmitter, MAX_CLIPBOARD_BYTES};
 
-/// A sink that keeps every event.
 #[derive(Default)]
 struct Recorded(Mutex<Vec<HostEvent>>);
 
@@ -26,7 +25,6 @@ fn runtime() -> (Arc<SessionRuntime>, Arc<Recorded>) {
     (runtime, sink)
 }
 
-/// A monitor that records the resizes it is sent.
 fn resizing_monitor() -> (MonitorCommandSender, Arc<Mutex<Vec<(u32, u32)>>>) {
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let resizes = Arc::new(Mutex::new(Vec::new()));
@@ -79,13 +77,12 @@ async fn a_viewport_below_the_floor_is_raised_to_it() {
     );
 }
 
-/// The 12-touch bug. The size last sent is the record of a size that
-/// REACHED tmux, and it was written before anything was sent — so a
-/// monitor that had not registered its command channel yet meant the resize
-/// was dropped while the size was remembered as applied. Every later attempt
-/// then short-circuited on "same size as last time", and the client's
-/// viewport was lost for the life of the session: the window stayed at the
-/// control-mode PTY's 200x50 while a phone-width client drew 41 columns.
+/// The size last sent records a size that REACHED tmux. It was once written
+/// before anything was sent, so a monitor that had not registered its command
+/// channel yet dropped the resize while the size was remembered as applied;
+/// every later attempt short-circuited on "same size as last time", and the
+/// window stayed at the control-mode PTY's 200x50 while a phone-width client
+/// drew 41 columns.
 #[tokio::test]
 async fn a_size_that_reached_no_monitor_is_asked_for_again() {
     let (runtime, _) = runtime();
@@ -96,13 +93,11 @@ async fn a_size_that_reached_no_monitor_is_asked_for_again() {
         "a size nothing received must not be recorded as applied"
     );
 
-    // The monitor comes up: the size the clients asked for goes to it.
     let (tx, resizes) = resizing_monitor();
     runtime.connected(tx).await;
     assert_eq!(resizes_seen(&resizes, 1).await, vec![(41, 29)]);
     assert_eq!(runtime.sent_size(), Some((41, 29)));
 
-    // ...and the same size again is not re-sent on every report.
     runtime.set_client_size(1, 41, 29).await;
     assert_eq!(resizes_seen(&resizes, 2).await.len(), 1);
 }
@@ -126,8 +121,6 @@ async fn a_reconnected_monitor_is_told_the_clients_size_again() {
     assert_eq!(runtime.sent_size(), Some((41, 29)));
 }
 
-/// A client that goes away stops holding the session small: the session is
-/// sized to the clients still watching.
 #[tokio::test]
 async fn a_client_that_leaves_stops_holding_the_session_small() {
     let (runtime, _) = runtime();
@@ -141,8 +134,6 @@ async fn a_client_that_leaves_stops_holding_the_session_small() {
     assert_eq!(resizes_seen(&resizes, 3).await[2], (200, 50));
 }
 
-/// `@tmuxy-size` picks the session's size from the clients' viewports: the
-/// smallest by default, the largest, or a fixed grid no client report moves.
 #[tokio::test]
 async fn the_session_is_sized_by_its_size_policy() {
     let (runtime, _) = runtime();
@@ -163,15 +154,12 @@ async fn the_session_is_sized_by_its_size_policy() {
         .await;
     assert_eq!(resizes_seen(&resizes, 4).await[3], (100, 30));
 
-    // A client resizing its window changes nothing a fixed size says.
     runtime.set_client_size(2, 40, 20).await;
     runtime.client_left(1).await;
     assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
     assert_eq!(runtime.sent_size(), Some((100, 30)));
 }
 
-/// `latest` follows the client used last: the one that reported a size, and
-/// then whichever sends a command.
 #[tokio::test]
 async fn a_latest_session_follows_the_client_used_last() {
     let (runtime, _) = runtime();
@@ -193,13 +181,10 @@ async fn a_latest_session_follows_the_client_used_last() {
     runtime.set_client_size(2, 80, 60).await;
     assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
 
-    // A new size from it is a use.
     runtime.set_client_size(2, 90, 40).await;
     assert_eq!(resizes_seen(&resizes, 5).await[4], (90, 40));
 }
 
-/// A command waits for a monitor that is connecting, is refused at once by
-/// one that stopped, and goes straight to one that is up.
 #[tokio::test]
 async fn a_command_waits_only_for_a_monitor_that_is_coming() {
     let (runtime, _) = runtime();
@@ -227,9 +212,9 @@ async fn a_command_waits_only_for_a_monitor_that_is_coming() {
 async fn a_clipboard_write_is_sent_and_one_over_the_cap_is_not() {
     let (runtime, sink) = runtime();
     runtime.write_clipboard(Some(&"%0".parse().unwrap()), "yanked".into());
-    // SEC-01/SEC-13. The paste-buffer mirror arrives with no pane, so the
-    // aggregator's active-pane gate never sees it — the size cap is the one
-    // bound that path has.
+    // A pane's output is untrusted and can make a clipboard write of any
+    // size. The paste-buffer mirror arrives with no pane, so the aggregator's
+    // active-pane gate never sees it: the size cap is the one bound it has.
     runtime.write_clipboard(None, "x".repeat(MAX_CLIPBOARD_BYTES + 1));
     let events = sink.0.lock().unwrap();
     assert_eq!(events.len(), 1);
@@ -238,8 +223,6 @@ async fn a_clipboard_write_is_sent_and_one_over_the_cap_is_not() {
     );
 }
 
-/// The greeting names the client, and carries the bindings once the
-/// monitor has read them.
 #[test]
 fn a_greeting_carries_the_bindings_once_they_are_known() {
     let (runtime, _) = runtime();

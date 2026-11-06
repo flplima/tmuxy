@@ -52,8 +52,6 @@ fn writer_loop(rx: Receiver<String>, mut file: File, path: PathBuf, dropped: Arc
         match rx.recv_timeout(Duration::from_millis(500)) {
             Ok(line) => {
                 write_line(&mut file, &mut size, &path, &line);
-                // Drain everything queued, then flush once — one fsync-free
-                // flush per burst rather than per line.
                 while let Ok(next) = rx.try_recv() {
                     write_line(&mut file, &mut size, &path, &next);
                 }
@@ -97,9 +95,6 @@ fn write_line(file: &mut File, size: &mut u64, path: &Path, line: &str) {
     }
 }
 
-/// Rename the current file to `<path>.1` (overwriting any previous backup) and
-/// reopen a fresh empty file. Best-effort: on failure the caller keeps writing
-/// to the existing handle.
 fn rotate(path: &Path) -> Option<(File, u64)> {
     let backup = PathBuf::from(format!("{}.1", path.display()));
     std::fs::rename(path, &backup).ok()?;
@@ -220,7 +215,6 @@ where
     }
 }
 
-/// Per-span state kept in the registry's extensions between open and close.
 struct SpanState {
     start: Instant,
     fields: Map<String, Value>,
@@ -234,8 +228,6 @@ pub(super) fn target_allowed(target: &str) -> bool {
         || target.starts_with("tmuxy_tauri")
 }
 
-/// Field visitor implementing the allowlist + scrub policy. Anything not
-/// explicitly admitted is silently dropped.
 #[derive(Default)]
 pub(super) struct FieldVisitor {
     pub(super) fields: Map<String, Value>,
@@ -243,8 +235,7 @@ pub(super) struct FieldVisitor {
 }
 
 impl FieldVisitor {
-    /// The event's message is its name, scrubbed like free text; every other
-    /// field goes through the one policy ([`admit`]).
+    /// The event's message is its name, scrubbed like free text.
     pub(super) fn put_str(&mut self, key: &str, value: &str) {
         let lvl = level();
         if key == "message" {
@@ -276,8 +267,7 @@ impl Visit for FieldVisitor {
 
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         // `%x` (Display) and `?x` (Debug) fields, and the event message, all
-        // arrive here. Debug adds surrounding quotes for strings — trim them so
-        // classification and scrubbing see the underlying value.
+        // arrive here; Debug quotes strings, so trim the quotes.
         let rendered = format!("{value:?}");
         self.put_str(field.name(), rendered.trim_matches('"'));
     }

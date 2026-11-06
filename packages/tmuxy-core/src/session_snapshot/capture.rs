@@ -2,27 +2,19 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::*;
 
-// =============================================================================
-// Reading the tree out of tmux
-// =============================================================================
-
-/// The separator of a record's fields. `s/,/%2C/` ([`escaped`]) keeps a comma
-/// in a path or a name from splitting the record; everything else is
-/// comma-free by construction (ids, flags, numbers, base64).
+/// The separator of a record's fields. Free text goes through `s/,/%2C/`
+/// ([`escaped`]); every other field is comma-free (ids, flags, numbers,
+/// base64).
 const FIELD_SEP: char = ',';
 
-/// A field [`escaped`] printed, with its commas back.
 fn unescape(field: &str) -> String {
     field.replace("%2C", ",")
 }
 
-/// A column printed with its commas escaped.
 fn escaped(column: &str) -> String {
     format!("s/,/%2C/:{column}")
 }
 
-/// The columns of a window record, in the order the query prints them: the
-/// one list both [`query_windows`] and [`parse_windows`] read.
 fn window_columns() -> Vec<String> {
     let mut columns: Vec<String> = [
         "window_id",
@@ -38,8 +30,6 @@ fn window_columns() -> Vec<String> {
     columns
 }
 
-/// The columns of a pane record, for [`query_panes`], [`query_stash_panes`]
-/// and [`parse_panes`] alike.
 fn pane_columns() -> Vec<String> {
     vec![
         "pane_id".into(),
@@ -57,7 +47,6 @@ fn pane_columns() -> Vec<String> {
     ]
 }
 
-/// The `-F` format printing `columns` as one record.
 fn format_of(columns: &[String]) -> String {
     columns
         .iter()
@@ -212,8 +201,6 @@ pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
                 window_type: opt(f[tmux_options::WINDOW_TYPE]),
                 float_parent_id: WindowId::parse(f[tmux_options::FLOAT_PARENT].trim()).ok(),
                 options,
-                // Kept in the classic form every supported tmux takes back:
-                // tmux 3.8 prints JSON here, which no older one reads.
                 layout: restorable_layout(&unescape(f[escaped("window_layout").as_str()])),
                 name: unescape(f[escaped("window_name").as_str()]),
             })
@@ -325,10 +312,6 @@ pub fn assemble(
         hidden: Vec::new(),
     }
 }
-
-// =============================================================================
-// What a pane is running
-// =============================================================================
 
 /// Whether argv names a shell rather than a program worth bringing back.
 pub fn is_shell(argv: &[String]) -> bool {

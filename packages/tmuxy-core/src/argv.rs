@@ -4,8 +4,6 @@
 //! sends a command builds its argv and renders it here, so a word is quoted
 //! for the reader it is going to, once.
 
-/// What is safe unquoted in either line: no space, quote, `#`, `$`, `~`,
-/// brace, `;` or backslash.
 fn plain(word: &str) -> bool {
     !word.is_empty()
         && word
@@ -37,7 +35,6 @@ pub fn control_line<S: AsRef<str>>(argv: &[S]) -> String {
         .join(" ")
 }
 
-/// One word of a shell line: as it is when plain, else single-quoted.
 pub fn shell_word(word: &str) -> String {
     if plain(word) {
         return word.to_string();
@@ -45,7 +42,6 @@ pub fn shell_word(word: &str) -> String {
     format!("'{}'", word.replace('\'', r"'\''"))
 }
 
-/// `argv` as one shell line.
 pub fn shell_line<S: AsRef<str>>(argv: &[S]) -> String {
     argv.iter()
         .map(|w| shell_word(w.as_ref()))
@@ -60,7 +56,6 @@ pub fn run_shell_word(word: &str) -> String {
     shell_word(word).replace('#', "##")
 }
 
-/// `argv` as one shell line for `run-shell` ([`run_shell_word`]).
 pub fn run_shell_line<S: AsRef<str>>(argv: &[S]) -> String {
     argv.iter()
         .map(|w| run_shell_word(w.as_ref()))

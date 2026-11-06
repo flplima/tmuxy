@@ -31,14 +31,12 @@ use crate::constants::tmux_options::{
 };
 use crate::{CommandError, PaneId};
 
-/// One tmux command as its words.
 pub type Argv = Vec<String>;
 
 /// Where a sender's commands go: reads that print, and lists of mutations run
 /// as one. A value in a command is always one word of its argv, so each
 /// transport quotes it for the reader it goes to.
 pub trait Tmux: Sync {
-    /// Run a command that only reads, and what it printed.
     fn read(&self, argv: Argv) -> impl Future<Output = Result<String, CommandError>> + Send;
     /// Run a list of commands that change something, in one go.
     fn mutate(&self, commands: Vec<Argv>) -> impl Future<Output = Result<(), CommandError>> + Send;
@@ -57,7 +55,6 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// taking it for abandoned (a killed sender's) and asking over it.
 const PENDING_LIMIT: Duration = Duration::from_secs(60);
 
-/// The `@tmuxy-pane-state` a pane waiting on the user's answer shows.
 const NEEDS_INPUT: &str = "needs-input";
 
 /// How long a send may take, from the moment it starts waiting its turn.
@@ -169,16 +166,12 @@ impl SendRules {
         }
     }
 
-    /// Read the rules off `pane`.
     pub async fn read<T: Tmux>(tmux: &T, pane: &PaneId) -> Result<Self, CommandError> {
         Ok(Self::parse(
             &tmux.read(display(pane, &Self::format())).await?,
         ))
     }
 
-    /// Whether the question is skipped: asking is off, the allow list names
-    /// one of `callers` or the pane, or the program in the pane is one sends
-    /// may go into.
     pub fn skip_question(&self, callers: &[&str], pane: &PaneId) -> bool {
         self.send_ask == "off"
             || entries(&self.allow).any(|entry| entry == pane.as_str() || callers.contains(&entry))
@@ -197,7 +190,6 @@ impl SendRules {
     }
 }
 
-/// A comma list's entries, spaces dropped, empty ones skipped.
 fn entries(list: &str) -> impl Iterator<Item = &str> + '_ {
     list.split(',')
         .map(str::trim)
@@ -347,8 +339,6 @@ pub async fn wait_turn<T: Tmux>(
     }
 }
 
-/// `@tmuxy-ask`'s value: base64 of the question, so the free-text keys survive
-/// a comma-separated `list-panes`.
 pub fn encode_question(token: &str, caller: &str, keys: &[String]) -> String {
     let payload = serde_json::json!({ "token": token, "caller": caller, "keys": keys });
     base64::engine::general_purpose::STANDARD.encode(payload.to_string())

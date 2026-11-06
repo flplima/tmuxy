@@ -4,7 +4,6 @@ use super::tests_capture::{fixture, joined, window_line};
 use super::*;
 use crate::ids::test_ids::pid;
 
-/// The restore-on-start path builds onto the window `new-session -A` made.
 #[test]
 fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() {
     let lines = joined(&plan(
@@ -32,7 +31,6 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
         !lines.iter().any(|l| l.starts_with("run: move-window")),
         "the first window is at 0 already"
     );
-    // The hint names the first window and its first pane's directory.
     let snap = fixture();
     let (name, cwd) = snap.first_window_hint("/home/x").unwrap();
     assert_eq!(name, "main");
@@ -81,7 +79,6 @@ fn focus_is_restored_last() {
     assert!(lines.contains(&"run: select-pane -t work:0.1".to_string()));
 }
 
-/// The executor threads each answer into the following step.
 #[tokio::test]
 async fn apply_feeds_an_answer_into_the_next_step() {
     let mut seen = Vec::new();

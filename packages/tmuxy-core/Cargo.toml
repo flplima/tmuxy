@@ -32,7 +32,6 @@ vt100 = "0.16"
 icy_sixel = "0.5"
 # PNG encoding for sixel + kitty-RGBA outputs.
 png = "0.18"
-# Standards-compliant base64 decoder for kitty/iTerm2 image payloads.
 base64.workspace = true
 flate2 = "1"
 

@@ -14,7 +14,6 @@ fn single_row_pane_wrapping_output_does_not_panic() {
     // One-row grid, output far wider than the grid so it wraps repeatedly.
     let mut parser = vt100::Parser::new(1, 20, 0);
     parser.process(b"the quick brown fox jumps over the lazy dog 0123456789");
-    // Still exactly one row after all the wrapping.
     assert_eq!(extract_cells_from_screen(parser.screen()).len(), 1);
 }
 
@@ -34,7 +33,6 @@ fn one_by_one_pane_does_not_panic() {
     assert_eq!(extract_cells_from_screen(parser.screen()).len(), 1);
 }
 
-/// Row 0 of the screen as text.
 fn first_row(parser: &vt100::Parser) -> String {
     parser
         .screen()

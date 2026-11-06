@@ -3,12 +3,6 @@
 //! These run as an integration test so they can use a clean `cfg(test)` profile
 //! without contending with the lib's `#[allow(clippy::unwrap_used)]` tests
 //! module on the same source file.
-//!
-//! Each property drives the aggregator with synthetic event sequences and
-//! asserts an invariant that *must* hold regardless of input ordering. The
-//! aggregator has no tokio/async dependencies, so these properties exercise
-//! it purely through `step`/`step_at` and `tick`, the entry points the
-//! runtime uses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -75,10 +69,8 @@ fn the_seam_events_reach_every_effect_of_a1() {
 }
 
 proptest! {
-    /// `step` must never panic on any sequence of synthetic events.
-    /// The aggregator wraps vt100 in a panic guard (`safe_process` in
-    /// `state.rs`), so even adversarially-malformed payloads should be
-    /// contained.
+    /// `step` must never panic on any sequence of synthetic events: a panic
+    /// takes down the monitor task that owns the session.
     #[test]
     fn step_never_panics(events in prop::collection::vec(any_event_strategy(), 1..50)) {
         let mut agg = StateAggregator::new();
@@ -87,18 +79,14 @@ proptest! {
         }
     }
 
-    /// After processing a sequence of events, the aggregator's reported
-    /// window count must equal the number of distinct windows it has seen
-    /// minus those that were closed. This catches double-counts in the
-    /// add/close bookkeeping that earlier hand-rolled tests didn't.
+    /// Closes can only ever reduce the window count; closing a window that
+    /// does not exist is a no-op, not an error.
     #[test]
     fn window_count_matches_add_close_delta(
         adds in prop::collection::vec(prop::sample::select(vec!["@0", "@1", "@2", "@3"]), 0..10),
         closes in prop::collection::vec(prop::sample::select(vec!["@0", "@1", "@2", "@3"]), 0..10),
     ) {
         let mut agg = StateAggregator::new();
-        // Apply adds first, then closes — the order matters because closing
-        // a non-existent window is a no-op, not an error.
         for w in &adds {
             agg.step(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
@@ -107,7 +95,6 @@ proptest! {
             agg.step(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
         let after_closes = agg.to_tmux_state().windows.len();
-        // Sanity: closes can only ever reduce the window count.
         prop_assert!(after_closes <= after_adds);
     }
 
@@ -124,7 +111,6 @@ proptest! {
         for ev in events {
             let _ = agg.step_at(ev, t0);
         }
-        // Settling remains armed while events flow.
         prop_assert!(agg.is_settling());
         agg.clear_settling();
         prop_assert!(!agg.is_settling());
@@ -222,10 +208,8 @@ proptest! {
         let mut agg = StateAggregator::new();
         let unique: HashSet<PaneId> = pane_ids.iter().cloned().collect();
         let queued = agg.queue_captures(&pane_ids);
-        // First call queues each distinct id exactly once.
         prop_assert_eq!(queued.len(), unique.len(),
             "first queue should match the number of distinct ids");
-        // Second call queues nothing — the queue already has them.
         let requeued = agg.queue_captures(&pane_ids);
         prop_assert!(requeued.is_empty(),
             "re-queueing the same ids should be a no-op");
@@ -265,8 +249,7 @@ proptest! {
     /// Settling timer end-to-end: regardless of how many window-typed events
     /// arrive inside the settling window, none of them emits, and `tick(now)`
     /// past the deadline clears `is_settling` (it returns at most one
-    /// consolidated emission by its type). This is the property that was previously untestable
-    /// because the timing lived on the monitor's `RunState`.
+    /// consolidated emission by its type).
     #[test]
     fn settling_window_emits_at_most_once_and_clears(
         // Up to 12 window-typed events inside the settling window. We seed
@@ -276,7 +259,6 @@ proptest! {
             prop::sample::select(vec!["@0", "@1", "@2", "@3"]).prop_map(|w| w.parse::<WindowId>().unwrap()),
             0..12,
         ),
-        // Per-event time offset inside the settling window.
         offsets in prop::collection::vec(0u64..400, 0..12),
     ) {
         let mut agg = StateAggregator::new();
@@ -308,7 +290,6 @@ proptest! {
 
         // Advance to well past the safety ceiling and tick once.
         let post_deadline = t0 + std::time::Duration::from_secs(2);
-        // `tick` returns at most one emission by its type.
         agg.tick(post_deadline);
 
         prop_assert!(!agg.is_settling(),

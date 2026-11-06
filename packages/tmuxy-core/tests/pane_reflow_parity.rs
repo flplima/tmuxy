@@ -24,7 +24,6 @@ const PANE_W: u16 = 80;
 const PANE_H: u16 = 20;
 const SHRUNK_H: u16 = 12;
 
-/// The emulator's visible grid, as one string per row.
 fn emulated(parser: &vt100::Parser) -> Vec<String> {
     extract_cells_from_screen(parser.screen())
         .iter()

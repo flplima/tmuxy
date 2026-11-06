@@ -1,5 +1,3 @@
-//! The runtime as the monitor's one emitter: it feeds the sink.
-
 use std::sync::Arc;
 
 use super::SessionRuntime;
@@ -25,7 +23,6 @@ impl LogSink for SessionRuntime {
     }
 }
 
-/// The one emitter: the monitor feeds the runtime, the runtime feeds the sink.
 impl StateEmitter for Arc<SessionRuntime> {
     fn emit_state(&self, update: StateUpdate) {
         self.preview.sync_update(&self.preview_scope, &update);
@@ -74,8 +71,7 @@ impl StateEmitter for Arc<SessionRuntime> {
         self.emit(HostEvent::Message { text });
     }
 
-    /// The config has been sourced and the settings enforced: the bindings
-    /// and the theme are the ones to show now — the prefix read before the
+    /// The bindings and theme are read again now: the prefix read before the
     /// sync is tmux's default on a server that already existed. Read off the
     /// monitor loop, whose own connection answers them.
     fn on_initial_sync_complete(&self) {

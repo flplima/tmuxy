@@ -1,12 +1,9 @@
 //! The tmux command-list grammar: how tmux splits what a client sends into
 //! commands and words, and the commands tmuxy has a policy for.
 //!
-//! Every reader of a command list asks this one: the router
-//! (`command_router`), the re-lists behind a command (`tmux_compat`), the
-//! monitor's failure reporting and settling, and the `run-shell` relay. Each
-//! used to tokenize for itself, and they disagreed: a `movew` inside an
-//! `if-shell { }`, or `set-o @tmuxy-…`, was a command one reader saw and the
-//! next did not.
+//! Every reader of a command list asks this one: readers that tokenize for
+//! themselves disagree, and a `movew` inside an `if-shell { }`, or
+//! `set-o @tmuxy-…`, becomes a command one reader sees and the next does not.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -19,9 +16,6 @@ use crate::tmux_quote;
 /// `resizew` targets the current window, which is the new one after `breakp`,
 /// so the new window matches the viewport at creation rather than inheriting
 /// the half-width post-split size or the control-mode PTY default.
-///
-/// Tabs carry no marker (an untagged window is a tab), so there is nothing to
-/// tag.
 pub fn new_window_rewrite(session: &str, size: Option<(u32, u32)>) -> String {
     let session = tmux_quote(session);
     match size {
@@ -43,7 +37,6 @@ pub struct TmuxCommand {
 }
 
 impl TmuxCommand {
-    /// Whether tmux runs this command for `verb`.
     pub fn named_by(&self, verb: &str) -> bool {
         verb == self.alias || (verb.starts_with(self.unique_prefix) && self.name.starts_with(verb))
     }
@@ -111,7 +104,6 @@ pub struct Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    /// The verb, the command's first word.
     pub fn verb(&self) -> &'a str {
         self.words.first().copied().unwrap_or("")
     }
@@ -121,12 +113,10 @@ impl<'a> Command<'a> {
         self.words.get(1..).unwrap_or(&[])
     }
 
-    /// Every word, the verb first.
     pub fn words(&self) -> &[&'a str] {
         &self.words
     }
 
-    /// Whether tmux runs `command` for this one.
     pub fn runs(&self, command: &TmuxCommand) -> bool {
         command.named_by(self.verb())
     }
@@ -166,24 +156,19 @@ impl<'a> CommandList<'a> {
         self.commands.iter()
     }
 
-    /// The commands of the list itself, outside any block.
     pub fn top_level(&self) -> impl Iterator<Item = &Command<'a>> {
         self.commands.iter().filter(|c| c.depth == 0)
     }
 
-    /// Whether any command of the list, inside a block or not, runs
-    /// `command`.
-    ///
-    /// The keyboard actor prepends `select-window -t @N \; select-pane -t %N \;`
-    /// to every bound command, so a binding arrives as a list whose FIRST
-    /// command is the pin: a guard written as `starts_with("<verb>")` never
-    /// fires once a binding is pinned. And `if-shell -F 1 { resizew }` runs a
-    /// `resizew` too.
+    /// Any command, inside a block or not. The keyboard actor prepends
+    /// `select-window -t @N \; select-pane -t %N \;` to every bound command,
+    /// so a binding arrives as a list whose FIRST command is the pin: a guard
+    /// written as `starts_with("<verb>")` never fires once a binding is
+    /// pinned. And `if-shell -F 1 { resizew }` runs a `resizew` too.
     pub fn runs(&self, command: &TmuxCommand) -> bool {
         self.every().any(|c| c.runs(command))
     }
 
-    /// Whether the list has any block in it.
     pub fn has_blocks(&self) -> bool {
         self.commands.iter().any(|c| c.depth > 0)
     }
@@ -257,7 +242,6 @@ impl<'a> CommandList<'a> {
     }
 }
 
-/// Read a command list into its commands (see [`CommandList`]).
 pub fn parse(list: &str) -> CommandList<'_> {
     #[derive(PartialEq)]
     enum Quote {

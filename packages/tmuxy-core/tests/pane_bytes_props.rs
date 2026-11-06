@@ -30,7 +30,6 @@ fn tmux_escape(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// What a pane writes: any byte, valid UTF-8 or not.
 fn escapable_bytes() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..64)
 }

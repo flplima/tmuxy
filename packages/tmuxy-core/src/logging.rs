@@ -10,15 +10,14 @@
 
 mod log_file;
 
-/// The filter used when `RUST_LOG` says nothing.
 const DEFAULT_LOG_FILTER: &str = "tmuxy=info,warn";
 
 /// What the log file keeps: tmuxy's own lines, never a dependency's.
 const FILE_LOG_FILTER: &str = "tmuxy=info";
 
-/// The trace layer gets its OWN filter, decoupled from stderr's: it captures
-/// DEBUG from the tmuxy crates so the hot-path `debug!` signal events (command
-/// verb, emit seq) land in the trace file without spamming stderr.
+/// The trace layer's own filter, decoupled from stderr's, so the hot-path
+/// `debug!` events (command verb, emit seq) land in the trace file without
+/// spamming stderr.
 const TRACE_LOG_FILTER: &str = "tmuxy=debug";
 
 /// The stderr `fmt` layer and the NDJSON `trace` layer (`docs/TRACING.md`).

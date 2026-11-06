@@ -3,8 +3,6 @@
 //! Unknown keys are errors (a misspelt `surfce` must not silently fall back to
 //! a default), the file is capped before it is parsed, and every problem is
 //! reported with the line it is on, which is what `tmuxy plugin check` prints.
-//! The raw form keeps each value's span; [`parse`] validates it into a plain
-//! [`Manifest`] the rest of the module uses.
 
 use serde::{Deserialize, Serialize};
 use toml::Spanned;
@@ -24,7 +22,6 @@ pub use sections::{
 /// Larger than any honest manifest; checked before parsing.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
-/// A validated manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
     pub name: String,
@@ -82,7 +79,6 @@ impl Platform {
     }
 }
 
-/// Which menu offers an action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Menu {
@@ -104,7 +100,6 @@ impl Menu {
     }
 }
 
-/// Where an action's command runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Surface {
@@ -174,8 +169,6 @@ impl Size {
         format!("{}x{}", part(self.width), part(self.height))
     }
 }
-
-// ── The raw form ────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -256,7 +249,6 @@ struct RawCli {
     platforms: Option<Vec<Platform>>,
 }
 
-/// Whether `text` is plain text for a menu label: no control characters.
 fn is_label(text: &str) -> bool {
     !text.trim().is_empty() && text.chars().count() <= 80 && !text.chars().any(char::is_control)
 }
@@ -560,7 +552,6 @@ fn validate(raw: RawManifest, report: &mut Report<'_>) -> Manifest {
 }
 
 impl Manifest {
-    /// Read and parse the manifest at `root`.
     pub fn load(root: &std::path::Path) -> Result<Manifest, Vec<Diagnostic>> {
         let path = root.join(super::MANIFEST_FILE);
         let text = read_capped(&path).map_err(|message| {
@@ -573,7 +564,6 @@ impl Manifest {
         parse(&text)
     }
 
-    /// What the plugin can do, as the index lists it.
     pub fn capabilities(&self) -> Vec<&'static str> {
         [
             ("actions", !self.actions.is_empty()),
@@ -589,31 +579,27 @@ impl Manifest {
         .collect()
     }
 
-    /// Whether the plugin as a whole is for this platform.
     pub fn runs_here(&self) -> bool {
         runs_on(&self.platforms)
     }
 
-    /// The actions that apply on this platform.
     pub fn actions_here(&self) -> impl Iterator<Item = &Action> {
         self.actions.iter().filter(|a| runs_on(&a.platforms))
     }
 
-    /// The verbs that apply on this platform.
     pub fn cli_here(&self) -> impl Iterator<Item = &CliVerb> {
         self.cli.iter().filter(|c| runs_on(&c.platforms))
     }
 }
 
-/// Whether a `platforms` list includes this platform (`None`: every one).
 pub fn runs_on(platforms: &Option<Vec<Platform>>) -> bool {
     platforms
         .as_ref()
         .is_none_or(|list| list.contains(&super::current_platform()))
 }
 
-/// The manifest's text, refusing a file larger than the cap before reading
-/// it whole, and anything but a regular file.
+/// Refuses anything but a regular file (a symlink too), and reads at most one
+/// byte past the cap so `parse` can refuse an oversized file.
 fn read_capped(path: &std::path::Path) -> Result<String, String> {
     use std::io::Read;
     let meta = std::fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;

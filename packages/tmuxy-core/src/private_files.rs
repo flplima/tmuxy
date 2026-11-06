@@ -1,7 +1,7 @@
 //! Files and directories only their owner can read, for what records a
-//! user's work: session snapshots (cwds, argv, scrollback), the app's managed
-//! state, trace preferences, plugin settings and the lockfile. On Unix a directory is `0700` and a file
-//! `0600`, whatever the umask, including one an older build left looser.
+//! user's work (session snapshots hold cwds, argv and scrollback). On Unix a
+//! directory is `0700` and a file `0600`, whatever the umask, including one
+//! an older build left looser.
 
 use std::io;
 use std::path::Path;

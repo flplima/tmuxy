@@ -1,24 +1,12 @@
-//! Shared constants for tmuxy-core: the `@tmuxy-*` option names, the tmux
-//! format strings the monitor sends, and the control-mode event prefixes.
-//! Keeping them in one place makes the wire vocabulary obvious at a glance and
-//! ensures a typo can't diverge a sender from its reader.
-//!
-//! The string forms of window kinds are canonical in `WindowType::as_str` /
-//! `WindowType::parse` (`lib.rs`), not here.
-
 /// The name prefix of a sidebar window (`__sidebar-left`, `__sidebar-right`):
 /// how a sidebar left without its `@tmuxy-window-type` tag is recognised. The
 /// client names the windows it creates with it (`SIDEBAR_WINDOW_NAME` in
 /// tmuxy-ui's `domain/commands.ts`, from the generated constants).
 pub const SIDEBAR_WINDOW_PREFIX: &str = "__sidebar-";
 
-/// User-option keys tmuxy sets on tmux windows and the global session.
-/// All of these are `@tmuxy-*` so they can't collide with vanilla tmux options
-/// or with user-installed plugins.
-///
-/// Use these constants instead of string literals when constructing tmux
-/// commands like `set -w @tmuxy-window-type float` or format strings like
-/// `#{@tmuxy-window-type}`.
+/// User-option keys tmuxy sets on tmux windows, panes and the global session,
+/// all `@tmuxy-*` so they cannot collide with tmux's own options or a user's
+/// plugins. The schema is in docs/TMUX-TAGS.md.
 pub mod tmux_options {
     /// Type discriminator, set only on non-tab windows (`float`,
     /// `sidebar-left`, `sidebar-right`). Tabs carry no marker
@@ -33,24 +21,21 @@ pub mod tmux_options {
     pub const FLOAT_HEIGHT: &str = "@tmuxy-float-height";
     /// Drawer attachment edge (`top`/`bottom`/`left`/`right`).
     pub const FLOAT_DRAWER: &str = "@tmuxy-float-drawer";
-    /// Backdrop style for the float (currently `dim`/`blur`/none).
+    /// Backdrop style for the float (`dim`/`blur`/unset).
     pub const FLOAT_BG: &str = "@tmuxy-float-bg";
     /// `1` to suppress the float's header chrome.
     pub const FLOAT_NOHEADER: &str = "@tmuxy-float-noheader";
 
     /// Width of a sidebar column in terminal columns, when the user has dragged
-    /// it off its default. Set on the sidebar window, so the width is a property
-    /// of the column itself — it survives a reload, and every client attached to
-    /// the session draws the column at the width tmux actually sized the pane
-    /// to. Unset means the default for that side (`sidebar_dock::LEFT_COLS` /
-    /// `RIGHT_COLS`).
+    /// it off its default. Set on the sidebar window, so it survives a reload
+    /// and every client draws the width tmux sized the pane to. Unset: the
+    /// side's default (`sidebar_dock::LEFT_COLS` / `RIGHT_COLS`).
     pub const SIDEBAR_COLS: &str = "@tmuxy-sidebar-cols";
 
     /// Window-scoped flag on a sidebar column the user has closed: `1` while
     /// hidden, unset while shown. Closing a column keeps its pane alive (the
-    /// dock's shell, the tree's widget), so the window's existence alone can
-    /// no longer mean "open" — without this a hidden column came back on every
-    /// reload and in every other client.
+    /// dock's shell, the tree's widget), so the window's existence does not
+    /// mean "open".
     pub const SIDEBAR_HIDDEN: &str = "@tmuxy-sidebar-hidden";
     /// `1` while the window keeps only the first-level row that holds the
     /// active pane expanded and collapses the others to one row per pane
@@ -66,14 +51,11 @@ pub mod tmux_options {
     /// keyboard focus somewhere the helper cannot reach itself: `left` or
     /// `right` for the matching sidebar column, `panes` to leave one.
     ///
-    /// `packages/tmuxy-cli/bin/tmuxy/nav` sets it when a directional `select-pane` is a no-op at
-    /// the grid's edge and that edge has an open sidebar. Focusing a sidebar is
-    /// a client-side concept — its pane lives in another window, so
-    /// `select-pane` would switch the visible tab — which leaves no tmux
-    /// command the script could run. The option rides the existing
-    /// `list-windows` poll to every client (it is read as a per-window column,
-    /// but set at session scope so every row carries it), and the client that
-    /// acts on it unsets it.
+    /// `packages/tmuxy-cli/bin/tmuxy/nav` sets it when a directional
+    /// `select-pane` is a no-op at the grid's edge and that edge has an open
+    /// sidebar: a sidebar's pane lives in another window, so `select-pane`
+    /// would switch the visible tab. Read as a `list-windows` column (session
+    /// scope puts it on every row); the client that acts on it unsets it.
     pub const FOCUS_REQUEST: &str = "@tmuxy-focus-request";
 
     /// How a pane says it should be brought back after a session restore
@@ -98,7 +80,7 @@ pub mod tmux_options {
 
     /// Global revision the group scripts bump after a change tmux does not
     /// announce; every pane inherits it, so the monitor's pane-metadata
-    /// subscription (`tmux_formats::SUBSCRIBE_PANE_TITLES_CMD`) fires.
+    /// subscription (`tmux_formats::subscribe_pane_titles_command`) fires.
     pub const GROUP_REV: &str = "@tmuxy-group-rev";
 
     /// Global inventory of the installed plugins' menu actions: base64 of a
@@ -221,16 +203,13 @@ pub mod tmux_options {
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).
 ///
-/// A sidebar window is NOT sized to the client viewport like tabs and floats
-/// are — it is a narrow column docked beside the pane grid, so it gets its own
-/// fixed width. Its rows match the viewport exactly: both columns are flex
-/// siblings of the pane container and run the full height of the app body, and
-/// neither carries a header of its own (the title lives in the app header).
+/// A sidebar window gets its own fixed width, not the viewport's; its rows are
+/// the viewport's, since both columns run the full height of the app body with
+/// no header of their own.
 ///
-/// The widths are mirrored in the frontend (`tmuxy-ui/src/machines/constants.ts`,
-/// `LEFT_SIDEBAR_COLS` / `RIGHT_SIDEBAR_COLS`) — each column is drawn at exactly
-/// this many cells, so the two sides must agree or the rendered terminal and the
-/// tmux pane disagree about where lines wrap.
+/// The frontend draws each column at exactly these widths (generated into
+/// `tmuxyConstants.gen.ts` as `SIDEBAR_DOCK`), so the rendered terminal and
+/// the tmux pane agree on where lines wrap.
 pub mod sidebar_dock {
     use crate::WindowType;
 
@@ -246,11 +225,8 @@ pub mod sidebar_dock {
     pub const MIN_COLS: u32 = 16;
     pub const MAX_COLS: u32 = 120;
 
-    /// Column width for a sidebar window of the given type. Returns `None` for
-    /// any non-sidebar type, which is sized to the viewport instead.
-    ///
-    /// `user_cols` is the window's `@tmuxy-sidebar-cols` override, if the user
-    /// has dragged the column off its default width.
+    /// Column width for a sidebar window, `None` for any other type (sized to
+    /// the viewport). `user_cols` is the window's `@tmuxy-sidebar-cols`.
     pub fn cols(window_type: WindowType, user_cols: Option<u32>) -> Option<u32> {
         let default = match window_type {
             WindowType::SidebarLeft => LEFT_COLS,
@@ -270,22 +246,15 @@ pub mod sidebar_dock {
     }
 }
 
-/// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
-/// members). It is never attached, never shown in any session enumeration, and
-/// created lazily by the pane-group shell helpers. Keeping hidden panes here —
-/// rather than as extra windows in the attached session — means a native
-/// `tmux attach` (or any non-tmuxy client) sees only the user's real tabs, and
-/// the attached session's window list maps 1:1 to the tmuxy tab strip.
+/// The tmux session tmuxy parks HIDDEN pane-group members in, created lazily
+/// by the pane-group shell helpers and never attached or listed. Keeping them
+/// out of the attached session means a native `tmux attach` sees only the
+/// user's real tabs.
 pub const STASH_SESSION: &str = "__tmuxy_stash";
 
 pub mod tmux_formats;
 
-/// Control-mode event prefixes emitted by `tmux -CC` on its stdout.
-///
-/// Each constant matches the literal token tmux writes (including the leading
-/// `%`). Use these in `starts_with` / `strip_prefix` checks in
-/// `control_mode::parser` instead of repeated string literals — a typo will
-/// then be a compile error rather than a silently dropped event.
+/// Control-mode event prefixes as `tmux -CC` writes them on its stdout.
 pub mod control_events {
     pub const BEGIN: &str = "%begin ";
     pub const END: &str = "%end ";
@@ -314,13 +283,11 @@ pub mod control_events {
 
 /// Rows of emulator-side scrollback kept per pane.
 ///
-/// This is NOT user-facing history (copy mode fetches that from tmux on
-/// demand). It exists so a pane that SHRINKS can push its top rows somewhere
-/// and pull them back when it GROWS again — which is what tmux does on
-/// reflow. With zero scrollback those rows are destroyed, and the pane renders
-/// permanently offset until a capture-pane refill or `clear`. A pane can never
-/// grow by more than one screen height, so a couple of hundred rows is ample.
-/// The rows are stored without their blank tails (see packages/vt100/PATCHES.md).
+/// NOT user-facing history (copy mode fetches that from tmux). A pane that
+/// SHRINKS pushes its top rows here and pulls them back when it GROWS, as tmux
+/// does on reflow; with none, the pane renders offset until a capture-pane
+/// refill or `clear`. A pane never grows by more than one screen height. Rows
+/// are stored without their blank tails (packages/vt100/PATCHES.md).
 pub const REFLOW_SCROLLBACK_ROWS: usize = 256;
 
 /// How far into history a pane keeps its image placements, in rows, so the
