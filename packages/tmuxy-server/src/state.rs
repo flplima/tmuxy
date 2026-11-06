@@ -43,6 +43,23 @@ pub struct Frame {
     pub data: Arc<str>,
 }
 
+impl Frame {
+    /// The frame a stream sends for `event`; `None`, logged, when it does not
+    /// serialise.
+    pub fn of(event: &HostEvent) -> Option<Self> {
+        match serde_json::to_string(event) {
+            Ok(data) => Some(Self {
+                name: event.name(),
+                data: data.into(),
+            }),
+            Err(e) => {
+                tracing::error!(error = %e, event = event.name(), "failed to serialize an event");
+                None
+            }
+        }
+    }
+}
+
 /// A broadcast frame tagged with its monotonic per-session sequence id.
 /// The id is mirrored as the SSE `id:` field so the browser persists it
 /// across reconnects via the `Last-Event-Id` request header.
@@ -73,13 +90,17 @@ impl SessionBroadcast {
     /// could not be serialised (logged): one dropped event rather than a
     /// crashed monitor.
     pub fn send(&self, event: &HostEvent) -> Option<u64> {
-        match serde_json::to_string(event) {
-            Ok(data) => Some(self.broadcast(event.name(), data)),
-            Err(e) => {
-                tracing::error!(error = %e, event = event.name(), "failed to serialize an event");
-                None
-            }
-        }
+        Frame::of(event).map(|frame| self.broadcast_frame(frame))
+    }
+
+    /// A frame of `payload` under `name`, for the tests that broadcast
+    /// their own.
+    #[cfg(test)]
+    pub fn broadcast(&self, name: &'static str, payload: String) -> u64 {
+        self.broadcast_frame(Frame {
+            name,
+            data: Arc::from(payload),
+        })
     }
 
     /// The id is taken, the ring written and the channel sent under the one
@@ -87,11 +108,7 @@ impl SessionBroadcast {
     /// `replay_since` and `oldest_seq` read the ring as sorted (S1 in
     /// `docs/INVARIANTS.md`). An id taken before the lock could be pushed
     /// after a higher one.
-    pub fn broadcast(&self, name: &'static str, payload: String) -> u64 {
-        let frame = Frame {
-            name,
-            data: Arc::from(payload),
-        };
+    fn broadcast_frame(&self, frame: Frame) -> u64 {
         let Ok(mut buf) = self.recent.lock() else {
             // A poisoned ring is a panicked broadcaster; the stream must go on.
             let id = self.seq.fetch_add(1, Ordering::SeqCst);
