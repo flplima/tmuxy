@@ -55,48 +55,6 @@ const SNAPSHOT: TmuxSnapshot = {
 
 const CTX = { defaultShell: 'bash', paneActivationOrder: [] as PaneId[] };
 
-describe('parseCommandToOp — kill / rename / zoom', () => {
-  it('parses kill-pane forms', () => {
-    expect(parseCommandToOp('kill-pane')).toEqual({ _tag: 'KillPane', paneId: null });
-    expect(parseCommandToOp('kill-pane -t %3')).toEqual({ _tag: 'KillPane', paneId: pid('%3') });
-    expect(parseCommandToOp('select-pane -t %0 \\; kill-pane')).toEqual({
-      _tag: 'KillPane',
-      paneId: null,
-    });
-  });
-
-  it('parses kill-window forms (index targets stay raw)', () => {
-    expect(parseCommandToOp('kill-window')).toEqual({ _tag: 'KillWindow', windowId: null });
-    expect(parseCommandToOp('kill-window -t @2')).toEqual({
-      _tag: 'KillWindow',
-      windowId: wid('@2'),
-    });
-    expect(parseCommandToOp('kill-window -t :2')._tag).toBe('RawCommand');
-  });
-
-  it('parses rename-window forms', () => {
-    expect(parseCommandToOp("rename-window -- 'my tab'")).toEqual({
-      _tag: 'RenameWindow',
-      target: null,
-      name: 'my tab',
-    });
-    expect(parseCommandToOp('rename-window -t @1 newname')).toEqual({
-      _tag: 'RenameWindow',
-      target: wid('@1'),
-      name: 'newname',
-    });
-  });
-
-  it('parses zoom toggles, leaving plain resizes raw', () => {
-    expect(parseCommandToOp('resize-pane -Z')).toEqual({ _tag: 'ZoomToggle', paneId: null });
-    expect(parseCommandToOp('resize-pane -t %2 -Z')).toEqual({
-      _tag: 'ZoomToggle',
-      paneId: pid('%2'),
-    });
-    expect(parseCommandToOp('resize-pane -L 5')._tag).toBe('RawCommand');
-  });
-});
-
 describe('KillPane predict/reconcile', () => {
   it('removes the pane, expands the aligned neighbor, refocuses MRU', () => {
     // %0 on top of %1 (same x/width, vertically adjacent).

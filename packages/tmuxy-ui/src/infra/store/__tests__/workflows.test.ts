@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
-import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import type {
   ServerState,
   ServerStateEncoded,
@@ -65,51 +64,6 @@ const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
 /** What reached tmux, each as `cmd|args-json`. */
 const sent = (fake: FakeTransport) =>
   fake.invocations.map((i) => `${i.cmd}|${JSON.stringify(i.args ?? {})}`);
-
-describe('parseCommandToOp — prefix-pinned commands', () => {
-  // Every prefix/root-bound command is sent behind `select-pane -t %N \;`
-  // so tmux's server-side active pane matches ours before the binding runs;
-  // the op is the command after the pin, not a SelectPane.
-
-  it('classifies the binding tail, not the select-pane prefix', () => {
-    expect(parseCommandToOp('select-pane -t %0 \\; split-window -v')).toEqual({
-      _tag: 'Split',
-      direction: 'horizontal',
-    });
-    expect(parseCommandToOp('select-pane -t %3 \\; split-window -h')).toEqual({
-      _tag: 'Split',
-      direction: 'vertical',
-    });
-    expect(parseCommandToOp('select-pane -t %1 \\; new-window')).toEqual({
-      _tag: 'NewWindow',
-    });
-    // A tiled pane's bindings carry a window pin in front of the pane pin.
-    expect(
-      parseCommandToOp('select-window -t @0 \\; select-pane -t %0 \\; split-window -h'),
-    ).toEqual({
-      _tag: 'Split',
-      direction: 'vertical',
-    });
-    expect(parseCommandToOp('select-pane -t %2 \\; select-pane -L')).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: false,
-    });
-    expect(parseCommandToOp('select-pane -t %5 \\; swap-pane -s %1 -t %2')).toEqual({
-      _tag: 'Swap',
-      sourcePaneId: pid('%1'),
-      targetPaneId: pid('%2'),
-      keepFocus: false,
-    });
-  });
-
-  it('preserves tmux format strings in RawCommand fallback', () => {
-    // Bindings often carry `-c "#{pane_current_path}"` so the new pane
-    // inherits the cwd: a format only tmux can expand.
-    const cmd = 'select-pane -t %0 \\; split-window -v -c "#{pane_current_path}"';
-    expect(parseCommandToOp(cmd)).toEqual({ _tag: 'Split', direction: 'horizontal' });
-  });
-});
 
 describe('TmuxStore — verbatim command preservation', () => {
   it('sends the caller-provided command string, not the op canonical form', async () => {

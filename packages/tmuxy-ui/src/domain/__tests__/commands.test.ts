@@ -6,10 +6,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-
-/** The paste's last line: `to` alone, or every synchronized pane of its window. */
-const pasteInto = (to: string) =>
-  `if-shell -F -t ${to} '#{pane_synchronized}' 'run-shell "$TMUXY_DATA_DIR/bin/tmuxy/paste-synced ${to} tmuxy-paste"' 'paste-buffer -p -d -b tmuxy-paste -t ${to}'`;
 import {
   pinPrefix,
   quote,
@@ -21,6 +17,12 @@ import {
 import { pid, wid } from '../../test/wire';
 
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';
+
+/** A paste's last line for %3: the pane alone, or every synchronized pane of its window. */
+const PASTE_INTO_3 =
+  "if-shell -F -t %3 '#{pane_synchronized}' " +
+  `'run-shell "$TMUXY_DATA_DIR/bin/tmuxy/paste-synced %3 tmuxy-paste"' ` +
+  "'paste-buffer -p -d -b tmuxy-paste -t %3'";
 
 const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.Split({ direction: 'vertical' }), 'split-window -h'],
@@ -67,7 +69,7 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.SendKeys({ target: pid('%3'), keys: 'C-c' }), 'send-keys -t %3 C-c'],
   [
     TmuxOp.PasteText({ target: pid('%3'), text: 'ls -la' }),
-    `set-buffer -b tmuxy-paste "ls -la"\n${pasteInto('%3')}`,
+    `set-buffer -b tmuxy-paste "ls -la"\n${PASTE_INTO_3}`,
   ],
   [TmuxOp.SendKeys({ target: 'main', keys: 'Up' }), 'send-keys -t main Up'],
   [TmuxOp.SendText({ target: pid('%3'), text: "it's" }), "send-keys -t %3 -l -- 'it'\\''s'"],
@@ -85,6 +87,9 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.EnterCopyMode({ paneId: null }), 'copy-mode'],
   [TmuxOp.EnterCopyMode({ paneId: pid('%3') }), 'copy-mode -t %3'],
   [TmuxOp.CancelCopyMode({ paneId: pid('%3') }), 'send-keys -t %3 -X cancel'],
+  // The question comes down first: the overlay is what the user is looking
+  // at, so it goes as they choose, not once the waiting CLI sends the keys.
+  // The answer carries the token of the question that was on screen.
   [
     TmuxOp.AnswerAsk({ paneId: pid('%3'), token: 't1', answer: 'yes' }),
     "set-option -pu -t %3 @tmuxy-ask \\; set-option -p -t %3 @tmuxy-ask-answer 't1:yes'",
@@ -243,7 +248,7 @@ describe('toTmuxCommand', () => {
     const text = 'line one\r\nline two\nline three';
     expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
       'set-buffer -b tmuxy-paste "line one\\012line two\\012line three"',
-      pasteInto('%3'),
+      PASTE_INTO_3,
     ]);
   });
 
@@ -286,31 +291,12 @@ describe('toTmuxCommand', () => {
 
   it('stages a long paste in chunks, appending each after the first', () => {
     const text = 'x'.repeat(1200);
-    expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%1'), text })).split('\n')).toEqual([
+    expect(toTmuxCommand(TmuxOp.PasteText({ target: pid('%3'), text })).split('\n')).toEqual([
       `set-buffer -b tmuxy-paste "${'x'.repeat(500)}"`,
       `set-buffer -a -b tmuxy-paste "${'x'.repeat(500)}"`,
       `set-buffer -a -b tmuxy-paste "${'x'.repeat(200)}"`,
-      pasteInto('%1'),
+      PASTE_INTO_3,
     ]);
-  });
-});
-
-describe('AnswerAsk', () => {
-  const answer = (choice: string) =>
-    toTmuxCommand(TmuxOp.AnswerAsk({ paneId: pid('%3'), token: '3-4821', answer: choice }));
-
-  it('clears the question before recording the answer', () => {
-    // The overlay is what the user is looking at: it comes down as they
-    // choose, not once the waiting CLI gets around to sending the keys.
-    const command = answer('yes');
-    expect(command.indexOf('-pu -t %3 @tmuxy-ask')).toBeLessThan(
-      command.indexOf('@tmuxy-ask-answer'),
-    );
-  });
-
-  it('pins the answer to the question that was on screen', () => {
-    expect(answer('yes')).toContain("@tmuxy-ask-answer '3-4821:yes'");
-    expect(answer('no')).toContain("@tmuxy-ask-answer '3-4821:no'");
   });
 });
 
