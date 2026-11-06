@@ -3,15 +3,9 @@
  *
  * A phone keyboard covers the bottom of the page rather than resizing it (iOS,
  * and Chrome on Android by default): the layout viewport keeps its height and
- * only the visual viewport — the part not under the keyboard — shrinks. So the
- * app follows the visual viewport: its size and offset go on the root as
- * `--app-height` / `--app-top` (standalone.css pins `#root` to them), and the
- * page is laid out in what the user can see.
- *
- * What does not fit then is the terminal's lower rows, and the one that matters
- * is the cursor's: `useCursorInView` scrolls the clipped terminal so the row
- * being typed on stays on screen, a row of margin below it — zoomed as well,
- * where it also keeps the cursor's column in the sideways view.
+ * only the visual viewport shrinks. So the app follows the visual viewport: its
+ * size and offset go on the root as `--app-height` / `--app-top` (standalone.css
+ * pins `#root` to them).
  */
 
 import { type RefObject, useEffect, useLayoutEffect } from 'react';
@@ -46,14 +40,11 @@ export function useVisualViewport(enabled: boolean): void {
 }
 
 /**
- * Scroll `ref` — a terminal cut short by the space it has — so the cursor's
- * row is in view a row above the bottom edge, with as much as fits of what is
- * above it: in a terminal that is the output the line being typed answers.
- * Zoomed, `xRef` is the viewport the doubled grid scrolls sideways in, and it
- * is scrolled too when the cursor's column has left it. Runs when the box
- * resizes (a keyboard coming up) and whenever `cursorKey` (where the cursor
- * is) changes. A terminal that fits has nothing to scroll, and stays at its
- * top.
+ * Scroll `ref`, a terminal cut short by the space it has, so the cursor's row
+ * is in view one row above the bottom edge. Zoomed, `xRef` is the viewport the
+ * doubled grid scrolls sideways in, scrolled too when the cursor's column has
+ * left it. Runs when the box resizes (a keyboard coming up) and when
+ * `cursorKey` changes.
  */
 export function useCursorInView(
   ref: RefObject<HTMLElement | null>,
@@ -96,12 +87,10 @@ export function useCursorInView(
 export const PHONE_ZOOM = 2;
 
 /**
- * The phone's zoom: `xRef` is the viewport the zoomed grid scrolls sideways
- * in, `yRef` the terminal box that scrolls up and down when the doubled grid
- * is taller than it. When the zoom comes on, scroll both so the point that
- * was tapped (client px, or the middle when none) sits in the middle of the
- * view; when it goes off, back to the corner. The scaling itself is the
- * stylesheet's (`.phone-pty.is-zoomed`).
+ * The phone's zoom: when it comes on, scroll the sideways viewport `xRef` and
+ * the terminal box `yRef` so the tapped point (client px, or the middle when
+ * none) sits in the middle of the view; when it goes off, back to the corner.
+ * The scaling itself is the stylesheet's (`.phone-pty.is-zoomed`).
  */
 export function usePhoneZoomScroll(
   xRef: RefObject<HTMLElement | null>,

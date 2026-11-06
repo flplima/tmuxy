@@ -1,8 +1,6 @@
 /**
- * A context menu's host: on the desktop the spec is shown as a native popup
- * at the point (and the surface draws nothing); elsewhere, or when the popup
- * is refused, the surface draws its floating menu. One hook, so every
- * context menu takes the same decision the same way.
+ * A context menu's host: a native popup on the desktop, the floating menu
+ * elsewhere or when the popup is refused.
  */
 
 import { useEffect, useRef, useState } from 'react';

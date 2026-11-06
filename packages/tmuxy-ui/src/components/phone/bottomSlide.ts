@@ -1,11 +1,7 @@
 /**
- * The slide between the phone's tree and its side pane (components/
- * PhoneBottomView.tsx): one view under the finger, the other riding beside
- * it on the side the finger pulls from, as a tab slide shows both tabs. The
- * commit rule, the settle time and the curve are the tab slide's own
+ * The slide between the phone's tree and its side pane (PhoneBottomView.tsx).
+ * The commit rule, the settle time and the curve are the tab slide's own
  * (machines/gestures/gestures.ts), so the two gestures feel like one.
- *
- * Pure: the component owns the DOM and the timer.
  */
 
 import { swipeCommits, swipeSettleMs } from '../../machines/gestures/gestures';
@@ -18,13 +14,11 @@ export type NeighborSide = 'left' | 'right';
 export interface BottomSlideRelease {
   /** Where the track settles, px from rest: a view's width to the side, or 0. */
   target: number;
-  /** Whether the other view ends up in front. */
   flips: boolean;
   /** How long the settle takes, ms. */
   settleMs: number;
 }
 
-/** The other view. */
 export function otherView(view: BottomView): BottomView {
   return view === 'tree' ? 'dock' : 'tree';
 }
@@ -36,9 +30,8 @@ export function neighborSide(dx: number): NeighborSide | null {
 }
 
 /**
- * Where a released slide goes: on past the view's edge, the other view
- * landing in front, when the tab slide's rule commits it — a flick, or a
- * release projected past the commit mark — and back to rest otherwise.
+ * Where a released slide goes: a view's width to the side when the tab slide's
+ * rule commits it, else back to rest.
  */
 export function releaseBottomSlide(dx: number, speed: number, width: number): BottomSlideRelease {
   const flips = swipeCommits(dx, speed, width);

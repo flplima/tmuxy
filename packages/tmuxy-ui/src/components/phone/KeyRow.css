@@ -1,6 +1,5 @@
-/* KeyRow — the phone's extra keys, between the terminal and the tree, in two
-   rows of six so each is a thumb's size. The chrome's own size, whatever the
-   terminal's cell shrank to. */
+/* Two rows of six so each key is a thumb's size, whatever the terminal's cell
+   shrank to. */
 
 .key-row {
   display: grid;
@@ -31,10 +30,6 @@
   touch-action: none;
 }
 
-/* A latched modifier is inverse video in the theme's accent, like the prefix
-   chip; a locked one keeps it with a heavier edge. The zoom key is lit the
-   same way while the terminal is zoomed, and the prefix key while the prefix
-   is armed. */
 .key-row-key.is-latched {
   border-color: var(--theme-accent);
   background-color: var(--theme-accent);
@@ -46,7 +41,6 @@
   box-shadow: inset 0 -3px 0 var(--term-black);
 }
 
-/* The magnifier sits on the text baseline's centre, the glyphs' height. */
 .key-row-magnifier {
   display: block;
   margin: 0 auto;

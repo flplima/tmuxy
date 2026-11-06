@@ -1,26 +1,12 @@
 /**
- * One floating surface at a time.
+ * One floating surface at a time: opening a top-level surface (a preview, a
+ * context menu, the app menu) dismisses whichever top-level surface was open; a
+ * surface opened as a child of the open one (a submenu) leaves its parent alone.
  *
- * A preview, a context menu and the app menu are all cards that float over the
- * grid, and each used to own its own open/closed flag. Nothing knew about the
- * others, so right-clicking a tab you were hovering drew the menu ON TOP of its
- * preview, and opening the app menu left a preview hanging behind it. Every
- * pairing needed its own "and also close that one" line, which is a list that is
- * never finished — the bug comes back with the next surface somebody adds.
- *
- * So dismissal lives here instead of in each surface: opening a TOP-LEVEL
- * surface dismisses whichever top-level surface was open. A surface opened as a
- * CHILD of the open one (a submenu) is a different thing — it belongs to its
- * parent and leaves it alone.
- *
- * Module state rather than a React context on purpose: a surface has to be able
- * to dismiss a peer that lives in another part of the tree (the strip's preview
- * and the status line's app menu share no ancestor but the app root), and a
- * registry threaded through context would have to be mounted above both to do
- * it.
+ * Module state rather than a React context: the strip's preview and the status
+ * line's app menu share no ancestor but the app root.
  */
 
-/** What an open surface tells the registry so it can be closed from outside. */
 interface OpenSurface {
   id: string;
   /** Called when a peer opens. Must put this surface away. */
@@ -39,9 +25,6 @@ let current: OpenSurface | null = null;
 export function openSurface(id: string, dismiss: () => void): () => void {
   if (current && current.id !== id) {
     const previous = current;
-    // Cleared BEFORE dismissing: a surface's dismiss may synchronously run its
-    // own cleanup, and that cleanup must not see itself as current and clear
-    // the entry this call is about to write.
     current = null;
     previous.dismiss();
   }

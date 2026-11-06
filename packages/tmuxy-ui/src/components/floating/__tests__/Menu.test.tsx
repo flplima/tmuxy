@@ -2,14 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { FloatingMenu, MenuItem, SubMenu } from '../Menu';
 
-// The menu reads one thing from the app: whether animations are allowed. On,
-// so a closed submenu is held in the DOM for its exit, as it is in the app.
+// Animations on, so a closed submenu is held in the DOM for its exit.
 vi.mock('../../../machines/appHooks', () => ({ useAppSelector: () => true }));
 
 // jsdom has no Web Animations; the menu only asks which are playing.
 Element.prototype.getAnimations ??= () => [];
 
-/** Resolves on the first DOM change that puts `selector` on the page. */
 function appearance(selector: string): Promise<HTMLElement> {
   return new Promise((resolve) => {
     const observer = new MutationObserver(() => {
@@ -48,10 +46,8 @@ describe('a submenu opened by hovering its item', () => {
       </FloatingMenu>,
     );
 
-    // Real browser timing from here on: a hover is not a discrete event, so
-    // React commits the submenu in one task and runs its effects in a later
-    // one — and keys can land in between, the way a fast keyboard (or a
-    // loaded CI runner) delivers them.
+    // Real browser timing from here on: React commits the submenu in one task and
+    // runs its effects in a later one, and keys can land in between.
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
     const theme = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((el) =>
       el.textContent?.includes('Theme'),
@@ -60,8 +56,6 @@ describe('a submenu opened by hovering its item', () => {
     theme.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
     const submenu = await column;
 
-    // Inside the column the moment it is on screen, then Escape twice: out of
-    // the submenu, then out of the menu.
     [...submenu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
       .find((el) => el.textContent?.includes('Gruvbox'))!
       .focus();

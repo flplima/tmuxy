@@ -1,14 +1,8 @@
 /**
- * NativeMenuBar — the macOS menu bar, set from the page.
- *
- * The bar is the `menuBarSpec` (domain/menus) handed to the platform through
- * `setNativeAppMenu`, so its check marks and disabled states are the live
- * ones and its item callbacks run here — dispatching exactly as the hamburger
- * does. It is rebuilt when what it shows changes (debounced, and only when
- * the spec itself differs: the context changes on every byte of output, the
- * menu only when one of its inputs does) and when this window takes focus,
- * so the focused window owns the bar and its callbacks act on it. Renders
- * nothing but the menu's dialogs.
+ * The macOS menu bar, set from the page. Rebuilt, debounced, only when the
+ * spec's shape changes (the context changes on every byte of output), and
+ * whenever this window takes focus: the focused window owns the bar, and its
+ * callbacks act on that window.
  */
 
 import { useEffect, useRef } from 'react';
@@ -56,8 +50,6 @@ export function NativeMenuBar() {
     submenuOpeners(spec).forEach(dispatch);
   }, [host]);
 
-  // The bar belongs to the focused window: on focus this window sets it so
-  // the callbacks act here.
   useEffect(() => {
     if (host !== 'native-bar') return;
     let unlisten: (() => void) | null = null;
@@ -94,9 +86,7 @@ export function NativeMenuBar() {
     return () => scheme.removeEventListener('change', redraw);
   }, [host]);
 
-  // The seam the desktop E2E suite tests: the bar's spec and setting it. A
-  // WebDriver cannot click a native menu, so this is how the suite checks that
-  // the spec is built and that the platform takes it.
+  // For the desktop E2E suite: a WebDriver cannot click a native menu.
   useEffect(() => {
     const api: TmuxyMenusTestApi = {
       barIds: () => itemIds(latest.current.spec),

@@ -6,8 +6,6 @@
  * hold time is a selection (the word under it, then the finger drags the
  * selection's end). Lifting inside the slop is a tap, and a second tap on the
  * same spot within the double-tap window is a double tap.
- *
- * Pure: no DOM, no timers — the hook owns those.
  */
 
 export interface TouchPoint {
@@ -29,11 +27,6 @@ export const DOUBLE_TAP_SLOP_PX = 30;
 /** Sideways travel has to beat vertical by this much to be a slide, not a scroll. */
 const SWIPE_RATIO = 1.5;
 
-/**
- * Decide an undecided finger from where it has got to. Still undecided
- * inside the slop; past it, a slide when `canSwipe` and the travel is mostly
- * sideways, a scroll otherwise.
- */
 export function decideIntent(start: TouchPoint, now: TouchPoint, canSwipe: boolean): TouchIntent {
   const dx = Math.abs(now.x - start.x);
   const dy = Math.abs(now.y - start.y);
@@ -42,12 +35,10 @@ export function decideIntent(start: TouchPoint, now: TouchPoint, canSwipe: boole
   return 'scroll';
 }
 
-/** Lifted inside the slop: a tap. */
 export function isTap(start: TouchPoint, end: TouchPoint): boolean {
   return Math.abs(end.x - start.x) < TAP_SLOP_PX && Math.abs(end.y - start.y) < TAP_SLOP_PX;
 }
 
-/** This tap, after `previous`, makes a double tap. */
 export function isDoubleTap(previous: TouchPoint | null, tap: TouchPoint): boolean {
   if (!previous) return false;
   return (
@@ -58,9 +49,8 @@ export function isDoubleTap(previous: TouchPoint | null, tap: TouchPoint): boole
 }
 
 /**
- * The speed a slide is released at, px/ms, from its last samples: the
- * smoothed average over the sample window, the way the trackpad slide
- * measures its own (actors/gestureActor.ts). Zero for too few samples.
+ * The speed a slide is released at, px/ms, as the trackpad slide measures it
+ * (machines/gestures/gestureActor.ts). Zero for too few samples.
  */
 export function releaseSpeed(samples: readonly TouchPoint[]): number {
   if (samples.length < 2) return 0;

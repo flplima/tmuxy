@@ -1,10 +1,3 @@
-/**
- * The menu specs per state: what each surface offers, enabled or not, and
- * that every item dispatches one of the four action kinds. The renderers
- * (in-app, native popup, native bar) draw these as they are, so a menu that
- * is wrong is wrong here first.
- */
-
 import { describe, it, expect } from 'vitest';
 import { createInitialContext } from '../../../../machines/app/context';
 import { pid, wid } from '../../../../test/wire';
@@ -113,7 +106,6 @@ describe('paneMenuSpec', () => {
       false,
     );
     expect(disabled(paneMenuSpec(withPreview, { paneId: pid('%2') }), 'pane-copy-mode')).toBe(true);
-    // The app menu acts on the active pane.
     const active = ctx({ panes: [pane('%1', '@1'), preview], activePaneId: pid('%2') });
     expect(disabled(paneMenuSpec(active, { paneId: null }), 'pane-copy-mode')).toBe(true);
   });
@@ -249,7 +241,6 @@ describe('appMenuSpec', () => {
       .filter((n) => n.kind === 'submenu')
       .map((n) => n.kind === 'submenu' && n.label);
     expect(submenus).toEqual(['Pane', 'Tab', 'Session', 'View', 'Debug']);
-    // The theme is View's first submenu.
     const view = web.find((n) => n.kind === 'submenu' && n.id === 'menu-view');
     const first = view?.kind === 'submenu' ? view.children[0] : null;
     expect(first).toMatchObject({ kind: 'submenu', id: 'menu-theme', label: 'Theme' });
@@ -347,7 +338,6 @@ describe('themeMenuSpec and debugMenuSpec', () => {
     expect(disabled(pinned, 'theme-set-default')).toBe(true);
     expect(find(pinned, 'theme-set-nord')).toMatchObject({ label: 'Nord (set in tmuxy.conf)' });
     expect(find(pinned, 'theme-set-default')).toMatchObject({ label: 'Default' });
-    // The mode is not pinned, so it stays the menu's.
     expect(disabled(pinned, 'theme-mode-light')).toBe(false);
 
     const view = viewMenuSpec(ctx({ pinnedOptions: ['@tmuxy-cursor-blink'] }), WEB);
@@ -469,7 +459,6 @@ describe('selection, session switcher and window menus', () => {
       'server:box',
       'session-connect',
     ]);
-    // A section with nothing left in it loses its header with its rows.
     const none = sessionSwitcherSpec(c, MAC, 'zzz');
     expect(itemIds(none)).toEqual(['session-connect']);
     expect(none.filter((node) => node.kind === 'header')).toEqual([]);

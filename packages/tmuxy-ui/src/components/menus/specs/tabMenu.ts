@@ -84,8 +84,6 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Ap
             )
           : command('tab-stack-toggle'),
     },
-    // Renaming happens in the tab itself — the strip owns the field, because
-    // that is where the name is.
     {
       kind: 'item',
       id: 'tab-rename',

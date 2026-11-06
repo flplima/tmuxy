@@ -1,12 +1,9 @@
 /**
- * The theme a preview is drawn in: the app's own tokens, resolved.
- *
- * Markdown is styled by the app's stylesheet like any pane, but two things
- * cannot read a CSS variable — mermaid, which computes its palette in script,
- * and a framed page, which is another document. Both are handed the resolved
- * colours instead, and are drawn again when they change: the theme sheet
- * loads after the switch that asked for it, so the tokens are re-read on the
- * root's class or style changing and on any stylesheet finishing its load.
+ * The theme a preview is drawn in: the app's tokens, resolved. Mermaid computes
+ * its palette in script and a framed page is another document, so neither can
+ * read a CSS variable. The theme sheet loads after the switch that asked for it,
+ * so the tokens are re-read on the root's class or style changing and on any
+ * stylesheet finishing its load.
  */
 
 import { useSyncExternalStore } from 'react';
@@ -64,7 +61,6 @@ function subscribe(onChange: () => void): () => void {
   };
 }
 
-/** The current theme, re-rendering whoever reads it when it changes. */
 export function usePreviewTheme(): PreviewTheme {
   return useSyncExternalStore(subscribe, snapshot);
 }

@@ -127,7 +127,6 @@ function bridge(
     (e) => {
       if (!e.isTrusted) return;
       if (!(e.ctrlKey || e.altKey) || e.metaKey) return;
-      // Ctrl held on its own is the start of a chord, not one.
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
       const chord = chordOf(e, inField(e.target) || selection()?.isCollapsed === false);
       if (chord === 'native') return;
@@ -190,8 +189,6 @@ export function readBridgeMessage(data: unknown, token: string): BridgeMessage |
       const { key, code, ctrlKey, altKey, shiftKey } = message;
       if (!short(key, 24) || !short(code, 32)) return null;
       if (typeof ctrlKey !== 'boolean' || typeof altKey !== 'boolean') return null;
-      // Only a chord crosses: a plain key stays the page's, and a modifier
-      // on its own is not one.
       if (!ctrlKey && !altKey) return null;
       if (MODIFIERS.has(key)) return null;
       // Ctrl/Cmd+Enter answers the questions waiting in the tab; a page

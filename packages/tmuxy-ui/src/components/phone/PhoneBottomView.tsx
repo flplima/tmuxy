@@ -1,21 +1,11 @@
 /**
- * PhoneBottomView — what a phone shows under the key row: the tabs/panes
- * tree, or, after a sideways swipe on it, the side pane — the pinned terminal
- * the desktop keeps in its right column (`sidebar-right`, see Sidebar.tsx),
- * the same window, created the same way on first use. Another sideways swipe
- * flips back. The `phone` state slice owns which is in front.
+ * What a phone shows under the key row: the tabs/panes tree, or, after a
+ * sideways swipe, the side pane (the desktop's `sidebar-right`). The swipe is a
+ * slide on the tab slide's curve (bottomSlide.ts).
  *
- * The swipe is a slide, as a swipe between tabs is: the view follows the
- * finger, the other view rides beside it on the side the finger pulls from,
- * and on release the pair settles on the tab slide's own curve — on to the
- * other view when the slide commits, back to rest when it does not
- * (components/phone/bottomSlide.ts). The track moves on an inline transform while the
- * finger has it; React only mounts and unmounts the view riding beside.
- *
- * The side pane is drawn in the chrome's small type (selectPhoneDockCellMetrics)
- * and sized to this view: the box is measured here and the cell count it
- * holds is written to the pane's window (SET_PHONE_DOCK_SIZE), which is what
- * the backend sizes the pane from — the desktop's drag writes the same tags.
+ * The side pane is sized to this view: the cell count the measured box holds
+ * is written to the pane's window (SET_PHONE_DOCK_SIZE), which is what the
+ * backend sizes the pane from; the desktop's drag writes the same tags.
  */
 
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
@@ -49,8 +39,6 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
   const dxRef = useRef(0);
   const samplesRef = useRef<TouchPoint[]>([]);
   const settleTimerRef = useRef<number | null>(null);
-  // The view riding beside the one in front, and the side it is on: mounted
-  // for the slide and gone once it has settled.
   const [neighbor, setNeighbor] = useState<NeighborSide | null>(null);
   const [settling, setSettling] = useState(false);
 
@@ -68,10 +56,6 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
     [],
   );
 
-  // A finger lands undecided; past the slop, mostly sideways travel is a
-  // slide and anything else is left to the tree's scroll or the pane's own
-  // gestures. A finger that lands while a release is still settling waits
-  // for it: the settle is short, and the slide it ends is the one it ends.
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
       const t = e.touches[0];
@@ -170,9 +154,6 @@ function PhoneDock() {
   const cell = useAppSelector(selectPhoneDockCellMetrics);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  // Size the dock's pane to the box it is drawn in, in its own cells — once
-  // the pane exists to size (the observer is re-armed when it appears, so
-  // the box measured while it was starting is reported again).
   const paneId = pane?.tmuxId ?? null;
   useEffect(() => {
     const box = boxRef.current;

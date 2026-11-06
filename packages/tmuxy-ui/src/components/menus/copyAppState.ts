@@ -1,9 +1,6 @@
 /**
  * Debug > Copy App State: the client's view of the session as JSON on the
- * clipboard — windows (index, id, name, type, active pane), panes (id,
- * window, geometry, active), the active ids and the sidebar state — so a
- * "which pane did the client think this was" question can be answered from
- * the production app, which has no console.
+ * clipboard, for debugging the production app, which has no console.
  */
 
 import { writeClipboard } from '../../infra/clipboard';
