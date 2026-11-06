@@ -21,8 +21,10 @@ const {
 /** The first tab's group of pane rows, its chevron and its rows, as drawn. */
 const firstTab = (page) =>
   page.evaluate(() => {
+    // Not drawn yet: nothing to measure, and the wait polls again.
     const tab = document.querySelector('.sidebar-tree-tab');
-    const group = tab?.nextElementSibling;
+    if (!tab) return { height: null, inert: null, chevron: null, rows: [], ids: [] };
+    const group = tab.nextElementSibling;
     const rect = (el) => {
       const r = el.getBoundingClientRect();
       return {

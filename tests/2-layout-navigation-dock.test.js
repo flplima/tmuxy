@@ -375,7 +375,7 @@ describe('Scenario 6l: The tree lists panes in grid order', () => {
           .map((p) => p.tmuxId);
         const tree = [
           ...document.querySelectorAll(
-            `[data-testid="tree-tab-${activeWindowId}"] ~ .sidebar-tree-pane`,
+            `[data-testid="tree-tab-${activeWindowId}"] + .sidebar-tree-children .sidebar-tree-pane`,
           ),
         ]
           .map((el) => el.getAttribute('data-pane-id'))
