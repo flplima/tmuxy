@@ -31,13 +31,13 @@ pub fn new_session_flags(
 }
 
 /// The argv that launches `tmux -CC`, led by its program (the tmux path, or
-/// `ssh -tt <dest> tmux`), and the same argv joined, for the log.
+/// `ssh -tt <dest> tmux`).
 pub(super) fn build_tmux_args(
     session_name: &str,
     create_if_missing: bool,
     group_target: Option<&str>,
     first_window: Option<&(String, String)>,
-) -> (Vec<String>, String) {
+) -> Vec<String> {
     // Over ssh, `-tt` is required for `-CC` control mode's remote pty.
     let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
     // tmux only reads `-f` when it forks a new server, so this covers the
@@ -60,27 +60,56 @@ pub(super) fn build_tmux_args(
             session_name.to_string(),
         ]);
     }
-
-    let shell_desc = tmux_args.join(" ");
-
-    (tmux_args, shell_desc)
+    tmux_args
 }
 
-/// Parse the PTY master's lines into events on `tx`, signalling `ready_tx`
-/// on the first one. Every line also goes to `recent_output` (the last 200):
-/// pty-process merges the child's stdout and stderr into the PTY stream, so
-/// whatever tmux says on its way out lands there for error messages.
+/// How tmux's first control-mode event settles a connect.
+pub(super) enum Opening {
+    Connected,
+    /// tmux reached control mode but its own command failed (the opening
+    /// block closed with `%error`) or it exited: tmux's words, if any.
+    Refused(String),
+}
+
+/// `-CC` opens control mode with a DCS (`ESC P 1000 p`) written right before
+/// the `%begin` of the block answering tmux's own command, on the same line.
+const CONTROL_MODE_DCS: &[u8] = b"\x1bP1000p";
+
+/// The verdict tmux's first event gives, and the event itself when it is the
+/// monitor's to see. tmux answers its own command (`attach-session`,
+/// `new-session`) in the opening block, so `%end` means attached and
+/// `%error` carries why not; a notification means attached too, and `%exit`
+/// means tmux left. The opening block answers nothing tmuxy sent, so it goes
+/// no further.
+fn opening_of(event: ControlModeEvent) -> (Opening, Option<ControlModeEvent>) {
+    match event {
+        ControlModeEvent::CommandResponse { success: true, .. } => (Opening::Connected, None),
+        ControlModeEvent::CommandResponse {
+            success: false,
+            output,
+        } => (Opening::Refused(output), None),
+        ControlModeEvent::Exit { reason } => (Opening::Refused(reason.unwrap_or_default()), None),
+        event => (Opening::Connected, Some(event)),
+    }
+}
+
+/// Parse the PTY master's lines into events on `tx`, settling `opening` on
+/// the first one. A line before control mode opens that is not control mode's
+/// (tmux's error on its way out, or ssh's warnings) is no event. Every line
+/// also goes to `recent_output` (the last 200): pty-process merges the
+/// child's stdout and stderr into the PTY stream, so whatever tmux says on
+/// its way out lands there for error messages.
 pub(super) fn spawn_parser_task(
     reader: pty_process::OwnedReadPty,
     tx: mpsc::Sender<ControlModeEvent>,
-    ready_tx: tokio::sync::oneshot::Sender<()>,
+    opening: tokio::sync::oneshot::Sender<Opening>,
     recent_output: Arc<Mutex<Vec<String>>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut buf_reader = BufReader::new(reader);
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
-        let mut ready_tx = Some(ready_tx);
+        let mut opening = Some(opening);
 
         loop {
             buf.clear();
@@ -122,13 +151,23 @@ pub(super) fn spawn_parser_task(
                         }
                     }
 
-                    if let Some(event) = parser.parse_line(&buf) {
-                        if let Some(rtx) = ready_tx.take() {
-                            let _ = rtx.send(());
+                    let bytes = match opening {
+                        Some(_) => buf.strip_prefix(CONTROL_MODE_DCS).unwrap_or(&buf),
+                        None => &buf[..],
+                    };
+                    let Some(mut event) = parser.parse_line(bytes) else {
+                        continue;
+                    };
+                    if let Some(settle) = opening.take() {
+                        let (verdict, first) = opening_of(event);
+                        let _ = settle.send(verdict);
+                        match first {
+                            Some(first) => event = first,
+                            None => continue,
                         }
-                        if tx.send(event).await.is_err() {
-                            break;
-                        }
+                    }
+                    if tx.send(event).await.is_err() {
+                        break;
                     }
                 }
                 Err(e) => {
@@ -336,25 +375,26 @@ impl ControlModeConnection {
         })
     }
 
+    /// Connected once tmux's first control-mode event says so (`Opening`).
     /// The 10s ceiling swallows a slow first-time `default-command` startup
     /// while still surfacing a dead tmux server quickly.
-    pub(super) async fn wait_for_initial_state(
+    pub(super) async fn wait_for_control_mode(
         &mut self,
-        ready_rx: tokio::sync::oneshot::Receiver<()>,
+        opening: tokio::sync::oneshot::Receiver<Opening>,
         reader: tokio::task::JoinHandle<()>,
         session_name: &str,
         shell_desc: &str,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
-        tracing::debug!("connect(): waiting for first control mode event (10s timeout)");
+        tracing::debug!("connect(): waiting for control mode to open (10s timeout)");
         log_to(
             log,
             LogKind::Info,
-            "waiting for first control mode event (10s timeout)",
+            "waiting for control mode to open (10s timeout)",
         );
 
-        let outcome = tokio::time::timeout(CONNECT_TIMEOUT, ready_rx).await;
-        if let Ok(Ok(())) = outcome {
+        let outcome = tokio::time::timeout(CONNECT_TIMEOUT, opening).await;
+        if let Ok(Ok(Opening::Connected)) = outcome {
             // The smoke tests count this line in the desktop app's log
             // file: more than two in a run is a reconnect loop.
             tracing::info!("connect(): control mode connected successfully");
@@ -372,14 +412,29 @@ impl ControlModeConnection {
         {
             tracing::debug!("connect(): the PTY reader is still reading");
         }
+        let status = match self.child.try_wait() {
+            Ok(Some(status)) => status.to_string(),
+            _ => "still running".to_string(),
+        };
         let tail = drain_recent_output(&self.recent_output).await;
         let output = if tail.is_empty() { "(empty)" } else { &tail };
         let (what, error) = match outcome {
+            Ok(Ok(Opening::Refused(said))) => {
+                let said = if said.is_empty() { output } else { &said };
+                (
+                    "refused",
+                    TmuxError::ProcessExited {
+                        reason: format!(
+                            "tmux refused control mode for session '{session_name}': {said} (command: {shell_desc}, {status})"
+                        ),
+                    },
+                )
+            }
             Ok(_) => (
-                "died immediately",
+                "never opened",
                 TmuxError::ProcessExited {
                     reason: format!(
-                        "control mode died immediately for session '{session_name}' (command: {shell_desc}, output: {output})"
+                        "tmux exited before control mode opened for session '{session_name}': {output} (command: {shell_desc}, {status})"
                     ),
                 },
             ),
@@ -394,7 +449,7 @@ impl ControlModeConnection {
         log_to(
             log,
             LogKind::Output,
-            format!("control mode {what}, output: {output}"),
+            format!("control mode {what}, {status}, output: {output}"),
         );
         Err(error)
     }

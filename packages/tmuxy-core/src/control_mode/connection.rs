@@ -108,22 +108,33 @@ impl ControlModeConnection {
             Self::preflight_session(session_name, log)?;
         }
 
+        let tmux_args =
+            build_tmux_args(session_name, create_if_missing, group_target, first_window);
+        Self::open(&tmux_args, working_dir, session_name, log).await
+    }
+
+    /// Spawn `argv` on a PTY and wait until control mode has opened.
+    pub(super) async fn open(
+        argv: &[String],
+        working_dir: Option<&std::path::Path>,
+        session_name: &str,
+        log: Option<&Arc<dyn LogSink>>,
+    ) -> Result<Self, TmuxError> {
         let (pty, pts) = Self::allocate_pty(log)?;
 
         // The .app launched from Finder gets a different `PATH` than the same
         // binary in a terminal, so the log shows exactly what was spawned.
-        let (tmux_args, shell_desc) =
-            build_tmux_args(session_name, create_if_missing, group_target, first_window);
+        let shell_desc = argv.join(" ");
         tracing::info!("connect(): pty spawn: {}", shell_desc);
         log_to(log, LogKind::Command, shell_desc.clone());
 
-        let child = Self::spawn_tmux(&tmux_args, pts, working_dir, &shell_desc, log)?;
+        let child = Self::spawn_tmux(argv, pts, working_dir, &shell_desc, log)?;
         let (pty_reader, pty_writer) = pty.into_split();
 
         let recent_output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let (tx, rx) = mpsc::channel(1000);
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let reader = spawn_parser_task(pty_reader, tx, ready_tx, recent_output.clone());
+        let (opening_tx, opening_rx) = tokio::sync::oneshot::channel();
+        let reader = spawn_parser_task(pty_reader, tx, opening_tx, recent_output.clone());
 
         let mut connection = Self {
             child,
@@ -132,7 +143,7 @@ impl ControlModeConnection {
             recent_output,
         };
         connection
-            .wait_for_initial_state(ready_rx, reader, session_name, &shell_desc, log)
+            .wait_for_control_mode(opening_rx, reader, session_name, &shell_desc, log)
             .await?;
         Ok(connection)
     }
