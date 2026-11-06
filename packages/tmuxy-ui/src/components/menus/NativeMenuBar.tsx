@@ -32,12 +32,15 @@ export function NativeMenuBar() {
   const latest = useRef({ spec, dispatch });
   latest.current = { spec, dispatch };
 
+  const rebuild = () => {
+    const { spec, dispatch } = latest.current;
+    return setNativeAppMenu(spec, dispatch);
+  };
+  const rebuildReporting = () => void rebuild().catch(failing('native menu bar'));
+
   useEffect(() => {
     if (host !== 'native-bar') return;
-    const timer = window.setTimeout(() => {
-      const { spec, dispatch } = latest.current;
-      void setNativeAppMenu(spec, dispatch).catch(failing('native menu bar'));
-    }, REBUILD_DEBOUNCE_MS);
+    const timer = window.setTimeout(rebuildReporting, REBUILD_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [host, shape]);
 
@@ -60,7 +63,7 @@ export function NativeMenuBar() {
           if (!focused) return;
           const { spec, dispatch } = latest.current;
           submenuOpeners(spec).forEach(dispatch);
-          void setNativeAppMenu(spec, dispatch).catch(() => {});
+          rebuildReporting();
         })
         .then((off) => {
           if (gone) off();
@@ -78,20 +81,15 @@ export function NativeMenuBar() {
   useEffect(() => {
     if (host !== 'native-bar' || typeof window.matchMedia !== 'function') return;
     const scheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const redraw = () => {
-      const { spec, dispatch } = latest.current;
-      void setNativeAppMenu(spec, dispatch).catch(() => {});
-    };
-    scheme.addEventListener('change', redraw);
-    return () => scheme.removeEventListener('change', redraw);
+    scheme.addEventListener('change', rebuildReporting);
+    return () => scheme.removeEventListener('change', rebuildReporting);
   }, [host]);
 
   // For the desktop E2E suite: a WebDriver cannot click a native menu.
   useEffect(() => {
     const api: TmuxyMenusTestApi = {
       barIds: () => itemIds(latest.current.spec),
-      rebuild: () =>
-        setNativeAppMenu(latest.current.spec, latest.current.dispatch).then(() => true),
+      rebuild: () => rebuild().then(() => true),
     };
     (window as unknown as { tmuxyMenus?: TmuxyMenusTestApi }).tmuxyMenus = api;
     return () => {

@@ -24,6 +24,7 @@ import { previewResourcePath, type PreviewResource } from '../../../domain/previ
 import { bridgeScript, type BridgeChannel } from './previewBridge';
 import type { PreviewTheme } from './previewTheme';
 import { decodeBase64Text } from '../../../domain/base64';
+import { logFailure } from '../../../infra/logFailure';
 
 export type ReadResource = (path: string) => Promise<PreviewResource>;
 
@@ -36,13 +37,20 @@ function dataUrl(resource: PreviewResource): string {
   return `data:${resource.mime.split(';')[0]};base64,${resource.data}`;
 }
 
-/** Reads each resource once per page, however many times the page links it. */
+/**
+ * Reads each resource once per page, however many times the page links it. A
+ * resource the server refuses or cannot find keeps its reference as written
+ * (which the frame's policy then refuses), and the reason is logged.
+ */
 function memoised(read: ReadResource): (path: string) => Promise<PreviewResource | null> {
   const seen = new Map<string, Promise<PreviewResource | null>>();
   return (path) => {
     let pending = seen.get(path);
     if (!pending) {
-      pending = read(path).catch(() => null);
+      pending = read(path).catch((error: unknown) => {
+        logFailure(`preview ${path}`, error);
+        return null;
+      });
       seen.set(path, pending);
     }
     return pending;
