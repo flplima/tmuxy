@@ -1,159 +1,45 @@
 use super::*;
 
 impl<C: ControlLink> TmuxMonitor<C> {
-    /// Send a command a client asked for, with or without wanting its output.
-    ///
-    /// One path for both, so the things that have to happen around a user
-    /// command — settling for the multi-step group scripts, and the re-lists after option writes, reorders and pane
-    /// marks (tmux announces none of those) — cannot drift between the
-    /// fire-and-forget and the reply-carrying variant.
-    pub(super) async fn send_user_command<E: StateEmitter>(
+    /// Send a command a client asked for, with or without wanting its output
+    /// (`MonitorCore::command` decides everything around it).
+    async fn send_user_command<E: StateEmitter>(
         &mut self,
         emitter: &E,
+        rs: &mut RunState,
         command: &str,
-        reply: Option<oneshot::Sender<CommandReply>>,
-    ) {
+        reply: Option<Caller>,
+    ) -> bool {
         debug!(
             command = %crate::trace::redact_command(command),
             wants_reply = reply.is_some(),
             "processing user command"
         );
-        let unescaped = command.to_string();
-        let list = crate::tmux_command::parse(command);
-        let is_compound = crate::tmux_compat::settles(&list);
-        if is_compound {
-            self.aggregator.arm_settling(Instant::now());
-            debug!("settling armed for multi-step run-shell");
+        let outgoing = self.core.command(command, reply, Instant::now());
+        if let Err(e) = self.connection.send_commands(&outgoing.lines).await {
+            let actions = self.core.not_sent(&outgoing, &e.to_string());
+            return self.dispatch(emitter, rs, actions).await;
         }
-
-        // A fire-and-forget command is still marker-wrapped when it is not a
-        // keystroke, so tmux's `%error` can be attributed to it and shown to
-        // the user (a split that failed for "pane too small" would otherwise
-        // do nothing, silently). Keystrokes are the hot path — one command
-        // per key — and the only way they fail is a vanished pane, which the
-        // layout already shows; they go out bare.
-        //
-        // A `run-shell` is relayed (`run_shell`): its output comes back
-        // inside the reply instead of in a tmux 3.4 view-mode the UI does not
-        // draw — to the caller that asked for it, or shown when nobody did.
-        let relay_key = run_shell::relay_key(self.next_reply_id + 1);
-        let relayed =
-            run_shell::relay_run_shell(&unescaped, &relay_key, &crate::session::tmux_shell_line());
-        let (outgoing, waiter) = match (reply, relayed) {
-            (Some(reply), Some(relayed)) => {
-                (relayed, Some(ReplyWaiter::CallerRunShell(reply, relay_key)))
-            }
-            (Some(reply), None) => (unescaped.clone(), Some(ReplyWaiter::Caller(reply))),
-            (None, Some(relayed)) => (relayed, Some(ReplyWaiter::RunShell(relay_key))),
-            (None, None) if reports_failure(&list) => {
-                (unescaped.clone(), Some(ReplyWaiter::ReportFailure))
-            }
-            (None, None) => (unescaped.clone(), None),
-        };
-        let sent = match waiter {
-            // Typed text is one `send-keys` per line (a blank one would
-            // detach this client), and the connection writes a line each.
-            None => {
-                let lines: Vec<String> = super::state::control_mode_lines(&outgoing)
-                    .map(str::to_string)
-                    .collect();
-                self.connection.send_commands(&lines).await
-            }
-            Some(waiter) => {
-                // The id `relay_key` was named after.
-                self.next_reply_id += 1;
-                let id = self.next_reply_id;
-                let lines = self.aggregator.markers().reply_wrapped_lines(id, &outgoing);
-                let sent = self.connection.send_commands(&lines).await;
-                match (&sent, waiter) {
-                    (Ok(()), waiter) => {
-                        self.pending_replies
-                            .insert(id, (waiter, tokio::time::Instant::now()));
-                    }
-                    // The command never went out: tell the caller now rather
-                    // than at the timeout.
-                    (
-                        Err(e),
-                        ReplyWaiter::Caller(reply) | ReplyWaiter::CallerRunShell(reply, _),
-                    ) => {
-                        let _ = reply.send(CommandReply {
-                            output: String::new(),
-                            error: Some(e.to_string()),
-                        });
-                    }
-                    (Err(_), ReplyWaiter::ReportFailure | ReplyWaiter::RunShell(_)) => {}
-                }
-                sent
-            }
-        };
-
-        if let Err(e) = sent {
-            emitter.emit_error(format!("Failed to run command: {}", e));
-            if is_compound {
-                self.aggregator.clear_settling();
-            }
-            return;
-        }
-        trace!(cmd = %unescaped, "sent command via control mode");
-
+        trace!(cmd = %command, "sent command via control mode");
         // What tmux leaves unannounced (`tmux_compat::SILENT_COMMANDS`) would
         // otherwise reach the clients on the next event or the idle heartbeat
-        // — seconds later. Re-list it right behind the command.
-        let relists = crate::tmux_compat::relists_after(&list);
-        if relists.windows {
-            if let Err(e) = self
-                .connection
-                .send_commands(&[self.aggregator.markers().list_command(TmuxList::Windows)])
-                .await
-            {
-                emitter.emit_error(format!("Failed to refresh windows: {}", e));
-            }
+        // — seconds later. Re-listed right behind the command.
+        if !outgoing.relists.is_empty() {
+            let relists = Action::Send(outgoing.relists);
+            return self.dispatch(emitter, rs, vec![relists]).await;
         }
-        if relists.panes {
-            if let Err(e) = self
-                .connection
-                .send_commands(&[self.aggregator.markers().list_command(TmuxList::Panes)])
-                .await
-            {
-                emitter.emit_error(format!("Failed to refresh panes: {}", e));
-            }
-        }
+        true
     }
 
     /// Hand every waiting `GetState` the aggregator's state, once it describes
     /// the session in full (`StateAggregator::initial_state_ready`).
     pub(super) fn answer_state_requests(&mut self) {
-        if self.pending_state_requests.is_empty() || !self.aggregator.initial_state_ready() {
+        if self.pending_state_requests.is_empty() || !self.core.aggregator().initial_state_ready() {
             return;
         }
-        let state = self.aggregator.to_tmux_state();
+        let state = self.core.aggregator_mut().to_tmux_state();
         for reply in self.pending_state_requests.drain(..) {
             let _ = reply.send(state.clone());
-        }
-    }
-
-    /// Fail every pending reply that has outlived REPLY_TIMEOUT.
-    pub(super) fn expire_replies(&mut self) {
-        let now = tokio::time::Instant::now();
-        let expired: Vec<u64> = self
-            .pending_replies
-            .iter()
-            .filter(|(_, (_, sent_at))| now.duration_since(*sent_at) >= REPLY_TIMEOUT)
-            .map(|(id, _)| *id)
-            .collect();
-        for id in expired {
-            match self.pending_replies.remove(&id) {
-                Some((ReplyWaiter::Caller(reply) | ReplyWaiter::CallerRunShell(reply, _), _)) => {
-                    warn!(id, "command reply timed out");
-                    let _ = reply.send(CommandReply {
-                        output: String::new(),
-                        error: Some("tmux did not answer in time".to_string()),
-                    });
-                }
-                // A long `run-shell` is a legitimate reason for a late END
-                // marker; with nobody waiting there is nothing to report.
-                Some((ReplyWaiter::ReportFailure | ReplyWaiter::RunShell(_), _)) | None => {}
-            }
         }
     }
 
@@ -161,46 +47,28 @@ impl<C: ControlLink> TmuxMonitor<C> {
     pub(super) async fn on_command<E: StateEmitter>(
         &mut self,
         emitter: &E,
+        rs: &mut RunState,
         cmd: Option<MonitorCommand>,
     ) -> bool {
         trace!(?cmd, "received monitor command");
         match cmd {
             Some(MonitorCommand::ResizeWindow { cols, rows }) => {
                 debug!(cols, rows, "processing ResizeWindow");
-                // Remember it first: if the window list has not arrived yet this
-                // is the only record of what the client asked for, and
-                // `apply_client_size` replays it once the windows are known.
-                self.client_size = Some((cols, rows));
-                let window_ids = self.aggregator.window_ids();
-                if window_ids.is_empty() {
-                    // Nothing to target yet — size the current window so the
-                    // visible pane is right immediately; the rest follow when
-                    // the window list lands.
-                    let resize_cmd = format!("resizew -x {} -y {}", cols, rows);
-                    if let Err(e) = self.connection.send_commands(&[&resize_cmd]).await {
-                        emitter.emit_error(format!("Failed to resize window: {}", e));
-                    } else {
-                        trace!(cmd = %resize_cmd, "sent resize command");
-                    }
-                } else {
-                    self.apply_client_size(emitter).await;
-                }
-                true
+                let actions = self.core.set_client_size(cols, rows);
+                self.dispatch(emitter, rs, actions).await
             }
             Some(MonitorCommand::RunCommand { command }) => {
-                self.send_user_command(emitter, &command, None).await;
-                true
+                self.send_user_command(emitter, rs, &command, None).await
             }
             Some(MonitorCommand::RunCommandWithReply { command, reply }) => {
-                self.send_user_command(emitter, &command, Some(reply)).await;
-                true
+                self.send_user_command(emitter, rs, &command, Some(reply))
+                    .await
             }
             Some(MonitorCommand::GetState { reply }) => {
                 self.pending_state_requests.push(reply);
                 self.answer_state_requests();
                 true
             }
-
             Some(MonitorCommand::Shutdown) => {
                 info!("received shutdown command, gracefully closing");
                 self.connection.graceful_close().await;
@@ -212,12 +80,4 @@ impl<C: ControlLink> TmuxMonitor<C> {
             }
         }
     }
-}
-
-/// Whether a fire-and-forget command is marker-wrapped so its `%error`
-/// reaches the user. Everything but keystrokes (`send-keys`, also pinned).
-pub(super) fn reports_failure(list: &crate::tmux_command::CommandList) -> bool {
-    !list
-        .top_level()
-        .any(|command| command.runs(&crate::tmux_command::SEND_KEYS))
 }

@@ -27,8 +27,6 @@ import {
   loadThemeFromStorage,
   parseThemeMode,
 } from '../../../../utils/themeManager';
-import { unescapeLiteralText } from '../../keyBatching';
-import { quote } from '../../../../domain/commands';
 import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
 import { readGuestPreview } from './guestPreview';
 import {
@@ -51,39 +49,9 @@ const BUNDLED_THEMES: { name: string; displayName: string }[] = [
   { name: 'tokyonight', displayName: 'Tokyo Night' },
 ];
 
-/**
- * Translate a frontend command for the raw control-mode stdin transport.
- *
- * The keyboardActor joins compound commands with a SHELL-escaped separator
- * ` \; ` (e.g. `select-pane -t %0 \; split-window -v`) — correct when a command
- * passes through a shell/`run-shell` context, as on the native server. But tmux's
- * control-mode parser reads stdin directly, where `\;` is a literal argument, not
- * a separator, so the whole command errors (and, for a split, the optimistic
- * placeholder pane never reconciles — the UI appears frozen). Control mode wants
- * a bare ` ; ` separator. We only rewrite the separator token, and never inside a
- * `send-keys -l` literal (which may legitimately contain `\;`).
- */
-function toControlModeCommand(command: string): string {
-  // Multi-line strings (e.g. a paste's per-line command batch) are one control
-  // command per line — rewrite each independently.
-  return command.split('\n').map(toControlModeLine).join('\n');
-}
-
-function toControlModeLine(line: string): string {
-  const literal = line.match(/^(send-keys -t \S+ -l (?:-- )?)(.+)$/);
-  if (literal) {
-    // tmux 3.7a format-expands send-keys arguments, and no amount of `#`
-    // doubling protects a valid `#{variable}` (`##{pane_id}` still yields
-    // `#%0`). The only reliable transport-level fix: split the literal at every
-    // `#`/`{` boundary so the two characters never share a format context —
-    // each chunk is its own send-keys and the pane reassembles them verbatim.
-    const text = unescapeLiteralText(literal[2]);
-    if (!text.includes('#{')) return line;
-    const parts = text.split(/(?<=#)(?={)/);
-    return parts.map((part) => literal[1] + quote(part)).join('\n');
-  }
-  if (line.includes(' -l ')) return line;
-  return line.replace(/ \\; /g, ' ; ');
+/** A command the routing policy refused, as the native transports refuse it. */
+function forbidden(reason: string): CommandFailure {
+  return { error: reason, kind: 'forbidden' };
 }
 
 export interface GuestTmuxAdapterOptions {
@@ -179,9 +147,11 @@ export class GuestTmuxAdapter implements TmuxAdapter {
         if (state) this.events.emit(TransportEvent.State({ state, seq: null }));
       },
       onClipboard: (paneId, text) => {
-        const source = isPaneId(paneId) ? paneId : null;
+        const source = paneId !== null && isPaneId(paneId) ? paneId : null;
         this.events.emit(TransportEvent.Clipboard({ paneId: source, text }));
       },
+      onMessage: (text) => this.events.emit(TransportEvent.Message({ text })),
+      onError: (message) => this.events.emit(TransportEvent.Error({ message })),
       onFatal: (message) => this.events.emit(TransportEvent.Fatal({ message })),
     };
     this.engine.setSink(this.sink);
@@ -212,13 +182,15 @@ export class GuestTmuxAdapter implements TmuxAdapter {
       case 'set_client_size': {
         const cols = (args?.cols as number) || GUEST_DEFAULT_COLS;
         const rows = (args?.rows as number) || GUEST_DEFAULT_ROWS;
-        this.engine.send(`refresh-client -C ${cols}x${rows}`);
+        this.engine.setClientSize(cols, rows);
         return null as T;
       }
       case 'run_tmux_command': {
         const command = args?.command as string | undefined;
         if (!command) return null as T;
-        const wire = toControlModeCommand(command);
+        const route = this.engine.route(command, 'command');
+        if ('blocked' in route) throw forbidden(route.blocked);
+        const wire = route.routed;
         // Hot paths (key input, resizes, paste batches) stay fire-and-forget;
         // everything else is tracked so failures reject like the server adapter
         // (surfacing TMUX_ERROR and rolling back optimistic ops). A compound is
@@ -233,16 +205,17 @@ export class GuestTmuxAdapter implements TmuxAdapter {
             .split(' ; ')
             .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
         if (wire.includes('\n') || isHot) {
-          this.engine.send(wire);
+          this.engine.run(wire);
           return null as T;
         }
-        const result = await this.engine.sendTracked(wire);
+        const reply = await this.engine.ask(wire);
         // Reject the way the real transports do when tmux refuses a command,
         // so it is typed a TmuxError (with tmux's message), not a generic
-        // TransportError.
-        if (!result.ok) {
+        // TransportError. Whatever part of it ran is converged by a re-list.
+        if (reply.error !== null) {
+          this.engine.resync();
           throw {
-            error: result.message || `tmux rejected: ${command}`,
+            error: reply.error || `tmux rejected: ${command}`,
             kind: 'tmux',
           } satisfies CommandFailure;
         }
@@ -294,24 +267,26 @@ export class GuestTmuxAdapter implements TmuxAdapter {
     }
   }
 
-  /** Read from tmux: the command's output, picked out of the control-mode
-   *  stream (empty when tmux refuses it). */
-  query(command: string): Promise<string> {
-    return this.engine.query(toControlModeCommand(command));
+  /** Read from tmux, under the query policy every transport applies: the
+   *  command's output, or tmux's refusal. */
+  async query(command: string): Promise<string> {
+    const route = this.engine.route(command, 'query');
+    if ('blocked' in route) throw forbidden(route.blocked);
+    const reply = await this.engine.ask(route.routed);
+    if (reply.error !== null) throw { error: reply.error, kind: 'tmux' } satisfies CommandFailure;
+    return reply.output;
   }
 
   async switchSession(sessionName: string): Promise<void> {
     // Switch the attached control client to another session (real tmux
-    // switch-client), then re-sync so the new session's windows/panes populate.
-    // Tracked: a failed switch (unknown session) must NOT leave the app in the
-    // cleared-optimistic-state limbo — resync the CURRENT session so its state
-    // flows back in (the machine re-adopts panes and sessionName from the
-    // updates) and reject so the failure surfaces as TMUX_ERROR.
-    const result = await this.engine.sendTracked(`switch-client -t ${sessionName}`);
-    this.engine.resync();
-    if (!result.ok) {
+    // switch-client); the engine re-syncs either way, so a failed switch
+    // (unknown session) flows the CURRENT session's state back in rather
+    // than leaving the app in cleared-optimistic-state limbo, and rejects so
+    // the failure surfaces as TMUX_ERROR.
+    const reply = await this.engine.switchSession(sessionName);
+    if (reply.error !== null) {
       throw {
-        error: result.message || `switch-client failed: ${sessionName}`,
+        error: reply.error || `switch-client failed: ${sessionName}`,
         kind: 'tmux',
       } satisfies CommandFailure;
     }

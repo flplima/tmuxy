@@ -109,8 +109,8 @@ Four layers protect the app, covering different things:
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| `enforce_settings()` | `control_mode/monitor/sync.rs`, every connect, per-session | `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `set-clipboard off` |
-| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
+| `enforced_settings()` | `control_mode/monitor_core/attach.rs`, every attach, per-session | `mouse`, `focus-events`, `set-titles`, `set-clipboard off` |
+| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`, `allow-rename`, `allow-passthrough`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
 | `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
 

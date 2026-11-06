@@ -30,13 +30,26 @@ One per tmux session, shared by every client connected to that session. Owns the
 
 Same file as `AppState`.
 
-### TmuxMonitor — the runtime
+### MonitorCore — the client, sans-IO
 
-The bridge between the sans-IO state machine and a live `tmux -CC` subprocess. Receives control-mode events, drives the aggregator step-by-step, and executes the typed `SideEffect`s the aggregator returns (sending tmux commands, refreshing panes, emitting state). Multiplexes control-mode events, periodic syncs, the settling/throttle/debounce timers, and external commands from the frontend.
+Everything a control-mode client does between what tmux sends and what goes back, with no I/O and no clock of its own: the aggregator, the commands an attach sends (`attach_commands`: window sizing, the host's config, the enforced settings, flow control, the re-list, the subscriptions), a client's command on its way (`command`: settling for a script tagged to, the `run-shell` relay, failure reporting, the re-lists behind it), reply correlation and timeouts, window sizing to the client's viewport, and the timers (`tick` at `next_deadline`: the settling flush, the metadata re-list after output, the copy-mode poll, the idle heartbeat). A host feeds it events, commands, the viewport and the time, and runs the `Action`s it returns in order — `Send`, `Emit(class)`, `Notify`, `Answer`, `Ended`.
 
-The reconnect loop re-creates the monitor on disconnect: one loop, `transport::supervise` in `tmuxy-core/src/transport/supervise.rs` (connect, serve, back off, give up after five failures in a row, restore a snapshot before a session is created, autosave while connected), with what differs per host — who may stop it, how a session is brought into being, where the command channel is kept, what giving up means — behind the `Host` trait that `tmuxy-server/src/sse/monitor.rs` and `tmuxy-tauri-app/src/monitor.rs` each implement. The monitor reads the system clock directly; the time-based policies it applies (`RunState`, the aggregator's `step_at`/`tick`) take an explicit instant, which is how their tests drive time without a tmux.
+```
+  tmux -CC ──events──► MonitorCore ──Send──────► tmux -CC
+  client ───commands─►  (aggregator,  ──Emit(class)─► host's emission policy
+  viewport, time ────►   replies,     ──Notify──────► the person, stores
+                         timers)      ──Answer──────► the caller
+```
 
-See `tmuxy-core/src/control_mode/monitor.rs`. The split into one handler method per `select!` arm is purely organisational — the docblocks on each method spell out the load-bearing ordering invariants. The monitor is generic over its link to tmux (`ControlLink`): the real control-mode PTY in production, a scripted one in tests, which is how the order it puts commands on the wire is asserted without a tmux (see [INVARIANTS.md](INVARIANTS.md), M1).
+Two hosts run it: the tokio `TmuxMonitor` and `tmuxy-wasm` (the in-browser guest). See `tmuxy-core/src/control_mode/monitor_core.rs`.
+
+### TmuxMonitor — the native host
+
+Connects, waits on the control-mode link, its emission timers, the core's deadline and the command channel, and runs what the core says: one dispatcher (`monitor/event_loop.rs`, `dispatch`), each action before the next (M1 in [INVARIANTS.md](INVARIANTS.md)). Its own policy is how state is emitted: output throttled under load and debounced otherwise, layout changes coalesced, everything else at once (`RunState`).
+
+The reconnect loop re-creates the monitor on disconnect: one loop, `transport::supervise` in `tmuxy-core/src/transport/supervise.rs` (connect, serve, back off, give up after five failures in a row, restore a snapshot before a session is created, autosave while connected), with what differs per host — who may stop it, how a session is brought into being, where the command channel is kept, what giving up means — behind the `Host` trait that `tmuxy-server/src/sse/monitor.rs` and `tmuxy-tauri-app/src/monitor.rs` each implement. The monitor reads the system clock and hands the core the instant; the core's and `RunState`'s tests drive time themselves, without a tmux.
+
+The monitor is generic over its link to tmux (`ControlLink`): the real control-mode PTY in production, a scripted one in tests, which is how the order it puts commands on the wire is asserted without a tmux.
 
 ### MonitorCommand
 
@@ -50,11 +63,11 @@ See `tmuxy-core/src/control_mode/connection.rs`.
 
 ### StateAggregator — sans-IO state machine
 
-The heart of the system. Consumes `ControlModeEvent`s and returns typed `SideEffect`s (`AdoptUntaggedWindows`, `RefreshPanes`, `EmitState { change }`, `StoreImages`, `WriteClipboard`, etc.). Performs no I/O itself — every command send, every emit, every image store is described, not performed. The runtime (`TmuxMonitor`) is what actually executes them.
+The heart of the system. Consumes `ControlModeEvent`s and returns typed `SideEffect`s: `Send { batch, commands }` (wire-ready: a window's setup, its own reads, the re-list after a window add, a pane refresh with its captures, a flow-control resume), `Emit(class)`, `Notify(..)` (images, a clipboard write, a message) and `Reply { id, .. }`. Performs no I/O itself — every command it needs is built here, captures queued and markers placed, so a host only runs them.
 
-This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here as a sticky flag the runtime arms/disarms; the time-based debounce/safety timer that decides _when_ to disarm still lives in the monitor.
+This separation is what makes the aggregator testable without tokio: drive it with synthetic event sequences and assert on the returned effects. The settling mechanism (window-emission suppression during compound commands) lives here too, armed by the core for a script tagged to settle.
 
-`step(event) -> StepResult` is the public entry point. `tick(now)` drives the time-based transitions: once `now` passes the settling deadline after a burst of structural events, it ends the settling window and returns one consolidated `EmitState` (or nothing, when no event arrived during it).
+`step(event) -> StepResult` is the public entry point. `tick(now)` drives the time-based transitions: once `now` passes the settling deadline after a burst of structural events, it ends the settling window and returns one consolidated emission (or nothing, when no event arrived during it). `ChangeType` is the class a host's emission policy tells apart: output, layout, window, focus, other.
 
 See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks for the ordering invariants the runtime relies on.
 

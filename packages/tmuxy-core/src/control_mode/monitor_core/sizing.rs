@@ -1,23 +1,14 @@
+//! Sizing every window to the client's viewport: tmuxy sets `window-size
+//! manual`, so tmux sizes nothing on its own, and an untargeted `resizew`
+//! only reaches the session's current window.
+
 use super::*;
+use tracing::warn;
 
 /// Size one window. The window was set to `window-size manual` when the
 /// aggregator first saw it (`window_setup_commands`), so tmux keeps the size.
 pub(super) fn resize_command(window_id: &WindowId, (cols, rows): (u32, u32)) -> String {
     format!("resizew -t {window_id} -x {cols} -y {rows}")
-}
-
-/// The `resizew` that gives a freshly attached session the initial PTY size.
-///
-/// The session name is quoted: it reaches the monitor from a client
-/// (`GET /events?session=`), and control mode reads an unquoted `;` in a
-/// command line as the start of another command.
-pub(super) fn initial_resize_command(session: &str) -> String {
-    format!(
-        "resizew -t {} -x {} -y {}",
-        crate::tmux_quote(session),
-        INITIAL_PTY_COLS,
-        INITIAL_PTY_ROWS
-    )
 }
 
 /// How many times running a window may be asked for the SAME size before the
@@ -62,25 +53,19 @@ pub(super) fn needs_resize(
     }
 }
 
-impl<C: ControlLink> TmuxMonitor<C> {
-    /// Resize every window the aggregator knows about to the remembered client
-    /// size. No-op until a client has actually reported a size.
+impl<W> MonitorCore<W> {
+    /// The `resizew`s that bring every known window to the client's size,
+    /// once one is known: a sidebar to its own column ([`sidebar_dock`]
+    /// sizing — docked beside the pane grid, a full-width shell would wrap at
+    /// the viewport's columns while the UI draws it 40 cells wide), every
+    /// other window to the viewport.
     ///
-    /// tmuxy sets `window-size manual`, so tmux will not size windows on its
-    /// own — every window has to be resized explicitly, and an untargeted
-    /// `resizew` only reaches the session's *current* window.
-    ///
-    /// The pinned sidebar window is the one exception: it is docked beside the
-    /// pane grid, not behind it, so it gets [`sidebar_dock::size`] instead of
-    /// the viewport. Giving it the full width would make its shell wrap at the
-    /// viewport's columns while the UI draws it 40 cells wide.
-    pub(super) async fn apply_client_size<E: StateEmitter>(&mut self, emitter: &E) {
-        let Some((cols, rows)) = self.client_size else {
-            return;
-        };
+    /// [`sidebar_dock`]: crate::constants::sidebar_dock
+    pub(super) fn size_windows(&mut self) -> Option<Action<W>> {
+        let (cols, rows) = self.client_size?;
         let (viewport_windows, sidebar_windows) = self.aggregator.window_ids_by_sizing();
         if viewport_windows.is_empty() && sidebar_windows.is_empty() {
-            return;
+            return None;
         }
         // A sidebar runs the full height of the app body in its own column
         // width. It keeps the viewport's rows unless the client set the rows
@@ -102,7 +87,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
         let live: HashSet<&WindowId> = desired.iter().map(|(wid, _)| wid).collect();
         self.resize_attempts.retain(|wid, _| live.contains(wid));
         self.resize_given_up.retain(|wid| live.contains(wid));
-        let desired_snapshot = desired.clone();
         let reports = self.aggregator.pane_reports;
 
         // tmux's own report decides whether a window still needs sizing. A
@@ -110,8 +94,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // took; one that is not is asked again, because the previous `resizew`
         // may simply never have landed. `MAX_RESIZE_ATTEMPTS` keeps that from
         // becoming a command per step forever if tmux will not take the size.
-        let pending: Vec<(WindowId, (u32, u32))> = desired
-            .into_iter()
+        let pending: Vec<&(WindowId, (u32, u32))> = desired
+            .iter()
             .filter(|(wid, size)| {
                 needs_resize(
                     self.aggregator.window_extent(wid),
@@ -127,14 +111,13 @@ impl<C: ControlLink> TmuxMonitor<C> {
             // is indistinguishable from success and leaves the client drawing
             // a grid tmux never agreed to (a phone asking for 41 columns and
             // getting the control-mode PTY's 200 is what this looked like).
-            for (wid, size) in &desired_snapshot {
+            for (wid, size) in &desired {
                 let actual = self.aggregator.window_extent(wid);
                 if actual == Some(*size) {
                     continue;
                 }
                 let tries = self.resize_attempts.get(wid).map_or(0, |a| a.1);
-                if tries >= MAX_RESIZE_ATTEMPTS && !self.resize_given_up.contains(wid) {
-                    self.resize_given_up.insert(wid.clone());
+                if tries >= MAX_RESIZE_ATTEMPTS && self.resize_given_up.insert(wid.clone()) {
                     warn!(
                         window = %wid,
                         wanted = ?size,
@@ -144,65 +127,29 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     );
                 }
             }
-            return;
+            return None;
         }
-        // Asking again means the size is not settled, so a later refusal is
-        // worth reporting afresh.
-        for (wid, _) in &pending {
-            self.resize_given_up.remove(wid);
-        }
-
-        let cmds: Vec<String> = pending
-            .iter()
-            .map(|(wid, size)| resize_command(wid, *size))
-            .collect();
         debug!(
             count = pending.len(),
             cols, rows, "applying client size to windows"
         );
-        if let Err(e) = self.connection.send_commands(&cmds).await {
-            emitter.emit_error(format!("Failed to resize windows: {}", e));
-        } else {
-            for (wid, size) in pending {
-                match self.resize_attempts.get_mut(&wid) {
-                    Some(entry) if entry.0 == size => {
-                        entry.1 = entry.1.saturating_add(1);
-                        entry.2 = reports;
-                    }
-                    _ => {
-                        self.resize_attempts.insert(wid, (size, 1, reports));
-                    }
+        let mut commands = Vec::with_capacity(pending.len());
+        for (wid, size) in pending {
+            // Asking again means the size is not settled, so a later refusal
+            // is worth reporting afresh.
+            self.resize_given_up.remove(wid);
+            commands.push(resize_command(wid, *size));
+            match self.resize_attempts.get_mut(wid) {
+                Some(entry) if entry.0 == *size => {
+                    entry.1 = entry.1.saturating_add(1);
+                    entry.2 = reports;
+                }
+                _ => {
+                    self.resize_attempts
+                        .insert(wid.clone(), (*size, 1, reports));
                 }
             }
         }
-    }
-
-    /// After WindowAdd: list-panes BEFORE list-windows. break-pane creating a float
-    /// window leaves the new pane absent from `self.panes` until list-panes restores
-    /// it; list-windows would otherwise emit state with the pane missing.
-    pub(super) async fn refresh_after_window_add<E: StateEmitter>(&mut self, emitter: &E) {
-        let cmds = self.aggregator.markers().window_relist_commands();
-        if let Err(e) = self.connection.send_commands(&cmds).await {
-            emitter.emit_error(format!("Failed to refresh state after window add: {}", e));
-        }
-    }
-
-    /// Send list-panes (for fresh cursor positions) followed by capture-pane for
-    /// each pane that flagged itself as needing refresh. Ordering is load-bearing:
-    /// list-panes must precede capture-pane so the cursor repositioning logic uses
-    /// the updated `tmux_cursor_x/y` when capture responses arrive.
-    pub(super) async fn refresh_panes<E: StateEmitter>(
-        &mut self,
-        emitter: &E,
-        pane_ids: &[PaneId],
-    ) {
-        let queued_panes = self.aggregator.queue_captures(pane_ids);
-        let commands = self
-            .aggregator
-            .markers()
-            .pane_refresh_commands(&queued_panes);
-        if let Err(e) = self.connection.send_commands(&commands).await {
-            emitter.emit_error(format!("Failed to batch capture panes: {}", e));
-        }
+        Some(Action::Send(commands))
     }
 }

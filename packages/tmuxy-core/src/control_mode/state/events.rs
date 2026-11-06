@@ -9,6 +9,17 @@ fn is_paste_staging_buffer(name: &str) -> bool {
 }
 
 impl StateAggregator {
+    /// Whether a session event is about the session this aggregator follows:
+    /// by the id `%session-changed` gave it once it has one (tmux tells every
+    /// control client of every session's rename), by the name it was made for
+    /// until then. An aggregator made for no name follows any.
+    fn names_our_session(&self, id: &str, name: &str) -> bool {
+        match &self.session_id {
+            Some(ours) => ours == id,
+            None => self.session_name.is_empty() || self.session_name == name,
+        }
+    }
+
     /// Process a control mode event.
     /// Returns information about state changes and any panes that need content refresh.
     pub(crate) fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
@@ -42,7 +53,7 @@ impl StateAggregator {
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
                     panes_needing_refresh: resized_panes,
-                    change_type: ChangeType::PaneLayout,
+                    change_type: ChangeType::Layout,
                     commands: self.collapsible_layout_commands(Some(&window_id)),
                     ..Default::default()
                 }
@@ -127,7 +138,7 @@ impl StateAggregator {
                 }
                 ProcessEventResult {
                     state_changed: !self.suppress_window_emissions,
-                    change_type: ChangeType::PaneFocus,
+                    change_type: ChangeType::Focus,
                     commands: self.collapsible_layout_commands(Some(&window_id)),
                     ..Default::default()
                 }
@@ -157,7 +168,7 @@ impl StateAggregator {
                 self.theme_rev = Some(value);
                 ProcessEventResult {
                     state_changed: true,
-                    change_type: ChangeType::Session,
+                    change_type: ChangeType::Other,
                     ..Default::default()
                 }
             }
@@ -247,42 +258,49 @@ impl StateAggregator {
                 // causing spurious updates in the user's UI).
                 ProcessEventResult::default()
             }
+            // Creating a tmux session, even from another process, fires
+            // `%session-changed` on every control client: one about another
+            // session changes nothing here.
             ControlModeEvent::SessionChanged {
                 session_id,
                 session_name,
             } => {
+                if !self.names_our_session(&session_id, &session_name) {
+                    debug!(session = %session_name, "a session-changed for another session");
+                    return ProcessEventResult::default();
+                }
                 self.session_id = Some(session_id);
                 self.session_name = session_name;
                 ProcessEventResult {
                     state_changed: true,
-                    change_type: ChangeType::Session,
+                    change_type: ChangeType::Other,
                     ..Default::default()
                 }
             }
             ControlModeEvent::SessionRenamed { session_id, name } => {
-                if self
-                    .session_id
-                    .as_ref()
-                    .is_some_and(|ours| *ours != session_id)
-                {
+                if !self.names_our_session(&session_id, &self.session_name.clone()) {
                     return ProcessEventResult::default();
                 }
                 self.session_name = name;
                 ProcessEventResult {
                     state_changed: true,
-                    change_type: ChangeType::Session,
+                    change_type: ChangeType::Other,
                     ..Default::default()
                 }
             }
-            ControlModeEvent::Exit { .. } => ProcessEventResult {
-                state_changed: true,
-                change_type: ChangeType::Session,
+            // The end of the connection is the host's to act on
+            // (`MonitorCore::step`); the tree it leaves is as it was.
+            ControlModeEvent::Exit { .. } => ProcessEventResult::default(),
+
+            // A message is for the person, not the tree.
+            ControlModeEvent::Message { text } => ProcessEventResult {
+                messages: if text.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![text]
+                },
                 ..Default::default()
             },
-
-            // A message is for the person, not the tree; the monitor hands it
-            // to the emitter before a step is taken.
-            ControlModeEvent::Message { .. } => ProcessEventResult::default(),
 
             // ============================================
             // Flow Control Events (tmux 3.2+ pause-after)
@@ -291,7 +309,7 @@ impl StateAggregator {
             // nothing in the state says it was ever paused.
             ControlModeEvent::Pause { pane_id } if self.panes.contains_key(&pane_id) => {
                 ProcessEventResult {
-                    change_type: ChangeType::FlowPause { pane_id },
+                    resume: Some(pane_id),
                     ..Default::default()
                 }
             }

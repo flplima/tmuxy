@@ -17,15 +17,18 @@
 //! - every mutation from a script through `run-shell`, never a second client
 //!   (3.3a–3.5a crash): `packages/tmuxy-cli/bin/tmuxy/_lib`, `transport.rs`, `theme.rs`;
 //! - session- and window-scoped rather than global option writes while
-//!   attached (3.5a crash): `control_mode/monitor/sync.rs`,
+//!   attached (3.5a crash): `control_mode/monitor_core/attach.rs`,
 //!   `control_mode/state/window_state.rs` (`window_setup_commands`);
-//! - `run-shell` output redirected to files (3.4 shows it in view-mode):
+//! - `run-shell` output relayed through a server option (3.4 shows it in
+//!   view-mode): `control_mode/monitor_core/run_shell.rs`;
+//! - `run-shell` output redirected to files (the same, for scripts):
 //!   `_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`, `ask_run_shell` in `session_snapshot`;
 //! - the copy-mode flag asked as `#{pane_mode}`, not `#{pane_in_mode}` (3.4
 //!   put a fresh pane in view-mode): `constants::tmux_formats`;
 //! - a space as the group listing's separator (3.4 prints a control
 //!   character as `_`): `groups::list_panes_format`;
-//! - `set -q` for `allow-passthrough` (absent on 3.2): `monitor/sync.rs`;
+//! - `-q` for `allow-passthrough` (absent on 3.2):
+//!   `control_mode/state/window_state.rs`;
 //! - the JSON `#{window_layout}` of 3.8 read back into the classic string:
 //!   `layout::parse_json`;
 //! - the version floor itself (3.2): `tmux_check`.

@@ -406,7 +406,7 @@ fn reply_markers_collect_the_blocks_between_them() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 7, output, error: None }] if output == "HELLO\n"
+            [SideEffect::Reply { id: 7, output, error: None }] if output == "HELLO\n"
         ),
         "got {:?}",
         end.effects
@@ -429,7 +429,7 @@ fn a_command_lists_blocks_stay_on_their_own_lines() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 9, output, error: None }]
+            [SideEffect::Reply { id: 9, output, error: None }]
                 if output == "C-a\nbind-key -T prefix Space next-layout"
         ),
         "got {:?}",
@@ -448,7 +448,7 @@ fn a_failed_block_fails_the_reply_and_still_closes_it() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 3, error: Some(msg), .. }]
+            [SideEffect::Reply { id: 3, error: Some(msg), .. }]
                 if msg == "can't find window: @999"
         ),
         "the reply carries tmux's message: {:?}",
@@ -479,7 +479,7 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
     );
     assert!(matches!(
         &end.effects[..],
-        [SideEffect::CommandReply { id: 9, output, error: None }] if output.contains("%41,")
+        [SideEffect::Reply { id: 9, output, error: None }] if output.contains("%41,")
     ));
 }
 
@@ -493,7 +493,7 @@ fn a_mismatched_end_marker_fails_the_stale_reply() {
     let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "2"), true));
     assert!(matches!(
         &end.effects[..],
-        [SideEffect::CommandReply {
+        [SideEffect::Reply {
             id: 1,
             error: Some(_),
             ..

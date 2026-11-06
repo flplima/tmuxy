@@ -191,15 +191,8 @@ impl StateAggregator {
 
     /// On window/layout events during settling, extend the debounce deadline
     /// but never past the safety ceiling. Called internally from `step`.
-    pub(super) fn maybe_extend_settling(&mut self, change: &ChangeType, now: Instant) {
-        if self.settling_until.is_none() {
-            return;
-        }
-        let is_window_event = matches!(
-            change,
-            ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
-        );
-        if !is_window_event {
+    pub(super) fn maybe_extend_settling(&mut self, change: ChangeType, now: Instant) {
+        if self.settling_until.is_none() || !change.is_structural() {
             return;
         }
         if self.settling_awaiting_first_event {

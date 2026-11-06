@@ -16,7 +16,7 @@ pub(super) async fn wait_for_monitor(
 /// Ask the monitor to size the session's windows to the viewport — the same
 /// `MonitorCommand::ResizeWindow` the web server sends. Before the monitor is
 /// connected there is nothing to size yet; it replays the client size once
-/// the window list lands (see `TmuxMonitor::apply_client_size`).
+/// the window list lands (see `MonitorCore::set_client_size`).
 pub(super) async fn resize_via_monitor(state: &MonitorState, cols: u32, rows: u32) {
     let cmd_tx = state.tx();
     match cmd_tx {

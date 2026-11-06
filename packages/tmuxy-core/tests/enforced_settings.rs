@@ -1,9 +1,10 @@
 //! The settings the frontend cannot work without are enforced on connect.
 //!
-//! `enforce_settings` (in `control_mode/monitor/sync.rs`) sets a handful of
-//! tmux options on the attached session every time a monitor connects, and
-//! the aggregator's window setup (`window_setup_commands`) the window options
-//! on each window it lists, whatever the user's `tmux.conf` says. They are invariants, not preferences: without
+//! The attach (`enforced_settings` in `control_mode/monitor_core/attach.rs`)
+//! sets a handful of tmux options on the attached session every time a
+//! monitor connects, and the aggregator's window setup
+//! (`window_setup_commands`) the window options on each window it lists,
+//! whatever the user's `tmux.conf` says. They are invariants, not preferences: without
 //! `pane-border-status top` a pane at y=0 loses a row of content to the header
 //! tmuxy draws over the border row; without `mouse on` clicking a pane does not
 //! focus it; without `allow-passthrough` hyperlinks and images never reach the
@@ -83,6 +84,22 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         common::tmux(&["set-option", "-t", "app", key, "off"]).unwrap();
     }
     common::tmux(&["set-window-option", "-t", "app", "aggressive-resize", "on"]).unwrap();
+    // A second window, not the current one at attach: window options set
+    // without a target reach only the current window, so these are set on
+    // each window by id.
+    let second = common::tmux(&[
+        "new-window",
+        "-d",
+        "-P",
+        "-F",
+        "#{window_id}",
+        "-t",
+        "app:",
+        "sleep",
+        "60",
+    ])
+    .unwrap();
+    let second = second.trim();
 
     let config = MonitorConfig {
         session: "app".to_string(),
@@ -123,6 +140,19 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
 
     for key in &switches {
         assert_eq!(option(&tx, key).await, "on", "{key} is enforced on");
+    }
+
+    let mut per_window = vec!["allow-rename"];
+    if has_passthrough {
+        per_window.push("allow-passthrough");
+    }
+    for key in per_window {
+        let reply = ask(&tx, &format!("show-options -w -t {second} -v {key}")).await;
+        assert_eq!(
+            (reply.error, reply.output.trim()),
+            (None, "on"),
+            "{key} is on in a window that was not the current one"
+        );
     }
 
     let aggressive = ask(&tx, "show-window-options -t app -v aggressive-resize").await;
