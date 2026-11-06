@@ -15,6 +15,11 @@ export interface AppTestView {
   activePaneId: PaneId | null;
   /** The active tab's panes, and the floats drawn over it. */
   visiblePaneIds: PaneId[];
+  /**
+   * The prefix key (tmux's spelling, `C-a`) once the server's bindings have
+   * arrived; null before, when a key after the prefix would find no binding.
+   */
+  prefixKey: string | null;
   /** The prefix key was pressed and the next key is looked up in its table. */
   prefixActive: boolean;
   /**
@@ -48,6 +53,7 @@ export function selectTestView(context: AppMachineContext): AppTestView {
     activeTabId: context.activeWindowId,
     activePaneId: context.activePaneId,
     visiblePaneIds: [...selectOnScreenPaneIds(context)],
+    prefixKey: context.keybindings?.prefix_bindings.length ? context.keybindings.prefix_key : null,
     prefixActive: context.prefixActive,
     keyboardTarget: { kind: owner.kind, paneId: owner.kind === 'panes' ? null : owner.paneId },
     copyMode: copy

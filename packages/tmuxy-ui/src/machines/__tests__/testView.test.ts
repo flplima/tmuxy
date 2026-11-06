@@ -44,6 +44,18 @@ describe('the test view', () => {
     ).toEqual({ kind: 'float', paneId: '%3' });
   });
 
+  it('names the prefix key only once the bindings for the key after it have arrived', () => {
+    expect(selectTestView(context()).prefixKey).toBeNull();
+    const keybindings = {
+      prefix_key: 'C-a',
+      repeat_time_ms: 500,
+      prefix_bindings: [{ key: 'c', command: 'new-window', description: '' }],
+      root_bindings: [],
+      tables: {},
+    };
+    expect(selectTestView(context({ keybindings })).prefixKey).toBe('C-a');
+  });
+
   it("carries only the active pane's scrollback", () => {
     expect(selectTestView(context()).copyMode).toBeNull();
     const view = selectTestView(
