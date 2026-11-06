@@ -26,6 +26,12 @@ on:
     # contend for runners.
     - cron: '30 3 * * *'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'The tmux to run against (all: the whole matrix). Only a run of all of them can close the tracking issue.'
+        type: choice
+        default: all
+        options: [all, '3.2a', '3.4', '3.5a', '3.7a', '3.8', HEAD]
 
 permissions:
   contents: read
@@ -35,8 +41,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The frontend bundle and the release server, built once and handed to all
-  # four matrix entries — neither depends on the tmux version under test.
+  # The versions this run covers: every one on a schedule or with `version:
+  # all`, else the one asked for (`gh workflow run nightly-tmux-matrix.yml -f
+  # version=3.4`), which is how a fix for one version is checked without
+  # running the other five.
+  plan:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      tmux: ${{ steps.matrix.outputs.tmux }}
+    steps:
+      - id: matrix
+        env:
+          VERSION: ${{ inputs.version || 'all' }}
+        # `version` is the release tag; `soft` marks a version whose failure
+        # must not fail the workflow. 3.8 is what Homebrew ships, and prints
+        # #{window_layout} as JSON, which session snapshots convert back to
+        # the classic string.
+        run: |
+          all='[
+            {"name": "3.2a", "version": "3.2a"},
+            {"name": "3.4", "version": "3.4"},
+            {"name": "3.5a", "version": "3.5a"},
+            {"name": "3.7a", "version": "3.7a"},
+            {"name": "3.8", "version": "3.8"},
+            {"name": "HEAD", "version": "HEAD", "soft": true}
+          ]'
+          tmux=$(jq -c --arg v "$VERSION" 'map(select($v == "all" or .version == $v))' <<<"$all")
+          if [ "$tmux" = "[]" ]; then
+            echo "::error::no tmux $VERSION in the matrix"
+            exit 1
+          fi
+          echo "tmux=$tmux" >> "$GITHUB_OUTPUT"
+
+  # The frontend bundle and the release server, built once and handed to
+  # every matrix entry — neither depends on the tmux version under test.
   build-artifacts:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -81,7 +120,7 @@ jobs:
           retention-days: 1
 
   suites:
-    needs: build-artifacts
+    needs: [plan, build-artifacts]
     runs-on: ubuntu-26.04
     timeout-minutes: 120
     name: tmux ${{ matrix.tmux.name }}
@@ -94,17 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tmux:
-          # `version` is the release tag; `soft` marks a version whose failure
-          # must not fail the workflow.
-          - { name: '3.2a', version: '3.2a' }
-          - { name: '3.4', version: '3.4' }
-          - { name: '3.5a', version: '3.5a' }
-          - { name: '3.7a', version: '3.7a' }
-          # What Homebrew ships. 3.8 prints #{window_layout} as JSON, which
-          # session snapshots convert back to the classic string.
-          - { name: '3.8', version: '3.8' }
-          - { name: 'HEAD', version: 'HEAD', soft: true }
+        tmux: ${{ fromJSON(needs.plan.outputs.tmux) }}
 
     # The suite's own tmux socket — the tests pin it themselves
     # (tests/helpers/tmux-socket.js), this is what puts the server on it too.
@@ -346,9 +375,11 @@ jobs:
 
   # Every released version passed, so the tracking issue is closed, unless a
   # HEAD failure reported into it on this run (bin/ci/nightly-issue). A manual
-  # run counts: re-running the matrix after a fix is how one is confirmed.
+  # run of the whole matrix counts: re-running it after a fix is how one is
+  # confirmed. A run of one version does not: the others did not run.
   resolve-issue:
     needs: suites
+    if: (inputs.version || 'all') == 'all'
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
