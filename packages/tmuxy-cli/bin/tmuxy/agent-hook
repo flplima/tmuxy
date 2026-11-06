@@ -41,7 +41,7 @@ echo "$state" >"$dir/wanted" 2>/dev/null || exit 0
 
 # What the pane says is read from tmux, not remembered: other writers set the
 # state too — the server reading a dialog off the screen
-# (tmuxy-server/src/agents/screen.rs), a send's question, `tmuxy pane state` —
+# (tmuxy-server/src/agent_screen.rs), a send's question, `tmuxy pane state` —
 # and a remembered "already applied" skipped the hook that should have put it
 # back (a pane left `needs-input` after the user had answered).
 apply() {

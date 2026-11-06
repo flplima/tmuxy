@@ -175,7 +175,7 @@ pub(super) enum SseEvent {
         connection_id: u64,
         default_shell: String,
         trace_enabled: bool,
-        /// The server machine's name (`crate::host_name`), for the status line.
+        /// The server machine's name (`tmuxy_core::host_name`), for the status line.
         hostname: String,
     },
     #[serde(rename = "state-update")]

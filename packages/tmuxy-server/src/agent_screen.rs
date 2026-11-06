@@ -225,5 +225,4 @@ pub async fn watch(state: Arc<AppState>) {
 }
 
 #[cfg(test)]
-#[path = "screen_tests.rs"]
 mod tests;

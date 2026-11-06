@@ -297,7 +297,7 @@ pub async fn sse_handler(
             connection_id: conn_id,
             default_shell,
             trace_enabled: tmuxy_core::trace::is_enabled(),
-            hostname: crate::host_name(),
+            hostname: tmuxy_core::host_name(),
         };
         if let Some(s) = encode_event(&conn_info) {
             yield Ok::<_, std::convert::Infallible>(Event::default().event("connection-info").data(s));

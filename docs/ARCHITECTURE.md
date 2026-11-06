@@ -121,8 +121,9 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 
 | Crate | Owns |
 | --- | --- |
-| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, the shared control-mode reads in `transport.rs`, typed `TmuxError`. |
-| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev); the `tmuxy server <verb>` tools. |
+| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, the shared control-mode reads in `transport.rs`, typed `TmuxError`, and the logging every binary installs (`logging.rs`). |
+| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev), the MCP endpoint, web push, and `tmuxy server stop`/`status`. Its binary runs every `tmuxy server <verb>`. |
+| `tmuxy-verbs` | The `tmuxy server <verb>` tools that serve nothing, which the CLI scripts call: plugins, session snapshots, coding agents, pane groups, the config files, trace files. The web server and the desktop app both link it; neither needs the other to run a verb. |
 | `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, and the v86 client-side adapter (real tmux in an in-browser x86 emulator). |
 | `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` plumbing as the server; transport is native IPC instead of SSE/HTTP. |

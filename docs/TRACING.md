@@ -270,7 +270,7 @@ every layer writes into.
   every field key, and the event and field names `tmuxy trace --check` reads.
   One field policy (`admit`) applies it to a Rust event's fields and to a
   client's alike; the client's own allowlist in `tracer.ts` is tested against
-  it. Registered by `tmuxy_server::init_logging`, installed on the server
+  it. Registered by `tmuxy_core::logging::init_logging`, installed on the server
   binary, the `tmuxy server` subcommand, and the Tauri GUI path alike. Gating and
   the `--trace` flag live in `trace::init` / `ServerArgs`. Existing spans
   (monitor `connect`/`run`, the `transport.rs` reads) flow in with no new call sites.

@@ -173,7 +173,7 @@ pub async fn watch(state: Arc<AppState>) {
     // forgotten with an old key.
     let _ = state.push.public_key();
     let shutdown = state.shutdown.clone();
-    let host = crate::host_name();
+    let host = tmuxy_core::host_name();
     let watched = Arc::clone(&state);
     state
         .spawn(async move {

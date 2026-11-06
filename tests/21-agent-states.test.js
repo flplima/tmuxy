@@ -2,7 +2,7 @@
  * An agent's approval dialog is read off its screen: Antigravity has no hook
  * for one, and Claude Code and Codex fire none when it is answered — so the
  * server reads the bottom of every agent pane its hooks have marked
- * (tmuxy-server/src/agents/screen.rs).
+ * (tmuxy-server/src/agent_screen.rs).
  *
  * The agent is a shell under the name `claude`, which is all the server goes
  * by: it plays the agent's hook (the pane marked working), draws a dialog,

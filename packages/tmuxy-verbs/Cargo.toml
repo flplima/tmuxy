@@ -1,0 +1,27 @@
+[package]
+name = "tmuxy-verbs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The tmuxy verbs that serve nothing: plugins, snapshots, agents, pane groups, config, trace files"
+
+[lints]
+workspace = true
+
+[dependencies]
+tmuxy-core = { path = "../tmuxy-core" }
+tmuxy-group = { path = "../tmuxy-group" }
+serde.workspace = true
+# preserve_order: `tmuxy agent install` rewrites the user's own agent
+# settings, which must keep the order they were written in.
+serde_json = { workspace = true, features = ["preserve_order"] }
+tokio = { workspace = true }
+tracing.workspace = true
+clap.workspace = true
+dirs.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -452,11 +452,11 @@ pub fn trace_enabled() -> bool {
 }
 
 /// The machine's host name, for the status line's host label
-/// (`tmuxy_server::host_name`): the desktop app runs the server in-process,
+/// (`tmuxy_core::host_name`): the desktop app runs the server in-process,
 /// so there is no greeting to carry it.
 #[tauri::command]
 pub fn host_name() -> String {
-    tmuxy_server::host_name()
+    tmuxy_core::host_name()
 }
 
 /// Everything the Debug menu needs to render itself

@@ -13,7 +13,6 @@ use std::io::{IsTerminal, Read};
 use serde_json::Value;
 
 mod config;
-pub(crate) mod screen;
 use config::*;
 
 #[cfg(test)]
@@ -98,7 +97,7 @@ const CODEX_HOOKS: &[Hook] = &[
 ];
 
 /// Antigravity has no hook for a permission prompt: `needs-input` comes from
-/// its screen (`agents::screen`). A tool finishing is back to working, as a
+/// its screen (`tmuxy-server`'s `agent_screen`). A tool finishing is back to working, as a
 /// prompt answered by the user is.
 const AGY_HOOKS: &[Hook] = &[
     Hook::on("SessionStart"),
