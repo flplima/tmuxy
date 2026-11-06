@@ -79,12 +79,8 @@ cmd_agent() {
   [ $# -gt 0 ] && shift
   case "$verb" in
     install|uninstall|status)
-      find_server_cmd
-      [ "$JSON_OUT" = true ] || exec "${SERVER_CMD[@]}" agent "$verb" "$@"
-      local out status=0
-      out=$("${SERVER_CMD[@]}" agent "$verb" "$@") || status=$?
-      [ "$status" -eq 0 ] || _fail "$status" "$out"
-      json_ok "output=$(json_string "$out")"
+      find_server_cmd || exit "$EXIT_FAILED"
+      exec "${SERVER_CMD[@]}" agent "$verb" ${server_json[@]+"${server_json[@]}"} "$@"
       ;;
     ""|--help|-h)
       cat <<EOF
@@ -120,5 +116,5 @@ cmd_skill() {
     --help|-h) echo "Usage: tmuxy skill"; return ;;
   esac
   find_server_cmd || exit "$EXIT_FAILED"
-  exec "${SERVER_CMD[@]}" skill
+  exec "${SERVER_CMD[@]}" skill ${server_json[@]+"${server_json[@]}"}
 }

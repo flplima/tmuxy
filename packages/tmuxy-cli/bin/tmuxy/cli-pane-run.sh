@@ -120,7 +120,7 @@ cmd_pane_run() {
   out=$(_run_safe "splitw$CALLER_T $flags -P -F '##{pane_id}' $(shquote "bash $dir/run.sh")")
   pane_id=$(echo "$out" | grep -o '%[0-9]*' | tail -1 || true)
   [ -n "$pane_id" ] || _fail "$EXIT_FAILED" "tmux created no pane"
-  [ -z "$label" ] || _run_safe "set-option -p -t $pane_id @tmuxy-label $(shquote "$label")"
+  [ -z "$label" ] || _run_safe "set-option -p -t $pane_id $OPT_PANE_LABEL $(shquote "$label")"
 
   if ! $wait; then
     if [ "$JSON_OUT" = true ]; then

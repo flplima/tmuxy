@@ -10,6 +10,7 @@ mod config_cli;
 mod connect_cli;
 mod float_cli;
 mod plugin_cli;
+mod run_cli;
 mod send_cli;
 mod session_cli;
 mod trace_view;
@@ -35,21 +36,32 @@ pub enum Verb {
     /// Install, list, update and remove plugins, and run their actions.
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
     Plugin(plugin_cli::PluginArgs),
-    /// The config verbs whose work is a file tmuxy-core owns: `paths`,
-    /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
+    /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
+    /// `use-tmux-conf`. Backs `tmuxy config`.
     Config(config_cli::ConfigArgs),
     /// Type keys, or paste text, into a pane, asking the user there first
     /// when it is not the caller's own. Backs `tmuxy pane send` and
     /// `tmuxy pane paste`, which resolve the target and the caller.
     #[command(hide = true)]
     Send(send_cli::SendArgs),
-    /// Ask the desktop app to reconnect to another tmux server, and save the
-    /// server for the session menu. Backs `tmuxy connect` and
-    /// `tmuxy session connect`, which probe the server first.
+    /// Ask the desktop app to reconnect to another tmux server. Backs
+    /// `tmuxy connect <socket>`.
     #[command(hide = true)]
     Connect(connect_cli::ConnectArgs),
+    /// Check a server stage by stage, save it for the session menu and ask
+    /// the desktop app to attach to it. Backs `tmuxy session connect`.
+    #[command(hide = true)]
+    SessionConnect(connect_cli::SessionConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
-    Skill,
+    Skill(agents::SkillArgs),
+    /// Run a tmux command that reads, arranges or closes, inside run-shell.
+    /// Backs `tmuxy run`.
+    #[command(hide = true)]
+    Run(run_cli::RunArgs),
+    /// A new tab beside the caller's pane, and its id. Backs
+    /// `tmuxy tab create`.
+    #[command(hide = true)]
+    NewTab(run_cli::NewTabArgs),
     /// Make a float over the caller's tab and print its pane and window.
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
@@ -66,7 +78,43 @@ pub async fn run(verb: Verb) {
         Verb::Config(args) => config_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         Verb::Connect(args) => connect_cli::run(args),
-        Verb::Skill => print!("{}", agents::SKILL),
+        Verb::SessionConnect(args) => connect_cli::session_connect(args),
+        Verb::Skill(args) => agents::skill(args),
         Verb::Float(args) => float_cli::run(args),
+        Verb::Run(args) => run_cli::run(args),
+        Verb::NewTab(args) => run_cli::tab_create(args),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Verb;
+    use clap::Parser;
+
+    /// `--json` works on every command (`tmuxy --help`): the shell hands it to
+    /// whichever verb answers, which must take it.
+    #[test]
+    fn every_verb_the_cli_hands_json_to_takes_it() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            verb: Verb,
+        }
+        for argv in [
+            &["trace", "--json"][..],
+            &["trace", "--health", "--json"],
+            &["skill", "--json"],
+            &["session", "snapshots", "--json"],
+            &["agent", "status", "--json"],
+            &["config", "paths", "--json"],
+            &["plugin", "list", "--json"],
+            &["run", "--json", "--", "list-panes"],
+            &["new-tab", "--json"],
+            &["connect", "--json", "--socket", "x"],
+            &["session-connect", "--json"],
+        ] {
+            let parsed = Cli::try_parse_from(std::iter::once("tmuxy").chain(argv.iter().copied()));
+            assert!(parsed.is_ok(), "{argv:?}");
+        }
     }
 }

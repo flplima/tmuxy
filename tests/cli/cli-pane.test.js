@@ -199,7 +199,7 @@ describe('CLI pane subcommands', () => {
     // the CLI asks first, with the server's own preference: an attached
     // real session over an idle one, and never the stash.
     test('resolves the attached real session, skipping the stash', () => {
-      const { exitCode, paneResolution, tmuxCalls } = runCLI(['tab', 'create'], {
+      const { exitCode, paneResolution, tmuxCalls } = runCLI(['pane', 'break'], {
         env: { MOCK_TMUX_CALLER_PANES: '0\\t__tmuxy_stash\\t%7\\n0\\tidle\\t%3\\n1\\tmain\\t%0' },
       });
       expect(exitCode).toBe(0);
@@ -209,12 +209,12 @@ describe('CLI pane subcommands', () => {
       // run-shell hands it none of its own — and the break names its session
       // rather than trusting tmux's "current" one.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toMatch(/^TMUX_PANE=%0 tmux -L tmuxy splitw /);
-      expect(tmuxCalls[0].args[1]).toContain("breakp -t '#{session_id}:'");
+      expect(tmuxCalls[0].args[1]).toMatch(/^TMUX_PANE=%0 tmux -L tmuxy breakp /);
+      expect(tmuxCalls[0].args[1]).toContain("breakp -s %0 -t '#{session_id}:'");
     });
 
     test('a pane of its own is never second-guessed', () => {
-      const { paneResolution } = runCLI(['tab', 'create'], {
+      const { paneResolution } = runCLI(['pane', 'break'], {
         env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%4' },
       });
       expect(paneResolution).toBeNull();

@@ -49,7 +49,7 @@ create_float() {
   read -r NEW_PANE_ID NEW_WIN_ID <<<"$ids"
 }
 
-if [ "$CURRENT_TYPE" = "float" ]; then
+if [ "$CURRENT_TYPE" = "$WINDOW_TYPE_FLOAT" ]; then
   if [ $# -eq 0 ]; then
     exec "${SHELL:-bash}"
   else

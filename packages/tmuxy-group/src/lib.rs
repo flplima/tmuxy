@@ -73,9 +73,12 @@ pub enum GroupVerb {
         #[arg(allow_hyphen_values = true, num_args = 0..)]
         to: Vec<String>,
     },
+    /// Every other pane of PANE's tab joins PANE's group, in tab order.
+    All { pane: String },
+    /// PANE's group comes apart: each other member back as a split beside
+    /// PANE, in group order, PANE out of the group, and the tab tiled.
+    Ungroup { pane: String },
 }
-
-const NOTHING_TO_STEP_TO: i32 = 3;
 
 impl GroupVerb {
     fn name(&self) -> &'static str {
@@ -90,6 +93,8 @@ impl GroupVerb {
             Self::Move { .. } => "move",
             Self::Join { .. } => "join",
             Self::Leave { .. } => "leave",
+            Self::All { .. } => "all",
+            Self::Ungroup { .. } => "ungroup",
         }
     }
 }
@@ -205,6 +210,58 @@ fn execute(verb: GroupVerb) -> Result<Option<String>, Outcome> {
             run_all(&groups::leave(&read()?, &pane, &to, &ctx)?)?;
             Ok(None)
         }
+        GroupVerb::All { pane } => {
+            let anchor = PaneId::parse(&pane)?;
+            let panes = read()?;
+            let Some(window) = panes.row(&anchor).map(|r| r.window.clone()) else {
+                return Ok(None);
+            };
+            let others: Vec<PaneId> = panes
+                .in_window(&window)
+                .map(|r| r.pane.clone())
+                .filter(|p| *p != anchor)
+                .collect();
+            // Each join parks the pane and tags it; the first makes the group.
+            for other in others {
+                run_all(&groups::join(&read()?, &other, &anchor, None, &ctx)?)?;
+            }
+            Ok(None)
+        }
+        GroupVerb::Ungroup { pane } => {
+            let anchor = PaneId::parse(&pane)?;
+            let panes = read()?;
+            let Some(group) = panes.group_of(&anchor).cloned() else {
+                return Ok(None);
+            };
+            let members: Vec<PaneId> = panes
+                .members(&group)
+                .into_iter()
+                .map(|r| r.pane.clone())
+                .filter(|p| *p != anchor)
+                .collect();
+            let beside = Leave::Beside {
+                target: anchor.clone(),
+                side: Side::Right,
+            };
+            for member in members {
+                run_all(&groups::leave(&read()?, &member, &beside, &ctx)?)?;
+            }
+            // A group left with one member dissolves on its own; only a pane
+            // still tagged has a group to leave.
+            let panes = read()?;
+            if panes.group_of(&anchor).is_some() {
+                run_all(&groups::leave(&panes, &anchor, &Leave::Tab, &ctx)?)?;
+            }
+            if let Some(row) = read()?.row(&anchor) {
+                tmux(&[
+                    "select-layout".to_string(),
+                    "-t".to_string(),
+                    row.window.to_string(),
+                    "tiled".to_string(),
+                ])?;
+            }
+            Ok(None)
+        }
     }
 }
 
@@ -217,7 +274,7 @@ fn step(pane: &str, direction: Direction, no_wrap: bool) -> Result<Option<String
         groups::step(&panes, &pane, direction)
     };
     if plan.is_empty() && no_wrap {
-        return Err(Outcome::Exit(NOTHING_TO_STEP_TO));
+        return Err(Outcome::Exit(groups::NOTHING_TO_STEP_TO));
     }
     run_all(&plan)?;
     Ok(None)

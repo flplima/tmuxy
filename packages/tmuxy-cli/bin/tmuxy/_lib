@@ -81,7 +81,7 @@ if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
   TMUX_SOCKET="${_path##*/}"
 fi
-TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
+TMUX_SOCKET="${TMUX_SOCKET:-$DEFAULT_TMUX_SOCKET}"
 export TMUX_SOCKET
 # A TMUX_SOCKET containing a slash is a full socket path (-S); otherwise a
 # socket name in tmux's default directory (-L).
@@ -198,8 +198,7 @@ source "$SCRIPTS_DIR/_contract"
 # only guess. The desktop app's server verbs are `tmuxy server <verb>`.
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
-  local root="${SCRIPTS_DIR%/*}/../../.." launcher
-  launcher="$(tmuxy_state_dir)/launcher"
+  local root="${SCRIPTS_DIR%/*}/../../.."
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
   elif command -v tmuxy-server &>/dev/null; then
@@ -208,12 +207,25 @@ find_server_cmd() {
     SERVER_CMD=("$root/target/debug/tmuxy-server")
   elif [ -x "$root/target/release/tmuxy-server" ]; then
     SERVER_CMD=("$root/target/release/tmuxy-server")
-  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
-    SERVER_CMD=("$(cat "$launcher")" server)
-  elif [ -x "/Applications/tmuxy.app/Contents/MacOS/tmuxy" ]; then
-    SERVER_CMD=("/Applications/tmuxy.app/Contents/MacOS/tmuxy" server)
+  elif find_desktop_cmd; then
+    SERVER_CMD=("$DESKTOP_CMD" server)
   else
     echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
+    return 1
+  fi
+}
+
+# Set DESKTOP_CMD to the desktop app's binary: the one serving this socket
+# when it is the desktop app (it publishes its verbs as `<bin> server`), else
+# the installed app the launcher file names (written on every launch).
+find_desktop_cmd() {
+  local launcher
+  launcher="$(tmuxy_state_dir)/launcher"
+  if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ] && [ "${TMUXY_SERVER_SUBCOMMAND:-}" = server ]; then
+    DESKTOP_CMD="$TMUXY_SERVER_BIN"
+  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
+    DESKTOP_CMD="$(cat "$launcher")"
+  else
     return 1
   fi
 }
@@ -303,19 +315,30 @@ _lock_release() {
 
 # Output: float|sidebar-left|sidebar-right, empty for a tab.
 window_type() {
-  _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
+  _tmux show-options -wqv -t "$1" "$OPT_WINDOW_TYPE" 2>/dev/null
+}
+
+# The window type of the sidebar on side $1 (left|right), in SIDEBAR_TYPE.
+_sidebar_type() {
+  if [ "$1" = left ]; then
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_LEFT"
+  else
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_RIGHT"
+  fi
 }
 
 sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t { print $1; exit }'
 }
 
 # A closed sidebar column keeps its window, hidden (`@tmuxy-sidebar-hidden`),
 # and is nowhere to move to.
 shown_sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type} #{?@tmuxy-sidebar-hidden,hidden,shown}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t && $3 == "shown" { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE} #{?$OPT_SIDEBAR_HIDDEN,hidden,shown}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t && $3 == "shown" { print $1; exit }'
 }
 
 # Ask the connected clients to move keyboard focus somewhere no tmux command
@@ -330,7 +353,7 @@ shown_sidebar_window() {
 # Args: $1=left|right|panes
 request_focus() {
   _tmux set-option -t "$(_tmux display-message -p '#{session_name}')" \
-    @tmuxy-focus-request "$1" 2>/dev/null || true
+    "$OPT_FOCUS_REQUEST" "$1" 2>/dev/null || true
   # tmux emits no control-mode notification for a user option, so left alone
   # the request would sit until the backend's next window event or idle
   # heartbeat (15 s). Poke a window event out of tmux instead: renaming a
@@ -338,12 +361,15 @@ request_focus() {
   # and nothing else — chrome windows are not tabs, so no label changes and
   # automatic-rename was never on for them. The backend re-lists windows on
   # the event and the client sees the request within a round trip.
-  local target_side="$1" poke_win
-  [ "$target_side" = "panes" ] && target_side="left"
-  poke_win=$(sidebar_window "$target_side")
-  [ -n "$poke_win" ] || poke_win=$(sidebar_window right)
+  local side="$1" poke_win
+  [ "$side" = "panes" ] && side="left"
+  poke_win=$(sidebar_window "$side")
+  if [ -z "$poke_win" ]; then
+    side=right
+    poke_win=$(sidebar_window right)
+  fi
   if [ -n "$poke_win" ]; then
-    _run_safe "rename-window -t $poke_win __sidebar-$(window_type "$poke_win" | sed 's/^sidebar-//')"
+    _run_safe "rename-window -t $poke_win $SIDEBAR_WINDOW_PREFIX$side"
   fi
 }
 

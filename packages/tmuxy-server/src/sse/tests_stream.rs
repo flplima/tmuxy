@@ -39,7 +39,7 @@ async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
 
 /// A size sent under an id no stream owns is dropped: nothing would ever
 /// clean it up, and a 1x1 one would pin the session for every real client.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_size_for_a_connection_with_no_stream_is_ignored() {
     let state = Arc::new(AppState::default());
     let resizes = session_with_fake_monitor(&state, "s").await;

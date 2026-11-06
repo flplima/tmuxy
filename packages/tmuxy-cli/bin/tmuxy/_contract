@@ -6,10 +6,8 @@
 #   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
 #   4 no tmux server on the socket · 130 interrupted. A command that waits for
 #   a program (`pane run --wait`, `pane wait`) exits with the program's status.
-EXIT_FAILED=1
-EXIT_USAGE=2
-EXIT_TARGET=3
-EXIT_NO_SERVER=4
+# The codes and a failure's shape are tmuxy-core's (`cli_contract`), from
+# `_options`.
 
 # `--json` anywhere on the command line (tmuxy-cli takes it off the arguments
 # and sets this): every answer, including a failure, is one JSON object on
@@ -17,11 +15,13 @@ EXIT_NO_SERVER=4
 JSON_OUT="${JSON_OUT:-false}"
 
 # The CLI's one JSON string encoder, as an awk function: `jstr(s)` is `s`
-# with the characters JSON forbids raw escaped (backslash, quote, tab, CR),
-# every other control character dropped. A row printer splices it into its own
-# awk program (`awk "$JSON_AWK"'…'`); `json_string` runs it on one value. awk
-# only, since neither jq nor python is a dependency of the CLI.
-JSON_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\t/, "\\t", s); gsub(/\r/, "\\r", s); gsub(/[[:cntrl:]]/, "", s); return s } '
+# with backslash, quote and every control character escaped as serde_json
+# escapes them (`\t`, `\u001b`), so a string answers the same here as from a
+# verb (tmuxy-core `cli_contract` holds the two together). A row printer
+# splices it into its own awk program (`awk "$JSON_AWK"'…'`); `json_string`
+# runs it on one value. awk only, since neither jq nor python is a dependency
+# of the CLI.
+JSON_AWK='function jstr(s,  out, i, n, ch) { if (!JSTR_READY) { for (i = 1; i < 32; i++) JSTR_ESC[sprintf("%c", i)] = sprintf("\\u%04x", i); JSTR_ESC["\t"] = "\\t"; JSTR_ESC["\r"] = "\\r"; JSTR_ESC["\b"] = "\\b"; JSTR_ESC["\f"] = "\\f"; JSTR_ESC["\\"] = "\\\\"; JSTR_ESC["\""] = "\\\""; JSTR_READY = 1 } out = ""; n = length(s); for (i = 1; i <= n; i++) { ch = substr(s, i, 1); out = out ((ch in JSTR_ESC) ? JSTR_ESC[ch] : ch) } return out } '
 
 # One string as a JSON string literal (quotes included), its lines joined by
 # `\n`.
@@ -42,6 +42,11 @@ json_ok() {
   printf '%s}\n' "$out"
 }
 
+# ` --json` when the answer is JSON, for a verb's command line.
+_json_flag() {
+  [ "$JSON_OUT" != true ] || printf ' --json'
+}
+
 _done() {
   [ "$JSON_OUT" = true ] || return 0
   json_ok "$@"
@@ -57,7 +62,7 @@ _json_fd() {
 _fail() {
   local code="$1" message="$2"
   if [ "$JSON_OUT" = true ]; then
-    printf '{"ok":false,"error":%s,"code":%s}\n' "$(json_string "$message")" "$code" >&"$(_json_fd)"
+    printf "$JSON_FAILURE_FORMAT\\n" "$(json_string "$message")" "$code" >&"$(_json_fd)"
   else
     echo "Error: $message" >&2
   fi
@@ -108,7 +113,7 @@ _resolve_target() {
   esac
   # The title is the app's (APP_PANE_TITLE_FMT): tmux seeds every untitled
   # pane's title with the host name, which would otherwise name them all.
-  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{@tmuxy-label}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
+  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $4 "\t" $2 }')"
   if [ -z "$matches" ]; then
     matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$3 == want { print $1 "\t" $4 "\t" $3 }')"
@@ -132,35 +137,6 @@ _resolve_target() {
     exit "$EXIT_TARGET"
   fi
   printf '%s' "${matches%%$'\t'*}"
-}
-
-_is_safe_socket() {
-  local sock="${1:-}"
-  [ -n "$sock" ] || return 1
-  [[ "$sock" != -* && "$sock" != *..* ]] || return 1
-  [[ "$sock" != */* || "$sock" == /* ]] || return 1
-  [[ "$sock" =~ ^[A-Za-z0-9._/@+-]+$ ]]
-}
-
-# Matches tmuxy_core::SessionName.
-_is_safe_session_name() {
-  local name="${1:-}"
-  [ -n "$name" ] || return 1
-  [[ "$name" != -* ]] || return 1
-  [[ "$name" =~ ^[A-Za-z0-9_@+-]+$ ]]
-}
-
-# The first name in $1 (one per line, as `list-sessions -F '#{session_name}'`
-# prints them) that is a safe session name and not the stash of parked group
-# members, which sorts before real sessions.
-_first_safe_session() {
-  local name
-  while IFS= read -r name; do
-    if [ "$name" != "$STASH_SESSION" ] && _is_safe_session_name "$name"; then
-      printf '%s' "$name"
-      return 0
-    fi
-  done <<<"$1"
 }
 
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:

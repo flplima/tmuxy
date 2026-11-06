@@ -125,13 +125,13 @@ jobs:
 
       - run: npm ci
 
-      # The Rust suite on a Mac, against Homebrew's tmux: daily and on every
-      # tag, here, because the per-commit `macos-tests` job only runs it when
-      # a push touches macOS-specific code (lint-and-tests.yml). macOS minutes
-      # cost ten Linux ones, and the ~500 platform-neutral tests are already
-      # run on Linux per commit; this is the net under the path filter.
+      # The Rust suite on a Mac, against Homebrew's tmux, daily: the
+      # per-commit `macos-tests` job only runs it when a push touches
+      # macOS-specific code (lint-and-tests.yml), and macOS minutes cost ten
+      # Linux ones. On a tag, the `tests` job above runs it (macos-tests runs
+      # cargo test on every tag), so it is not run twice.
       - name: Cargo test (macOS)
-        if: matrix.platform == 'macos'
+        if: matrix.platform == 'macos' && !startsWith(github.ref, 'refs/tags/')
         run: |
           brew list tmux >/dev/null 2>&1 || brew install tmux
           mkdir -p packages/tmuxy-ui/dist

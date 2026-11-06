@@ -94,18 +94,6 @@ pub fn run_cli(args: Vec<String>) {
         eprintln!("Failed to exec tmuxy-cli: {}", e);
         std::process::exit(1);
     }
-
-    #[cfg(not(unix))]
-    {
-        let status = std::process::Command::new(&script)
-            .args(&args)
-            .status()
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to run tmuxy-cli: {}", e);
-                std::process::exit(1);
-            });
-        std::process::exit(status.code().unwrap_or(1));
-    }
 }
 
 pub fn run_server(args: Vec<String>) {

@@ -108,7 +108,14 @@ fn install_keeps_the_users_settings_and_hooks_and_uninstall_restores_them() {
 "#;
     std::fs::write(&path, original).unwrap();
 
-    install(&places, &which(&[Agent::Claude]), false, "/bin/tmuxy").unwrap();
+    install(
+        &mut String::new(),
+        &places,
+        &which(&[Agent::Claude]),
+        false,
+        "/bin/tmuxy",
+    )
+    .unwrap();
     let doc = read_doc(&path).unwrap();
     let keys: Vec<&str> = doc.keys().map(String::as_str).collect();
     assert_eq!(keys, ["theme", "hooks", "model"], "order kept");
@@ -133,6 +140,7 @@ fn install_keeps_the_users_settings_and_hooks_and_uninstall_restores_them() {
 
     // Installing again replaces tmuxy's entries rather than adding more.
     install(
+        &mut String::new(),
         &places,
         &which(&[Agent::Claude]),
         false,
@@ -146,7 +154,7 @@ fn install_keeps_the_users_settings_and_hooks_and_uninstall_restores_them() {
         hook_command(Agent::Claude, "Stop", "/usr/local/bin/tmuxy")
     );
 
-    uninstall(&places, &which(&[Agent::Claude])).unwrap();
+    uninstall(&mut String::new(), &places, &which(&[Agent::Claude])).unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
 }
 
@@ -161,7 +169,14 @@ fn antigravity_gets_a_named_hook_set_beside_the_users() {
     )
     .unwrap();
 
-    install(&places, &which(&[Agent::Agy]), false, "tmuxy").unwrap();
+    install(
+        &mut String::new(),
+        &places,
+        &which(&[Agent::Agy]),
+        false,
+        "tmuxy",
+    )
+    .unwrap();
     let doc = read_doc(&path).unwrap();
     assert_eq!(doc["browser-cleanup"]["Stop"][0]["command"], "reap");
     assert_eq!(
@@ -170,7 +185,7 @@ fn antigravity_gets_a_named_hook_set_beside_the_users() {
     );
     assert_eq!(hooked_events(&doc, Agent::Agy), Agent::Agy.hooks().len());
 
-    uninstall(&places, &which(&[Agent::Agy])).unwrap();
+    uninstall(&mut String::new(), &places, &which(&[Agent::Agy])).unwrap();
     let doc = read_doc(&path).unwrap();
     assert!(doc.get("tmuxy").is_none());
     assert_eq!(doc["browser-cleanup"]["Stop"][0]["command"], "reap");
@@ -179,7 +194,14 @@ fn antigravity_gets_a_named_hook_set_beside_the_users() {
 #[test]
 fn codex_hooks_go_in_hooks_json_and_session_end_fits_its_limit() {
     let places = scratch("codex");
-    install(&places, &which(&[Agent::Codex]), false, "tmuxy").unwrap();
+    install(
+        &mut String::new(),
+        &places,
+        &which(&[Agent::Codex]),
+        false,
+        "tmuxy",
+    )
+    .unwrap();
     let doc = read_doc(&places.codex_home.join("hooks.json")).unwrap();
     assert_eq!(doc["hooks"]["SessionEnd"][0]["hooks"][0]["timeout"], 3);
     assert_eq!(
@@ -203,18 +225,18 @@ fn a_skill_tmuxy_did_not_write_is_left_alone_unless_forced() {
         ..which(&[Agent::Claude])
     };
 
-    install(&places, &skill_only, false, "tmuxy").unwrap();
+    install(&mut String::new(), &places, &skill_only, false, "tmuxy").unwrap();
     assert_eq!(
         std::fs::read_to_string(dir.join("SKILL.md")).unwrap(),
         "mine"
     );
-    uninstall(&places, &skill_only).unwrap();
+    uninstall(&mut String::new(), &places, &skill_only).unwrap();
     assert_eq!(
         std::fs::read_to_string(dir.join("SKILL.md")).unwrap(),
         "mine"
     );
 
-    install(&places, &skill_only, true, "tmuxy").unwrap();
+    install(&mut String::new(), &places, &skill_only, true, "tmuxy").unwrap();
     assert_eq!(
         std::fs::read_to_string(dir.join("SKILL.md")).unwrap(),
         SKILL
@@ -225,7 +247,7 @@ fn a_skill_tmuxy_did_not_write_is_left_alone_unless_forced() {
     );
     assert!(matches!(skill_state(&dir), SkillState::Ours(v) if v == VERSION));
 
-    uninstall(&places, &skill_only).unwrap();
+    uninstall(&mut String::new(), &places, &skill_only).unwrap();
     assert!(!dir.exists());
 }
 
@@ -240,7 +262,14 @@ fn a_settings_file_that_is_a_symlink_stays_one() {
     std::fs::write(&real, "{\"theme\": \"dark\"}\n").unwrap();
     std::os::unix::fs::symlink(&real, &path).unwrap();
 
-    install(&places, &which(&[Agent::Claude]), false, "tmuxy").unwrap();
+    install(
+        &mut String::new(),
+        &places,
+        &which(&[Agent::Claude]),
+        false,
+        "tmuxy",
+    )
+    .unwrap();
     assert!(std::fs::symlink_metadata(&path)
         .unwrap()
         .file_type()
@@ -254,7 +283,14 @@ fn a_file_that_is_not_json_is_refused_untouched() {
     let path = places.hooks_file(Agent::Claude, Scope::Home);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "{ not json").unwrap();
-    assert!(install(&places, &which(&[Agent::Claude]), false, "tmuxy").is_err());
+    assert!(install(
+        &mut String::new(),
+        &places,
+        &which(&[Agent::Claude]),
+        false,
+        "tmuxy"
+    )
+    .is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
 

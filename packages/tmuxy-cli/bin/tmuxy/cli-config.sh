@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# `reload`, `use-tmux-conf` and `paths` are the server binary's: the files
-# they read and write are tmuxy-core's, which also says what they mean.
+# Every setting is the server binary's `config`: the files it reads and
+# writes are tmuxy-core's, which also says what they mean.
 # `reload` touches a marker the app watches; the app re-sources the config on
 # its own control-mode connection and pushes it to every client, where a raw
 # `source-file` from here would apply it to tmux but tell no client.
@@ -73,21 +73,6 @@ cmd_config_use_tmux_conf() {
   esac
 }
 
-# The starter tmuxy.conf: the copy the app mirrors into its data dir, less the
-# generated header above its first blank line; in a checkout that never ran
-# the app, the asset itself.
-starter_conf() {
-  local example
-  example="$(tmuxy_data_dir)/tmuxy.conf.example"
-  if [ -f "$example" ]; then
-    sed '1,/^$/d' "$example"
-  elif [ -f "$SCRIPTS_DIR/../../../tmuxy-core/assets/tmuxy.conf" ]; then
-    cat "$SCRIPTS_DIR/../../../tmuxy-core/assets/tmuxy.conf"
-  else
-    return 1
-  fi
-}
-
 cmd_config_init() {
   for arg in "$@"; do
     case "$arg" in
@@ -99,21 +84,7 @@ cmd_config_init() {
       *) _die_usage "invalid argument '$arg'" ;;
     esac
   done
-  local dir conf starter
-  dir="$(tmuxy_config_dir)"
-  conf="$dir/tmuxy.conf"
-  # A dangling link counts: it is a dotfiles checkout not cloned yet.
-  if [ -e "$conf" ] || [ -L "$conf" ]; then
-    _fail "$EXIT_FAILED" "$conf already exists; not overwriting it"
-  fi
-  starter="$(starter_conf)" || _fail "$EXIT_FAILED" "no starter config found (start tmuxy once to install it)"
-  mkdir -m 700 -p "$dir" || _fail "$EXIT_FAILED" "cannot create $dir"
-  (umask 077 && printf '%s\n' "$starter" > "$conf") || _fail "$EXIT_FAILED" "cannot write $conf"
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "file=$(json_string "$conf")"
-    return 0
-  fi
-  echo "Wrote $conf"
+  config_verb init
 }
 
 cmd_config_paths() {

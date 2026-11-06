@@ -184,10 +184,6 @@ describe('the caller’s pane is the target', () => {
     [['pane', 'resize', '-U', '5'], 'resizep -t %1 -U 5'],
     [['pane', 'break'], "breakp -s %1 -t '#{session_id}:' -P -F '##{window_id}'"],
     [
-      ['tab', 'create', 'x'],
-      "splitw -t %1 \\; breakp -t '#{session_id}:' -n 'x' -P -F '##{window_id}'",
-    ],
-    [
       ['tab', 'kill'],
       `killw -t %1 \\; run-shell 'bash ${path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy')}/pane-group gc'`,
     ],
@@ -359,12 +355,10 @@ describe('--json on every command', () => {
     [['pane', 'swap', '%0', '%1'], { ok: true, src: '%0', dst: '%1' }],
     [['pane', 'zoom'], { ok: true }],
     [['pane', 'break'], { ok: true, tabId: '@99' }],
-    [['tab', 'create'], { ok: true, tabId: '@99' }],
     [['tab', 'kill', '@2'], { ok: true, tabId: '@2' }],
     [['tab', 'rename', 'x'], { ok: true, name: 'x' }],
     [['tab', 'layout', 'tiled'], { ok: true, layout: 'tiled' }],
     [['nav', 'left'], { ok: true, direction: 'left' }],
-    [['run', 'display-message', 'hi'], { ok: true, status: 0, stdout: '' }],
     [['--version'], { ok: true, version: expect.stringMatching(/^\d+\.\d+\.\d+/) }],
   ])('%j --json', (args, expected) => {
     const { stdout, exitCode } = runCLI([...args, '--json']);
@@ -387,21 +381,27 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual({ ok: false, error: 'Unknown pane command: frob', code: 2 });
   });
 
-  test('run --json reports a failed tmux command without failing the parse', () => {
-    const { stdout, exitCode } = runCLI(['run', 'kill-session', '-t', 'nope', '--json'], {
-      env: { MOCK_TMUX_EXIT_CODE: '1' },
-    });
-    expect(exitCode).toBe(1);
-    expect(JSON.parse(stdout)).toEqual({ ok: false, status: 1, stdout: '' });
+  // A script's own usage errors keep the contract too.
+  test.each([
+    [['pane', 'send', '--frob', 'x'], "unknown option '--frob'"],
+    [['pane', 'send', '--timeout', 'soon', 'x'], '--timeout takes a positive'],
+    [['open', '--frob'], 'Unknown option: --frob'],
+  ])('%j --json is a bad command line, in JSON', (args, error) => {
+    const { stdout, exitCode } = runCLI([...args, '--json'], { env: IN_PANE_1 });
+    expect(exitCode).toBe(2);
+    const answer = JSON.parse(stdout);
+    expect(answer).toMatchObject({ ok: false, code: 2 });
+    expect(answer.error).toContain(error);
   });
 
-  test('session snapshots --json lists the snapshots as objects', () => {
-    const { stdout, exitCode } = runCLI(['session', 'snapshots', '--json'], {
-      env: { MOCK_SERVER_SNAPSHOTS: 'work\t2026-10-28 10:00\trunning' },
-    });
+  // A verb answers for itself: `--json` is handed on.
+  test.each([
+    [['session', 'snapshots'], 'session snapshots --json'],
+    [['session', 'save', 'work'], 'session save --json work'],
+    [['agent', 'status'], 'agent status --json'],
+  ])('%j --json asks its verb for JSON', (args, verb) => {
+    const { stdout, exitCode } = runCLI([...args, '--json']);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual([
-      { name: 'work', saved: '2026-10-28 10:00', state: 'running' },
-    ]);
+    expect(stdout.trim()).toBe(`mock-server-started ${verb}`);
   });
 });

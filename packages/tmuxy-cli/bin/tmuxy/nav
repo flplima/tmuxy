@@ -33,8 +33,8 @@ nav_horizontal() {
   # edge flag goes last: `$( )` strips trailing newlines, so an option that
   # happens to be unset must never be the final field.
   local probe current_type gid at_edge
-  probe=$(_tmux display-message -t "$PANE_ID" -p "#{@tmuxy-window-type}
-#{@tmuxy-group-id}
+  probe=$(_tmux display-message -t "$PANE_ID" -p "#{$OPT_WINDOW_TYPE}
+#{$OPT_GROUP_ID}
 #{pane_at_$edge_dir}")
   {
     IFS= read -r current_type || true
@@ -48,12 +48,11 @@ EOF
   # the dock's shell, `display-message` with no target names the tab's active
   # pane, and the branch below would never match.
   case "$current_type" in
-    sidebar-left)  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
-    sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
+    "$WINDOW_TYPE_SIDEBAR_LEFT")  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
+    "$WINDOW_TYPE_SIDEBAR_RIGHT") [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
   esac
 
-  # A grouped pane steps to the neighbouring member first, without wrapping:
-  # `--no-wrap` exits 3 when there is no member that way.
+  # A grouped pane steps to the neighbouring member first, without wrapping.
   if [ -n "$gid" ]; then
     local step=next rc=0
     [ "$edge_dir" = "left" ] && step=prev
@@ -61,7 +60,7 @@ EOF
     TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${GROUP_CMD[@]}" "$step" --no-wrap "$PANE_ID" || rc=$?
     case "$rc" in
       0) return ;;
-      3) ;;
+      "$GROUP_NOTHING_TO_STEP_TO") ;;
       *) exit "$rc" ;;
     esac
   fi

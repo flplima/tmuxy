@@ -80,10 +80,19 @@ pub(super) async fn ensure_session(
     };
 
     if needs_idle_guard {
-        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(5)).await;
+        schedule_idle_monitor_cleanup(state, session, FIRST_CLIENT_GRACE).await;
     }
     Ok(())
 }
+
+/// How long a monitor started for a client waits for that client to
+/// register its stream before it stops: the request that started it
+/// (`ensure_session`) is not the stream, which a browser opens next.
+const FIRST_CLIENT_GRACE: Duration = Duration::from_secs(5);
+
+/// How long a session's monitor outlives its last client: a page reload
+/// reconnects within a few seconds, onto the same monitor.
+const LAST_CLIENT_GRACE: Duration = Duration::from_secs(2);
 
 /// How long an agent on `/mcp` keeps a session's monitor up after its last
 /// call when no browser is watching. Long enough for an agent that thinks
@@ -172,9 +181,8 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
     };
     runtime.client_left(conn_id).await;
     if last_left {
-        // Not stopped at once: a page reload reconnects within a few seconds.
-        info!(%session, "last client disconnected, deferring monitor cleanup (2s grace period)");
-        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(2)).await;
+        info!(%session, grace = ?LAST_CLIENT_GRACE, "last client disconnected, deferring monitor cleanup");
+        schedule_idle_monitor_cleanup(state, session, LAST_CLIENT_GRACE).await;
     }
 }
 

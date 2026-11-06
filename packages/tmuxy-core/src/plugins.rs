@@ -21,7 +21,6 @@ pub mod gc;
 pub mod index;
 pub mod inventory;
 pub mod invoke;
-pub mod job;
 pub mod keys;
 pub mod links;
 pub mod lockfile;
@@ -149,6 +148,15 @@ impl From<crate::TmuxError> for PluginError {
             PluginError::NoServer(message)
         } else {
             PluginError::Invalid(message)
+        }
+    }
+}
+
+impl From<crate::run_shell::RunShellError> for PluginError {
+    fn from(e: crate::run_shell::RunShellError) -> Self {
+        match e {
+            crate::run_shell::RunShellError::NoServer(message) => PluginError::NoServer(message),
+            other => PluginError::Invalid(other.to_string()),
         }
     }
 }

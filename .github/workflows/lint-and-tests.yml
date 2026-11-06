@@ -113,7 +113,7 @@ jobs:
   # `control_mode/connection.rs`, the CLI scripts, the Cargo manifests — and
   # always on a tag build. A Mac minute costs ten Linux ones, and the ~500
   # platform-neutral tests are run on Linux per commit already; build-app.yml
-  # runs the whole suite on a Mac daily and on every tag as the net.
+  # runs the whole suite on a Mac daily as the net.
   macos-tests:
     runs-on: macos-26
     timeout-minutes: 30

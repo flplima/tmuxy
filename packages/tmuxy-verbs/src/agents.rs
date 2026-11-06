@@ -8,8 +8,10 @@
 //! fires — so an upgrade changes the behaviour without a reinstall, and
 //! uninstall finds tmuxy's entries by that command alone.
 
+use std::fmt::Write as _;
 use std::io::{IsTerminal, Read};
 
+use crate::cli_json::{self, Answer, EXIT_FAILED};
 use serde_json::Value;
 
 mod config;
@@ -164,9 +166,27 @@ pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str>
 }
 
 #[derive(clap::Args, Debug)]
+pub struct SkillArgs {
+    /// Answer in JSON: `{"ok":true,"output":…}`.
+    #[arg(long)]
+    json: bool,
+}
+
+pub fn skill(args: SkillArgs) {
+    if args.json {
+        Answer::new(true).done(&[("output", cli_json::string(SKILL.trim_end()))], "");
+    } else {
+        print!("{SKILL}");
+    }
+}
+
+#[derive(clap::Args, Debug)]
 pub struct AgentArgs {
     #[command(subcommand)]
     verb: AgentVerb,
+    /// Answer in JSON: `{"ok":true,"output":…}`.
+    #[arg(long, global = true)]
+    json: bool,
 }
 
 #[derive(clap::Args, Debug)]
@@ -237,29 +257,32 @@ pub fn run(args: AgentArgs) {
         }
         return;
     }
+    let answer = Answer::new(args.json);
     let places = match Places::from_env() {
         Ok(places) => places,
-        Err(e) => {
-            eprintln!("tmuxy agent: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => answer.exit(EXIT_FAILED, &e),
     };
+    let mut out = String::new();
     let result = match args.verb {
         AgentVerb::Install {
             which,
             force,
             hook_command,
-        } => install(&places, &which, force, &hook_command),
-        AgentVerb::Uninstall { which } => uninstall(&places, &which),
+        } => install(&mut out, &places, &which, force, &hook_command),
+        AgentVerb::Uninstall { which } => uninstall(&mut out, &places, &which),
         AgentVerb::Status { agents, project } => {
-            status(&places, &agents, scope(project));
+            status(&mut out, &places, &agents, scope(project));
             Ok(())
         }
         AgentVerb::State { .. } => Ok(()),
     };
-    if let Err(e) = result {
-        eprintln!("tmuxy agent: {e}");
-        std::process::exit(1);
+    // What was done before a failure is still said.
+    if !answer.is_json() {
+        print!("{out}");
+    }
+    match result {
+        Ok(()) => answer.done(&[("output", cli_json::string(out.trim_end()))], ""),
+        Err(e) => answer.exit(EXIT_FAILED, &e),
     }
 }
 
@@ -282,7 +305,13 @@ fn chosen(places: &Places, agents: &[Agent]) -> Result<Vec<Agent>, String> {
     Ok(found)
 }
 
-fn install(places: &Places, which: &Which, force: bool, tmuxy: &str) -> Result<(), String> {
+fn install(
+    out: &mut String,
+    places: &Places,
+    which: &Which,
+    force: bool,
+    tmuxy: &str,
+) -> Result<(), String> {
     let scope = scope(which.project);
     for agent in chosen(places, &which.agents)? {
         let name = agent.name();
@@ -298,9 +327,12 @@ fn install(places: &Places, which: &Which, force: bool, tmuxy: &str) -> Result<(
             } else {
                 "up to date"
             };
-            println!("{name:<7} hooks  {}  {what}", places.show(&path));
+            let _ = writeln!(out, "{name:<7} hooks  {}  {what}", places.show(&path));
             if agent == Agent::Codex && !which.dry_run {
-                println!("        Codex runs new hooks once you approve them: /hooks in Codex.");
+                let _ = writeln!(
+                    out,
+                    "        Codex runs new hooks once you approve them: /hooks in Codex."
+                );
             }
         }
         if !which.hooks_only {
@@ -313,13 +345,13 @@ fn install(places: &Places, which: &Which, force: bool, tmuxy: &str) -> Result<(
             } else {
                 write_skill(&dir, force)?
             };
-            println!("{name:<7} skill  {}  {what}", places.show(&dir));
+            let _ = writeln!(out, "{name:<7} skill  {}  {what}", places.show(&dir));
         }
     }
     Ok(())
 }
 
-fn uninstall(places: &Places, which: &Which) -> Result<(), String> {
+fn uninstall(out: &mut String, places: &Places, which: &Which) -> Result<(), String> {
     let scope = scope(which.project);
     let agents = if which.agents.is_empty() {
         ALL.to_vec()
@@ -340,7 +372,7 @@ fn uninstall(places: &Places, which: &Which) -> Result<(), String> {
                 } else {
                     "removed"
                 };
-                println!("{name:<7} hooks  {}  {what}", places.show(&path));
+                let _ = writeln!(out, "{name:<7} hooks  {}  {what}", places.show(&path));
             }
         }
         if !which.hooks_only {
@@ -352,14 +384,14 @@ fn uninstall(places: &Places, which: &Which) -> Result<(), String> {
                 } else {
                     "removed"
                 };
-                println!("{name:<7} skill  {}  {what}", places.show(&dir));
+                let _ = writeln!(out, "{name:<7} skill  {}  {what}", places.show(&dir));
             }
         }
     }
     Ok(())
 }
 
-fn status(places: &Places, agents: &[Agent], scope: Scope) {
+fn status(out: &mut String, places: &Places, agents: &[Agent], scope: Scope) {
     let agents = if agents.is_empty() {
         ALL.to_vec()
     } else {
@@ -372,7 +404,7 @@ fn status(places: &Places, agents: &[Agent], scope: Scope) {
         } else {
             "not found"
         };
-        println!("{name}  ({found})");
+        let _ = writeln!(out, "{name}  ({found})");
         let path = places.hooks_file(agent, scope);
         let hooks = match read_doc(&path) {
             Err(e) => format!("unreadable: {e}"),
@@ -382,7 +414,7 @@ fn status(places: &Places, agents: &[Agent], scope: Scope) {
                 n => format!("partly installed ({n} of {} events)", agent.hooks().len()),
             },
         };
-        println!("  hooks  {}  {hooks}", places.show(&path));
+        let _ = writeln!(out, "  hooks  {}  {hooks}", places.show(&path));
         let dir = places.skill_dir(agent, scope);
         let skill = match skill_state(&dir) {
             SkillState::Missing => "not installed".into(),
@@ -390,6 +422,6 @@ fn status(places: &Places, agents: &[Agent], scope: Scope) {
             SkillState::Ours(v) => format!("out of date ({v}; this is {VERSION})"),
             SkillState::Foreign => "someone else's (not written by tmuxy)".into(),
         };
-        println!("  skill  {}  {skill}", places.show(&dir));
+        let _ = writeln!(out, "  skill  {}  {skill}", places.show(&dir));
     }
 }

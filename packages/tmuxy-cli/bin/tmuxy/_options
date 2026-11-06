@@ -10,3 +10,39 @@ STASH_SESSION='__tmuxy_stash'
 # A pane's title with tmux's host-name seed filtered out: tmux seeds every
 # pane's title with the host name.
 APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
+
+# The CLI's exit codes and its failure under --json (`cli_contract`).
+EXIT_FAILED=1
+EXIT_USAGE=2
+EXIT_TARGET=3
+EXIT_NO_SERVER=4
+JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
+
+# What `pane-group next|prev --no-wrap` exits with when there is no member
+# that way (`groups::NOTHING_TO_STEP_TO`).
+GROUP_NOTHING_TO_STEP_TO=3
+
+# The tmuxy options the scripts read and write (`constants::tmux_options`).
+OPT_WINDOW_TYPE='@tmuxy-window-type'
+OPT_SIDEBAR_HIDDEN='@tmuxy-sidebar-hidden'
+OPT_COLLAPSIBLE='@tmuxy-collapsible'
+OPT_FOCUS_REQUEST='@tmuxy-focus-request'
+OPT_GROUP_ID='@tmuxy-group-id'
+OPT_PANE_RESTORE='@tmuxy-pane-restore'
+OPT_PANE_STATE='@tmuxy-pane-state'
+OPT_PANE_LABEL='@tmuxy-label'
+OPT_PANE_WIDGET='@tmuxy-pane-widget'
+OPT_PANE_PREVIEW='@tmuxy-pane-preview'
+OPT_PANE_PREVIEW_NET='@tmuxy-pane-preview-net'
+
+# The window types tmuxy's chrome is tagged with (`WindowType`); an
+# untagged window is a tab. A sidebar's window is named by its prefix.
+WINDOW_TYPE_FLOAT='float'
+WINDOW_TYPE_SIDEBAR_LEFT='sidebar-left'
+WINDOW_TYPE_SIDEBAR_RIGHT='sidebar-right'
+SIDEBAR_WINDOW_PREFIX='__sidebar-'
+
+# The socket a released build serves when TMUX_SOCKET is unset, and the
+# session it attaches to (`session::DEFAULT_TMUX_SOCKET`, `DEFAULT_SESSION_NAME`).
+DEFAULT_TMUX_SOCKET='tmuxy'
+DEFAULT_SESSION='tmuxy'

@@ -214,11 +214,8 @@ pub async fn sse_handler(
         // that sourced the config long ago — the bindings in force. A client
         // that got here before its monitor did is sent them by the initial
         // sync, on the broadcast it already holds.
-        for event in runtime.greeting(conn_id) {
-            match serde_json::to_string(&event) {
-                Ok(data) => yield Ok::<_, std::convert::Infallible>(sse_frame(None, &Frame { name: event.name(), data: data.into() })),
-                Err(e) => warn!(error = %e, "greeting not serialised"),
-            }
+        for frame in runtime.greeting(conn_id).iter().filter_map(Frame::of) {
+            yield Ok::<_, std::convert::Infallible>(sse_frame(None, &frame));
         }
 
         let mut session_rx = session_rx;

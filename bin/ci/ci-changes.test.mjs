@@ -64,6 +64,15 @@ describe('which CI jobs a push can skip', () => {
     });
   });
 
+  // The desktop binary links tmuxy-group (through tmuxy-verbs), and the v86
+  // guest ships it as its own binary.
+  it('a pane-group change runs both', () => {
+    expect(decide(['packages/tmuxy-group/src/lib.rs'])).toMatchObject({
+      desktop: true,
+      v86: true,
+    });
+  });
+
   it('a web E2E suite runs neither, the desktop suites run the desktop job', () => {
     expect(decide(['tests/4-session-connectivity-multi.test.js'])).toMatchObject({
       desktop: false,

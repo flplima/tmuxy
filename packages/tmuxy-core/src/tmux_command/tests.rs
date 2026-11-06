@@ -4,29 +4,38 @@ fn top_level(cmd: &str) -> Vec<String> {
     parse(cmd).top_level().map(|c| c.text.to_string()).collect()
 }
 
+fn rewrite(session: &str, size: Option<(u32, u32)>) -> String {
+    NewTab {
+        from: Some(session),
+        size,
+        ..NewTab::default()
+    }
+    .command_line()
+}
+
 #[test]
 fn new_window_rewrite_quotes_the_session() {
     // Session names come from servers.json / `tmuxy session connect`, so they can
     // contain whitespace (which truncated the target) or `;` (which
     // appended extra commands to the list).
-    let out = new_window_rewrite("my session", None);
+    let out = rewrite("my session", None);
     assert!(out.contains("splitw -t 'my session' ;"), "{out}");
 
-    let out = new_window_rewrite("evil ; kill-server", None);
+    let out = rewrite("evil ; kill-server", None);
     assert!(out.contains("-t 'evil ; kill-server'"), "{out}");
 
-    let out = new_window_rewrite("it's", None);
+    let out = rewrite("it's", None);
     assert!(out.contains(r"-t 'it'\''s'"), "{out}");
 }
 
 #[test]
 fn new_window_rewrite_includes_resize_only_with_a_size() {
-    let sized = new_window_rewrite("tmuxy", Some((120, 40)));
+    let sized = rewrite("tmuxy", Some((120, 40)));
     assert!(sized.contains("resizew -x 120 -y 40"), "{sized}");
     // Tabs carry no marker — the rewrite must not tag the window.
     assert!(!sized.contains("@tmuxy-window-type"), "{sized}");
 
-    let plain = new_window_rewrite("tmuxy", None);
+    let plain = rewrite("tmuxy", None);
     assert!(!plain.contains("resizew"), "{plain}");
     assert!(!plain.contains("@tmuxy-window-type"), "{plain}");
 }
@@ -94,7 +103,7 @@ fn the_new_window_rewrite_passes_through_unpinned_and_unrelated() {
     let bare = parse("new-window")
         .rewrite_new_window("tmuxy", None)
         .expect("a bare new-window still rewrites");
-    assert_eq!(bare, new_window_rewrite("tmuxy", None));
+    assert_eq!(bare, rewrite("tmuxy", None));
 
     assert!(parse("select-pane -t %5 \\; split-window -h")
         .rewrite_new_window("tmuxy", None)

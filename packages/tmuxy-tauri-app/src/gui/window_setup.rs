@@ -90,25 +90,14 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     Ok(window)
 }
 
-/// The per-window set-up that is not the builder's: the native blur behind it,
-/// the platform hint the layout reads, and the menu refresh that keeps the
-/// Window menu describing whichever window has focus.
+/// The per-window set-up that is not the builder's: the native blur behind
+/// it, and the registry's watch for its close.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
     // Blur is on by default (`@tmuxy-blur`). A window opens before its
     // monitor has sourced the config, so it starts with the default and
     // the window's sink puts it where the live value says once the config is
     // read (`monitor::TauriSink::appearance`).
     apply_blur(window, true);
-
-    let platform = if cfg!(target_os = "macos") {
-        "macos"
-    } else {
-        "linux"
-    };
-    let _ = window.eval(format!(
-        "document.documentElement.setAttribute('data-platform', '{}')",
-        platform
-    ));
 
     // The registry follows the window out of existence, and (for a window that
     // has a session of its own) takes that session with it.

@@ -235,3 +235,38 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
         "pane-group close: not a pane id: \"not-a-pane\""
     );
 }
+
+/// `all` gathers the tab into the anchor's group, in tab order; `ungroup`
+/// brings every member back as a split in the tab and the group is gone.
+#[test]
+fn all_gathers_the_tab_and_ungroup_spreads_it_back() {
+    let s = Server::start("all");
+    let p1 = s.visible();
+    let p2 = s.tmux(&["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", &p1]);
+    let p3 = s.tmux(&["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", &p1]);
+
+    s.ok(&["all", &p1]);
+    let gid = s.option(&p1, "@tmuxy-group-id");
+    assert!(!gid.is_empty());
+    for pane in [&p2, &p3] {
+        assert_eq!(s.option(pane, "@tmuxy-group-id"), gid, "{pane}");
+        assert_eq!(s.session_of(pane), STASH, "{pane}");
+    }
+    assert_eq!(
+        s.tmux(&["list-panes", "-t", "work:0", "-F", "#{pane_id}"]),
+        p1
+    );
+
+    s.ok(&["ungroup", &p1]);
+    let shown = s.tmux(&["list-panes", "-t", "work:0", "-F", "#{pane_id}"]);
+    for pane in [&p1, &p2, &p3] {
+        assert!(
+            shown.lines().any(|p| p == pane.as_str()),
+            "{pane} in {shown}"
+        );
+        assert_eq!(s.option(pane, "@tmuxy-group-id"), "", "{pane}");
+    }
+
+    // A pane in no group has nothing to spread.
+    s.ok(&["ungroup", &p1]);
+}

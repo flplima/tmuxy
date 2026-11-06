@@ -7,7 +7,6 @@
 set -euo pipefail
 source "${0%/*}/_lib"
 
-COLLAPSIBLE_OPT="@tmuxy-collapsible"
 CMD="${1:-}"
 
 case "$CMD" in
@@ -15,21 +14,21 @@ case "$CMD" in
     PANE_ID="${2:?pane id required}"
     WID=$(pane_window "$PANE_ID")
     cwd=$(_tmux display-message -t "$PANE_ID" -p '#{pane_current_path}')
-    _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
+    _tmux set-option -w -t "$WID" "$OPT_COLLAPSIBLE" 1
     # -f: the new pane spans the full window width, i.e. it is a first-level
     # row of the window rather than a split of whatever pane was active.
     _tmux split-window -v -f -t "$PANE_ID" -c "$cwd"
     ;;
   off)
     WID="${2:?window id required}"
-    _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
+    _tmux set-option -u -w -t "$WID" "$OPT_COLLAPSIBLE"
     ;;
   toggle)
     WID="${2:?window id required}"
-    if [ "$(_tmux show-options -wqv -t "$WID" "$COLLAPSIBLE_OPT")" = "1" ]; then
-      _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
+    if [ "$(_tmux show-options -wqv -t "$WID" "$OPT_COLLAPSIBLE")" = "1" ]; then
+      _tmux set-option -u -w -t "$WID" "$OPT_COLLAPSIBLE"
     else
-      _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
+      _tmux set-option -w -t "$WID" "$OPT_COLLAPSIBLE" 1
     fi
     ;;
   *)

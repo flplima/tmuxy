@@ -142,17 +142,14 @@ jobs:
       # report on every version — a 3.4 crash in the core tests should not hide
       # whether the snapshot suite also breaks there. The gate step at the end
       # turns the collected outcomes back into a job result.
+      # Every integration test, not a list of the ones that start a tmux: a
+      # list missed the next one written.
       - name: tmuxy-core integration tests (real tmux)
         id: core
         continue-on-error: true
         run: |
           mkdir -p packages/tmuxy-ui/dist
-          cargo test -p tmuxy-core \
-            --test initial_state \
-            --test initial_state_history \
-            --test reply_channel \
-            --test pinned_split_race \
-            --test enforced_settings
+          cargo test -p tmuxy-core --tests
 
       # The E2E suites' server, as lint-and-tests.yml starts it: their socket,
       # port, wait scale and snapshot policy, for every step after this one.
@@ -163,13 +160,18 @@ jobs:
         with:
           e2e: 'true'
 
+      # Only on HEAD: every push runs these two on the pinned tmux and on 3.4
+      # (tests/e2e-suites.json), and the full suite below runs them on every
+      # other released version.
       - name: Snapshot suite
         id: snapshots
+        if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
         run: npx jest tests/snapshots/
 
       - name: TUI alternate-screen suite
         id: tui
+        if: matrix.tmux.version == 'HEAD'
         continue-on-error: true
         run: npx jest tests/8-tui-alternate-screen.test.js
 

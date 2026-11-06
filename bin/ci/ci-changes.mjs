@@ -34,15 +34,15 @@ const TOOLING = [
 ];
 
 export const SKIPPABLE = {
-  // The Tauri app links tmuxy-core and tmuxy-server (with tmuxy-verbs) and bundles the UI, the
-  // CLI (packages/tmuxy-cli) and the shipped tmux confs
-  // (packages/tmuxy-core/assets, include_str!'d by tmuxy-core). Its suites are
-  // tests/tauri and tests/smoke, on tests/helpers.
+  // The Tauri app links tmuxy-core and tmuxy-server (with tmuxy-verbs, and
+  // tmuxy-group under it) and bundles the UI, the CLI (packages/tmuxy-cli) and
+  // the shipped tmux confs (packages/tmuxy-core/assets, include_str!'d by
+  // tmuxy-core). Its suites are tests/tauri and tests/smoke, on tests/helpers.
   desktop: [
     ...PROSE,
     ...TOOLING,
     /^tests\/(?!tauri\/|smoke\/|helpers\/)/,
-    /^packages\/tmuxy-(demo|wasm|group)\//,
+    /^packages\/tmuxy-(demo|wasm)\//,
     /^packages\/tmuxy-ui\/(src\/stories\/|scripts\/|\.storybook\/|eslint-rules\/)/,
   ],
   // The v86 probe runs Storybook over tmuxy-wasm (on tmuxy-core) and a guest

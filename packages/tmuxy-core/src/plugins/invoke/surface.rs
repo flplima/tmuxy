@@ -1,5 +1,5 @@
 //! Opening an action's surface: the one tmux command list per surface, run
-//! through `tmux run-shell` (`job`).
+//! through `tmux run-shell` (`run_shell`).
 
 use std::path::{Path, PathBuf};
 
@@ -184,7 +184,7 @@ fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
 }
 
 /// Open an action's surface. The reads run as they are; the command list
-/// that creates the pane runs inside `tmux run-shell` (`job`), so this is
+/// that creates the pane runs inside `tmux run-shell` (`run_shell`), so this is
 /// safe to call from a plain process with control mode attached.
 pub fn open(dirs: &Layout, request: &OpenRequest) -> Result<Opened> {
     if !is_pane_id(&request.pane) {
@@ -241,11 +241,11 @@ pub fn open(dirs: &Layout, request: &OpenRequest) -> Result<Opened> {
         &run,
         &plugin.name,
     );
-    let out = match super::super::job::run(dirs, &argv) {
+    let out = match crate::run_shell::tmux(dirs, &argv) {
         Ok(out) => out,
         Err(e) => {
             let _ = std::fs::remove_file(token_path(dirs, &id));
-            return Err(e);
+            return Err(e.into());
         }
     };
     let pane = out
@@ -289,7 +289,7 @@ pub fn notify_failure(dirs: &Layout, pane: &str, plugin: &str, error: &str) {
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect::<String>();
     let text = crate::argv::format_literal(&text);
-    let _ = super::super::job::run(
+    let _ = crate::run_shell::tmux(
         dirs,
         &["display-message".into(), "-t".into(), pane.into(), text],
     );

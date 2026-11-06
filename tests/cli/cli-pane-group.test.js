@@ -199,6 +199,27 @@ describe('CLI pane group subcommands', () => {
     });
   });
 
+  // A tab's worth of group work: the `group` verb's `all` and `ungroup`
+  // (packages/tmuxy-group; against a real tmux in
+  // packages/tmuxy-server/tests/pane_groups.rs).
+  describe('pane group all / ungroup', () => {
+    test.each(['all', 'ungroup'])('%s runs pane-group on the caller pane', (verb) => {
+      const { tmuxCalls } = runCLI(['pane', 'group', verb], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+      });
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].target).toBe('%7');
+      expect(tmuxCalls[0].args[1]).toContain(`pane-group' ${verb} #{pane_id}`);
+    });
+
+    test('a pane named on the command line is the anchor', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'all', '%4'], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+      });
+      expect(tmuxCalls[0].args[1]).toContain("pane-group' all '%4'");
+    });
+  });
+
   describe('pane group unknown', () => {
     test('errors on unknown group subcommand', () => {
       const { stderr, exitCode } = runCLI(['pane', 'group', 'badcmd']);

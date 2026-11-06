@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use tmuxy_core::session_snapshot as snap;
 use tmuxy_core::TmuxError;
 
+use crate::cli_json::{self, Answer, EXIT_FAILED};
+
 fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, TmuxError>> {
     std::future::ready(tmuxy_core::session::tmux_output(&argv))
 }
@@ -18,6 +20,9 @@ fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, TmuxError>> {
 pub struct SessionArgs {
     #[command(subcommand)]
     verb: SessionVerb,
+    /// Answer in JSON.
+    #[arg(long, global = true)]
+    json: bool,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -56,65 +61,88 @@ fn dir() -> PathBuf {
     snap::default_dir()
 }
 
-fn fail(message: &str) -> ! {
-    eprintln!("tmuxy session: {message}");
-    std::process::exit(1);
+fn fail(answer: &Answer, message: &str) -> ! {
+    answer.exit(EXIT_FAILED, message)
 }
 
 pub async fn run(args: SessionArgs) {
+    let answer = &Answer::new(args.json);
     match args.verb {
         SessionVerb::Save { name, scrollback } => {
             let name = name.unwrap_or_else(tmuxy_core::session::session_name);
             if !tmuxy_core::session::is_safe_session_name(&name) {
-                fail(&format!("not a usable session name: {name:?}"));
+                fail(answer, &format!("not a usable session name: {name:?}"));
             }
             if !session_exists(&name) {
-                fail(&format!("no running session called {name:?}"));
+                fail(answer, &format!("no running session called {name:?}"));
             }
             let mut snapshot = snap::take(&name, tmux)
                 .await
-                .unwrap_or_else(|e| fail(&e.to_string()))
+                .unwrap_or_else(|e| fail(answer, &e.to_string()))
                 .snapshot;
             if let Some(lines) = scrollback {
                 snap::attach_scrollback(&mut snapshot, lines, tmux).await;
             }
-            match snap::write(&dir(), &snapshot) {
-                Ok(Some(path)) => println!("{}", path.display()),
-                Ok(None) => println!("unchanged"),
-                Err(e) => fail(&e.to_string()),
-            }
+            let written = match snap::write(&dir(), &snapshot) {
+                Ok(Some(path)) => path.display().to_string(),
+                Ok(None) => "unchanged".to_string(),
+                Err(e) => fail(answer, &e.to_string()),
+            };
+            answer.done(&[("output", cli_json::string(&written))], &written);
         }
         SessionVerb::Restore { name, run } => {
             if run && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                fail("--run needs a terminal; without it each command is offered in its pane");
+                fail(
+                    answer,
+                    "--run needs a terminal; without it each command is offered in its pane",
+                );
             }
             let running = session_exists(&name);
             let (snapshot, options) =
-                snap::named_restore(&name, running, run).unwrap_or_else(|e| fail(&e.error));
+                snap::named_restore(&name, running, run).unwrap_or_else(|e| fail(answer, &e.error));
             snap::apply(&snapshot, &options, tmux)
                 .await
-                .unwrap_or_else(|e| fail(&e.to_string()));
-            println!("{name}");
+                .unwrap_or_else(|e| fail(answer, &e.to_string()));
+            answer.done(&[], &name);
         }
         SessionVerb::Snapshots => {
-            for (name, saved_at) in snap::list(&dir()) {
-                let state = if session_exists(&name) {
-                    "running"
-                } else {
-                    "exited"
-                };
-                println!("{name}\t{}\t{state}", snap::stamp(saved_at));
+            let snapshots: Vec<(String, String, &str)> = snap::list(&dir())
+                .into_iter()
+                .map(|(name, saved_at)| {
+                    let state = if session_exists(&name) {
+                        "running"
+                    } else {
+                        "exited"
+                    };
+                    (name, snap::stamp(saved_at), state)
+                })
+                .collect();
+            if answer.is_json() {
+                let rows: Vec<serde_json::Value> = snapshots
+                    .iter()
+                    .map(|(name, saved, state)| {
+                        serde_json::json!({ "name": name, "saved": saved, "state": state })
+                    })
+                    .collect();
+                println!("{}", serde_json::Value::from(rows));
+            } else {
+                for (name, saved, state) in snapshots {
+                    println!("{name}\t{saved}\t{state}");
+                }
             }
         }
         SessionVerb::Forget { name, force } => {
             if !tmuxy_core::session::is_safe_session_name(&name) {
-                fail(&format!("not a usable session name: {name:?}"));
+                fail(answer, &format!("not a usable session name: {name:?}"));
             }
             if session_exists(&name) {
                 if !force {
-                    fail(&format!(
+                    fail(
+                        answer,
+                        &format!(
                         "session {name:?} is running; --force kills it first, or kill it yourself"
-                    ));
+                    ),
+                    );
                 }
                 tmux(vec![
                     "kill-session".to_string(),
@@ -122,13 +150,13 @@ pub async fn run(args: SessionArgs) {
                     name.clone(),
                 ])
                 .await
-                .unwrap_or_else(|e| fail(&e.to_string()));
+                .unwrap_or_else(|e| fail(answer, &e.to_string()));
             }
             let removed = snap::forget(&dir(), &name);
             if removed == 0 {
-                fail(&format!("no snapshot for {name:?}"));
+                fail(answer, &format!("no snapshot for {name:?}"));
             }
-            println!("{removed}");
+            answer.done(&[("removed", removed.to_string())], &removed.to_string());
         }
     }
 }

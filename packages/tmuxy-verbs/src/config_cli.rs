@@ -1,5 +1,5 @@
-//! The config verbs whose work is a file tmuxy-core owns live here, so the
-//! shell CLI keeps no copy of the files' names or formats.
+//! The config verbs: their work is a file tmuxy-core owns, so the shell CLI
+//! keeps no copy of the files' names or formats.
 
 use tmuxy_core::paths::{Layout, FILES};
 
@@ -21,6 +21,9 @@ enum ConfigVerb {
     Paths,
     /// Ask every running app to re-source the config chain.
     Reload,
+    /// Write the starter tmuxy.conf into the config dir; refuses to
+    /// overwrite one.
+    Init,
     /// Print whether `~/.tmux.conf` is sourced, or set it.
     UseTmuxConf {
         #[arg(value_parser = ["on", "off"])]
@@ -36,7 +39,7 @@ pub fn run(args: ConfigArgs) {
         ConfigVerb::Paths => print!("{}", paths_text(&layout)),
         ConfigVerb::Reload => {
             if let Err(e) = tmuxy_core::session::request_reload(&layout) {
-                std::process::exit(answer.fail(EXIT_FAILED, &format!("config reload: {e}")));
+                answer.exit(EXIT_FAILED, &format!("config reload: {e}"));
             }
             let conf = layout.config.join("tmuxy.conf");
             answer.done(
@@ -47,6 +50,16 @@ pub fn run(args: ConfigArgs) {
                 ),
             );
         }
+        ConfigVerb::Init => match tmuxy_core::session::init_user_conf(&layout) {
+            Ok(path) => {
+                let path = path.display().to_string();
+                answer.done(
+                    &[("file", cli_json::string(&path))],
+                    &format!("Wrote {path}"),
+                );
+            }
+            Err(message) => answer.exit(EXIT_FAILED, &message),
+        },
         ConfigVerb::UseTmuxConf { value: None } => {
             let on = tmuxy_core::session::read_managed_state()
                 .use_tmux_conf
@@ -67,7 +80,7 @@ pub fn run(args: ConfigArgs) {
                 ..Default::default()
             };
             if let Err(e) = tmuxy_core::session::write_managed_state(changes) {
-                std::process::exit(answer.fail(EXIT_FAILED, &format!("config use-tmux-conf: {e}")));
+                answer.exit(EXIT_FAILED, &format!("config use-tmux-conf: {e}"));
             }
             let said = if on {
                 "use-tmux-conf: on — tmuxy will source ~/.tmux.conf, then re-apply its essentials."

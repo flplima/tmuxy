@@ -38,13 +38,16 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 ACTION="${1:-}"
 
+# The bare `tmuxy` socket belongs to the release bundle (tmuxy-core
+# DEFAULT_TMUX_SOCKET) and `tmuxy-test` to the E2E suite. Exported before
+# `_lib`, which resolves the -L/-S flag from it, and for the server, which
+# reads it from the env.
+export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+source "$REPO_ROOT/packages/tmuxy-cli/bin/tmuxy/_lib"
+
 # State lives outside the repo: a PID file and a log are per-machine facts about
-# a running process, not source. Matches where the trace file goes.
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  STATE_DIR="${TMUXY_STATE_DIR:-$HOME/Library/Application Support/tmuxy}"
-else
-  STATE_DIR="${TMUXY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tmuxy}"
-fi
+# a running process, not source. tmuxy's state dir, where the trace file goes.
+STATE_DIR="$(tmuxy_state_dir)"
 PID_FILE="$STATE_DIR/dev-server.pid"
 LOG_FILE="$STATE_DIR/dev-server.log"
 
@@ -81,18 +84,21 @@ running_pid() {
 cmd_run() {
   cd "$REPO_ROOT"
   local port="${DEV_PORT:-9000}" host
-  # The bare `tmuxy` socket belongs to the release bundle (tmuxy-core
-  # DEFAULT_TMUX_SOCKET) and `tmuxy-test` to the E2E suite. Exported before
-  # `_lib`, which resolves the -L/-S flag from it, and for the server, which
-  # reads it from the env.
-  export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
   # Sessions the server creates (and their new tabs) start in the checkout.
   export TMUXY_START_DIR="${TMUXY_START_DIR:-$REPO_ROOT}"
-  source packages/tmuxy-cli/bin/tmuxy/_lib
+  # Everything the server binary is built from: its crates, the confs and
+  # assets tmuxy-core include_str!s, and the CLI scripts and themes its build
+  # script embeds (packages/tmuxy-core/build.rs) and writes to the data dir.
+  local watched=(
+    packages/tmuxy-core/src packages/tmuxy-core/assets packages/tmuxy-core/build.rs
+    packages/tmuxy-server/src packages/tmuxy-verbs/src packages/tmuxy-group/src
+    packages/tmuxy-cli/bin packages/tmuxy-ui/public/themes
+  ) dir watch_args=()
+  for dir in "${watched[@]}"; do watch_args+=(-w "$dir"); done
 
   echo "[dev] Starting development server with hot reload..."
   echo "[dev] Port: $port, Socket: $TMUX_SOCKET"
-  echo "[dev] Watching: packages/tmuxy-core/src, packages/tmuxy-server/src, packages/tmuxy-verbs/src"
+  echo "[dev] Watching: ${watched[*]}"
   echo ""
 
   bin/trim-target
@@ -126,10 +132,7 @@ cmd_run() {
   fi
   echo "   Listening on $host:$port"
 
-  exec cargo watch \
-    -w packages/tmuxy-core/src \
-    -w packages/tmuxy-server/src \
-    -w packages/tmuxy-verbs/src \
+  exec cargo watch "${watch_args[@]}" \
     -x "run -p tmuxy-server -- --port $port --host $host --no-auth --dev$allowed"
 }
 

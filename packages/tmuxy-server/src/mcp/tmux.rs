@@ -9,7 +9,7 @@ use tmuxy_core::command_router::Route;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::session::SessionName;
-use tmuxy_core::{tmux_quote, CommandError, PaneId};
+use tmuxy_core::{tmux_quote, CommandError, PaneId, WindowType};
 
 use crate::state::AppState;
 
@@ -137,10 +137,10 @@ pub(super) enum PaneKind {
 impl PaneKind {
     /// From the window's `@tmuxy-window-type` (docs/TMUX-TAGS.md).
     fn from_window_type(window_type: &str) -> Self {
-        match window_type {
-            "float" => Self::Float,
-            t if t.starts_with("sidebar") => Self::Sidebar,
-            _ => Self::Tab,
+        match WindowType::parse(window_type) {
+            Some(WindowType::Float) => Self::Float,
+            Some(WindowType::SidebarLeft | WindowType::SidebarRight) => Self::Sidebar,
+            Some(WindowType::Tab) | None => Self::Tab,
         }
     }
 }

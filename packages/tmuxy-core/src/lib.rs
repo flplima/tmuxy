@@ -1,6 +1,7 @@
 pub mod argv;
 #[cfg(feature = "native")]
 pub mod ask;
+pub mod cli_contract;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;
@@ -31,6 +32,8 @@ pub mod preview;
 pub mod private_files;
 pub mod program;
 pub mod random;
+#[cfg(feature = "cli")]
+pub mod run_shell;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]

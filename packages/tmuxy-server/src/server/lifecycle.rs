@@ -161,13 +161,19 @@ fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
     }
 }
 
+/// A server whose pid file could not be written still serves, but
+/// `tmuxy server stop|status` will not find it: said once, at start.
 pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
     let path = pid_file_path(port);
-    if let Some(dir) = path.parent() {
-        let _ = tmuxy_core::private_files::create_dir_all(dir);
+    let written = match path.parent() {
+        Some(dir) => tmuxy_core::private_files::create_dir_all(dir),
+        None => Ok(()),
     }
-    let _ = tmuxy_core::private_files::write(&path, pid.to_string());
+    .and_then(|()| tmuxy_core::private_files::write(&path, pid.to_string()));
+    if let Err(e) = written {
+        warn!(path = %path.display(), error = %e, "could not write the pid file: `tmuxy server stop` and `status` will not find this server");
+    }
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -225,11 +231,6 @@ fn is_process_alive(pid: u32) -> bool {
     signal_target(pid).is_some_and(|pid| nix::sys::signal::kill(pid, None).is_ok())
 }
 
-#[cfg(not(unix))]
-fn is_process_alive(_pid: u32) -> bool {
-    false
-}
-
 /// Whether a process name — `comm`, or the file its argv[0] names — is a
 /// tmuxy binary's (`tmuxy`, `tmuxy-server`, the desktop app). The name only,
 /// never the arguments: a pid file can outlive its server and the pid be
@@ -262,11 +263,6 @@ fn is_tmuxy_process(pid: u32) -> bool {
         .is_some_and(|out| matches_tmuxy_command(&String::from_utf8_lossy(&out.stdout)))
 }
 
-#[cfg(not(unix))]
-fn is_tmuxy_process(_pid: u32) -> bool {
-    false
-}
-
 pub(super) fn stop_server(port: u16) {
     match read_pid_file(port) {
         Some(pid) => {
@@ -291,9 +287,6 @@ pub(super) fn stop_server(port: u16) {
                     Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
             }
-
-            #[cfg(not(unix))]
-            error!("Stop not supported on this platform");
         }
         None => println!("Server is not running (no PID file found)"),
     }
@@ -338,7 +331,8 @@ pub(super) async fn bind_with_retry(
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
             Err(e) => {
-                panic!("Failed to bind to {}: {}", addr, e);
+                eprintln!("tmuxy server: cannot listen on {addr}: {e}");
+                std::process::exit(1);
             }
         }
     }
@@ -365,9 +359,6 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
             .recv()
             .await;
     };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
 
     tokio::select! {
         _ = ctrl_c => {},

@@ -43,11 +43,11 @@ apply() {
   local wanted="" current=""
   _lock_acquire "$dir"
   read -r wanted <"$dir/wanted"
-  current="$(_tmux show-options -pqv -t "$TMUX_PANE" @tmuxy-pane-state 2>/dev/null || true)"
+  current="$(_tmux show-options -pqv -t "$TMUX_PANE" "$OPT_PANE_STATE" 2>/dev/null || true)"
   if [ "$wanted" = clear ]; then
-    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-state"
+    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE"
   elif [ -n "$wanted" ] && [ "$wanted" != "$current" ]; then
-    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-state $(shquote "$wanted")"
+    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE $(shquote "$wanted")"
   fi
   _lock_release "$dir"
 }

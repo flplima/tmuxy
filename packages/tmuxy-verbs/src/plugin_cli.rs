@@ -4,11 +4,13 @@
 //! Every verb runs as a plain process, so the gate can ask on the terminal
 //! and `action --wait` waits in the caller's own process. What changes tmux
 //! (opening a surface, publishing the inventory) goes through a `run-shell`
-//! of its own (`plugins::job`, docs/TMUX.md).
+//! of its own (`tmuxy_core::run_shell`, docs/TMUX.md).
 
 use std::path::PathBuf;
 
 use tmuxy_core::paths::Layout;
+
+use crate::cli_json;
 use tmuxy_core::plugins::invoke::{self, OpenRequest, Trigger};
 use tmuxy_core::plugins::registry::Registry;
 use tmuxy_core::plugins::{log, PluginError};
@@ -202,27 +204,19 @@ pub fn run(args: PluginArgs) {
         } => std::process::exit(invoke::exec(&dirs, &name, &action, &token)),
         PluginCommand::Verb(words) => run_cli_verb(&dirs, &words),
     };
+    let answer = cli_json::Answer::new(json);
     match result {
-        Ok(value) => {
-            if json && !value.is_null() {
-                let mut out = serde_json::json!({ "ok": true });
-                if let (Some(out), Some(fields)) = (out.as_object_mut(), value.as_object()) {
-                    out.extend(fields.clone());
-                }
-                println!("{out}");
-            }
+        Ok(value) if json && !value.is_null() => {
+            let fields: Vec<(&str, String)> = value
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, value)| (name.as_str(), value.to_string()))
+                .collect();
+            answer.done(&fields, "");
         }
-        Err(failure) => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "ok": false, "error": failure.message, "code": failure.code })
-                );
-            } else {
-                eprintln!("tmuxy plugin: {}", failure.message);
-            }
-            std::process::exit(failure.code);
-        }
+        Ok(_) => {}
+        Err(failure) => answer.exit(failure.code, &failure.message),
     }
 }
 
@@ -328,12 +322,5 @@ fn run_cli_verb(dirs: &Layout, words: &[String]) -> Outcome {
         use std::os::unix::process::CommandExt;
         let e = cmd.exec();
         Err(PluginError::io(format!("running tmuxy plugin {verb}"), e).into())
-    }
-    #[cfg(not(unix))]
-    {
-        let status = cmd.status().map_err(|e| {
-            Failure::from(PluginError::io(format!("running tmuxy plugin {verb}"), e))
-        })?;
-        std::process::exit(status.code().unwrap_or(1));
     }
 }

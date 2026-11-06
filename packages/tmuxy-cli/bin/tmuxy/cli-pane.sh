@@ -44,9 +44,9 @@ cmd_pane() {
       target="$own"
 
       if [ "$value" = "--clear" ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_RESTORE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_RESTORE $(shquote "$value")"
       fi
       _done "paneId=$(json_string "$target")"
       ;;
@@ -77,9 +77,9 @@ cmd_pane() {
       fi
       [ -n "$target" ] || _die_usage "no pane to target (pass a target or run inside a pane)"
       if [ "$value" = clear ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-state"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_STATE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_STATE $(shquote "$value")"
       fi
       _done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
       ;;
@@ -274,12 +274,11 @@ FEOF
 
 # The verbs and their arguments are tmuxy-group's (`packages/tmuxy-group`).
 cmd_pane_group() {
-  local sub="${1:-}" script=pane-group
+  local sub="${1:-}"
   shift 2>/dev/null || true
   case "$sub" in
     --help|-h|"") usage_pane_group; return ;;
-    all|ungroup) script=pane-group-tab ;;
-    add|close|switch|next|prev|move|join|leave) ;;
+    add|close|switch|next|prev|move|join|leave|all|ungroup) ;;
     *) _die_usage "Unknown group command: $sub" usage_pane_group ;;
   esac
   case "${1:-}" in
@@ -307,6 +306,6 @@ cmd_pane_group() {
       [ $# -lt 2 ] || words+=("$(shquote "$2")" "$(shquote "${3:-right}")")
       ;;
   esac
-  _run_shell "bash $(shquote "$SCRIPTS_DIR/$script") $sub ${words[*]}"
+  _run_shell "bash $(shquote "$SCRIPTS_DIR/pane-group") $sub ${words[*]}"
   _done
 }

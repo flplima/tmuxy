@@ -8,7 +8,7 @@ use super::*;
 /// and removed the session, so the reload's stream came back to a fresh
 /// entry, a second monitor, and a full resync. A guard a client has outrun
 /// leaves the session to the guard scheduled after that client left.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_reload_inside_an_older_guards_grace_is_not_cut_short_by_it() {
     let state = Arc::new(AppState::default());
     session_with_fake_monitor(&state, "s").await;
@@ -46,7 +46,7 @@ async fn a_reload_inside_an_older_guards_grace_is_not_cut_short_by_it() {
 /// called a moment ago — the next call would wait for a fresh attach — and
 /// must still stop it once the agent's hold has run out, so a client that
 /// went away does not keep a control-mode client attached forever.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_agents_hold_outlasts_the_grace_and_then_ends() {
     let state = Arc::new(AppState::default());
     session_with_fake_monitor(&state, "s").await;

@@ -11,7 +11,6 @@ use tracing::{error, warn};
 pub const VITE_PORT: u16 = 9001;
 
 pub struct ViteChild {
-    #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
 }
 
@@ -65,37 +64,49 @@ pub async fn proxy_to_vite(req: Request) -> Response {
         Ok(resp) => {
             let status = resp.status();
             let headers = without_hop_by_hop(resp.headers());
-            let body = resp.bytes().await.unwrap_or_default();
-            let mut response = Response::new(Body::from(body));
-            *response.status_mut() = status;
-            *response.headers_mut() = headers;
-            response
+            match resp.bytes().await {
+                Ok(body) => {
+                    let mut response = Response::new(Body::from(body));
+                    *response.status_mut() = status;
+                    *response.headers_mut() = headers;
+                    response
+                }
+                Err(e) => bad_gateway(&e),
+            }
         }
-        Err(e) => {
-            warn!(error = %e, "dev proxy error");
-            Response::builder()
-                .status(axum::http::StatusCode::BAD_GATEWAY)
-                .body(Body::from(format!("Proxy error: {}", e)))
-                .unwrap_or_else(|_| Response::new(Body::empty()))
-        }
+        Err(e) => bad_gateway(&e),
     }
 }
 
+/// Vite did not answer, or its answer broke off: never an empty page under
+/// Vite's status.
+fn bad_gateway(e: &reqwest::Error) -> Response {
+    warn!(error = %e, "dev proxy error");
+    Response::builder()
+        .status(axum::http::StatusCode::BAD_GATEWAY)
+        .body(Body::from(format!("Proxy error: {e}")))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
 /// The npm workspace Vite runs in: the nearest ancestor of the cwd whose
-/// package.json declares "workspaces" (a package's own does not), else the cwd.
-fn workspace_root() -> std::path::PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+/// package.json declares "workspaces" (a package's own does not).
+fn workspace_root() -> Option<std::path::PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
     cwd.ancestors()
         .find(|dir| {
             std::fs::read_to_string(dir.join("package.json"))
                 .is_ok_and(|json| json.contains("\"workspaces\""))
         })
-        .map_or_else(|| cwd.clone(), std::path::Path::to_path_buf)
+        .map(std::path::Path::to_path_buf)
 }
 
+/// Vite, from the checkout, and once it listens on [`VITE_PORT`].
 pub async fn spawn_vite() -> Option<ViteChild> {
     let label = "vite";
-    let workspace_root = workspace_root();
+    let Some(workspace_root) = workspace_root() else {
+        error!("--dev runs Vite from a checkout, and none is above the current directory");
+        return None;
+    };
 
     let mut cmd = Command::new("npm");
     cmd.args(["run", "dev", "-w", "tmuxy-ui"])
@@ -169,5 +180,27 @@ pub async fn spawn_vite() -> Option<ViteChild> {
         }
     });
 
+    wait_until_listening().await;
     Some(ViteChild { pgid })
+}
+
+/// How long Vite may take to listen before the server starts without it,
+/// warning, and every request is a 502 until it does.
+const VITE_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn wait_until_listening() {
+    let deadline = tokio::time::Instant::now() + VITE_START_TIMEOUT;
+    while tokio::net::TcpStream::connect(("localhost", VITE_PORT))
+        .await
+        .is_err()
+    {
+        if tokio::time::Instant::now() >= deadline {
+            warn!(
+                port = VITE_PORT,
+                "Vite is not listening yet; starting without it"
+            );
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }

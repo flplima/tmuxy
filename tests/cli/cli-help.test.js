@@ -109,14 +109,12 @@ describe('CLI help output', () => {
     });
   });
 
+  // `tmuxy run`'s help lists what the `run` verb runs, so it is the verb's.
   describe('run help', () => {
-    test.each([
-      [['run', '--help'], 'Usage: tmuxy run <tmux-command>'],
-      [['run', '-h'], 'Usage: tmuxy run <tmux-command>'],
-    ])('tmuxy %j shows help', (args, expected) => {
+    test.each([[['run', '--help']], [['run', '-h']]])('tmuxy %j asks the run verb', (args) => {
       const { stdout, exitCode } = runCLI(args);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain(expected);
+      expect(stdout.trim()).toBe(`mock-server-started run -- ${args[1]}`);
     });
   });
 });

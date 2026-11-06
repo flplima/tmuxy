@@ -104,8 +104,8 @@ CALLER_T=""
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t#{@tmuxy-label}'
-LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
+LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t'"#{$OPT_PANE_LABEL}"
+LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t'"#{$OPT_WINDOW_TYPE}"
 
 # --- Help ---
 
@@ -276,49 +276,6 @@ Directions:
 EOF
 }
 
-usage_run() {
-  cat <<'EOF'
-Usage: tmuxy run <tmux-command> [args...]
-
-Run a tmux command that reads, arranges or closes panes and windows,
-safely through run-shell.
-
-It runs these, by full name or alias (never a prefix):
-EOF
-  # The list is RUN_COMMANDS (bin/tmuxy/cli-commands.sh), without the
-  # aliases and the two names it only intercepts.
-  local name names=()
-  for name in "${RUN_COMMANDS[@]}"; do
-    case "$name" in new-window | resize-window) ;; *-*) names+=("$name") ;; esac
-  done
-  printf '%s \n' "$(printf '%s ' "${names[@]}" | fold -s -w 74)" | sed 's/^/  /; s/ *$//'
-  cat <<'EOF'
-
-And refuses everything else:
-  - keys into any pane, your own too (send-keys, paste-buffer, pipe-pane):
-    use `tmuxy pane send`, which asks the user before typing into another
-  - commands that run a shell or keep a command for later (run-shell,
-    if-shell, split-window, new-session, respawn-pane, bind-key,
-    command-prompt, display-popup, …): use `tmuxy pane split`, `pane run`,
-    `tab create`
-  - writes to an option, hook or the environment (set-option, set-hook,
-    set-environment, source-file)
-  - an argument ending in `;` (tmux starts another command there), and a
-    format that runs a shell: `#(…)`, or the `E:` and `T:` modifiers
-  - new-window is intercepted → `tmuxy tab create`
-  - resize-window is blocked (unreliable with control mode attached)
-
-Every argument reaches tmux quoted: `#{…}` formats are expanded by the
-command they are given to, never by run-shell.
-
-Examples:
-  tmuxy run swap-pane -s %0 -t %1
-  tmuxy run list-panes -F '#{pane_id} #{pane_current_command}'
-  tmuxy run copy-mode -q            # leave copy mode
-  tmuxy run new-window              # intercepted → safe alternative
-EOF
-}
-
 usage_connect() {
   cat <<'EOF'
 Usage: tmuxy connect [socket] [session]
@@ -460,8 +417,8 @@ CEOF
     ;;
   gui)
     shift
-    find_server_cmd
-    exec "${SERVER_CMD[@]}" gui "$@"
+    find_desktop_cmd || _fail "$EXIT_FAILED" "the desktop app is not installed (or has never been opened)"
+    exec "$DESKTOP_CMD" gui "$@"
     ;;
   --help|-h)
     usage
