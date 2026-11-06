@@ -1,9 +1,4 @@
-/**
- * Library entry point for consuming tmuxy-ui as a dependency.
- *
- * Re-exports the public API under names used by the demo site
- * and other external consumers.
- */
+// The library entry: the demo site and other consumers import these names.
 
 import './components/widgets/init';
 

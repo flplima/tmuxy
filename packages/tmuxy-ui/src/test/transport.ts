@@ -22,9 +22,7 @@ export interface FakeTransport {
   readonly invocations: BackendCall[];
   /** What every later call the overrides leave alone answers. */
   setNextResult(result: NextResult): void;
-  /** Push an event as if the backend had. */
   emit(event: TransportEvent): void;
-  /** Run an effect against this transport. */
   run<A, E>(effect: Effect.Effect<A, E, TmuxTransport>): Promise<A>;
 }
 

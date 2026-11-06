@@ -1,7 +1,3 @@
-/**
- * Test helpers for the optimistic store.
- */
-
 import type { TmuxStore } from '../infra/store/TmuxStore';
 import { parseCommandToOp } from '../domain/store/parseCommand';
 

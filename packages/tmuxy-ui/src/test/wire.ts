@@ -17,9 +17,7 @@ export const wid = (id: string): WindowId => WindowId.make(id);
 /** A group id literal (`gN`). */
 export const gid = (id: string): GroupId => GroupId.make(id);
 
-/** Decode a full-state literal. */
 export const wireState = Schema.decodeSync(ServerState);
-/** Decode a delta literal. */
 export const wireDelta = Schema.decodeSync(ServerDelta);
-/** Decode a `state-update` payload (a literal or a fixture read from disk). */
+/** A `state-update` payload: a literal or a fixture read from disk. */
 export const wireUpdate = Schema.decodeUnknownSync(StateUpdate);

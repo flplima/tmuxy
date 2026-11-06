@@ -1,18 +1,9 @@
-/* ============================================
-   Phone layout (infra/dom/phoneLayout.ts)
-   ============================================ */
-
-/* Top to bottom: the tab strip, the terminal, the key row, the tree. The
-   strip and the key row keep their place; the tree takes what is left and is
-   the first to give when the phone's keyboard comes up. After it, the
-   terminal does: it is cut short and scrolled to keep the cursor's row in
-   view (components/phone/usePhoneViewport.ts). */
+/* When the phone's keyboard comes up the tree gives way first, then the
+   terminal (cut short and kept on the cursor's row, usePhoneViewport.ts). */
 .app-body-phone {
   flex-direction: column;
 }
 
-/* Held sideways: the terminal on the right at its 80 columns' width (App.tsx
-   sets it), the strip, the keys and the tree stacked in the column left of it. */
 .app-body-phone.is-landscape {
   flex-direction: row;
 }
@@ -26,9 +17,6 @@
   border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
 }
 
-/* The app menu at the strip's left end, then the tabs (PhoneTabStrip). The
-   tab list takes the rest of the width and scrolls sideways when it
-   overflows. */
 .phone-tab-strip {
   display: flex;
   flex: none;
@@ -39,9 +27,7 @@
   box-sizing: border-box;
 }
 
-/* A thumb's target: the desktop hamburger is a 24px glyph for a pointer.
-   Same height as the tabs and a key's width, with no border — the glyph on
-   the strip, not a key of the key row. */
+/* A thumb's target: the desktop hamburger is a 24px glyph for a pointer. */
 .phone-tab-strip .app-menu-button {
   width: 40px;
   min-width: 40px;
@@ -53,11 +39,8 @@
   touch-action: manipulation;
 }
 
-/* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
-   of grid, then tmux's status line under them. The 80 columns are cut from
-   the screen's width less 4px of padding each side — the grid's outer
-   borders are drawn half a cell outside the panes, and with no padding they
-   were off the screen (the same 4px below). */
+/* The 4px padding each side (and below) keeps the grid's outer borders,
+   drawn half a cell outside the panes, on screen. */
 .phone-pty {
   --phone-zoom: 2;
   display: flex;
@@ -71,8 +54,6 @@
   flex: none;
 }
 
-/* The box the grid scrolls in when zoomed: the grid's own height, and the
-   grid's size when not. */
 .phone-zoom-viewport {
   flex: none;
   height: calc(24 * var(--line-height-terminal) + 4px);
@@ -93,14 +74,9 @@
   inset: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
-/* Zoomed (a double tap, or the key row's zoom key): the grid drawn at twice
-   its size — a transform, so the container still measures the same and tmux
-   is told nothing. The viewport is the doubled grid's full height, so every
-   row is there, and scrolls sideways; upright, the bottom view makes way
-   (App.tsx) so the whole height fits. When it does not — a keyboard up, or
-   held sideways — the terminal box scrolls up and down, kept on the cursor's
-   row (components/phone/usePhoneViewport.ts). The finger pans both: usePaneTouch.ts
-   leaves it to the browser while zoomed. */
+/* Zoomed: a transform, so the container measures the same and tmux is told
+   nothing. The finger pans it: usePaneTouch.ts leaves the touch to the
+   browser while zoomed. */
 .phone-pty.is-zoomed {
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -121,12 +97,8 @@
   transform: scale(var(--phone-zoom));
 }
 
-/* tmux's status line: the desktop's, hints at the left and the host beside
-   the session at the right, in the same small type — 80% of the terminal's
-   font, here the phone's cell (App.tsx scopes it to .phone-pty), as on a
-   desktop. The hints are written for 80 columns (statusLineHints.ts), so at
-   that size the whole line fits the 80 columns the screen is cut into, on a
-   row just tall enough for the type (PHONE_STATUS_HEIGHT). */
+/* The status hints are written for 80 columns (statusLineHints.ts), so at
+   80% of the phone's cell the whole line fits the screen. */
 .phone-pty {
   --tmuxy-small-font-size: calc(var(--tmuxy-font-size) * 0.8);
 }
@@ -141,8 +113,8 @@
   padding: 0;
 }
 
-/* Shown, as on a desktop: the line hides them on a touch screen only where
-   it is drawn at the chrome's size, too wide for them. */
+/* The line hides the hints on a touch screen only at the chrome's size,
+   too wide for them. */
 .phone-pty .statusline-hints {
   display: inline;
   line-height: 12px;
@@ -155,8 +127,6 @@
   border-radius: 0;
 }
 
-/* The prompt is typed into, so it keeps a size a thumb can read, and the
-   line grows to a row of it while it is up. */
 .phone-pty .tmux-command-mode {
   height: 24px;
 }
@@ -167,10 +137,6 @@
   line-height: 24px;
 }
 
-/* Under the keys: the tree, or the side pane (PhoneBottomView). The track
-   slides under the finger on an inline transform, the view in front filling
-   the box and the other one riding a box's width to the side it is pulled
-   in from; a released slide settles on the tab slide's curve. */
 .phone-bottom {
   position: relative;
   flex: 1 1 0;
@@ -216,8 +182,6 @@
   overflow: hidden;
 }
 
-/* The dock's pane in the chrome's small type (PhoneBottomView sets the
-   cell): the box it is sized to, and the pane kept to the rows it has. */
 .phone-dock {
   position: relative;
   flex: 1 1 0;

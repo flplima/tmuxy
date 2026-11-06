@@ -1,12 +1,5 @@
-/* ============================================
-   Pane Header - Minimalistic tab bar
-   Pattern: tab1  tab2  tab3   +
-   ============================================ */
-
-/* A pane header's bar: the theme's gray — its dark gray on a dark theme, its
-   light gray on a light one (--border-medium) — at 30% on the background only,
-   so the title, icons and buttons on it stay fully opaque. Active and inactive
-   headers share it; the active one says so with its text colour. */
+/* The theme's gray at 30% on the background only, so the title, icons and
+   buttons on it stay fully opaque. */
 .pane-header {
   display: flex;
   align-items: center;
@@ -15,8 +8,7 @@
   background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
   font-family: var(--font-mono);
   font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
-  /* Regular weight, active and inactive alike; the active header says so
-     with colour, not weight, and no theme gets a hook to make it bold. */
+  /* The active header says so with colour, not weight. */
   font-weight: 400;
   color: var(--pane-header-text-inactive);
   user-select: none;
@@ -34,20 +26,15 @@
   color: var(--pane-header-text-active);
 }
 
-/* A group member that is NOT the one in view reads as an inactive pane does,
-   whatever the header around it is doing. The accent answers one question —
-   "which pane am I typing into?" — and a parked member is not it. */
+/* A parked group member reads as an inactive pane: the accent marks the pane
+   being typed into. */
 .pane-header .pane-tab:not(.pane-tab-selected),
 .pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-title,
 .pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-icon {
   color: var(--pane-header-text-inactive);
 }
 
-/* The ⋮ and ✕ are chrome, not content: the same quiet tone on every header,
-   active or not. They used to take the active header's colour, so on a theme
-   that accents its active header (gruvbox) the buttons shouted the same
-   colour as the title they sit beside — three things competing to say the
-   same one thing. */
+/* The ⋮ and ✕ are chrome: the same quiet tone on every header, active or not. */
 .pane-header .pane-header-menu,
 .pane-header .pane-header-close,
 .pane-header .pane-tab-controls .pane-header-menu,
@@ -55,8 +42,6 @@
   color: var(--pane-header-text-inactive);
 }
 
-/* Pane tabs container: takes every pixel the header buttons leave, so a
-   single pane's title can run the full width before it ellipsises. */
 .pane-tabs {
   display: flex;
   flex: 1 1 auto;
@@ -71,14 +56,9 @@
   display: none;
 }
 
-/* A GROUP's strip: the header is shared out between its members, an equal
-   share each, so every member has a place of its own with its title at the
-   left and its own ⋮/✕ at the right. Before this the strip was one run of
-   titles with a single pair of buttons at the far end, which belonged to
-   whichever member happened to be showing — unguessable, and no way at all to
-   close a parked one. */
+/* A group's header is shared out equally between its members, each with its
+   own ⋮/✕, so a parked member can be closed too. */
 .pane-tabs-group {
-  /* Nothing scrolls: the shares divide whatever width there is. */
   overflow-x: hidden;
 }
 
@@ -94,9 +74,8 @@
   border-right: none;
 }
 
-/* The member NOT in view is dimmed by its ground, not only by its text: with
-   every member carrying the same controls, the shares have to read apart at a
-   glance rather than by reading them. */
+/* Dimmed by its ground too: with the same controls on every share, the shares
+   have to read apart at a glance. */
 .pane-tabs-group > .pane-tab:not(.pane-tab-selected) {
   background-color: color-mix(in srgb, #000 22%, transparent);
 }
@@ -119,7 +98,6 @@
   opacity: 0.45;
 }
 
-/* Each member's own buttons, pushed to the right of ITS share. */
 .pane-tab-controls {
   display: flex;
   align-items: center;
@@ -127,7 +105,6 @@
   margin-left: auto;
 }
 
-/* Individual pane tab - minimalistic text-only */
 .pane-tab {
   position: relative;
   display: flex;
@@ -138,50 +115,36 @@
   background-color: transparent;
   border: none;
   transition: color var(--transition-fast);
-  /* Natural width while it fits; shrinks (and ellipsises its title) only when
-     the header runs out of room, instead of being capped at a fixed width with
-     empty header beside it. */
   flex: 0 1 auto;
   min-width: 0;
 }
 
-/* The first tab's icon sits a few pixels in from the pane's edge, not on it. */
 .pane-tab:first-child {
   padding-left: 4px;
 }
 
-/* Hovering the PANE — anywhere in it, not just its title — brightens that
-   pane's header. The pointer is over the pane as a whole, so the cue belongs
-   to the pane as a whole: hovering only the title bar meant the header lit up
-   for the few pixels of it you happened to cross and stayed dim while the
-   cursor sat in the pane's body, which is where a cursor actually is.
-   `:not(:hover)` on the tab keeps a hovered tab's own rule (below) from being
-   double-applied. */
+/* Hovering anywhere in the pane brightens its header, not only hovering the
+   title. `:not(:hover)` keeps a hovered tab's own rule (below) from applying
+   twice. */
 .pane-layout-item:hover .pane-tab,
 .float-container:hover .pane-tab,
 .pane-tab:hover {
   color: var(--text-secondary);
 }
 
-/* ...and the pane stops being dimmed while the pointer is on it. An inactive
-   pane's terminal sits at --inactive-text-opacity so the active one reads as
-   the one with the keyboard; under the pointer it is the one being looked at,
-   so it comes up to full without clicking into it. */
+/* ...and the pane under the pointer is not dimmed. */
 .pane-layout-item:not(.pane-dragging):hover .pane-content {
   opacity: var(--active-text-opacity);
 }
 
-/* Selected tab in a group (but pane not active) */
 .pane-tab-selected .pane-tab-title {
   color: inherit;
 }
 
-/* Active tab: bright text */
 .pane-tab-active {
   color: var(--term-bright-white);
 }
 
-/* Pane tab icon - purely decorative */
 .pane-tab-icon {
   display: flex;
   align-items: center;
@@ -196,9 +159,8 @@
   cursor: default;
 }
 
-/* An SVG process icon (components/PaneIcon.tsx): its shape, at the size of
-   the glyphs beside it, in their colour. The mask is the SVG's own alpha,
-   whole and centred in the box; the box's colour is the text's. */
+/* An SVG process icon (components/PaneIcon.tsx), drawn as a mask so it takes
+   the text's colour. */
 .process-icon-svg {
   display: inline-block;
   flex: none;
@@ -223,13 +185,11 @@
   min-width: 0;
 }
 
-/* Active tab title and icon: the theme's accent */
 .pane-tab-active .pane-tab-title,
 .pane-tab-active .pane-tab-icon {
   color: var(--theme-accent);
 }
 
-/* Pane three-dot menu button */
 .pane-header-menu {
   display: flex;
   align-items: center;
@@ -258,17 +218,10 @@
   opacity: 1;
 }
 
-/* Marked (`prefix m`): the tmux mark a later `join-pane`/`swap-pane -s` will
-   use. It sits at the header's right edge with the pane's other controls — a
-   solid chip in the theme's accent, the same colour washing the pane's content
-   below, so the chip and the wash read as one mark rather than two
-   decorations. Filled rather than outlined: the wash is deliberately faint, so
-   the chip is the half that has to carry from across the screen.
-
-   The text on it is the ground the accent sits on — black against a dark
-   theme's accent, white against a light one's — because an accent is chosen to
-   stand out from the theme's background, which is exactly what makes it a poor
-   background for that theme's foreground. */
+/* Marked (`prefix m`): the tmux mark a later `join-pane`/`swap-pane -s` uses.
+   Its text is the theme's ground colour, not its foreground: an accent is
+   chosen to stand out from the background, which makes it a poor ground for
+   the foreground. */
 .pane-header-mark {
   flex: 0 0 auto;
   margin-left: var(--spacing-lg);
@@ -282,14 +235,13 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
   white-space: nowrap;
-  z-index: var(--z-pane-chrome); /* With the resize dividers and the buttons beside it. */
+  z-index: var(--z-pane-chrome);
 }
 
 :root.theme-light .pane-header-mark {
   color: #fff;
 }
 
-/* Pane close button */
 .pane-header-close {
   display: flex;
   align-items: center;

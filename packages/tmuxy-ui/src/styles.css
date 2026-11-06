@@ -6,18 +6,8 @@
 @import './styles/tab-overview.css';
 @import './styles/phone.css';
 
-/**
- * Tmuxy UI Styles
- *
- * All styles consolidated with CSS variables for consistency.
- */
-
-/* ============================================
-   CSS Variables
-   ============================================ */
-
 :root {
-  /* Terminal Colors - xterm colorscheme (16 standard colors) */
+  /* xterm's 16 standard colours. */
   --term-black: #000000;
   --term-red: #cd0000;
   --term-green: #00cd00;
@@ -35,7 +25,6 @@
   --term-bright-cyan: #00ffff;
   --term-bright-white: #ffffff;
 
-  /* Terminal defaults */
   --term-foreground: var(--term-white);
   --term-background: var(--term-black);
   /* How much of a 256-colour or truecolor cell's own colour is drawn; the
@@ -44,14 +33,11 @@
      its two. */
   --term-extended-colors: 100%;
 
-  /* Colors - Backgrounds */
   --bg-black: var(--term-black);
-  /* RGB triplet for the app (window chrome) background — the tab strip, the
-     sidebars, the gaps around the grid — composed with --app-opacity via
-     rgba() in standalone.css. One step lighter than the panes' own
-     --term-background (darker on a light face), never the other way, so the
-     grid reads as the darkest surface cut into the chrome. Themes set it per
-     face. */
+  /* The chrome's background as an RGB triplet (composed with --app-opacity in
+     standalone.css). One step lighter than the panes' --term-background
+     (darker on a light face), so the grid reads as the darkest surface cut
+     into the chrome. Themes set it per face. */
   --window-bg-rgb: 30, 30, 30;
   --bg-dark: #1e1e1e;
   --bg-dark-alt: #252526;
@@ -60,74 +46,58 @@
   --bg-highlight: #434343;
   --bg-highlight-alt: #5a5a5a;
 
-  /* Colors - Text */
   --text-primary: var(--term-white);
   --text-secondary: #cccccc;
   --text-muted: #a0a0a0;
   /* Every text tier reads at 4.5:1 on the chrome, the panes and --bg-medium
      (infra/__tests__/themeFaces.test.ts holds each face to it). */
   --text-dimmed: #8c8c8c;
-  /* The tabs that are not current, in the strip and the tree: the quietest
-     tier that still reads at 4.5:1 on the chrome, so they stand back from
-     the current one. A face with room below its dimmed tier sets it lower. */
+  /* Tabs that are not current: the quietest tier that still reads at 4.5:1
+     on the chrome. A face with room below its dimmed tier sets it lower. */
   --text-quiet: var(--text-dimmed);
   --text-subtle: #6a6a6a;
   --text-dark: #1e1e1e;
 
-  /* Colors - Borders */
   --border-medium: #3d3d3d;
   --border-light: #4a4a4a;
 
-  /* Colors - Pane Header */
   --pane-header-text-active: var(--term-bright-white);
   --pane-header-text-inactive: var(--text-dimmed);
 
-  /* Colors - Accent (Green) */
   --accent-green: var(--term-green);
   --accent-green-bg: #1a3d1a;
   /* tmux's marked pane (prefix m). Themes may override. */
   --pane-marked-border: var(--term-yellow);
 
-  /* Colors - Accent (Blue) */
   --accent-blue-light: rgba(100, 150, 255, 0.8);
   --accent-blue-bg: rgba(100, 150, 255, 0.1);
   --accent-blue-bg-hover: rgba(100, 150, 255, 0.3);
   --accent-blue-bg-active: rgba(100, 150, 255, 0.5);
-  /* Orange reads as "stopped, waiting for you": the needs-input mark. Not
-     --term-yellow (#cdcd00), which is too acid beside text, and not green,
-     which already means "the keyboard is here". Light faces take #c2410c. */
+  /* The needs-input mark. Not --term-yellow (too acid beside text) and not
+     green (which means "the keyboard is here"). Light faces take #c2410c. */
   --accent-orange: #f0883e;
 
-  /* Colors - Links */
   --link-color: var(--term-bright-blue);
   --link-hover: var(--term-bright-cyan);
   --link-active: var(--term-blue);
 
-  /* Colors - Error */
   --error-color: var(--term-bright-red);
   --error-light: #f48771;
 
-  /* The theme's accent, which every theme face declares (yellow on gruvbox,
-     the palette's green elsewhere). The active pane's outline and the
-     column with the keyboard wear it. */
+  /* Every theme face declares its accent (yellow on gruvbox). */
   --theme-accent: var(--accent-green);
   --pane-focus-border: var(--theme-accent);
-  /* A glow on terminal text: none, unless a theme is a CRT. */
+  /* A theme may set a glow on terminal text. */
   --terminal-text-glow: none;
 
-  /* Colors - Cursor */
   --cursor-bg: var(--term-white);
   --cursor-text: var(--term-black);
-  /* Copy mode's block cursor is the accent, so the mode is unmistakable. */
   --cursor-copy-bg: var(--theme-accent);
 
-  /* Selected text, in copy mode and in the browser's own selection alike:
-     the theme's foreground on a wash of it over the theme's background, the
-     same for every cell whatever colours it was drawn in (styles/terminal.css).
-     Reverse video turned every selected cell into one glaring slab of the
-     foreground. The wash is opaque, not a translucent foreground: the browser
-     also paints a selected line break after every cell span, and translucent
-     paints stacked there into lighter boxes. */
+  /* Selected text, in copy mode and in the browser's selection alike, the same
+     for every cell whatever its colours. Opaque, not a translucent foreground:
+     the browser also paints a selected line break after every cell span, and
+     translucent paints stack there into lighter boxes. */
   --selection-bg: color-mix(
     in srgb,
     var(--term-foreground, var(--term-white)) 32%,
@@ -135,30 +105,23 @@
   );
   --selection-fg: var(--term-foreground, var(--term-white));
 
-  /* Colors - Tmux Status */
   --tmux-status-bg: var(--term-green);
 
-  /* Typography */
   --font-mono: 'FiraCode Nerd Font', 'Monaco', 'Menlo', 'Courier New', monospace;
   --font-size-md: 11px;
   --font-size-base: 12px;
   --font-size-lg: 13px;
-  /* The chrome's small text — the tree sidebar, the bottom status line — at
-     80% of the pane font. fontSizeManager sets it rounded to whole pixels. */
+  /* fontSizeManager sets it rounded to whole pixels. */
   --tmuxy-small-font-size: calc(var(--tmuxy-font-size, 15px) * 0.8);
 
-  /* The pane container's padding — the margin around the grid
-     (styles/terminal.css, styles/pane-layout.css); the phone sets its own
-     (styles/phone.css). The layout arithmetic's copies are CONTAINER_PADDING_X
-     / _BOTTOM and PHONE_CONTAINER_PADDING (constants/layout.ts), held to
-     these by components/__tests__/cssMirrors.test.ts. */
+  /* Copied as CONTAINER_PADDING_X / _BOTTOM (constants/layout.ts), held to
+     these by components/__tests__/cssMirrors.test.ts; the phone sets its own
+     (styles/phone.css). */
   --pane-container-padding-x: 12px;
   --pane-container-padding-bottom: 4px;
 
-  /* Line Heights */
   --line-height-terminal: 24px; /* CHAR_HEIGHT */
 
-  /* Spacing */
   --spacing-xs: 2px;
   --spacing-md: 4px;
   --spacing-lg: 6px;
@@ -166,54 +129,39 @@
   --spacing-2xl: 10px;
   --spacing-3xl: 12px;
 
-  /* Sizes — scale with --tmuxy-font-size so chrome heights match terminal text */
   --statusbar-height: calc(var(--tmuxy-font-size, 15px) * 2.4);
-  /* Header is the tmux pane-border-status row: exactly 1 cell row tall,
-     independent of font size. */
+  /* The header is tmux's pane-border-status row: one cell row tall. */
   --pane-header-height: var(--line-height-terminal);
 
-  /* Border Radius — every corner is square, as in a terminal. The names stay
-     so each rounded-looking surface still says which size it would take. */
+  /* Every corner is square, as in a terminal; the names say which size each
+     surface would take. */
   --radius-sm: 0;
   --radius-md: 0;
   --radius-lg: 0;
 
-  /* Transitions */
   --transition-fast: 0.1s ease;
   --transition-normal: 0.15s ease;
   --transition-layout: 100ms linear;
-  /* Panes changing SIZE: a resize landing on whole cells, a stack opening the
-     row the focus moved to. Longer and eased where --transition-layout is
-     short and linear, because these are boxes the eye is meant to follow
-     rather than a position correction. A theme may set either token. */
+  /* Panes changing size (a resize, a stack opening the focused row): boxes
+     the eye follows, so longer and eased. A theme may set either token. */
   --transition-pane-size: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* Active/inactive pane fade: long enough to kill the hard flash on focus
-     changes and swaps, short enough to feel instant. */
   --transition-active: 80ms ease-out;
-  /* Pane enter/shift lifecycle: a pane arriving on a split, and the panes
-     that move or grow around one arriving or closing. The morph's timers
-     read this and --transition-pane-zoom (PaneLayoutMorph.ts), so a theme
-     may change either. */
+  /* PaneLayoutMorph.ts's timers read this and --transition-pane-zoom, so a
+     theme may change either. */
   --transition-pane-enter: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* Zoom toggle: the pane grows to fill the window. Same easing as the enter
-     morph so a zoom reads as the same kind of motion as a split. */
   --transition-pane-zoom: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* How small a non-zoomed pane shrinks to as it collapses toward the centre
-     on zoom-in (0 = to a point). */
+  /* A non-zoomed pane's scale as it collapses on zoom-in (0 = to a point). */
   --zoom-collapse-scale: 0.4;
 
-  /* Shadows — a hard offset block, never blurred and never stacked, like a
-     TUI window's drop shadow. Light faces use 0.25 (themes/*.css). */
+  /* A hard offset block, like a TUI window's drop shadow. Light faces use
+     0.25 (themes/*.css). */
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 
-  /* Appearance defaults — the same values as tmuxy.defaults.conf, so the look
-     holds before the backend answers and in adapters that have no config (the
-     stories among them). The backend's values override these via
-     applyAppearance(). Per-cell terminal colors set inline by SGR codes
-     render at full alpha, so an explicit cell bg stays opaque on top of the
-     pane surface. */
+  /* The same values as tmuxy.defaults.conf, for the frames before the backend
+     answers and for adapters with no config (the stories); applyAppearance()
+     overrides them. */
   --app-opacity: 0.7;
   --active-pane-opacity: 1;
   --inactive-pane-opacity: 0.7;

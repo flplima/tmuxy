@@ -1,24 +1,13 @@
-/* ============================================
-   Sidebars (left tab/pane tree, right pinned terminal)
-   ============================================ */
-/* App body: horizontal flex row holding the sidebar columns + the pane area,
-   so an open sidebar genuinely shrinks the pane container (its ResizeObserver
-   then drives the tmux re-tile). */
 .app-body {
   display: flex;
   flex: 1;
   min-height: 0;
   min-width: 0;
-  /* Containing block for a PEEKING sidebar column and its backdrop, which
-     are absolutely positioned over the pane container (see .is-peek). */
   position: relative;
 }
 
-/* ---- A closed column peeking over the panes (Sidebar.tsx) ---- */
-/* The dark backdrop over the rest of the body: the panes, and the other
-   column if it is docked. It takes no pointer events, so the pane under it
-   is still the pane the pointer is on, and leaving the column is all it
-   takes to end the peek. */
+/* No pointer events, so leaving the peeking column is all it takes to end
+   the peek. */
 .sidebar-peek-backdrop {
   position: absolute;
   inset: 0;
@@ -28,10 +17,8 @@
   animation: sidebar-peek-fade 120ms ease-out;
 }
 
-/* The column itself, out of the row: it floats over the pane container at its
-   docked width rather than taking that width from it, so the grid keeps its
-   size. Unlike a docked column it paints the chrome's ground, because there
-   are panes under it now. */
+/* A peeking column floats over the pane container, so the grid keeps its
+   size, and paints the chrome's ground over the panes under it. */
 .sidebar-column.is-peek {
   position: absolute;
   top: 0;
@@ -82,51 +69,36 @@
   }
 }
 
-/* The gliding cursor sits above every surface, so it would draw the active
-   pane's cursor on top of a peek. Unless the peek has the keyboard (its own
-   cursor is then the one to show), the cursor waits under the peek. */
+/* The gliding cursor sits above every surface: unless the peek has the
+   keyboard, it would draw the active pane's cursor over the peek. */
 .app-container.has-sidebar-peek:not(.has-sidebar-focus) .smooth-cursor {
   visibility: hidden;
 }
 
-/* ---- The frame both columns share (see SidebarColumn.tsx) ---- */
 .sidebar-column {
-  /* No `height: 100%` — the percentage does not resolve against a flex parent
-     whose own height comes from `flex: 1`, and setting it at all opts the
-     column OUT of `align-items: stretch`, leaving it as tall as its content
-     (a short tree left a 180px column in a 597px body). Cross-size `auto` lets
-     stretch fill the app body, which is what both columns want. */
+  /* No `height: 100%`: it does not resolve against a flex parent sized by
+     `flex: 1`, and setting it opts the column out of `align-items: stretch`,
+     leaving it as tall as its content. */
   box-sizing: border-box;
-  /* Pinned on all four axes to the width the column sets inline as
-     --sidebar-width (see SidebarColumn.tsx). */
   flex: 0 0 var(--sidebar-width);
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   max-width: var(--sidebar-width);
   /* Same reason as .app-container: the tree inside must scroll, not stretch. */
   min-height: 0;
-  /* Containing block for the resize handle, which straddles the divider. */
   position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* Transparent: the column is app chrome, like the header and the status
-     bar, so it shows the same background they do rather than a pane's. */
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* A column is chrome: it paints no ground of its own, so the window's grey
-   runs on behind the tree and only the panes are dark. The pinned terminal
-   shows whether it has the keyboard the way a pane's text does, from the same
-   setting: its content sits at the inactive text opacity
-   (`@tmuxy-inactive-text-opacity`) until it takes the keyboard — on the same
-   quick clock a pane's focus change uses. The tree is not dimmed: its text is
-   chrome, held at 4.5:1 by its own tiers, and its title says whether it has
-   the keyboard. And a column's divider, the full-height line facing the pane grid, takes the active
-   pane's border colour while it holds the keyboard; the matching half of the
-   line is drawn by the header cluster above (.statusbar-cluster-*.is-docked). */
+/* The pinned terminal dims like a pane's text until it takes the keyboard.
+   The tree is not dimmed: its text tiers are already held to 4.5:1. A
+   column's divider is drawn in two halves: here, and by the header cluster
+   above (.statusbar-cluster-*.is-docked). */
 .sidebar-column-right > .sidebar-body > * {
   opacity: var(--inactive-text-opacity);
   transition: opacity var(--transition-active);
@@ -164,11 +136,8 @@
   border-left-color: var(--pane-focus-border);
 }
 
-/* The drag strip on a column's inner edge. Invisible until grabbed — it sits on
-   the divider, and a permanently drawn grip would read as a second border. Wider
-   than the 1px divider so it is actually catchable with a mouse. Kept just
-   inside the column rather than straddling the divider, because the column
-   clips its overflow. */
+/* Inside the column rather than straddling the divider: the column clips its
+   overflow. */
 .sidebar-resize-handle {
   position: absolute;
   top: 0;
@@ -176,8 +145,7 @@
   width: 9px;
   cursor: col-resize;
   z-index: 2;
-  /* Pointer events drive the drag; the browser must not turn a finger on the
-     handle into a page scroll. */
+  /* The browser must not turn a finger on the handle into a page scroll. */
   touch-action: none;
 }
 
@@ -195,19 +163,14 @@
   opacity: 0.35;
 }
 
-/* Basis 0, not auto: the body's height is the column's free space, never its
-   content's. With an auto basis a tree taller than the column sized the body
-   to the whole tree, so the rows past the bottom edge were clipped by the
-   column instead of scrolling inside it. */
+/* Basis 0, not auto: with an auto basis a tree taller than the column sizes
+   the body to the whole tree, clipped instead of scrolling. */
 .sidebar-body {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
 
-/* ---- Either column's pane, when it renders as a terminal ---- */
-/* Height is set inline to rows × charHeight so the rendered grid matches the
-   size the backend gave the tmux pane exactly. */
 .sidebar-terminal {
   overflow: hidden;
   background: transparent;

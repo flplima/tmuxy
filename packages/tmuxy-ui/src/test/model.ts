@@ -1,8 +1,3 @@
-/**
- * Test fixtures for driving the app machine with a client model: panes,
- * windows and the TMUX_MODEL_UPDATE that carries them.
- */
-
 import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { PaneId, WindowId } from '../domain/ids';
 import type { TmuxClientModel, TmuxSnapshot } from '../domain/store/types';
