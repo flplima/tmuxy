@@ -1,4 +1,3 @@
-#[cfg(feature = "cli")]
 pub mod argv;
 #[cfg(feature = "native")]
 pub mod ask;

@@ -287,8 +287,8 @@ pub fn notify_failure(dirs: &Layout, pane: &str, plugin: &str, error: &str) {
     let text: String = format!("plugin {plugin}: {error} (tmuxy plugin log {plugin})")
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .replace('#', "##");
+        .collect::<String>();
+    let text = crate::argv::format_literal(&text);
     let _ = super::super::job::run(
         dirs,
         &["display-message".into(), "-t".into(), pane.into(), text],

@@ -51,21 +51,13 @@ fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
         crate::session::tmux_shell_line()
     );
     vec![
-        Step::Run(argv(&["run-shell", &run_shell_literal(&relay)])),
+        Step::Run(argv(&["run-shell", &crate::argv::format_literal(&relay)])),
         Step::Ask {
             key: key.to_string(),
             argv: argv(&["show-options", "-gv", &option]),
         },
         Step::Run(argv(&["set-option", "-gu", &option])),
     ]
-}
-
-/// A shell line for `run-shell`, with its `#` doubled. `run-shell` expands
-/// formats in its command before `/bin/sh` sees it, inside shell quotes too,
-/// so a snapshot's scrollback or cwd holding `#(…)` would run it, and a
-/// `#{…}` would be replaced with whatever tmux knows by that name.
-fn run_shell_literal(shell: &str) -> String {
-    shell.replace('#', "##")
 }
 
 /// The pane options a snapshot carries ([`capture`]): a group's id and the
@@ -455,7 +447,7 @@ fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
                         "run-shell",
                         "-t",
                         &pane,
-                        &run_shell_literal(&format!(
+                        &crate::argv::format_literal(&format!(
                             "printf '%s\\n' {}",
                             crate::argv::shell_word(&text)
                         )),
