@@ -332,5 +332,4 @@ pub use delta_types::*;
 pub use state_types::*;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod lib_tests;

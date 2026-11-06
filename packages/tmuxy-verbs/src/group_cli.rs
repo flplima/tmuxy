@@ -366,7 +366,6 @@ fn run_all(plan: &[Invocation]) -> Result<(), Outcome> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

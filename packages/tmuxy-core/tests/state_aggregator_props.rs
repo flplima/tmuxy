@@ -1,8 +1,4 @@
 //! Property-based tests for the `StateAggregator` state machine.
-//!
-//! These run as an integration test so they can use a clean `cfg(test)` profile
-//! without contending with the lib's `#[allow(clippy::unwrap_used)]` tests
-//! module on the same source file.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -139,9 +135,9 @@ proptest! {
             let result = agg.step(ev);
             for effect in &result.effects {
                 if let SideEffect::Emit(change) = effect {
-                    prop_assert_ne!(change.clone(), ChangeType::None,
+                    prop_assert_ne!(*change, ChangeType::None,
                         "Emit must carry a real change type");
-                    prop_assert_eq!(change.clone(), result.change_type.clone(),
+                    prop_assert_eq!(*change, result.change_type,
                         "Emit change must match step's reported change_type");
                 }
             }

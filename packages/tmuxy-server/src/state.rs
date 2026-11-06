@@ -17,10 +17,8 @@ pub(crate) use handlers::build_response;
 use handlers::image_handler;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod broadcast_tests;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 /// A power of two, so it is exactly the broadcast channel's capacity (tokio

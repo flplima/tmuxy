@@ -118,13 +118,11 @@ async fn session_with_resizing_monitor(state: &Arc<AppState>, session: &str) {
                     let late = Arc::clone(&size);
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(120)).await;
-                        #[allow(clippy::unwrap_used)]
                         let mut current = late.lock().unwrap();
                         *current = (cols, rows);
                     });
                 }
                 MonitorCommand::GetState { reply } => {
-                    #[allow(clippy::unwrap_used)]
                     let size = *size.lock().unwrap();
                     let _ = reply.send(tmuxy_core::TmuxState {
                         session_name: "s".to_string(),

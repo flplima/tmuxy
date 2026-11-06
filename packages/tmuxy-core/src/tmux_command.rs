@@ -536,5 +536,4 @@ fn escaped(chars: &mut std::iter::Peekable<std::str::Chars>) -> Option<char> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;

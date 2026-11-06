@@ -467,6 +467,5 @@ async fn set_flag(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[path = "command_tests.rs"]
 mod tests;
