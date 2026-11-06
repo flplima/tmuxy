@@ -1,7 +1,5 @@
 // The library entry: the demo site and other consumers import these names.
 
-import './components/widgets/init';
-
 export { AppProvider as TmuxyProvider } from './machines/AppContext';
 export { useAppFocused } from './machines/appHooks';
 export { phoneMediaQuery } from './infra/dom/phoneLayout';

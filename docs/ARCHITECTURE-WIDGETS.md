@@ -45,12 +45,12 @@ A pane PARKED in a pane group streams no content, so there is no widget to ask f
 
 ### A widget's definition
 
-A widget registers a **definition**, not just a component, so it can furnish the parts of the pane
+A widget is a **definition**, not just a component, so it can furnish the parts of the pane
 chrome it does not own: its tab `icon`, a `selectTitle` for the tab, and a `selectMenuItems`
 section that leads the pane's ⋮ menu. Each is a pure function of machine context plus the pane's
 widget content, so a menu that is not the widget's own child can still ask the widget what it can
-currently do. Adding a widget means writing a definition and registering it in
-`components/widgets/init.ts`; no shared component needs to learn its name.
+currently do. Adding a widget means writing a definition and naming it in the table in
+`components/widgets/registry.ts`; no shared component needs to learn its name.
 
 Widget state that outlives a render belongs in the app machine rather than in the component, so
 the menu and the pane read the same source of truth. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md).

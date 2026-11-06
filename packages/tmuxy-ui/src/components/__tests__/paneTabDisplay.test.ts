@@ -12,9 +12,8 @@ import {
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../domain/client';
 import type { PaneContent } from '../../domain/wireCells';
-import { registerWidget } from '../widgets/registry';
+import { previewWidget } from '../widgets/preview/definition';
 
-registerWidget('preview', { component: () => null, icon: 'D' });
 const screen = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
 const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
@@ -198,7 +197,7 @@ describe('paneRowLines', () => {
       content: screen('__TMUXY_WIDGET__:preview', '/tmp/notes.md'),
     });
     expect(paneRowLines(preview)).toEqual({ process: 'preview', title: 'notes.md' });
-    expect(getTabIcon(preview)).toBe('D');
+    expect(getTabIcon(preview)).toBe(previewWidget.icon);
     // A tag left over a live shell (no marker on screen) is the shell again.
     expect(paneRowLines({ ...preview, content: screen('$ ls') }).process).toBe('bash');
   });
