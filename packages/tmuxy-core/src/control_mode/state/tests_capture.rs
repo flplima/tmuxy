@@ -5,9 +5,8 @@ use crate::ids::test_ids::{pid, wid};
 /// A response between the capture markers is attributed to exactly the
 /// pane named by the BEGIN marker — and unmarked responses (e.g. a
 /// send-keys ack with EMPTY output, indistinguishable in shape from
-/// capturing a blank pane) can never steal a pending capture. This was
-/// the pane-content-misattribution bug: under command churn one pane
-/// rendered another pane's capture, or none at all.
+/// capturing a blank pane) can never steal a pending capture: under command
+/// churn one pane rendered another pane's capture, or none at all.
 #[test]
 fn capture_routing_is_marker_exact_and_theft_proof() {
     let mut agg = StateAggregator::new();
@@ -91,7 +90,7 @@ fn capture_marker_survives_strftime_padding() {
 }
 
 /// A marked capture for a pane killed mid-flight is discarded — and its
-/// in-flight entry is released so content preservation can't wedge.
+/// in-flight entry is released so the pane's captures can't wedge.
 #[test]
 fn capture_for_dead_pane_is_discarded_and_released() {
     let mut agg = StateAggregator::new();
@@ -155,7 +154,7 @@ fn osc52_clipboard_write_propagates_to_result() {
     );
 }
 
-/// SEC-01. One write per pane per `MIN_CLIPBOARD_INTERVAL`: a program
+/// One OSC 52 write per pane per `MIN_CLIPBOARD_INTERVAL`: a program
 /// writing the clipboard in a loop gets its first write and no more until
 /// the interval has passed.
 #[test]
@@ -179,7 +178,7 @@ fn a_pane_writing_the_clipboard_in_a_loop_is_rate_limited() {
     assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
 }
 
-/// SEC-13. A paste buffer is server-global and `%paste-buffer-changed`
+/// A paste buffer is server-global and `%paste-buffer-changed`
 /// names no origin, so it is read (in-band, marker-wrapped) only while a
 /// pane of this session is in copy mode — the trace a yank leaves. Both
 /// hosts share this arm, so both have the gate.
@@ -280,7 +279,6 @@ fn a_paste_buffer_name_is_quoted_into_its_read() {
 
 #[test]
 fn output_without_osc52_yields_no_clipboard_write() {
-    // Sanity check that the new field doesn't fire on plain output.
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
 
@@ -293,10 +291,9 @@ fn output_without_osc52_yields_no_clipboard_write() {
     assert!(result.clipboard_writes.is_empty());
 }
 
-/// SEC-22. Nothing evicted from a pane's image store while the pane lived
-/// — the server's own store is trimmed only for DEAD panes — so a program
-/// printing pictures in a loop grew the process for the life of the pane,
-/// on nothing but pane output.
+/// A pane's image store is capped while the pane lives (the server's own is
+/// trimmed only for DEAD panes): unevicted, a program printing pictures in a
+/// loop grew the process for the life of the pane, on pane output alone.
 #[test]
 fn a_pane_stops_hoarding_pictures_at_the_cap() {
     let mut pane = PaneState::new(pid("%0"), 80, 24);
@@ -325,7 +322,7 @@ fn a_pane_stops_hoarding_pictures_at_the_cap() {
     assert!(!pane.image_store.contains_key(&0));
 }
 
-/// SEC-01. OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
+/// OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
 /// enough to reach it — a background pane (a tailed log, a stray ssh
 /// session) could silently replace what the user was about to paste.
 #[test]
@@ -345,7 +342,7 @@ fn osc52_from_a_pane_the_user_is_not_in_is_dropped() {
     );
 }
 
-/// SEC-01. The payload is whatever the file held, so it is bounded.
+/// An OSC 52 payload is whatever the file held, so it is bounded.
 #[test]
 fn an_osc52_write_over_the_cap_is_dropped() {
     let under = accepted_clipboard_write(

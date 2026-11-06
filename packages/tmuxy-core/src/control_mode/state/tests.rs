@@ -60,7 +60,6 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     assert_eq!(pane.placements().len(), 1);
     assert_eq!(pane.placements()[0].row, -3);
 
-    // Zooming/resizing on the primary screen preserves placements.
     pane.resize(80, 24);
     assert_eq!(
         pane.placements().len(),
@@ -169,8 +168,8 @@ pub(super) fn tmux_pane(id: &str) -> TmuxPane {
     pane.build_tmux_pane().expect("placed")
 }
 
-/// Manually seat a pane in the aggregator so handle_output() processes it
-/// (handle_output rejects panes that haven't been seen in list-panes).
+/// A pane seated in `window_id`, as if list-panes had placed it: output for
+/// an unplaced pane is not processed.
 pub(super) fn seed_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
     let mut pane = PaneState::new(pid(pane_id), 80, 24);
     pane.window_id = Some(wid(window_id));
@@ -345,10 +344,9 @@ fn an_unmarked_ack_changes_nothing() {
 
 /// Arbitrary command output must not be mistaken for list-panes records.
 ///
-/// `RunCommand` output flows through the same response channel, so a line
-/// that merely contains a `%` and a comma used to be fed to the pane
-/// parser and could conjure ghost panes. Only a block a list marker names
-/// is read as rows — even rows shaped exactly like this session's.
+/// A command's output arrives on the same channel as the list replies, so a
+/// line holding a `%` and a comma could conjure ghost panes. Only a block a
+/// list marker names is read as rows, even rows shaped like this session's.
 #[test]
 fn non_list_panes_output_does_not_create_panes() {
     let mut agg = StateAggregator::new();
@@ -466,7 +464,7 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
     let before = agg.panes.len();
 
     agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "9"), true));
-    // Two rows in LIST_PANES_CMD shape for panes of some other session.
+    // Two rows in `TmuxList::Panes` shape for panes of some other session.
     let rows = "%40,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n\
                     %41,1,0,0,80,24,0,0,0,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n";
     let body = agg.step(response(rows, true));

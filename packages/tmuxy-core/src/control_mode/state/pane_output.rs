@@ -25,17 +25,12 @@ impl PaneState {
         early.len()
     }
 
-    /// Process new output for this pane (appends to existing buffer)
     pub fn process_output(&mut self, content: &[u8]) {
         self.content_dirty = true;
 
-        // Ensure image parser starts with the current vt100 cursor position.
         let (init_row, init_col) = self.terminal.screen().cursor_position();
         self.image_parser.update_cursor(init_row, init_col);
 
-        // Temporarily take `image_parser` so the clean-bytes callback can
-        // mutate `self` (feeding vt100 and shifting image placements on
-        // scroll) right before each image escape is placed.
         let mut image_parser = std::mem::take(&mut self.image_parser);
         let new_images = image_parser.process_with(content, |clean_bytes, parser| {
             // Put placements on `self.image_parser` while vt100 runs so
@@ -61,11 +56,8 @@ impl PaneState {
             self.image_store.insert(id, stored);
             self.image_store_order.push_back(id);
         }
-        // SEC-22: nothing evicted while the pane lived, so a loop printing
-        // images grew the process without bound — the server's own store is
-        // trimmed only for DEAD panes. The images a pane can actually be
-        // showing are bounded by its screen; this is far above that and
-        // bounded, which is the point.
+        // The server's own store is trimmed only for DEAD panes, so this is
+        // what bounds a live one (`MAX_STORED_IMAGES_PER_PANE`).
         while self.image_store.len() > MAX_STORED_IMAGES_PER_PANE {
             match self.image_store_order.pop_front() {
                 Some(oldest) => {
@@ -83,26 +75,21 @@ impl PaneState {
             }
         }
 
-        // Derive alternate_on and mouse_any_flag from the vt100 parser state.
-        // This is more reliable than polling list-panes, as it updates immediately
-        // when the application sends the escape sequence.
+        // From the parser, not the list-panes poll: it changes the moment the
+        // program sends the escape.
         self.alternate_on = self.terminal.screen().alternate_screen();
         self.mouse_any_flag = !matches!(
             self.terminal.screen().mouse_protocol_mode(),
             vt100::MouseProtocolMode::None
         );
         self.cursor_hidden = self.terminal.screen().hide_cursor();
-        // An OSC 0/2 title, applied here rather than waiting for tmux to
-        // report `pane_title` on the next list-panes. That only happens on a
-        // metadata sync or the 15-second idle heartbeat, so a program
-        // announcing a new title left the header showing the old one for up
-        // to fifteen seconds. tmux sees the same escape and agrees at the
-        // next poll; this only removes the lag.
+        // An OSC 0/2 title, applied now: tmux reports `pane_title` only on
+        // the next list-panes, which can be the idle heartbeat seconds later.
+        // tmux sees the same escape and agrees at that poll.
         if let Some(title) = self.terminal.callbacks_mut().take_title() {
             self.set_title(title);
         }
 
-        // Update image parser cursor position from vt100 state
         let screen = self.terminal.screen();
         let (row, col) = screen.cursor_position();
         self.image_parser.update_cursor(row, col);
@@ -185,10 +172,6 @@ impl PaneState {
         self.reset(Reset::Moved);
     }
 
-    /// Rebuild the emulator for this pane's size, in the modes tmux reports
-    /// (`fresh_terminal`). Every reset clears the same set: the grid (with
-    /// the links and sizes written into it), the content cache and the scroll
-    /// baseline. What it keeps depends on `kind`.
     fn reset(&mut self, kind: Reset) {
         let history = match kind {
             // A capture is the screen as it is now, and the rows that scrolled
@@ -216,29 +199,19 @@ impl PaneState {
 
     /// A parser for this pane's size, already in the modes tmux reports.
     ///
-    /// The alternate screen (`?1049h`) and mouse tracking (`?1000h`) are state
-    /// the application set once, possibly long before this client attached. A
-    /// parser rebuilt for a capture refill (or a window move) never saw those
-    /// sequences — capture-pane replays screen contents, not the modes — so it
-    /// reported neither, while list-panes kept reporting both. The derived
-    /// flags then flapped between the two sources on every %output /
-    /// list-panes pair.
+    /// The alternate screen (`?1049h`) and mouse tracking (`?1000h`) are modes
+    /// the program set once, maybe long before this client attached, and
+    /// capture-pane replays the screen, not the modes. A rebuilt parser that
+    /// reported neither while list-panes reported both made the flags flap on
+    /// every %output / list-panes pair: the pane re-rendered a few times a
+    /// second, and one scroll gesture went to a mouse-tracking program partly
+    /// as SGR mouse reports and partly as arrow keys (`sendScrollLines` in
+    /// tmuxy-ui/src/components/terminal/scrollUtils.ts treats the two as
+    /// exclusive).
     ///
-    /// For `alternate_on` that showed up as the pane re-rendering a few times
-    /// a second (the "blinking" pane running Claude Code). For
-    /// `mouse_any_flag` it split a single scroll gesture in two: wheel events
-    /// that landed while the flag read true were sent to the application as
-    /// SGR mouse reports, and the ones in between — the flag momentarily false
-    /// with the alternate screen still on — went as arrow keys, so a
-    /// mouse-tracking app received both for one flick of the trackpad (see
-    /// `sendScrollLines` in tmuxy-ui/src/components/terminal/scrollUtils.ts, where mouse
-    /// tracking and alt-screen are deliberately exclusive).
-    ///
-    /// Entering the modes up front keeps the captured screen in the grid tmux
-    /// drew it on and the two sources in agreement. Any tracking mode makes
-    /// the flag true, so plain `?1000h` restores it whichever variant
-    /// (1000/1002/1003) the application actually chose; a later `?1000l` from
-    /// the application still clears it.
+    /// Any tracking mode makes the flag true, so plain `?1000h` restores it
+    /// whichever variant (1000/1002/1003) the program chose; a later `?1000l`
+    /// still clears it.
     fn fresh_terminal(&self) -> vt100::Parser<super::osc::OscRequests> {
         let w = (self.width as u16).max(1);
         let h = (self.height as u16).max(1);
@@ -268,8 +241,7 @@ impl PaneState {
         self.terminal.callbacks_mut().take_clipboard()
     }
 
-    /// Resize the terminal.
-    /// Returns true if the dimensions actually changed.
+    /// Returns whether the size changed.
     pub fn resize(&mut self, width: u32, height: u32) -> bool {
         if self.width != width || self.height != height {
             self.width = width;
@@ -279,18 +251,11 @@ impl PaneState {
             // Guard: vt100 panics on zero dimensions (subtract overflow in grid.rs)
             let w = (width as u16).max(1);
             let h = (height as u16).max(1);
-            // Reflow the existing grid IN PLACE, preserving content and cursor
-            // anchoring. The previous approach recreated the parser and replayed
-            // the whole accumulated raw %output buffer, which re-scrolled that
-            // output through a fresh grid — leaving short content BOTTOM-anchored
-            // (blank rows prepended, prompt glued to the last row) after a
-            // swap/resize in the fully client-side (v86) path, where there is no
-            // authoritative capture-pane pass to correct the replay. vt100's
-            // `set_size` rewraps each row to the new width and grows/shrinks the
-            // grid from the bottom, so top-anchored content stays where it is and
-            // the cursor is clamped — matching what a real terminal does on
-            // SIGWINCH. This also subsumes the original %layout-change case the
-            // replay was added for (content is reflowed, never lost).
+            // Reflowed IN PLACE, the way a terminal does on SIGWINCH: `set_size`
+            // rewraps each row and grows/shrinks the grid from the bottom, so
+            // top-anchored content stays put. Replaying the raw output through a
+            // fresh grid left short content BOTTOM-anchored in the client-side
+            // (v86) path, which has no capture to correct it.
             self.terminal.screen_mut().set_size(h, w);
             self.image_parser.reset_for_resize(self.alternate_on);
             self.rebaseline_scroll();
