@@ -36,6 +36,7 @@ import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLine
 import { serverHostLabel } from './paneTabDisplay';
 import { SessionMenu } from './SessionMenu';
 import type { KeyBindings } from '../domain/wire';
+import './TmuxStatusBar.css';
 
 function Separator() {
   return <span className="statusline-separator">{HINT_SEPARATOR}</span>;

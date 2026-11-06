@@ -307,8 +307,10 @@
 /* The config said no (`@tmuxy-animations off`): the keyframes the pane gate
    does not reach — floats appearing, drawers sliding — are stopped too. The
    pane grid itself follows `.pane-layout-no-animations`, which the selector
-   holds while the switch is off. */
-.app-no-animations .modal-container,
+   holds while the switch is off. The float's and the drawers' keyframes are
+   set at two classes' weight (FloatPane.css), so the overlay's class makes
+   this one heavier. */
+.app-no-animations .modal-overlay .modal-container,
 .app-no-animations .snackbar {
   animation: none;
 }

@@ -2,8 +2,8 @@
  * The rules every theme face keeps (public/themes/*.css).
  *
  * A theme is only a re-declaration of the token names `styles.css` reads:
- * nothing is drawn differently per theme. So each face declares the same
- * names the default dark face does, adds nothing but tokens `styles.css`
+ * nothing is drawn differently per theme. So each face declares the whole
+ * palette (the base's, which is the default dark face), adds nothing but tokens `styles.css`
  * declares or helpers of its own (`--fallout-fg`), and picks values that keep
  * the design's rules — status line text and the accent readable at 4.5:1,
  * and on a dark face the chrome a step lighter than the panes.
@@ -44,13 +44,28 @@ function facesOf(file: string): Face[] {
   return (['dark', 'light'] as const).flatMap((mode) => {
     const block = css.match(new RegExp(`:root\\.theme-${mode}\\s*\\{([\\s\\S]*?)\\n\\}`));
     if (!block) return [];
-    const own = declsOf(block[1]);
+    // The default dark face is the base styles.css :root; its block holds
+    // only what the base does not declare.
+    const own =
+      theme === 'default' && mode === 'dark'
+        ? { ...ROOT, ...declsOf(block[1]) }
+        : declsOf(block[1]);
     return [{ name: `${theme} ${mode}`, theme, mode, own, vars: { ...ROOT, ...own } }];
   });
 }
 
 const FACES = THEME_FILES.flatMap(facesOf);
 const DEFAULT_DARK = FACES.find((f) => f.name === 'default dark')!;
+const DEFAULT_LIGHT = FACES.find((f) => f.name === 'default light')!;
+
+/**
+ * The palette a face declares: the base tokens the default light face swaps
+ * out, and what the default dark face adds to the base.
+ */
+const PALETTE = [
+  ...Object.keys(DEFAULT_LIGHT.own).filter((name) => name in ROOT),
+  ...Object.keys(DEFAULT_DARK.own).filter((name) => !(name in ROOT)),
+];
 
 /** A token's value with every `var()` in it resolved against the face. */
 function resolve(vars: Decls, value: string, depth = 0): string {
@@ -98,15 +113,15 @@ describe('theme faces', () => {
   });
 
   it.each(FACES.map((f) => [f.name, f] as const))(
-    '%s declares the names the default declares, and nothing it may not',
+    '%s declares the whole palette, and nothing it may not',
     (_, face) => {
-      const missing = Object.keys(DEFAULT_DARK.own).filter((name) => !(name in face.own));
+      const missing = PALETTE.filter((name) => !(name in face.own));
       expect(missing).toEqual([]);
       // Extra names are tokens styles.css already reads, or the theme's own
       // helpers, prefixed with its name (`--fallout-fg`).
       const prefix = `--${face.theme}-`;
       const stray = Object.keys(face.own).filter(
-        (name) => !(name in DEFAULT_DARK.own) && !(name in ROOT) && !name.startsWith(prefix),
+        (name) => !PALETTE.includes(name) && !(name in ROOT) && !name.startsWith(prefix),
       );
       expect(stray).toEqual([]);
     },
