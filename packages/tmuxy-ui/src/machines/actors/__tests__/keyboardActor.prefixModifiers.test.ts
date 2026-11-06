@@ -9,11 +9,6 @@ import { pid } from '../../../test/wire';
 import { lastSendCommand, pressKey, spawnKeyboardActor } from './keyboardHarness';
 
 describe('keyboardActor — a prefix binding with a modifier', () => {
-  /**
-   * `prefix M-y` and `prefix C-o` are bindings of their own (tmux's
-   * `rotate-window` is `prefix C-o`, a plugin's `[[keys]]` may be `M-y`): the
-   * key they were bound to runs, not the bare letter's.
-   */
   it('runs the binding for the key with Alt or Ctrl, and the bare one without', () => {
     const { events, set } = spawnKeyboardActor(pid('%1'));
     set({

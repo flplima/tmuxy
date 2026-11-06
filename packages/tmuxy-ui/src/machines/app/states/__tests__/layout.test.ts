@@ -38,7 +38,6 @@ describe('layout state', () => {
       type: 'SELECT_TAB',
       windowId: wid('@5'),
     });
-    // No flip and no dispatch — active window unchanged.
     expect(ctx.activeWindowId).toBe(wid('@5'));
   });
 
@@ -47,8 +46,6 @@ describe('layout state', () => {
       resize: null,
       resizeActive: false,
     });
-    // Casting via unknown — the test only cares about the assign behavior,
-    // not the shape of the resize payload itself (covered elsewhere).
     const resize = { paneId: pid('%1'), handle: 'e' } as unknown as ResizeState;
     let ctx = sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize });
     expect(ctx.resize).toEqual(resize);
@@ -61,13 +58,11 @@ describe('layout state', () => {
     const actor = mountState(layoutState, layoutActions, layoutGuards, {
       drag: null,
     });
-    // A real drag payload must land verbatim... (null → null asserted
-    // nothing: the previous version of this test passed even with the
-    // handler deleted).
+    // A real payload: null → null would pass with the handler deleted.
     const drag = { paneId: pid('%2'), currentX: 10, currentY: 20 } as unknown as DragState;
     let ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag });
     expect(ctx.drag).toEqual(drag);
-    // ...and null must clear it again.
+    // ...and null clears it again.
     ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
     expect(ctx.drag).toBeNull();
   });

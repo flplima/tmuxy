@@ -5,10 +5,6 @@ import type { BackendCall } from '../../../domain/backendCalls';
 import type { AppRuntime } from '../../../infra/runtime';
 import { fakeTransport } from '../../../test/transport';
 
-/**
- * Spawn a tmuxActor as a child of a tiny parent machine and return both.
- * Captures every event the actor sends to the parent in `events`.
- */
 function spawnTmuxActor(runtime: AppRuntime) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const tmuxActor = createTmuxActor(runtime);
@@ -36,7 +32,6 @@ function spawnTmuxActor(runtime: AppRuntime) {
   return { actor, events };
 }
 
-/** Helper: wait until the predicate is true (or timeout). */
 async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -74,9 +69,6 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 
   it('interrupts the previous fetch so its result never reaches the parent', async () => {
-    // First call: a slow promise that never resolves. Second call: a fast resolution.
-    // Confirm the slow one never delivers a COPY_MODE_CHUNK_LOADED — because
-    // it was interrupted before it could fire its onSuccess.
     const calls: Array<{ start: number; end: number }> = [];
     let firstResolve: ((value: unknown) => void) | null = null;
     const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
@@ -84,13 +76,11 @@ describe('tmuxActor — cancellable scrollback', () => {
       const a = args as { start: number; end: number; paneId: string };
       calls.push({ start: a.start, end: a.end });
       if (calls.length === 1) {
-        // Slow: pretend the server is taking forever, then "respond" after the
-        // second request has fired. By that time our fiber should be interrupted.
+        // Answered only after the second request has gone out.
         return new Promise((resolve) => {
           firstResolve = resolve;
         });
       }
-      // Fast second response.
       return {
         cells: [[{ c: 'X' }]],
         historySize: 200,
@@ -118,8 +108,6 @@ describe('tmuxActor — cancellable scrollback', () => {
       end: 60,
     });
 
-    // Now resolve the FIRST call's promise — it would have shipped a stale
-    // result if the fiber hadn't been interrupted.
     await waitFor(() => firstResolve !== null);
     firstResolve!({
       cells: [[{ c: 'STALE' }]],
@@ -129,13 +117,9 @@ describe('tmuxActor — cancellable scrollback', () => {
       width: 80,
     });
 
-    // Wait until the second call's COPY_MODE_CHUNK_LOADED has fired.
     await waitFor(() => events.some((e) => e.type === 'COPY_MODE_CHUNK_LOADED'));
 
     const loaded = events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED');
-    // The fresh request (start:50) should have landed. The stale request's
-    // result must NOT appear — because the fiber was interrupted before its
-    // onSuccess could run.
     expect(loaded).toHaveLength(1);
     expect(loaded[0].historySize).toBe(200);
     expect(loaded[0].start).toBe(50);

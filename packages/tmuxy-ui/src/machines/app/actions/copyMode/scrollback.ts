@@ -1,8 +1,3 @@
-/**
- * Scrollback and copy-mode state construction, chunk merging, and pane-mode
- * reconciliation helpers.
- */
-
 import { assign, sendTo } from 'xstate';
 import type { Ctx, Enqueue, EnqueueAction } from '../../actionTypes';
 import {
@@ -19,12 +14,6 @@ import type { PaneId } from '../../../../domain/ids';
 import { TmuxOp } from '../../../../domain/commands';
 import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 
-/**
- * Ask for the rows the view at `updated.scrollTop` is missing, when any are
- * and no chunk is already on its way: the record is marked loading and the
- * tmux actor is sent for them. A chunk's arrival (`applyScrollbackChunk`)
- * clears the mark and asks for the next gap itself.
- */
 export function fetchNeededChunk(
   enqueue: Enqueue,
   context: Ctx,
@@ -54,10 +43,6 @@ export function fetchNeededChunk(
   );
 }
 
-/**
- * Every row of a pane's scrollback selected: a line selection from the first row
- * of history to the last row on screen.
- */
 /**
  * The word under `(absoluteRow, col)` as a selection — the cells matching
  * `\w` around it, or every non-space cell with `broad` — or null while the
@@ -103,13 +88,8 @@ export function selectEveryRow(state: CopyModeState): CopyModeState {
 }
 
 /**
- * Build the per-pane scrollback record both views share.
- *
- * Everything here is identical for the two modes — the loaded lines seeded
- * from what is already on screen, the totals, the initial scroll position —
- * so the only thing the callers decide is `mode`, whether tmux has already
- * been seen in it (`tmuxSeen`, for a copy mode tmux entered on its own) and
- * what they tell tmux afterwards.
+ * The per-pane scrollback record both views share, seeded with the rows
+ * already on screen. `tmuxSeen` marks a copy mode tmux entered on its own.
  */
 export function buildScrollbackState(
   pane: TmuxPane,
@@ -212,9 +192,6 @@ export const COPY_MODE_REENTRY_COOLDOWN = 2000;
 /** What a pane snapshot says about the copy-mode record the client holds for it. */
 export type PaneModeReconciliation = 'enter' | 'confirm' | 'leave' | 'none';
 
-/**
- * Reconcile one pane snapshot with the client's copy-mode record for it.
- */
 export function reconcilePaneMode(
   prevPane: Pick<TmuxPane, 'inMode'> | undefined,
   newPane: Pick<TmuxPane, 'tmuxId' | 'inMode'>,
@@ -235,8 +212,8 @@ export function reconcilePaneMode(
 }
 
 /**
- * Merge a freshly fetched scrollback chunk into an existing CopyModeState record
- * and schedule any follow-up fetches (top-of-history fill or select-all gap fill).
+ * Merge a fetched chunk into the record, and ask for what is still missing:
+ * the history above it, or the gaps a pending select-all needs.
  */
 export function applyScrollbackChunk(
   existing: CopyModeState,

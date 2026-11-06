@@ -1,9 +1,3 @@
-/**
- * commandUi state — a root-level `on` slice for command mode and status messages.
- *
- * Action implementations live in ../actions/commandUi.ts.
- */
-
 export const commandUiState = {
   on: {
     RENAME_PANE: { actions: 'commandUi_renamePane' },

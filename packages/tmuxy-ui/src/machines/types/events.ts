@@ -47,8 +47,8 @@ export type AppMachineEvent =
   | { type: 'TMUX_RECONNECTING' }
   /**
    * Adapter recovered the channel after one or more failed attempts. The
-   * appMachine returns to the live idle/syncing branch and the store
-   * reconciles pending ops against the next full server snapshot.
+   * machine returns to `idle` and the store reconciles pending ops against the
+   * next full server snapshot.
    */
   | { type: 'TMUX_RECONNECTED' }
   /** A clipboard write; `paneId` is null for the paste-buffer mirror. */

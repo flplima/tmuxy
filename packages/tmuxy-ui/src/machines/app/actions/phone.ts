@@ -1,6 +1,4 @@
 /**
- * Action implementations for the phone state slice.
- *
  * The zoom: a double tap on the terminal (or the key row's zoom key) scales
  * the terminal up in the browser — the grid, not tmux's zoom — and the
  * finger pans around it; the same again puts it back. App.tsx draws it and

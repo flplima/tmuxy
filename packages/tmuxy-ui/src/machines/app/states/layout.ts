@@ -1,9 +1,8 @@
 /**
- * layout state — the `on` slice for panes, windows, and focus.
- *
- * Optimistic operations are owned by the TmuxStore (`src/infra/store/TmuxStore.ts`, its model in `src/domain/store/`).
- * The TMUX_MODEL_UPDATE handler mirrors the store's `derived` snapshot into
- * context, so this state stays a passive view of the model.
+ * layout state — panes, windows and focus. Optimistic operations are owned by
+ * the TmuxStore (`src/infra/store/TmuxStore.ts`, its model in
+ * `src/domain/store/`); TMUX_MODEL_UPDATE mirrors the store's `derived`
+ * snapshot into the context, which stays a passive view of the model.
  */
 export const layoutState = {
   on: {

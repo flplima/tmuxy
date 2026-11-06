@@ -1,9 +1,7 @@
 /**
- * Tab Overview actions — the Safari-style "all tabs" view.
- *
- * The overview is a client-side surface over the pane area: opening it zooms
- * the current tab out into a grid of every tab; picking a slot zooms that tab
- * back in and makes it current. Slot order is the tab strip's order (the
+ * The tab overview, a Safari-style "all tabs" view over the pane area: opening
+ * it zooms the current tab out into a grid of every tab; picking a slot zooms
+ * that tab back in and makes it current. Slot order is the tab strip's order (the
  * index-ordered visible windows), and `tabOverviewSelected` is the keyboard
  * cursor over those slots plus one extra trailing slot, the "+" that creates a
  * tab. Everything that changes tmux (select, reorder, close, create) goes
@@ -18,7 +16,6 @@ import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
 import { reorderOp } from '../../../domain/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
 
-/** Slot count including the trailing "+" slot. */
 const slotCount = (context: Ctx) => selectVisibleWindows(context).length + 1;
 
 /** The slot of the current tab, where the keyboard cursor starts. */
@@ -47,7 +44,6 @@ export const tabOverviewActions = {
     if (context.tabOverviewOpen) enqueue(assign(closed));
   }),
 
-  /** Move the keyboard cursor; the grid wraps at the ends. */
   tabOverview_move: act(({ context, event, enqueue }) => {
     if (event.type !== 'TAB_OVERVIEW_MOVE' || !context.tabOverviewOpen) return;
     const count = slotCount(context);
@@ -92,7 +88,6 @@ export const tabOverviewActions = {
     // Routed through the store: the strip shows the new order from the drop
     // on, not from tmux's echo on.
     enqueue.raise({ type: 'DISPATCH_OP', op });
-    // The cursor follows the tab the user just moved.
     enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
   }),
 
@@ -166,7 +161,6 @@ export const tabOverviewActions = {
         op: TmuxOp.KillWindow({ windowId: event.windowId }),
       }),
     );
-    // Keep the cursor on a slot that still exists once the tab is gone.
     const count = Math.max(1, slotCount(context) - 1);
     if (context.tabOverviewSelected >= count) {
       enqueue(assign({ tabOverviewSelected: count - 1 }));

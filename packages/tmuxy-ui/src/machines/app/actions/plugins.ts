@@ -1,7 +1,3 @@
-/**
- * Action implementations for the plugins slice (../states/plugins.ts).
- */
-
 import { sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 

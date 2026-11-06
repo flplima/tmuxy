@@ -1,27 +1,18 @@
-/**
- * Machine Constants
- *
- * Shared constants used across state machines.
- */
-
 import { CHAR_HEIGHT } from '../constants/layout';
 import { SIDEBAR_DOCK } from '../domain/tmuxyConstants.gen';
 
-/** Default character width for grid calculations (px) */
 export const DEFAULT_CHAR_WIDTH = 9.6;
 
-/** Default character height for grid calculations (px). CHAR_HEIGHT must
- * match `--line-height-terminal` in `styles.css`, or PaneLayout's pixel math
- * diverges from the rendered row height. */
+/**
+ * CHAR_HEIGHT must match `--line-height-terminal` in `styles.css`, or
+ * PaneLayout's pixel math diverges from the rendered row height.
+ */
 export const DEFAULT_CHAR_HEIGHT = CHAR_HEIGHT;
 
-/** Default terminal columns */
 export const DEFAULT_COLS = 80;
 
-/** Default terminal rows */
 export const DEFAULT_ROWS = 24;
 
-/** Default session name */
 export const DEFAULT_SESSION_NAME = 'tmuxy';
 
 /**

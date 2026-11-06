@@ -1,8 +1,6 @@
 /**
- * Size Actor - Manages window resize and container size observation
- *
- * Factory pattern: createSizeActor(measureFn) => fromCallback(...)
- * Replaces useWindowResize + useContainerSize hooks.
+ * The size actor: the window, the observed container and the measured cell,
+ * turned into the size this client asks tmux for.
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
@@ -60,7 +58,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     let lastCols = 0;
     let lastRows = 0;
 
-    // Track container dimensions from ResizeObserver
     let containerWidth: number | undefined;
     let containerHeight: number | undefined;
     // The element the grid renders in; measurements happen inside it so any
@@ -133,7 +130,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
 
     sendCharSize();
 
-    // Re-measure; only propagate (and re-derive cols/rows) when the cell changed.
     const remeasure = () => {
       const next = measure();
       if (next.cellWidth === metrics.cellWidth && next.cellGap === metrics.cellGap) return;
@@ -144,10 +140,9 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
       updateTargetSize();
     };
 
-    // Re-measure after fonts finish loading (initial measurement may use fallback font)
+    // The first measurement may have used a fallback font.
     document.fonts.ready.then(remeasure);
 
-    // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
       const { cols, rows } = phone
         ? { cols: PHONE_COLS, rows: PHONE_ROWS }
@@ -172,7 +167,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
       if (phone) sendCharSize();
     };
 
-    // Debounced window resize
     const handleResize = () => {
       if (!bodyObserved) screenChanged(window.innerWidth, window.innerHeight);
       if (resizeTimeout) clearTimeout(resizeTimeout);
@@ -231,7 +225,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
         }
       }
       if (event.type === 'CONNECTED' || event.type === 'RESEND_SIZE') {
-        // Force re-send size on reconnection, or under a new size policy
         lastCols = 0;
         lastRows = 0;
         updateTargetSize();

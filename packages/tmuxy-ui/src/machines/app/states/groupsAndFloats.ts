@@ -1,7 +1,3 @@
-/**
- * groupsAndFloats state — the `on` slice for pane groups and float panes.
- */
-
 export const groupsAndFloatsGlobalEvents = {
   OPEN_CONNECT_FLOAT: {
     actions: 'groupsAndFloats_openConnectFloat',
