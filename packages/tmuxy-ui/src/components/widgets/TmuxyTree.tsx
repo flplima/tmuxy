@@ -1,15 +1,11 @@
 /**
- * TmuxyTree — the `tree` widget: the tabs+panes tree the left sidebar shows.
+ * TmuxyTree — the `tree` widget the left sidebar shows. It ignores the pane's
+ * content: `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-tree` prints the marker
+ * and then blocks, because the tree is derived from the tmux state the app
+ * already holds rather than streamed through the pane.
  *
- * Registered like any other tmuxy widget, so a pane running `tmuxy widget tree`
- * renders this component instead of its terminal. It ignores the pane's content
- * entirely: `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-tree` prints the marker and then blocks,
- * because the tree is derived from the tmux state the app already holds rather
- * than streamed through the pane.
- *
- * Keyboard focus is the column's, not the pane's — the tree runs its own
- * capture-phase key handling while the column holds the keyboard, exactly as it
- * did before the column became a pane.
+ * Keyboard focus is the column's, not the pane's: the tree runs its own
+ * capture-phase key handling while the column holds the keyboard.
  */
 
 import { SidebarTree } from '../SidebarTree';

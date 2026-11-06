@@ -12,11 +12,8 @@ export interface WidgetProps {
 }
 
 /**
- * Everything the app needs to know about a widget beyond how it draws.
- *
- * A widget renders inside a pane it does not own the chrome of: the tab title,
- * the process icon and the ⋮ menu all belong to shared components. Rather than teaching each of those about each widget, a widget
- * declares its contributions here and they are picked up by name.
+ * What a widget contributes to the pane chrome it does not own: the tab title,
+ * the process icon and the ⋮ menu.
  */
 export interface WidgetDefinition {
   component: ComponentType<WidgetProps>;
@@ -28,16 +25,12 @@ export interface WidgetDefinition {
    */
   selectTitle?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => string | undefined;
   /**
-   * The widget's own section of the pane menu, above the generic pane items.
-   * Pure data derived from machine context, so the menu can show what the
-   * widget can currently do (an action greyed out when it has nothing to act
-   * on) without reaching into the widget component — which is a sibling of
-   * the header the menu hangs off, not an ancestor.
+   * The widget's section of the pane menu, above the generic items. Derived from
+   * context: the menu hangs off the header, a sibling of the widget, not its child.
    */
   selectMenuItems?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => AppMenuSpec;
 }
 
-// Registry of widget name -> definition
 const widgetRegistry: Record<string, WidgetDefinition> = {};
 
 export function registerWidget(name: string, definition: WidgetDefinition) {

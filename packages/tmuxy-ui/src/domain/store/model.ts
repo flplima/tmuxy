@@ -1,11 +1,3 @@
-/**
- * Pure reducers for TmuxClientModel.
- *
- * Every function in this file is a pure `(model, …args) → model` transition.
- * The store wraps these in a `Ref`; tests can drive them directly without
- * spinning up Effect at all.
- */
-
 import {
   type TmuxClientModel,
   type TmuxSnapshot,
@@ -26,11 +18,6 @@ export function generateOpId(): OpId {
   return `op_${Date.now()}_${++opIdCounter}` as OpId;
 }
 
-/**
- * Recompute `derived` by replaying every pending op's patch on top of
- * `committed`. O(ops.length) — usually 0–3 ops in flight, never more than
- * a handful even under fast user input.
- */
 export function recomputeDerived(model: TmuxClientModel): TmuxClientModel {
   let derived = model.committed;
   for (const op of model.ops) {
@@ -40,25 +27,10 @@ export function recomputeDerived(model: TmuxClientModel): TmuxClientModel {
   return { ...model, derived };
 }
 
-/**
- * Push a freshly-dispatched op into the log and refresh `derived`.
- */
 export function addPendingOp(model: TmuxClientModel, op: PendingOp): TmuxClientModel {
   return recomputeDerived({ ...model, ops: [...model.ops, op] });
 }
 
-/**
- * Apply a fresh server snapshot to the model:
- *   1. Replace `committed` with the new snapshot.
- *   2. Run each pending op's reconciler.
- *   3. Drop ops that matched / failed; keep ops that are still pending.
- *   4. Stale-expire any op older than OP_STALE_TIMEOUT_MS.
- *   5. Prune `paneKeyOverrides` entries for panes that no longer exist.
- *   6. Recompute `derived`.
- *
- * Returns the new model alongside a list of `RollbackEntry` reports the
- * caller (the store) can forward to logging/UI surfaces.
- */
 export interface RollbackEntry {
   readonly opId: OpId;
   readonly op: TmuxOp;
@@ -81,14 +53,12 @@ export function applyServerSnapshot(
   const rolledBack: RollbackEntry[] = [];
   const keepers: PendingOp[] = [];
   let paneKeyOverrides = model.paneKeyOverrides;
-  // Track real ids already claimed in this reconcile pass so two in-flight
-  // Split / NewWindow ops don't both match against the same new id.
+  // Two in-flight Split / NewWindow ops must not both match the same new id.
   const claimedPanes = new Set<PaneId>();
   const claimedWindows = new Set<WindowId>();
 
   for (const op of model.ops) {
     if (op.status === 'failed') {
-      // Already failed (from an earlier error tick) — drop now.
       rolledBack.push({ opId: op.id, op: op.op, reason: 'previously failed' });
       continue;
     }
@@ -112,9 +82,8 @@ export function applyServerSnapshot(
         }
       } else if (realWindowId) {
         claimedWindows.add(realWindowId);
-        // Map the new window's single pane to the placeholder pane id so
-        // PaneLayout's React key survives the optimistic→real swap without
-        // unmount/remount flicker.
+        // The new window's pane keeps the placeholder's React key, so the
+        // optimistic→real swap does not remount it (a flicker).
         const placeholderPaneId = (op.meta as { placeholderPaneId?: PaneId }).placeholderPaneId;
         if (placeholderPaneId) {
           const newPane = committed.panes.find(
@@ -135,12 +104,10 @@ export function applyServerSnapshot(
       rolledBack.push({ opId: op.id, op: op.op, reason: verdict.reason });
       continue;
     }
-    // pending: stale check. Only ops the adapter was never asked to send (or
-    // whose dispatch hasn't started) get the quick sweep — they may be phantom
-    // predictions with nothing coming. In-flight ops (adapter call started,
-    // ack pending) and acked ops both get the long leash: the in-flight call
-    // is guaranteed to settle (resolve or reject → rollback), and sweeping it
-    // early blinks the optimistic UI away exactly when the transport is slow.
+    // Only an op whose dispatch has not started gets the quick sweep: it may be
+    // a phantom prediction with nothing coming. An in-flight call is guaranteed
+    // to settle (resolve or reject → rollback), and sweeping it early blinks the
+    // optimistic UI away exactly when the transport is slow.
     const staleAfter = op.status === 'pending' ? OP_STALE_TIMEOUT_MS : OP_ACKED_STALE_TIMEOUT_MS;
     if (now - op.createdAt > staleAfter) {
       rolledBack.push({
@@ -153,7 +120,6 @@ export function applyServerSnapshot(
     keepers.push(op);
   }
 
-  // Prune key overrides for panes that no longer exist anywhere.
   if (Object.keys(paneKeyOverrides).length > 0) {
     const next: Record<PaneId, PaneId> = {};
     for (const { tmuxId } of committed.panes) {
@@ -172,11 +138,7 @@ export function applyServerSnapshot(
   return { model: recomputeDerived(newModel), matched, rolledBack };
 }
 
-/**
- * Used by the store when a tmux command rejects before any state update
- * arrives. Drops the op + its patch, returning the model + a rollback entry
- * the caller can surface to the UI.
- */
+/** For a tmux command that rejects before any state update arrives. */
 export function rollbackOp(
   model: TmuxClientModel,
   opId: OpId,
@@ -191,9 +153,6 @@ export function rollbackOp(
   return { model: next, entry: { opId, op: op.op, reason } };
 }
 
-/**
- * Helper for tests: build a model from scratch with a given snapshot.
- */
 export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
   return recomputeDerived({
     committed: snapshot,
@@ -203,10 +162,6 @@ export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
   });
 }
 
-/**
- * Build a PendingOp value. Exported so the store and tests construct it the
- * same way.
- */
 export function makePendingOp(args: {
   id: OpId;
   op: TmuxOp;

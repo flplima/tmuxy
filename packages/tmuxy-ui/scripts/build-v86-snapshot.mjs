@@ -17,9 +17,9 @@
  *   npm run fetch:v86-image          # kernel + BIOS (once)
  *   node scripts/build-v86-snapshot.mjs [--fetch-binaries]
  *
- * Because everything (aliases, script paths, PS1, config) is baked here, the
- * runtime GUEST_SETUP in V86Engine stays empty — snapshot restores rewind the
- * filesystem, so anything NOT baked would have to be re-sent on every reset.
+ * Everything (aliases, script paths, PS1, config) is baked here because a
+ * snapshot restore rewinds the filesystem: anything not baked would have to be
+ * re-sent on every reset.
  */
 import { mkdir, writeFile, readFile, cp, rm, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -72,8 +72,6 @@ const exists = (p) =>
     () => false,
   );
 
-// ─────────────────────────── 1. Assemble the bundle ───────────────────────────
-
 async function buildBundle({ fetchBinaries }) {
   // node's fs.rm races the bind-mount (virtiofs) — the external rm doesn't.
   execFileSync('rm', ['-rf', WORK]);
@@ -115,7 +113,6 @@ async function buildBundle({ fetchBinaries }) {
       }
       await rm(tmp);
     }
-    // Flatten the apk tree into the bundle layout the engine expects.
     const moves = [
       ['lib/ld-musl-i386.so.1', 'ld-musl-i386.so.1'],
       ['bin/bash', 'bash'],
@@ -154,11 +151,6 @@ async function buildBundle({ fetchBinaries }) {
   console.log(`✓ tmux-bundle.tar rebuilt (${(size / 1e6).toFixed(1)} MB)`);
 }
 
-// ─────────────────────────── 2. Boot + snapshot ───────────────────────────
-
-// The in-guest install script. Everything is baked into the snapshot so the
-// engine's runtime bootstrap can stay empty. Steps mirror what the browser
-// engine used to hot-patch: loader/lib/bin symlinks, script path, config, PS1.
 const GUEST_INSTALL = [
   'mkdir -p /dev/pts && mount -t devpts devpts /dev/pts',
   'mkdir -p /mnt && mount -t 9p host9p /mnt',
@@ -227,8 +219,8 @@ async function buildSnapshot() {
         }
       }, 200);
     });
-  // Byte-paced writes: the emulated 16550 FIFO drops bytes on whole-line pushes
-  // (same constraint as the browser engine).
+  // Paced, as the browser engine's pump is: a burst can fill the guest
+  // kernel's tty buffer.
   const type = async (line) => {
     for (const ch of `${line}\n`) {
       emulator.serial0_send(ch);
@@ -257,12 +249,10 @@ async function buildSnapshot() {
   await writeFile(STATE_BIN, Buffer.from(state));
   const size = (await stat(STATE_BIN)).size;
   console.log(`✓ tmux-state.bin written (${(size / 1e6).toFixed(1)} MB)`);
-  // Wire-size matters: the raw snapshot dominates the client payload. Serve a
-  // gzip alongside; both the cold boot and the shared-engine reset fetch .gz and
-  // inflate via DecompressionStream (see V86Engine.fetchSnapshot), falling back
-  // to the raw .bin. v86's constructor `initial_state` is NOT used — it skips
-  // zstd decompression for that resource, so the engine restores the snapshot
-  // itself; there is no .zst variant to build.
+  // The raw snapshot dominates the client payload, so a gzip is served
+  // alongside (inflated in the page, V86Engine.fetchSnapshot). v86's
+  // constructor `initial_state` skips zstd decompression for that resource, so
+  // the engine restores the snapshot itself and no .zst is built.
   const { gzipSync } = await import('node:zlib');
   const gz = gzipSync(Buffer.from(state), { level: 9 });
   await writeFile(`${STATE_BIN}.gz`, gz);

@@ -34,7 +34,6 @@ describe('computeCellMetrics', () => {
     const m = computeCellMetrics(8.4, 1);
     expect(m).toEqual({ advance: 8.4, cellWidth: 8, cellGap: 8 - 8.4 });
     expect(computeCellMetrics(8.6, 1).cellGap).toBeCloseTo(0.4, 10);
-    // Already whole: nothing to pad.
     expect(computeCellMetrics(9, 1).cellGap).toBe(0);
   });
 });

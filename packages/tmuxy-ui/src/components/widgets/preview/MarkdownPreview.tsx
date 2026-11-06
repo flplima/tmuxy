@@ -173,7 +173,6 @@ export function MarkdownPreview({
   doc: PreviewDocument;
   theme: PreviewTheme;
   source: PreviewSource;
-  /** The pane holds the keyboard. */
   active: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);

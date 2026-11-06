@@ -1,14 +1,9 @@
 /**
- * International keyboard input: the focus an IME needs to compose at all.
- *
- * Which keydown a layout sends — a dead key's finished character stamped
- * keyCode 229, a macOS Option character, an AltGr third-level symbol, a
- * composition's commit — and how keyboardActor turns it into text exactly
- * once is unit-tested (`keyboardActor.ime.test.ts`); that the text reaches
- * the shell through real tmux is E2E (`1-input-interaction`, Scenario 2c, and
- * `11-webkit` for a click into the pane). What only the whole app in a
- * browser shows is where browser focus sits once a pane exists, and that
- * text typed there lands in that pane.
+ * The focus an IME needs to compose at all. How keyboardActor turns each
+ * layout's keydowns into text exactly once is unit-tested
+ * (`keyboardActor.ime.test.ts`); that the text reaches the shell through real
+ * tmux is E2E (`1-input-interaction`, Scenario 2c, and `11-webkit`). What only
+ * the whole app in a browser shows is where focus sits once a pane exists.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -26,8 +21,8 @@ export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
 /**
- * A text key as the browser delivers it to a focused input: the keydown, then
- * — unless the app took the key — the `input` event that carries the text.
+ * A text key as the browser delivers it to a focused input: the keydown, then,
+ * unless the app took the key, the `input` event that carries the text.
  */
 function press(key: string): void {
   const target = document.activeElement ?? window;
@@ -71,7 +66,6 @@ function promptLine(canvasElement: HTMLElement): HTMLElement {
   return line;
 }
 
-/** Box of `text` where it is painted on `line`, by character offset. */
 function runRect(line: HTMLElement, text: string): DOMRect {
   const at = (line.textContent ?? '').indexOf(text);
   if (at < 0) throw new Error(`"${text}" is not on the prompt line`);
@@ -95,13 +89,10 @@ function runRect(line: HTMLElement, text: string): DOMRect {
 }
 
 /**
- * Where an IME composes. A composition can only begin inside an editable
- * element, and until PR #61 nothing on the desktop ever had one — the hidden
- * input existed for touch keyboards only, so Korean, Japanese and Chinese
- * input had nowhere to start. Now the input takes browser focus as soon as a
- * pane exists and follows the pane holding the keyboard: a composition
- * committed there, and plain keys after it, reach that pane and are painted
- * in it.
+ * A composition can only begin inside an editable element, so the hidden input
+ * takes browser focus as soon as a pane exists and follows the pane holding
+ * the keyboard: a composition committed there, and plain keys after it, are
+ * painted in that pane.
  */
 export const HiddenInputOwnsFocus: Story = {
   args: {
@@ -129,7 +120,6 @@ export const HiddenInputOwnsFocus: Story = {
       ),
     );
 
-    // Painted inside the pane, one cell per narrow character.
     const pane = canvasElement.querySelector<HTMLElement>('[data-pane-id="%0"]')!;
     const paneBox = pane.getBoundingClientRect();
     const box = runRect(promptLine(canvasElement), 'ab');

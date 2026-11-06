@@ -1,8 +1,6 @@
 /**
- * What the application menu needs beyond its spec, shared by the hamburger
- * and the native menu bar: the dispatch with the surface's own verbs (the
- * dialogs, the clipboard, the desktop window verbs that answer with the OS),
- * the Window submenu's fetched lists, and the dialogs themselves.
+ * What the application menu needs beyond its spec, shared by the hamburger and
+ * the native menu bar.
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
@@ -34,9 +32,7 @@ import './AppMenu.css';
 
 export interface AppMenuSurface {
   dispatch: AppMenuDispatch;
-  /** What the spec builders take: the active pane's widget items and the Window submenu. */
   options: AppMenuOptions;
-  /** The dialogs the menu opens, rendered at the body so they cover the page. */
   dialogs: ReactNode;
 }
 
@@ -47,12 +43,9 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const focusedFloat = useAppSelector(selectFocusedFloat);
   const sessionName = useAppSelector((c) => c.sessionName);
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
-  // Widgets contribute their own items for whichever pane is active, the same
-  // section the pane's ⋮ menu shows.
   const widgetItems = useWidgetMenuItems(activePaneId);
 
-  // The desktop's Window submenu: both lists are read on demand rather than
-  // held, since windows come and go from other windows and the style is the
+  // Read on demand: other windows open and close windows, and the style is the
   // OS's answer.
   const [windows, setWindows] = useState<GuiWindowInfo[]>([]);
   const [style, setStyle] = useState<WindowStyleSlug>('normal');
@@ -63,7 +56,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   }, []);
   useEffect(refreshWindows, [refreshWindows]);
 
-  // The dialog the menu opens: it asks before a destructive act.
   const [confirmKill, setConfirmKill] = useState(false);
 
   const report: ClipboardReport = {
@@ -99,7 +91,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     onLocal,
   });
 
-  // OS windows are the desktop app's to manage; a browser tab has none.
   const windowMenu: AppMenuNode | undefined = isTauri()
     ? windowMenuSpec(env, { windows, style })
     : undefined;
@@ -137,11 +128,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   return { dispatch, options: { widgetItems, windowMenu }, dialogs };
 }
 
-/**
- * Put the trace file's path on the clipboard. The path itself is the useful
- * thing to hand around (`tmuxy trace`, `jq`, an editor); the file can be
- * hundreds of MB, so this never copies its contents.
- */
 function copyTracePath(path: string | null, report: ClipboardReport): void {
   if (!path) {
     report.onFailed('No trace file path available');

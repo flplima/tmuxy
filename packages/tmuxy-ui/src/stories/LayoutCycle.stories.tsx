@@ -18,7 +18,6 @@ const meta: Meta<typeof FixtureApp> = {
   args: {
     fixture: asFixture(nextLayout),
     start: 'three',
-    // A prefix binding goes out pinned to the window and pane in front of the user.
     transitions: [
       { match: /^select-window -t @0 \\; select-pane -t %0 \\; next-layout$/, to: 'cycled' },
     ],
@@ -29,18 +28,12 @@ export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
 /**
- * With three panes, C-a Space (`next-layout`) lays them out the way tmux's
- * next layout does: every pane moves to its new box, all stay visible, and
- * the re-layout runs with no node flicker and no pane moving back the way it
- * came.
- *
- * tmux's answer arrives as one quiet update, which the app animates (the
- * geometry transition of a lone layout change), so the panes pass through
- * the frames between their two boxes. Those frames are the motion, not
- * jumps: the geometry is held to a monotonic morph instead — each pane's box
- * and the top of its rows move one way, start to end. A pane growing below a
- * top edge that holds keeps its rows there while it opens; hung from its
- * bottom edge, its new rows started 360px above where they land.
+ * C-a Space (`next-layout`) on three panes: each moves to its new box, all
+ * stay visible, no node flickers. tmux's answer is one update the app animates,
+ * so the geometry is held to a monotonic morph rather than to "no movement":
+ * each box and the top of its rows move one way, start to end. A pane growing
+ * below a top edge that holds keeps its rows there; hung from its bottom edge,
+ * its new rows started 360px above where they land.
  */
 export const LayoutCycle: Story = {
   play: async ({ canvasElement }) => {
@@ -64,7 +57,6 @@ export const LayoutCycle: Story = {
     await user.keyboard('{Control>}a{/Control}');
     await user.keyboard(' ');
     await waitFor(() => expect(signature()).not.toBe(before), { timeout: 10000 });
-    // Three columns side by side, as tmux laid them out.
     await waitFor(
       () => {
         const tops = paneGroups(canvas).map((p: HTMLElement) =>

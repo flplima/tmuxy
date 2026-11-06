@@ -2,14 +2,11 @@
  * A scrollback view that comes back on screen is where it was.
  *
  * Another tab's panes stay mounted with `display: none`, and a scroll
- * container with no box loses its offset. Shown again, it sat at row 0 while
- * the view rendered only the rows around its own `scrollTop` — a blank pane —
- * and the first wheel step, read from row 0, threw the view to the top of
- * history. Coming back is a resize from nothing; that is when the offset is
- * restored.
+ * container with no box loses its offset: shown again, the pane was blank and
+ * the first wheel step threw the view to the top of history.
  *
  * jsdom lays nothing out, so the container's box and the ResizeObserver are
- * stand-ins: the hook is driven exactly as the browser drives it.
+ * stand-ins.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -87,9 +84,7 @@ function mountWithRowHeight(el: HTMLDivElement, copyState: CopyModeState, charHe
 
 describe('useTerminalPaneScroll when the rows change height under a view', () => {
   it('keeps the view on the same row', () => {
-    // A phone turned sideways gives the grid another cell: the row did not
-    // move, but its pixel offset did, and the DOM used to show other rows
-    // until the next wheel event.
+    // A phone turned sideways: the row did not move, its pixel offset did.
     const { el } = container();
     const { rerender } = mountWithRowHeight(el, scrollView(500), ROW);
     expect(el.scrollTop).toBe(500 * ROW);
@@ -109,7 +104,6 @@ describe('useTerminalPaneScroll on a pane whose tab is hidden and shown again', 
     box.height = 0;
     resized();
     box.scrollTop = 0;
-    // ...and comes back.
     box.height = 400;
     resized();
 

@@ -14,7 +14,6 @@
 import { list } from './commandHelpers';
 import { commandListParts } from './store/parseCommand';
 
-/** `switch-client -T <table>` (or `switchc`), with the table it names. */
 const TABLE_SWITCH = /^(?:switch-client|switchc)\b.*\s-T\s+(\S+)/;
 
 /**

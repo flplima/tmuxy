@@ -1,13 +1,6 @@
-/* ============================================
-   Tmux Status Bar (Bottom)
-   ============================================ */
-
-/* One height whatever the line shows: a terminal row with 4px above and below,
-   the TMUX_STATUS_BAR_HEIGHT the pane area is sized around
-   (constants/layout.ts). Left to its content, the bar was as tall as its
-   tallest item — the host and session labels in normal mode, the hint row
-   alone in a mode, the prompt with its padding at `:` — so entering a mode
-   moved it by a few pixels. */
+/* One height whatever the line shows: the TMUX_STATUS_BAR_HEIGHT the pane area
+   is sized around (constants/layout.ts). Left to its content, entering a mode
+   moved the bar by a few pixels. */
 .tmux-status-bar {
   width: 100%;
   height: calc(var(--line-height-terminal) + 2 * var(--spacing-md));
@@ -18,8 +11,7 @@
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  /* Every item on the line is the chrome's small text, whatever it is; the
-     rules below say so again only where a font shorthand would reset it. */
+  /* Repeated below only where a font shorthand would reset it. */
   font-size: var(--tmuxy-small-font-size);
 }
 
@@ -33,7 +25,6 @@
   color: var(--text-dark);
 }
 
-/* Command mode input (prefix+:) */
 .tmux-command-mode {
   background-color: var(--tmux-status-bg);
 }
@@ -68,12 +59,10 @@
   caret-color: var(--text-dark);
 }
 
-/* Status message */
 .tmux-status-message {
   background-color: var(--tmux-status-bg);
 }
 
-/* Status line 3-column layout */
 .tmux-statusline-inner {
   display: flex;
   align-items: center;
@@ -111,14 +100,12 @@
   flex-shrink: 0;
 }
 
-/* In a mode the line is the mode's: no host or session. */
 .tmux-statusline-right[hidden] {
   display: none;
 }
 
-/* Keybinding hints: the terminal's size on the terminal's row, so the hints,
-   the centre and the labels share one baseline. Every line is written to fit
-   80 columns with 1ch either side (components/statusLineHints.ts). */
+/* Every hint line is written to fit 80 columns with 1ch either side
+   (components/statusLineHints.ts). */
 .statusline-hints {
   color: var(--text-dark);
   font-size: var(--tmuxy-small-font-size);
@@ -151,11 +138,8 @@
   font-weight: normal;
 }
 
-/* A mode (PREFIX, COPY, PANE, TAB) names itself in an uppercase inverse-video
-   chip — the terminal convention for "a mode is on" — drawn in the THEME's
-   colours: the terminal background, the darkest tone on a dark theme and the
-   lightest on a light one, so the chip sits apart from the band under it; the
-   text is the theme's accent, the colour the active pane's title takes. */
+/* An inverse-video chip, the terminal convention for "a mode is on", in the
+   theme's colours. */
 .statusline-mode {
   background: var(--term-background);
   color: var(--theme-accent);
@@ -168,7 +152,6 @@
   opacity: 0.3;
 }
 
-/* Host and session labels */
 .statusline-host,
 .statusline-session {
   color: var(--text-dark);

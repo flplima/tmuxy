@@ -1,17 +1,8 @@
-/**
- * Pure helpers of the terminal renderers: colour mapping, wide-character
- * classification, cell widths and image sources. How a run of cells is
- * painted is `cellPaint.ts`, shared by the live grid and the scroll view.
- */
-
 import { paneNumber, type PaneId } from '../../domain/ids';
 import type { CellColor, CellStyle } from '../../domain/wireCells';
 import { isTauri, tauriSchemeUrl } from '../../infra/platform';
 
-/**
- * CSS variables for the standard 16 ANSI colors.
- * These match the --term-* variables defined in each theme CSS file.
- */
+/** The --term-* variables every theme CSS file defines. */
 const STANDARD_16_VARS = [
   'var(--term-black)',
   'var(--term-red)',
@@ -32,12 +23,10 @@ const STANDARD_16_VARS = [
 ];
 
 /**
- * Convert CellColor to a CSS color string. Standard 16 colors go through the
- * theme CSS variables. Extended 256 colors and RGB are computed, then put
- * through the theme too: `--term-extended-colors` of the cell's own colour,
- * the rest its lightness between the pane's foreground and background — so
- * a monochrome theme (0%) draws a TUI's truecolor in its own two colours,
- * and every other (100%) draws it exactly.
+ * 256-colour and RGB cells go through the theme too: `--term-extended-colors`
+ * of the cell's own colour, the rest its lightness between the pane's
+ * foreground and background — so a monochrome theme (0%) draws a TUI's
+ * truecolor in its own two colours, and every other (100%) draws it exactly.
  */
 export function cellColorToCss(color: CellColor): string {
   if (typeof color === 'number' && color < 16) return STANDARD_16_VARS[color];
@@ -49,20 +38,16 @@ export function cellColorToCss(color: CellColor): string {
   );
 }
 
-/**
- * An ANSI 256 color's RGB. Only ever called for index >= 16 —
- * `cellColorToCss` handles 0..15 via the theme CSS-var path before reaching
- * here.
- */
+/** xterm's 256-colour palette, for index >= 16. */
 function ansi256Rgb(index: number): [number, number, number] {
-  // 216 color cube (6x6x6)
+  // 6x6x6 colour cube
   if (index < 232) {
     const i = index - 16;
     const level = (v: number) => (v === 0 ? 0 : 55 + v * 40);
     return [level(Math.floor(i / 36)), level(Math.floor((i % 36) / 6)), level(i % 6)];
   }
 
-  // 24 grayscale
+  // 24-step grayscale ramp
   const gray = 8 + (index - 232) * 10;
   return [gray, gray, gray];
 }
@@ -85,17 +70,14 @@ const EMOJI_PRESENTATION_WIDE: ReadonlySet<number> = new Set([
 ]);
 
 /**
- * Whether a cell's character is double-width (occupies two terminal columns):
- * CJK ideographs, kana, Hangul, fullwidth forms, and emoji.
+ * Whether a cell's character is double-width: CJK ideographs, kana, Hangul,
+ * fullwidth forms, and emoji.
  *
- * The backend (vt100) emits such a character as TWO data cells — the character
- * plus a continuation cell rendered as a space — so the column grid already
- * accounts for both columns. We use this only to keep a wide character in its
- * OWN span: its glyph then advances ~2 cells and overflows into the (blank)
- * continuation cell instead of pushing the rest of a grouped span off the grid.
- * Over-detection is harmless (a narrow char in its own 1-cell span renders the
- * same), so the ranges err toward the standard East Asian "Wide"/"Fullwidth"
- * and emoji blocks.
+ * vt100 already emits such a character as TWO cells (the character plus a
+ * blank continuation), so this only keeps a wide character in its OWN span,
+ * where its ~2-cell glyph overflows into the continuation instead of pushing
+ * the rest of a grouped span off the grid. Over-detection is harmless, so the
+ * ranges err toward the East Asian "Wide"/"Fullwidth" and emoji blocks.
  */
 export function isWideChar(s: string): boolean {
   if (!s) return false;
@@ -106,14 +88,12 @@ export function isWideChar(s: string): boolean {
   if (s.includes('\uFE0F')) return true;
   const cp = s.codePointAt(0);
   if (cp === undefined) return false;
-  // Misc Symbols and Dingbats (U+2600–U+27BF) are NOT listed as a block. Most
-  // of their text-presentation glyphs sit within a cell (measured: ❤ and ✔
-  // advance 0.978), and the block also holds ❯, the default zsh prompt
-  // character, which would otherwise get its own span on every prompt line.
-  // Only the code points tmux itself gives two columns are listed: the ones
-  // Unicode marks East Asian Wide, which are exactly the symbols that default
-  // to emoji presentation (✅ ❌ ⭐ ⚡ …). Left out, they fell to the glyph-fit
-  // path, which squeezed a two-column emoji into one cell at half size.
+  // Misc Symbols and Dingbats (U+2600–U+27BF) are not a wide block: most of
+  // their text-presentation glyphs sit within a cell (measured: ❤ and ✔
+  // advance 0.978), and the block holds ❯, the default zsh prompt character.
+  // Only the code points tmux gives two columns are listed — the ones Unicode
+  // marks East Asian Wide, the emoji-presentation symbols (✅ ❌ ⭐ ⚡ …) —
+  // or glyph fit would squeeze a two-column emoji into one cell.
   if (EMOJI_PRESENTATION_WIDE.has(cp)) return true;
   return (
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
@@ -137,7 +117,6 @@ export function isWideChar(s: string): boolean {
   );
 }
 
-/** Whether two cell colours paint the same: the same palette index, or the same RGB. */
 export function sameCellColor(a: CellColor | undefined, b: CellColor | undefined): boolean {
   return (
     a === b ||
@@ -145,11 +124,7 @@ export function sameCellColor(a: CellColor | undefined, b: CellColor | undefined
   );
 }
 
-/**
- * Whether two cell styles paint the same. An attribute left unset is the same
- * as one set false, so a cell the backend wrote `{}` for groups with one it
- * wrote `{ bold: false }` for.
- */
+/** An unset attribute equals one set false: the backend writes either `{}` or `{ bold: false }`. */
 export function sameCellStyle(a: CellStyle | undefined, b: CellStyle | undefined): boolean {
   return (
     a === b ||
@@ -184,29 +159,19 @@ export function sanitizeTerminalCell(c: string): string {
 }
 
 /**
- * CSS length for `n` cells on the terminal grid.
- *
- * `--cell-w` is the snapped cell width the app root publishes from the single
- * font measurement (see `infra/dom/cellMetrics.ts`), so every cell-addressed box —
- * style-group spans, the cursor overlay, image placements — is a whole multiple
- * of the same width the pane rectangles use. Outside the app (component
- * stories) the variable is absent and `1ch`, the font's natural advance, is
- * the grid instead.
+ * CSS length for `n` cells: `--cell-w` is the snapped width the app root
+ * publishes (`infra/dom/cellMetrics.ts`), the one the pane rectangles use.
+ * Component stories have no app root, so `1ch` is the grid there.
  */
 export function cellsToCss(n: number): string {
   return `calc(${n} * var(--cell-w, 1ch))`;
 }
 
 /**
- * Resolve the URL the browser should load for a given image placement.
- *
- * On the web that is the server's `/api/images/...` route. The desktop app
- * serves no HTTP at all, so it hands the same bytes out through its own
- * `tmuxyimg:` scheme (registered in `tmuxy-tauri-app/src/gui.rs`).
- *
- * Tests and Storybook stories can override the resolver by setting
- * `window.__tmuxyImageSrc` — useful for serving data:/blob: URLs without
- * standing up a real backend.
+ * The web server serves image bytes at `/api/images/...`; the desktop app has
+ * no HTTP and serves them over its `tmuxyimg:` scheme
+ * (`tmuxy-tauri-app/src/gui.rs`). Tests and stories override it with
+ * `window.__tmuxyImageSrc`.
  */
 export function resolveImageSrc(paneId: PaneId, imageId: number): string {
   const numericPaneId = paneNumber(paneId);

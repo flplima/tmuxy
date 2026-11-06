@@ -46,20 +46,16 @@ describe('HttpAdapter connect() lifecycle', () => {
   });
 
   it('keeps retrying when a reconnect attempt fails to establish (no dead-loop)', async () => {
-    // Regression: the old imperative path scheduled a reconnect only from the
-    // *connected-then-dropped* branch. When a reconnect's EventSource failed to
-    // OPEN, onerror rejected and returned without rescheduling, so the loop died
-    // and the client stayed disconnected until a manual reload. The Schedule
-    // treats an establish failure and a drop identically, so it must retry both.
+    // A reconnect whose EventSource failed to OPEN once ended the retry loop,
+    // leaving the client disconnected until a reload: an establish failure
+    // must be retried like a drop.
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
     const first = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await first;
 
-    // Drop → fiber reopens ES2.
     MockEventSource.instances[0].onerror?.(new Event('error'));
-    // ES2 never reaches connected and errors (server still restarting). The old
-    // code gave up here; the Schedule must reopen ES3.
+    // ES2 never reaches connected and errors (server still restarting).
     (await stream(1)).onerror?.(new Event('error'));
 
     // Server finally answers on the third stream — the client recovers on its

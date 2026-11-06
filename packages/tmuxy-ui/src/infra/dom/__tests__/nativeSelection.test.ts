@@ -24,7 +24,6 @@ function mountGrid(rows: (string[] & { wrapped?: boolean })[]): HTMLElement {
   return grid;
 }
 
-/** A `mountGrid` row that filled the pane's width, i.e. soft-wrapped. */
 function wrapped(runs: string[]): string[] & { wrapped?: boolean } {
   return Object.assign(runs, { wrapped: true });
 }

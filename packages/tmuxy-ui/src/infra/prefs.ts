@@ -34,13 +34,11 @@ function write(key: PrefKey, value: string): void {
   }
 }
 
-/** The theme a client starts with before it has chosen one. */
 export const DEFAULT_THEME: { readonly theme: string; readonly mode: ThemeMode } = {
   theme: 'default',
   mode: 'dark',
 };
 
-/** The saved theme and mode; the defaults when no theme was saved. */
 export function loadThemePref(): { theme: string; mode: ThemeMode } {
   const theme = read(KEYS.themeName);
   return theme ? { theme, mode: parseThemeMode(read(KEYS.themeMode)) } : { ...DEFAULT_THEME };
@@ -51,7 +49,6 @@ export function saveThemePref(theme: string, mode: ThemeMode): void {
   write(KEYS.themeMode, mode);
 }
 
-/** The saved font size; the default when none was saved or it is out of range. */
 export function loadFontSizePref(): number {
   const size = parseInt(read(KEYS.fontSize) ?? '', 10);
   return isFontSize(size) ? size : DEFAULT_FONT_SIZE;

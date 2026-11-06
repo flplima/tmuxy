@@ -1,12 +1,8 @@
 /**
- * Pure geometry for the Tab Overview (the Safari-style "all tabs" view).
- *
- * A slot draws a tab's pane layout to scale as a wireframe: each pane becomes a
- * box positioned by percentages of the tab's own grid extent, so the drawing
- * keeps the tab's proportions whatever size the slot ends up. The active tab's
- * slot is different — the live pane grid itself zooms out into it — but its
- * slot still needs the same footprint for the FLIP target, so the geometry
- * helpers are shared.
+ * Geometry for the Tab Overview (the Safari-style "all tabs" view). A slot
+ * draws a tab's panes to scale, as percentages of the tab's own grid extent;
+ * the active tab's slot is the live grid zoomed out into it, which needs the
+ * same footprint for its FLIP target.
  */
 
 import type { TmuxPane, TmuxWindow } from './client';

@@ -1,30 +1,15 @@
 /**
- * KeyRow — the keys a phone keyboard has no key for, in two rows of six
- * under the terminal: esc, tab, ctrl, alt, the prefix and the keyboard on the
- * first; the arrows, enter and the zoom on the second. Two even rows, edge to
- * edge, so each key is as wide as the screen allows.
+ * KeyRow — the keys a phone keyboard has no key for, in two even rows of six
+ * under the terminal, so each key is as wide as the screen allows.
  *
  * Each key is pressed through the keyboard path (`infra/dom/keyLatch` → a keydown
- * on the window), so the prefix, the bindings and copy mode treat it as a
- * typed key. ctrl and alt latch for the next key, from this row or the phone's
- * own keyboard, and show it in inverse video; a second tap locks them.
- *
- * The prefix key presses the prefix the bindings name (`C-a` unless the config
- * says otherwise) as one chord, and is lit while the prefix is armed — the
- * state the desktop's status bar shows as a chip. A second tap while armed
- * cancels it, as Escape does.
- *
- * The arrows repeat while held and work as one pad: a finger that lands on
- * one and slides onto another presses that one instead (`components/phone/keyRepeat`).
- *
- * ⌨ puts the phone's keyboard up or away, as a tap on the pane in front does
- * (infra/dom/mobileKeyboard.ts), and the magnifier zooms the terminal in the
- * browser or puts it back, as a double tap on it does (the `phone` slice); its
- * glass reads + while the terminal is at its size and − while it is zoomed.
+ * on the window), so the prefix, the bindings and copy mode treat it as a typed
+ * key. ctrl and alt latch for the next key, from this row or the phone's own
+ * keyboard; a second tap locks them. The prefix key presses the prefix the
+ * bindings name as one chord; a second tap while armed cancels it, as Escape does.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
- * stays up while the row is used. The app menu is a view of its own under
- * the keys (components/phone/PhoneMenu.tsx).
+ * stays up while the row is used.
  */
 
 import { memo, useMemo, useSyncExternalStore, type PointerEvent } from 'react';
@@ -66,7 +51,6 @@ const KEYS: readonly RowKey[] = [
   { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
 ];
 
-/** A magnifier, with + in the glass to zoom in and − to put the zoom back. */
 function Magnifier({ zoomed }: { zoomed: boolean }) {
   return (
     <svg
@@ -88,7 +72,6 @@ function Magnifier({ zoomed }: { zoomed: boolean }) {
   );
 }
 
-/** The arrow key under a point on screen, by the DOM key it presses. */
 function arrowAt(x: number, y: number): string | null {
   const el = document.elementFromPoint(x, y)?.closest('[data-arrow]');
   return el?.getAttribute('data-arrow') ?? null;

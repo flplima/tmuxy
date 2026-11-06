@@ -1,24 +1,14 @@
 /**
- * The glitch detector: a MutationObserver finds unintended DOM churn (node
- * flicker — an element added and removed within a short window — and rapid
- * attribute rewrites), while a frame sampler catches pane-geometry jumps.
- * Where `animationObservers.ts` proves the *intended* mutations happened, this
- * proves no *unintended* ones did.
+ * The glitch detector, shared by Storybook play functions (`GlitchRecorder`)
+ * and the Jest E2E helper (`tests/helpers/glitch-detector.js`). The E2E helper
+ * loads this file through Node's own loader, which strips the types itself,
+ * and serialises `startGlitchCollector` into the page with Playwright: hence
+ * the self-contained collector, erasable TypeScript only (no enums, no
+ * parameter properties), the JSON import attribute, and no Storybook or
+ * testing-library imports.
  *
- * One implementation serves two harnesses. Storybook play functions use the
- * `GlitchRecorder` class in-page. The Jest E2E helper
- * (`tests/helpers/glitch-detector.js`) loads this file through Node's own
- * loader — Node strips the types itself — serialises `startGlitchCollector`
- * into the page with Playwright, and runs `analyzeGlitches` on what comes
- * back. That is why the collector is self-contained and this file uses only
- * erasable TypeScript syntax (no enums, no parameter properties), and why
- * the JSON import carries its attribute.
- *
- * Budgets are code, not prose: per-operation thresholds live in
- * `glitch-thresholds.json`, so loosening one is a reviewable diff.
- *
- * Pure DOM — no Storybook / testing-library imports — usable from any play
- * function without coupling to a test runner.
+ * Per-operation budgets live in `glitch-thresholds.json`, so loosening one is
+ * a reviewable diff.
  */
 
 import OPERATION_THRESHOLDS from './glitch-thresholds.json' with { type: 'json' };
@@ -37,7 +27,6 @@ export interface GlitchRecorderOptions {
   /** Selectors whose subtrees are expected to mutate constantly (terminal
    *  output, cursor blink) and are excluded from analysis. */
   ignoreSelectors?: string[];
-  /** Attributes tracked for churn detection. */
   attributeFilter?: string[];
   /** Window (ms) for an add→remove / remove→add pair to count as flicker. */
   flickerWindowMs?: number;
@@ -87,7 +76,6 @@ export interface GlitchRecording {
 }
 
 export interface GlitchCollector {
-  /** Disconnect the observers and hand back what was recorded. */
   stop(): GlitchRecording;
 }
 
@@ -134,11 +122,9 @@ export const GLITCH_DEFAULTS: Required<GlitchRecorderOptions> = {
 };
 
 /**
- * Start observing `scope` (an element, or a selector resolved in the
- * document). Returns null when the selector matches nothing.
- *
- * SELF-CONTAINED ON PURPOSE: Playwright serialises this function's source
- * into the page, so it must not reference anything outside its own body.
+ * Null when the selector matches nothing. Self-contained: Playwright
+ * serialises this function's source into the page, so it must not reference
+ * anything outside its own body.
  */
 export function startGlitchCollector(
   scope: Element | string,
@@ -179,13 +165,9 @@ export function startGlitchCollector(
 
   const observer = new MutationObserver((records) => {
     const ts = performance.now() - startTime;
-    // Coalesce same-target-same-attribute mutations within ONE observer batch
-    // (one microtask flush = at most one paint). React writes style properties
-    // individually — a single geometry commit produces left/top/width/height
-    // as 3-4 separate records on the same element — and counting those as
-    // "rapid changes" flags a perfectly clean single-paint update as churn.
-    // Only the batch's net transition (first oldValue → final live value)
-    // is a user-visible change; cross-batch flapping is still fully counted.
+    // One observer batch is at most one paint, so same-target-same-attribute
+    // records in it are coalesced: React writes style properties one by one,
+    // and a single geometry commit arrives as 3-4 records on one element.
     const attrBatch = new Map<
       string,
       { oldValue: string | null; target: string; attr: string; el: Element }
@@ -210,8 +192,6 @@ export function startGlitchCollector(
         if (!attrBatch.has(key)) {
           attrBatch.set(key, { oldValue: rec.oldValue, target, attr, el: rec.target });
         }
-        // Later records for the same key keep the FIRST oldValue; the final
-        // value is read live below, after the whole batch applied.
       }
     }
     for (const entry of attrBatch.values()) {
@@ -219,8 +199,7 @@ export function startGlitchCollector(
         ts,
         attr: entry.attr,
         oldValue: entry.oldValue,
-        // All batch mutations have applied by observer-callback time, so the
-        // live attribute IS the batch's net result.
+        // Every batch mutation has applied by observer-callback time.
         newValue: entry.el.getAttribute(entry.attr),
         target: entry.target,
       });
@@ -234,9 +213,8 @@ export function startGlitchCollector(
     attributeFilter: options.attributeFilter,
   });
 
-  // Sample only .pane-layout-item (the geometry owner) — its inner
-  // .pane-wrapper mirrors every rect change, so sampling both would count
-  // each snap twice for the same pane id.
+  // Its inner .pane-wrapper mirrors every rect change: sampling both would
+  // count each snap twice.
   const sample = (): void => {
     const panes = root.querySelectorAll('.pane-layout-item');
     frames.push({
@@ -281,7 +259,6 @@ export function startGlitchCollector(
   };
 }
 
-/** Classify a recording: flickers, attribute churn and pane size jumps. */
 export function analyzeGlitches(
   recording: GlitchRecording,
   options: Pick<
@@ -291,8 +268,6 @@ export function analyzeGlitches(
 ): GlitchReport {
   const { flickerWindowMs, churnWindowMs, sizeJumpThreshold } = options;
 
-  // Node flicker: the same element identity added and removed (either
-  // order) within the flicker window.
   const flickers: GlitchFlicker[] = [];
   const byElement = new Map<string, GlitchNodeEvent[]>();
   for (const n of recording.nodes) {
@@ -314,8 +289,6 @@ export function analyzeGlitches(
     }
   }
 
-  // Attribute churn: the same attribute on the same element rewritten more
-  // than twice in rapid succession.
   const churn: GlitchChurn[] = [];
   const byTarget = new Map<string, GlitchAttrEvent[]>();
   for (const a of recording.attrs) {
@@ -334,8 +307,6 @@ export function analyzeGlitches(
     }
   }
 
-  // Size jumps: a pane's rect changing by more than the threshold between
-  // two consecutive sampled frames.
   const jumps: GlitchJump[] = [];
   for (let i = 1; i < recording.frames.length; i++) {
     const prev = recording.frames[i - 1];
@@ -343,10 +314,8 @@ export function analyzeGlitches(
     for (const pane of curr.panes) {
       const prevPane = prev.panes.find((p) => p.id === pane.id);
       if (!prevPane) continue;
-      // Hide/show transitions (display:none tab switches) pass through
-      // 0x0 by design — only movements between two VISIBLE states count.
+      // display:none tab switches pass through 0x0 by design.
       if (pane.w === 0 || pane.h === 0 || prevPane.w === 0 || prevPane.h === 0) continue;
-      // Split/kill morphs animate rects on purpose — not flicker.
       if (pane.animating || prevPane.animating) continue;
       const dw = Math.abs(pane.w - prevPane.w);
       const dh = Math.abs(pane.h - prevPane.h);
@@ -376,11 +345,6 @@ export function analyzeGlitches(
   };
 }
 
-/**
- * The budget for an operation: the table's default, the operation's own row
- * when it has one, then explicit overrides. An operation the table does not
- * know gets the default.
- */
 export function glitchThresholds(
   operation: string,
   overrides: Partial<GlitchThresholds> = {},
@@ -389,7 +353,7 @@ export function glitchThresholds(
   return { ...OPERATION_THRESHOLDS.default, ...table[operation], ...overrides };
 }
 
-/** The failure message when a report exceeds its budget, or null within it. */
+/** Null when the report is within budget. */
 export function describeGlitches(
   operation: string,
   report: GlitchReport,
@@ -432,7 +396,6 @@ export function describeGlitches(
   );
 }
 
-/** In-page recorder for Storybook play functions. */
 export class GlitchRecorder {
   private readonly collector: GlitchCollector;
   private readonly opts: Required<GlitchRecorderOptions>;
@@ -442,16 +405,10 @@ export class GlitchRecorder {
     this.collector = startGlitchCollector(scope, this.opts)!;
   }
 
-  /** Disconnect observers and analyze what was recorded. */
   stop(): GlitchReport {
     return analyzeGlitches(this.collector.stop(), this.opts);
   }
 
-  /**
-   * Stop and throw if the recording exceeds the operation's budget from
-   * `glitch-thresholds.json` (plus any explicit overrides). Returns the
-   * report when within budget.
-   */
   assertNoGlitches(
     operation: GlitchOperation = 'default',
     overrides: Partial<GlitchThresholds> = {},

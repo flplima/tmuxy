@@ -1,10 +1,3 @@
-/**
- * Shared pane tab display helpers — the process icon and title shown for a pane.
- *
- * Used by both the pane header tabs (`PaneHeader`) and the sidebar tree
- * (`SidebarTree`) so a pane reads with the identical icon + title everywhere.
- */
-
 import type { TmuxPane } from '../domain/client';
 import type { TmuxServer } from '../domain/servers';
 import { paneWidgetOf } from './widgets/registry';
@@ -12,12 +5,9 @@ import { circledNumber } from '../domain/paneState';
 import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
 
 /**
- * The host portion of `host [session]` shown in both the left sidebar title
- * and the bottom status line: the machine's own name on this machine
- * (including custom local sockets, which are local servers with no host) —
- * `hostname` is what the server said of itself in its greeting, and
- * `localhost` stands in until it has — or `[user@]host` when attached to an
- * SSH server.
+ * The host of `host [session]` in the sidebar title and the status line:
+ * `[user@]host` for an SSH server, else `hostname`, what the server said of
+ * itself in its greeting (`localhost` until it has).
  */
 export function serverHostLabel(
   servers: readonly TmuxServer[],
@@ -70,10 +60,7 @@ const DEFAULT_ICON = '\ue795'; //  nf-custom-terminal
 
 const svgIcon = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-/**
- * The agents' own marks, as SVGs: drawn in the text's colour like any SVG
- * icon (components/PaneIcon.tsx), and replaced by `@tmuxy-icon-<process>`.
- */
+/** `@tmuxy-icon-<process>` replaces these. */
 const BUILTIN_SVG_ICONS: Readonly<Record<string, string>> = {
   claude: svgIcon(CLAUDE_SVG),
   codex: svgIcon(CODEX_SVG),
@@ -81,16 +68,14 @@ const BUILTIN_SVG_ICONS: Readonly<Record<string, string>> = {
   antigravity: svgIcon(AGY_SVG),
 };
 
-/** Whether an icon is an SVG (a `data:` URL) rather than text. */
 export function isSvgIcon(icon: string): boolean {
   return icon.startsWith('data:image/svg+xml');
 }
 
 /**
- * Below this, a character is ordinary text: ASCII, Latin, and the punctuation
- * blocks that hold quotation marks, dashes and the like. Above it are the
- * arrows, geometric shapes, dingbats, emoji and private-use icon fonts an
- * application might lead its title with.
+ * Below it are ASCII, Latin and the punctuation blocks (quotation marks,
+ * dashes); above it the arrows, shapes, dingbats, emoji and private-use icon
+ * fonts an application might lead its title with.
  */
 const FIRST_SYMBOL_CODEPOINT = 0x2070;
 
@@ -102,18 +87,10 @@ function getProcessIcon(command: string): string {
 }
 
 /**
- * The icon an application put at the front of its own title, if it did.
- *
- * Plenty of them do — Claude Code announces `\u273b claude`, and the pattern is
- * a symbol, a space, then the title. Drawing our guess at a process icon
- * beside it gives the pane two icons, one of which is wrong, so the app's own
- * wins: it knows what it is better than a table of executable names does.
- *
- * The test is deliberately narrow. A leading symbol only counts when a space
- * follows it, because that is what makes it a prefix rather than the first
- * character of a word, and only characters above the punctuation blocks count
- * at all — a title starting with a quotation mark or a dash is a title, not an
- * icon.
+ * The icon an application put at the front of its own title (Claude Code
+ * announces `\u273b claude`), which wins over the process table. Only a
+ * symbol followed by a space counts, so the first character of a word or a
+ * leading quotation mark or dash stays title.
  */
 export function splitTitleIcon(text: string): { icon: string | null; text: string } {
   const first = text.codePointAt(0);
@@ -126,11 +103,7 @@ export function splitTitleIcon(text: string): { icon: string | null; text: strin
   return rest ? { icon: text.slice(0, end), text: rest } : { icon: null, text };
 }
 
-/**
- * A tab named with an emoji first (`🚀 deploy`) wears that emoji as its icon:
- * the first grapheme, when it is a pictograph or a flag, and the rest of the
- * name after it. Anything else leaves the name whole.
- */
+/** A tab named with an emoji first (`🚀 deploy`) wears that emoji as its icon. */
 export function splitLeadingEmoji(name: string): { emoji: string | null; rest: string } {
   const points = [...name];
   if (!points[0] || !/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(points[0])) {
@@ -156,11 +129,7 @@ export function splitLeadingEmoji(name: string): { emoji: string | null; rest: s
   return { emoji, rest: name.slice(emoji.length).trimStart() };
 }
 
-/**
- * A tab's icon and the name shown beside it — the same on the tab strip and in
- * the tree: the emoji its name starts with (and the rest of the name), else
- * its position as a circled numeral (and the whole name).
- */
+/** The same on the tab strip and in the tree. */
 export function tabIcon(name: string, position: number): { icon: string; label: string } {
   const { emoji, rest } = splitLeadingEmoji(name);
   return {
@@ -169,14 +138,7 @@ export function tabIcon(name: string, position: number): { icon: string; label: 
   };
 }
 
-/**
- * Process/widget icon for a pane: a glyph, or an SVG as a `data:` URL
- * ([`isSvgIcon`]). A widget's own icon comes from its registered definition
- * (components/widgets), so adding a widget never means editing a table here.
- * Then, by process: the icon the config gives it (`@tmuxy-icon-<process>`,
- * `custom`), an agent's own mark, the icon the application put in front of
- * its title, the table of executables.
- */
+/** A glyph, or an SVG as a `data:` URL (`isSvgIcon`). `custom` is `@tmuxy-icon-<process>`. */
 export function getTabIcon(
   pane: TmuxPane,
   titleOverride?: string,
@@ -196,15 +158,10 @@ export function getTabIcon(
 }
 
 /**
- * Tab/title text for a pane.
- *
- * The app's own title wins: `pane.title` carries what the running program
- * announced over OSC 0/2 (`claude`, `nvim README.md`, an ssh host), and the
- * backend already blanks it when tmux's default host-name seed is all that is
- * there — so a non-empty value always means an app set it. `pane.command` is
- * only the executable's file name, so it is the fallback rather than the first
- * choice — the backend already rewrites the one case where that name says
- * nothing at all (a version-pinned launcher reporting a bare `2.1.280`).
+ * `pane.title` is what the program announced over OSC 0/2; the backend blanks
+ * tmux's default host-name seed, so a non-empty title means an app set it.
+ * `pane.command` is only the executable's file name (the backend rewrites a
+ * version-pinned launcher's bare `2.1.280`).
  */
 export function getTabText(pane: TmuxPane, titleOverride?: string): string {
   if (pane.inMode) return '[COPY MODE]';
@@ -212,45 +169,20 @@ export function getTabText(pane: TmuxPane, titleOverride?: string): string {
   return pane.title || pane.command || pane.borderTitle.trim() || 'shell';
 }
 
-/**
- * The pinned terminal column's title: what its pane is running, or the shell
- * it is about to start while the pane is still being broken out.
- */
+/** The pinned terminal column's title; `null` while the pane is still being broken out. */
 export function sidebarShellTitle(pane: TmuxPane | null): string {
   return pane ? getTabText(pane) : 'shell';
 }
 
-/**
- * The pane's title with any icon the application prefixed to it removed, so
- * the icon is drawn once — in the icon's place — rather than twice.
- */
 export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
   return splitTitleIcon(getTabText(pane, titleOverride)).text;
 }
 
 /**
- * A pane as the sidebar tree's two-line row draws it.
- *
- * The two lines answer different questions and are sized differently, so they
- * are split here rather than squeezed onto one line and truncated together:
- *
- *  - `process` — the executable actually running (`#{pane_current_command}`),
- *    short and stable, and the only half that still tells two panes apart once
- *    the column is narrow. It shares its line with the pane id and the state
- *    indicator.
- *  - `title` — what the program announced over OSC 0/2: a path, a file being
- *    edited, a host. This is the half that routinely outgrows a 30-column
- *    column, which is why it gets a line of its own.
- *
- * `title` is empty when there is nothing to add — an unset title, or one that
- * only repeats the process name — so a plain shell stays a one-line row rather
- * than reserving a blank second line.
- *
- * A pane showing a widget (`tmuxy open`'s preview, the tree) is named by the
- * widget, not by the shell that sleeps under it.
- *
- * Copy mode takes over the title line: `[COPY MODE]` is a state of the pane,
- * not the program in it, and the process underneath is still worth seeing.
+ * The sidebar tree's two-line row: `process` (`#{pane_current_command}`, or
+ * the widget's name) tells two panes apart in a narrow column, and `title`
+ * (OSC 0/2) gets a line of its own because it routinely outgrows one. `title`
+ * is empty when it adds nothing, so a plain shell stays a one-line row.
  */
 export function paneRowLines(pane: TmuxPane): { process: string; title: string } {
   const process = paneWidgetOf(pane)?.name || pane.command || 'shell';

@@ -4,7 +4,6 @@
  * menu lists. The calls are `infra/guiWindows.ts`.
  */
 
-/** One row of the Window menu. */
 export interface GuiWindowInfo {
   /** 1-based position, and the digit that focuses this window. */
   index: number;

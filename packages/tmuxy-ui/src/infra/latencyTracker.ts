@@ -1,17 +1,13 @@
 /**
  * Axis-B transport-latency instrumentation.
  *
- * This is the one thing the project's perf tooling was missing: the v86/wasm
- * probes (Axis A) measure the parse→aggregate→delta→render pipeline with the
- * network *removed*, so they can't see transport cost. This tracker measures
- * exactly that — the round trip from "the client sent a keystroke/command" to
- * "the client applied the resulting state update" — which is the number a
- * transport change (SSE+POST → QUIC/WebTransport, local → remote-VM) would
- * actually move. See docs/PERFORMANCE.md.
+ * The v86/wasm probes (Axis A) measure the parse→aggregate→delta→render
+ * pipeline with the network removed. This measures the round trip from "the
+ * client sent a keystroke/command" to "the client applied the resulting state
+ * update" — the number a transport change would move. See docs/PERFORMANCE.md.
  *
- * It is DEV-GATED: when disabled (the default), `markInput`/`recordUpdate` are
- * a single boolean check and a cheap early return, so wiring it into the hot
- * adapter paths costs nothing in production. Enable via any of:
+ * Off by default, and then `markInput`/`recordUpdate` return at once. Enable
+ * via any of:
  *   - `?perf` (or `?perf=1`) in the URL query string
  *   - `localStorage.tmuxyPerf = '1'`
  *   - `window.__tmuxyPerf = true` before the adapter connects
@@ -98,13 +94,12 @@ class LatencyTracker {
         window.localStorage?.setItem('tmuxyPerf', on ? '1' : '0');
       }
     } catch {
-      // ignore storage failures
+      // localStorage can throw in sandboxed frames and when full.
     }
     if (!on) this.reset();
     this.invalidate();
   }
 
-  /** Record that an input (keystroke/command) just left the client. */
   markInput(): void {
     if (!this.enabled) return;
     this.pending.push(now());

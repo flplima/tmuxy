@@ -19,16 +19,12 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * New-tab regression (two bugs, real tmux):
- *  1. Creating a tab must not flash a transient EXTRA tab. A `break-pane` tags
- *     the new window `@tmuxy-window-type=tab` a beat before its pane settles;
- *     the optimistic store must hide that tab-typed-but-paneless newborn (it
- *     stands the placeholder in for it) so the tab bar never shows a 3rd tab
- *     that blinks away. A MutationObserver over the tab list catches the blink.
- *  2. The new tab's pane must show its FIRST terminal row. New windows are born
- *     without `pane-border-status top` unless it's set globally, which would
- *     leave the pane at y=0 where the 24px PaneHeader steals row 0. The row must
- *     render fully below the header.
+ * Two new-tab regressions on real tmux. (1) No transient extra tab: a
+ * `break-pane` tags the new window `@tmuxy-window-type=tab` a beat before its
+ * pane settles, and the optimistic store must hide that paneless newborn.
+ * (2) The new pane shows its first row: new windows are born without
+ * `pane-border-status top` unless it is set globally, which leaves the pane at
+ * y=0 where the 24px PaneHeader would cover row 0.
  */
 export const NewTabNoBlinkFirstRowVisible: Story = {
   play: async ({ canvasElement }) => {
@@ -40,7 +36,6 @@ export const NewTabNoBlinkFirstRowVisible: Story = {
     const tabCount = () => tabList.querySelectorAll('.tab-name').length;
     const before = tabCount();
 
-    // Bug 1: watch the tab bar for any transient tab beyond the one we create.
     let maxTabs = before;
     const obs = new MutationObserver(() => {
       maxTabs = Math.max(maxTabs, tabCount());
@@ -61,15 +56,12 @@ export const NewTabNoBlinkFirstRowVisible: Story = {
     running = false;
     obs.disconnect();
 
-    // Bug 1: the tab bar never held more than the one new tab (no blink).
     expect(
       maxTabs,
       `tab bar flashed ${maxTabs} tabs (expected at most ${before + 1})`,
     ).toBeLessThanOrEqual(before + 1);
     expect(tabCount()).toBe(before + 1);
 
-    // Bug 2: the new tab's pane shows its first terminal row, fully below the
-    // header (not clipped behind it).
     const wrapper = canvasElement.querySelector(
       '.pane-layout-item.pane-active .pane-wrapper',
     ) as HTMLElement;

@@ -1,11 +1,3 @@
-/* ============================================
-   Base / Reset
-   ============================================ */
-
-/* ============================================
-   App Container
-   ============================================ */
-
 .app-container {
   display: flex;
   flex-direction: column;
@@ -18,9 +10,8 @@
   -webkit-user-select: none;
 }
 
-/* The margins around the pane grid are this padding and nothing else: the
-   size actor observes the container's content box, so the grid is sized
-   for — and .pane-layout fills — exactly the area inside it. */
+/* The grid's margin is this padding alone: the size actor measures the
+   content box, and .pane-layout fills it. */
 .app-container .pane-container {
   flex: 1;
   position: relative;
@@ -31,26 +22,21 @@
   padding: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
-/* Pane States */
 .pane-active {
   z-index: var(--z-active);
 }
 
-/* The marked pane (`select-pane -m`): an inset outline in the theme's mark
-   colour, drawn inside the box so adjacent panes' edges stay untouched. */
+/* The marked pane (`select-pane -m`), outlined inside its box so adjacent
+   panes' edges stay untouched. */
 .pane-layout-item.pane-marked {
   outline: 1px solid var(--pane-marked-border);
   outline-offset: -1px;
 }
 
-/* ...and the content itself takes a wash of the theme's accent (green by
-   default, gruvbox's yellow, and so on), so a marked pane is recognisable from
-   across the screen rather than by a 1px edge. A translucent overlay rather
-   than a `filter` on the content: a filter would make the pane a containing
-   block for everything inside it — the overlays that sit in `.pane-content`
-   (the `tmuxy ask` question, the scroll indicator) would be tinted too, and
-   the glyph grid would be re-rasterised on every frame of output. Kept faint
-   on purpose: it marks the pane, it does not take it over. */
+/* An overlay rather than a `filter`: a filter makes the pane a containing
+   block, tinting the overlays inside `.pane-content` (the `tmuxy ask`
+   question, the scroll indicator) and re-rasterising the glyph grid on every
+   frame of output. */
 .pane-marked .pane-content::after,
 .pane-marked > .float-content::after {
   content: '';
@@ -71,16 +57,13 @@
 }
 
 .pane-content {
-  /* Horizontal padding: matches the pane extension into the tmux separator column.
-     Left/right are set independently per pane so the terminal content fills its exact width. */
+  /* The pane's reach into the tmux separator column, per side. */
   padding: 0 var(--pane-h-padding-right, 0) 0 var(--pane-h-padding-left, 0);
   flex: 1;
   position: relative;
   box-sizing: border-box;
   overflow: hidden;
 }
-
-/* No border on pane-content — border is on the outer pane-layout-item */
 
 .pane-single {
   background-color: transparent;
@@ -98,25 +81,17 @@
   outline: none;
 }
 
-/* ============================================
-   Terminal
-   ============================================ */
-
 .terminal-container {
   position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* Establish the cell metrics for everything positioned on the grid inside
-     this pane. The cursor overlay and image placements are siblings of
-     .terminal-content, not descendants, so they need the terminal font here
-     for the `1ch` fallback (outside the app, where --cell-w is unset) to land
-     on the same grid the rows are pinned to. */
+  /* The cursor overlay and image placements are siblings of .terminal-content,
+     so they need the terminal font here for the `1ch` fallback (outside the
+     app, where --cell-w is unset) to land on the rows' grid. */
   font-family: var(--font-mono);
   font-size: var(--tmuxy-font-size, 15px);
-  /* Transparent — pane-layout-item supplies the bg so opacity stacks
-     correctly (active pane gets its own layer on top of pane-container;
-     inactive panes show through to the container). */
+  /* .pane-layout-item supplies the background, so the alphas stack once. */
   background-color: transparent;
   user-select: none;
 }
@@ -161,13 +136,9 @@
     'calt' 0;
 }
 
-/* Terminal text the browser may select.
-   `.app-container` turns selection off everywhere so a drag on the UI chrome
-   can't smear a highlight across it; a terminal that is NOT a full-screen
-   application turns it back on for its own content, which is what makes
-   selecting output work the way it does in any other terminal. Panes running a
-   mouse-tracking application deliberately do not get this: there the drag
-   belongs to the application, and a selection would fight it. */
+/* `.app-container` turns selection off so a drag on the chrome smears no
+   highlight. Panes running a mouse-tracking application never get this class:
+   there the drag belongs to the application. */
 .terminal-selectable {
   user-select: text;
   -webkit-user-select: text;
@@ -244,11 +215,8 @@
 .terminal-line > a {
   line-height: inherit;
   unicode-bidi: isolate;
-  /* Each span is sized to an exact cell count (width: Nch set inline). Don't let
-     flex grow/shrink it, and min-width:0 stops a glyph wider than its cells from
-     expanding the box; overflow stays visible so the glyph paints over the
-     neighbouring (usually blank) cell rather than displacing the rest of the
-     line. Together this keeps text on a stable grid when characters change. */
+  /* min-width: 0 stops a glyph wider than its cells from widening the box; it
+     paints over the neighbouring cell instead of displacing the line. */
   flex: 0 0 auto;
   min-width: 0;
 }
@@ -306,9 +274,8 @@
   display: none; /* Chrome/Safari */
 }
 
-/* Terminal hyperlinks (OSC 8) */
-/* OSC 8 hyperlinks — the application declared these, so they are always live:
-   underlined at rest and opened by a plain click, no modifier. */
+/* OSC 8 links were declared by the application, so they are always live:
+   underlined, opened by a plain click. */
 .terminal-hyperlink {
   text-decoration: underline;
   text-decoration-color: var(--link-color);
@@ -356,10 +323,6 @@
 .link-modifier-held .terminal-autolink:active {
   color: var(--link-active);
 }
-
-/* ============================================
-   Cursor
-   ============================================ */
 
 .terminal-cursor {
   background-color: var(--cursor-bg);

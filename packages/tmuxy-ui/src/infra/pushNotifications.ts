@@ -20,7 +20,6 @@ export type PushState = 'unsupported' | 'unknown' | 'denied' | 'off' | 'on' | 'w
 
 const WORKER_URL = '/sw.js';
 
-/** Whether this page can take push notifications at all. */
 export function pushSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -32,7 +31,6 @@ export function pushSupported(): boolean {
   );
 }
 
-/** Register the service worker at startup, so a subscription has one ready. */
 export function registerPushWorker(): void {
   if (!pushSupported()) return;
   navigator.serviceWorker.register(WORKER_URL).catch(() => {});
@@ -43,7 +41,6 @@ async function subscription(): Promise<PushSubscription | null> {
   return (await registration?.pushManager.getSubscription()) ?? null;
 }
 
-/** Whether this device gets notifications now. */
 export async function readPushState(): Promise<PushState> {
   if (!pushSupported()) return 'unsupported';
   if (Notification.permission === 'denied') return 'denied';

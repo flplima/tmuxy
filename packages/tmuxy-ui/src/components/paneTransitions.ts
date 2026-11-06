@@ -1,21 +1,13 @@
 /**
- * Geometry inference for the pane enter animation (the split morph).
- *
- * PaneLayout diffs each render's pixel boxes against the previous render's.
- * When a pane appears, its animation starts from the pre-split box of the
- * sibling that shrank to make room. (A pane that disappears needs no
- * inference: it shrinks into its own centre where it was.) Working in pixel
- * space on rect overlap (rather than tmux cell adjacency) makes the
- * inference generic: splits initiated from the CLI or another client
- * animate exactly like optimistic local ones, and non-full-edge sources
- * are covered too.
+ * The split morph's starting box, inferred from pixel-box overlap rather than
+ * tmux cell adjacency, so splits from the CLI or another client animate like
+ * optimistic local ones.
  */
 
 import type { PaneBox } from '../domain/paneGeometry';
 
-// Minimum share of the subject pane's area a candidate must overlap to be
-// considered its split-source — guards against picking an
-// unrelated pane that merely shifted a few pixels.
+// Share of the new pane's area a split source must overlap, so a pane that
+// merely shifted a few pixels is not taken for it.
 const MIN_OVERLAP_RATIO = 0.5;
 
 export function rectOverlapArea(a: PaneBox, b: PaneBox): number {
@@ -29,11 +21,8 @@ function boxesEqual(a: PaneBox, b: PaneBox): boolean {
 }
 
 /**
- * Starting box for a newly appeared pane: the *previous* box of the pane
- * that shrank to make room for it (the split source) — found as the pane
- * present in both renders whose box changed and whose previous box overlaps
- * the new pane's final box the most. Returns null (caller fades in place)
- * when nothing plausible shrank, e.g. a pane appearing in a fresh window.
+ * The previous box of the pane that shrank to make room (the changed box
+ * overlapping the new one most), or null when nothing plausible shrank.
  */
 export function findEnterFromBox(
   newBox: PaneBox,

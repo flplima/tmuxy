@@ -1,8 +1,3 @@
-/**
- * MenuPanel & MenuSurface — the floating surface column and keyboard/dismiss
- * handling shared by FloatingMenu and SubMenu.
- */
-
 import {
   useCallback,
   useContext,
@@ -29,16 +24,8 @@ import {
   PanelContext,
 } from './menuContexts';
 
-/**
- * The open state handed to `useFloatingSurface`, as a module constant.
- *
- * The hook keys its lifecycle on `JSON.stringify(content)` to survive callers
- * passing a fresh object literal every render; a menu has no content to
- * describe beyond "open", so there is one value and it never changes.
- */
 const OPEN = { open: true } as const;
 
-/** Every item of `panel`, in document order, skipping the disabled ones. */
 function navigableItems(panel: HTMLElement): HTMLElement[] {
   return [...panel.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter(
     (item) =>
@@ -47,7 +34,6 @@ function navigableItems(panel: HTMLElement): HTMLElement[] {
 }
 
 export interface MenuPanelProps {
-  /** Identity in the floating-surface registry. */
   id: string;
   anchor: SurfaceAnchor;
   placement?: SurfacePlacement;
@@ -55,35 +41,21 @@ export interface MenuPanelProps {
   claim?: boolean;
   open: boolean;
   onClose: () => void;
-  /**
-   * The box this menu is REPLACING, if it is replacing one.
-   *
-   * Right-clicking a tab whose preview is up turns that card into this menu,
-   * and a card that vanishes while a menu appears somewhere else is two events
-   * where the user performed one. Given the old card's box the menu opens
-   * from it — the same object, becoming something else.
-   */
+  /** The preview card this menu replaces, if any: the menu is drawn opening from its box. */
   morphFrom?: DOMRect | null;
-  /** What a screen reader calls it. */
   label?: string;
   /** The element id a submenu's trigger points `aria-controls` at. */
   domId?: string;
   testId?: string;
-  /** Clicks in here are the trigger's own, not "outside" (see below). */
+  /** Clicks in here are the trigger's own, not "outside". */
   ignoreRef?: React.RefObject<HTMLElement | null>;
   children: ReactNode;
 }
 
 /**
- * One column of a menu: the surface, its items' keyboard handling, and the
- * ways it can be dismissed. Used for the menu itself and for every submenu.
- *
- * Split in two on purpose. This half owns the lifetime — the hook holds the
- * node open for its exit animation — and the half below is mounted only while
- * there is something on screen, so which submenu is unfolded is state that
- * comes and goes WITH the menu rather than state an effect has to remember to
- * clear (a menu reopened after choosing "Theme" would otherwise reopen with
- * Theme still unfolded).
+ * One column of a menu. Split in two so the half below, and with it which
+ * submenu is unfolded, mounts only while the menu is on screen: a reopened menu
+ * starts folded.
  */
 export function MenuPanel({
   id,
@@ -113,15 +85,8 @@ export function MenuPanel({
     onDismiss: () => closeRef.current(),
   });
 
-  /**
-   * Place the menu, and draw it from `morphFrom` if it is replacing something.
-   *
-   * A FLIP: the menu goes where it belongs, then is drawn where the card was
-   * and animated to zero. Everything here is measured, so the morph animation
-   * is CANCELLED first — a box read while a transform is playing is the box on
-   * the way rather than the one being measured for, which would make each
-   * recomputation drift further from the truth.
-   */
+  // The morph animation is cancelled before measuring: a box read while a
+  // transform plays is the in-flight box.
   const place = useCallback(() => {
     const panel = ref.current;
     if (!panel) return;
@@ -140,15 +105,9 @@ export function MenuPanel({
     morphing?.play();
   }, [morphFrom, animations, reposition, ref]);
 
-  /**
-   * Its own size is what the placement was computed from, so a menu that
-   * changes size while it is up is placed again rather than left overhanging:
-   * a submenu reading the OS's windows when it opens, and — the case that
-   * matters for the morph — a menu whose stylesheet arrives after its first
-   * layout, which is how a dev server serves CSS. A morph computed against
-   * that first, unstyled box aimed the animation at a place the menu never
-   * ended up, by exactly the width the stylesheet added.
-   */
+  // Placed again when its size changes: a submenu reading the OS's windows as it
+  // opens, and a dev server that serves the stylesheet after the first layout
+  // (a morph computed against that unstyled box misses by the added width).
   useEffect(() => {
     const panel = ref.current;
     if (!shown || !panel || typeof ResizeObserver === 'undefined') return;
@@ -166,13 +125,8 @@ export function MenuPanel({
     return () => observer.disconnect();
   }, [shown, ref, place]);
 
-  /**
-   * Place it before the browser paints it — and after the hook's own placement
-   * effect, which is why this is here rather than in the surface below: React
-   * runs a child's layout effects BEFORE its parent's, so a morph computed in
-   * the child is computed against a box that has not been placed yet, and then
-   * the parent measures a box the morph is already scaling.
-   */
+  // Here rather than in MenuSurface: React runs a child's layout effects before
+  // its parent's, so the child would measure a box the hook has not placed yet.
   useLayoutEffect(() => {
     if (shown) place();
   }, [shown, place]);
@@ -208,7 +162,6 @@ interface MenuSurfaceProps {
   panelId: string;
   surfaceRef: React.RefObject<HTMLDivElement | null>;
   leaving: boolean;
-  /** Only for the class that plays the morph; the placement is the parent's. */
   morphing: boolean;
   onClose: () => void;
   label?: string;
@@ -218,7 +171,6 @@ interface MenuSurfaceProps {
   children: ReactNode;
 }
 
-/** The part that exists only while the menu is on screen. */
 function MenuSurface({
   panelId,
   surfaceRef,
@@ -245,13 +197,9 @@ function MenuSurface({
   );
   const panelValue = useMemo<PanelContextValue>(() => ({ openId, setOpenId }), [openId]);
 
-  // Focus lands on the first item when the menu opens: a menu you have to
-  // reach for with the mouse before the keyboard will move through it is not
-  // keyboard-operable at all (WAI-ARIA's menu pattern asks for exactly this).
-  // In the commit that draws it, not after: a passive effect runs in a later
-  // task, and a key that lands in between closes the column first — then the
-  // late focus pulls the cursor into a menu that is on its way out, and the
-  // next Escape is spent closing it again.
+  // Focus the first item on open (WAI-ARIA menu pattern), in the commit that
+  // draws it: a passive effect runs a task later, and a key landing in between
+  // would close the column before the late focus pulls the cursor back into it.
   useLayoutEffect(() => {
     const panel = surfaceRef.current;
     if (!panel) return;
@@ -259,19 +207,14 @@ function MenuSurface({
     (first ?? panel).focus({ preventScroll: true });
   }, [surfaceRef]);
 
-  // Only the menu's own root watches for the press that dismisses it: a
-  // submenu is inside its root's subtree as far as this is concerned, and two
-  // listeners would race to close the same menu.
   useEffect(() => {
     if (parent) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest(`[data-menu-root="${rootId}"]`)) return;
-      // The control that opened the menu is not "outside" it. Without this the
-      // press that closes the menu is also the press that reopens it: a
-      // hamburger that toggles does nothing at all, and a ⋮ that always opens
-      // blinks its menu shut and back. A control that says it opens a menu is
-      // covered by the rule; `ignoreRef` is for an anchor that is not one.
+      // The control that opened the menu is not "outside" it, or the press that
+      // closes the menu would reopen it. `ignoreRef` is for an anchor that does
+      // not say `aria-haspopup="menu"`.
       if (target?.closest('[aria-haspopup="menu"]')) return;
       if (ignoreRef?.current && target && ignoreRef.current.contains(target)) return;
       closeAllRef.current();
@@ -308,17 +251,10 @@ function MenuSurface({
         onClose();
         break;
       case 'ArrowLeft':
-        // Out of a submenu and back to the item that opened it. At the top
-        // level there is nothing to the left, so the key is left alone.
         if (!parent) return;
         onClose();
         break;
       case 'ArrowRight': {
-        // Into the submenu under the cursor, if this item has one. Open, it is
-        // already on screen and the cursor moves into it; closed, opening it is
-        // what puts the cursor there (the column focuses its first item as it
-        // mounts). Without the first case, right on an open submenu left the
-        // cursor on the item that opened it and the column unreachable.
         if (active?.getAttribute('aria-haspopup') !== 'menu') return;
         const controls = active.getAttribute('aria-controls');
         const column = controls ? document.getElementById(controls) : null;
@@ -334,9 +270,8 @@ function MenuSurface({
       default:
         return;
     }
-    // Only for the keys above, and only once they have been acted on: every
-    // other key is the app's (the pane behind this menu is a terminal, and the
-    // window-level handler forwards to it).
+    // Every other key is the app's: the window-level handler forwards it to the
+    // terminal behind the menu.
     event.preventDefault();
     event.stopPropagation();
   };

@@ -1,12 +1,7 @@
 /**
- * The client's own model of panes and windows, derived from the wire.
- *
- * Each client schema decodes FROM the wire shape (`domain/wire.ts`): its
- * fields rename the snake_case wire keys (`Schema.fromKey`) and fill the
- * defaults the wire leaves out, so the client types are derived — never
- * hand-written next to the wire — and carry the branded ids. A wire field the
- * client does not model (`pane_restore`, which only the shell side reads) is
- * dropped here.
+ * The client's model of panes and windows, decoded from the wire shape
+ * (`domain/wire.ts`). A wire field the client does not model (`pane_restore`,
+ * which only the shell side reads) is dropped here.
  */
 
 import { Schema } from 'effect';
@@ -14,22 +9,18 @@ import { GroupId, PaneId, WindowId, paneNumber } from './ids';
 import { PaneTree, WindowType, type ServerState } from './wire';
 import { PaneContent } from './wireCells';
 
-/** A required field, read from the wire key `key`. */
 const from = <K extends string, S extends Schema.Schema.All>(key: K, schema: S) =>
   Schema.propertySignature(schema).pipe(Schema.fromKey(key));
 
-/** A field the wire may omit, read from `key`, `fallback` when it does. */
 const withDefault = <K extends string, S extends Schema.Schema.Any>(
   key: K,
   schema: S,
   fallback: () => Schema.Schema.Type<S>,
 ) => Schema.optionalWith(schema, { default: fallback }).pipe(Schema.fromKey(key));
 
-/** A field the wire may omit, read from `key`, absent when it does. */
 const optionalFrom = <K extends string, S extends Schema.Schema.Any>(key: K, schema: S) =>
   Schema.optional(schema).pipe(Schema.fromKey(key));
 
-/** An image placement on the terminal grid. */
 export const ImagePlacement = Schema.mutable(
   Schema.Struct({
     id: Schema.Number,
@@ -43,12 +34,10 @@ export const ImagePlacement = Schema.mutable(
 );
 export type ImagePlacement = Schema.Schema.Type<typeof ImagePlacement>;
 
-/** A pane as the client holds it, decoded from a wire pane. */
 export const TmuxPane = Schema.mutable(
   Schema.Struct({
     id: Schema.Number,
     tmuxId: from('tmux_id', PaneId),
-    /** Window this pane belongs to. */
     windowId: from('window_id', WindowId),
     content: PaneContent,
     cursorX: from('cursor_x', Schema.Number),
@@ -59,9 +48,9 @@ export const TmuxPane = Schema.mutable(
     y: Schema.Number,
     active: Schema.Boolean,
     command: Schema.String,
-    /** Pane title (set by shell/application) */
+    /** `#{pane_title}`, which the application sets. */
     title: Schema.String,
-    /** Evaluated pane-border-format from tmux config */
+    /** tmux's evaluated `pane-border-format`. */
     borderTitle: from('border_title', Schema.String),
     /**
      * Pane-group identity (`@tmuxy-group-id`, e.g. `g5`); absent/null when the
@@ -75,28 +64,25 @@ export const TmuxPane = Schema.mutable(
     inMode: from('in_mode', Schema.Boolean),
     copyCursorX: from('copy_cursor_x', Schema.Number),
     copyCursorY: from('copy_cursor_y', Schema.Number),
-    /** True if application is in alternate screen mode (vim, less, htop) */
     alternateOn: withDefault('alternate_on', Schema.Boolean, () => false),
-    /** True if application has mouse tracking enabled */
+    /** The application has turned mouse tracking on. */
     mouseAnyFlag: withDefault('mouse_any_flag', Schema.Boolean, () => false),
     /**
      * True if this is tmux's marked pane (`select-pane -m`, `#{pane_marked}`).
      * Absent means false. `swap-pane` / `join-pane` without a source act on it.
      */
     marked: Schema.optional(Schema.Boolean),
-    /** Number of history lines (scrollback above the visible area) */
+    /** Scrollback lines above the visible area. */
     historySize: withDefault('history_size', Schema.Number, () => 0),
-    /** True if a selection is active in copy mode */
     selectionPresent: withDefault('selection_present', Schema.Boolean, () => false),
-    /** Selection start X (visible-area-relative column), only meaningful when selectionPresent */
+    /** Visible-area-relative column; meaningful only when selectionPresent. */
     selectionStartX: withDefault('selection_start_x', Schema.Number, () => 0),
-    /** Selection start Y (visible-area-relative row, can be negative), only meaningful when selectionPresent */
+    /** Visible-area-relative row, can be negative; meaningful only when selectionPresent. */
     selectionStartY: withDefault('selection_start_y', Schema.Number, () => 0),
-    /** Image placements on this pane's terminal grid */
     images: Schema.optional(Schema.mutable(Schema.Array(ImagePlacement))),
-    /** Cursor shape from DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar */
+    /** DECSCUSR: 0/1=block_blink, 2=block, 3=underline_blink, 4=underline, 5=bar_blink, 6=bar */
     cursorShape: withDefault('cursor_shape', Schema.Number, () => 0),
-    /** Whether the cursor is hidden (DECTCEM mode 25 off / ESC[?25l) */
+    /** DECTCEM (mode 25) off, `ESC[?25l`. */
     cursorHidden: withDefault('cursor_hidden', Schema.Boolean, () => false),
     /**
      * What the pane says it is doing (`@tmuxy-pane-state`), verbatim. Any
@@ -139,7 +125,6 @@ export function groupMembers(
     .map((p) => p.tmuxId);
 }
 
-/** tmux's marked pane (`select-pane -m`) among `panes`, or null. */
 export function markedPaneId(
   panes: ReadonlyArray<Pick<TmuxPane, 'tmuxId' | 'marked'>>,
 ): PaneId | null {
@@ -159,26 +144,22 @@ export function paneTakesCopyMode(
   return !!pane && !pane.paneWidget;
 }
 
-/** A window as the client holds it, decoded from a wire window. */
 export const TmuxWindow = Schema.mutable(
   Schema.Struct({
     id: WindowId,
     index: Schema.Number,
     name: Schema.String,
     active: Schema.Boolean,
-    /** Window type. `null` = foreign (ignored by the UI). */
+    /** `null` = a foreign window, which the UI ignores. */
     windowType: withDefault('window_type', Schema.NullOr(WindowType), () => null),
     /** Parent window id for floats (launcher) and backdrops (the float). */
     floatParent: withDefault('float_parent', Schema.NullOr(WindowId), () => null),
-    /** Float width in cells (@tmuxy-float-width). */
+    /** Cells (`@tmuxy-float-width`). */
     floatWidth: withDefault('float_width', Schema.NullOr(Schema.Number), () => null),
-    /** Float height in cells (@tmuxy-float-height). */
+    /** Cells (`@tmuxy-float-height`). */
     floatHeight: withDefault('float_height', Schema.NullOr(Schema.Number), () => null),
-    /** Drawer direction for drawer-style floats. */
     floatDrawer: withDefault('float_drawer', Schema.NullOr(Schema.String), () => null),
-    /** Backdrop style for floats. */
     floatBg: withDefault('float_bg', Schema.NullOr(Schema.String), () => null),
-    /** True when the float hides its header chrome. */
     floatNoheader: withDefault('float_noheader', Schema.Boolean, () => false),
     /**
      * The window's own active pane, from the server. `pane.active` is a
@@ -187,36 +168,30 @@ export const TmuxWindow = Schema.mutable(
      */
     activePaneId: optionalFrom('active_pane_id', Schema.NullOr(PaneId)),
     /**
-     * A sidebar column's width in cells when the user has dragged it off its
-     * default (@tmuxy-sidebar-cols). The column is drawn at this many cells, and
-     * the backend sized its pane to the same number — so a drag moves both, and
-     * every client attached to the session agrees on the width. Absent is
-     * equivalent to null — the side's default.
+     * A sidebar column's width in cells once the user has dragged it off its
+     * default (`@tmuxy-sidebar-cols`); the backend sizes its pane to the same
+     * number, so every attached client agrees. Absent or null: the default.
      */
     sidebarCols: optionalFrom('sidebar_cols', Schema.NullOr(Schema.Number)),
     /**
-     * True while the user has closed this sidebar column (@tmuxy-sidebar-hidden).
-     * The pane behind it stays alive, so the window existing no longer means the
-     * column is shown; every client reads the flag, so a close made in one client
-     * or before a reload holds everywhere. Absent is equivalent to false.
+     * The user has closed this sidebar column (`@tmuxy-sidebar-hidden`); its pane
+     * stays alive, so the window existing does not mean the column is shown.
+     * Absent is false.
      */
     sidebarHidden: optionalFrom('sidebar_hidden', Schema.Boolean),
     /**
-     * True while the window keeps only the active pane's first-level row
-     * expanded (@tmuxy-collapsible; the backend reshapes the layout). Absent is
-     * equivalent to false.
+     * Only the active pane's first-level row is expanded (`@tmuxy-collapsible`;
+     * the backend reshapes the layout). Absent is false.
      */
     collapsible: Schema.optional(Schema.Boolean),
-    /** True while a pane in this window is zoomed (tmux hides the others).
-     *  Absent is equivalent to false. */
+    /** Absent is false. */
     zoomed: Schema.optional(Schema.Boolean),
-    /** The window's split structure, which a divider drag follows; absent until tmux reports a layout. */
+    /** Absent until tmux reports a layout. */
     paneTree: optionalFrom('pane_tree', Schema.NullOr(PaneTree)),
   }),
 );
 export type TmuxWindow = Schema.Schema.Type<typeof TmuxWindow>;
 
-/** The session's own fields as the client holds them; its panes and windows are decoded per record. */
 const ClientSession = Schema.Struct({
   sessionName: from('session_name', Schema.String),
   activeWindowId: from('active_window_id', Schema.NullOr(WindowId)),
@@ -231,7 +206,6 @@ const ClientSession = Schema.Struct({
   themeRev: withDefault('theme_rev', Schema.String, () => ''),
 });
 
-/** The session as the client holds it, decoded from a wire full state. */
 export type ClientState = Schema.Schema.Type<typeof ClientSession> & {
   panes: TmuxPane[];
   windows: TmuxWindow[];
@@ -240,10 +214,8 @@ export type ClientState = Schema.Schema.Type<typeof ClientSession> & {
 const decodeSession = Schema.decodeSync(ClientSession);
 
 /**
- * Decode each wire record once. A delta rebuilds only the records it changes
- * and keeps the rest as they were (`mergeRecords`), so on every later state an
- * unchanged pane or window is the same object, and its decode is reused —
- * this runs on every state the client paints.
+ * A delta keeps the records it does not change as the same objects
+ * (`mergeRecords`), so the decode of an unchanged pane or window is reused.
  */
 function cachedDecode<W extends object, C>(decode: (wire: W) => C): (wire: W) => C {
   const decoded = new WeakMap<W, C>();
@@ -260,11 +232,7 @@ function cachedDecode<W extends object, C>(decode: (wire: W) => C): (wire: W) =>
 const decodePane = cachedDecode(Schema.decodeSync(TmuxPane));
 const decodeWindow = cachedDecode(Schema.decodeSync(TmuxWindow));
 
-/**
- * The client's view of a decoded server state: camelCase records with their
- * defaults filled in, windows in index order. The input has already passed
- * the wire decode, so this cannot fail.
- */
+/** Cannot fail: the input has already passed the wire decode. */
 export function toClientState(state: ServerState): ClientState {
   return {
     ...decodeSession(state),
@@ -273,8 +241,8 @@ export function toClientState(state: ServerState): ClientState {
   };
 }
 
-/** Pane group - groups panes that share the same visual position (like tabs) */
 export interface PaneGroup {
   id: GroupId;
-  paneIds: PaneId[]; // Tab order - active pane is derived from which pane is in activeWindowId
+  /** Tab order; the active member is the one in `activeWindowId`. */
+  paneIds: PaneId[];
 }

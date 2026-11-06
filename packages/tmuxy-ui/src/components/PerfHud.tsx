@@ -1,16 +1,8 @@
 /**
- * Axis-B latency HUD — a dev-only overlay reading `latencyTracker`.
- *
- * Shows the input→paint round-trip distribution, outstanding (pending) inputs,
- * the applied-update rate, and the worst recent inter-update gap (the stall
- * signal). This is what you watch while driving the app over a link to
- * compare transports.
- *
- * Only mounted when `latencyTracker.isEnabled()` (via `?perf` / localStorage),
- * so it — and the store subscription below — cost nothing in production.
- *
- * Store notifications are coalesced to one animation frame so a heavy-output
- * burst can't storm React re-renders and distort the numbers being measured.
+ * Axis-B latency HUD (docs/PERFORMANCE.md), mounted only when
+ * `latencyTracker.isEnabled()` (`?perf` / localStorage). Notifications are
+ * coalesced to one animation frame so an output burst cannot storm React
+ * re-renders and distort the numbers being measured.
  */
 
 import { useSyncExternalStore } from 'react';

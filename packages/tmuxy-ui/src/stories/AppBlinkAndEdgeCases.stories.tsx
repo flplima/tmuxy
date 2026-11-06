@@ -26,13 +26,10 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Drag-swap keeps SHORT content top-anchored — the regression guard for the
- * bottom-anchor bug (a swap-triggered resize replayed the accumulated %output
- * through a fresh grid, scrolling short content to the bottom in the v86 path).
- * Two near-empty panes each get one short line at the top, then are swapped by
- * dragging a titlebar. After the drop, each pane's content must stay in the TOP
- * rows (deepest non-blank row and cursor well above the pane bottom) — a
- * full-screen pane would hide this, so the panes are deliberately short.
+ * Drag-swap keeps short content top-anchored: a swap-triggered resize used to
+ * replay the accumulated %output through a fresh grid, scrolling short content
+ * to the bottom in the v86 path. The panes are deliberately near-empty: a
+ * full screen would hide it.
  */
 export const DragSwapShortContentStaysTopAnchored: Story = {
   play: async ({ canvasElement }) => {
@@ -42,7 +39,6 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     const findPane = (id: string) =>
       paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
 
-    // Deepest non-blank content row + cursor row for a pane (from the app state).
     const anchor = (id: string): { h: number; deepest: number; cY: number } => {
       const pane = (
         window as unknown as {
@@ -83,13 +79,11 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     await fillShort(b, 'SHORT_BBB');
     await tmuxCaughtUp();
 
-    // Precondition: both panes are short and top-anchored before the swap.
     for (const id of [a, b]) {
       const g = anchor(id);
       expect(g.deepest, `pane ${id} should start short/top-anchored`).toBeLessThan(g.h / 2);
     }
 
-    // Drag pane A's titlebar onto pane B to swap them.
     const header = findPane(a).querySelector('.pane-header') as HTMLElement;
     const hRect = header.getBoundingClientRect();
     const dstRect = paneRect(canvas, b);
@@ -118,9 +112,6 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     }).catch(() => {});
     await tmuxCaughtUp();
 
-    // After the swap, each pane's short content must remain TOP-anchored: the
-    // deepest non-blank row and the cursor stay in the upper half of the pane,
-    // never glued to the bottom (which is exactly the bug this guards).
     for (const id of paneIds(canvas)) {
       const g = anchor(id);
       expect(

@@ -7,13 +7,11 @@
 
 const replayedPreviewKeys = new WeakSet<KeyboardEvent>();
 
-/** Tag a synthetic KeyboardEvent replayed out of an `HtmlPreview` frame. */
 export function markReplayedPreviewKey<T extends KeyboardEvent>(event: T): T {
   replayedPreviewKeys.add(event);
   return event;
 }
 
-/** True when `event` was synthesized by `HtmlPreview` rather than pressed in the app. */
 export function isReplayedPreviewKey(event: KeyboardEvent): boolean {
   return replayedPreviewKeys.has(event);
 }

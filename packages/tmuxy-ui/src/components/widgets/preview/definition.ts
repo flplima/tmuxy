@@ -1,8 +1,3 @@
-/**
- * The `preview` widget's contributions to the pane chrome it does not own:
- * the tab icon, the title (the file's name), and its section of the pane menu.
- */
-
 import type { WidgetDefinition } from '../registry';
 import { event } from '../../menus/specs/actions';
 import { PreviewWidget } from './PreviewWidget';

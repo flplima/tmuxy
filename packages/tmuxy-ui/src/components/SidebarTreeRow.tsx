@@ -1,8 +1,3 @@
-/**
- * SidebarTreeRow — row types, git context helpers, and tab/pane treeitem rows
- * for SidebarTree.
- */
-
 import { paneRowLines, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
@@ -14,12 +9,10 @@ import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
 
-/** Nesting depth for `aria-level`: tabs 1, their panes (a group's members included) 2. */
 function rowLevel(r: Row): number {
   return r.kind === 'tab' ? 1 : 2;
 }
 
-/** A pane's cwd as its row shows it: with the trailing slash of a directory. */
 function displayCwd(cwd: string | undefined): string {
   if (!cwd) return '';
   return cwd.endsWith('/') ? cwd : `${cwd}/`;
@@ -113,8 +106,6 @@ export function SidebarTreeRow({
         data-collapsed={row.collapsed}
         data-testid={`tree-tab-${row.window.id}`}
         onPointerDown={(e) => {
-          // The chevron folds, the field renames, a right-click menus:
-          // none of them starts a drag.
           if (e.button !== 0 || renamingWindowId === row.window.id) return;
           if ((e.target as HTMLElement).closest('button')) return;
           tabReorder.handlePointerDown(e, row.window.id, tabIndex);
@@ -169,7 +160,6 @@ export function SidebarTreeRow({
           aria-expanded={!row.collapsed}
           data-testid={`tree-chevron-${row.window.id}`}
           onClick={(e) => {
-            // The row itself selects the tab; only the chevron folds it.
             e.stopPropagation();
             toggleCollapse(row.window.id);
           }}
@@ -214,7 +204,6 @@ export function SidebarTreeRow({
   }
 
   const isActive = row.pane.tmuxId === activePaneId;
-  // The current tab's panes read a step brighter than the dimmed rest.
   const inCurrentTab = row.window.id === activeWindowId;
   const { process, title } = paneRowLines(row.pane);
   const state = paneStateFor(row.pane);

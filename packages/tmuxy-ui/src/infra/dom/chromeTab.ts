@@ -16,12 +16,10 @@ const CHROME_CONTROL =
 
 let pointerFocused: EventTarget | null = null;
 
-/** Every focus move, and whether a pointer press made it. */
 export function noteFocus(target: EventTarget | null, byPointer: boolean): void {
   pointerFocused = byPointer ? target : null;
 }
 
-/** Whether Tab on `target` moves the browser's focus rather than reaching a pane. */
 export function tabWalksChrome(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
   if (!element || typeof element.matches !== 'function') return false;

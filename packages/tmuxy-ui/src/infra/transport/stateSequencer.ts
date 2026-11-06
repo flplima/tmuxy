@@ -71,7 +71,6 @@ export class StateSequencer {
   private held: ServerDelta[] = [];
   private static readonly MAX_HELD = 256;
 
-  /** A raw `state-update` payload arrived. */
   receive(raw: unknown): SequenceStep {
     const decoded = decodeStateUpdate(raw);
     if (Either.isLeft(decoded)) {

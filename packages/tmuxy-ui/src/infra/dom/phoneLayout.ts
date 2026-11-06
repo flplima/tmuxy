@@ -1,6 +1,6 @@
 /**
  * The phone layout: on a narrow window or a coarse pointer the app is the
- * whole 80 × 25 terminal, a key row under it and the tab/pane tree below that,
+ * whole 80 × 25 terminal, a key row under it and the bottom view below that,
  * with no tab strip or bottom bar of its own. Held sideways (landscape), the
  * terminal takes the right of the screen at the height that fits its 25 rows,
  * and the keys and the tree stack in the column left of it.
@@ -14,14 +14,11 @@
  * What a finger does on the terminal is components/terminal/usePaneTouch.ts; the key row,
  * the zoom and the bottom view (the tree, or the pinned terminal a sideways
  * swipe flips it to) are App.tsx and the `phone` state slice.
- *
- * Pure: no React, no machine.
  */
 
 import { CHAR_HEIGHT, PHONE_CONTAINER_PADDING } from '../../constants/layout';
 import { DEFAULT_FONT_SIZE } from '../fontSizeManager';
 
-/** When the app takes the phone layout. */
 export const PHONE_QUERY = '(pointer: coarse), (max-width: 600px)';
 
 /**
@@ -113,7 +110,6 @@ export function rootFontPx(): number {
   return px > 0 ? px : DEFAULT_FONT_SIZE;
 }
 
-/** The media query, or null where there is no `matchMedia` (tests, old engines). */
 export function phoneMediaQuery(): MediaQueryList | null {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
     ? window.matchMedia(PHONE_QUERY)

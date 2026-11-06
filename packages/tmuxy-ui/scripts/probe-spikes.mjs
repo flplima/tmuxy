@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 /**
- * Probe every `v86`-tagged Storybook story in ONE Chromium page.
- *
- * The v86 stories share a process-wide emulator engine (V86Engine's
- * getSharedEngine): the first story cold-boots (~5s), every later story
- * restores the pinned snapshot (~1s). The regular probe-stories.mjs opens a
- * fresh page per story, which re-boots the machine every time and excludes
- * these stories entirely — this runner navigates between stories in-page via
- * the Storybook preview channel so the shared engine actually gets exercised
- * (including the SharedIsolation reset guard).
+ * Probe every `v86`-tagged Storybook story in ONE Chromium page. The v86
+ * stories share a process-wide emulator engine: the first story cold-boots
+ * (~5s), every later one restores the pinned snapshot (~1s). This runner moves
+ * between stories in-page through the preview, so the shared engine and its
+ * reset are what get exercised.
  *
  * Usage: node scripts/probe-spikes.mjs [port] [storyIdSubstring...]
  *
@@ -59,9 +55,8 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 
-// Console-error accounting. The shared page spans every story, so errors are
-// attributed to whichever story is on screen when they fire — good enough to
-// point a human at the culprit.
+// The shared page spans every story: an error is attributed to whichever
+// story is on screen when it fires.
 let currentStoryId = ids[0];
 const consoleErrorsByStory = new Map();
 page.on('console', (msg) => {
@@ -105,10 +100,8 @@ await page.goto(`${STORYBOOK_URL}/iframe.html?id=${ids[0]}&viewMode=story&global
 });
 
 async function awaitOutcome(id) {
-  // Every event has to name THIS story. Storybook keeps running the story it
-  // was on while the probe moves to the next one, so a failure trailing in
-  // from the previous story used to be reported against whichever story was on
-  // screen — which is how a red v86 run could name a story that never failed.
+  // Every event has to name THIS story: Storybook keeps running the story it
+  // was on while the probe moves to the next one.
   const mine = (e, storyId) => e.storyId === null || e.storyId === storyId;
   try {
     await page.waitForFunction(
@@ -156,24 +149,19 @@ const loadStory = (storyId) =>
 
 /**
  * One story: selected on the shared page (or loaded fresh after `fresh`),
- * retried once on a cold-booted engine. The probe's own calls into the page
- * fail when the page goes away under them (a reload, a crashed renderer): that
- * fails this story, and the next one starts on a freshly loaded page, rather
- * than ending the run with every later story unprobed.
+ * retried once on a cold-booted engine. A probe call that fails because the
+ * page went away under it fails only this story; the next starts on a fresh
+ * page instead of the run ending with every later story unprobed.
  */
 async function probeStory(id, i, fresh) {
   if (fresh) {
     await loadStory(id);
   } else if (i > 0) {
-    // Let the finished story's teardown/trailing engine traffic settle
-    // before rewinding the shared machine — switching at storyRendered+0ms
-    // leaves the next mount racing the previous story's outbound bytes.
-    // (A periodic full page reload was tried to clear accumulated engine
-    // drift, but it wiped document-level singletons like the injected
-    // `#tmuxy-theme` stylesheet mid-run; the core provisional-window-index
-    // fix removed the biggest accumulation source — tab-create stories no
-    // longer take tens of seconds — so a snapshot reset between stories is
-    // enough. A cold boot still happens on a failing story's retry below.)
+    // Let the finished story's trailing engine traffic settle before rewinding
+    // the shared machine: switching at once leaves the next mount racing the
+    // previous story's outbound bytes. (A periodic page reload would wipe
+    // document-level singletons such as the injected `#tmuxy-theme`
+    // stylesheet mid-run.)
     await new Promise((r) => setTimeout(r, 1500));
     await selectStory(id);
   }
@@ -181,11 +169,9 @@ async function probeStory(id, i, fresh) {
   let result = await awaitOutcome(id);
   let retried = false;
   if (!result.ok) {
-    // Retry on a FRESH cold-booted engine: most deep-run failures are
-    // accumulated-degradation, not real defects, and a full page reload clears
-    // all of it (JS timers, serial backlog, WASM/guest drift) — far more
-    // reliable than a snapshot-only bounce. A genuine defect still reproduces
-    // deterministically on the clean engine.
+    // Retry on a fresh cold-booted engine: a page reload clears accumulated
+    // drift (JS timers, serial backlog, wasm/guest state), and a genuine
+    // defect still reproduces on the clean engine.
     await loadStory(id);
     result = await awaitOutcome(id);
     retried = true;
@@ -210,8 +196,6 @@ for (let i = 0; i < ids.length; i++) {
   }
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   if (!result.ok) {
-    // The page errors so far and this story's console errors travel with the
-    // result, into its artifacts and the report at the end.
     result.pageErrors = [...pageErrors];
     result.consoleErrors = consoleErrorsByStory.get(id) ?? [];
     result.artifact = await writeArtifacts(page, `v86-${id}`, result).catch(() => undefined);

@@ -60,7 +60,6 @@ export function paneBox(
   offsetX = 0,
   offsetY = 0,
 ): PaneBox {
-  // Header row only exists when there's a separator above the pane (y > 0).
   const headerRows = pane.y > 0 ? 1 : 0;
   return {
     left: offsetX + (pane.x - 0.5) * charWidth,
@@ -84,12 +83,10 @@ export function paneInsetX(charWidth: number): number {
   return Math.round(charWidth / 2);
 }
 
-/** A pane is collapsed in a stack when tmux has shrunk it to a single row. */
 export function isCollapsedPane(pane: { height: number }): boolean {
   return pane.height <= 1;
 }
 
-/** The grid's pixel size: its extent in cells at the cell size. */
 export function gridPixelSize(
   cols: number,
   rows: number,
@@ -100,12 +97,10 @@ export function gridPixelSize(
 }
 
 /**
- * Where the grid's origin sits in the container: centred across it, never
- * past its right edge (a transient tmux width wider than the container), and
- * hung from the top one outline down. The rows fill the height in whole
- * cells, and what is left over — up to a row — goes below the grid: split
- * above and below, it was a band of empty ground between the tab strip and
- * the panes.
+ * Centred across the container, never past its right edge (a transient tmux
+ * width wider than the container), and hung one outline down. What is left of
+ * the height goes below the grid, so no empty band opens between the tab strip
+ * and the panes.
  */
 export function centeringOffset(containerWidth: number, gridWidth: number): GridOffset {
   const ideal = (containerWidth - gridWidth) / 2;

@@ -52,13 +52,11 @@ export const Demo: Story = {
     const bar = await waitFor(() => canvas.getByTestId('tmux-status-bar'), { timeout: 5000 });
     const host = bar.querySelector('.statusline-host');
     expect(host).not.toBeNull();
-    // In demo mode the click handler is dropped, so the clickable class is gone.
     expect(host).not.toHaveClass('statusline-clickable');
     expect(host).toHaveTextContent(/demo@localhost/);
   },
 };
 
-/** The bar's box, whichever line it is drawing. */
 const barBox = (canvasElement: HTMLElement) => {
   const bar = canvasElement.querySelector(
     '[data-testid="tmux-status-bar"], [data-testid="tmux-command-mode"]',
@@ -67,12 +65,7 @@ const barBox = (canvasElement: HTMLElement) => {
   return box ? { top: box.top, height: box.height } : null;
 };
 
-/**
- * The bar keeps one height in every mode. It used to be as tall as its tallest
- * item: the host and session labels in normal mode, the hint row alone in a
- * mode, the prompt with its padding at `:`, so it moved by a few pixels on
- * every prefix press.
- */
+/** Left to its content, the bar moved by a few pixels on every prefix press. */
 export const SameHeightInEveryMode: Story = {
   render: () => (
     <FixtureProvider height={60} fixture={PANES} start="one">

@@ -10,27 +10,20 @@ import type {
 import type { CellLine, PaneContent, SparseContent } from './wireCells';
 
 /**
- * Detect if a full state update represents a different session (kill+recreate).
- * Returns true when either session name changed, or all window IDs are different
- * (tmux assigns new window IDs on session creation, even if name is reused).
+ * A kill+recreate: tmux assigns new window IDs to a new session even when its
+ * name is reused, so no shared window ID means a different session.
  */
 function isSessionChanged(oldState: ServerState, newState: ServerState): boolean {
   if (oldState.session_name !== newState.session_name) return true;
-  // If window IDs have zero overlap, it's a recreated session
   const oldWindowIds = new Set(oldState.windows.map((w) => w.id));
   return newState.windows.length > 0 && newState.windows.every((w) => !oldWindowIds.has(w.id));
 }
 
 /**
- * Whether a pane's content is "not captured yet": no rows at all.
- *
- * The one rule every holder of pane content applies — the full-state merge
- * and the initial-state fill here, and the renderer's latches over the grid
- * and over the widget classification. A screen that has been cleared still
+ * The one rule every holder of pane content applies. A cleared screen still
  * has its rows, full of spaces, so a blank grid is real content (what `clear`
- * looks like) and must replace what was there; only a pane with no rows is
- * one whose capture has not landed (a placeholder, a pane before its first
- * capture, the gap a `swap-pane` leaves).
+ * looks like); only a pane with no rows is one whose capture has not landed (a
+ * placeholder, a pane before its first capture, the gap a `swap-pane` leaves).
  */
 export function notCapturedYet(content: PaneContent | undefined): boolean {
   return !content || content.length === 0;
@@ -39,21 +32,14 @@ export function notCapturedYet(content: PaneContent | undefined): boolean {
 /**
  * Take a `get_initial_state` answer as the client's state.
  *
- * The answer is a snapshot taken when the request reached the server, and the
- * live stream keeps running while it travels back. The stream is a sequence —
- * a full state, then deltas against the server's previous emission — so once
- * it has delivered a full state (`streamSynced`), it alone is the server's
- * state, and an answer from outside the sequence is at best as new and often
- * older. Put back, it undid whatever the stream had delivered since: a shell
- * prompt already printed (it is never printed again, so the pane stayed blank
- * for good), or the windows a session restore had just made — the stream
- * never sends those again, since to the server nothing changed. So a synced
- * stream keeps its state, and the answer only fills a pane the stream has
- * delivered no content for yet (it carries a capture the stream may not).
- *
- * Before the stream's first full state, or after a sequence gap, the answer
- * IS the state to start from, merged the way a full update from the stream
- * would be.
+ * The answer is a snapshot taken when the request reached the server, while
+ * the live stream kept running. Once the stream has delivered a full state
+ * (`streamSynced`) it alone is the server's state: an answer from outside the
+ * sequence is often older, and putting it back undoes what the stream sent
+ * since and never sends again (a printed prompt, a restore's windows). So a
+ * synced stream only takes the answer's content for a pane it has none for.
+ * Before the first full state, or after a sequence gap, the answer IS the
+ * state to start from.
  */
 export function adoptInitialState(
   answer: ServerState,
@@ -77,37 +63,25 @@ export function adoptInitialState(
 }
 
 /**
- * Detect a gap in the delta sequence. Deltas carry a monotonic `seq`; a
- * correctly-ordered stream advances it by exactly one each time. If a delta is
- * dropped or reordered the seq jumps, and applying it to stale state silently
- * diverges the client — so the adapter should refetch a full snapshot instead.
- *
- * `prevSeq` is the seq the delta must follow — the last applied delta's, or
- * the number a full state or adopted answer carries — or `null` after a sync
- * point no stream numbered, which never reports a gap. A seq that goes
- * backwards or repeats is also treated as a gap.
+ * A delta's `seq` must be exactly one past `prevSeq` (the last applied delta's,
+ * or the number a full state or adopted answer carries); anything else is a
+ * gap, after which the client refetches a full snapshot. `null` — a sync point
+ * no stream numbered — never reports a gap.
  */
 export function isDeltaSeqGap(prevSeq: number | null, delta: ServerDelta): boolean {
   return prevSeq !== null && delta.seq !== prevSeq + 1;
 }
 
-/**
- * Handle a decoded StateUpdate (full or delta), returning the new state.
- * Returns null if a delta arrives before any full state.
- */
+/** Null when a delta arrives before any full state. */
 export function handleStateUpdate(
   update: StateUpdate,
   currentState: ServerState | null,
 ): ServerState | null {
   if (update.type === 'full') {
     // A full update keeps a pane's content where the update has none captured
-    // yet (`notCapturedYet`), so a resync over a pane whose capture is still
-    // in flight does not blank it.
-    //
-    // Skip content preservation when the session has changed (kill+recreate):
-    // pane IDs are reused across sessions, so old content would leak as ghost lines.
-    // Detect session change by: different session name, OR completely different set
-    // of window IDs (same name but recreated — tmux assigns new window IDs).
+    // yet, so a resync over a capture still in flight does not blank it — but
+    // not across a kill+recreate: tmux reuses pane IDs across sessions, so the
+    // old content would leak as ghost lines.
     const sessionChanged = currentState !== null && isSessionChanged(currentState, update.state);
     if (currentState && currentState.panes.length > 0 && !sessionChanged) {
       const existingPaneMap = new Map(currentState.panes.map((p) => [p.tmux_id, p]));
@@ -159,9 +133,6 @@ function mergeRecords<K, R, C>(
   return Array.from(byKey.values());
 }
 
-/**
- * Apply a delta to the current state and return a new state
- */
 export function applyDelta(state: ServerState, delta: ServerDelta): ServerState {
   return {
     ...state,
@@ -190,11 +161,8 @@ export function applyDelta(state: ServerState, delta: ServerDelta): ServerState 
 }
 
 /**
- * Cell-line equality with wire-shape normalization: `null`/`undefined` styles
- * are both "no style", and absent boolean flags equal `false`. Exported as
- * THE line comparator — `store/adapters.ts` used to carry its own
- * `linesEqual` with stricter semantics (`undefined !== false`), so the two
- * halves of the pipeline disagreed about what "changed" means.
+ * THE line comparator, with wire-shape normalization: `null`/`undefined` styles
+ * are both "no style", and absent boolean flags equal `false`.
  */
 export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
   if (a === b) return true;
@@ -204,10 +172,8 @@ export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
       cb = b[i];
     if (ca.c !== cb.c) return false;
     if (ca.s === cb.s) continue;
-    // Treat null and undefined as equivalent (both mean "no style")
     if (!ca.s && !cb.s) continue;
     if (!ca.s || !cb.s) return false;
-    // Deep-compare fg/bg with RGB object support
     if (typeof ca.s.fg === 'object' && typeof cb.s.fg === 'object') {
       if (ca.s.fg.r !== cb.s.fg.r || ca.s.fg.g !== cb.s.fg.g || ca.s.fg.b !== cb.s.fg.b)
         return false;
@@ -216,7 +182,6 @@ export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
       if (ca.s.bg.r !== cb.s.bg.r || ca.s.bg.g !== cb.s.bg.g || ca.s.bg.b !== cb.s.bg.b)
         return false;
     } else if (ca.s.bg !== cb.s.bg) return false;
-    // Normalize boolean fields: undefined and false are equivalent
     if (
       (ca.s.bold ?? false) !== (cb.s.bold ?? false) ||
       (ca.s.dim ?? false) !== (cb.s.dim ?? false) ||
@@ -230,12 +195,7 @@ export function cellLinesEqual(a: CellLine, b: CellLine): boolean {
   return true;
 }
 
-/**
- * Merge sparse line updates into existing content.
- * delta.content is Record<number, CellLine> — only changed line indices.
- */
 function mergeSparseContent(oldContent: PaneContent, changes: SparseContent): PaneContent {
-  // Find the max line index to determine new content length
   let maxIdx = oldContent.length - 1;
   for (const key of Object.keys(changes)) {
     const idx = Number(key);
@@ -246,7 +206,7 @@ function mergeSparseContent(oldContent: PaneContent, changes: SparseContent): Pa
   for (let i = 0; i < newLength; i++) {
     const changedLine = changes[i];
     if (changedLine !== undefined) {
-      // Check if line is actually unchanged (preserve identity for React.memo)
+      // An unchanged line keeps its identity, for React.memo.
       if (i < oldContent.length && cellLinesEqual(oldContent[i], changedLine)) {
         merged[i] = oldContent[i];
       } else {
@@ -262,12 +222,9 @@ function mergeSparseContent(oldContent: PaneContent, changes: SparseContent): Pa
 }
 
 function applyPaneDelta(pane: WirePane, delta: PaneDelta): WirePane {
-  // A delta is applied verbatim, even when it empties every row: that is what
-  // a `clear` looks like (the erase arrives as its own %output, the prompt as
-  // the next one). The resize transient this used to guard against — a reset
-  // vt100 grid emitted before its capture-pane refill — is held back on the
-  // server (the aggregator keeps the previous content while a capture is in
-  // flight), so nothing legitimate reaches here as a spurious blank.
+  // A delta that empties every row is applied: that is what a `clear` looks
+  // like (the erase and the prompt arrive as separate %output). A resize's reset
+  // grid is held back by the server's aggregator until its capture refills it.
   const mergedContent =
     delta.content !== undefined ? mergeSparseContent(pane.content, delta.content) : undefined;
 

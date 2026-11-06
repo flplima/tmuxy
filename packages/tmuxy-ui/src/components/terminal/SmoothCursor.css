@@ -1,6 +1,5 @@
-/* The one cursor the user sees: a fixed overlay that glides to wherever the
-   keyboard-holding pane put its cursor. The pane's own cursor element stays as
-   the overlay's anchor (and as what tests measure) but is not painted. */
+/* The pane's own cursor stays as SmoothCursor's anchor (and what tests
+   measure) but is not painted. */
 .has-smooth-cursor .terminal-cursor {
   visibility: hidden;
 }
@@ -9,15 +8,13 @@
   position: fixed;
   inset: 0;
   pointer-events: none;
-  /* Above floats, the Tab Overview and the pane grid lifted over it — the
-     cursor belongs to whatever surface holds the keyboard, and every one of
-     those can — but under the connection overlay, which covers the whole app. */
+  /* Above every surface that can hold the keyboard (floats, the Tab Overview),
+     under the connection overlay. */
   z-index: var(--z-cursor);
   opacity: 0;
 }
 
-/* The smear: a full-viewport sheet in the cursor colour, clipped per frame to
-   the quadrilateral spanned by the four gliding corners. */
+/* The smear: clipped per frame to the four gliding corners. */
 .smooth-cursor-shape {
   position: absolute;
   inset: 0;
@@ -29,8 +26,7 @@
   background: var(--cursor-copy-bg);
 }
 
-/* The glyph under a block cursor, painted in the cursor's text colour once the
-   block has arrived (mid-flight the pane's own glyph shows through). */
+/* Painted once the block has arrived; mid-flight the pane's own glyph shows through. */
 .smooth-cursor-char {
   position: absolute;
   left: 0;
@@ -46,12 +42,10 @@
   color: var(--term-black);
 }
 
-/* The blink. Two gates have to agree: `@tmuxy-cursor-blink` on the app
-   container (the config / View menu switch) and `is-blinking` on the overlay,
-   which mirrors what the pane's cursor asked for through DECSCUSR. It rides on
-   its own layer because the glide writes the root's and the glyph's opacity
-   every frame. The step-end curve is the hard on/off a terminal caret has, not
-   a fade. */
+/* Blinks only when `@tmuxy-cursor-blink` (the app container) and the pane's
+   DECSCUSR shape (`is-blinking`) agree. Its own layer: the glide writes the
+   root's and the glyph's opacity every frame. step-end is a terminal caret's
+   hard on/off, not a fade. */
 .smooth-cursor-blink {
   position: absolute;
   inset: 0;

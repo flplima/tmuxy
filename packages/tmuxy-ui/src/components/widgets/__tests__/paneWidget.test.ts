@@ -12,7 +12,10 @@ registerWidget('tree', stub);
 const lines = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
 let paneNumber = 0;
-/** What a pane with this screen and this `@tmuxy-pane-widget` tag shows (a fresh pane each time). */
+/**
+ * What a pane with this screen and this `@tmuxy-pane-widget` tag shows (a fresh
+ * pane each time).
+ */
 const detectWidget = (content: PaneContent, paneWidget: string | null | undefined) => {
   const widget = paneWidgetOf({ tmuxId: pid(`%${paneNumber++}`), content, paneWidget });
   return widget && { widgetName: widget.name, contentLines: widget.lines };
@@ -68,7 +71,6 @@ describe('paneWidgetOf', () => {
       expect(detectWidget(lines(MARKER, 'x'), 'nosuchwidget')).toBeNull();
     });
 
-    /** Still nothing without a tag, marker or no marker. */
     it('renders nothing for an untagged pane however it scrolled', () => {
       expect(detectWidget(lines('whatever', 'output'), null)).toBeNull();
       expect(detectWidget(lines(MARKER), null)).toBeNull();

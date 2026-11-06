@@ -1,31 +1,15 @@
 /**
- * In-page terminal-content stability recorder for Storybook play functions.
- *
- * Where `glitchRecorder.ts` proves the pane *chrome* (layout nodes, geometry)
- * doesn't churn — and deliberately IGNORES `.terminal-line` / `.terminal-content`
- * — this recorder proves the opposite: that the rendered terminal *content*
- * never blinks or flickers away during a pane operation (navigate, split,
- * resize, zoom, kill, …).
- *
- * The method is a rAF sampler over a scope element's `textContent`. Callers seed
- * it with the distinctive marker strings that some panes are currently showing
- * (e.g. `echo ZZ_MARK_A_ZZ`); every animation frame during the operation it
- * checks each marker is still present. A marker that was visible and then
- * vanishes for one or more painted frames — while its pane is meant to persist —
- * is exactly the user-visible content flicker we want to catch. rAF granularity
- * means a synchronous clear-and-repaint within a single frame is not flagged
- * (the user never sees it); only a blank that survives a paint is a flicker.
- *
- * Pure DOM — no Storybook / testing-library imports — usable from any play
- * function.
+ * Proves the terminal content never blinks away during a pane operation:
+ * every animation frame, each marker string a pane shows must still be in the
+ * scope's text. Sampling per frame means a clear-and-repaint within one frame
+ * (which the user never sees) is not flagged; only a blank that survives a
+ * paint is.
  */
 
 export interface ContentBlink {
-  /** The marker text that went missing. */
   readonly marker: string;
-  /** ms after start() at which the marker first went missing. */
+  /** ms since start(). */
   readonly firstMissingMs: number;
-  /** Number of sampled frames in which the marker was absent. */
   readonly missingFrames: number;
 }
 
@@ -38,16 +22,11 @@ export class ContentStabilityRecorder {
   private readonly missing = new Map<string, { frames: number; firstMs: number }>();
   private rafId = 0;
 
-  /**
-   * @param scope   Element whose subtree text is sampled (usually `.pane-layout`).
-   * @param markers Marker strings expected to remain continuously visible.
-   */
   constructor(scope: Element, markers: string[]) {
     this.scope = scope;
     this.markers = [...markers];
   }
 
-  /** Begin sampling. Idempotent while running. */
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -69,10 +48,7 @@ export class ContentStabilityRecorder {
     this.rafId = requestAnimationFrame(tick);
   }
 
-  /**
-   * Narrow the tracked marker set mid-recording — e.g. just before killing a
-   * pane, drop its marker so its (intentional) disappearance isn't flagged.
-   */
+  /** Narrow the markers mid-recording, e.g. just before killing a pane. */
   expect(markers: string[]): void {
     this.markers = [...markers];
   }
@@ -82,24 +58,15 @@ export class ContentStabilityRecorder {
     cancelAnimationFrame(this.rafId);
   }
 
-  /** How many frames were sampled — lets a story assert it actually observed. */
   get sampledFrames(): number {
     return this.frames;
   }
 
   /**
-   * Resolve once at least `min` frames have been sampled.
-   *
-   * Stories gate their observation window on wall-clock sleeps, but the
-   * assertions are about *painted* frames: a loaded machine can spend an entire
-   * sleep inside one long task, ending the window having sampled a frame or
-   * two and making the check vacuous (that is the `sampledFrames` guard firing
-   * intermittently in CI). Waiting for frames instead of milliseconds makes the
-   * window load-independent. Nothing is masked — frames after the operation
-   * only add evidence, and a blink nobody painted is a blink nobody saw.
-   *
-   * Polls on a timer, not rAF, so a page that genuinely never paints still
-   * fails on the deadline instead of hanging.
+   * The assertions are about painted frames: a loaded CI machine can spend a
+   * whole wall-clock sleep inside one long task and sample a frame or two, so
+   * the window waits for frames instead. Polls on a timer, not rAF, so a page
+   * that never paints fails on the deadline instead of hanging.
    */
   waitForFrames(min: number, timeoutMs = 4000): Promise<void> {
     if (this.frames >= min || !this.running) return Promise.resolve();
@@ -129,7 +96,6 @@ export class ContentStabilityRecorder {
     }));
   }
 
-  /** Throw with a readable report if any tracked marker blinked. */
   assertStable(operation: string): void {
     const blinks = this.blinks();
     if (blinks.length > 0) {

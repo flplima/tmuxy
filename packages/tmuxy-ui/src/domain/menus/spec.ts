@@ -1,13 +1,8 @@
 /**
- * One menu model for every menu surface.
- *
- * A menu is DATA: a list of nodes derived from the machine context, so an
- * item's `disabled` and `checked` are the live state and never a copy of it.
+ * One menu model for every menu surface, derived from the machine context.
  * Three renderers draw the same spec — the in-app floating menu
  * (`components/menus/SpecMenu.tsx`), the desktop's native popups and, on
- * macOS, the native menu bar (`infra/menus/nativeMenu.ts`) — and hand the
- * chosen item's action to one `MenuDispatch`. The item lists used to be
- * written twice (JSX here, Rust in the desktop app) and drifted apart.
+ * macOS, the native menu bar (`infra/menus/nativeMenu.ts`).
  *
  * The vocabulary is generic over `A`, what choosing an item does: the
  * renderers only carry it to the dispatch, so they need not know the app's
@@ -16,7 +11,6 @@
 
 import type { MenuIconName } from './icons';
 
-/** What a renderer calls with the action of the item chosen. */
 export type MenuDispatch<A> = (action: A) => void;
 
 /** The native items a platform draws itself; the in-app renderer leaves them out. */
@@ -79,7 +73,6 @@ export type MenuNode<A> =
 
 export type MenuSpec<A> = ReadonlyArray<MenuNode<A>>;
 
-/** Where a menu is shown; what each spec builder needs to know beyond the context. */
 export interface MenuEnv {
   isDemo: boolean;
   isTauri: boolean;

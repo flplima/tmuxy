@@ -1,11 +1,8 @@
 /**
- * The agents' own marks, as SVG: Claude Code's and Codex's (OpenAI's) after
- * the Simple Icons paths (CC0), Antigravity's after LobeHub's icons (MIT).
- * Strings rather than files, so every bundler that builds the UI — Vite for
- * the app, Next for the demo — takes them the same way.
- *
- * Only the shape counts: an icon is drawn in the text colour beside it
- * (components/PaneIcon.tsx), so the paths carry no colour of their own.
+ * Claude Code's and Codex's (OpenAI's) marks after the Simple Icons paths
+ * (CC0), Antigravity's after LobeHub's icons (MIT). Strings rather than
+ * files, so Vite (the app) and Next (the demo) take them the same way. Only
+ * the shape counts: PaneIcon draws them as a mask in the text colour.
  */
 
 export const CLAUDE_SVG =

@@ -1,20 +1,11 @@
 #!/usr/bin/env node
 /**
- * Interaction-latency harness — desktop (Tauri) target.
- *
- * The same interactions, the same probes and the same report shape as the web
- * harness (`measure-interactions.mjs`); both import the suite from
- * `lib/perf-harness.mjs`. Only the driver differs: the desktop app has no CDP
+ * Interaction-latency harness, desktop (Tauri) target: the web harness's suite
+ * (`lib/perf-harness.mjs`) over another driver. The desktop app has no CDP
  * endpoint, so it is driven through `tauri-driver` → WebKitWebDriver over
- * WebdriverIO, against the binary a user actually launches.
- *
- * Why this exists: the desktop app reaches the same Rust core over Tauri IPC
- * instead of `POST /commands` + SSE. That is a different transport with a
- * different cost, and until this harness there was no number for it at all —
- * only a README claim that it is faster. Reports land under a `tauri` target
- * so `compare-interactions.mjs` holds them to their own baseline; comparing
- * desktop milliseconds against web ones would measure the transport swap and
- * the platform at once.
+ * WebdriverIO. Reports land under a `tauri` target, held to their own
+ * baseline: the desktop app reaches the core over Tauri IPC instead of
+ * `POST /commands` + SSE.
  *
  * The app must already be built (`npx tauri build --no-bundle`, release, in
  * `packages/tmuxy-tauri-app`). tauri-driver is started here if nothing is
@@ -38,7 +29,6 @@ const require = createRequire(import.meta.url);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = resolve(HERE, '../../..');
 
-// One implementation of the driver lifecycle, shared with the E2E suite.
 const { startTauriDriver, stopTauriDriver, DRIVER_PORT } = require(
   resolve(WORKSPACE_ROOT, 'tests/tauri/helpers/tauri-driver.js'),
 );
@@ -54,15 +44,13 @@ const SAMPLES = Number(opt('--samples', '10'));
 const OUT = opt('--out', null);
 const LABEL = opt('--label', 'local');
 const DRIVER = Number(opt('--driver-port', String(DRIVER_PORT)));
-// Release by default: this harness exists to describe the binary a user
-// launches, and a debug build's own slowness would swamp the differences
-// between interactions it is here to see.
+// Release by default: a debug build's own slowness would swamp the
+// differences between interactions.
 const BINARY = opt('--binary', resolve(WORKSPACE_ROOT, 'target/release/tmuxy'));
 const SESSION = opt('--session', 'tmuxy-perf');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The driver adapter contract from `lib/perf-harness.mjs`, over WebdriverIO. */
 function wdioAdapter(driver) {
   return {
     evaluate: (fn, arg) => driver.execute(fn, arg),
@@ -82,8 +70,7 @@ function wdioAdapter(driver) {
     },
     // WebKitWebDriver's `execute` is synchronous and cannot hold a pending
     // in-page promise across the keystroke, so the armer parks its answer on
-    // `window` and settling polls for it. The timing itself still happens
-    // in-page, so none of this polling cost lands in the number.
+    // `window` and settling polls for it.
     arm: async (probe, arg, timeoutMs) => {
       await driver.execute(
         (p, a, t) => {
@@ -108,20 +95,7 @@ function wdioAdapter(driver) {
   };
 }
 
-/**
- * Give the app a tmux session of its own.
- *
- * The app's built-in session creation can fail when the user's tmuxy config
- * carries settings (`window-size manual`) that crash tmux on a fresh start
- * with no attached client, so it is pre-created here — same reason the E2E
- * suite does it.
- */
-/**
- * Whether an X server is actually answering on `$DISPLAY`.
- *
- * `xdpyinfo` is the same probe `startXvfb` waits on, so agreeing with it is
- * the point: if this returns false, starting one is the right move.
- */
+/** `xdpyinfo`, the same probe `startXvfb` waits on. */
 function displayIsLive() {
   const display = process.env.DISPLAY;
   if (!display) return false;
@@ -133,6 +107,11 @@ function displayIsLive() {
   }
 }
 
+/**
+ * Pre-created, because the app's own session creation can fail when the
+ * user's tmuxy config carries settings (`window-size manual`) that crash tmux
+ * on a fresh start with no attached client.
+ */
 function prepareSession(socket, session) {
   // A socket with a slash is a path (-S), as the server and the CLI read it.
   const tmux = `tmux ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
@@ -153,21 +132,15 @@ async function main() {
     process.exit(2);
   }
 
-  // A socket of its own, so a perf run can never disturb the session the
-  // developer is working in — the same rule the E2E suite follows.
+  // A socket of its own, so a perf run never disturbs the developer's session.
   const socket = process.env.TMUX_SOCKET || 'tmuxy-perf';
   process.env.TMUX_SOCKET = socket;
   process.env.TMUXY_SESSION = SESSION;
   prepareSession(socket, SESSION);
 
-  // WebKitGTK needs a LIVE X display; macOS does not.
-  //
-  // `DISPLAY` being set is not the same as a display answering on it, and the
-  // difference is not hypothetical: the Tauri E2E suite starts its own Xvfb in
-  // jest's globalSetup and kills it again in globalTeardown, so any job that
-  // runs that suite first leaves `DISPLAY` pointing at a dead server. The app
-  // then panics out of `tao` with "Failed to initialize GTK" and every
-  // WebDriver session times out against a driver that keeps respawning it.
+  // WebKitGTK needs a live X display. The Tauri E2E suite kills its Xvfb in
+  // globalTeardown, leaving `DISPLAY` pointing at a dead server, and the app
+  // then panics out of `tao` with "Failed to initialize GTK".
   const needsXvfb = process.platform === 'linux' && !displayIsLive();
   if (needsXvfb) startXvfb();
 
@@ -180,11 +153,9 @@ async function main() {
       hostname: 'localhost',
       port: DRIVER,
       capabilities: {
-        // No `env` here: tauri-driver does not forward `tauri:options.env` to
-        // the spawned binary, which inherits the DRIVER's environment instead.
-        // That is why `DISPLAY` and `TMUX_SOCKET` are set on this process
-        // before startTauriDriver() rather than passed as a capability —
-        // passing them here looks like it works and silently does nothing.
+        // No `env`: tauri-driver does not forward `tauri:options.env`; the
+        // binary inherits the driver's environment, which is why `DISPLAY` and
+        // `TMUX_SOCKET` are set on this process before startTauriDriver().
         'tauri:options': { application: BINARY },
       },
       logLevel: 'warn',

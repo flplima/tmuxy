@@ -18,14 +18,12 @@ describe('useLatchedContent', () => {
     });
     expect(result.current).toBe(first);
 
-    // The gap: no rows. The previous grid keeps being drawn.
     rerender({ content: [] });
     expect(result.current).toBe(first);
 
     rerender({ content: undefined });
     expect(result.current).toBe(first);
 
-    // The new grid arrives and takes over.
     const second = grid('after the swap');
     rerender({ content: second });
     expect(result.current).toBe(second);

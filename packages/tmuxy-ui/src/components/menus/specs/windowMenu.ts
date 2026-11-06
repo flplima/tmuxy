@@ -1,8 +1,7 @@
 /**
- * Window — the desktop app's OS windows and their styles. Both lists are
- * read when the submenu opens rather than held in the machine: windows come
- * and go from other windows, and the style of a window is the OS's answer,
- * not the app's — so the surface fetches them and hands them here.
+ * Window: the desktop app's OS windows and their styles. The surface fetches
+ * both when the submenu opens: other windows open and close windows, and the
+ * style is the OS's answer.
  */
 
 import {

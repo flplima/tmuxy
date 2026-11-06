@@ -32,7 +32,6 @@ export interface AppMenuOptions {
   windowMenu?: AppMenuNode;
 }
 
-/** The layouts tmux offers, in the order the menus list them. */
 const LAYOUTS: ReadonlyArray<{ layout: string; label: string; icon: MenuIconName }> = [
   { layout: 'even-horizontal', label: 'Even Horizontal', icon: 'layout-even-horizontal' },
   { layout: 'even-vertical', label: 'Even Vertical', icon: 'layout-even-vertical' },
@@ -151,10 +150,8 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
       disabled: ctx.pinnedOptions.includes(PINNABLE.sendAsk),
       action: event({ type: 'TOGGLE_SEND_ASK' }),
     },
-    // This device's push notifications: a browser or the installed web app
-    // only (infra/pushNotifications.ts). tmuxy.conf can turn them off for
-    // every device (`@tmuxy-notify off`), and the browser for this one. The
-    // demo has no server to push from.
+    // This device's push notifications (infra/pushNotifications.ts): off for
+    // every device with `@tmuxy-notify off`, and the demo has no server to push from.
     !env.isDemo &&
       ctx.pushState !== 'unsupported' && {
         kind: 'checkbox',
@@ -332,7 +329,6 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSp
       disabled: env.isDemo || !env.isTauri,
       action: command('session-detach'),
     },
-    // Destructive and one click away: it asks first.
     {
       kind: 'item',
       id: 'session-kill',

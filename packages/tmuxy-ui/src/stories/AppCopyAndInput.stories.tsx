@@ -27,13 +27,10 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * The scroll view: wheeling up in a shell opens the native-like scrollback view
- * — history fetched from tmux via `get_scrollback_cells` and rendered in a
- * natively-scrolling container — and wheeling back to the bottom closes it.
- *
- * What makes it the scroll view rather than copy mode is asserted too: the mode
- * on the client record, and tmux never reporting `in_mode` for the pane. A
- * wheel gesture must not hand a pane a cursor and vi keys. See COPY-MODE.md.
+ * Wheeling up in a shell opens the scroll view (history from
+ * `get_scrollback_cells` in a natively scrolling container) and wheeling back
+ * down closes it. tmux never reports `in_mode`: a wheel gesture must not hand a
+ * pane a cursor and vi keys (docs/COPY-MODE.md).
  */
 export const ScrollViewWheel: Story = {
   play: async ({ canvasElement }) => {
@@ -49,8 +46,8 @@ export const ScrollViewWheel: Story = {
         ).toBe(true),
       { timeout: 30000, interval: 500 },
     );
-    // The wheel handler gates scroll-up on the client knowing the pane HAS
-    // scrollback (historySize from list-panes) — wait for it like a real user.
+    // The wheel opens the view only once the client knows the pane has
+    // scrollback (historySize from list-panes).
     await waitFor(() => expect(paneHistory(id)).toBeGreaterThan(0), {
       timeout: 15000,
       interval: 400,
@@ -65,26 +62,19 @@ export const ScrollViewWheel: Story = {
         await inputPause(gapMs);
       }
     };
-    // Wheel up: opens the scroll view and scrolls the ScrollbackTerminal back.
     await wheel(-120, 6, 250);
     await waitFor(() => expect(paneCopyState(id), 'scroll view open').toBeTruthy(), {
       timeout: 15000,
       interval: 400,
     });
     expect(paneCopyState(id)?.mode, 'opened as the scroll view, not copy mode').toBe('scroll');
-    // tmux was never told: the pane is not in a mode, so whatever runs in it
-    // carries on and no cursor is drawn over the scrollback.
     expect(paneMode(id), 'tmux left out of it').toBe(false);
-    // The rendered viewport shows earlier scrollback lines (100s, not the 199200 tail).
     await waitFor(() => expect(paneEl().textContent ?? '').toMatch(/1[0-9]\d(?!9200)/), {
       timeout: 15000,
       interval: 500,
     });
-    // The client scroll offset moved off the bottom of history.
     const cs = paneCopyState(id);
     expect(cs && cs.scrollTop < cs.totalLines - 1).toBe(true);
-    // Wheel back down to the bottom → the view closes and the pane follows
-    // live output again.
     await wheel(120, 40, 100);
     await waitFor(() => expect(paneCopyState(id), 'scroll view closed at bottom').toBeFalsy(), {
       timeout: 15000,
@@ -94,15 +84,11 @@ export const ScrollViewWheel: Story = {
 };
 
 /**
- * Sync panes: `synchronize-panes` in real tmux — typed input then mirrors into
- * every pane of the window. Set with tmux itself at the shell, as the user
- * would (no key is bound to it, and `tmuxy run` sets no option: an option
- * that mirrors keys would carry an agent's keys into every pane), and by
- * value rather than toggled: the command that turns it off is itself
- * mirrored into every pane, and a toggle run twice would leave it on. We paste
- * a sentinel with sync ON (must render in BOTH panes) and another after
- * turning it OFF (must render in exactly one) — the negative half guards
- * against a stuck setting.
+ * `synchronize-panes` in real tmux, set at the shell as a user would (no key is
+ * bound to it, and `tmuxy run` sets no option: one that mirrors keys would carry
+ * an agent's keys into every pane). Set by value, not toggled: the command that
+ * turns it off is itself mirrored, and a toggle run twice leaves it on. The
+ * sentinel typed after OFF must render in exactly one pane (a stuck setting).
  */
 export const SyncPanes: Story = {
   play: async ({ canvasElement }) => {
@@ -111,10 +97,10 @@ export const SyncPanes: Story = {
     await focusFirstPane(canvas, user);
     const inPanes = (re: RegExp) =>
       paneGroups(canvas).filter((p: HTMLElement) => re.test(p.textContent ?? '')).length;
-    // Set, then wait for the echo chained after it: it prints only once tmux
-    // has applied the setting, and the typed line carries the marker too, so
-    // the output is its second occurrence. A sentinel typed before the setting
-    // lands would reach one pane and read as sync not working.
+    // The echo chained after the setting prints only once tmux has applied it;
+    // the typed line carries the marker too, so the output is its second
+    // occurrence. A sentinel typed before the setting lands reads as sync
+    // not working.
     const set = async (value: 'on' | 'off', marker: string) => {
       pasteLine(`tmux setw synchronize-panes ${value} && echo ${marker}`);
       await waitFor(
@@ -133,10 +119,9 @@ export const SyncPanes: Story = {
     await set('off', 'SYNC_UNSET_42');
     pasteLine('echo SYNC_OFF_42');
     await waitFor(() => expect(inPanes(/SYNC_OFF_42/)).toBe(1), { timeout: 30000, interval: 500 });
-    // Then confirm it STAYED in one pane, not just raced: a fence typed into
-    // the OTHER pane runs after anything mirrored into it, since its shell
-    // reads its input in order. Once the fence has printed there (typed line
-    // and output, two occurrences), a mirrored SYNC_OFF_42 would have too.
+    // Stayed in one pane, not just raced: a fence typed into the other pane
+    // runs after anything mirrored into it, since its shell reads input in
+    // order.
     const other: HTMLElement = paneGroups(canvas).find(
       (p: HTMLElement) => p.getAttribute('data-pane-id') !== activePaneId(),
     )!;

@@ -1,28 +1,11 @@
-/**
- * scrollUtils - Shared scroll command logic for wheel and touch handlers
- *
- * Encapsulates the three-mode scroll routing:
- * 1. Mouse tracking (apps requesting mouse, e.g. nvim with `mouse=a`) → SGR wheel events
- * 2. Alternate screen without mouse (vim with `mouse=`, less) → Up/Down arrow keys
- * 3. Normal shell → proxy pixel delta to scroll container (native copy mode)
- *
- * Mouse tracking takes precedence over alternate-screen: when the app explicitly
- * enabled mouse reporting, it expects raw mouse events, not synthetic arrow keys
- * (which would move the cursor in nvim, not scroll the viewport).
- */
-
 import type { AppMachineEvent } from '../../machines/types/events';
 import type { PaneId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 
 /**
- * Split a pixel delta into whole rows, carrying what is left over.
- *
- * Everything that scrolls a terminal is quantised to rows: the escape
- * protocol has no unit smaller than a line, tmux's copy cursor sits on one,
- * and a full-screen application is only ever told about rows. A trackpad
- * reports pixels, so the sub-row part of each event is carried into the next
- * one rather than dropped — a slow drag still moves, a row at a time.
+ * The escape protocol has no scroll unit smaller than a row and a trackpad
+ * reports pixels, so the sub-row part is carried into the next event: a slow
+ * drag still moves.
  */
 export function takeWholeRows(
   deltaPixels: number,
@@ -36,12 +19,8 @@ export function takeWholeRows(
 }
 
 /**
- * Move a scrollback container by whole rows, landing on a row boundary.
- *
- * Rounded to the nearest row first, so a container left mid-row by something
- * else (a `scrollIntoView`, a font-size change) is pulled back onto the grid
- * instead of carrying the offset for the rest of the session. The browser
- * clamps the far end of the range for us.
+ * Lands on a row boundary: a container left mid-row (a `scrollIntoView`, a
+ * font-size change) is pulled back onto the grid. The browser clamps the far end.
  */
 export function scrollByRows(el: HTMLElement, rows: number, charHeight: number): void {
   if (rows === 0 || charHeight <= 0) return;
@@ -52,35 +31,32 @@ export function scrollByRows(el: HTMLElement, rows: number, charHeight: number):
 interface ScrollCommandOptions {
   send: (event: AppMachineEvent) => void;
   paneId: PaneId;
-  /** Number of lines to scroll. Positive = down, negative = up. */
+  /** Positive = down. */
   lines: number;
   alternateOn: boolean;
   mouseAnyFlag: boolean;
-  /** Cell X position (only needed for mouse-tracking SGR events) */
+  /** 0-based cell, for the SGR report. */
   cellX?: number;
-  /** Cell Y position (only needed for mouse-tracking SGR events) */
   cellY?: number;
 }
 
 /**
- * Send scroll commands to tmux for line-quantized scroll modes
- * (alternate screen and mouse tracking).
- *
- * Returns true if the scroll was handled, false if the caller should
- * fall through to the default scroll-container proxy behavior.
+ * A mouse-tracking application gets SGR wheel reports, even on the alternate
+ * screen: arrow keys would move nvim's cursor, not its viewport. The alternate
+ * screen without mouse tracking gets Up/Down. False for a pane that is neither.
  */
 export function sendScrollLines(opts: ScrollCommandOptions): boolean {
   const { send, paneId, lines, alternateOn, mouseAnyFlag, cellX = 0, cellY = 0 } = opts;
 
-  if (lines === 0) return true; // consumed but nothing to do
+  if (lines === 0) return true;
 
-  if (!alternateOn && !mouseAnyFlag) return false; // not handled
+  if (!alternateOn && !mouseAnyFlag) return false;
 
   const isScrollUp = lines < 0;
   const absLines = Math.abs(lines);
 
   if (mouseAnyFlag) {
-    // Mouse tracking mode: send SGR wheel events
+    // SGR wheel buttons: 64 up, 65 down.
     const button = isScrollUp ? 64 : 65;
     for (let i = 0; i < absLines; i++) {
       send({

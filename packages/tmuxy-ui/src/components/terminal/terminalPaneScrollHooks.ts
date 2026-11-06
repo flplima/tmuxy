@@ -1,7 +1,3 @@
-/**
- * Hooks behind TerminalPane's scrolling: the scroll model and the native listeners.
- */
-
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { readNativeSelection } from '../../infra/dom/nativeSelection';
 import type { CopyModeState } from '../../domain/copyMode';
@@ -15,28 +11,21 @@ export function useTerminalPaneScroll({
   scrollRef,
   send,
 }: UseTerminalPaneScrollOptions) {
-  // Track whether we're programmatically setting scroll to suppress onScroll feedback
   const suppressScrollRef = useRef(false);
 
-  // Track the last scrollTop that came from the DOM (user wheel/scroll).
-  // When the state machine's scrollTop matches this value, we skip syncing
-  // DOM <- state to avoid fighting the native scroll with line-boundary snaps.
+  // A state scrollTop equal to this came from the DOM: syncing it back would
+  // fight the native scroll with row snaps.
   const lastDomScrollTopRef = useRef<number | null>(null);
 
-  // Track previous copy mode scrollTop to skip sync when it hasn't changed
-  // (e.g. re-renders from chunk loads that don't alter scrollTop).
   const prevCopyScrollTopRef = useRef<number | null>(null);
 
-  // The row height the DOM offset was last written for: a phone turned
-  // sideways changes it under a view whose row did not move, and the offset
-  // must follow.
+  // A phone turned sideways changes the row height under a view whose row
+  // did not move.
   const prevCharHeightRef = useRef(charHeight);
 
-  // Scroll indicator (direct DOM manipulation to avoid re-renders)
   const scrollIndicatorRef = useRef<HTMLDivElement | null>(null);
   const scrollIndicatorTimer = useRef<number | null>(null);
 
-  // Context menu timeout refs (cleaned on unmount to prevent stale state updates)
   const flashScrollIndicator = useCallback(() => {
     const el = scrollIndicatorRef.current;
     if (!el) return;
@@ -47,8 +36,6 @@ export function useTerminalPaneScroll({
     }, 1200);
   }, []);
 
-  // onScroll: report the container's position while a scrollback view is open
-  // (either kind). Opening one is the wheel handler's job, not this one's.
   const handleContainerScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (suppressScrollRef.current) return;
@@ -56,7 +43,6 @@ export function useTerminalPaneScroll({
       if (copyState) {
         const el = e.currentTarget;
         const scrollTop = el.scrollTop;
-        // Forward scroll position to state machine
         const newScrollTop = Math.floor(scrollTop / charHeight);
         lastDomScrollTopRef.current = newScrollTop;
         send({
@@ -71,7 +57,6 @@ export function useTerminalPaneScroll({
     [send, paneId, charHeight, copyState, flashScrollIndicator],
   );
 
-  // Keep scroll pinned to bottom in normal mode
   useLayoutEffect(() => {
     if (!copyState && scrollRef.current) {
       suppressScrollRef.current = true;
@@ -80,9 +65,7 @@ export function useTerminalPaneScroll({
     }
   });
 
-  // Sync scroll position from state -> DOM only for keyboard-initiated changes.
-  // Skip when: (a) scrollTop hasn't changed (re-render from chunk load, etc.)
-  //            (b) scrollTop matches lastDomScrollTopRef (change came from wheel)
+  // State -> DOM, for the changes that did not come from the DOM (keyboard).
   useLayoutEffect(() => {
     if (copyState && scrollRef.current) {
       const newScrollTop = copyState.scrollTop;
@@ -91,13 +74,8 @@ export function useTerminalPaneScroll({
       const rowHeightChanged = charHeight !== prevCharHeightRef.current;
       prevCharHeightRef.current = charHeight;
 
-      // scrollTop didn't change — skip (chunk load, selection update, etc.),
-      // unless the rows themselves changed height: the same row is then at
-      // another pixel offset, and the DOM would show other rows until the
-      // next wheel event.
       if (newScrollTop === prevScrollTop && !rowHeightChanged) return;
 
-      // scrollTop changed but matches DOM-originated value — skip
       if (
         !rowHeightChanged &&
         lastDomScrollTopRef.current !== null &&
@@ -108,7 +86,6 @@ export function useTerminalPaneScroll({
       }
       lastDomScrollTopRef.current = null;
 
-      // Keyboard-initiated change — sync DOM to state
       const targetScroll = newScrollTop * charHeight;
       if (Math.abs(scrollRef.current.scrollTop - targetScroll) > 1) {
         suppressScrollRef.current = true;
@@ -124,12 +101,9 @@ export function useTerminalPaneScroll({
   });
 
   // A tab the user is not on stays mounted but `display: none`, and a scroll
-  // container with no box loses its offset. Shown again, it sat at the top of
-  // the spacer while the scrollback view rendered only the rows around its own
-  // `scrollTop` — a blank pane — and the first wheel step, read from row 0,
-  // threw the view to the start of history. The sync above cannot see this:
-  // the state's `scrollTop` never changed. Coming back on screen is a resize
-  // from nothing, so the offset is put back then.
+  // container with no box loses its offset (the state's `scrollTop` never
+  // changed, so the sync above cannot see it). Coming back on screen is a
+  // resize from nothing, so the offset is put back then.
   const latestRef = useRef({ copyState, charHeight });
   latestRef.current = { copyState, charHeight };
   const observedRef = useRef<{ el: HTMLElement; observer: ResizeObserver } | null>(null);
@@ -165,11 +139,9 @@ export function usePaneNativeListeners({
   handleTouchEnd,
   handleTouchCancel,
 }: UsePaneNativeListenersOptions) {
-  // Ref to latest handleWheel for the native listener
   const handleWheelRef = useRef(handleWheel);
   handleWheelRef.current = handleWheel;
 
-  // Refs to latest touch handlers for native listeners
   const handleTouchStartRef = useRef(handleTouchStart);
   handleTouchStartRef.current = handleTouchStart;
   const handleTouchMoveRef = useRef(handleTouchMove);
@@ -179,7 +151,8 @@ export function usePaneNativeListeners({
   const handleTouchCancelRef = useRef(handleTouchCancel);
   handleTouchCancelRef.current = handleTouchCancel;
 
-  // Native wheel and touch listeners with { passive: false } so preventDefault() works.
+  // Native listeners: React's wheel and touch listeners are passive, so their
+  // preventDefault() does nothing.
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
@@ -194,17 +167,9 @@ export function usePaneNativeListeners({
     // passive: false on the start too: a finger resting on text is a hold
     // (usePaneTouch), not the browser's long press.
     el.addEventListener('touchstart', touchStartHandler, { passive: false });
-    // The rest of the gesture is watched on the WINDOW, not on the pane: the
-    // finger lands on a terminal row, and opening the scroll view swaps every
-    // row out of the document. A touch whose target has been removed keeps
-    // being dispatched to that dead node and bubbles nowhere, so a pane-level
-    // listener stopped hearing the swipe exactly when it had just begun —
-    // the view opened one row above the live screen and went no further.
-    // usePaneTouch ignores a move it did not see start on this pane.
-    // passive: false so the handlers can call preventDefault(): on a move to
-    // stop the page scrolling under the finger, and on a tap to suppress the
-    // synthetic mouse events that would steal focus from the mobile
-    // keyboard's hidden input.
+    // The rest of the gesture is watched on the WINDOW: a touch whose target
+    // has left the document keeps being dispatched to that node and bubbles
+    // nowhere. usePaneTouch ignores a move it did not see start on this pane.
     window.addEventListener('touchmove', touchMoveHandler, { passive: false });
     window.addEventListener('touchend', touchEndHandler, { passive: false });
     window.addEventListener('touchcancel', touchCancelHandler);

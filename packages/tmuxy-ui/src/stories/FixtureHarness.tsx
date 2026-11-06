@@ -41,7 +41,7 @@ const chrome = {
   position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  // The theme's window background, as the page root paints it.
+  // As the page root paints it (standalone.css).
   background: 'rgb(var(--window-bg-rgb))',
 } as const;
 

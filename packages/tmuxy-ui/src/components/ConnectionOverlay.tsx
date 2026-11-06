@@ -1,19 +1,8 @@
 /**
- * ConnectionOverlay — what the pane area shows while there is nothing live
- * to show.
- *
- *  - `connecting` (first load): a pane placeholder (header bar + terminal
- *    surface in the theme's colours) under a blurred scrim, a spinner and the
- *    single word "Connecting…". No log, no details.
- *  - `fatal` (the backend stopped retrying): the one-line reason, a Retry
- *    button, and the command/error log behind a collapsed "Details"
- *    disclosure so support information stays reachable.
- *
- * A dropped channel after a frame was shown is not an overlay: the panes stay
- * in view and usable, and the snackbar corner says so (ReconnectNotice).
- *
- * Presentational: App decides the mode from the machine state and passes
- * everything in, so the three looks can be shown on their own in Storybook.
+ * What the pane area shows while there is nothing live to show: the first
+ * load, a fatal (the backend stopped retrying) or a detach. A dropped channel
+ * after a frame was shown is not an overlay: the panes stay usable and the
+ * snackbar says so (ReconnectNotice).
  */
 
 import type { ReactNode } from 'react';
@@ -32,11 +21,7 @@ export interface ConnectionOverlayProps {
   fatalError: string | null;
   log: LogEntry[];
   onRetry: () => void;
-  /**
-   * What `detached` mode puts on the scrim — the session switcher. Passed in
-   * rather than imported so this stays presentational and showable on its own
-   * in Storybook, as the three other modes are.
-   */
+  /** What `detached` mode puts on the scrim: the session switcher. */
   children?: ReactNode;
 }
 

@@ -1,8 +1,3 @@
-/**
- * Layout utility functions
- * Pure functions for pane layout calculations
- */
-
 import type { TmuxPane } from '../domain/client';
 import {
   CHAR_HEIGHT,
@@ -13,17 +8,10 @@ import {
 } from './layout';
 
 /**
- * Calculate target dimensions (cols/rows) based on available space.
- *
- * When containerWidth/containerHeight are provided (the content box of
- * .pane-container from its ResizeObserver) they are used directly — the
- * container's padding is the grid's margin and .pane-layout fills the rest.
- *
- * Otherwise falls back to window dimensions with manual bar-height and
- * padding subtraction.
- *
- * When multiple clients are connected, the server uses the minimum cols/rows
- * across all clients (like native tmux behavior).
+ * The cols/rows that fit the available space: the content box of
+ * .pane-container when measured (its padding is the grid's margin), else the
+ * window minus the bars. With several clients attached the server takes the
+ * minimum across them, as tmux does.
  */
 export function calculateTargetSize(
   charWidth: number,
@@ -45,12 +33,10 @@ export function calculateTargetSize(
 
 /**
  * The pane tmux has zoomed, identified by geometry: while a window is zoomed
- * tmux reports the zoomed pane spanning the whole grid — from the grid's
- * top-left corner to its bottom-right — while every other pane keeps its
- * pre-zoom box. Only the zoomed pane covers both corners; the bottom-right
- * pane of any layout also touches the far corner, and checking that corner
- * alone (as this used to) picked it instead, hiding the pane the user had
- * just zoomed. Returns null when no pane spans the grid.
+ * tmux reports the zoomed pane spanning the whole grid while every other pane
+ * keeps its pre-zoom box. Only the zoomed pane covers both corners (the
+ * bottom-right pane of any layout touches the far one too). Null when no pane
+ * spans the grid.
  */
 export function findZoomedPane<P extends Pick<TmuxPane, 'x' | 'y' | 'width' | 'height'>>(
   panes: readonly P[],

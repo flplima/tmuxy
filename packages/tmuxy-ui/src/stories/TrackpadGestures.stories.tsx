@@ -1,19 +1,10 @@
 /**
- * Trackpad gesture stories — the desktop app's gestures, run
- * on the web build (docs/DESKTOP.md).
- *
- * The gesture actor is opted in with `config.desktopGestures`, and the
- * stories drive it the way the shell does: a slide as calls to
- * `window.tmuxyGesture` with the phases the native side reports, a pinch as
- * ctrl+wheel (WebKitGTK) or WebKit's gesturestart / gesturechange /
- * gestureend (the macOS WKWebView). They travel the real chain: gestureActor,
- * the app machine, GestureStage and PaneLayout drawing each step, and
- * SELECT_TAB / ZOOM_PANE / TOGGLE_TAB_OVERVIEW / TAB_OVERVIEW_ACTIVATE out
- * to tmux when the fingers lift, answered with the states real tmux recorded.
- *
- * Motion is sampled once a frame after the fingers lift, so a bounce, an
- * overshoot or a zoom that steps back before going on shows up as a sample
- * moving the wrong way.
+ * The desktop app's trackpad gestures, run on the web build (docs/DESKTOP.md).
+ * `config.desktopGestures` opts the actor in, and the stories drive it as the
+ * shell does: a slide as `window.tmuxyGesture` calls with the native phases, a
+ * pinch as ctrl+wheel (WebKitGTK) or gesturestart / gesturechange / gestureend
+ * (the macOS WKWebView). Motion is sampled once a frame after the lift, so a
+ * bounce or an overshoot shows up as a sample moving the wrong way.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -50,7 +41,6 @@ import {
   zoomed,
 } from './trackpadGestureHelpers';
 
-/** Tabs `main` (@0) and `logs` (@1, current); a switch either way answered as tmux answered it. */
 const TWO_TABS = {
   fixture: asFixture(tabsRecording),
   start: 'logs-active',
@@ -62,7 +52,6 @@ const TWO_TABS = {
 
 const ZOOM_LEFT = /^resize-pane -t %0 -Z$/;
 
-/** The same toggle zooms `%0` from the split and unzooms it from the zoom. */
 const PINCH_ZOOM = [
   { match: ZOOM_LEFT, from: 'side-by-side', to: 'left-zoomed' },
   { match: ZOOM_LEFT, from: 'left-zoomed', to: 'left-active' },
@@ -97,9 +86,7 @@ export const SlideBetweenTabs: Story = {
     await waitFor(() => expect(Number.isNaN(cursorLeft())).toBe(false));
     const cursorStart = cursorLeft();
 
-    // Fingers slide right: the grid moves with them, "main" alongside at the
-    // same height, the cursor with it, and nothing has switched yet. Far
-    // enough that the distance alone is past the commit share.
+    // Far enough that the distance alone is past the commit share.
     const fingers = new Fingers();
     fingers.down();
     const far = ctx().containerWidth * SWIPE_COMMIT_SHARE * 1.3;
@@ -114,9 +101,8 @@ export const SlideBetweenTabs: Story = {
     expect(cursorLeft() - cursorStart).toBeGreaterThan((moved.left - rest.left) * 0.7);
     expect(ctx().activeWindowId).toBe(logs.id);
 
-    // They lift: the tab switches at once — the keyboard and the strip do not
-    // wait for any animation — and only then does "main" slide the rest of
-    // the way in, one way only.
+    // On the lift the tab switches at once (the keyboard and the strip wait
+    // for no animation), and only then does "main" slide the rest of the way.
     await fingers.lift();
     const switchLeft = await (async () => {
       for (let frame = 0; frame < 240; frame++) {
@@ -140,8 +126,6 @@ export const SlideBetweenTabs: Story = {
       expect(cursorLeft()).toBeLessThanOrEqual(p.right);
     });
 
-    // Past the first tab: the grid gives a little with nothing beside it, and
-    // slides straight back.
     const edge = new Fingers();
     edge.down();
     await edge.move(repeat(24, 16));
@@ -155,7 +139,6 @@ export const SlideBetweenTabs: Story = {
     expect(Math.min(...back)).toBeGreaterThanOrEqual(rest.left - 1);
     expect(ctx().activeWindowId).toBe(main.id);
 
-    // A short, slow slide toward "logs" follows the fingers, then slides back.
     const short = new Fingers(80);
     short.down();
     await short.move(repeat(-4, 5));
@@ -164,8 +147,7 @@ export const SlideBetweenTabs: Story = {
     await sampleUntil(() => mainPane.getBoundingClientRect().left, settled);
     expect(ctx().activeWindowId).toBe(main.id);
 
-    // A flick that lifts short of the mark: the speed it lifts at carries it
-    // to "logs".
+    // Lifts short of the mark: the speed it lifts at carries it to "logs".
     const flick = new Fingers(8);
     flick.down();
     await flick.move(repeat(-Math.round(ctx().containerWidth * 0.04), 8));
@@ -231,8 +213,8 @@ export const PinchZoomsThePaneUnderTheFingers: Story = {
     expect(lifted.width).toBeGreaterThan(before.width * 1.3);
     expect(zoomed()).toBe(false);
 
-    // Done when the zoom's own morph is over, not merely when the width holds
-    // still for a few frames (a transition can take a frame or two to start).
+    // Done when the zoom's own morph is over, not when the width holds still
+    // for a few frames (a transition can take a frame or two to start).
     const morphing = () => pane.style.transition !== '';
     const growth = await sampleUntil(
       () => pane.getBoundingClientRect().width,

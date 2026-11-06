@@ -1,7 +1,3 @@
-/**
- * RowEdges stories — the pane's padding columns painted per row.
- */
-
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect } from 'storybook/test';
@@ -61,9 +57,8 @@ export const ThreeRows: Story = {
     const strips = [...canvasElement.querySelectorAll<HTMLElement>('.terminal-edge')];
     const lefts = strips.filter((s) => s.classList.contains('terminal-edge-left'));
     const rights = strips.filter((s) => s.classList.contains('terminal-edge-right'));
-    // Row 0 has no colours: nothing painted for it. Both coloured rows touch
-    // the left edge — column 0 is against the padding whatever the row holds —
-    // but only the full-width one reaches the right.
+    // Column 0 is against the padding whatever the row holds; only the
+    // full-width row reaches the right.
     expect(lefts).toHaveLength(2);
     expect(rights).toHaveLength(1);
     for (const s of lefts) {
@@ -75,9 +70,7 @@ export const ThreeRows: Story = {
     const right = rights[0].getBoundingClientRect();
     expect(right.right).toBeCloseTo(box.right, 0);
     expect(right.width).toBeCloseTo(9, 0);
-    // The right strip belongs to the status row, not to the short one below it.
     expect(right.bottom).toBeCloseTo(box.bottom - 24, 0);
-    // Rows are bottom-anchored: the last row's strips sit at the bottom.
     const [row1Left, row2Left] = lefts;
     expect(row2Left.getBoundingClientRect().bottom).toBeCloseTo(box.bottom, 0);
     expect(row1Left.getBoundingClientRect().bottom).toBeCloseTo(box.bottom - 24, 0);
@@ -88,10 +81,8 @@ export const ThreeRows: Story = {
 };
 
 /**
- * The bug this rule exists to prevent: a row of block art ends in a coloured
- * cell, and that colour used to run from there to the pane's border — the
- * "stretched last character" an ASCII-art logo showed in tmuxy and in no other
- * terminal.
+ * A row of block art that ends in a coloured cell must not run that colour to
+ * the pane's border (the "stretched last character" an ASCII-art logo showed).
  */
 export const ArtDoesNotBleedToTheBorder: Story = {
   args: {
@@ -106,7 +97,6 @@ export const ArtDoesNotBleedToTheBorder: Story = {
   play: async ({ canvasElement }) => {
     const rights = canvasElement.querySelectorAll('.terminal-edge-right');
     expect(rights).toHaveLength(0);
-    // The left edge is still painted: column 0 is against the padding.
     const lefts = canvasElement.querySelectorAll<HTMLElement>('.terminal-edge-left');
     expect(lefts).toHaveLength(1);
     expect(channels(getComputedStyle(lefts[0]).backgroundColor)).toEqual([0, 0, 255]);

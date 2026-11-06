@@ -1,7 +1,4 @@
-/* Snackbar — pinned to the top-right of the app chrome, under the tab bar so
-   the tabs (and the desktop traffic lights) stay reachable. Built from the
-   theme's own tokens: the terminal's colours set the surface, its red the
-   accent, so it follows whatever colourscheme the user picked. */
+/* Under the tab bar, so the tabs (and the desktop traffic lights) stay reachable. */
 
 .snackbar-stack {
   position: fixed;
@@ -35,8 +32,7 @@
   animation: snackbar-in 0.15s ease-out;
 }
 
-/* A tmux message (`display-message`): the same card in the theme's neutral
-   border. The red left edge means error and only error. */
+/* A tmux message (`display-message`): the red left edge means error and only error. */
 .snackbar.is-info {
   border: 1px solid var(--border-light);
   background-color: var(--term-background);
@@ -80,9 +76,6 @@
   outline: none;
 }
 
-/* The reconnect notice: the spinner the first-load overlay uses, at the
-   text's size, and a "Retry now" drawn as a small button rather than a
-   close, since the card leaves on its own when the channel is back. */
 .snackbar-reconnect {
   align-items: center;
 }

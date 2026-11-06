@@ -19,13 +19,12 @@ import { pluginLinkHosts } from '../../domain/plugins';
 import type { PaneId } from '../../domain/ids';
 import { dot, TERMINAL_LINE } from '../../infra/dom/terminalDom';
 
-/** The pane an element is drawn in. */
 function paneOf(el: Element | null): PaneId | null {
   const pane = el?.closest('[data-pane-id]')?.getAttribute('data-pane-id');
   return pane && /^%\d+$/.test(pane) ? (pane as PaneId) : null;
 }
 
-/** The line a click landed on and the column in it, in characters. */
+/** The column is in code points. */
 export function clickedText(e: MouseEvent): { line: string; column: number } | null {
   const target = e.target instanceof Element ? e.target : null;
   const lineEl = target?.closest(dot(TERMINAL_LINE));

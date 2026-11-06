@@ -39,8 +39,6 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
       return {
         kind: 'item',
         id: `session:${name}`,
-        // The same filled/hollow mark the theme items use, so "which one am I
-        // on" reads the same everywhere in the menus.
         label: `${current ? '● ' : '○ '}${name}`,
         data: { 'session-name': name, ...(current ? { current: 'true' } : {}) },
         // Switching is a `switch-client`: a change to this client alone,

@@ -13,15 +13,12 @@ import {
 } from '../infra/transport/drivers/guest/GuestEngine';
 
 /**
- * Renders the full TmuxyApp against REAL tmux — running inside a v86 x86
- * emulator, parsed by the tmuxy-core Rust engine compiled to WASM. No lifo.sh,
- * no simulation. Boots from a pre-restored snapshot (~4s); browser-only, so
- * these stories are `v86`-tagged and excluded from the deterministic CI probe.
+ * Boots from a pre-restored snapshot (~4s); browser-only, so these stories
+ * are `v86`-tagged and excluded from the deterministic CI probe.
  *
- * Sized in CELLS rather than pixels, defaulting to a plain 80x30 terminal — the
- * size the guest's tmux is actually running at is what these stories assert
- * against (pane geometry, wrapping, captures), so it is the thing worth pinning,
- * and pinning it keeps every story comparable regardless of the host's font.
+ * Sized in cells, not pixels: the size the guest's tmux runs at is what these
+ * stories assert against, and pinning it keeps every story comparable
+ * whatever the host's font.
  */
 export function V86AppHarness({
   initCommands,
@@ -33,9 +30,7 @@ export function V86AppHarness({
   initCommands?: string[];
   /** The tmux option the init sets when it is done (`GuestTmuxAdapterOptions`). */
   initDoneOption?: string;
-  /** Terminal width in columns. */
   cols?: number;
-  /** Terminal height in rows. */
   rows?: number;
   /** Reuse one process-wide v86 engine across stories (fast snapshot-restore
    *  between stories) instead of cold-booting a private engine per story. */
@@ -55,8 +50,7 @@ export function V86AppHarness({
         position: 'relative',
         display: 'flex',
         flexDirection: 'column',
-        // The theme's window background, as the page root paints it, so the
-        // chrome around the panes shows the colour the app gives it.
+        // As the page root paints it (standalone.css).
         background: 'rgb(var(--window-bg-rgb))',
       }}
     >

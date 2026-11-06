@@ -14,14 +14,11 @@
  * `list-panes` rows are comma-separated, and the keys are free text. Base64
  * cannot contain a comma, so the payload rides the format unescaped no matter
  * what the keys say.
- *
- * Pure: no React, no machine, no adapter.
  */
 
 import type { TmuxPane } from './client';
 import { decodeBase64Text } from './base64';
 
-/** A send waiting on a pane for the user's answer. */
 export interface SendAsk {
   kind: 'send';
   /**
@@ -44,11 +41,9 @@ export interface SendAsk {
 export interface OfferAsk {
   kind: 'offer';
   token: string;
-  /** The shell line to run, as the pane will receive it. */
   command: string;
 }
 
-/** A question waiting on a pane. */
 export type PaneAsk = SendAsk | OfferAsk;
 
 /** What the user chose. Written back as `<token>:<answer>`. */
@@ -61,12 +56,9 @@ export type AskAnswer = 'yes' | 'no';
 const ASK_TOKEN = /^[\w.%-]+$/;
 
 /**
- * Decode a raw `@tmuxy-ask` value.
- *
- * Returns null for anything that is not a well-formed payload — an unset
- * option, a truncated value, a half-written one caught mid-round-trip. A pane
- * with no readable question simply has no question: a malformed option must
- * never blur a pane behind an overlay the user cannot dismiss.
+ * Null for anything that is not a well-formed payload (an unset option, a
+ * value caught half-written): a malformed option must never blur a pane behind
+ * an overlay the user cannot dismiss.
  */
 export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
   if (!raw) return null;
@@ -100,18 +92,15 @@ export function decodePaneAsk(raw: string | null | undefined): PaneAsk | null {
   }
 }
 
-/** The question waiting on a pane, or null when none is. */
 export function paneAskFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): PaneAsk | null {
   return decodePaneAsk(pane?.paneAsk);
 }
 
-/** A send waiting on a pane, or null — an offer is not one. */
 export function paneSendFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): SendAsk | null {
   const ask = paneAskFor(pane);
   return ask?.kind === 'send' ? ask : null;
 }
 
-/** A restore's offer waiting on a pane, or null. */
 export function paneOfferFor(pane: Pick<TmuxPane, 'paneAsk'> | undefined | null): OfferAsk | null {
   const ask = paneAskFor(pane);
   return ask?.kind === 'offer' ? ask : null;
@@ -141,10 +130,8 @@ export function sentText(keys: readonly string[]): string {
   return text.replace(/\n$/, '');
 }
 
-/** Past this, or on more than one line, the keys get a block of their own. */
 const INLINE_MAX_CHARS = 48;
 
-/** Whether the keys read inline in the question or need their own block. */
 export function sentTextIsLong(text: string): boolean {
   return text.includes('\n') || text.length > INLINE_MAX_CHARS;
 }

@@ -1,14 +1,9 @@
-/**
- * Measurements stories make against the cell grid CellGridDecorator mounts.
- */
-
 /** Resolve once the webfont is in and the post-load re-measure has painted. */
 export async function cellGridReady(): Promise<void> {
   await document.fonts.ready;
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 }
 
-/** The published cell width, read back from the grid element. */
 export function cellWidthOf(grid: HTMLElement): number {
   const w = parseFloat(getComputedStyle(grid).getPropertyValue('--cell-w'));
   if (!(w > 0)) throw new Error(`--cell-w not published on grid (got "${w}")`);

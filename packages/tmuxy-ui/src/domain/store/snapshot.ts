@@ -1,33 +1,13 @@
-/**
- * From the decoded wire state to the store's snapshot, and the identity
- * preservation that keeps unchanged records the same objects across updates.
- */
-
 import { toClientState, type TmuxPane, type TmuxWindow } from '../client';
 import type { PaneTree, ServerState } from '../wire';
 import { cellLinesEqual } from '../deltaProtocol';
 import type { TmuxSnapshot } from './types';
 
-/** The snapshot a decoded server state describes (see `toClientState`). */
 export function transformServerState(payload: ServerState): TmuxSnapshot {
   return toClientState(payload);
 }
 
-/**
- * Preserve object identity across snapshots for anything that didn't change.
- *
- * Wire snapshots arrive as entirely fresh object graphs (serde/WASM and the
- * demo engine both serialize from scratch), so without this every state tick
- * invalidates every memoized selector and re-renders every pane — typing in
- * one pane repaints the whole app. Reusing the PREVIOUS snapshot's objects
- * when a pane/window is value-equal keeps `Object.is`-based selector caches
- * (and React memo boundaries) effective; within a changed pane, unchanged
- * content LINES keep their identity so the TerminalLine memo comparator
- * still short-circuits.
- */
-
 function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
-  // Content: reuse the previous line object wherever the line is value-equal.
   let contentSame = prev.content.length === next.content.length;
   const content = next.content.map((line, i) => {
     const prevLine = prev.content[i];
@@ -48,7 +28,6 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.title === next.title &&
     prev.borderTitle === next.borderTitle &&
     prev.groupId === next.groupId &&
-    // A reorder writes only the members' places, so this is all that changes.
     (prev.groupPos ?? null) === (next.groupPos ?? null) &&
     prev.inMode === next.inMode &&
     prev.copyCursorX === next.copyCursorX &&
@@ -62,9 +41,6 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.selectionStartY === next.selectionStartY &&
     prev.cursorShape === next.cursorShape &&
     prev.cursorHidden === next.cursorHidden &&
-    // A pane declaring its state (`@tmuxy-pane-state`) changes NOTHING else
-    // about itself — no output, no geometry — so omitting it here pins the old
-    // object and the tree never sees the new state at all.
     (prev.paneState ?? null) === (next.paneState ?? null) &&
     (prev.paneAsk ?? null) === (next.paneAsk ?? null) &&
     (prev.paneWidget ?? null) === (next.paneWidget ?? null) &&
@@ -88,24 +64,11 @@ function preserveWindow(prev: TmuxWindow, next: TmuxWindow): TmuxWindow {
     prev.floatDrawer === next.floatDrawer &&
     prev.floatBg === next.floatBg &&
     prev.floatNoheader === next.floatNoheader &&
-    // A sidebar column's dragged width is the ONLY thing a resize changes about
-    // its window, so omitting it here would pin the old object and leave the
-    // column drawn at its previous width while its pane has already rewrapped
-    // to the new one.
     (prev.sidebarCols ?? null) === (next.sidebarCols ?? null) &&
-    // Likewise the hidden flag: closing a column changes nothing else about
-    // its window, and the column must retract the moment it flips.
     Boolean(prev.sidebarHidden) === Boolean(next.sidebarHidden) &&
     Boolean(prev.collapsible) === Boolean(next.collapsible) &&
-    // Zoom toggles change nothing else about the window, so omitting it here
-    // pins the old object identity and the UI stays stuck in (or out of) zoom
-    // until some unrelated field happens to change.
     Boolean(prev.zoomed) === Boolean(next.zoomed) &&
-    // A background tab's active pane changes nothing else about its window;
-    // pinned here, a switch to it would land on a stale pane.
     (prev.activePaneId ?? null) === (next.activePaneId ?? null) &&
-    // A split or a kill can change only the tree (the panes change on their
-    // own records); a stale tree would preview a drag along the old splits.
     samePaneTree(prev.paneTree ?? null, next.paneTree ?? null);
   return same ? prev : next;
 }
@@ -120,6 +83,13 @@ function samePaneTree(a: PaneTree | null, b: PaneTree | null): boolean {
   );
 }
 
+/**
+ * Wire snapshots arrive as fresh object graphs, so without this every state
+ * tick invalidates every memoized selector and repaints every pane. Every field
+ * the UI reads must be compared in `preservePane` / `preserveWindow`: one left
+ * out pins the old object, and a change to that field alone (a pane's declared
+ * state, a zoom, a sidebar's width) never reaches the screen.
+ */
 export function preserveSnapshotIdentity(prev: TmuxSnapshot, next: TmuxSnapshot): TmuxSnapshot {
   const prevPanes = new Map(prev.panes.map((p) => [p.tmuxId, p]));
   const prevWindows = new Map(prev.windows.map((w) => [w.id, w]));

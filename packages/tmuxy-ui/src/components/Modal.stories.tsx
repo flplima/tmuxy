@@ -43,10 +43,8 @@ const Demo = ({
 export const Titled: Story = {
   render: () => <Demo title="Confirm action" />,
   play: async () => {
-    // Modal renders into document.body via a portal, so query from there.
     const body = within(document.body);
     expect(body.getByText('Confirm action')).toBeInTheDocument();
-    // The close button's accessible name is its text content "×".
     const closeBtn = document.querySelector('.modal-close') as HTMLButtonElement | null;
     expect(closeBtn).not.toBeNull();
 
@@ -69,7 +67,6 @@ export const Blur: Story = {
   play: async () => {
     const body = within(document.body);
     expect(body.getByText('Blurred backdrop')).toBeInTheDocument();
-    // Backdrop must use the blur class so the CSS variant kicks in.
     const backdrop = document.querySelector('.modal-backdrop');
     expect(backdrop).not.toBeNull();
     expect(backdrop?.classList.contains('modal-backdrop-blur')).toBe(true);
@@ -79,7 +76,6 @@ export const Blur: Story = {
 export const HeaderHidden: Story = {
   render: () => <Demo hideHeader />,
   play: async () => {
-    // No title, no close button, but the modal container is still in the DOM.
     expect(document.querySelector('.modal-close')).toBeNull();
     expect(document.querySelector('.modal-container')).not.toBeNull();
     expect(document.querySelector('.modal-header')).toBeNull();

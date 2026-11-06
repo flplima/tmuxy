@@ -10,11 +10,7 @@ import { Effect, Schedule, Schema } from 'effect';
  * `Schedule.either` recurs while EITHER input recurs and takes the SHORTER of
  * the two delays — so the exponential (1s, 2s, 4s, …) is clamped by the
  * constant 30s spacing, and the constant's infinite recurrence keeps the loop
- * retrying indefinitely until the connection is re-established or the fiber is
- * interrupted. Modelling reconnection as an Effect Schedule (rather than a
- * hand-rolled setTimeout + flag machine) means "keep retrying with backoff"
- * is the schedule's definition — an establish-failure and a mid-session drop
- * are the same program failure, so neither can silently end the retry loop.
+ * retrying until the connection is re-established or the fiber is interrupted.
  */
 export const RECONNECT_SCHEDULE = Schedule.exponential('1 seconds').pipe(
   Schedule.either(Schedule.spaced('30 seconds')),
@@ -44,10 +40,6 @@ export function parseFrame(type: string, event: MessageEvent): unknown {
   }
 }
 
-/**
- * Get the session name from URL query parameters.
- * Falls back to 'tmuxy' if not specified.
- */
 export function getSessionFromUrl(): string {
   if (typeof window === 'undefined') return 'tmuxy';
   const params = new URLSearchParams(window.location.search);
@@ -77,6 +69,12 @@ export function installNetworkHints(onRetry: () => void): (() => void) | null {
 
 export type EstablishProbeOutcome = { kind: 'fatal'; message: string } | { kind: 'created' } | null;
 
+/** The request guard's 403, with its reason, as the message the app shows. */
+async function pageRefusal(response: Response): Promise<EstablishProbeOutcome> {
+  const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
+  return { kind: 'fatal', message: `The server refused this page${reason ? `: ${reason}` : ''}` };
+}
+
 /**
  * Find out why the event stream would not open. `EventSource` hides the
  * response, so a server that refuses every request looks exactly like one
@@ -90,12 +88,6 @@ export type EstablishProbeOutcome = { kind: 'fatal'; message: string } | { kind:
  *   and tell the caller to reconnect immediately. Its refusal (too many
  *   sessions) ends retrying and is shown, like a 403.
  */
-/** The request guard's 403, with its reason, as the message the app shows. */
-async function pageRefusal(response: Response): Promise<EstablishProbeOutcome> {
-  const reason = (await response.text()).trim().replace(/^forbidden:\s*/i, '');
-  return { kind: 'fatal', message: `The server refused this page${reason ? `: ${reason}` : ''}` };
-}
-
 export async function probeRefusalReason(
   eventsUrl: string,
   session: string,
@@ -176,8 +168,7 @@ export async function postPreviewPage(url: string, html: string): Promise<void> 
   }
 }
 
-/** Ship a batch of trace events to the same-origin /trace ingest endpoint.
- * Fire-and-forget: a failed ship drops the batch, never affecting the app. */
+/** Fire-and-forget: a failed ship drops the batch, never affecting the app. */
 export function shipTraceBatch(connectionId: number, events: Record<string, unknown>[]): void {
   try {
     fetch(buildEndpointUrl('/trace'), {
@@ -241,9 +232,6 @@ export function openSseConnection(
       }
     }, 1000);
 
-    // End this connection exactly once: close the stream, mark disconnected,
-    // announce reconnection (unless intentional/fatal), then fail the effect
-    // so the retry schedule takes over.
     let ended = false;
     const endConnection = (error: Error): void => {
       if (ended) return;
@@ -255,7 +243,6 @@ export function openSseConnection(
       resume(Effect.fail(error));
     };
 
-    // What this link does on an event besides publishing it.
     const hooks: HostEventHooks = {
       'connection-info': (data) => cb.onConnected(data),
       // The backend gave up: terminal state, no more events. The flag the

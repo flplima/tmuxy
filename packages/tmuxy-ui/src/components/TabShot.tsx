@@ -1,15 +1,6 @@
 /**
- * TabShot — a tab's pane layout drawn to scale, as a picture of it.
- *
- * Shared by the Tab Overview's cards and the hover preview, which want the
- * same thing: each pane's screen at its natural cell size, scaled into its
- * share of a frame, so the picture reads as the tab's layout rather than as a
- * wireframe of it.
- *
- * The frame's pixel size has to be measured by the caller and passed in —
- * every box is positioned as a percentage of it, and the scale each pane's
- * screen needs comes from the same number. Until it is known the boxes fall
- * back to their labels, which is what the first render draws.
+ * The caller measures the frame's pixel size and passes it in: each pane's
+ * scale comes from it. Until it is known the boxes show their labels.
  */
 
 import { Terminal } from './terminal/Terminal';
@@ -19,16 +10,10 @@ import type { TmuxPane } from '../domain/client';
 
 interface TabShotProps {
   boxes: readonly SlotBox[];
-  /** The frame's measured pixel box; null until the caller has measured it. */
   frameSize: { width: number; height: number } | null;
   charWidth: number;
   charHeight: number;
-  /**
-   * Caption each pane with the icon and title its own header shows. Pass the
-   * panes to turn it on: the picture then reads as the tab does, which is the
-   * point of a preview. The all-tabs grid leaves it off — a wall of cards is
-   * about which tab, not which pane.
-   */
+  /** Pass the panes to caption each one with its own header. */
   panes?: readonly TmuxPane[];
 }
 
@@ -37,9 +22,8 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
     <>
       {boxes.map((box) => {
         const pane = panes?.find((p) => p.tmuxId === box.paneId);
-        // The pane's screen at its natural cell size, scaled into the box
-        // (each axis on its own, so it fills the box the way the pane fills
-        // its share of the tab).
+        // Each axis scales on its own, so the screen fills the box the way the
+        // pane fills its share of the tab.
         const naturalW = box.cols * charWidth;
         const naturalH = box.rows * charHeight;
         const shot =
@@ -64,10 +48,6 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
             }}
           >
             {pane && shot && (
-              // The pane's real header tab, drawn at the pane's real size and
-              // put through the same scale as its screen: a miniature that
-              // invents its own title bar stops looking like the tab it is a
-              // picture of the moment either one changes.
               <div
                 className="tab-shot-header"
                 style={{ width: shot.width, transform: shot.transform }}

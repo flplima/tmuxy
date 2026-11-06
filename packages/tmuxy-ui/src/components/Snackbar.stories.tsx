@@ -1,10 +1,3 @@
-/**
- * Snackbar stories — the error corner: one entry, a stack, and the close
- * button; a tmux message beside an error; and the reconnect notice a dropped
- * channel raises once it has stayed down. Entries are raised through the
- * machine exactly as the app does.
- */
-
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { Snackbar } from './Snackbar';
@@ -24,7 +17,6 @@ const meta: Meta<typeof Snackbar> = {
 export default meta;
 type Story = StoryObj<typeof Snackbar>;
 
-/** Buttons that raise the errors the app itself would raise. */
 function Triggers({ errors }: { errors: string[] }) {
   const send = useAppSend();
   return (
@@ -54,17 +46,14 @@ export const Stacked: Story = {
     const body = within(document.body);
     await waitFor(() => expect(body.getAllByRole('alert')).toHaveLength(ERRORS.length));
     const alerts = body.getAllByRole('alert');
-    // Oldest at the top, and every entry is actually on screen.
     expect(alerts[0]).toHaveTextContent(ERRORS[0]);
     for (const alert of alerts) {
       const rect = alert.getBoundingClientRect();
       expect(rect.width).toBeGreaterThan(0);
       expect(rect.right).toBeLessThanOrEqual(window.innerWidth);
     }
-    // The same error again does not add a fourth.
     await userEvent.click(canvas.getByRole('button', { name: ERRORS[1] }));
     expect(body.getAllByRole('alert')).toHaveLength(ERRORS.length);
-    // Close the middle one; the others stay.
     await userEvent.click(within(alerts[1]).getByRole('button', { name: /dismiss/i }));
     await waitFor(() => expect(body.getAllByRole('alert')).toHaveLength(ERRORS.length - 1));
     // (The trigger button still says it; the alert is what went away.)
@@ -86,10 +75,7 @@ function MessageTrigger({ text }: { text: string }) {
 
 const MESSAGE = 'build done';
 
-/**
- * A tmux message is a status, not an alert: announced politely, and drawn
- * without the red edge that means error — while an error beside it keeps it.
- */
+/** A tmux message is a status, not an alert, and has no red edge. */
 export const TmuxMessage: Story = {
   render: () => (
     <FixtureProvider height={320} fixture={PANES} start="one">
@@ -153,7 +139,6 @@ export const ReconnectingAfterTwoSeconds: Story = {
     const body = within(document.body);
     const droppedAt = Date.now();
     await userEvent.click(canvas.getByRole('button', { name: 'drop' }));
-    // Quiet first: well inside the delay there is nothing to see.
     await new Promise((r) => setTimeout(r, RECONNECT_NOTICE_DELAY_MS / 2));
     expect(body.queryByTestId('reconnect-notice')).toBeNull();
     expect(document.querySelector('[data-testid="loading-display"]')).toBeNull();
@@ -170,7 +155,6 @@ export const ReconnectingAfterTwoSeconds: Story = {
     expect(notice).toHaveTextContent('Reconnecting…');
     expect(notice.querySelector('.connection-spinner')).not.toBeNull();
     expect(within(notice).getByRole('button', { name: 'Retry now' })).toBeVisible();
-    // A card in the corner, not a wall: nothing covers the fixture's panes.
     const rect = notice.getBoundingClientRect();
     expect(rect.width).toBeLessThan(window.innerWidth / 2);
     expect(document.querySelector('.connection-overlay-scrim')).toBeNull();

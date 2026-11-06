@@ -1,8 +1,3 @@
-/**
- * PaneContextMenu — the right-click (and ⋮) menu of one pane: the pane spec
- * without the navigation items, drawn at the pointer.
- */
-
 import { FloatingMenu } from './floating/Menu';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { paneMenuSpec } from './menus/specs/paneMenu';
@@ -22,7 +17,6 @@ interface PaneContextMenuProps {
 
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
-  // A pane running a widget gets that widget's own section at the top.
   const widgetItems = useWidgetMenuItems(paneId);
   const spec = useAppSelector((ctx) =>
     paneMenuSpec(ctx, { paneId, widgetItems, navigation: false, rename: Boolean(onRename) }),

@@ -40,14 +40,12 @@ function tokens(command: string): Token[] {
   return found;
 }
 
-/** A command's words (see `Token`). */
 export function commandWords(command: string): string[] {
   return tokens(command).map((t) => t.word);
 }
 
 const isSeparator = (t: Token) => t.bare && (t.word === ';' || t.word === '\\;');
 
-/** Each command of a tmux command list, verbatim, with each start offset. */
 function listParts(command: string): Array<{ text: string; start: number }> {
   const parts: Array<{ text: string; start: number }> = [];
   let first: Token | null = null;
@@ -120,7 +118,6 @@ export function runShellScript(
   };
 }
 
-/** The verbs that re-tile a window to a preset layout. */
 const LAYOUT_VERBS = new Set([
   'select-layout',
   'selectl',
@@ -130,7 +127,6 @@ const LAYOUT_VERBS = new Set([
   'prevl',
 ]);
 
-/** Whether any command of the list re-tiles a window to a preset layout. */
 export function isLayoutCommand(command: string): boolean {
   return commandListParts(command).some((part) => LAYOUT_VERBS.has(commandWords(part)[0]));
 }
@@ -194,7 +190,6 @@ function parseCommandPrompt(command: string): TmuxOp {
   return TmuxOp.CommandPrompt({ prompt, initial, template });
 }
 
-/** Commands that are exactly one bare verb (or its alias). */
 const BARE: ReadonlyArray<[RegExp, () => TmuxOp]> = [
   [/^(new-window|neww)(\s|$)/, () => TmuxOp.NewWindow()],
   [/^(last-pane|lastp)$/, () => TmuxOp.LastPane()],
@@ -212,44 +207,28 @@ const BARE: ReadonlyArray<[RegExp, () => TmuxOp]> = [
 
 const NAV = { left: 'L', right: 'R', up: 'U', down: 'D' } as const;
 
-/**
- * Parse a tmux command string to a TmuxOp. Returns a `RawCommand` for
- * anything it can't or doesn't need to name.
- */
 export function parseCommandToOp(command: string): TmuxOp {
   const trimmed = stripPin(command.trim());
 
-  // split-window / splitw  (-h = side-by-side / new pane right; -v = stacked / new pane below)
+  // tmux's -h is side by side (new pane right), -v stacked (new pane below).
   const splitMatch = trimmed.match(/^(split-window|splitw)\s+(-[hvV])/);
   if (splitMatch) {
     const flag = splitMatch[2].toLowerCase();
     return TmuxOp.Split({ direction: flag === '-h' ? 'vertical' : 'horizontal' });
   }
 
-  // select-pane -L/-R/-U/-D — directional navigation
   const navMatch = trimmed.match(/^(select-pane|selectp)\s+-([LRUD])/i);
   if (navMatch) {
     const direction = navMatch[2].toUpperCase() as PaneDirection;
     return TmuxOp.Navigate({ direction, script: false });
   }
 
-  // Unified navigation — the default Ctrl+hjkl / Ctrl+arrow root bindings.
-  //
-  // Two spellings reach us. The config writes `tmuxy-nav-left`, a
-  // `command-alias`; but bindings arrive at the client through `list-keys`,
-  // and tmux reports aliases ALREADY EXPANDED — so what a keypress actually
-  // carries is the `run-shell "bash …/bin/tmuxy/nav <dir> …"` form. Matching
-  // only the alias means every arrow key falls through to `RawCommand` and
-  // loses its prediction, which is the difference between the highlight moving
-  // on the next frame and waiting out a shell script plus a full round trip.
-  //
-  // Only the prediction is affected: the caller sends the original command
-  // string, so tmux still runs the script and keeps its group/sidebar
-  // semantics. Where the script would do something the geometric prediction
-  // cannot know about — cycling within a pane group — `findAdjacentPane`
-  // predicts the neighbour and the server's answer rolls it back, the same
-  // reconcile path every other focus op uses. At the grid edge there is no
-  // neighbour, so nothing is predicted at all.
+  // The default Ctrl+hjkl / Ctrl+arrow bindings. The config writes the
+  // `tmuxy-nav-left` command-alias, but `list-keys` reports aliases ALREADY
+  // EXPANDED, so a keypress carries the `run-shell "bash …/bin/tmuxy/nav <dir>"`
+  // form; both must match or every arrow key loses its prediction. Where the
+  // script does what geometry cannot know (cycling within a pane group), the
+  // server's answer rolls the prediction back.
   const script = runShellScript(trimmed);
   const navWord =
     trimmed.match(/^tmuxy-nav-(left|right|up|down)\b/)?.[1] ??
@@ -269,7 +248,6 @@ export function parseCommandToOp(command: string): TmuxOp {
     return TmuxOp.GroupStep({ direction: step, paneId: isPaneId(paneArg) ? paneArg : null });
   }
 
-  // swap-pane -s %X -t %Y (and the reversed -t/-s form)
   const keepFocus = /\s-d\b/.test(trimmed);
   const swapForward = trimmed.match(/^(swap-pane|swapp)\s+.*-s\s+(%\d+)\s+.*-t\s+(%\d+)/);
   if (swapForward && isPaneId(swapForward[2]) && isPaneId(swapForward[3])) {
@@ -313,7 +291,6 @@ export function parseCommandToOp(command: string): TmuxOp {
     return TmuxOp.SetPaneTitle({ paneId: title[2], title: commandWords(title[3])[0] ?? '' });
   }
 
-  // select-pane -t %X — direct focus
   const selectPaneMatch = trimmed.match(/^(select-pane|selectp)\s+-t\s+(%\d+)/);
   if (selectPaneMatch && isPaneId(selectPaneMatch[2])) {
     return TmuxOp.SelectPane({ paneId: selectPaneMatch[2] });
@@ -323,28 +300,23 @@ export function parseCommandToOp(command: string): TmuxOp {
     if (pattern.test(trimmed)) return make();
   }
 
-  // resize-pane -Z / resizep -Z — zoom toggle (must be checked before other
-  // resize forms fall through to RawCommand)
   const zoomMatch = trimmed.match(/^(resize-pane|resizep)\s+(?:-t\s+(%\d+)\s+)?-Z\s*$/);
   if (zoomMatch) {
     return TmuxOp.ZoomToggle({ paneId: isPaneId(zoomMatch[2]) ? zoomMatch[2] : null });
   }
 
-  // kill-pane / killp [-t %N]
   const killPaneMatch = trimmed.match(/^(kill-pane|killp)(?:\s+-t\s+(%\d+))?\s*$/);
   if (killPaneMatch) {
     return TmuxOp.KillPane({ paneId: isPaneId(killPaneMatch[2]) ? killPaneMatch[2] : null });
   }
 
-  // kill-window / killw [-t @N] — index-form targets (`-t :2`) resolve
-  // server-side and are deliberately not predicted.
+  // Index-form targets (`-t :2`) resolve server-side and are not predicted.
   const killWindowMatch = trimmed.match(/^(kill-window|killw)(?:\s+-t\s+(@\d+))?\s*$/);
   if (killWindowMatch) {
     const windowId = killWindowMatch[2];
     return TmuxOp.KillWindow({ windowId: isWindowId(windowId) ? windowId : null });
   }
 
-  // rename-window / renamew [-t target] [--] NAME
   const renameMatch = trimmed.match(
     /^(rename-window|renamew)(?:\s+-t\s+(\S+))?\s+(?:--\s+)?(.+?)\s*$/,
   );
@@ -359,9 +331,8 @@ export function parseCommandToOp(command: string): TmuxOp {
     return TmuxOp.RawCommand({ command });
   }
 
-  // select-window -t @N (by id — what the client's own tab switch sends, so a
-  // stale index can never land on the wrong window) or -t N (by index, with
-  // optional `:` and `=` prefixes).
+  // By id (what the client's own tab switch sends, so a stale index never
+  // lands on the wrong window) or by index (`:` and `=` prefixes optional).
   const selectWinId = trimmed.match(/^(select-window|selectw)\s+-t\s+(@\d+)/);
   if (selectWinId && isWindowId(selectWinId[2])) {
     return TmuxOp.SelectWindow({ target: selectWinId[2] });

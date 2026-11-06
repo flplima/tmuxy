@@ -33,9 +33,7 @@ export const Single: Story = {
     );
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
 
-    // A lone tab reads as a label on the window, so it sits where every other
-    // tab sits — hard against the left of the strip — rather than drifting to
-    // the far edge away from the sidebar toggle it follows.
+    // A lone tab sits where every other tab sits, against the left of the strip.
     const strip = canvasElement.querySelector('.tab-list') as HTMLElement;
     const stripBox = strip.getBoundingClientRect();
     const tabBox = tabs[0].getBoundingClientRect();

@@ -2,21 +2,13 @@
  * W3C WebDriver key codes, and the translation from the key names the shared
  * interaction suite presses.
  *
- * The suite speaks Playwright's spelling (`'a'`, `'Control+ArrowRight'`)
- * because that is what the web harness needs; WebDriver wants the characters
- * from the Unicode private-use block instead. Keeping the mapping here stops a
- * second key vocabulary leaking into `perf-harness.mjs`.
+ * The suite speaks Playwright's spelling (`'a'`, `'Control+ArrowRight'`);
+ * WebDriver wants characters from the Unicode private-use block. They are
+ * written as numbers: the characters are invisible in an editor, and an escape
+ * sequence is one careless re-encode away from becoming one.
  *
- * The codepoints are written as numbers and resolved with `fromCharCode`
- * rather than spelled as string escapes: the characters themselves are
- * invisible in an editor, and an escape sequence is one careless re-encode
- * away from becoming one. A number survives both.
- *
- * They are also easy to get wrong, because the block is contiguous and the
- * arrows sit right after Home/End. `ArrowRight` was `E011` (Home) and
- * `ArrowDown` was `E014` (ArrowRight) here until a desktop perf run spent
- * eleven of twelve samples pressing Ctrl+Home and wondering why nothing
- * moved. The W3C WebDriver table, in order, is the authority:
+ * The block is contiguous and the arrows sit right after Home/End, so they are
+ * easy to get wrong. The W3C WebDriver table, in order, is the authority:
  *
  *     E00E PageUp   E00F PageDown   E010 End     E011 Home
  *     E012 Left     E013 Up         E014 Right   E015 Down

@@ -5,8 +5,7 @@ beforeEach(() => resetSurfaceRegistry());
 
 describe('the floating layer holds one surface', () => {
   it('dismisses the surface that held it when another opens', () => {
-    // The bug this exists for: right-clicking a tab drew its context menu on
-    // top of the tab's own preview — two cards about one tab, overlapping.
+    // Right-clicking a tab drew its context menu on top of the tab's own preview.
     const dismissPreview = vi.fn();
     openSurface('tab-preview', dismissPreview);
 
@@ -15,8 +14,6 @@ describe('the floating layer holds one surface', () => {
   });
 
   it('does not dismiss a surface re-claiming the layer it already holds', () => {
-    // A surface re-registers on any render that changes its content. Treating
-    // that as a peer taking over would have it dismiss itself mid-open.
     const dismiss = vi.fn();
     openSurface('tab-preview', dismiss);
     openSurface('tab-preview', dismiss);
@@ -27,9 +24,8 @@ describe('the floating layer holds one surface', () => {
   });
 
   it('lets a surface release only the layer it still holds', () => {
-    // The release runs from an effect cleanup, which fires AFTER the peer that
-    // replaced it has already claimed the layer. A release that cleared
-    // whatever it found would close the new surface a frame after it opened.
+    // The release runs from an effect cleanup, after the peer that replaced it
+    // has claimed the layer.
     const release = openSurface('tab-preview', vi.fn());
     const dismissMenu = vi.fn();
     openSurface('app-menu', dismissMenu);
@@ -41,9 +37,8 @@ describe('the floating layer holds one surface', () => {
   });
 
   it('survives a dismiss that releases its own claim synchronously', () => {
-    // A surface's dismiss typically sets state that unmounts it, and its
-    // cleanup calls release. That must not clear the entry the incoming
-    // surface is in the middle of writing.
+    // The dismiss unmounts the surface, whose cleanup releases while the
+    // incoming surface is still writing its entry.
     let release = () => {};
     release = openSurface('tab-preview', () => release());
     const dismissMenu = vi.fn();

@@ -11,7 +11,6 @@
 
 const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 
-/** Draw a keyboard `height` px tall into `host`, filling its width. */
 function drawKeyboard(host: HTMLElement, height: number): HTMLElement {
   const board = document.createElement('div');
   board.dataset.testid = 'mock-keyboard';

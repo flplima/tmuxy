@@ -64,7 +64,6 @@ describe('usePaneMouse.handleWheel', () => {
     result.current.handleWheel(wheelEvent(-100));
     const enterCopy = events.find((e) => e.type === 'ENTER_COPY_MODE');
     expect(enterCopy).toBeUndefined();
-    // Should have sent Up arrow keys instead
     const sendKeys = events.filter((e) => e.type === 'DISPATCH_OP' && wire(e).includes('Up'));
     expect(sendKeys.length).toBeGreaterThan(0);
   });
@@ -96,20 +95,16 @@ describe('usePaneMouse.handleWheel', () => {
     expect(events.find((e) => e.type === 'ENTER_COPY_MODE')).toBeUndefined();
     const enterScroll = events.find((e) => e.type === 'ENTER_SCROLL_MODE');
     expect(enterScroll).toBeDefined();
-    // Quantized to whole lines, and scrolling up means a negative delta.
     expect(enterScroll).toMatchObject({ paneId: pid('%1'), scrollLines: -5 });
   });
 
   it('scrolls the container by whole rows, never part of one', () => {
-    // 50px of wheel over an 18px row is two rows and a bit; the bit is
-    // carried, not painted. A terminal scrolls a line at a time — copy mode
-    // and full-screen applications already do, and this is the same pane.
+    // 50px over an 18px row is two rows; the rest is carried, not painted.
     const { result, scrollRef } = setup({ scrollbackMode: 'copy', charHeight: 18 });
     scrollRef.current!.scrollTop = 0;
     result.current.handleWheel(wheelEvent(50));
     expect(scrollRef.current!.scrollTop).toBe(36);
 
-    // The carried 14px plus 4px is the third row, exactly.
     result.current.handleWheel(wheelEvent(4));
     expect(scrollRef.current!.scrollTop).toBe(54);
   });
@@ -128,11 +123,9 @@ describe('usePaneMouse.handleWheel', () => {
 
   it('accumulates sub-line wheel deltas without sending events', () => {
     const { result, events } = setup({ alternateOn: true, charHeight: 18 });
-    // Each event is less than one line of charHeight
     result.current.handleWheel(wheelEvent(-5));
     result.current.handleWheel(wheelEvent(-5));
     expect(events).toEqual([]);
-    // Third event pushes the accumulator past 18px, triggering one line
     result.current.handleWheel(wheelEvent(-10));
     expect(events.length).toBeGreaterThan(0);
     expect(events.every((e) => e.type !== 'ENTER_COPY_MODE')).toBe(true);

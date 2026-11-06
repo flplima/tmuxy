@@ -1,11 +1,3 @@
-/* ============================================
-   The hamburger that opens the app menu
-   ============================================
-
-   What the MENU looks like is `components/floating/Menu.css` — every menu in
-   the app shares it. This is the control that opens this one.
-*/
-
 .app-menu-button {
   display: flex;
   align-items: center;
@@ -28,8 +20,6 @@
   color: var(--text-primary);
 }
 
-/* The dialog the menu opens (Kill Session…): a line of
-   text and a row of buttons, the destructive one on the right in red. */
 .app-menu-dialog-text {
   margin: 0;
   padding: var(--spacing-lg) var(--spacing-xl);

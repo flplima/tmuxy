@@ -34,12 +34,11 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * 1.3 — Optimistic new-tab timeline via the tab bar `+` (pure mouse): the tab
- * strip AND the pane grid flip to the placeholder window within a few frames
- * of the click; real tmux then confirms with a real `@N`/`%N`, morphing the
- * placeholder pane in place (no pane-node removal). The rejection twin lives
- * in Mocked App/Resilience (TabCreateRejected) — real tmux has no
- * user-reachable failure mode for a plain new-window.
+ * New tab via the tab bar `+`: the strip AND the pane grid flip to the
+ * placeholder window within a few frames, and tmux's confirmation morphs the
+ * placeholder pane in place. The rejection twin is Mocked App/Resilience
+ * (TabCreateRejected): real tmux has no user-reachable failure for a plain
+ * new window.
  */
 export const TabCreateOptimisticTimeline: Story = {
   play: async ({ canvasElement }) => {
@@ -54,7 +53,6 @@ export const TabCreateOptimisticTimeline: Story = {
     const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_pane"]'));
     await user.click(canvas.getByLabelText('Create new tab'));
     await probe.wait(5, 5000);
-    // The tab strip already shows the optimistic tab.
     expect(windowTabEls(canvas).length).toBe(beforeTabs + 1);
 
     await waitFor(
@@ -72,11 +70,9 @@ export const TabCreateOptimisticTimeline: Story = {
 };
 
 /**
- * 1.4a — Pane focus is optimistic and stable: clicking an inactive pane flips
- * `.pane-active` within a few frames of the click, and the highlight NEVER
- * passes through a non-active state again while real tmux confirms (the class
- * history is recorded by MutationObserver — polling would miss a one-frame
- * flap; the mutation log cannot).
+ * Clicking an inactive pane flips `.pane-active` within a few frames, and the
+ * highlight never leaves it while tmux confirms. The class history is recorded
+ * by a MutationObserver: polling would miss a one-frame flap.
  */
 export const SelectPaneImmediate: Story = {
   play: async ({ canvasElement }) => {
@@ -88,8 +84,6 @@ export const SelectPaneImmediate: Story = {
     const targetEl = paneGroups(canvas).find(
       (p: HTMLElement) => p.getAttribute('data-pane-id') === target,
     )!;
-    // `pane-active` lives on the .pane-layout-item wrapper, not the inner
-    // role=group element the accessibility query returns.
     const targetWrapper = targetEl.closest('.pane-layout-item') as HTMLElement;
     const layoutRoot = canvasElement.querySelector('.pane-layout') as HTMLElement;
 
@@ -105,8 +99,6 @@ export const SelectPaneImmediate: Story = {
     const frames = await probe.wait(5, 5000);
     expect(frames).toBeLessThanOrEqual(5);
 
-    // Record every class value the pane passes through while the real
-    // select-pane round-trips; none may lack `pane-active`.
     const classes = recordClassHistory(targetWrapper);
     await tmuxCaughtUp();
     classes.disconnect();
@@ -116,11 +108,10 @@ export const SelectPaneImmediate: Story = {
 };
 
 /**
- * 1.5 — Directional pane navigation predicts the pane tmux will pick,
- * including the MRU tiebreak: with a full-height pane facing two stacked
- * neighbours, Ctrl+←/→ must flip focus to the most-recently-used neighbour
- * within a few frames — and the flip must be FINAL (a second flip after the
- * server reply means the client predicted a different pane than tmux chose).
+ * Directional navigation predicts the pane tmux picks, MRU tiebreak included:
+ * from a full-height pane facing two stacked neighbours, Ctrl+←/→ flips focus
+ * to the most-recently-used one, and the flip is final (a second flip after the
+ * reply means the client predicted another pane than tmux chose).
  */
 export const NavigateKeysImmediate: Story = {
   args: { initCommands: ['select-layout even-horizontal', 'split-window -v'] },
@@ -133,9 +124,6 @@ export const NavigateKeysImmediate: Story = {
       interval: 500,
     });
 
-    // Identify the geometry: one column holds two stacked panes, the other a
-    // single (tallest) pane. All coordinates from live rects — no assumptions
-    // about which boot pane got split.
     const ids = realPaneIdsSorted(canvas);
     const rects = new Map(ids.map((id) => [id, paneRect(canvas, id)]));
     const byLeft = new Map<number, string[]>();
@@ -148,7 +136,6 @@ export const NavigateKeysImmediate: Story = {
     expect(stackedCol).toBeTruthy();
     expect(singleCol).toBeTruthy();
     const single = singleCol![0];
-    // Bottom pane of the stacked column — the one we'll make most-recently-used.
     const stackedSorted = [...stackedCol!].sort((a, b) => rects.get(a)!.top - rects.get(b)!.top);
     const mruTarget = stackedSorted[stackedSorted.length - 1];
 
@@ -159,11 +146,9 @@ export const NavigateKeysImmediate: Story = {
       await user.click(el);
       await waitFor(() => expect(activePaneId()).toBe(id), { timeout: 15000, interval: 200 });
     };
-    // MRU order: touch the bottom stacked pane, then move to the single pane.
     await clickPane(mruTarget);
     await clickPane(single);
 
-    // Navigate from the single pane toward the stacked column.
     // Ctrl+hjkl, the default root binding for pane navigation.
     const towardStack =
       rects.get(single)!.left < rects.get(mruTarget)!.left
@@ -173,7 +158,6 @@ export const NavigateKeysImmediate: Story = {
     const mruEl = paneGroups(canvas).find(
       (p: HTMLElement) => p.getAttribute('data-pane-id') === mruTarget,
     )!;
-    // `pane-active` lives on the .pane-layout-item wrapper.
     const mruWrapper = mruEl.closest('.pane-layout-item') as HTMLElement;
     const probe = armPaintProbe(
       layoutRoot,
@@ -187,7 +171,6 @@ export const NavigateKeysImmediate: Story = {
     const frames = await probe.wait(5, 5000);
     expect(frames).toBeLessThanOrEqual(5);
 
-    // The predicted target must BE tmux's choice — no second flip.
     const classes = recordClassHistory(mruWrapper);
     await tmuxCaughtUp();
     classes.disconnect();
@@ -197,12 +180,9 @@ export const NavigateKeysImmediate: Story = {
 };
 
 /**
- * 1.7 — Two splits in flight at once: press C-a `-` twice back-to-back, faster
- * than the round-trip. Both placeholders must resolve to DISTINCT real panes
- * (guards the claimedPanes reconcile sets) and no placeholder may survive.
- * Also guards the keyboardActor's placeholder-safe send targeting: the second
- * binding fires while the active pane is still `__placeholder_*`, which must
- * not be sent to tmux as a target.
+ * Two splits in flight at once must resolve to DISTINCT real panes, with no
+ * placeholder left. The second binding fires while the active pane is still a
+ * `__placeholder_*`, which must not be sent to tmux as a target.
  */
 export const ConcurrentSplitsClaimIds: Story = {
   play: async ({ canvasElement }) => {
@@ -230,11 +210,10 @@ export const ConcurrentSplitsClaimIds: Story = {
 };
 
 /**
- * A split tmux refuses ("no space for a new pane") rolls back AT ONCE with
- * tmux's own reason. The v86 tracker used to put its END marker on the
- * command's own `;` line; tmux stops a list at its first error, so the marker
- * never ran, the tracker waited out its 8 s timeout — swallowing every reply
- * queued behind it — and reported "tmux did not respond" for all of them.
+ * A split tmux refuses ("no space for a new pane") rolls back at once with
+ * tmux's own reason. tmux stops a command list at its first error, so an END
+ * marker on the command's own `;` line never ran: the tracker waited out its
+ * 8 s timeout and reported "tmux did not respond" for every reply behind it.
  * Invariant A6: the markers are their own lines.
  */
 export const RefusedSplitReportsTmuxsReason: Story = {
@@ -250,8 +229,6 @@ export const RefusedSplitReportsTmuxsReason: Story = {
     const placeholders = () =>
       paneIds(canvas).filter((id) => id.startsWith('__placeholder_')).length;
 
-    // Halve the pane until tmux has no room left; each split settles —
-    // confirmed by a real pane or refused — before the next goes out.
     let refusedAfterMs = 0;
     for (let attempt = 0; attempt < 8 && refusedAfterMs === 0; attempt++) {
       const before = realPaneIdsSorted(canvas).length;
@@ -272,18 +249,16 @@ export const RefusedSplitReportsTmuxsReason: Story = {
       }
     }
     expect(refusedAfterMs).toBeGreaterThan(0);
-    // A refusal answered in-band arrives in well under the 8 s a hung
-    // tracker takes to give up.
     expect(refusedAfterMs).toBeLessThan(4000);
     expect(snackbarTexts().some((t) => /did not respond/.test(t))).toBe(false);
   },
 };
 
 /**
- * 1.9 — Typing round-trip latency canary (NOT local echo — that's an explicit
- * non-goal): pasting a command must render its real `%output` within a budget
- * that catches serial-pacing / aggregator-debounce regressions. Generous for
- * emulator + CI variance; a 10x pacing regression still fails loudly.
+ * Typing round-trip latency canary (not local echo, a non-goal): a pasted
+ * command renders its real `%output` within a budget that catches serial
+ * pacing or aggregator debounce regressions. Generous for emulator and CI
+ * variance; a 10x pacing regression still fails.
  */
 export const TypingRoundTripLatencyBudget: Story = {
   play: async ({ canvasElement }) => {
@@ -305,16 +280,11 @@ export const TypingRoundTripLatencyBudget: Story = {
   },
 };
 
-// ─────────── §13 Optimistic ops: kill (predict → confirm) ───────────
-
 /**
- * 2.1 — Kill pane, end-to-end: C-a `x` routes through the KillPane
- * prediction (removal + neighbor expansion on dispatch, exit-animation grace,
- * server confirm invisible). The mock twin (Mocked App/Resilience —
- * SlowKillPane / KillPaneRejected) proves the ordering under controlled
- * latency; this proves the real chain agrees: the doomed pane goes, focus
- * lands on a surviving real pane, the reconcile never resurrects it, and the
- * grid shows no glitch throughout.
+ * C-a `x` through the KillPane prediction against real tmux: the pane goes,
+ * focus lands on a real survivor, the reconcile never resurrects it, and the
+ * grid shows no glitch. The mock twin (Mocked App/Resilience, SlowKillPane /
+ * KillPaneRejected) proves the ordering under controlled latency.
  */
 export const KillPaneOptimisticTimeline: Story = {
   play: async ({ canvasElement }) => {
@@ -333,7 +303,6 @@ export const KillPaneOptimisticTimeline: Story = {
       interval: 100,
     });
 
-    // No resurrection once the server has confirmed; focus is a real survivor.
     await tmuxCaughtUp();
     expect(paneIds(canvas)).not.toContain(doomed);
     expect(activePaneId()).toMatch(/^%\d+$/);

@@ -3,10 +3,8 @@ import { execFileSync } from 'node:child_process';
 
 /**
  * How much the second half of a run may exceed the first before it is called
- * growth rather than noise. Generous on purpose: this has to separate "leaks a
- * node per pane" from "a GC happened to land late", and a false red on a
- * nightly is worse than a slow-burning true positive, which the trend in the
- * published reports will show anyway.
+ * growth: generous, to separate "leaks a node per pane" from "a GC happened to
+ * land late".
  */
 export const PLATEAU_TOLERANCE = {
   jsHeapMB: 0.35,
@@ -29,10 +27,8 @@ export function rssMB(pid) {
 }
 
 /**
- * The CDP metrics worth watching, by the name `Performance.getMetrics` uses.
- *
- * `JSHeapUsedSize` rather than total: total is what Chrome has reserved from
- * the OS and moves in steps for reasons that have nothing to do with the page.
+ * By `Performance.getMetrics` name. `JSHeapUsedSize`, not total: total is
+ * what Chrome has reserved from the OS and moves in steps of its own.
  */
 export const METRICS = {
   jsHeapMB: (m) => m.JSHeapUsedSize / (1024 * 1024),
@@ -40,7 +36,6 @@ export const METRICS = {
   jsEventListeners: (m) => m.JSEventListeners,
 };
 
-/** One sample of every measure, taken at the current moment. */
 export async function sample(cdp, serverPid) {
   const { metrics } = await cdp.send('Performance.getMetrics');
   const byName = Object.fromEntries(metrics.map((m) => [m.name, m.value]));
@@ -51,15 +46,9 @@ export async function sample(cdp, serverPid) {
 }
 
 /**
- * Give the browser the best chance to have collected before a sample, so a
- * plateau is read as a plateau rather than as whatever the allocator happened
- * to be holding.
- *
- * Without this the comparison measures GC timing as much as retention: a
- * window that ends just before a collection reads high, the next reads low,
- * and the ratio between halves is noise. Chrome exposes no synchronous
- * "collect now" to a page, so this asks twice through CDP and then waits — a
- * best effort that is honest about being one.
+ * Collect before a sample, or the halves compare GC timing as much as
+ * retention. Chrome exposes no synchronous "collect now" to a page, so this
+ * asks twice through CDP and then waits: a best effort.
  */
 export async function settle(cdp, page) {
   for (let i = 0; i < 2; i++) {
@@ -71,12 +60,10 @@ export async function settle(cdp, page) {
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 /**
- * Whether a measure is still climbing at the end of the run: the last two of
- * the second half's windows against its first two, at half the tolerance.
- * Warm-up — a pane filling with rows, a cache reaching its size — lifts the
- * second half over the first and then levels off inside it; a leak keeps
- * climbing to the last window. With too few windows to tell, it counts as
- * climbing, so the halves comparison alone decides.
+ * The last two of the second half's windows against its first two, at half
+ * the tolerance: warm-up (a cache reaching its size) lifts the second half and
+ * then levels off, a leak keeps climbing to the last window. With too few
+ * windows to tell it counts as climbing, so the halves alone decide.
  */
 function stillRising(late, tolerance) {
   if (late.length < 4) return true;
@@ -86,13 +73,9 @@ function stillRising(late, tolerance) {
 }
 
 /**
- * Compare the second half of a phase's samples to the first.
- *
- * Returns one verdict per measure: the two halves' means, the growth between
- * them as a fraction, and whether the measure grew past its tolerance AND is
- * still climbing at the end (`stillRising`). A measure with no readings at
- * all (server RSS when the pid is unknown) reports `null` rather than passing
- * silently.
+ * One verdict per measure: grown past its tolerance AND still climbing. A
+ * measure with no readings (server RSS with no pid) reports `null` rather than
+ * passing.
  */
 export function plateau(samples) {
   const half = Math.floor(samples.length / 2);
@@ -152,13 +135,8 @@ export function discoverServerPid(explicitPid) {
   return null;
 }
 
-/**
- * Print the phase plateau table and return the list of measures that grew past
- * tolerance.
- */
+/** Returns the measures that grew past tolerance. */
 export function printSoakTable(phases) {
-  // A table, because the shape of the numbers is the finding — a single
-  // pass/fail hides whether something grew 2% or 200%.
   for (const [phaseName, phase] of Object.entries(phases)) {
     console.log(`\n${phaseName}:`);
     for (const [measure, v] of Object.entries(phase.plateau)) {

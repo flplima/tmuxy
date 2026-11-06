@@ -1,11 +1,8 @@
 /**
- * Key labels: the key the user presses for an op, one of the client's own
- * keys or a plugin's action, read from the bindings the backend sends (every
- * table: prefix, root and the sticky modes) and from the keys the client
- * answers itself (`CLIENT_KEYS`, `CLIENT_CHORDS`), and spelled the one way the
- * app shows keys (`C-a` → `ctrl+a`, `Up` → `↑`). Menu hints, tooltips, the
- * status line and the keys view all take their labels here, so none of them
- * writes a key down that the config could have moved.
+ * Key labels, read from the bindings the backend sends and the keys the client
+ * answers itself. Menu hints, tooltips, the status line and the keys view all
+ * take their labels here, so none of them writes a key down that the config
+ * could have moved.
  */
 
 import type { KeyBinding, KeyBindings } from './wire';
@@ -19,7 +16,6 @@ export function withKeyHint(text: string, hint: string | undefined): string {
   return hint ? `${text} (${hint})` : text;
 }
 
-/** Special key display mappings */
 const KEY_DISPLAY: Record<string, string> = {
   Up: '↑',
   Down: '↓',
@@ -47,7 +43,6 @@ export function formatKey(key: string): string {
   return [...modifiers, base].join('+');
 }
 
-/** Every table's bindings, prefix first, then root, then the sticky modes. */
 function tables(keybindings: KeyBindings): Array<[string, readonly KeyBinding[]]> {
   return [
     ['prefix', keybindings.prefix_bindings],
@@ -91,8 +86,7 @@ function actionOf(command: string): string {
     const spelled = toTmuxCommand(parseCommandToOp(boundAction(command)));
     const script = runShellScript(spelled);
     action = script ? `script ${script.name} ${script.args[0] ?? ''}` : spelled;
-    // Ops carry pane and window ids, so the commands asked about never stop
-    // changing; a small cache is all a menu or the status line needs.
+    // Ops carry pane and window ids, so the commands asked about never stop changing.
     if (actions.size > 512) actions.clear();
     actions.set(command, action);
   }
@@ -123,7 +117,6 @@ export function keyHint(keybindings: KeyBindings | null, op: TmuxOp): string | u
   return undefined;
 }
 
-/** The key hint for one of the client's own keys: its chord, else its key in a table. */
 export function clientKeyHint(
   keybindings: KeyBindings | null,
   clientKey: ClientKey,

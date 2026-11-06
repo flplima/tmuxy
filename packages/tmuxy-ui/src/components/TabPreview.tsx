@@ -1,27 +1,8 @@
 /**
- * TabPreview — the picture of a tab that appears under its button on hover.
- *
- * Like Chrome's tab previews, and for the same reason: a strip of names does
- * not tell you which tab has the thing you are looking for, and switching to
- * find out costs you the tab you were on.
- *
- * The first one waits: hovering has to be deliberate, so a pointer merely
- * crossing the strip on its way somewhere else shows nothing. After that the
- * wait is over — while the preview is up, moving along the strip is browsing,
- * and it should keep up. So there is ONE preview for the whole strip: it
- * slides to the next button and swaps its picture, rather than a new one
- * fading in a second later at every stop.
- *
- * It follows the pointer only within the strip; leaving the strip ends the
- * browse, and the next preview waits its delay again. Clicking it opens that
- * tab, the way clicking the button would — it IS the button, drawn larger.
- *
- * Positioning, the portal, the exit hold and the arrive/leave animation are
- * `useFloatingSurface` and `.floating-surface`, shared with the menus — a
- * preview and a menu are the same kind of object and used to disagree about all
- * of it. That hook also holds the floating layer, which is what stops a menu
- * drawing on top of this card; right-clicking the tab turns this card INTO the
- * menu (see `WindowTabs`).
+ * The first preview waits, so a pointer crossing the strip shows nothing.
+ * While one is up, moving along the strip is browsing: ONE card slides to the
+ * next button and swaps its picture. Leaving the strip ends the browse.
+ * Right-clicking the tab turns this card into the tab's menu (`WindowTabs`).
  */
 
 import { useLayoutEffect, useState } from 'react';
@@ -38,26 +19,18 @@ import './floating/FloatingSurface.css';
 import './TabPreview.css';
 import type { WindowId } from '../domain/ids';
 
-/**
- * How long a pointer has to rest on a tab before the FIRST preview opens.
- * Long enough that crossing the strip shows nothing, short enough that
- * stopping on a tab feels like it answered.
- */
+/** How long a pointer has to rest on a tab before the FIRST preview opens. */
 export const TAB_PREVIEW_DELAY_MS = 500;
 
 const WIDTH_PX = 280;
 
 interface TabPreviewProps {
-  /** The tab being previewed, or null when nothing is. */
   windowId: WindowId | null;
-  /** Its name, for the close button's label — the strip already knows it. */
   label: string;
-  /** The pointer moved onto the card, or off it. */
   onPointerEnter: () => void;
   onPointerLeave: () => void;
-  /** The card was clicked: open that tab and put the card away. */
   onActivate: (windowId: WindowId) => void;
-  /** Put the card away — called when another floating surface takes the layer. */
+  /** Called when another floating surface takes the layer. */
   onDismiss: () => void;
 }
 
@@ -90,8 +63,6 @@ export function TabPreview({
         ? document.querySelector<HTMLElement>(`.tab-name[data-window-id="${windowId}"]`)
         : null,
     },
-    // Centred under the tab it is of: the tie between the picture and the
-    // button is what makes it read without a pointer or a line.
     placement: { align: 'center' },
     animated: animations,
     onDismiss,
@@ -100,9 +71,8 @@ export function TabPreview({
   const shownId = card?.windowId ?? null;
   const still = useTabStill(panes, shownId !== null);
 
-  // The picture's box is measured once it has one, and the card is re-placed
-  // afterwards: the frame's height decides the card's, and a card positioned
-  // before it is measured is placed against the wrong height.
+  // The frame's height decides the card's, so the card is re-placed once the
+  // frame is measured.
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !shownId) return;
@@ -117,8 +87,7 @@ export function TabPreview({
 
   if (!card) return null;
 
-  // The still is what keeps a busy tab from redrawing its picture on every
-  // frame of output; until the first sample lands the live panes will do.
+  // Until the first still lands, the live panes will do.
   const source = still ? panes.map((p) => (still[p.tmuxId] ? still[p.tmuxId] : p)) : panes;
   const boxes = slotBoxes(source, card.windowId);
 
@@ -131,12 +100,7 @@ export function TabPreview({
       data-window-id={card.windowId}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      // The card is a bigger version of the button it came from, so it does
-      // what that button does. Anything else makes you aim back at a strip of
-      // small targets to act on what you are already looking at.
       onClick={() => onActivate(card.windowId)}
-      // The picture is the tab's shape, so the frame takes the pane area's
-      // aspect ratio rather than a fixed one.
       style={
         {
           width: WIDTH_PX,
@@ -146,8 +110,6 @@ export function TabPreview({
         } as React.CSSProperties
       }
     >
-      {/* Its own row above the picture, so it sits in the card's padding
-          rather than over the thing you are looking at. */}
       <div className="tab-preview-bar">
         <Tooltip label="Close tab">
           <button
@@ -156,7 +118,6 @@ export function TabPreview({
             aria-label={`Close ${card.label}`}
             data-testid="tab-preview-close"
             onClick={(e) => {
-              // The one thing in the card that is not "open this tab".
               e.stopPropagation();
               send({ type: 'CLOSE_TAB', windowId: card.windowId });
             }}

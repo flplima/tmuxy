@@ -1,8 +1,3 @@
-/**
- * Tooltip stories — the app's own tooltip in place of the browser's `title`:
- * how it opens, where it lands, and everything that closes it.
- */
-
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { Tooltip, TOOLTIP_DELAY_MS } from './Tooltip';
@@ -15,7 +10,6 @@ const meta: Meta<typeof Tooltip> = {
 export default meta;
 type Story = StoryObj<typeof Tooltip>;
 
-/** The portalled tooltip, wherever in the document it landed. */
 const tips = () => Array.from(document.querySelectorAll<HTMLElement>('[data-testid="tooltip"]'));
 const tip = () => tips()[0];
 
@@ -40,8 +34,6 @@ export const HoverAndFocus: Story = {
     const canvas = within(canvasElement);
     const trigger = canvas.getByTestId('trigger');
 
-    // Nothing until the pointer has rested: a tooltip that opens on the way
-    // past is noise.
     expect(tips()).toHaveLength(0);
     await userEvent.hover(trigger);
     expect(tips()).toHaveLength(0);
@@ -49,9 +41,6 @@ export const HoverAndFocus: Story = {
     await waitFor(() => expect(tip()).toBeInTheDocument(), { timeout: TOOLTIP_DELAY_MS + 2000 });
     expect(tip()).toHaveTextContent('Close tab');
 
-    // Portalled out of the trigger's subtree so no pane's overflow can clip
-    // it and no transformed ancestor becomes its containing block, and placed
-    // against its trigger.
     expect(canvasElement.contains(tip())).toBe(false);
     expect(getComputedStyle(tip()).position).toBe('fixed');
     const triggerBox = trigger.getBoundingClientRect();
@@ -61,19 +50,15 @@ export const HoverAndFocus: Story = {
     expect(
       Math.abs(tipBox.left + tipBox.width / 2 - (triggerBox.left + triggerBox.width / 2)),
     ).toBeLessThan(triggerBox.width + tipBox.width);
-    // It never eats the pointer that summoned it.
     expect(getComputedStyle(tip()).pointerEvents).toBe('none');
 
-    // Leaving closes it, and only one is ever open.
     await userEvent.unhover(trigger);
     await waitFor(() => expect(tips()).toHaveLength(0));
 
-    // A keyboard user gets it too — at once, no dwell to wait out.
     trigger.focus();
     await waitFor(() => expect(tip()).toBeInTheDocument());
     expect(tip()).toHaveTextContent('Close tab');
 
-    // Escape dismisses it while the trigger keeps focus.
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(tips()).toHaveLength(0));
     expect(document.activeElement).toBe(trigger);
@@ -123,8 +108,6 @@ export const IgnoresATouch: Story = {
     </div>
   ),
   play: async ({ canvasElement }) => {
-    // A tap is not a hover: opening there would cover what the finger was
-    // aiming at, and there is no way to dismiss it.
     const trigger = within(canvasElement).getByTestId('tap-trigger');
     trigger.dispatchEvent(
       new PointerEvent('pointerenter', { bubbles: true, pointerType: 'touch' }),

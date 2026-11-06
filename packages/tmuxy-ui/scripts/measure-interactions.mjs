@@ -1,27 +1,10 @@
 #!/usr/bin/env node
 /**
- * Interaction-latency harness — web target (CI gate).
- *
- * Measures the wall-clock cost of the handful of interactions a tmuxy user
- * performs constantly — typing, moving between panes, splitting, zooming,
- * switching tabs — from the real browser `keydown` to the first DOM change
- * that shows the result.
- *
- * Every interaction is driven through the real user path: a key goes to the
- * page, the keyboard actor resolves the tmux binding, the command crosses the
- * transport, tmux acts, and the state comes back. Nothing is short-circuited
- * with an adapter call, so a regression anywhere in that chain lands here.
- *
- * Runner-load noise makes an absolute millisecond budget unusable on CI, so
- * the report also carries each interaction's **ratio to the keystroke echo**
- * measured in the same run on the same machine. A keystroke is the cheapest
- * complete round trip tmuxy has; expressing everything else as a multiple of
- * it divides out the runner's speed. `compare-interactions.mjs` gates on
- * those ratios and only warns on the raw milliseconds.
- *
- * What is measured lives in `lib/perf-harness.mjs`, shared with the desktop
- * harness (`measure-interactions-tauri.mjs`) so a budget means the same thing
- * on both surfaces. This file is only the Playwright driver for it.
+ * Interaction-latency harness, web target (the CI gate): from the browser's
+ * `keydown` to the first DOM change that shows the result, for typing, moving
+ * between panes, splitting, zooming and switching tabs, each through the real
+ * key path. The suite is `lib/perf-harness.mjs`; this is its Playwright
+ * driver.
  *
  * Usage:
  *   node measure-interactions.mjs [--url URL] [--samples N] [--out FILE]
@@ -43,13 +26,11 @@ const SAMPLES = Number(opt('--samples', '10'));
 const OUT = opt('--out', null);
 const LABEL = opt('--label', 'local');
 const SESSION = opt('--session', null);
-// Attach to an already-running Chrome over CDP instead of launching one. The
-// dev environment has a browser on 9222 and deliberately does not install
-// Playwright's own; CI is the reverse and launches.
+// The dev environment has a browser on 9222 and does not install Playwright's
+// own; CI launches one.
 const CDP = opt('--cdp', null);
 const URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
 
-/** The driver adapter contract from `lib/perf-harness.mjs`, over Playwright. */
 function playwrightAdapter(page) {
   return {
     evaluate: (fn, arg) => page.evaluate(fn, arg),
@@ -59,8 +40,6 @@ function playwrightAdapter(page) {
     wait: (ms) => page.waitForTimeout(ms),
     clickActivePane: () =>
       page.locator('.pane-layout-item.pane-active [role="log"]').first().click({ timeout: 5000 }),
-    // Playwright can hold the pending in-page promise across the keystroke, so
-    // arming is just starting it and settling is awaiting it.
     arm: async (probe, arg, timeoutMs) => {
       const pending = page.evaluate(
         ([p, a, t]) => window.__perfArm(p, a, t),
