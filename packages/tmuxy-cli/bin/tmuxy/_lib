@@ -198,8 +198,7 @@ source "$SCRIPTS_DIR/_contract"
 # only guess. The desktop app's server verbs are `tmuxy server <verb>`.
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
-  local root="${SCRIPTS_DIR%/*}/../../.." launcher
-  launcher="$(tmuxy_state_dir)/launcher"
+  local root="${SCRIPTS_DIR%/*}/../../.."
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
   elif command -v tmuxy-server &>/dev/null; then
@@ -208,12 +207,25 @@ find_server_cmd() {
     SERVER_CMD=("$root/target/debug/tmuxy-server")
   elif [ -x "$root/target/release/tmuxy-server" ]; then
     SERVER_CMD=("$root/target/release/tmuxy-server")
-  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
-    SERVER_CMD=("$(cat "$launcher")" server)
-  elif [ -x "/Applications/tmuxy.app/Contents/MacOS/tmuxy" ]; then
-    SERVER_CMD=("/Applications/tmuxy.app/Contents/MacOS/tmuxy" server)
+  elif find_desktop_cmd; then
+    SERVER_CMD=("$DESKTOP_CMD" server)
   else
     echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
+    return 1
+  fi
+}
+
+# Set DESKTOP_CMD to the desktop app's binary: the one serving this socket
+# when it is the desktop app (it publishes its verbs as `<bin> server`), else
+# the installed app the launcher file names (written on every launch).
+find_desktop_cmd() {
+  local launcher
+  launcher="$(tmuxy_state_dir)/launcher"
+  if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ] && [ "${TMUXY_SERVER_SUBCOMMAND:-}" = server ]; then
+    DESKTOP_CMD="$TMUXY_SERVER_BIN"
+  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
+    DESKTOP_CMD="$(cat "$launcher")"
+  else
     return 1
   fi
 }

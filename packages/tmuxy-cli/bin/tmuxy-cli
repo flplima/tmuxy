@@ -460,8 +460,8 @@ CEOF
     ;;
   gui)
     shift
-    find_server_cmd
-    exec "${SERVER_CMD[@]}" gui "$@"
+    find_desktop_cmd || _fail "$EXIT_FAILED" "the desktop app is not installed (or has never been opened)"
+    exec "$DESKTOP_CMD" gui "$@"
     ;;
   --help|-h)
     usage
