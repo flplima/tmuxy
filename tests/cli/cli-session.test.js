@@ -138,7 +138,6 @@ describe('tmuxy session switch: new', () => {
     const create = tmuxCalls.find((call) => /new-session/.test(call.args[1] ?? ''));
     expect(create.args[0]).toBe('run-shell');
     const name = create.args[1].match(/new-session -d -s '([^']+)'$/)[1];
-    // The switch names the session it made.
     expect(stdout).toContain(name);
     return name;
   };

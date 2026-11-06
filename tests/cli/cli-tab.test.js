@@ -33,8 +33,6 @@ describe('CLI tab subcommands', () => {
       });
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
-      // Only the two real tabs survive; the float and sidebar windows
-      // are filtered out so the tree view never lists tmuxy's own chrome.
       expect(parsed).toEqual(LIST_WINDOWS_JSON);
     });
 

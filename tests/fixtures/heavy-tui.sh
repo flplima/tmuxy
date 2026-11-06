@@ -89,7 +89,6 @@ goto 15 1
 fg 240; printf 'press Ctrl+C to exit'; reset
 
 # --- Update phase: rewrite cells in already-drawn regions ---
-# This exercises vt100 cell mutation, not just append-only output.
 r=1
 while [ $r -le 5 ]; do
   # Update progress bar at row 17
@@ -121,7 +120,6 @@ done
 goto 22 1
 sgr 1; bg 22; fg 231; printf ' TUI_READY '; reset
 
-# Park forever — terminate via signal.
 while :; do
   sleep 1
 done

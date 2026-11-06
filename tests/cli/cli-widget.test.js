@@ -5,10 +5,6 @@ const { runCLI } = require('./helpers/run-cli');
 const { runWidgetWithPaneGone } = require('./helpers/run-widget');
 
 describe('CLI widget subcommands', () => {
-  // The widget exec path uses `exec` to replace the process with a widget
-  // script, which pipes into tmuxy-widget's `trap 'exec bash </dev/tty' EXIT`
-  // — that fails without a tty. We test only help and error cases.
-
   describe('widget unknown', () => {
     test('errors on unknown widget subcommand', () => {
       const { stderr, exitCode } = runCLI(['widget', 'badcmd']);
@@ -98,7 +94,6 @@ describe('CLI widget subcommands', () => {
       });
       expect(exitCode).toBe(1);
       expect(stderr).toContain('cannot open a preview on another pane (%1)');
-      // Only the read-only pane_pid lookup runs; no set-option mutation is issued.
       expect(tmuxCalls).toEqual([{ args: ['display-message', '-p', '-t', '%1', '#{pane_pid}'] }]);
     });
   });

@@ -53,7 +53,6 @@ function withoutPaneResolution(tmuxCalls) {
  * redirects that bring its output and exit status back through files. The
  * wrapping is the same on every call and carries a temp path, so it is
  * stripped once here; the tests assert on the command itself.
- * `cli-run.test.js` asserts the wrapping is there.
  */
 const RUN_SHELL_WRAP = /^\{ (.*) ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/s;
 
