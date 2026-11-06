@@ -219,7 +219,8 @@ pub enum ServerAction {
     /// Install, list, update and remove plugins, and run their actions.
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
     Plugin(crate::plugin_cli::PluginArgs),
-    /// The files tmuxy keeps (`paths`), from tmuxy-core's one table of them.
+    /// The config verbs whose work is a file tmuxy-core owns: `paths`,
+    /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
     Config(crate::config_cli::ConfigArgs),
 }
 

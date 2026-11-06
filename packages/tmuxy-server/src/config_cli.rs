@@ -1,5 +1,12 @@
-//! `tmuxy-server config paths [--json]`: every file tmuxy keeps, from the one
-//! table of them (`tmuxy_core::paths::FILES`), resolved on this machine.
+//! `tmuxy-server config …`: the config verbs whose work is a file tmuxy-core
+//! owns, so the CLI's `tmuxy config` can call them instead of keeping its own
+//! copy of the file's format.
+//!
+//! - `paths [--json]`: every file tmuxy keeps, from the one table of them
+//!   (`tmuxy_core::paths::FILES`), resolved on this machine.
+//! - `reload`: touch the marker every running app watches.
+//! - `use-tmux-conf [on|off]`: read or set the menu-state choice to source
+//!   `~/.tmux.conf`, through the same reader and writer the app uses.
 
 use tmuxy_core::paths::{Layout, FILES};
 
@@ -17,16 +24,45 @@ enum ConfigVerb {
         #[arg(long)]
         json: bool,
     },
+    /// Ask every running app to re-source the config chain.
+    Reload,
+    /// Print whether `~/.tmux.conf` is sourced, or set it.
+    UseTmuxConf {
+        #[arg(value_parser = ["on", "off"])]
+        value: Option<String>,
+    },
 }
 
 pub fn run(args: ConfigArgs) {
+    let layout = Layout::current();
     match args.verb {
         ConfigVerb::Paths { json } => {
-            let layout = Layout::current();
             if json {
                 println!("{}", layout.report());
             } else {
                 print!("{}", paths_text(&layout));
+            }
+        }
+        ConfigVerb::Reload => {
+            if let Err(e) = tmuxy_core::session::request_reload(&layout) {
+                eprintln!("tmuxy config reload: {e}");
+                std::process::exit(1);
+            }
+        }
+        ConfigVerb::UseTmuxConf { value: None } => {
+            let on = tmuxy_core::session::read_managed_state()
+                .use_tmux_conf
+                .unwrap_or(false);
+            println!("{}", if on { "on" } else { "off" });
+        }
+        ConfigVerb::UseTmuxConf { value: Some(value) } => {
+            let changes = tmuxy_core::session::ManagedState {
+                use_tmux_conf: Some(value == "on"),
+                ..Default::default()
+            };
+            if let Err(e) = tmuxy_core::session::write_managed_state(changes) {
+                eprintln!("tmuxy config use-tmux-conf: {e}");
+                std::process::exit(1);
             }
         }
     }

@@ -268,6 +268,15 @@ pub fn get_config_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// What `tmuxy config reload` does: touch the marker ([`paths::RELOAD_MARKER`])
+/// every app's [`config_stamps`] poll watches. No write into the config dir,
+/// and no `tmuxy.conf` needed.
+pub fn request_reload(layout: &Layout) -> std::io::Result<()> {
+    crate::private_files::create_dir_all(&layout.state)?;
+    crate::private_files::open_append(&layout.path(&paths::RELOAD_MARKER))?
+        .set_modified(std::time::SystemTime::now())
+}
+
 /// What the user can edit under the config dir to restyle or reconfigure a
 /// running app, reduced to two numbers that change whenever one of those
 /// files does: every `*.css` (the themes and `custom.css`) in one, the tmux

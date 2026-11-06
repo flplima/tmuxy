@@ -260,7 +260,7 @@ fn start_writer() -> Option<PathBuf> {
     if let Some(existing) = WRITER.get() {
         return Some(existing.path.clone());
     }
-    let handle = TraceHandle::spawn(resolved_path()?)?;
+    let handle = TraceHandle::spawn(trace_path())?;
     let path = handle.path.clone();
     let _ = WRITER.set(handle);
     // Anchor the monotonic origin at (or before) the first event.
@@ -274,20 +274,10 @@ pub fn is_enabled() -> bool {
 }
 
 /// The file tracing writes to, whether or not it is currently recording, so the
-/// UI can show and copy it. Resolving does NOT create it. `None` only if no
-/// state dir resolves.
-pub fn trace_path() -> Option<PathBuf> {
-    resolved_path()
-}
-
-/// The `--trace <path>` the operator named, else the platform default.
-fn resolved_path() -> Option<PathBuf> {
-    if let Some(p) = RESOLVED_PATH.get() {
-        return Some(p.clone());
-    }
-    let path = default_path()?;
-    let _ = RESOLVED_PATH.set(path.clone());
-    Some(path)
+/// UI can show and copy it: the `--trace <path>` the operator named, else the
+/// state dir's. Resolving does NOT create it.
+pub fn trace_path() -> PathBuf {
+    RESOLVED_PATH.get_or_init(crate::paths::trace_file).clone()
 }
 
 /// Whether the kill switch forbids tracing in this process. The UI disables its
@@ -361,12 +351,6 @@ fn is_truthy(var: &str) -> bool {
     std::env::var(var)
         .map(|v| !v.is_empty() && v != "0")
         .unwrap_or(false)
-}
-
-/// Default trace path under the state dir (`crate::paths`). Resolving the path
-/// creates nothing; the directory is made when the writer actually opens it.
-fn default_path() -> Option<PathBuf> {
-    Some(crate::paths::trace_file())
 }
 
 // =============================================================================

@@ -25,7 +25,7 @@ use base64::Engine as _;
 
 use crate::constants::tmux_options::{PANE_PREVIEW, PANE_PREVIEW_NET, PANE_WIDGET};
 use crate::control_mode::MonitorCommandSender;
-use crate::mime::content_type_for_path;
+use crate::mime::{content_type_for_path, preview_use, PreviewUse};
 use crate::transport::query;
 use crate::{CommandError, PaneId};
 
@@ -60,10 +60,10 @@ pub enum DocumentKind {
 
 impl DocumentKind {
     pub fn of(path: &Path) -> Option<Self> {
-        match extension(path).as_deref() {
-            Some("html" | "htm") => Some(Self::Html),
-            Some("md" | "markdown") => Some(Self::Markdown),
-            _ => None,
+        match preview_use(&path.to_string_lossy()) {
+            PreviewUse::Html => Some(Self::Html),
+            PreviewUse::Markdown => Some(Self::Markdown),
+            PreviewUse::Resource | PreviewUse::None => None,
         }
     }
 
@@ -75,17 +75,11 @@ impl DocumentKind {
     }
 }
 
-/// The resource types a document may link: what a page loads to draw itself.
-/// Nothing that is merely a file (`.txt`, `.json`, `.pdf`, a key).
-const RESOURCE_EXTENSIONS: &[&str] = &[
-    "css", "js", "mjs", "png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp", "woff",
-    "woff2", "ttf", "otf",
-];
-
-fn extension(path: &Path) -> Option<String> {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
+/// Whether a document may link the file at `path`: one of the types a page
+/// loads to draw itself (`mime::PreviewUse::Resource`), nothing that is merely
+/// a file (`.txt`, `.json`, `.pdf`, a key).
+fn is_resource(path: &Path) -> bool {
+    preview_use(&path.to_string_lossy()) == PreviewUse::Resource
 }
 
 /// Parse tmux's answer to [`authorisation_query`]: the widget tag, the path
@@ -222,9 +216,8 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
     if written.is_absolute() || !written.components().all(plain_component) {
         return Err(refuse("outside the document's folder, or hidden"));
     }
-    match extension(written) {
-        Some(ext) if RESOURCE_EXTENSIONS.contains(&ext.as_str()) => {}
-        _ => return Err(refuse("not a type a page loads")),
+    if !is_resource(written) {
+        return Err(refuse("not a type a page loads"));
     }
 
     let folder = document
@@ -243,10 +236,10 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
     if inside.as_os_str().is_empty() || !inside.components().all(plain_component) {
         return Err(refuse("outside the document's folder, or hidden"));
     }
-    match extension(&resolved) {
-        Some(ext) if RESOURCE_EXTENSIONS.contains(&ext.as_str()) => Ok(resolved),
-        _ => Err(refuse("not a type a page loads")),
+    if !is_resource(&resolved) {
+        return Err(refuse("not a type a page loads"));
     }
+    Ok(resolved)
 }
 
 /// The document itself: `{ kind, name, text, net }`.

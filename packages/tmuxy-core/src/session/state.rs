@@ -38,17 +38,79 @@ pub struct ManagedState {
     pub use_tmux_conf: Option<bool>,
 }
 
-/// The options the menus can change, and so the ones [`ManagedState`] holds
-/// and `tmuxy.conf` can pin.
-pub const MANAGED_OPTIONS: [&str; 5] = [
-    tmux_options::THEME,
-    tmux_options::THEME_MODE,
-    tmux_options::CURSOR_BLINK,
-    tmux_options::SEND_ASK,
-    tmux_options::TRANSPARENCY,
-];
+/// An option the menus can change: one [`ManagedState`] remembers and the
+/// user's `tmuxy.conf` can pin. The one list of them; everything that reads,
+/// re-applies or remembers a menu choice goes through it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedOption {
+    Theme,
+    ThemeMode,
+    CursorBlink,
+    SendAsk,
+    Transparency,
+}
 
-/// The managed options `conf` sets, in [`MANAGED_OPTIONS`] order: the ones
+impl ManagedOption {
+    pub const ALL: [Self; 5] = [
+        Self::Theme,
+        Self::ThemeMode,
+        Self::CursorBlink,
+        Self::SendAsk,
+        Self::Transparency,
+    ];
+
+    /// The tmux option.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Theme => tmux_options::THEME,
+            Self::ThemeMode => tmux_options::THEME_MODE,
+            Self::CursorBlink => tmux_options::CURSOR_BLINK,
+            Self::SendAsk => tmux_options::SEND_ASK,
+            Self::Transparency => tmux_options::TRANSPARENCY,
+        }
+    }
+
+    fn flag(self, state: &mut ManagedState) -> Option<&mut Option<bool>> {
+        match self {
+            Self::Theme | Self::ThemeMode => None,
+            Self::CursorBlink => Some(&mut state.cursor_blink),
+            Self::SendAsk => Some(&mut state.send_ask),
+            Self::Transparency => Some(&mut state.transparency),
+        }
+    }
+
+    /// The value `state` remembers for it, as tmux spells it (`on`/`off` for
+    /// a switch).
+    pub fn remembered(self, state: &ManagedState) -> Option<String> {
+        let mut state = state.clone();
+        match self {
+            Self::Theme => state.theme,
+            Self::ThemeMode => state.theme_mode,
+            _ => self
+                .flag(&mut state)
+                .and_then(|on| *on)
+                .map(|on| if on { "on" } else { "off" }.to_string()),
+        }
+    }
+
+    /// A state that remembers `value` (as tmux spells it) for this option and
+    /// nothing else: the change [`write_managed_state`] merges in.
+    pub fn remembering(self, value: &str) -> ManagedState {
+        let mut state = ManagedState::default();
+        match self {
+            Self::Theme => state.theme = Some(value.to_string()),
+            Self::ThemeMode => state.theme_mode = Some(value.to_string()),
+            _ => {
+                if let Some(flag) = self.flag(&mut state) {
+                    *flag = Some(value == "on");
+                }
+            }
+        }
+        state
+    }
+}
+
+/// The managed options `conf` sets, in [`ManagedOption::ALL`] order: the ones
 /// pinned by the user's `tmuxy.conf`.
 ///
 /// Config beats menu state. A key the user's file sets is theirs on every
@@ -68,7 +130,11 @@ pub fn pinned_options_in(conf: &str) -> Vec<&'static str> {
         let Some((name, unset)) = global_option_set(command) else {
             continue;
         };
-        let Some(option) = MANAGED_OPTIONS.into_iter().find(|o| *o == name) else {
+        let Some(option) = ManagedOption::ALL
+            .into_iter()
+            .map(ManagedOption::name)
+            .find(|o| *o == name)
+        else {
             continue;
         };
         pinned.retain(|o| *o != option);
@@ -76,8 +142,9 @@ pub fn pinned_options_in(conf: &str) -> Vec<&'static str> {
             pinned.push(option);
         }
     }
-    MANAGED_OPTIONS
+    ManagedOption::ALL
         .into_iter()
+        .map(ManagedOption::name)
         .filter(|option| pinned.contains(option))
         .collect()
 }
@@ -170,32 +237,24 @@ pub fn pinned_options() -> Vec<&'static str> {
 /// user's `tmuxy.conf` set and which keeps that value. The monitor sends them
 /// right after sourcing the chain, on every connect and every reload.
 pub fn managed_state_commands(state: &ManagedState, pinned: &[&str]) -> Vec<String> {
-    let flag = |on: Option<bool>| on.map(|on| if on { "on" } else { "off" });
-    [
-        (tmux_options::THEME, state.theme.as_deref()),
-        (tmux_options::THEME_MODE, state.theme_mode.as_deref()),
-        (tmux_options::CURSOR_BLINK, flag(state.cursor_blink)),
-        (tmux_options::SEND_ASK, flag(state.send_ask)),
-        (tmux_options::TRANSPARENCY, flag(state.transparency)),
-    ]
-    .into_iter()
-    .filter(|(option, _)| !pinned.contains(option))
-    .filter_map(|(option, value)| {
-        value.map(|v| format!("set-option -g {option} {}", crate::executor::tmux_quote(v)))
-    })
-    .collect()
+    ManagedOption::ALL
+        .into_iter()
+        .filter(|option| !pinned.contains(&option.name()))
+        .filter_map(|option| {
+            let value = option.remembered(state)?;
+            Some(format!(
+                "set-option -g {} {}",
+                option.name(),
+                crate::executor::tmux_quote(&value)
+            ))
+        })
+        .collect()
 }
 
 /// [`managed_state_commands`] for what is on disk now: the state file, less
 /// what the user's `tmuxy.conf` pins.
 pub fn current_managed_state_commands() -> Vec<String> {
     managed_state_commands(&read_managed_state(), &pinned_options())
-}
-
-/// Path to the JSON state file in the state dir. Does not check for
-/// existence — callers handle missing files.
-pub fn managed_state_path() -> PathBuf {
-    Layout::current().state_file()
 }
 
 /// Read the managed state from disk. Returns a default (all-None) struct if
@@ -206,21 +265,25 @@ pub fn read_managed_state() -> ManagedState {
 }
 
 pub(super) fn read_managed_state_in(layout: &Layout) -> ManagedState {
-    let path = layout.state_file();
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return ManagedState::default();
-    };
-    match serde_json::from_str::<ManagedState>(&text) {
-        Ok(state) => state,
-        Err(e) => {
-            warn!(?path, error = %e, "could not parse managed state file, using defaults");
-            ManagedState::default()
-        }
+    read_strict(layout).unwrap_or_else(|e| {
+        warn!(path = ?layout.state_file(), error = %e, "could not read the managed state file, using defaults");
+        ManagedState::default()
+    })
+}
+
+/// The state file as it is: empty when there is none, an error when it does
+/// not parse, so a write never replaces a file it could not read.
+fn read_strict(layout: &Layout) -> std::io::Result<ManagedState> {
+    match std::fs::read_to_string(layout.state_file()) {
+        Ok(text) => serde_json::from_str(&text).map_err(std::io::Error::other),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ManagedState::default()),
+        Err(e) => Err(e),
     }
 }
 
 /// Update the JSON state file: every field `changes` sets is written, every
-/// other kept as the file has it.
+/// other kept as the file has it. A file that does not parse is left alone
+/// and the write refused: it may hold a choice a newer build wrote.
 pub fn write_managed_state(changes: ManagedState) -> std::io::Result<PathBuf> {
     write_managed_state_in(&Layout::current(), changes)
 }
@@ -231,37 +294,15 @@ pub(super) fn write_managed_state_in(
 ) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&layout.state)?;
     let path = layout.state_file();
-
-    let mut state = read_managed_state_in(layout);
-    // Destructured, so a field added to the state cannot be left out here.
-    let ManagedState {
-        theme,
-        theme_mode,
-        cursor_blink,
-        send_ask,
-        transparency,
-        use_tmux_conf,
-    } = changes;
-    if theme.is_some() {
-        state.theme = theme;
+    let mut merged = serde_json::to_value(read_strict(layout)?)?;
+    // Unset fields are not serialized, so the change's object holds exactly
+    // the fields it sets.
+    if let (Some(state), serde_json::Value::Object(set)) =
+        (merged.as_object_mut(), serde_json::to_value(changes)?)
+    {
+        state.extend(set);
     }
-    if theme_mode.is_some() {
-        state.theme_mode = theme_mode;
-    }
-    if cursor_blink.is_some() {
-        state.cursor_blink = cursor_blink;
-    }
-    if send_ask.is_some() {
-        state.send_ask = send_ask;
-    }
-    if transparency.is_some() {
-        state.transparency = transparency;
-    }
-    if use_tmux_conf.is_some() {
-        state.use_tmux_conf = use_tmux_conf;
-    }
-
-    let body = serde_json::to_string_pretty(&state).map_err(std::io::Error::other)?;
+    let body = serde_json::to_string_pretty(&merged)?;
     crate::private_files::replace(&path, format!("{body}\n"))?;
     Ok(path)
 }

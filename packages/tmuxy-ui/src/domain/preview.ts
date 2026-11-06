@@ -13,7 +13,7 @@
 
 export type PreviewKind = 'html' | 'markdown';
 
-/** What a document may link, by extension. Mirrors `RESOURCE_EXTENSIONS`. */
+/** What a document may link, by extension: the `Resource` rows of tmuxy-core's `mime::FILE_TYPES` (a test holds the two together). */
 const RESOURCE_EXTENSIONS = new Set([
   'css',
   'js',

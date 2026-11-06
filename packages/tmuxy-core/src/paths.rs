@@ -158,6 +158,9 @@ fn data_dir_from(
 /// for the user's own ([`USER_PLUGIN_MANIFEST`]).
 pub const PLUGIN_MANIFEST_FILE: &str = "tmuxy-plugin.toml";
 
+/// The CLI dispatcher's name in the data dir's `bin/`.
+pub const CLI_DISPATCHER: &str = "tmuxy-cli";
+
 /// Which of the three directories a file lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -420,7 +423,7 @@ impl Layout {
 
     /// The mirrored CLI dispatcher (`<data>/bin/tmuxy-cli`).
     pub fn cli(&self) -> PathBuf {
-        self.bin().join("tmuxy-cli")
+        self.bin().join(CLI_DISPATCHER)
     }
 
     /// The lockfile (`plugins.json`).

@@ -16,7 +16,6 @@
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-use super::assets::BUNDLED_BIN_SCRIPTS;
 use super::config::{legacy_defaults_source, DEFAULT_USER_CONF};
 use crate::paths::{self, Layout};
 
@@ -254,7 +253,7 @@ fn remove_app_files(dir: &Path, removed: &mut Vec<PathBuf>) {
     // bin/ was the app's whole — the scripts of this build and of every older
     // one, retired names included — when it holds the dispatcher it mirrored.
     let bin = dir.join("bin");
-    if is_real_dir(&bin) && is_file(&bin.join(BUNDLED_BIN_SCRIPTS[0].0)) {
+    if is_real_dir(&bin) && is_file(&bin.join(paths::CLI_DISPATCHER)) {
         remove_files_under(&bin, removed);
     }
 

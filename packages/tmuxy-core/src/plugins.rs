@@ -188,20 +188,7 @@ pub(crate) fn random_hex() -> Result<String> {
 pub fn refresh(dirs: &Layout) {
     inventory::publish(dirs);
     let _ = keys::apply(dirs);
-    request_reload(dirs);
-}
-
-/// What `tmuxy config reload` does: touch the marker every app watches.
-pub fn request_reload(dirs: &Layout) {
-    let marker = dirs.path(&crate::paths::RELOAD_MARKER);
-    if private_dir(&dirs.state).is_err() {
-        return;
-    }
-    if let Ok(file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&marker)
-    {
-        let _ = file.set_modified(std::time::SystemTime::now());
+    if let Err(e) = crate::session::request_reload(dirs) {
+        tracing::warn!(error = %e, "could not ask the running apps to reload");
     }
 }

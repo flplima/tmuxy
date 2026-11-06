@@ -11,7 +11,7 @@ use crate::client_size::SizePolicy;
 use crate::constants::tmux_options;
 use crate::control_mode::MonitorCommandSender;
 use crate::executor::tmux_quote;
-use crate::session;
+use crate::session::{self, ManagedOption};
 use crate::transport::query;
 use crate::CommandError;
 
@@ -150,12 +150,6 @@ const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::NATIVE_MENUS,
     tmux_options::SIZE,
 ];
-
-/// The prefix of the options that each set one CSS variable on the page:
-/// `@tmuxy-css-term-background '#101010'` is `--term-background: #101010`
-/// applied over the theme file. One option per variable, so a script in a
-/// pane can set a colour without writing a stylesheet.
-pub const CSS_VAR_PREFIX: &str = tmux_options::CSS_VAR_PREFIX;
 
 /// One command list printing every settings option as `name=value`, a line
 /// each, then every global option for the `@tmuxy-css-*` ones among them.
@@ -318,109 +312,59 @@ fn unpinned<'a>(
     Ok(free)
 }
 
-/// Set the [`unpinned`] options among `options`, and return which they were.
-async fn set_unpinned<'a>(
+/// Set the [`unpinned`] options among `options` in tmux, and remember the
+/// choice in `tmuxy.state.json` so it survives a tmux server restart. The
+/// live option is what the clients read; a failure to remember it is logged,
+/// not returned, since the option is already set.
+async fn set_managed(
     tx: &MonitorCommandSender,
-    options: &[(&'a str, &'a str)],
+    options: &[(ManagedOption, &str)],
     what: &str,
-) -> Result<Vec<&'a str>, CommandError> {
-    let free = unpinned(options, &session::pinned_options())?;
+) -> Result<(), CommandError> {
+    let named: Vec<(&str, &str)> = options.iter().map(|(o, v)| (o.name(), *v)).collect();
+    let free = unpinned(&named, &session::pinned_options())?;
     set_options(tx, &free, what).await?;
-    Ok(free.into_iter().map(|(option, _)| option).collect())
-}
-
-/// Remember a menu choice in `tmuxy.state.json`, so it survives a tmux server
-/// restart. A failure is non-fatal — the live option is already set — and is
-/// logged, not returned.
-fn remember(changes: session::ManagedState, what: &str) {
-    if let Err(e) = session::write_managed_state(changes) {
-        tracing::warn!(error = %e, "could not persist the {what} to tmuxy.state.json");
+    for (option, value) in options {
+        if !free.iter().any(|(name, _)| *name == option.name()) {
+            continue;
+        }
+        if let Err(e) = session::write_managed_state(option.remembering(value)) {
+            tracing::warn!(error = %e, "could not persist the {what} to tmuxy.state.json");
+        }
     }
+    Ok(())
 }
 
-/// Turn the cursor's blink on or off, and remember the choice.
-///
-/// The live tmux option is what the clients read; the state file is what
-/// makes it survive a tmux server restart. A `@tmuxy-cursor-blink` line in
-/// the user's own `tmuxy.conf` pins it: the menu cannot change it then.
-pub async fn set_cursor_blink(
+/// Turn one of the menus' switches on or off, and remember the choice. A line
+/// setting it in the user's own `tmuxy.conf` pins it: the menu cannot change
+/// it then.
+pub async fn set_flag(
     tx: &MonitorCommandSender,
+    option: ManagedOption,
     enabled: bool,
 ) -> Result<(), CommandError> {
     let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::CURSOR_BLINK, value)], "cursor blink").await?;
-    let changes = session::ManagedState {
-        cursor_blink: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "cursor blink");
-    Ok(())
+    set_managed(tx, &[(option, value)], option.name()).await
 }
 
-/// Turn the question a send into another pane asks on or off, and remember
-/// the choice, the way [`set_cursor_blink`] does.
-pub async fn set_send_ask(tx: &MonitorCommandSender, enabled: bool) -> Result<(), CommandError> {
-    let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::SEND_ASK, value)], "send ask").await?;
-    let changes = session::ManagedState {
-        send_ask: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "send ask");
-    Ok(())
-}
-
-/// Make the window see-through or opaque, and remember the choice, the way
-/// [`set_cursor_blink`] does. The opacities and the blur keep their values.
-pub async fn set_transparency(
-    tx: &MonitorCommandSender,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let value = if enabled { "on" } else { "off" };
-    set_unpinned(tx, &[(tmux_options::TRANSPARENCY, value)], "transparency").await?;
-    let changes = session::ManagedState {
-        transparency: Some(enabled),
-        ..Default::default()
-    };
-    remember(changes, "transparency");
-    Ok(())
-}
-
-/// Set the theme (and optionally the mode) in tmux and remember the choice so
-/// it survives a tmux server restart. Whichever of the two the user's
-/// `tmuxy.conf` pins is left as the file has it.
+/// Set the theme (and optionally the mode) in tmux and remember the choice.
+/// Whichever of the two the user's `tmuxy.conf` pins is left as the file has
+/// it.
 pub async fn set_theme(
     tx: &MonitorCommandSender,
     name: &str,
     mode: Option<&str>,
 ) -> Result<(), CommandError> {
-    let mut options = vec![(tmux_options::THEME, name)];
+    let mut options = vec![(ManagedOption::Theme, name)];
     if let Some(m) = mode {
-        options.push((tmux_options::THEME_MODE, m));
+        options.push((ManagedOption::ThemeMode, m));
     }
-    let applied = set_unpinned(tx, &options, "theme").await?;
-    let changes = session::ManagedState {
-        theme: applied
-            .contains(&tmux_options::THEME)
-            .then(|| name.to_string()),
-        theme_mode: mode
-            .filter(|_| applied.contains(&tmux_options::THEME_MODE))
-            .map(str::to_string),
-        ..Default::default()
-    };
-    remember(changes, "theme");
-    Ok(())
+    set_managed(tx, &options, "theme").await
 }
 
 /// Set only the mode (dark/light) and remember it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
-    set_unpinned(tx, &[(tmux_options::THEME_MODE, mode)], "theme mode").await?;
-    let changes = session::ManagedState {
-        theme_mode: Some(mode.to_string()),
-        ..Default::default()
-    };
-    remember(changes, "theme mode");
-    Ok(())
+    set_managed(tx, &[(ManagedOption::ThemeMode, mode)], "theme mode").await
 }
 
 /// Human-readable display name for a theme file stem:
