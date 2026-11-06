@@ -15,35 +15,24 @@ use std::time::{Duration, Instant};
 
 const STASH: &str = "__tmuxy_stash";
 
-struct Server {
-    socket: String,
-}
+mod tmux_common;
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = Command::new("tmux")
-            .args(["-L", &self.socket, "kill-server"])
-            .output();
+struct Server(tmux_common::ScratchTmux);
+
+impl std::ops::Deref for Server {
+    type Target = tmux_common::ScratchTmux;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl Server {
     fn start(name: &str) -> Self {
-        let server = Self {
-            socket: format!("tmuxy-pane-groups-{name}-{}", std::process::id()),
-        };
-        server.tmux(&[
-            "-f",
-            "/dev/null",
-            "new-session",
-            "-d",
-            "-s",
-            "work",
-            "-x",
-            "120",
-            "-y",
-            "40",
-        ]);
+        let server = Self(tmux_common::ScratchTmux::start(
+            &format!("pane-groups-{name}"),
+            120,
+            40,
+        ));
         // The pair `session::server_command_env` publishes, with the
         // subcommand unset since `tmuxy-server` takes its verbs directly. A
         // shell inside the desktop app exports TMUXY_SERVER_SUBCOMMAND=server,
@@ -52,20 +41,6 @@ impl Server {
         server.tmux(&["set-environment", "-g", "TMUXY_SERVER_BIN", bin()]);
         server.tmux(&["set-environment", "-g", "-u", "TMUXY_SERVER_SUBCOMMAND"]);
         server
-    }
-
-    fn tmux(&self, args: &[&str]) -> String {
-        let out = Command::new("tmux")
-            .args(["-L", &self.socket])
-            .args(args)
-            .output()
-            .expect("tmux runs");
-        assert!(
-            out.status.success(),
-            "tmux {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
     fn group(&self, args: &[&str]) -> Output {

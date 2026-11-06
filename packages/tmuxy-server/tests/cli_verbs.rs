@@ -7,56 +7,27 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
-struct Server {
-    socket: String,
-    home: PathBuf,
-}
+mod tmux_common;
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = Command::new("tmux")
-            .args(["-L", &self.socket, "kill-server"])
-            .output();
-        let _ = std::fs::remove_dir_all(&self.home);
+struct Server(tmux_common::ScratchTmux);
+
+impl std::ops::Deref for Server {
+    type Target = tmux_common::ScratchTmux;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl Server {
     fn start(name: &str) -> Self {
-        let socket = format!("tmuxy-cli-verbs-{name}-{}", std::process::id());
-        let home = std::env::temp_dir().join(&socket);
-        std::fs::create_dir_all(&home).unwrap();
-        let server = Self { socket, home };
-        server.tmux(&[
-            "-f",
-            "/dev/null",
-            "new-session",
-            "-d",
-            "-s",
-            "work",
-            "-x",
-            "100",
-            "-y",
-            "30",
-        ]);
-        server
-    }
-
-    fn tmux(&self, args: &[&str]) -> String {
-        let out = Command::new("tmux")
-            .args(["-L", &self.socket])
-            .args(args)
-            .output()
-            .expect("tmux runs");
-        assert!(
-            out.status.success(),
-            "tmux {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
+        Self(tmux_common::ScratchTmux::start(
+            &format!("cli-verbs-{name}"),
+            100,
+            30,
+        ))
     }
 
     fn pane(&self) -> String {
