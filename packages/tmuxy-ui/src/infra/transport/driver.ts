@@ -39,6 +39,15 @@ export interface TransportDriver<E extends DriverEvent = TransportEvent> {
    */
   readonly enumeratesSessions?: boolean;
   /**
+   * Whether calls reach the backend in the order `send` is called, whatever
+   * each one waits for: an in-browser engine writes each to its one line
+   * before it awaits the answer. The lane then sends the next at once
+   * instead of after the previous answer, which over a guest's serial line
+   * would put every op behind the round trip of the one before. False for
+   * the hosts that run each request as its own task (HTTP, Tauri).
+   */
+  readonly ordersSends?: boolean;
+  /**
    * Whether `query_tmux` reaches a tmux: the one way to READ from it, since
    * `run_tmux_command` is fire-and-forget and resolves null on every
    * transport. False on the stories' recorded fixtures.

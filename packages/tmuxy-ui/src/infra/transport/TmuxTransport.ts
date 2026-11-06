@@ -161,7 +161,7 @@ export function serviceOver(
 ): { readonly service: TmuxTransportService; readonly viewport: () => Viewport | null } {
   const adoptState = options.adoptState ?? decodeServerStateOrThrow;
   const send = (call: BackendCall, actionId?: string) => driver.send(call, actionId);
-  const lane = commandLane(send);
+  const lane = commandLane(send, driver.ordersSends === true);
   let viewport: Viewport | null = null;
 
   const attempt = <A>(context: string, run: () => Promise<A>): Effect.Effect<A, AdapterError> =>

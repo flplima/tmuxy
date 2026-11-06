@@ -90,6 +90,7 @@ export async function loadGuestFiles(files: Record<string, string | URL>): Promi
 
 export class GuestTmuxAdapter implements TransportDriver {
   readonly answersQueries = true;
+  readonly ordersSends = true;
   private readonly initCommands: string[];
   private readonly initDoneOption: string | null;
   private readonly files: Record<string, string | URL>;

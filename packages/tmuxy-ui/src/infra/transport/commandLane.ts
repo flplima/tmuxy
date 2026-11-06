@@ -35,13 +35,19 @@ export interface CommandLane {
   close(): void;
 }
 
-export function commandLane(send: SendCall): CommandLane {
+/**
+ * The lane over `send`. With `ordered` (the driver keeps its sends in call
+ * order itself, `TransportDriver.ordersSends`) each goes at once; otherwise
+ * each waits for the one before it to be answered.
+ */
+export function commandLane(send: SendCall, ordered = false): CommandLane {
   let tail: Promise<unknown> = Promise.resolve();
   let inFlight = 0;
 
   const queue = (call: BackendCall, actionId?: string): Promise<unknown> => {
     inFlight++;
-    const done = tail.then(() => send(call, actionId)).finally(() => inFlight--);
+    const sent = ordered ? send(call, actionId) : tail.then(() => send(call, actionId));
+    const done = sent.finally(() => inFlight--);
     // The next send waits for this one to settle, never for it to succeed.
     tail = done.catch(() => undefined);
     return done;

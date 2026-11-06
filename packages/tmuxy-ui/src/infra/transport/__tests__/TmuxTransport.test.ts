@@ -124,6 +124,24 @@ describe('TmuxTransport over a driver', () => {
     expect(await adapter.run(call((t) => Effect.sync(t.pendingCommands)))).toBe(0);
   });
 
+  it('waits for each answer before the next op, unless the driver keeps its own order', async () => {
+    const sendTwo = async (ordersSends: boolean) => {
+      const adapter = fakeTransport({ ordersSends, send: () => new Promise(() => {}) });
+      void adapter.runtime.runPromise(
+        Effect.all(
+          [TmuxOp.Split({ direction: 'vertical' }), TmuxOp.Split({ direction: 'horizontal' })].map(
+            (op) => call((t) => t.run(op)),
+          ),
+          { concurrency: 'unbounded' },
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return adapter.invocations.length;
+    };
+    expect(await sendTwo(false)).toBe(1);
+    expect(await sendTwo(true)).toBe(2);
+  });
+
   it('a keystroke the backend refuses is reported, not dropped in silence', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     const adapter = fakeTransport({
