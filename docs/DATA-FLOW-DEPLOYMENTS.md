@@ -2,26 +2,31 @@
 
 The Tauri transport, real-world deployment scenarios and the extra HTTP endpoints. Part of [DATA-FLOW.md](DATA-FLOW.md).
 
+## A refused stream is not a dropped one
+
+`EventSource` reports every failure as the same bare error, with no status: a server that is restarting and a server that refuses the request look identical, and retrying the second never ends. So when a stream fails before it ever opened, the adapter asks the same URL with a plain `fetch` and reads the status. A 403 is the request guard's verdict on this page's `Host` or origin (see [SECURITY.md](SECURITY.md)) — the retry loop stops and the reason in the response body is shown as the fatal error. No answer, a 5xx, or a stream that does open are outages, and the supervised retry carries on.
+
 ## Transport: Tauri IPC (Desktop Version)
 
 The Tauri desktop app bypasses the network stack entirely:
 
-**`invoke(cmd, args)`** — Client-to-server commands (equivalent to HTTP POST). Calls Rust functions directly through Tauri's IPC bridge. The `TauriAdapter` dynamically imports `@tauri-apps/api/core` to call `invoke()`.
+**`invoke('dispatch', { request: { cmd, args } })`** — Client-to-server commands (equivalent to HTTP POST): the same `{ cmd, args }` the web build posts to `/commands`, handled by the same `tmuxy_core::host::handle`. Only window chrome (the title bar, window size, the Window menu, window styles, restart) has IPC commands of its own. What a host cannot do — the web switching servers or detaching, opening a link on the machine — it answers `unavailable`.
 
-**Tauri events** — Server-to-client state updates (equivalent to SSE). The `TauriEmitter` pushes state changes with `emit_to(<window label>, "tmux-state-update", …)`, addressed to one window rather than broadcast. The frontend listens via `listen<StateUpdate>('tmux-state-update', handler)`.
+**Tauri events** — Server-to-client events (equivalent to SSE), with the same names and payloads as the SSE frames' (`HostEvent`, `tmuxy-core/src/host/event.rs`): `emit_to(<window label>, "state-update", …)`, addressed to one window rather than broadcast. Both adapters listen through one table (`tmuxy-ui/src/infra/transport/hostEvents.ts`).
 
 Tauri IPC has lower latency than HTTP since communication is in-process.
 
-**One monitor per GUI window.** The desktop app can have several OS windows open on one tmux session (Window ▸ New Window). Each is its own client: its own webview, its own control-mode monitor, and its own tmux session, with the sessions members of one tmux _session group_ — they share every window and pane while each keeps its own current window, which is what puts two tabs of one session on screen at once. The first window holds the group's base session (the one `TMUXY_SESSION` names) and every later one attaches to `<base>+<index>` (`tmux -CC new-session -A -s <base>+2 -t <base>`); a window's session is killed when its window closes, which leaves the shared windows alive in the remaining members. A registry keyed by webview label (`tmuxy-tauri-app/src/windows.rs`) is what turns a command back into the monitor that must run it, so a mutation from window 2 moves window 2's current tab and not the other's. Per-session events (state, errors, logs, clipboard, detach) are addressed to the one window; server-wide ones (keybindings, theme settings) are still broadcast.
+**One monitor per GUI window.** The desktop app can have several OS windows open on one tmux session (Window ▸ New Window). Each is its own client: its own webview, its own control-mode monitor, and its own tmux session, with the sessions members of one tmux _session group_ — they share every window and pane while each keeps its own current window, which is what puts two tabs of one session on screen at once. The first window holds the group's base session (the one `TMUXY_SESSION` names) and every later one attaches to `<base>+<index>` (`tmux -CC new-session -A -s <base>+2 -t <base>`); a window's session is killed when its window closes, which leaves the shared windows alive in the remaining members. A registry keyed by webview label (`tmuxy-tauri-app/src/windows.rs`) is what turns a command back into the monitor that must run it, so a mutation from window 2 moves window 2's current tab and not the other's. Every event is addressed to the one window whose monitor sent it. A `tmuxy connect` moves every window: they are members of one session group on one server, so the first window takes the target's session and window `N` rejoins it as `<session>+N`.
 
 ## Connection Lifecycle (Tauri)
 
 1. App starts, reads `TMUXY_SESSION` env var (defaults to "tmuxy")
-2. `monitor::start_monitoring()` spawns a background task that connects to tmux control mode
-3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it. The loop is `transport::supervise` in tmuxy-core, shared with the web server; parking, the server switch and the detach are the desktop's `Host` (`packages/tmuxy-tauri-app/src/monitor.rs`), where the web server's stops instead
+2. `host::prepare` checks tmux and lays the config out, then `windows::open_main` starts the first window's monitor
+3. On connection failure: exponential backoff (100ms to 10s max); after 5 consecutive failures the monitor **parks** — the loop stays alive but stops retrying until a user-requested reconnect (`tmuxy connect` or the sidebar server picker) revives it. The loop is `host::supervise` in tmuxy-core, shared with the web server; parking, the server switch and the detach are the desktop's `Host` (`packages/tmuxy-tauri-app/src/monitor.rs`), where the web server's stops instead
 4. Once connected: emits keybindings, then enters the monitor event loop
-5. Frontend's `TauriAdapter.connect()` sets up event listeners for `tmux-state-update`, `tmux-keybindings`, `tmux-theme-settings`, `tmux-css-changed`, and `tmux-error`
-6. No explicit disconnect — the monitor runs for the app's lifetime
+5. Frontend's `TauriAdapter.connect()` listens for every host event, then asks for the `greeting` — the `connection-info` and the bindings already read, which went out before the webview listened
+6. A `reconnecting` event is the link going down; the next state is it coming back
+7. No explicit disconnect — the monitor runs for the window's lifetime; quitting takes every session's last snapshot first
 
 ## Real-World Deployment Scenarios
 

@@ -84,12 +84,12 @@ fn a_dialog_scrolled_above_the_bottom_is_not_one() {
     assert!(!shows_dialog(&scrolled));
 }
 
-fn row(state: &str) -> Row {
-    Row {
+fn row(state: &str) -> PaneRow {
+    PaneRow {
         pane_id: "%7".into(),
         command: "agy".into(),
         state: state.into(),
-        asking: false,
+        ..PaneRow::default()
     }
 }
 
@@ -116,7 +116,7 @@ fn a_needs_input_the_screen_never_backed_is_left_to_the_hooks() {
     // An MCP elicitation, say: a dialog the screen does not know.
     assert_eq!(corrector.correct(&row("needs-input"), false), None);
     // A send's question holds the pane whatever the screen shows.
-    let asking = Row {
+    let asking = PaneRow {
         asking: true,
         ..row("needs-input")
     };
@@ -127,19 +127,7 @@ fn a_needs_input_the_screen_never_backed_is_left_to_the_hooks() {
 }
 
 #[test]
-fn a_pane_list_row_reads_into_its_fields() {
-    let rows = parse_rows("%3\tclaude\tworking\t\n%4\tzsh\t\t\n%5\t2.1.30\tneeds-input\tMay I?\n");
-    assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows[0],
-        Row {
-            pane_id: "%3".into(),
-            command: "claude".into(),
-            state: "working".into(),
-            asking: false,
-        }
-    );
-    assert!(rows[2].asking);
-    assert!(is_agent(&rows[0].command) && is_agent(&rows[2].command));
-    assert!(!is_agent(&rows[1].command));
+fn the_agents_are_known_by_their_process_names() {
+    assert!(is_agent("claude") && is_agent("antigravity") && is_agent("2.1.30"));
+    assert!(!is_agent("zsh"));
 }

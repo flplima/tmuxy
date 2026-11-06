@@ -102,16 +102,14 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
     // Blur is on by default (`@tmuxy-blur`). A window opens before its
     // monitor has sourced the config, so it starts with the default and
-    // `monitor::emit_theme_settings` puts it where the live value says once
-    // the config is read.
+    // the window's sink puts it where the live value says once the config is
+    // read (`monitor::TauriSink::appearance`).
     apply_blur(window, true);
 
     // Tell the frontend which platform we're on so it can adjust layout
     // (e.g., hide hamburger menu on macOS, add traffic light spacing)
     let platform = if cfg!(target_os = "macos") {
         "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
     } else {
         "linux"
     };
@@ -158,7 +156,10 @@ pub(super) fn handle_tmuxypreview(
     let Ok(pane) = tmuxy_core::PaneId::parse(&format!("%{number}")) else {
         return not_found();
     };
-    let Some(page) = app.state::<tmuxy_core::preview::PreviewPages>().page(&pane) else {
+    let Some(page) = app
+        .state::<std::sync::Arc<tmuxy_core::preview::PreviewPages>>()
+        .page(&pane)
+    else {
         return not_found();
     };
     let mut builder = tauri::http::Response::builder().status(tauri::http::StatusCode::OK);

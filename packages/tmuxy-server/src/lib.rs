@@ -6,7 +6,6 @@
 
 mod agents;
 mod auth;
-mod command;
 mod config_cli;
 mod dev;
 mod log_file;
@@ -19,26 +18,6 @@ mod session_cli;
 mod sse;
 mod state;
 mod trace_view;
-
-pub use command::ClientCommand;
-
-/// The machine's host name, as the status line names where the user is. The
-/// web client cannot read it from `location.hostname` (that is the address it
-/// typed, `localhost` or an IP), so the server says it in its greeting.
-/// Empty when the OS will not say.
-pub fn host_name() -> String {
-    #[cfg(unix)]
-    {
-        nix::unistd::gethostname()
-            .ok()
-            .map(|h| h.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    }
-    #[cfg(not(unix))]
-    {
-        String::new()
-    }
-}
 
 /// Initialize the tracing subscriber for the server.
 ///

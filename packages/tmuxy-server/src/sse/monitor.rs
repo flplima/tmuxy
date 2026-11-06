@@ -1,54 +1,36 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tmuxy_core::control_mode::{MonitorCommandSender, MonitorConfig};
-use tmuxy_core::session_snapshot::SnapshotKeeper;
-use tmuxy_core::transport::{self, Attempt, Ended, GaveUp, Host, Task};
+use tmuxy_core::host::{self, Attempt, Ended, GaveUp, Host, HostEvent, SessionRuntime, Task};
 use tmuxy_core::{tmux_quote, TmuxError};
 use tracing::{debug, error, info, warn};
 
-use super::clients::{apply_session_size, monitor_config, session_exists};
-use super::emitter::{encode_event, SseEmitter, SseEvent};
-use crate::state::{AppState, SessionBroadcast};
-
-// ============================================
-// Monitoring (Control Mode)
-// ============================================
-
-/// A connection that lived this long worked; a shorter one is a startup crash
-/// to count against the session.
-const MIN_HEALTHY_RUN: Duration = Duration::from_secs(2);
+use crate::state::AppState;
 
 /// Run the session's monitor until its last client leaves, its session is
 /// destroyed, the server shuts down, or tmux refuses it too many times
-/// (`tmuxy_core::transport::supervise`).
+/// (`tmuxy_core::host::supervise`).
 pub async fn start_monitoring(
-    broadcast: Arc<SessionBroadcast>,
+    runtime: Arc<SessionRuntime>,
     session: String,
     state: Arc<AppState>,
     create_session: bool,
 ) {
-    let keeper = Arc::new(SnapshotKeeper::new());
-    let emitter = Arc::new(SseEmitter::new(
-        broadcast.clone(),
-        Arc::clone(&state),
-        session.clone(),
-        keeper.clone(),
-    ));
     let host = ServerHost {
-        config: monitor_config(&session, create_session),
-        broadcast,
+        config: host::monitor_config(&session, create_session),
+        runtime: Arc::clone(&runtime),
         session,
         state,
         first_connect: true,
     };
-    transport::supervise(host, emitter, keeper, MIN_HEALTHY_RUN).await;
+    host::supervise(host, runtime).await;
 }
 
 /// What the web server does around the monitor loop: a session's monitor
 /// lives while clients watch it.
 pub(super) struct ServerHost {
     pub(super) config: MonitorConfig,
-    pub(super) broadcast: Arc<SessionBroadcast>,
+    pub(super) runtime: Arc<SessionRuntime>,
     pub(super) session: String,
     pub(super) state: Arc<AppState>,
     pub(super) first_connect: bool,
@@ -77,11 +59,9 @@ impl ServerHost {
     /// Tell every client the monitor has given up, and forget the session so
     /// a fresh monitor can start next time.
     async fn fatal(&self, message: &str) {
-        if let Some(encoded) = encode_event(&SseEvent::Fatal {
+        self.runtime.emit(HostEvent::Fatal {
             message: message.to_string(),
-        }) {
-            self.broadcast.broadcast(encoded);
-        }
+        });
         error!(session = %self.session, msg = %message, "monitor FATAL");
         self.forget_session().await;
     }
@@ -110,7 +90,7 @@ impl Host for ServerHost {
         // create_session=true to recreate it.
         let mut config = self.config.clone();
         if !self.first_connect {
-            if session_exists(session).await {
+            if host::session_exists(session).await {
                 config.create_session = false;
             } else if ever_ran || !self.config.create_session {
                 // A monitor started for a session that existed (`GET /events`)
@@ -124,10 +104,6 @@ impl Host for ServerHost {
         }
         self.first_connect = false;
         Attempt::Connect(config)
-    }
-
-    async fn session_exists(&self, session: &str) -> bool {
-        session_exists(session).await
     }
 
     /// Route the `new-session -d` through an existing monitor's CC connection
@@ -156,15 +132,15 @@ impl Host for ServerHost {
                 .filter(|(_, conns)| !conns.connections.is_empty())
                 .filter_map(|(name, conns)| {
                     conns
-                        .monitor_command_tx
-                        .clone()
+                        .runtime
+                        .tx_now()
                         .map(|tx| (name.clone(), tx, conns.connections.len()))
                 })
                 .collect()
         };
         let mut courier = None;
         for (name, tx, viewers) in candidates {
-            if session_exists(&name).await {
+            if host::session_exists(&name).await {
                 courier = Some((name, tx, viewers));
                 break;
             }
@@ -197,17 +173,22 @@ impl Host for ServerHost {
             first_window
         );
         info!(%session, %via_session, "creating session via existing CC client");
-        let _ = tx
+        if tx
             .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
                 command: create_cmd,
             })
-            .await;
+            .await
+            .is_err()
+        {
+            warn!(%session, %via_session, "the courier's monitor is gone, creating directly");
+            return;
+        }
         // Wait for the session to actually exist before attaching CC. The
         // RunCommand is async — it goes through the monitor's event loop and
         // then tmux processes it. Poll has-session to confirm.
         for _ in 0..50 {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            if session_exists(session).await {
+            if host::session_exists(session).await {
                 info!(%session, "session created successfully via CC");
                 // Session exists, just attach (no creation needed).
                 config.create_session = false;
@@ -217,35 +198,16 @@ impl Host for ServerHost {
         warn!(%session, "session creation via CC timed out, falling back to direct creation");
     }
 
-    async fn connected(&mut self, tx: MonitorCommandSender, keeper: Arc<SnapshotKeeper>) -> bool {
-        {
-            // Store command_tx so cleanup_connection can send Shutdown.
-            let mut sessions = self.state.sessions.write().await;
-            let Some(conns) = sessions.get_mut(&self.session) else {
-                // Session was cleaned up between connect and now.
-                warn!(session = %self.session, "session gone before storing command_tx, stopping");
-                return false;
-            };
-            debug!(session = %self.session, "storing command_tx");
-            conns.monitor_command_tx = Some(tx);
-            conns.snapshot_keeper = Some(keeper);
+    /// The session may have been cleaned up between the connect and now.
+    async fn connected(&mut self) -> bool {
+        let watched = self.state.sessions.read().await.contains_key(&self.session);
+        if !watched {
+            warn!(session = %self.session, "session gone before the monitor attached, stopping");
         }
-        // The clients' size, queued behind the attach's own resize to the
-        // control-mode PTY size (commands run in the monitor's loop, after
-        // `sync_initial_state`). On a reconnect this is what brings a
-        // surviving session back from 200x50 to the viewport it was at.
-        apply_session_size(&self.state, &self.session).await;
-        true
+        watched
     }
 
     async fn ended(&mut self) -> Ended {
-        let mut sessions = self.state.sessions.write().await;
-        if let Some(conns) = sessions.get_mut(&self.session) {
-            conns.monitor_command_tx = None;
-            // The next attach resizes to the PTY size: whatever reached tmux
-            // on this connection is no longer what the session is.
-            conns.last_resize = None;
-        }
         Ended::Judge
     }
 

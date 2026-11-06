@@ -1,47 +1,6 @@
 use super::tests_sessions::{initial_state_with_viewport, resizes_seen, session_with_fake_monitor};
 use super::*;
-use tmuxy_core::client_size::SizePolicy;
-use tmuxy_core::control_mode::StateEmitter;
 use tokio::sync::broadcast;
-
-#[tokio::test]
-async fn a_writable_server_still_forwards_a_clipboard_write() {
-    let broadcast = Arc::new(crate::state::SessionBroadcast::new());
-    let mut rx = broadcast.subscribe();
-    let emitter = SseEmitter::new(
-        broadcast.clone(),
-        Arc::new(AppState::new()),
-        "s".to_string(),
-        Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
-    );
-
-    emitter.write_clipboard(Some(&"%0".parse().unwrap()), "yanked".into());
-
-    let (_, message) = rx.try_recv().unwrap();
-    assert!(message.contains("yanked"));
-}
-
-/// SEC-01/SEC-13. The paste-buffer mirror arrives with no pane, so the
-/// aggregator's active-pane gate never sees it — the size cap is the one
-/// bound that path has.
-#[tokio::test]
-async fn a_clipboard_write_over_the_cap_is_not_broadcast() {
-    let broadcast = Arc::new(crate::state::SessionBroadcast::new());
-    let mut rx = broadcast.subscribe();
-    let emitter = SseEmitter::new(
-        broadcast.clone(),
-        Arc::new(AppState::new()),
-        "s".to_string(),
-        Arc::new(tmuxy_core::session_snapshot::SnapshotKeeper::new()),
-    );
-
-    emitter.write_clipboard(
-        None,
-        "x".repeat(tmuxy_core::control_mode::MAX_CLIPBOARD_BYTES + 1),
-    );
-
-    assert!(rx.try_recv().is_err());
-}
 
 /// SEC-16. Each `/events` stream is a long-lived task holding a broadcast
 /// receiver and a place in the sessions map, and every one of them also ran
@@ -49,8 +8,8 @@ async fn a_clipboard_write_over_the_cap_is_not_broadcast() {
 /// them, so a connection flood grew all of it without bound.
 #[test]
 fn open_streams_are_capped_and_the_slot_comes_back() {
-    let state = Arc::new(AppState::new());
-    let limit = state.max_live_streams();
+    let state = Arc::new(AppState::default());
+    let limit = MAX_LIVE_STREAMS;
 
     let slots: Vec<_> = (0..limit)
         .map(|i| {
@@ -72,130 +31,23 @@ fn open_streams_are_capped_and_the_slot_comes_back() {
 
 #[tokio::test]
 async fn a_writable_server_sizes_the_session_to_the_client_asking_for_state() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let resizes = session_with_fake_monitor(&state, "s").await;
     initial_state_with_viewport(&state).await;
-    let sizes = state.sessions.read().await["s"].client_sizes.clone();
-    assert_eq!(sizes.get(&1), Some(&(40, 12)));
-    assert_eq!(*resizes.lock().await, vec![(40, 12)]);
+    assert_eq!(resizes_seen(&resizes, 1).await, vec![(40, 12)]);
 }
 
 /// A size sent under an id no stream owns is dropped: nothing would ever
 /// clean it up, and a 1x1 one would pin the session for every real client.
 #[tokio::test]
 async fn a_size_for_a_connection_with_no_stream_is_ignored() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let resizes = session_with_fake_monitor(&state, "s").await;
-    set_client_size(&state, "s", Some(9999), 1, 1).await;
-    assert!(!state.sessions.read().await["s"]
-        .client_sizes
-        .contains_key(&9999));
+    let cmd = ClientCommand::SetClientSize { cols: 1, rows: 1 };
+    handle_command(cmd, "s", &state, Some(9999)).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     assert!(resizes.lock().await.is_empty());
-}
-
-/// A viewport below the floor is taken as the floor: a real client whose
-/// grid measured as a sliver mid-load, or a forged 1x1, would otherwise size
-/// the session down to nothing for every client under `smallest`.
-#[tokio::test]
-async fn a_viewport_below_the_floor_is_raised_to_it() {
-    use tmuxy_core::client_size::{MIN_CLIENT_COLS, MIN_CLIENT_ROWS};
-    let state = Arc::new(AppState::new());
-    let resizes = session_with_fake_monitor(&state, "s").await;
-    set_client_size(&state, "s", Some(1), 1, 1).await;
-    assert_eq!(
-        state.sessions.read().await["s"].client_sizes[&1],
-        (MIN_CLIENT_COLS, MIN_CLIENT_ROWS)
-    );
-    // The fake monitor records the resize on its own task.
-    let sent = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if !resizes.lock().await.is_empty() {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
-    .await;
-    assert!(sent.is_ok(), "the floored size never reached the monitor");
-    assert_eq!(
-        *resizes.lock().await,
-        vec![(MIN_CLIENT_COLS, MIN_CLIENT_ROWS)]
-    );
-}
-
-/// The 12-touch bug. `last_resize` is the record of a size that REACHED
-/// tmux, and it was written before anything was sent — so a monitor that
-/// had not registered its command channel yet meant the resize was dropped
-/// while the size was remembered as applied. Every later attempt then
-/// short-circuited on "same size as last time", and the client's viewport
-/// was lost for the life of the session: the window stayed at the
-/// control-mode PTY's 200x50 while a phone-width client drew 41 columns.
-///
-/// Timing-dependent, which is why it failed on a CI runner and not on a
-/// developer's machine.
-#[tokio::test]
-async fn a_size_that_reached_no_monitor_is_asked_for_again() {
-    let state = Arc::new(AppState::new());
-    // A session whose monitor has not registered its channel yet.
-    let mut conns = SessionConnections::new();
-    conns.connections.push(1);
-    conns.monitor_command_tx = None;
-    state.sessions.write().await.insert("s".to_string(), conns);
-
-    set_client_size(&state, "s", Some(1), 41, 29).await;
-    assert_eq!(
-        state.sessions.read().await["s"].last_resize,
-        None,
-        "a size nothing received must not be recorded as applied"
-    );
-
-    // The monitor comes up, and the same size is offered again — which the
-    // old code refused to forward, because it believed it already had.
-    let resizes = session_with_fake_monitor(&state, "s").await;
-    set_client_size(&state, "s", Some(1), 41, 29).await;
-    // `send` returns once the value is in the channel; the fake monitor
-    // reads it in its own task, so wait for it to be seen rather than
-    // assuming the scheduler got there.
-    for _ in 0..200 {
-        if !resizes.lock().await.is_empty() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    }
-    assert_eq!(*resizes.lock().await, vec![(41, 29)]);
-    assert_eq!(
-        state.sessions.read().await["s"].last_resize,
-        Some((41, 29)),
-        "a delivered size IS recorded, so it is not re-sent on every tick"
-    );
-}
-
-/// Round-trip the Clipboard variant so SSE consumers can rely on the
-/// `event=clipboard` discriminator + `{ pane_id, text }` payload shape.
-#[test]
-fn clipboard_event_serializes_with_expected_shape() {
-    let evt = SseEvent::Clipboard {
-        pane_id: "%4".parse().unwrap(),
-        text: "hello world".to_string(),
-    };
-    let json = serde_json::to_string(&evt).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed["event"], "clipboard");
-    assert_eq!(parsed["data"]["pane_id"], "%4");
-    assert_eq!(parsed["data"]["text"], "hello world");
-}
-
-/// A tmux message goes out as `tmux-message` `{ text }` — never as
-/// `message`, which `EventSource.onmessage` would also receive.
-#[test]
-fn message_event_serializes_with_expected_shape() {
-    let evt = SseEvent::Message {
-        text: "build done".to_string(),
-    };
-    let parsed: serde_json::Value =
-        serde_json::from_str(&serde_json::to_string(&evt).unwrap()).unwrap();
-    assert_eq!(parsed["event"], "tmux-message");
-    assert_eq!(parsed["data"]["text"], "build done");
+    assert_eq!(state.sessions.read().await["s"].runtime.size(), None);
 }
 
 // ----------------------------------------------------------------
@@ -219,7 +71,7 @@ async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_
     // Deliver a few events normally, then stop reading and overflow the
     // channel by half a buffer.
     for i in 0..3 {
-        b.broadcast(format!("m{i}"));
+        b.broadcast("state-update", format!("m{i}"));
     }
     let mut received: Vec<u64> = Vec::new();
     let mut last_replayed = 0u64;
@@ -229,7 +81,7 @@ async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_
         last_replayed = seq;
     }
     for i in 3..(crate::state::EVENT_BUFFER_SIZE + 50) {
-        b.broadcast(format!("m{i}"));
+        b.broadcast("state-update", format!("m{i}"));
     }
 
     // The next read reports the drop, exactly as the handler's Lagged arm
@@ -255,7 +107,7 @@ async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_
     }
 
     let oldest = b.oldest_seq().unwrap();
-    let newest = b.broadcast("final".into());
+    let newest = b.broadcast("state-update", "final".into());
     for (seq, _) in b.replay_since(last_replayed) {
         received.push(seq);
     }
@@ -287,7 +139,7 @@ async fn a_client_that_stops_reading_gets_the_ring_tail_once_with_the_gap_below_
 fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
     let b = crate::state::SessionBroadcast::new();
     for i in 1..=(crate::state::EVENT_BUFFER_SIZE + 20) {
-        b.broadcast(format!("m{i}"));
+        b.broadcast("state-update", format!("m{i}"));
     }
     let oldest = b.oldest_seq();
     assert_eq!(oldest, Some(21));
@@ -311,28 +163,27 @@ fn a_client_beyond_the_buffer_is_not_resumed_from_it() {
 /// of a browser tab that is gone — panes stay small for everyone.
 #[tokio::test]
 async fn a_client_that_disconnects_stops_holding_the_session_small() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let resizes = session_with_fake_monitor(&state, "s").await;
-    {
-        let mut sessions = state.sessions.write().await;
-        let conns = sessions.get_mut("s").unwrap();
-        conns.connections = vec![1, 2];
-        conns.client_sizes.insert(1, (200, 50));
-        // The narrow client drags the whole session down to its size.
-        conns.client_sizes.insert(2, (80, 24));
-        conns.last_resize = Some((80, 24));
+    state
+        .sessions
+        .write()
+        .await
+        .get_mut("s")
+        .unwrap()
+        .connections = vec![1, 2];
+    for (client, cols, rows) in [(1, 200, 50), (2, 80, 24)] {
+        let cmd = ClientCommand::SetClientSize { cols, rows };
+        handle_command(cmd, "s", &state, Some(client))
+            .await
+            .unwrap();
     }
+    assert_eq!(resizes_seen(&resizes, 2).await, vec![(200, 50), (80, 24)]);
 
     cleanup_connection(&state, "s", 2).await;
 
-    let sessions = state.sessions.read().await;
-    let conns = &sessions["s"];
-    assert_eq!(conns.connections, vec![1]);
-    assert!(!conns.client_sizes.contains_key(&2));
-    assert_eq!(conns.last_resize, Some((200, 50)));
-    drop(sessions);
-    tokio::task::yield_now().await;
-    assert_eq!(*resizes.lock().await, vec![(200, 50)]);
+    assert_eq!(state.sessions.read().await["s"].connections, vec![1]);
+    assert_eq!(resizes_seen(&resizes, 3).await[2], (200, 50));
 }
 
 /// The last client leaving does NOT tear the monitor down on the spot —
@@ -340,7 +191,7 @@ async fn a_client_that_disconnects_stops_holding_the_session_small() {
 /// connection there is what a reload used to look like from tmux's side.
 #[tokio::test]
 async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     session_with_fake_monitor(&state, "s").await;
 
     cleanup_connection(&state, "s", 1).await;
@@ -349,79 +200,7 @@ async fn the_last_client_leaving_keeps_the_monitor_through_the_grace_period() {
     let conns = &sessions["s"];
     assert!(conns.connections.is_empty());
     assert!(
-        conns.monitor_command_tx.is_some(),
+        conns.runtime.tx_now().is_some(),
         "the monitor was torn down before the grace period elapsed"
     );
-}
-
-/// Two clients, a wide one and a narrow one, watching session `s`.
-async fn two_clients(state: &Arc<AppState>) -> Arc<tokio::sync::Mutex<Vec<(u32, u32)>>> {
-    let resizes = session_with_fake_monitor(state, "s").await;
-    state
-        .sessions
-        .write()
-        .await
-        .get_mut("s")
-        .unwrap()
-        .connections = vec![1, 2];
-    set_client_size(state, "s", Some(1), 200, 50).await;
-    set_client_size(state, "s", Some(2), 80, 60).await;
-    resizes
-}
-
-/// `@tmuxy-size` picks the session's size from the clients' viewports: the
-/// smallest by default, the largest, or a fixed grid no client report moves.
-#[tokio::test]
-async fn the_session_is_sized_by_its_size_policy() {
-    let state = Arc::new(AppState::new());
-    let resizes = two_clients(&state).await;
-    assert_eq!(resizes_seen(&resizes, 2).await, vec![(200, 50), (80, 50)]);
-
-    set_size_policy(&state, "s", SizePolicy::Largest).await;
-    assert_eq!(resizes_seen(&resizes, 3).await[2], (200, 60));
-
-    set_size_policy(
-        &state,
-        "s",
-        SizePolicy::Fixed {
-            cols: 100,
-            rows: 30,
-        },
-    )
-    .await;
-    assert_eq!(resizes_seen(&resizes, 4).await[3], (100, 30));
-
-    // A client resizing its window changes nothing a fixed size says.
-    set_client_size(&state, "s", Some(2), 40, 20).await;
-    cleanup_connection(&state, "s", 1).await;
-    assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
-    assert_eq!(
-        state.sessions.read().await["s"].last_resize,
-        Some((100, 30))
-    );
-}
-
-/// `latest` follows the client used last: the one that reported a size, and
-/// then whichever sends a command.
-#[tokio::test]
-async fn a_latest_session_follows_the_client_used_last() {
-    let state = Arc::new(AppState::new());
-    let resizes = two_clients(&state).await;
-    set_size_policy(&state, "s", SizePolicy::Latest).await;
-    assert_eq!(resizes_seen(&resizes, 3).await[2], (80, 60));
-
-    note_client_activity(&state, "s", Some(1)).await;
-    assert_eq!(resizes_seen(&resizes, 4).await[3], (200, 50));
-
-    // Using the same client again is no resize, and neither is the other
-    // client reporting the size it already had: its grid is not its own size,
-    // so it reports it after every update, and taking that for a use made the
-    // two clients take the session from each other on every frame.
-    note_client_activity(&state, "s", Some(1)).await;
-    set_client_size(&state, "s", Some(2), 80, 60).await;
-    assert_eq!(resizes_seen(&resizes, 5).await.len(), 4);
-
-    // A new size from it is a use.
-    set_client_size(&state, "s", Some(2), 90, 40).await;
-    assert_eq!(resizes_seen(&resizes, 5).await[4], (90, 40));
 }

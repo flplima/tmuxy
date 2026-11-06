@@ -31,14 +31,16 @@ pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
 /// place that has to know about it. The only pattern claimed is a command that
 /// is *entirely* a dotted version number, which no real executable is called.
 pub(super) fn normalize_pane_command(command: &str) -> String {
-    if is_version_string(command) {
+    if is_version(command) {
         return "claude".to_string();
     }
     command.to_string()
 }
 
-/// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
-fn is_version_string(value: &str) -> bool {
+/// Whether a process name is a bare version, nothing but a dotted run of
+/// digits (`2.1.280`, `0.9`): Claude Code runs as
+/// `…/claude/versions/<version>`, so its pane's command reads `2.1.30`.
+pub fn is_version(value: &str) -> bool {
     let mut parts = value.split('.');
     let mut count = 0;
     for part in &mut parts {

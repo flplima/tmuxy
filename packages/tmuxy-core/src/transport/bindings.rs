@@ -161,8 +161,7 @@ fn describe_binding(command_name: &str, command: &str) -> String {
 }
 
 /// The prefix key and the key tables, as the client's keyboard handling reads
-/// them. The wire shape of the SSE `keybindings` frame and the desktop's
-/// `tmux-keybindings` event.
+/// them: the `keybindings` event's payload.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBindings {
     pub prefix_key: String,

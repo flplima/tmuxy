@@ -3,30 +3,25 @@
 //! Claude Code and Codex fire none when the user answers one — the next
 //! hook is the tool finishing, which for a long command is minutes later.
 //!
-//! So the server reads the bottom of every agent pane its hooks have marked,
-//! a couple of times a second, and corrects the state on one sign only: an
-//! approval dialog. One on screen is `needs-input`; one the server saw go
-//! away again is `working`, the user having answered it. Nothing else on a
+//! So the host reads the bottom of every agent pane its hooks have marked,
+//! on every read of the panes (`socket_watch::run`), and corrects the state
+//! on one sign only: an approval dialog. One on screen is `needs-input`; one
+//! seen to go away again is `working`, the user having answered it. Nothing else on a
 //! screen is trusted — a quiet screen proves nothing, and the hooks own
 //! every other change. It is what the tmux tools for agents settled on
 //! (agent-deck, tmux-agent-deck, bosun): hooks for the turn, the screen for
 //! the dialogs.
 //!
-//! Reads are read-only tmux subprocesses (`list-panes`, `capture-pane`),
-//! which tmux runs safely beside an attached control-mode client; the one
-//! write goes through `run-shell`, as the CLI's do (docs/TMUX.md).
+//! Reads are read-only tmux subprocesses (`capture-pane`), which tmux runs
+//! safely beside an attached control-mode client; the one write goes
+//! through `run-shell`, as the CLI's do (docs/TMUX.md).
 
 use std::collections::HashSet;
-use std::sync::Arc;
-use std::time::Duration;
 
-use tmuxy_core::argv::run_shell_word;
-use tmuxy_core::constants::tmux_options;
-use tracing::debug;
-
-use crate::state::AppState;
-
-const INTERVAL: Duration = Duration::from_millis(1500);
+use super::PaneRow;
+use crate::argv::run_shell_word;
+use crate::constants::tmux_options;
+use crate::control_mode::is_version;
 
 /// How far up a dialog is looked for: the bottom of the screen, where every
 /// agent draws its prompt, and not output that has scrolled above it.
@@ -47,42 +42,14 @@ const QUESTIONS: [&str; 4] = [
 /// The glyphs a dialog's menu marks its chosen option with.
 const CURSORS: [char; 4] = ['❯', '›', '>', '▶'];
 
-/// One `list-panes -a` row, tab-separated.
-const PANES_FORMAT: &str =
-    "#{pane_id}\t#{pane_current_command}\t#{@tmuxy-pane-state}\t#{@tmuxy-ask}";
-
-#[derive(Debug, Clone, PartialEq)]
-struct Row {
-    pane_id: String,
-    command: String,
-    state: String,
-    /// A send's question is up on the pane: the state is the question's.
-    asking: bool,
-}
-
-fn parse_rows(listing: &str) -> Vec<Row> {
-    listing
-        .lines()
-        .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(4, '\t').collect();
-            let [pane_id, command, state, ask] = f[..] else {
-                return None;
-            };
-            Some(Row {
-                pane_id: pane_id.to_string(),
-                command: command.to_string(),
-                state: state.to_string(),
-                asking: !ask.is_empty(),
-            })
-        })
-        .collect()
-}
+/// The processes of the agents tmuxy installs hooks for (`tmuxy agent`),
+/// Antigravity under either of its names.
+pub const AGENT_COMMANDS: [&str; 4] = ["claude", "codex", "agy", "antigravity"];
 
 /// Whether the pane runs one of the agents tmuxy installs hooks for. Claude
 /// Code runs as `…/claude/versions/<version>`, so a bare version is Claude.
-fn is_agent(command: &str) -> bool {
-    matches!(command, "claude" | "codex" | "agy" | "antigravity")
-        || crate::push::is_version(command)
+pub fn is_agent(command: &str) -> bool {
+    AGENT_COMMANDS.contains(&command) || is_version(command)
 }
 
 /// Whether an option's line: the cursor or a number, then `N.`.
@@ -100,7 +67,7 @@ fn option_number(line: &str) -> Option<(bool, &str)> {
 /// with its cursor on an option, or one of the dialogs' questions over a
 /// "Yes", or a `(y/n)`. Each needs two lines' agreement, or a closing
 /// question in the agent's own reply ("Would you like to…?") would count.
-pub(crate) fn shows_dialog(screen: &str) -> bool {
+pub fn shows_dialog(screen: &str) -> bool {
     let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
     let bottom = &lines[lines.len().saturating_sub(BOTTOM_LINES)..];
     let options: Vec<(bool, &str)> = bottom.iter().filter_map(|l| option_number(l)).collect();
@@ -121,14 +88,14 @@ pub(crate) fn shows_dialog(screen: &str) -> bool {
 /// The panes whose `needs-input` a dialog on screen backs: the ones the
 /// screen may take it off again once the dialog is gone.
 #[derive(Default)]
-pub(crate) struct Corrector {
+pub struct Corrector {
     dialogs: HashSet<String>,
 }
 
 impl Corrector {
     /// The state `row` should have now, given whether its screen shows a
     /// dialog; `None` to leave it.
-    fn correct(&mut self, row: &Row, dialog: bool) -> Option<&'static str> {
+    fn correct(&mut self, row: &PaneRow, dialog: bool) -> Option<&'static str> {
         if row.asking {
             self.dialogs.remove(&row.pane_id);
             return None;
@@ -151,79 +118,54 @@ impl Corrector {
     }
 
     /// Forget panes that are gone.
-    fn retain(&mut self, rows: &[Row]) {
+    fn retain(&mut self, rows: &[PaneRow]) {
         self.dialogs
             .retain(|pane| rows.iter().any(|row| &row.pane_id == pane));
     }
 }
 
 fn tmux_output(args: &[&str]) -> Option<String> {
-    let output = tmuxy_core::session::tmux_command()
-        .args(args)
-        .output()
-        .ok()?;
+    let output = crate::session::tmux_command().args(args).output().ok()?;
     output
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// The agent panes a hook has marked, read and corrected once.
-fn pass(corrector: &mut Corrector) {
-    let Some(listing) = tmux_output(&["list-panes", "-a", "-F", PANES_FORMAT]) else {
-        return;
-    };
-    let rows = parse_rows(&listing);
-    corrector.retain(&rows);
-    for row in rows
-        .iter()
-        .filter(|row| !row.state.is_empty() && is_agent(&row.command))
-    {
-        let Some(screen) = tmux_output(&["capture-pane", "-p", "-t", &row.pane_id]) else {
-            continue;
-        };
-        let Some(state) = corrector.correct(row, shows_dialog(&screen)) else {
-            continue;
-        };
-        debug!(target: "tmuxy_server::agents", pane = %row.pane_id, state, "the screen corrects the pane state");
-        let tmux: Vec<String> = tmuxy_core::session::tmux_argv(false)
+impl Corrector {
+    /// Correct the agent panes a hook has marked among `rows`, once.
+    pub(super) fn pass(&mut self, rows: &[PaneRow]) {
+        self.retain(rows);
+        for row in rows
             .iter()
-            .map(|w| run_shell_word(w))
-            .collect();
-        let line = format!(
-            "{} set-option -p -t {} {} {}",
-            tmux.join(" "),
-            run_shell_word(&row.pane_id),
-            tmux_options::PANE_STATE,
-            state
-        );
-        let _ = tmux_output(&["run-shell", "-b", &line]);
+            .filter(|row| !row.state.is_empty() && is_agent(&row.command))
+        {
+            let Some(screen) = tmux_output(&["capture-pane", "-p", "-t", &row.pane_id]) else {
+                continue;
+            };
+            let Some(state) = self.correct(row, shows_dialog(&screen)) else {
+                continue;
+            };
+            tracing::debug!(target: "tmuxy_core::agents", pane = %row.pane_id, state, "the screen corrects the pane state");
+            let tmux: Vec<String> = crate::session::tmux_argv(false)
+                .iter()
+                .map(|w| run_shell_word(w))
+                .collect();
+            let line = format!(
+                "{} set-option -p -t {} {} {}",
+                tmux.join(" "),
+                run_shell_word(&row.pane_id),
+                tmux_options::PANE_STATE,
+                state
+            );
+            if tmux_output(&["run-shell", "-b", &line]).is_none() {
+                tracing::debug!(target: "tmuxy_core::agents", pane = %row.pane_id, "the corrected state was not written");
+            }
+        }
     }
 }
 
-/// Correct agent panes from their screens until the server stops.
-pub async fn watch(state: Arc<AppState>) {
-    let shutdown = state.shutdown.clone();
-    state
-        .spawn(async move {
-            let mut corrector = Corrector::default();
-            loop {
-                tokio::select! {
-                    _ = tokio::time::sleep(INTERVAL) => {}
-                    _ = shutdown.cancelled() => return,
-                }
-                // A pass that panicked starts the next from nothing seen.
-                corrector = tokio::task::spawn_blocking(move || {
-                    pass(&mut corrector);
-                    corrector
-                })
-                .await
-                .unwrap_or_default();
-            }
-        })
-        .await;
-}
-
 #[cfg(test)]
-#[path = "screen_tests.rs"]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[path = "agent_screen_tests.rs"]
 mod tests;

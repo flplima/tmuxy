@@ -9,6 +9,8 @@ pub mod groups;
 pub mod ids;
 
 pub mod command_router;
+#[cfg(feature = "native")]
+pub mod host;
 pub mod layout;
 #[cfg(feature = "cli")]
 pub mod list_keys;

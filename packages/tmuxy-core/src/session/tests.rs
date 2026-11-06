@@ -79,12 +79,13 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     assert!(!wrapper.exists());
     assert!(!launcher.exists());
 
-    // Once installed (or left behind by an older build pointing at ~/.config/tmuxy/launcher),
-    // refresh_launcher_if_installed updates both the wrapper and the state dir's launcher.
+    // Once installed by an older build (a stale template that reads this
+    // layout's launcher), refresh_launcher_if_installed updates both the
+    // wrapper and the state dir's launcher.
     std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
     std::fs::write(
         &wrapper,
-        "#!/bin/sh\nLAUNCHER_FILE=$HOME/.config/tmuxy/launcher\n",
+        format!("#!/bin/sh\nLAUNCHER_FILE='{}'\n", launcher.display()),
     )
     .unwrap();
 
@@ -93,9 +94,10 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", installed_exe.display())
     );
-    assert!(std::fs::read_to_string(&wrapper)
-        .unwrap()
-        .contains("LAUNCHER_FILE=\"$STATE_DIR/launcher\""));
+    assert_eq!(
+        std::fs::read_to_string(&wrapper).unwrap(),
+        launcher_wrapper(&launcher)
+    );
 
     // When both the wrapper and the recorded target are healthy, running
     // another binary (such as `target/debug/tmuxy` in a test) leaves the
@@ -114,6 +116,77 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
         format!("{}\n", debug_exe.display())
     );
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The wrapper runs the binary its launcher file names, with the arguments
+/// it was given — from a state dir whose path a shell would split.
+#[cfg(unix)]
+#[test]
+fn the_wrapper_execs_the_recorded_binary() {
+    let root = std::env::temp_dir().join(format!("tmuxy launcher's {}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let launcher = root.join("launcher");
+    std::fs::write(&launcher, "/bin/echo\n").unwrap();
+    let wrapper = root.join("tmuxy");
+    std::fs::write(&wrapper, launcher_wrapper(&launcher)).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg(&wrapper)
+        .args(["pane", "list"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "pane list\n");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A tmuxy run with another state dir — a test's server, a build pointed
+/// elsewhere — never points the user's shorthand at its own launcher, nor
+/// replaces a symlink the user made.
+#[test]
+fn a_wrapper_reading_another_launcher_or_a_users_symlink_is_left_alone() {
+    let root = std::env::temp_dir().join(format!("tmuxy-launcher-other-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    let layout = crate::paths::Layout {
+        config: home.join(".config/tmuxy"),
+        data: root.join("data"),
+        state: root.join("test-state"),
+        home,
+    };
+    let wrapper = layout.home.join(".local/bin/tmuxy");
+    std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    let exe = root.join("tmuxy");
+    std::fs::write(&exe, "").unwrap();
+
+    let users = launcher_wrapper(&root.join("users-state/launcher"));
+    std::fs::write(&wrapper, &users).unwrap();
+    refresh_launcher_if_installed_in(&layout, &exe);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), users);
+
+    // An older build's wrapper derived the state dir in the shell: the
+    // default one, which this layout's is not.
+    let unbaked = "#!/bin/sh\nLAUNCHER_FILE=\"$STATE_DIR/launcher\"\n";
+    std::fs::write(&wrapper, unbaked).unwrap();
+    refresh_launcher_if_installed_in(&layout, &exe);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), unbaked);
+
+    // A checkout's CLI, linked by hand, survives even a GUI launch.
+    std::fs::remove_file(&wrapper).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&exe, &wrapper).unwrap();
+        refresh_launcher_in(&layout, &exe);
+        assert!(std::fs::symlink_metadata(&wrapper)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
     let _ = std::fs::remove_dir_all(&root);
 }
 
