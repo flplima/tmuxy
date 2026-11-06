@@ -1,12 +1,7 @@
 /**
- * Branded identities of the tmux world.
- *
  * tmux names a pane `%N` and a window `@N`; tmuxy names a pane group `gN`
- * (`@tmuxy-group-id`). All three are strings on the wire, and a plain
- * `string` would let a window id be passed where a pane id belongs. Each is
- * an Effect Schema with a brand, so the type and its runtime check are one
- * definition: the wire decoder (`domain/wire.ts`) validates every id once,
- * and from there on the compiler keeps them apart.
+ * (`@tmuxy-group-id`). The wire decoder (`domain/wire.ts`) validates every id
+ * once.
  *
  * Getting a branded id:
  *   - from the wire: decode it (the wire schemas use these);
@@ -22,7 +17,6 @@
 
 import { Schema } from 'effect';
 
-/** The prefix of an id the client predicted and tmux has not confirmed. */
 const PLACEHOLDER_PREFIX = '__placeholder_';
 
 const PANE_PATTERN = /^%\d+$/;
@@ -62,13 +56,9 @@ const ModelWindowId = Schema.String.pipe(
   Schema.brand('WindowId'),
 );
 
-/** `u` is a tmux pane id (`%N`). */
 export const isPaneId = Schema.is(PaneId);
-/** `u` is a tmux window id (`@N`). */
 export const isWindowId = Schema.is(WindowId);
-/** `u` names a pane in the client model: a tmux id or a placeholder (e.g. a DOM `data-pane-id`). */
 export const isModelPaneId = Schema.is(ModelPaneId);
-/** `u` names a window in the client model: a tmux id or a placeholder. */
 export const isModelWindowId = Schema.is(ModelWindowId);
 
 /**
@@ -80,17 +70,15 @@ export function placeholderPaneId(key: string): PaneId {
   return ModelPaneId.make(`${PLACEHOLDER_PREFIX}${key}`);
 }
 
-/** The id of a window the optimistic store predicted; see `placeholderPaneId`. */
 export function placeholderWindowId(key: string): WindowId {
   return ModelWindowId.make(`${PLACEHOLDER_PREFIX}${key}`);
 }
 
-/** The id is a client-side prediction, not something tmux knows. */
 export function isPlaceholderId(id: PaneId | WindowId): boolean {
   return isPlaceholder(id);
 }
 
-/** tmux's number for a pane (`%12` → 12); 0 for a placeholder. */
+/** `%12` → 12; 0 for a placeholder. */
 export function paneNumber(id: PaneId): number {
   return isPlaceholder(id) ? 0 : Number(id.slice(1));
 }

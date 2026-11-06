@@ -9,9 +9,7 @@ import type { PaneContent } from './wireCells';
 export const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
 
 export interface PaneWidget {
-  /** The widget's registered name. */
   name: string;
-  /** The pane's text lines below the marker, right-trimmed. */
   lines: string[];
 }
 
@@ -52,10 +50,6 @@ export function findPaneWidget(
   return null;
 }
 
-/**
- * The last row the marker occupies when it starts on row `start`, or null when
- * it does not start there.
- */
 function markerEnd(content: PaneContent, start: number, marker: string): number | null {
   let text = rowText(content[start]).trimStart();
   let row = start;

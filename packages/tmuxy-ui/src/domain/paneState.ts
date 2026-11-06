@@ -1,7 +1,6 @@
 /**
- * Pane state — what a pane is doing, as the pane itself declares it.
- *
- * The value comes from the `@tmuxy-pane-state` tmux option, which ANY process
+ * What a pane is doing, as the pane itself declares it: the `@tmuxy-pane-state`
+ * tmux option, which ANY process
  * can set (`tmuxy pane state working`): an agent's hooks, a shell's
  * precmd/preexec pair, a build script on failure. tmuxy never infers it, which
  * is deliberate — tmux's own activity flag means "bytes arrived", and a spinner
@@ -12,8 +11,6 @@
  * writer may send anything, and a value tmuxy does not know collapses to
  * `idle` rather than erroring. That keeps the hook contract loose, so a new
  * agent can write its own status names without waiting for a tmuxy release.
- *
- * Pure: no React, no machine, no adapter.
  */
 
 import type { TmuxPane } from './client';
@@ -53,7 +50,6 @@ export const PANE_STATE_GLYPH: Record<PaneStateName, string | null> = {
   idle: null,
 };
 
-/** Spoken form, for tooltips and assistive technology. */
 export const PANE_STATE_LABEL: Record<PaneStateName, string> = {
   'needs-input': 'Needs your input',
   error: 'Failed',
@@ -65,12 +61,8 @@ export const PANE_STATE_LABEL: Record<PaneStateName, string> = {
 const KNOWN = new Set<string>(PANE_STATES);
 
 /**
- * Read a raw option value as a state.
- *
- * Trims and lowercases, accepts `needs_input` and `needsinput` as spellings of
- * `needs-input` (a shell writer reaching for an underscore should not silently
- * get `idle`), and collapses everything else — including an unset option — to
- * `idle`.
+ * Accepts `needs_input` and `needsinput` as spellings of `needs-input`: a shell
+ * writer reaching for an underscore should not silently get `idle`.
  */
 export function normalizePaneState(raw: string | null | undefined): PaneStateName {
   if (!raw) return 'idle';
@@ -83,9 +75,7 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
 }
 
 /**
- * The state a pane is in: whatever it declared, and nothing else.
- *
- * `error` included — a failing build says so itself (`tmuxy pane state error`,
+ * Whatever the pane declared, `error` included — a failing build says so itself (`tmuxy pane state error`,
  * from a trap). The obvious alternative, reading a dead pane's exit status,
  * only ever works while tmux's `remain-on-exit` is on, and that keeps every
  * finished pane on screen forever.
@@ -105,10 +95,6 @@ export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): Pan
 
 type StatePane = Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'>;
 
-/**
- * Roll several panes up into the one state a tab row shows: the most
- * attention-worthy among them. An empty tab is `idle`.
- */
 export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateName {
   let best: PaneStateName = 'idle';
   for (const state of states) {
@@ -117,12 +103,7 @@ export function aggregatePaneState(states: readonly PaneStateName[]): PaneStateN
   return best;
 }
 
-/**
- * What each tab rolls up to: how many panes it holds, and the most
- * attention-worthy state among them (`aggregatePaneState`'s order, so a
- * question or a failure outranks a pane that is merely working). Placeholder
- * panes — optimistic stand-ins not yet confirmed by tmux — are not counted.
- */
+/** Placeholder panes, not yet confirmed by tmux, are not counted. */
 export function tabPaneStates(
   windowIds: readonly WindowId[],
   panes: readonly (StatePane & Pick<TmuxPane, 'windowId'>)[],

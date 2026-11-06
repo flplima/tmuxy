@@ -8,13 +8,10 @@
  * grid in a cell cut to fit its own container, the way the phone layout fits
  * 80 columns (infra/dom/phoneLayout.ts). The chrome and the sidebar columns keep
  * the measured cell; only the grid is scaled.
- *
- * Pure: no React, no machine.
  */
 
 import type { SizePolicy } from './wire';
 
-/** The pane grid's cell, as the machine holds it. */
 export interface GridCell {
   charWidth: number;
   charHeight: number;
@@ -26,14 +23,12 @@ export interface GridCell {
 
 export const DEFAULT_SIZE_POLICY: SizePolicy = { mode: 'smallest' };
 
-/** Whether two policies say the same thing (the wire hands a new object each read). */
 export function sameSizePolicy(a: SizePolicy, b: SizePolicy): boolean {
   const fa = fixedGridSize(a);
   const fb = fixedGridSize(b);
   return a.mode === b.mode && fa?.cols === fb?.cols && fa?.rows === fb?.rows;
 }
 
-/** The grid a fixed `@tmuxy-size` asks for, or null under the other modes. */
 export function fixedGridSize(policy: SizePolicy): { cols: number; rows: number } | null {
   return policy.mode === 'fixed' ? { cols: policy.cols, rows: policy.rows } : null;
 }
@@ -42,15 +37,13 @@ export function fixedGridSize(policy: SizePolicy): { cols: number; rows: number 
 const SCALE_EPSILON = 0.005;
 
 /**
- * The cell that draws `grid` inside `container`.
+ * The cell that draws `grid` inside `container`. `measured` is the cell the
+ * font measures at `fontPx` (the chrome's terminal size).
  *
- * `measured` is the cell the font measures at `fontPx` (the chrome's terminal
- * size). Under `smallest` it is the answer. Otherwise the cell is scaled by
- * the largest factor that fits the grid in both directions, keeping the
- * terminal's row ratio: a grid too big for the container shrinks; a fixed one
- * also grows to fill a container bigger than it (the app "stretches"). A
- * `largest` or `latest` grid that already fits stays at the measured cell,
- * the blank band beside it being what `smallest` leaves a larger client too.
+ * A grid too big for the container shrinks; a fixed one also grows to fill a
+ * bigger container (the app "stretches"). A `largest` or `latest` grid that
+ * already fits stays at the measured cell, the blank band beside it being what
+ * `smallest` leaves a larger client too.
  */
 export function fitGridCell(input: {
   measured: GridCell;
@@ -76,7 +69,6 @@ export function fitGridCell(input: {
   const charWidth = measured.charWidth * scale;
   return {
     charWidth,
-    // Floored, so `rows` whole rows never overrun the container.
     charHeight: Math.max(1, Math.floor(measured.charHeight * scale)),
     cellGap: charWidth - fontSize * advancePerPx,
     gridFontSize: fontSize,

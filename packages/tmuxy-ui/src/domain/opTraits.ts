@@ -1,8 +1,3 @@
-/**
- * What the app does around an op, read off the op itself: whether its
- * intermediate geometry may animate and whether it re-tiles the window.
- */
-
 import type { TmuxOp } from './commands';
 import { commandListParts, isLayoutCommand, runShellScript } from './store/parseCommand';
 

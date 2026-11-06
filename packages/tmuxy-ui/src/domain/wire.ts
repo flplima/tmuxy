@@ -1,24 +1,15 @@
 /**
- * The wire: every shape the backend sends the client, as Effect Schemas.
- *
- * Single definition of the protocol on the TypeScript side (`Schema.Schema.Type<…>`),
- * mirroring `tmuxy-core` (`TmuxState`, `TmuxPane`, `TmuxWindow`, `TmuxDelta`,
- * `PaneDelta`, `WindowDelta`, `KeyBindings`, `theme::Appearance`) and `tmuxy-server/src/sse.rs`.
- * Committed `packages/protocol-fixtures` decode through these schemas.
- *
- * Payloads decode once at entry (`infra/transport/wireDecode.ts`) with branded IDs (`domain/ids.ts`).
- * Pane content is checked for outer shape only (array of rows) on the hot path.
+ * Every shape the backend sends the client, mirroring `tmuxy-core` (`TmuxState`,
+ * `TmuxPane`, `TmuxWindow`, `TmuxDelta`, `PaneDelta`, `WindowDelta`,
+ * `KeyBindings`, `theme::Appearance`) and `tmuxy-server/src/sse.rs`; the
+ * committed `packages/protocol-fixtures` decode through these schemas.
+ * Payloads decode once at entry (`infra/transport/wireDecode.ts`).
  */
 
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId } from './ids';
 import { PaneContent, SparseContent } from './wireCells';
 
-// ============================================
-// Panes and windows
-// ============================================
-
-/** An image placed on a pane's grid by an image protocol. */
 export const WireImagePlacement = Schema.Struct({
   id: Schema.Number,
   row: Schema.Number,
@@ -39,7 +30,6 @@ export type WindowType = Schema.Schema.Type<typeof WindowType>;
 
 const OptionalNull = <S extends Schema.Schema.Any>(s: S) => Schema.optional(Schema.NullOr(s));
 
-/** A pane as the server sends it. */
 export const WirePane = Schema.Struct({
   id: Schema.Number,
   tmux_id: PaneId,
@@ -72,11 +62,7 @@ export const WirePane = Schema.Struct({
   cursor_hidden: Schema.optional(Schema.Boolean),
   pane_state: OptionalNull(Schema.String),
   pane_ask: OptionalNull(Schema.String),
-  /**
-   * `@tmuxy-pane-widget`: which widget this pane may render. The
-   * `__TMUXY_WIDGET__:` marker is pane OUTPUT, so it authorises nothing on its
-   * own — see `findPaneWidget` (paneWidget.ts).
-   */
+  /** `@tmuxy-pane-widget`; see `findPaneWidget` for why the marker alone authorises nothing. */
   pane_widget: OptionalNull(Schema.String),
   /** `@tmuxy-pane-restore`: the line a session restore types to bring the pane back. */
   pane_restore: OptionalNull(Schema.String),
@@ -104,7 +90,6 @@ export const PaneTree: Schema.Schema<PaneTree, PaneTreeEncoded> = Schema.Union(
   }),
 );
 
-/** A window as the server sends it. */
 export const WireWindow = Schema.Struct({
   id: WindowId,
   index: Schema.Number,
@@ -163,10 +148,6 @@ export const ServerState = Schema.Struct({
 export type ServerState = Schema.Schema.Type<typeof ServerState>;
 /** A full state before decoding: what an engine or a fixture builds, ids as plain strings. */
 export type ServerStateEncoded = Schema.Schema.Encoded<typeof ServerState>;
-
-// ============================================
-// Deltas
-// ============================================
 
 /** What changed about a pane; an absent field did not change, `null` cleared it. */
 export const PaneDelta = Schema.Struct({
@@ -261,10 +242,6 @@ export const StateUpdate = Schema.Union(
 );
 export type StateUpdate = Schema.Schema.Type<typeof StateUpdate>;
 
-// ============================================
-// Other server events
-// ============================================
-
 /** The greeting on a new event stream (SSE `connection-info`). */
 export const ConnectionInfo = Schema.Struct({
   connection_id: Schema.Number,
@@ -299,10 +276,6 @@ export const KeyBindings = Schema.Struct({
 export type KeyBindings = Schema.Schema.Type<typeof KeyBindings>;
 
 /**
- * Surface opacities, native blur and the other `@tmuxy-*` appearance options,
- * the same on every transport — mirrors `tmuxy_core::theme::Appearance`.
- */
-/**
  * `@tmuxy-size`: how the session is sized across clients of different
  * viewports (`tmuxy-core/src/client_size.rs`). Every mode but `smallest`
  * scales the client's grid to fit the window tmux was given.
@@ -313,6 +286,7 @@ export const SizePolicy = Schema.Union(
 );
 export type SizePolicy = Schema.Schema.Type<typeof SizePolicy>;
 
+/** The `@tmuxy-*` appearance options; mirrors `tmuxy_core::theme::Appearance`. */
 export const Appearance = Schema.Struct({
   /** Window chrome: title bar, sidebar, the gaps between panes. */
   opacity: Schema.Number,
@@ -406,10 +380,6 @@ export const ScrollbackCells = Schema.Struct({
   width: Schema.Number,
 });
 export type ScrollbackCells = Schema.Schema.Type<typeof ScrollbackCells>;
-
-// ============================================
-// Command failures
-// ============================================
 
 /**
  * Why the backend refused a command: `tmux` — tmux itself rejected it (a

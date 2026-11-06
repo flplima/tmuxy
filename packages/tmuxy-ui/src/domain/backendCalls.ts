@@ -2,14 +2,10 @@
  * Every command a client sends a backend, by the name it travels under: the
  * `{ cmd, args }` the web POSTs to `/commands` and the desktop hands its one
  * `dispatch` IPC command (`ClientCommand` in `tmuxy-core/src/host/command.rs`).
- * Each name has the schema of its arguments and the schema its answer is
- * decoded with, so a call site cannot misspell a command or an argument, and
- * no answer reaches the app unchecked.
  *
  * The protocol fixture test holds this table to the Rust enum: every request
- * in `packages/protocol-fixtures/command_requests.json` decodes here with no
- * argument left over or missing, and every answer in `command_results.json`
- * decodes with its result schema, dropping no field.
+ * in `packages/protocol-fixtures/command_requests.json` and every answer in
+ * `command_results.json` decodes here with no field left over or missing.
  */
 
 import { Schema } from 'effect';
@@ -44,7 +40,6 @@ export const PreparedAction = Schema.Struct({
 });
 export type PreparedAction = Schema.Schema.Type<typeof PreparedAction>;
 
-/** One host event the greeting carries, decoded through the event table. */
 const GreetingEvent = Schema.Struct({ event: Schema.String, data: Schema.Unknown });
 
 export const BACKEND_COMMANDS = {
@@ -118,28 +113,18 @@ export const BACKEND_COMMANDS = {
 type Commands = typeof BACKEND_COMMANDS;
 export type CommandName = keyof Commands;
 
-/** What a call site passes for `K`. */
 export type CommandArgs<K extends CommandName> = Schema.Schema.Type<Commands[K]['args']>;
 
-/** The decoded answer to `K`. */
 export type CommandResult<K extends CommandName> = Schema.Schema.Type<Commands[K]['result']>;
 
-/** One command as it goes on the wire: the name and its arguments. */
 export type BackendCall = {
   readonly [K in CommandName]: { readonly cmd: K; readonly args: CommandArgs<K> };
 }[CommandName];
 
-/** The call of `K` with `args`. */
 export const backendCall = <K extends CommandName>(cmd: K, args: CommandArgs<K>): BackendCall =>
   ({ cmd, args }) as BackendCall;
 
-/**
- * The commands the transport service sends on behalf of its own calls, never
- * as a plain call: tmux ops go through its serial lane (`run`), the state
- * fetch and the client size carry the viewport a resync asks for again, a
- * read is `query`, a staged preview has a URL to make, and the greeting and
- * the trace sink belong to a driver.
- */
+/** The commands only the transport service itself sends, never as a plain call. */
 export type LaneCommand =
   | 'run_tmux_command'
   | 'get_initial_state'
@@ -149,10 +134,8 @@ export type LaneCommand =
   | 'greeting'
   | 'record_trace';
 
-/** A command a caller sends and awaits the decoded answer of. */
 export type PlainCommand = Exclude<CommandName, LaneCommand>;
 
-/** A plain command and its arguments, as an event carries it. */
 export type PlainCall = Extract<BackendCall, { readonly cmd: PlainCommand }>;
 
 /**

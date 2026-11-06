@@ -15,7 +15,6 @@ export function parseThemeMode(mode: unknown): ThemeMode {
   return mode === 'light' || mode === 'auto' ? mode : 'dark';
 }
 
-/** A theme entry as `get_themes_list` answers it. */
 export const ThemeInfo = Schema.Struct({
   name: Schema.String,
   displayName: Schema.String,
@@ -28,7 +27,6 @@ export type ThemeInfo = Schema.Schema.Type<typeof ThemeInfo>;
 export const TraceLevel = Schema.Literal('shape', 'labeled', 'full');
 export type TraceLevel = Schema.Schema.Type<typeof TraceLevel>;
 
-/** The Debug menu's view of local action tracing, as the backend reports it. */
 export const TraceSettings = Schema.Struct({
   enabled: Schema.Boolean,
   level: TraceLevel,

@@ -1,17 +1,12 @@
 /**
  * The command vocabulary: every intent the client issues to tmux, as data.
+ * This module is the only place in the UI that spells tmux syntax — verbs,
+ * flags, quoting and the paths of the bundled scripts.
  *
- * Components, menus, hooks and machines build a `TmuxOp` and dispatch it; the
- * store predicts from it and `toTmuxCommand` turns it into the one string tmux
- * runs. This module is the only place in the UI that spells tmux syntax — its
- * verbs, flags, quoting and the paths of the bundled scripts — so a command
- * cannot drift between the menu that sends it, the binding label that names
- * it and the prediction that anticipates it.
- *
- * Strings that genuinely arrive as strings — the bindings tmux reports
- * (`list-keys`), what the user types at the command prompt, tmuxy.conf
- * aliases — are recognised by `domain/store/parseCommand.ts`, and whatever it
- * cannot name stays a `RawCommand`, sent verbatim.
+ * Strings that arrive as strings — the bindings tmux reports (`list-keys`),
+ * what the user types at the command prompt, tmuxy.conf aliases — are
+ * recognised by `domain/store/parseCommand.ts`; whatever it cannot name stays a
+ * `RawCommand`, sent verbatim.
  */
 
 import { Data } from 'effect';
@@ -45,24 +40,21 @@ export const SIDEBAR_WINDOW_NAME = {
 
 /**
  * What a sidebar column runs: the tree widget, or (`null`) the default shell.
- * The tree is the bundled script by its installed path, as every other script
- * the client runs: a bare `tmuxy` is whatever PATH holds, and a stale one (a
- * launcher left pointing at an unmounted AppImage) exited at once, its window
- * went with it, and the column sat on "starting…" for good. A restore
- * recognises a sidebar by it, so it is tmuxy-core's (`LEFT_SIDEBAR_WIDGET`).
+ * The tree runs by its installed path, never a bare `tmuxy`: PATH may hold a
+ * stale launcher (one left pointing at an unmounted AppImage) that exits at
+ * once and takes the column's window with it. A restore recognises a sidebar
+ * by this command, so it is tmuxy-core's (`LEFT_SIDEBAR_WIDGET`).
  */
 const SIDEBAR_RUN = {
   left: LEFT_SIDEBAR_WIDGET,
   right: null,
 } as const;
 
-/** A pane direction in tmux's own letters. */
 export type PaneDirection = 'L' | 'R' | 'U' | 'D';
 
 /** Which way a pane splits: `vertical` puts the new pane beside, `horizontal` below. */
 export type SplitDirection = 'horizontal' | 'vertical';
 
-/** A side of a pane a group member can be split in next to. */
 export type Side = 'left' | 'right' | 'up' | 'down';
 
 /** A tmuxy window option (`@tmuxy-<tag>`) the client writes. */
@@ -87,7 +79,6 @@ export interface SizedPane {
   readonly height: number;
 }
 
-/** An op that names nothing beyond itself (`TmuxOp.NewWindow()`). */
 type NoFields = Record<never, never>;
 
 /**
@@ -96,7 +87,6 @@ type NoFields = Record<never, never>;
  * own idea of "current" is the better one (see `routeOp`).
  */
 export type TmuxOp = Data.TaggedEnum<{
-  // ── Panes ──────────────────────────────────────────────
   Split: { readonly direction: SplitDirection };
   /** Focus the neighbour in `direction`: `select-pane`, or the tmuxy `nav` script. */
   Navigate: { readonly direction: PaneDirection; readonly script: boolean };
@@ -146,10 +136,10 @@ export type TmuxOp = Data.TaggedEnum<{
   EnterCopyMode: { readonly paneId: PaneId | null };
   CancelCopyMode: { readonly paneId: PaneId };
   /**
-   * Answer a send waiting on a pane: withdraw the question, then record the answer pinned
-   * to its token (so an answer to a question the asker already withdrew is not
-   * read as one to whatever replaced it). One compound command, the clear
-   * first: the overlay comes down the instant the user chooses.
+   * Answer a send waiting on a pane: withdraw the question, then record the
+   * answer pinned to its token, so an answer to a question the asker already
+   * withdrew is not read as one to whatever replaced it. The clear goes first so
+   * the overlay comes down the instant the user chooses.
    */
   AnswerAsk: { readonly paneId: PaneId; readonly token: string; readonly answer: string };
   /**
@@ -160,7 +150,6 @@ export type TmuxOp = Data.TaggedEnum<{
   /** Take back what a pane declared about itself (`@tmuxy-pane-state`). */
   ClearPaneState: { readonly paneId: PaneId };
 
-  // ── Windows (tabs) ─────────────────────────────────────
   NewWindow: NoFields;
   SelectWindow: {
     /** A window id (`@N`, what the client sends), a tmux index, or a neighbour. */
@@ -170,7 +159,6 @@ export type TmuxOp = Data.TaggedEnum<{
   /** Only `@N`-form targets are predicted. */
   KillWindow: { readonly windowId: WindowId | null };
   RenameWindow: { readonly target: WindowId | null; readonly name: string };
-  /** Put a tab right before or after another one. */
   MoveWindow: {
     readonly windowId: WindowId;
     readonly anchorId: WindowId;
@@ -185,7 +173,6 @@ export type TmuxOp = Data.TaggedEnum<{
     readonly value: string | null;
   };
 
-  // ── Pane groups ────────────────────────────────────────
   /** A new pane joins `pane`'s group (or opens one with it); `null` = tmux's current pane. */
   GroupAdd: { readonly pane: SizedPane | null };
   GroupClose: { readonly paneId: PaneId };
@@ -196,13 +183,11 @@ export type TmuxOp = Data.TaggedEnum<{
   GroupSwitch: { readonly clickedPaneId: PaneId; readonly visiblePaneId: PaneId | null };
   /** Show the group's next/previous member (wrapping); `null` = tmux's current pane. */
   GroupStep: { readonly direction: 'next' | 'prev'; readonly paneId: PaneId | null };
-  /** Move a member to `index` in its group's order. */
   GroupMove: { readonly paneId: PaneId; readonly index: number };
   /** An ungrouped pane joins `anchorPaneId`'s group, out of view, at `index`. */
   GroupJoin: { readonly paneId: PaneId; readonly anchorPaneId: PaneId; readonly index: number };
   GroupLeave: { readonly paneId: PaneId; readonly to: LeaveDestination };
 
-  // ── Chrome windows (floats, sidebars) ──────────────────
   /** A float named `name` running `run`, created at the free window `index`. */
   OpenFloat: {
     readonly name: string;
@@ -212,7 +197,6 @@ export type TmuxOp = Data.TaggedEnum<{
   };
   OpenSidebar: { readonly side: 'left' | 'right'; readonly splitFrom: PaneId | null };
 
-  // ── Sessions ───────────────────────────────────────────
   NewSession: { readonly name: string };
   KillSession: { readonly name: string | null };
   /** Move this client to another session (the desktop app's one control client). */
@@ -222,7 +206,6 @@ export type TmuxOp = Data.TaggedEnum<{
   /** Clear the one-shot focus request a shell helper queued. */
   ClearFocusRequest: { readonly session: string };
 
-  // ── Plugins ────────────────────────────────────────────
   /** A plugin's action on a pane (`tmuxy plugin action`); `token` carries a selection. */
   PluginAction: {
     readonly plugin: string;
@@ -231,7 +214,6 @@ export type TmuxOp = Data.TaggedEnum<{
     readonly token: string | null;
   };
 
-  // ── Handled by the client itself ───────────────────────
   /** Open the client's command prompt; `%%` in `template` takes what was typed. */
   CommandPrompt: {
     readonly prompt: string | null;
@@ -243,15 +225,9 @@ export type TmuxOp = Data.TaggedEnum<{
   RawCommand: { readonly command: string };
 }>;
 
-/** Constructors (`TmuxOp.Split({ direction })`) and matchers for `TmuxOp`. */
 export const TmuxOp = Data.taggedEnum<TmuxOp>();
 
-/** One op variant by tag. */
 export type TmuxOpOf<T extends TmuxOp['_tag']> = Extract<TmuxOp, { readonly _tag: T }>;
-
-// ============================================
-// Quoting
-// ============================================
 
 /**
  * Free text as one tmux argument, single-quoted (`it's` → `'it'\''s'`).
@@ -286,7 +262,6 @@ export function pinPrefix(windowId: WindowId | null, paneId: PaneId | null): str
   return list([...pins, '']);
 }
 
-/** The one place an op becomes tmux syntax. */
 export function toTmuxCommand(op: TmuxOp): string {
   switch (op._tag) {
     case 'Split':
@@ -345,8 +320,6 @@ export function toTmuxCommand(op: TmuxOp): string {
         `set-option -p -t ${op.paneId} @tmuxy-ask-answer ${quote(`${op.token}:${op.answer}`)}`,
       ]);
     case 'AnswerOffer':
-      // The command is typed the way `literalText` types anything: `--`
-      // before it, so one starting with `-` is not read as flags.
       return op.run
         ? [
             `set-option -pu -t ${op.paneId} @tmuxy-ask`,
@@ -457,7 +430,6 @@ export function toTmuxCommand(op: TmuxOp): string {
  */
 const PROMPT_RESPONSE = '"%%%"';
 
-/** The prompt that renames the current tab, seeded with its name. */
 export const renameWindowPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,
@@ -465,7 +437,6 @@ export const renameWindowPrompt = (): TmuxOp =>
     template: `rename-window -- ${PROMPT_RESPONSE}`,
   });
 
-/** The prompt that renames the session, seeded with its name. */
 export const renameSessionPrompt = (): TmuxOp =>
   TmuxOp.CommandPrompt({
     prompt: null,

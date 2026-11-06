@@ -124,7 +124,6 @@ describe('TmuxClientModel', () => {
     const m1 = addPendingOp(m0, pending);
     expect(m1.derived.panes).toHaveLength(2);
 
-    // Server sends a snapshot with both panes — placeholder gone, real pane present.
     const serverSnap = snapshot({
       panes: [
         pane({ tmuxId: pid('%0'), width: 39 }),
@@ -158,9 +157,7 @@ describe('TmuxClientModel', () => {
       now: 0,
     });
     const m1 = addPendingOp(m0, pending);
-    // Server snapshot still shows only the original pane — prediction unmet.
     const serverSnap = snapshot();
-    // Now well past the stale timeout.
     const reconciled = applyServerSnapshot(m1, serverSnap, 10_000);
     expect(reconciled.rolledBack).toHaveLength(1);
     expect(reconciled.rolledBack[0].reason).toMatch(/stale/);

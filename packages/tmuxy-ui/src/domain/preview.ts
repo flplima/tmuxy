@@ -42,7 +42,6 @@ function extensionOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-/** The kind of document a path names, or null for anything a preview does not show. */
 export function previewKind(path: string): PreviewKind | null {
   const ext = extensionOf(path);
   if (ext === 'html' || ext === 'htm') return 'html';
@@ -50,7 +49,6 @@ export function previewKind(path: string): PreviewKind | null {
   return null;
 }
 
-/** Whether a document-relative path is a type a page may load. */
 export function isPreviewResource(relative: string): boolean {
   return RESOURCE_EXTENSIONS.has(extensionOf(relative));
 }
@@ -136,7 +134,6 @@ export function parsePreviewLines(lines: string[]): PreviewLines {
   return { file, rev, themed };
 }
 
-/** A markdown document split into its YAML front matter and the rest. */
 export interface MarkdownParts {
   /** The YAML between the fences, or null when the document opens without any. */
   frontMatter: string | null;

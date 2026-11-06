@@ -1,9 +1,3 @@
-/**
- * Unit tests for per-op predict/reconcile logic — currently the focus-op
- * (SelectPane / Navigate) reconcile semantics: confirm-linger, stale-echo
- * holding, and supersession, plus the tmuxy-nav-* alias parsing.
- */
-
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
 import { predict, reconcile } from '../ops';
@@ -267,8 +261,7 @@ describe('MoveWindow predict (tab reorder)', () => {
 describe('SelectWindow predicts even when the target window has no known panes', () => {
   // Background windows can arrive pane-less on some transports; bailing on
   // the prediction left the whole switch unpinned, and pre-confirm snapshots
-  // flapped the tab strip back (masked, pre-refactor, by a machine-level
-  // grace pin that no longer exists).
+  // flapped the tab strip back.
   const win = (id: WindowId, index: number, active: boolean) => ({
     id,
     index,

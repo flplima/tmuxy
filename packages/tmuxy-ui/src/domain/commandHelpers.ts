@@ -3,18 +3,14 @@ import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
 import { CLI_DISPATCHER } from './tmuxyConstants.gen';
 
-/** The bundled CLI dispatcher, beside the scripts. */
 const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
 
-/** Longest literal a single `send-keys -l` carries before the text is split. */
 const LITERAL_CHUNK_SIZE = 500;
 
-/** A name used as a target: bare when it is plainly one word, quoted otherwise. */
 export function target(name: string): string {
   return /^[\w.@%:-]+$/.test(name) ? name : quote(name);
 }
 
-/** A bundled script, run by tmux. */
 export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
@@ -29,7 +25,6 @@ export function script(name: string, ...args: Array<string | number>): string {
  */
 export type ScriptEffect = 'settle' | 'relist-windows';
 
-/** {@link script}, marked with the effect the backend must apply. */
 export function scriptWith(
   effect: ScriptEffect,
   name: string,
@@ -38,20 +33,16 @@ export function scriptWith(
   return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
-/** Commands run as one list (` \; ` between them). */
 export function list(commands: ReadonlyArray<string>): string {
   return commands.join(' \\; ');
 }
 
 /**
- * The command lines that type `text` into `target` literally, one per line.
+ * The command lines that type `text` into `to` literally, one per line.
  *
  * Control mode reads one command per line, so a newline inside a quoted
  * literal would end the `send-keys` there and run the rest of the text as tmux
- * commands of its own — `run-shell` included. Each line of text goes as its own
- * `send-keys -l` (split into chunks so no command line grows unbounded), with
- * an `Enter` between lines: what typing the text line by line does. A paste
- * goes through `pastedText` instead.
+ * commands of its own — `run-shell` included.
  *
  * `--` ends the options: without it, text starting with a dash (`-la`, or the
  * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
@@ -79,13 +70,9 @@ export function literalText(to: string, text: string): string {
  */
 const PASTE_BUFFER = 'tmuxy-paste';
 
-/** The control characters a paste keeps: tab, newline and carriage return. */
 const PASTE_CONTROLS = new Set(['\t', '\n', '\r']);
 
-/**
- * Whether `ch` is a control character a paste drops: C0 (NUL and ESC among
- * them), DEL, and C1 (U+0080–U+009F, where U+009B is CSI).
- */
+/** C0 (NUL and ESC among them), DEL, and C1 (U+0080–U+009F, where U+009B is CSI). */
 function isPasteControl(ch: string): boolean {
   const code = ch.codePointAt(0) ?? 0;
   return (code < 0x20 || (code >= 0x7f && code <= 0x9f)) && !PASTE_CONTROLS.has(ch);
@@ -95,8 +82,8 @@ function isPasteControl(ch: string): boolean {
  * `text` with every control character but tab, newline and carriage return
  * removed.
  *
- * Removing the two literal markers was not enough: a program that parses its
- * input as ECMA-48 reads `ESC [ 0201 ~`, or the C1 CSI `U+009B 201 ~`, as the
+ * Removing the two bracketed-paste markers is not enough: a program that parses
+ * its input as ECMA-48 reads `ESC [ 0201 ~`, or the C1 CSI `U+009B 201 ~`, as the
  * end of the paste just as well, and runs what follows as typed keys. Without
  * ESC and C1 nothing in the text can start an escape sequence, so no spelling
  * of the end marker survives. tmux 3.7 and later make an ESC in a pasted
@@ -111,16 +98,13 @@ export function withoutControls(text: string): string {
     .join('');
 }
 
-/** What a double-quoted tmux string may carry as itself; the rest is escaped. */
 const PLAIN_IN_DOUBLE_QUOTES = /^[A-Za-z0-9 !%&'()*+,\-./:<=>?@[\]^_`|]$/;
 
 const utf8 = new TextEncoder();
 
 /**
- * `text` as a double-quoted tmux string in which every character outside a
- * plain set is an octal byte escape (`\012` for a newline).
- *
- * The escapes cover what tmux's parser would otherwise read as syntax — the
+ * `text` as a double-quoted tmux string, every character outside a plain set
+ * an octal byte escape (`\012` for a newline). The escapes cover what tmux's parser would otherwise read as syntax — the
  * quote, `\`, `$` and `~` (expanded inside double quotes), `;`, the `#{`
  * of a format — and, above all, the newline: control mode reads one command
  * per line, so a raw one would end the command there. Non-ASCII goes as its
@@ -149,13 +133,10 @@ export function tmuxDoubleQuoted(text: string): string {
  * (`literalText`), a shell, an editor or an agent's TUI ran the first line the
  * moment its newline arrived and took the rest as fresh input.
  *
- * Control characters other than tab, newline and carriage return are removed
- * (`withoutControls`), so a clipboard cannot close the paste early, in any
- * spelling of the end marker, and have what follows read as typed keys. A
- * carriage return is kept: tmux sends each newline as one, so a lone `\r`
- * reaches the pane as the Return it already was. The text is staged in
- * chunks (`set-buffer -a` after the first) so no command line grows
- * unbounded, and `-d` drops the buffer once pasted.
+ * Control characters are removed (`withoutControls`) so a clipboard cannot
+ * close the paste early and have what follows read as typed keys. A carriage
+ * return is kept: tmux sends each newline as one, so a lone `\r` reaches the
+ * pane as the Return it already was.
  *
  * A `paste-buffer` reaches its target alone, where typed input in a window
  * with `synchronize-panes` on reaches every pane of it. So when the target is

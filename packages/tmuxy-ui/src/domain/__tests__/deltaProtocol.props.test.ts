@@ -54,7 +54,6 @@ const arbPaneDelta = fc.record(
   { requiredKeys: [] },
 );
 
-/** A delta that may add, update or remove any pane or window. */
 const arbDelta: fc.Arbitrary<ServerDelta> = fc
   .record(
     {

@@ -1,17 +1,7 @@
 /**
- * Per-op predict and reconcile logic.
- *
- * Every TmuxOp has up to three pure functions:
- *  - `predict(snapshot, ctx) → { patch, meta } | null` — what local change
- *    do we apply for instant UI feedback? null = no prediction possible
- *    (op falls through to fire-and-forget).
- *  - `reconcile(committed, derived, op) → ReconcileVerdict` — has the server
- *    caught up with our prediction? matched = drop the op; pending = keep
- *    waiting; failed = drop with warning.
- *  - `toTmuxCommand(op) → string` lives in domain/commands.ts.
- *
- * Keeping these pure (no side effects, no Refs) means every op can be tested
- * in isolation with no mocks. The store glues them together.
+ * Per-op predict and reconcile. `predict` returning null means no prediction
+ * is possible and the op is fire-and-forget; `reconcile` says whether the
+ * server has caught up with the prediction.
  */
 
 import type { TmuxSnapshot, Patch, ReconcileVerdict, PendingOp } from './types';
@@ -46,11 +36,6 @@ import {
   reconcileSelectWindow,
 } from './windowOps';
 
-// ============================================
-// Dispatch-time context
-// ============================================
-
-/** Inputs the predictor needs beyond the snapshot itself. */
 export interface PredictContext {
   readonly defaultShell: string;
   /** MRU pane order, used by Navigate to break overlap ties (mirrors tmux's
@@ -62,10 +47,6 @@ export interface PredictResult {
   readonly patch: Patch;
   readonly meta: Readonly<Record<string, unknown>>;
 }
-
-// ============================================
-// Top-level dispatch
-// ============================================
 
 export function predict(
   op: TmuxOp,
@@ -110,13 +91,7 @@ export function predict(
 export function reconcile(
   pending: PendingOp,
   committed: TmuxSnapshot,
-  /**
-   * Real pane / window ids already claimed by EARLIER pending ops in this
-   * same reconcile pass. Critical when two Split ops are in flight at the
-   * same time: without this set, both would match against the same real
-   * pane id and the model would drop both ops prematurely. The reducer
-   * threads this through `applyServerSnapshot`.
-   */
+  /** Ids claimed by EARLIER ops of this pass, so two in-flight Splits never match one pane. */
   claimed: { panes: ReadonlySet<PaneId>; windows: ReadonlySet<WindowId> } = {
     panes: new Set(),
     windows: new Set(),
@@ -166,10 +141,6 @@ export function reconcile(
       return { _tag: 'matched' };
   }
 }
-
-// ============================================
-// GroupMove (reorder a pane group's members)
-// ============================================
 
 /**
  * Predicts the group's new order: the member leaves its place and is put
