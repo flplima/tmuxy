@@ -161,13 +161,19 @@ fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
     }
 }
 
+/// A server whose pid file could not be written still serves, but
+/// `tmuxy server stop|status` will not find it: said once, at start.
 pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
     let path = pid_file_path(port);
-    if let Some(dir) = path.parent() {
-        let _ = tmuxy_core::private_files::create_dir_all(dir);
+    let written = match path.parent() {
+        Some(dir) => tmuxy_core::private_files::create_dir_all(dir),
+        None => Ok(()),
     }
-    let _ = tmuxy_core::private_files::write(&path, pid.to_string());
+    .and_then(|()| tmuxy_core::private_files::write(&path, pid.to_string()));
+    if let Err(e) = written {
+        warn!(path = %path.display(), error = %e, "could not write the pid file: `tmuxy server stop` and `status` will not find this server");
+    }
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -338,7 +344,8 @@ pub(super) async fn bind_with_retry(
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
             Err(e) => {
-                panic!("Failed to bind to {}: {}", addr, e);
+                eprintln!("tmuxy server: cannot listen on {addr}: {e}");
+                std::process::exit(1);
             }
         }
     }

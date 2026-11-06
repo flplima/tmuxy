@@ -37,7 +37,7 @@ impl Notice {
             .join(" · ");
         // Hidden pane-group members are parked in a session of their own;
         // the app opens on the default one for them.
-        let session = if row.session.starts_with("__") {
+        let session = if row.session == tmuxy_core::constants::STASH_SESSION {
             tmuxy_core::DEFAULT_SESSION_NAME
         } else {
             row.session.as_str()
@@ -52,8 +52,8 @@ impl Notice {
     }
 }
 
-/// A session name as a query value; names are held to a URL-safe alphabet
-/// already (`SessionName`), so this only guards the stash's.
+/// A session name as a query value: of `SessionName`'s alphabet, `@` and `+`
+/// need encoding.
 fn urlencode(value: &str) -> String {
     value
         .bytes()

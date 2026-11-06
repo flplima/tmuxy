@@ -7,6 +7,10 @@ use tracing::{debug, error, info, warn};
 
 use crate::state::AppState;
 
+/// How long a courier's monitor may take to answer the `new-session` it was
+/// handed before the session is created directly.
+const COURIER_CREATE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Run the session's monitor until its last client leaves, its session is
 /// destroyed, the server shuts down, or tmux refuses it too many times
 /// (`tmuxy_core::host::supervise`).
@@ -108,7 +112,7 @@ impl Host for ServerHost {
         // Only a peer whose tmux session actually EXISTS can run the command:
         // the map also holds sessions that are themselves still being created,
         // and two of those pick each other as courier and both wait out the
-        // full poll below, every round, forever.
+        // full timeout below, every round, forever.
         //
         // Nor a peer nobody is watching: its last client left and it is in the
         // grace period before its monitor detaches, and a session made through
@@ -166,27 +170,24 @@ impl Host for ServerHost {
             first_window
         );
         info!(%session, %via_session, "creating session via existing CC client");
-        if tx
-            .send(tmuxy_core::control_mode::MonitorCommand::RunCommand {
-                command: create_cmd,
-            })
-            .await
-            .is_err()
+        // Answered once tmux has made the session (or refused to).
+        match tokio::time::timeout(
+            COURIER_CREATE_TIMEOUT,
+            tmuxy_core::transport::query(&tx, &create_cmd),
+        )
+        .await
         {
-            warn!(%session, %via_session, "the courier's monitor is gone, creating directly");
-            return;
-        }
-        // The RunCommand is queued through the courier's event loop: poll
-        // until tmux has made the session.
-        for _ in 0..50 {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            if host::session_exists(session).await {
+            Ok(Ok(_)) => {
                 info!(%session, "session created successfully via CC");
                 config.create_session = false;
-                return;
+            }
+            Ok(Err(e)) => {
+                warn!(%session, %via_session, error = %e, "the courier could not create the session, creating directly");
+            }
+            Err(_) => {
+                warn!(%session, "session creation via CC timed out, falling back to direct creation");
             }
         }
-        warn!(%session, "session creation via CC timed out, falling back to direct creation");
     }
 
     /// The session may have been cleaned up between the connect and now.

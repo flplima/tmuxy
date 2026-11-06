@@ -294,9 +294,7 @@ async fn serve(
                 "[dev] Starting Vite dev server on port {}...",
                 dev::VITE_PORT
             );
-            let vite = dev::spawn_vite().await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            vite
+            dev::spawn_vite().await
         }
     };
 
