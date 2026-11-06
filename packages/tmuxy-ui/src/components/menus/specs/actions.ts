@@ -14,7 +14,9 @@ import type { AppMachineEvent } from '../../../machines/types/events';
 import { type PaneId, isPlaceholderId } from '../../../domain/ids';
 import { renameWindowPrompt, TmuxOp } from '../../../domain/commands';
 import type { KeyBindings } from '../../../domain/wire';
-import { keyHint } from '../../../domain/menus/keyHint';
+import { clientKeyHint, keyHint } from '../../../domain/keyLabels';
+import type { ClientKey } from '../../../domain/keyTables';
+import { script } from '../../../domain/commandHelpers';
 import type { MenuNode, MenuSpec } from '../../../domain/menus/spec';
 import type { WindowStyleSlug } from '../../../domain/guiWindows';
 
@@ -61,7 +63,7 @@ interface MenuCommand {
   /** What tmux binds the same thing to, for the item's key hint. */
   keyOp?: TmuxOp;
   /** The client's own key for it, when tmux has none. */
-  clientKey?: string;
+  clientKey?: ClientKey;
 }
 
 const sendEvent =
@@ -85,11 +87,16 @@ export const MENU_COMMANDS = {
     keyOp: TmuxOp.KillPane({ paneId: null }),
   },
   'tab-new': { run: sendEvent({ type: 'CREATE_TAB' }), keyOp: TmuxOp.NewWindow() },
-  'tab-overview': { run: sendEvent({ type: 'TOGGLE_TAB_OVERVIEW' }), clientKey: 'ctrl+0' },
+  'tab-overview': { run: sendEvent({ type: 'TOGGLE_TAB_OVERVIEW' }), clientKey: 'tab-overview' },
   // The item renames in the strip, where the name is; the binding (`prefix ,`)
   // still opens tmux's prompt, and the hint names the binding.
   'tab-rename': { run: sendEvent({ type: 'RENAME_ACTIVE_TAB' }), keyOp: renameWindowPrompt() },
-  'tab-stack-toggle': { run: sendEvent({ type: 'TOGGLE_STACKED_PANES' }) },
+  // The binding (`prefix p S`) runs the stack script, which reshapes the
+  // rows as it flips the tag; the hint names it.
+  'tab-stack-toggle': {
+    run: sendEvent({ type: 'TOGGLE_STACKED_PANES' }),
+    keyOp: TmuxOp.RawCommand({ command: script('stack', 'toggle', '#{window_id}') }),
+  },
   'restart-app': { run: () => restartApp() },
   'session-new': { run: sendEvent({ type: 'NEW_SESSION' }) },
   // DETACH_CLIENT, not a raw `detach-client`: the backend has to know the
@@ -114,7 +121,10 @@ export function commandHint(
   id: MenuCommandId,
 ): string | undefined {
   const entry: MenuCommand = MENU_COMMANDS[id];
-  return entry.keyOp ? keyHint(keybindings, entry.keyOp) : entry.clientKey;
+  return (
+    (entry.keyOp && keyHint(keybindings, entry.keyOp)) ??
+    (entry.clientKey && clientKeyHint(keybindings, entry.clientKey))
+  );
 }
 
 /**

@@ -13,8 +13,7 @@
  */
 
 import { Terminal } from './terminal/Terminal';
-import { getTabLabel } from './paneTabDisplay';
-import { PaneIcon } from './PaneIcon';
+import { PaneTab } from './PaneTab';
 import type { SlotBox } from '../domain/tabOverview';
 import type { TmuxPane } from '../domain/client';
 
@@ -65,20 +64,16 @@ export function TabShot({ boxes, frameSize, charWidth, charHeight, panes }: TabS
             }}
           >
             {pane && shot && (
-              // The pane's real header, drawn at the pane's real size and put
-              // through the same scale as its screen. Reusing the markup is
-              // the point: a miniature that invents its own title bar stops
-              // looking like the tab it is a picture of the moment either one
-              // changes.
+              // The pane's real header tab, drawn at the pane's real size and
+              // put through the same scale as its screen: a miniature that
+              // invents its own title bar stops looking like the tab it is a
+              // picture of the moment either one changes.
               <div
                 className="tab-shot-header"
                 style={{ width: shot.width, transform: shot.transform }}
               >
                 <div className={`pane-header${box.active ? ' pane-header-active' : ''}`}>
-                  <div className={`pane-tab${box.active ? ' pane-tab-active' : ''}`}>
-                    <PaneIcon pane={pane} className="pane-tab-icon pane-tab-icon-static" />
-                    <span className="pane-tab-title">{getTabLabel(pane)}</span>
-                  </div>
+                  <PaneTab pane={pane} isActivePane={box.active} still />
                 </div>
               </div>
             )}

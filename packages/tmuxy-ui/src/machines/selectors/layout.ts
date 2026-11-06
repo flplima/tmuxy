@@ -63,7 +63,7 @@ function selectPreviewPanesUncached(context: AppMachineContext): TmuxPane[] {
   // together) plus every pane directly across the line (they move and shrink);
   // all other panes hold exactly still. tmux's intermediate %layout-change
   // events during a resize are internally inconsistent — a pane it isn't
-  // resizing briefly reports y=0, which computePaneBox turns into a dropped
+  // resizing briefly reports y=0, which paneBox turns into a dropped
   // header row and a 1-row content jump — so rendering them is what caused the
   // wobble. Rebuilding from the snapshot keeps everything stable and monotonic.
   const { paneId, handle, originalGeometry, bandGeometry } = resize;

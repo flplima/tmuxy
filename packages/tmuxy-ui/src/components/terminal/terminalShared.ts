@@ -1,14 +1,7 @@
 /**
- * Pure helpers shared by BOTH terminal renderers:
- *
- * - `TerminalLine.tsx` — the React renderer used by Terminal (normal mode)
- * - `terminalRendering.ts` — the imperative DOM renderer used by
- *   ScrollbackTerminal (copy mode)
- *
- * The render paths themselves stay separate (JSX vs direct DOM for perf),
- * but the color mapping and wide-character classification must agree or the
- * two modes render the same content differently. These used to be
- * copy-pasted in both files and had already begun to drift.
+ * Pure helpers of the terminal renderers: colour mapping, wide-character
+ * classification, cell widths and image sources. How a run of cells is
+ * painted is `cellPaint.ts`, shared by the live grid and the scroll view.
  */
 
 import { paneNumber, type PaneId } from '../../domain/ids';

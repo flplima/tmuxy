@@ -57,8 +57,7 @@
    of grid, then tmux's status line under them. The 80 columns are cut from
    the screen's width less 4px of padding each side — the grid's outer
    borders are drawn half a cell outside the panes, and with no padding they
-   were off the screen (PHONE_CONTAINER_PADDING in infra/dom/phoneLayout.ts, the
-   same 4px below). */
+   were off the screen (the same 4px below). */
 .phone-pty {
   --phone-zoom: 2;
   display: flex;
@@ -83,13 +82,15 @@
 .app-body-phone .phone-pty .pane-container {
   flex: none;
   height: calc(24 * var(--line-height-terminal) + 4px);
-  padding: 0 4px 4px;
+  --pane-container-padding-x: 4px;
+  --pane-container-padding-bottom: 4px;
+  padding: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
   box-sizing: border-box;
   transform-origin: 0 0;
 }
 
 .app-body-phone .phone-pty .pane-layout {
-  inset: 0 4px 4px;
+  inset: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
 /* Zoomed (a double tap, or the key row's zoom key): the grid drawn at twice

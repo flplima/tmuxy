@@ -1,80 +1,22 @@
 /**
- * Imperative DOM rendering for terminal lines.
- *
- * Used ONLY by ScrollbackTerminal (copy mode). Terminal (normal mode) has a
- * separate React-based renderer in TerminalLine.tsx — the two implementations
- * must be kept in sync manually.
- * Groups consecutive cells by style into <span> elements for efficiency.
+ * The scroll view's rows (ScrollbackTerminal), written straight into the DOM:
+ * its rows are mounted and repainted one by one as the window moves, which
+ * React would do slower. What each run of cells looks like is `cellPaint`'s,
+ * shared with the live grid's `TerminalLine`; this only builds the nodes.
  */
 
-import type { CellLine, CellStyle } from '../../domain/wireCells';
-import {
-  cellColorToCss,
-  cellsToCss,
-  isWideChar,
-  sameCellColor,
-  sameCellStyle,
-  sanitizeTerminalCell,
-} from './terminalShared';
-import { detectUrls, type DetectedUrl } from './urlDetect';
+import type { CellLine } from '../../domain/wireCells';
+import { cellColorToCss, sameCellColor } from './terminalShared';
+import type { DetectedUrl } from './urlDetect';
 import { safeHref } from '../../infra/openUrl';
-
-// ============================================
-// Color conversion
-// ============================================
-
-// Color conversion + wide-char classification live in terminalShared.ts,
-// shared with TerminalLine.tsx so the two renderers can't drift on them.
-
-// ============================================
-// Style helpers
-// ============================================
-
-function applyStyleToElement(
-  el: HTMLSpanElement,
-  style: CellStyle | undefined,
-  selected: boolean,
-): void {
-  if (selected) el.className = 'terminal-selected';
-
-  if (!style) return;
-
-  if (style.bold) el.style.fontWeight = 'bold';
-  if (style.italic) el.style.fontStyle = 'italic';
-  if (style.underline) el.style.textDecoration = 'underline';
-  if (style.url) {
-    el.dataset.href = style.url;
-    el.style.cursor = 'pointer';
-    el.style.textDecoration = 'underline';
-  }
-
-  // A selected cell wears the selection's colours (`.terminal-selected`),
-  // not the ones it was drawn in, as TerminalLine renders it.
-  if (selected) return;
-
-  let fg = style.fg !== undefined ? cellColorToCss(style.fg) : '';
-  let bg = style.bg !== undefined ? cellColorToCss(style.bg) : '';
-
-  if (style.inverse) {
-    const tmp = fg;
-    fg = bg || 'var(--term-background)';
-    bg = tmp || 'var(--term-foreground)';
-  }
-
-  if (fg) el.style.color = fg;
-  if (bg) el.style.backgroundColor = bg;
-  if (style.dim) el.style.opacity = '0.5';
-}
-
-// ============================================
-// Line rendering
-// ============================================
-
-function lineSliceText(line: CellLine, start: number, end: number): string {
-  let s = '';
-  for (let i = start; i < end; i++) s += sanitizeTerminalCell(line[i].c);
-  return s;
-}
+import {
+  cellRuns,
+  rowUrlIndex,
+  runPaint,
+  selectionPad,
+  type CellRun,
+  type SelectionCols,
+} from './cellPaint';
 
 /**
  * Detect the dominant background color for a line.
@@ -100,39 +42,55 @@ function detectLineBg(line: CellLine): string | null {
   return null;
 }
 
+/** One run's node: a link or a span, painted as `runPaint` says. */
+function runNode(run: CellRun): HTMLElement {
+  let node: HTMLElement;
+  if (run.link) {
+    const a = document.createElement('a');
+    // Copy mode renders its rows as raw DOM, where React's own blocking of a
+    // `javascript:` href does not apply — so the allowlist is the only guard.
+    const href = safeHref(run.link.url);
+    if (href) {
+      a.href = href;
+      a.title = href;
+    }
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.draggable = false;
+    node = a;
+  } else {
+    node = document.createElement('span');
+  }
+  const { className, style } = runPaint(run);
+  if (className) node.className = className;
+  Object.assign(node.style, style);
+
+  let glyph: Node = document.createTextNode(run.text);
+  if (run.fit !== null) {
+    const fit = document.createElement('span');
+    fit.className = 'terminal-fit-glyph';
+    fit.style.setProperty('--glyph-fit', String(run.fit));
+    fit.appendChild(glyph);
+    glyph = fit;
+  }
+  if (run.style?.size) {
+    const scaled = document.createElement('span');
+    scaled.className = 'terminal-scaled-text';
+    scaled.dataset.size = run.style.size;
+    scaled.appendChild(glyph);
+    glyph = scaled;
+  }
+  node.appendChild(glyph);
+  return node;
+}
+
 /**
  * Render a cell line into a DOM element, replacing its children.
- * Groups consecutive cells by style for efficiency (fewer spans).
  */
-/**
- * The background a row's edge takes: the first cell's for the pane's left
- * padding, the last cell's for everything right of the line (see
- * `.terminal-line::before` / `::after` in styles.css). A status line or an
- * editor gutter painted edge to edge then reaches the pane border instead of
- * stopping half a cell short. Inverse video counts the way the cell renders.
- */
-export function rowEdgeBackground(style: CellStyle | undefined): string | undefined {
-  if (!style) return undefined;
-  const fg = style.fg !== undefined ? cellColorToCss(style.fg) : '';
-  const bg = style.bg !== undefined ? cellColorToCss(style.bg) : '';
-  const painted = style.inverse ? fg || 'var(--term-foreground)' : bg;
-  return painted || undefined;
-}
-
-/** Publish a row's edge backgrounds as the custom properties the CSS reads. */
-function applyRowEdges(el: HTMLElement, line: CellLine): void {
-  const left = rowEdgeBackground(line[0]?.s);
-  const right = rowEdgeBackground(line[line.length - 1]?.s);
-  if (left) el.style.setProperty('--row-edge-left', left);
-  else el.style.removeProperty('--row-edge-left');
-  if (right) el.style.setProperty('--row-edge-right', right);
-  else el.style.removeProperty('--row-edge-right');
-}
-
 export function renderLineToDOM(
   el: HTMLDivElement,
   line: CellLine,
-  selRange: { startCol: number; endCol: number } | null,
+  selRange: SelectionCols | null,
   // The row's links when the caller detected them over the logical line
   // (`detectUrlsAcrossRows`); absent, the row detects its own.
   rowUrls?: DetectedUrl[],
@@ -140,119 +98,24 @@ export function renderLineToDOM(
   el.textContent = '';
   // Reset inline background so stale colors don't persist across updates
   el.style.backgroundColor = '';
-  applyRowEdges(el, line);
 
   if (line.length === 0) return;
 
-  // Detect line background: find the most common bg color across cells.
   // When apps like neovim set a theme background (e.g. #1e1e2e), empty cells
-  // and line gaps would otherwise show the container's #000 background,
-  // creating visible black lines between rows.
+  // and line gaps would otherwise show the container's background between
+  // the scroll view's absolutely placed rows.
   const lineBg = detectLineBg(line);
   if (lineBg) el.style.backgroundColor = lineBg;
 
-  // Auto-detect URLs in line text.
-  //
-  // detectUrls reports UTF-16 offsets into the joined text, but callers ask
-  // about CELL indices. A cell can hold more than one code unit (variation
-  // selectors, combining marks), so translate through a per-cell offset map
-  // rather than comparing a cell index against a string offset.
-  const cellOffsets = new Array<number>(line.length);
-  let lineText = '';
-  for (let i = 0; i < line.length; i++) {
-    cellOffsets[i] = lineText.length;
-    lineText += sanitizeTerminalCell(line[i].c);
+  for (const run of cellRuns(line, selRange, rowUrlIndex(line, rowUrls))) {
+    el.appendChild(runNode(run));
   }
-  const autoUrls = rowUrls ?? detectUrls(lineText);
-  const urlIdxOf = (i: number): number => {
-    const off = cellOffsets[i];
-    for (let u = 0; u < autoUrls.length; u++) {
-      if (off >= autoUrls[u].start && off < autoUrls[u].end) return u;
-    }
-    return -1;
-  };
 
-  let groupStart = 0;
-  let groupStyle = line[0].s;
-  let groupSelected = selRange ? 0 >= selRange.startCol && 0 <= selRange.endCol : false;
-  let groupUrlIdx = line[0].s?.url ? -1 : urlIdxOf(0);
-  let groupWide = isWideChar(line[0].c);
-
-  const flush = (end: number) => {
-    const text = lineSliceText(line, groupStart, end);
-    const oscUrl = groupStyle?.url;
-    const autoUrl = !oscUrl && groupUrlIdx >= 0 ? autoUrls[groupUrlIdx].url : undefined;
-    const linkUrl = oscUrl || autoUrl;
-
-    let target: HTMLElement;
-    if (linkUrl) {
-      const a = document.createElement('a');
-      // Copy mode renders its rows as raw DOM, where React's own blocking of a
-      // `javascript:` href does not apply — so the allowlist is the only guard.
-      const href = safeHref(linkUrl);
-      if (href) {
-        a.href = href;
-        a.title = href;
-      }
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.draggable = false;
-      a.className = oscUrl ? 'terminal-hyperlink' : 'terminal-autolink';
-      target = a;
-    } else {
-      target = document.createElement('span');
-    }
-    applyStyleToElement(target as HTMLSpanElement, groupStyle, groupSelected);
-    // After the style: a selected span has its className replaced there.
-    if (groupWide) target.classList.add('terminal-wide');
-    const cellSize = groupStyle?.size;
-    // Pin the span to an exact number of character cells, matching
-    // TerminalLine's stable-grid behaviour (2x width when DEC/OSC66 scaled).
-    target.style.width = cellsToCss((end - groupStart) * (cellSize ? 2 : 1));
-    if (cellSize) {
-      target.classList.add('terminal-scaled');
-      const inner = document.createElement('span');
-      inner.className = 'terminal-scaled-text';
-      inner.dataset.size = cellSize;
-      inner.textContent = text;
-      target.appendChild(inner);
-    } else {
-      target.textContent = text;
-    }
-    el.appendChild(target);
-  };
-
-  for (let i = 1; i < line.length; i++) {
-    const cell = line[i];
-    const selected = selRange ? i >= selRange.startCol && i <= selRange.endCol : false;
-    const cellUrlIdx = cell.s?.url ? -1 : urlIdxOf(i);
-    const wide = isWideChar(cell.c);
-    if (
-      wide ||
-      groupWide ||
-      !sameCellStyle(cell.s, groupStyle) ||
-      selected !== groupSelected ||
-      cellUrlIdx !== groupUrlIdx
-    ) {
-      flush(i);
-      groupStart = i;
-      groupStyle = cell.s;
-      groupSelected = selected;
-      groupUrlIdx = cellUrlIdx;
-      groupWide = wide;
-    }
-  }
-  flush(line.length);
-
-  // Pad selection beyond line content
-  if (selRange && selRange.endCol >= line.length) {
-    const padStart = Math.max(selRange.startCol, line.length);
-    const padLen = selRange.endCol - padStart + 1;
-    if (padLen > 0) {
-      const span = document.createElement('span');
-      span.className = 'terminal-selected';
-      span.textContent = ' '.repeat(padLen);
-      el.appendChild(span);
-    }
+  const pad = selectionPad(line, selRange);
+  if (pad > 0) {
+    const span = document.createElement('span');
+    span.className = 'terminal-selected';
+    span.textContent = ' '.repeat(pad);
+    el.appendChild(span);
   }
 }

@@ -13,7 +13,12 @@
 
 import React, { useCallback, useReducer, useRef, useMemo, ReactNode } from 'react';
 import { ResizeDividers } from './ResizeDividers';
-import { computePaneBox } from '../constants/layout';
+import {
+  centeringOffset as gridCenteringOffset,
+  gridPixelSize,
+  paneBox,
+  paneContentPadding,
+} from '../domain/paneGeometry';
 import { gridExtent } from '../machines/app/helpers';
 import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/appHooks';
 import {
@@ -53,7 +58,6 @@ import {
 } from './PaneLayoutMorph';
 import { PaneLayoutItem } from './AnimatedPaneWrapper';
 import { usePaneZoomObserver } from './paneWrapperHooks';
-import { gridOrigin } from '../domain/paneGeometry';
 import { useMorphContentAnchor } from './paneContentAnchor';
 
 interface PaneLayoutProps {
@@ -129,18 +133,18 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [isZoomed, visiblePanes],
   );
 
-  // Half a charWidth — each pane reaches this far into the tmux separator
-  // column on both sides so adjacent panes' outlines coincide pixel-for-pixel
-  // at the shared edge (the "mosaic" look). Also the content's horizontal
-  // padding, which centers the terminal text within the +1-cell-wide box.
-  const hPadding = charWidth / 2;
+  const hPadding = paneContentPadding(charWidth);
+  const grid = useMemo(
+    () => gridPixelSize(totalWidth, totalHeight, charWidth, charHeight),
+    [totalWidth, totalHeight, charWidth, charHeight],
+  );
 
-  // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so its dimensions match
-  // containerWidth/Height (content-box from ResizeObserver): pane positions are
-  // relative to the content area directly (domain/paneGeometry.ts).
+  // .pane-layout is inset by the container's padding (CSS), so its dimensions
+  // match containerWidth/Height (content-box from ResizeObserver) and pane
+  // positions are relative to the content area directly.
   const liveCenteringOffset = useMemo(
-    () => gridOrigin(totalWidth, charWidth, containerWidth),
-    [totalWidth, charWidth, containerWidth],
+    () => gridCenteringOffset(containerWidth, grid.width),
+    [containerWidth, grid.width],
   );
 
   // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
@@ -160,11 +164,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // The point all non-zoomed panes collapse toward (and expand out of) during
   // a zoom: the centre of the pane grid, where the zoomed pane fills to.
   const zoomCenter = useMemo(
-    () => ({
-      x: centeringOffset.x + (totalWidth * charWidth) / 2,
-      y: centeringOffset.y + (totalHeight * charHeight) / 2,
-    }),
-    [centeringOffset, totalWidth, totalHeight, charWidth, charHeight],
+    () => ({ x: centeringOffset.x + grid.width / 2, y: centeringOffset.y + grid.height / 2 }),
+    [centeringOffset, grid],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -194,10 +195,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       // Uniform mosaic box: width = charWidth*(width+1), height =
       // charHeight*(height+1). The extra cell in each axis is the border whose
       // two halves are shared with neighbours (or the grid edge). See
-      // computePaneBox for the geometry. A collapsed stacked pane (height 1)
+      // paneBox for the geometry. A collapsed stacked pane (height 1)
       // therefore renders as 2 rows — its header title row plus a blank content
       // row — matching tmux; TerminalPane hides the content of that row.
-      const box = computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
+      const box = paneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
       return {
         position: 'absolute',
         left: box.left,
@@ -360,12 +361,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       ))}
 
       {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle exactly (same computePaneBox) so the ghost
+          Mirrors getPaneStyle exactly (same paneBox) so the ghost
           lands precisely where the pane will. */}
       {dropTarget &&
         isDragging &&
         (() => {
-          const box = computePaneBox(
+          const box = paneBox(
             dropTarget,
             charWidth,
             charHeight,

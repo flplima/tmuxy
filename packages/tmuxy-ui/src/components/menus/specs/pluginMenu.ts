@@ -7,7 +7,7 @@
 
 import type { PaneId } from '../../../domain/ids';
 import type { KeyBindings } from '../../../domain/wire';
-import { pluginKeyHint } from '../../../domain/menus/keyHint';
+import { pluginKeyHint } from '../../../domain/keyLabels';
 import {
   pluginItemId,
   pluginMenuEntries,

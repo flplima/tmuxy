@@ -13,14 +13,15 @@ export const CHAR_HEIGHT = 24;
 /**
  * The pane container's padding on a phone: a few pixels each side so the
  * grid's outer borders — drawn half a cell outside the panes — stay on
- * screen, and the same below (styles/phone.css mirrors it).
+ * screen, and the same below. A copy of styles/phone.css's
+ * `--pane-container-padding-*`, held to it by components/__tests__/cssMirrors.test.ts.
  */
 export const PHONE_CONTAINER_PADDING = 4;
 
-// Padding of .pane-container (mirrored in styles.css). Only the fallback
-// sizing path needs these — the size actor measures the content box, which
-// already excludes them. The grid is centred in that box, so the visible
-// margin is the padding plus half the leftover of a cell.
+// Padding of .pane-container: a copy of `--pane-container-padding-*`
+// (styles.css), held to it by components/__tests__/cssMirrors.test.ts. The grid
+// is centred in the content box, so the visible margin is the padding plus
+// half the leftover of a cell.
 export const CONTAINER_PADDING_X = 12;
 export const CONTAINER_PADDING_BOTTOM = 4;
 
@@ -32,78 +33,12 @@ export function containerPaddingX(phone: boolean): number {
   return phone ? PHONE_CONTAINER_PADDING : CONTAINER_PADDING_X;
 }
 
-// Horizontal inset: half charWidth to cover tmux divider column gap
-export function paneInsetX(charWidth: number): number {
-  return Math.round(charWidth / 2);
-}
-
-/**
- * A pane's pixel rectangle in the layout.
- *
- * Mosaic invariant — every pane occupies one extra cell in each axis beyond
- * its tmux content size; that extra cell is the border, split into two halves
- * shared with the neighbour on each side (or with the grid edge):
- *
- *   width  = charWidth  * (pane.width  + 1)
- *   height = charHeight * (pane.height + 1)   // the +1 row is the header
- *
- * Each pane is shifted half a cell left (for the shared vertical border) and
- * one full cell up (the header row, which under `pane-border-status top` lives
- * in tmux's separator row at y-1). Adjacent panes' rectangles therefore meet
- * exactly — left.right === right.left and top.bottom === bottom.top — so their
- * 1px outlines coincide and the grid reads as a single connected frame with no
- * gaps between panes.
- *
- * The topmost pane can report y=0 (no separator row above it — some tiled
- * layouts do this). Such a pane has no header row to hoist, so the vertical
- * shift is clamped to 0; otherwise it would render a full cell above the grid.
- */
-export interface PaneBoxInput {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface PaneBox {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-export function computePaneBox(
-  pane: PaneBoxInput,
-  charWidth: number,
-  charHeight: number,
-  offsetX = 0,
-  offsetY = 0,
-): PaneBox {
-  // Header row only exists when there's a separator above the pane (y > 0).
-  const headerRows = pane.y > 0 ? 1 : 0;
-  return {
-    left: offsetX + (pane.x - 0.5) * charWidth,
-    top: offsetY + (pane.y - headerRows) * charHeight,
-    width: (pane.width + 1) * charWidth,
-    height: (pane.height + headerRows) * charHeight,
-  };
-}
-
-/* Pane enter/shift lifecycle (the split morph, and the panes moving around
-   it). Must stay in sync with --transition-pane-enter (styles.css) — JS
-   timers hold the lifecycle classes slightly past the CSS transition end. */
-export const PANE_ENTER_MS = 180;
 /* How long a closed pane's absence keeps the shift lifecycle open, so the
    survivors GROW into the space it left. The pane itself is not drawn for any
    of it: closing is instant, and what animates is the space opening up. */
 export const PANE_LEAVE_MS = 160;
 // Opacity the entering pane starts from before fading in to full.
 export const PANE_ENTER_FROM_OPACITY = 0.4;
-
-/** A pane is collapsed in a stack when tmux has shrunk it to a single row. */
-export function isCollapsedPane(pane: { height: number }): boolean {
-  return pane.height <= 1;
-}
 
 // Status bars
 export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border

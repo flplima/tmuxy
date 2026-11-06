@@ -94,7 +94,7 @@ export function PaneLayoutItem({
     // the grid centre, scaled down and faded out, so zoom IN reads as
     // the panes collapsing into the middle while the zoomed pane grows
     // — and zoom OUT reverses it (the DOM node persists by key, so the
-    // base transform/opacity transition runs both ways). computePaneBox
+    // base transform/opacity transition runs both ways). paneBox
     // via getPaneStyle; translate the pane's centre onto zoomCenter.
     const box = getPaneStyle(pane);
     const cx = (box.left as number) + (box.width as number) / 2;

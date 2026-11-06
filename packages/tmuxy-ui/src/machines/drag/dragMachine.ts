@@ -42,8 +42,7 @@ import {
   sameGroupDrop,
   sideOf,
 } from './groupDrop';
-import { paneInsetX } from '../../constants/layout';
-import { gridOrigin } from '../../domain/paneGeometry';
+import { centeringOffset, paneInsetX } from '../../domain/paneGeometry';
 import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../infra/haptics';
 
@@ -193,7 +192,7 @@ export const dragMachine = setup({
 
             // Where PaneLayout draws the grid, so the hit test agrees with it.
             const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
-            const origin = gridOrigin(totalW, context.charWidth, context.containerWidth);
+            const origin = centeringOffset(context.containerWidth, totalW * context.charWidth);
             const centerOffsetX = origin.x;
             const centerOffsetY = origin.y;
 

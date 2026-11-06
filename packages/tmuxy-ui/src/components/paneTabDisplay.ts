@@ -7,7 +7,7 @@
 
 import type { TmuxPane } from '../domain/client';
 import type { TmuxServer } from '../domain/servers';
-import { detectWidget, getWidget } from './widgets/registry';
+import { paneWidgetOf } from './widgets/registry';
 import { circledNumber } from '../domain/paneState';
 import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
 
@@ -179,11 +179,10 @@ export function tabIcon(name: string, position: number): { icon: string; label: 
  */
 export function getTabIcon(
   pane: TmuxPane,
-  widgetName?: string,
   titleOverride?: string,
   custom: Readonly<Record<string, string>> = {},
 ): string | null {
-  const widgetIcon = widgetName ? getWidget(widgetName)?.icon : undefined;
+  const widgetIcon = paneWidgetOf(pane)?.definition.icon;
   if (widgetIcon) return widgetIcon;
   const command = pane.command.toLowerCase();
   const ownIcon = (map: Readonly<Record<string, string>>) =>
@@ -253,20 +252,9 @@ export function getTabLabel(pane: TmuxPane, titleOverride?: string): string {
  * Copy mode takes over the title line: `[COPY MODE]` is a state of the pane,
  * not the program in it, and the process underneath is still worth seeing.
  */
-export function paneRowLines(
-  pane: TmuxPane,
-  widgetName?: string,
-): { process: string; title: string } {
-  const process = widgetName || pane.command || 'shell';
+export function paneRowLines(pane: TmuxPane): { process: string; title: string } {
+  const process = paneWidgetOf(pane)?.name || pane.command || 'shell';
   if (pane.inMode) return { process, title: '[COPY MODE]' };
   const title = splitTitleIcon(pane.title || '').text.trim();
   return { process, title: title === process ? '' : title };
-}
-
-/**
- * The widget a pane is showing, if any, by the same scan its body runs — so
- * the tree names and draws a preview the way the pane's own header does.
- */
-export function paneWidgetName(pane: TmuxPane): string | undefined {
-  return detectWidget(pane.content, pane.paneWidget)?.widgetName;
 }

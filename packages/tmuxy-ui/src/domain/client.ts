@@ -114,7 +114,7 @@ export const TmuxPane = Schema.mutable(
     /**
      * Which widget this pane may render (`@tmuxy-pane-widget`), written by
      * `tmuxy-widget`. The `__TMUXY_WIDGET__:` marker travels in pane OUTPUT and
-     * so authorises nothing on its own — see `components/widgets/detectWidget`.
+     * so authorises nothing on its own — see `findPaneWidget` (domain/paneWidget.ts).
      */
     paneWidget: optionalFrom('pane_widget', Schema.NullOr(Schema.String)),
   }),

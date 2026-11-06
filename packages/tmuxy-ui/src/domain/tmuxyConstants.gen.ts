@@ -29,3 +29,12 @@ export const MANAGED_OPTIONS = {
 
 /** What a left sidebar runs, and a restore recognises (`session_snapshot::LEFT_SIDEBAR_WIDGET`). */
 export const LEFT_SIDEBAR_WIDGET = '$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree';
+
+/** The name prefix a sidebar window is recognised by (`constants::SIDEBAR_WINDOW_PREFIX`). */
+export const SIDEBAR_WINDOW_PREFIX = '__sidebar-';
+
+/** What marks a key binding as a plugin key's (`plugins::keys::MARKER`). */
+export const PLUGIN_KEY_MARKER = '--trigger key';
+
+/** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */
+export const CLI_DISPATCHER = 'tmuxy-cli';

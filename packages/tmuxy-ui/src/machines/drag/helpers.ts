@@ -4,7 +4,7 @@
 
 import type { TmuxPane } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
-import { paneInsetX } from '../../constants/layout';
+import { paneInsetX } from '../../domain/paneGeometry';
 
 /**
  * Find swap target pane using mouse position (in pixels relative to pane container)

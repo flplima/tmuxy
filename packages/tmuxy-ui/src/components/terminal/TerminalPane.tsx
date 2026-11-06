@@ -41,7 +41,7 @@ import { RowEdges } from './RowEdges';
 import { AskOverlay } from '../AskOverlay';
 import { OfferBanner } from '../OfferBanner';
 import { paneSendFor } from '../../domain/paneAsk';
-import { isCollapsedPane } from '../../constants/layout';
+import { isCollapsedPane } from '../../domain/paneGeometry';
 import { extractSelectedText } from '../../domain/copyMode';
 import { ScrollPositionIndicator } from './TerminalPaneScroll';
 import { usePaneNativeListeners, useTerminalPaneScroll } from './terminalPaneScrollHooks';

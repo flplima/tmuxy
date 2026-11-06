@@ -70,7 +70,21 @@ const nonEmptyContent = [[{ c: 'h' }, { c: 'e' }, { c: 'l' }, { c: 'l' }, { c: '
 const emptyContent = [[{ c: ' ' }, { c: ' ' }], []];
 
 describe('handleStateUpdate - content preservation', () => {
-  test('full update with empty content preserves existing non-empty content', () => {
+  test('full update with no rows captured yet preserves existing content', () => {
+    const existing = makeState({
+      panes: [makePane({ content: nonEmptyContent })],
+    });
+    const update: StateUpdate = {
+      type: 'full',
+      state: makeState({ panes: [makePane({ content: [] })] }),
+    };
+
+    const result = handleStateUpdate(update, existing);
+    expect(result).not.toBeNull();
+    expect(result!.panes[0].content).toEqual(nonEmptyContent);
+  });
+
+  test('full update whose rows are all blank clears the pane (a `clear` during a resync)', () => {
     const existing = makeState({
       panes: [makePane({ content: nonEmptyContent })],
     });
@@ -80,8 +94,7 @@ describe('handleStateUpdate - content preservation', () => {
     };
 
     const result = handleStateUpdate(update, existing);
-    expect(result).not.toBeNull();
-    expect(result!.panes[0].content).toEqual(nonEmptyContent);
+    expect(result!.panes[0].content).toEqual(emptyContent);
   });
 
   test('full update with non-empty content replaces existing content', () => {

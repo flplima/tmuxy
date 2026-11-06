@@ -17,7 +17,7 @@ import { act, type Ctx, type Enqueue } from './actionTypes';
 import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
 import { isMultiStep } from '../../domain/opTraits';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
-import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
+import { parseCommandToOp, tabPosition } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
 
 /**
@@ -257,10 +257,11 @@ export const dispatchActions = {
     // `select-window -t <N>`: N is the visual tab position, not a tmux index
     // (chrome windows consume indices), so it names the window by ID —
     // never its index, which is stale whenever tmux has renumbered.
-    const position = stripPin(command).match(/^select-window\s+-t\s+(\d+)$/);
-    const positioned = position
-      ? context.windows.filter((w) => w.windowType === 'tab')[Number(position[1]) - 1]
-      : undefined;
+    const position = tabPosition(command);
+    const positioned =
+      position !== null
+        ? context.windows.filter((w) => w.windowType === 'tab')[position - 1]
+        : undefined;
     if (positioned) {
       routeOp(TmuxOp.SelectWindow({ target: positioned.id }), undefined, context, enqueue);
       return;
