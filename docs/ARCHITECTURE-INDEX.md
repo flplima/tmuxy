@@ -13,7 +13,8 @@ Feature-to-files retrieval map for agents.
 | Wire shapes and the client model derived from them | `packages/tmuxy-ui/src/domain/wire.ts`<br>`packages/tmuxy-ui/src/domain/client.ts` |
 | The command vocabulary (every intent the UI sends) | `packages/tmuxy-ui/src/domain/commands.ts` (`TmuxOp`, `toTmuxCommand`)<br>`packages/tmuxy-ui/src/machines/app/dispatch.ts` |
 | Client command errors | `packages/tmuxy-core/src/command_error.rs`<br>`packages/tmuxy-ui/src/infra/transport/AdapterError.ts` |
-| The transport service, its Layers and the state stream | `packages/tmuxy-ui/src/infra/transport/` (`TmuxTransport.ts`, `layers.ts`, `stateFeed.ts`, `drivers/`)<br>`packages/tmuxy-ui/src/infra/runtime.ts` |
+| The client's command table (names, argument and answer schemas) | `packages/tmuxy-ui/src/domain/backendCalls.ts`<br>`packages/tmuxy-core/src/host/command.rs`<br>`packages/protocol-fixtures/command_requests.json`, `command_results.json` |
+| The transport service, its Layers and the state stream | `packages/tmuxy-ui/src/infra/transport/` (`TmuxTransport.ts`, `commandLane.ts`, `keyBatching.ts`, `layers.ts`, `stateFeed.ts`, `drivers/`)<br>`packages/tmuxy-ui/src/infra/runtime.ts` |
 | Backend state aggregation and emit | `packages/tmuxy-core/src/control_mode/state.rs`<br>`packages/tmuxy-server/src/state.rs` |
 | SSE/HTTP server flow | `packages/tmuxy-server/src` (see docs references) |
 | Frontend state machine | `packages/tmuxy-ui/src/machines` (the XState machines); the four layers of `src/` and what each may import: `packages/tmuxy-ui/README.md` |

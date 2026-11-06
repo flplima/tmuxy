@@ -5,11 +5,15 @@
  */
 
 import { useMemo } from 'react';
-import { Effect } from 'effect';
+import { Effect, Schema } from 'effect';
 import { TmuxTransport } from '../../../infra/transport/TmuxTransport';
-import { formatAdapterError, type AdapterError } from '../../../infra/transport/AdapterError';
+import {
+  formatAdapterError,
+  ProtocolError,
+  type AdapterError,
+} from '../../../infra/transport/AdapterError';
 import { useAppRuntime } from '../../../machines/appHooks';
-import type { PreviewDocument, PreviewResource } from '../../../domain/preview';
+import { PreviewDocument, PreviewResource } from '../../../domain/preview';
 import type { PaneId } from '../../../domain/ids';
 
 export interface PreviewSource {
@@ -29,10 +33,26 @@ export function usePreviewSource(paneId: PaneId): PreviewSource {
           Effect.mapError((e) => new Error(formatAdapterError(e))),
         ),
       );
+    /** `read_preview`, whose answer must be the kind of read asked for. */
+    const read = <A, I>(schema: Schema.Schema<A, I>, path?: string) =>
+      run((t) =>
+        t.call('read_preview', path === undefined ? { paneId } : { paneId, path }).pipe(
+          Effect.flatMap(
+            (answer): Effect.Effect<A, ProtocolError> =>
+              Schema.is(schema)(answer)
+                ? Effect.succeed(answer)
+                : Effect.fail(
+                    new ProtocolError({
+                      reason: 'read_preview answered another kind of read',
+                      raw: answer,
+                    }),
+                  ),
+          ),
+        ),
+      );
     return {
-      readDocument: () => run((t) => t.invoke<PreviewDocument>('read_preview', { paneId })),
-      readResource: (path: string) =>
-        run((t) => t.invoke<PreviewResource>('read_preview', { paneId, path })),
+      readDocument: () => read(PreviewDocument),
+      readResource: (path: string) => read(PreviewResource, path),
       stagePage: (html: string) => run((t) => t.stagePreview(paneId, html)),
     };
   }, [runtime, paneId]);

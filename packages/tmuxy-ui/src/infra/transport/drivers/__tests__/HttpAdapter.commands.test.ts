@@ -101,7 +101,7 @@ describe('HttpAdapter commands and recovery', () => {
     adapter.disconnect();
   });
 
-  it('invoke surfaces the HTTP status when an error response body is not JSON', async () => {
+  it('a call surfaces the HTTP status when an error response body is not JSON', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
@@ -117,7 +117,7 @@ describe('HttpAdapter commands and recovery', () => {
         json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
       }),
     );
-    await expect(adapter.invoke('get_themes_list')).rejects.toThrow('HTTP 502');
+    await expect(adapter.send({ cmd: 'get_themes_list', args: {} })).rejects.toThrow('HTTP 502');
     adapter.disconnect();
   });
 
@@ -259,7 +259,7 @@ describe('HttpAdapter commands and recovery', () => {
       total_width: 80,
       total_height: 24,
     };
-    const initial = call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer({ ok: true, json: async () => ({ result: baseState }) });
     await initial;

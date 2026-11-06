@@ -16,13 +16,9 @@ import { desktopInvoke } from './desktop';
 
 export const isMacTauri = isTauri() && isMacPlatform();
 
-/** Per-page-load prefix so ids stay unique across app restarts in one trace file. */
-const actionPrefix = `titlebar-${Date.now().toString(36)}`;
-let actionCounter = 0;
-
 /** Invoke a window command, under a fresh `action_id` the shell echoes on its own events. */
 function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
-  const actionId = tracer.isEnabled() ? `${actionPrefix}-${++actionCounter}` : undefined;
+  const actionId = tracer.actionId();
   return desktopInvoke<T>(cmd, { ...args, actionId }, { actionId, traced: args });
 }
 

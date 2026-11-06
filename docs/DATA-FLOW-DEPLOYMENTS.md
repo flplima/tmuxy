@@ -157,7 +157,7 @@ No server at all. Real tmux runs inside an in-browser guest machine, and its `tm
 - **CheerpX** — an x86-to-WebAssembly JIT running 32-bit Alpine binaries from an ext2 image streamed over HTTP; the control client is on its console, through the guest's `tmuxy-console` relay. Faster and with no kernel to boot, but it needs a cross-origin isolated page (COOP + COEP headers), and its kernel lacks enough that the guest's tmux is patched and every pane runs under `tmuxy-pty` (see `packages/tmuxy-ui/cheerpx/README.md`).
 
 ```
-TmuxyApp ──invoke(run_tmux_command)──> GuestTmuxAdapter ──> GuestEngine (V86Engine | CheerpXEngine)
+TmuxyApp ──run(op)──> GuestTmuxAdapter ──> GuestEngine (V86Engine | CheerpXEngine)
    ▲                                                              │ send
    │                                                              ▼
 onStateChange <── tmuxy-wasm (parse + aggregate) <──stream── tmux -CC in the guest

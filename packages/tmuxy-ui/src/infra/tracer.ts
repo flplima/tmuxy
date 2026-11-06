@@ -76,6 +76,9 @@ function detectForced(): boolean {
 }
 
 class Tracer {
+  /** Per-page-load prefix, so ids stay unique across reloads in one trace file. */
+  private readonly actionPrefix = `a-${Date.now().toString(36)}`;
+  private actionCount = 0;
   /** Explicit client opt-in (URL/localStorage/window). Overrides the server. */
   private forced = detectForced();
   private enabled = this.forced;
@@ -88,6 +91,14 @@ class Tracer {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * A fresh `action_id` for one thing the client sends, threaded to the host
+   * so the trace joins its legs (docs/TRACING.md); undefined while off.
+   */
+  actionId(): string | undefined {
+    return this.enabled ? `${this.actionPrefix}-${++this.actionCount}` : undefined;
   }
 
   /** Called from `connection-info`. A client opt-in wins over the server. */

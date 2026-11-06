@@ -16,7 +16,7 @@ import { Schema } from 'effect';
 import { PaneId } from './ids';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, RestorableSession, ServerList } from './servers';
-import { ScrollbackCells, ServerState, ThemeSettings } from './wire';
+import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
 import { ThemeInfo, TraceLevel, TraceSettings } from './wireSettings';
 
 interface Command<A, AI, R, RI> {
@@ -154,3 +154,13 @@ export type PlainCommand = Exclude<CommandName, LaneCommand>;
 
 /** A plain command and its arguments, as an event carries it. */
 export type PlainCall = Extract<BackendCall, { readonly cmd: PlainCommand }>;
+
+/**
+ * What a backend that does not run `cmd` answers: null where null is an
+ * answer `cmd` can have, else a refusal of kind `unavailable` — never a null
+ * the answer's schema would reject as a protocol error.
+ */
+export function noAnswer(cmd: CommandName): null {
+  if (Schema.is(BACKEND_COMMANDS[cmd].result as Schema.Schema<unknown, unknown>)(null)) return null;
+  throw { error: `${cmd} is not available here`, kind: 'unavailable' } satisfies CommandFailure;
+}
