@@ -199,7 +199,12 @@ impl KeyBindings {
     pub async fn read(tx: &MonitorCommandSender) -> Self {
         // Every table in one list: asking for a table by name is an error when
         // it does not exist, and an error ends the command list.
-        match query(tx, "show-options -gv prefix ; show-options -gv repeat-time ; list-keys").await {
+        match query(
+            tx,
+            "show-options -gv prefix ; show-options -gv repeat-time ; list-keys",
+        )
+        .await
+        {
             Ok(output) => Self::parse(&output),
             Err(e) => {
                 tracing::warn!(error = %e, "could not read key bindings");

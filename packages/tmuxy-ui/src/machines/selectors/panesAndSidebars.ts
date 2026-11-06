@@ -297,11 +297,6 @@ export const selectPaneById = createMemoizedSelectorWithArg(
   },
 );
 
-export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: PaneId): boolean {
-  const pane = context.panes.find((p) => p.tmuxId === paneId);
-  return pane?.windowId === context.activeWindowId;
-}
-
 export function selectPaneTakesCopyMode(context: AppMachineContext, paneId: PaneId): boolean {
   return paneTakesCopyMode(context.panes, paneId);
 }
