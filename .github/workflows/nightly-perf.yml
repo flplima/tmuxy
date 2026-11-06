@@ -79,7 +79,7 @@ jobs:
           bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison
 
-      # Same source-built 3.7a and cache key as every other job: the binding
+      # Same source-built pinned tmux and cache key as every other job: the binding
       # set and the run-shell cost this harness measures are version-sensitive,
       # and the baseline has to describe the tmux the gate job runs against.
       - uses: ./.github/actions/install-tmux
@@ -393,8 +393,6 @@ jobs:
           install-npm: 'false'
 
       - uses: ./.github/actions/install-linux-deps
-        with:
-          profile: rust
 
       - name: Frontend dist placeholder
         run: mkdir -p packages/tmuxy-ui/dist
@@ -439,7 +437,7 @@ jobs:
           bin/ci/apt-get install -y --no-install-recommends \
             libevent-dev libncurses-dev bison
 
-      # The same source-built 3.7a and cache key as every other job: a leak in
+      # The same source-built pinned tmux and cache key as every other job: a leak in
       # pane teardown is version-sensitive, and the answer has to be about the
       # tmux the rest of CI runs against.
       - uses: ./.github/actions/install-tmux

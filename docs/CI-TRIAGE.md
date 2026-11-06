@@ -52,7 +52,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 ## Common causes
 
 - Missing `packages/tmuxy-ui/dist` before Rust/Tauri checks.
-- tmux version drift (CI pins 3.7a in several jobs).
+- tmux version drift: CI pins one tmux (`bin/toolchain tmux-version`); the nightly matrix runs the others.
 - Environment mismatch for browser/driver/Xvfb jobs.
 - Tests asserting internals instead of user-visible behavior (see `docs/TESTS.md`).
 

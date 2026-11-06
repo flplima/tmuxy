@@ -242,7 +242,7 @@ jobs:
         if: matrix.platform == 'linux' && steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --version 2.0.6 --locked --force
 
-      # The same source-built 3.7a as lint-and-tests.yml rather than
+      # The same source-built pinned tmux as lint-and-tests.yml rather than
       # ubuntu-22.04's apt 3.2a, keyed per runner image so the 22.04 and arm
       # builds link their own libevent.
       - uses: ./.github/actions/install-tmux

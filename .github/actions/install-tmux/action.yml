@@ -1,52 +1,57 @@
 name: Install tmux
-# A source-built tmux, cached by version. 3.7a is what the devcontainer and
-# the v86 guest run — docs/TMUX.md targets it everywhere — and the nightly
-# matrix builds each older version it covers the same way. The build is ~30-60s,
-# the cache restore ~2s.
+description: A source-built tmux, cached by version and runner image.
+# The pin (`bin/toolchain tmux-version`) is what the devcontainer and every
+# job without a version of its own run, and docs/TMUX.md targets it; the
+# nightly matrix builds each older version it covers the same way. The build
+# is ~30-60s, the cache restore ~2s.
 inputs:
   version:
+    description: The tmux release to install; the pin when empty.
     required: false
-    default: '3.7a'
+    default: ''
   # The cache key's namespace. `runner.os` serves one runner image; a job that
   # builds on several images of one OS (build-app.yml) passes `matrix.os`, so
   # the 22.04 and arm builds each link their own libevent. The key also names
   # the image's release (`ImageOS`, e.g. ubuntu24), so a binary linked against
   # one release's ncurses is never restored onto the next.
   cache-key-namespace:
+    description: The cache key's namespace.
     required: false
     default: ${{ runner.os }}
 runs:
   using: composite
   steps:
-    - name: Name the runner image
+    - name: Name the version and the runner image
       id: image
       shell: bash
-      run: echo "os=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        echo "os=${ImageOS:-unknown}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION:-$("$GITHUB_WORKSPACE/bin/toolchain" tmux-version)}" >> "$GITHUB_OUTPUT"
 
-    - name: Cache tmux ${{ inputs.version }}
+    - name: Cache tmux ${{ steps.image.outputs.version }}
       id: tmux-cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: |
           /usr/local/bin/tmux
           /usr/local/share/tmux
-        key: ${{ inputs.cache-key-namespace }}-${{ steps.image.outputs.os }}-tmux-${{ inputs.version }}-v1
+        key: ${{ inputs.cache-key-namespace }}-${{ steps.image.outputs.os }}-tmux-${{ steps.image.outputs.version }}-v1
 
     # The build's own apt dependencies are installed here, on a miss, so a job
     # that only ever restores the cache pays for no apt index refresh.
-    - name: Build tmux ${{ inputs.version }} (cache miss)
+    - name: Build tmux ${{ steps.image.outputs.version }} (cache miss)
       if: steps.tmux-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
-        TMUX_VERSION: ${{ inputs.version }}
+        TMUX_VERSION: ${{ steps.image.outputs.version }}
       run: |
         set -euo pipefail
         "$GITHUB_WORKSPACE/bin/ci/apt-get" update
-        "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends libevent-dev libncurses-dev bison
-        v="$TMUX_VERSION"
-        curl -sL "https://github.com/tmux/tmux/releases/download/$v/tmux-$v.tar.gz" | tar xz
-        cd "tmux-$v" && ./configure && make -j"$(nproc)" && sudo make install
-        cd .. && rm -rf "tmux-$v"
+        # shellcheck disable=SC2046 # one package per word
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $("$GITHUB_WORKSPACE/bin/toolchain" packages tmux-build)
+        "$GITHUB_WORKSPACE/bin/toolchain" build-tmux "$TMUX_VERSION"
 
     - name: Confirm tmux version
       shell: bash

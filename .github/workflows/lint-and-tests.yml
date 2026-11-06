@@ -283,12 +283,12 @@ jobs:
           APT_ATTEMPTS=1 bin/ci/apt-get install -y --no-install-recommends fzf neovim \
             || { bin/ci/apt-get update && bin/ci/apt-get install -y --no-install-recommends fzf neovim; }
 
-      # 3.7a, except for the entry that runs the smoke suites on the tmux
-      # Ubuntu ships (3.4): two product bugs were 3.4-only and the nightly
-      # matrix was the first to see them.
+      # The pin (bin/toolchain), except for the entry that runs the smoke
+      # suites on the tmux Ubuntu ships (3.4): two product bugs were 3.4-only
+      # and the nightly matrix was the first to see them.
       - uses: ./.github/actions/install-tmux
         with:
-          version: ${{ matrix.suite.tmux || '3.7a' }}
+          version: ${{ matrix.suite.tmux }}
 
       - uses: ./.github/actions/install-node-modules
 
@@ -538,7 +538,7 @@ jobs:
   #
   # These were two jobs — `tauri-e2e` (debug build, WebdriverIO suite) and
   # `desktop-smoke` (release build, launch smoke test). They installed the same
-  # WebKitGTK/Xvfb apt set, shared the same tauri-driver and tmux 3.7a caches,
+  # WebKitGTK/Xvfb apt set, shared the same tauri-driver and tmux caches,
   # and compiled the Tauri app twice between them, for the two jobs that
   # between them produced most of this workflow's failures.
   #
@@ -575,8 +575,8 @@ jobs:
             libjavascriptcoregtk-4.1-dev librsvg2-dev \
             webkitgtk-webdriver xvfb x11-utils
 
-      # Match the `e2e` job's tmux version (3.7a — the devcontainer / v86
-      # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
+      # Match the `e2e` job's tmux version (the pin in bin/toolchain, the
+      # devcontainer's and docs/TMUX.md's target). Ubuntu's apt ships tmux 3.4, which has a
       # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
       # clobbered by an in-flight list-windows response under the load the
       # Ctx/Tower Tauri path puts on the CC stream at startup.

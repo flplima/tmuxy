@@ -19,8 +19,6 @@ jobs:
           install-npm: 'false'
 
       - uses: ./.github/actions/install-linux-deps
-        with:
-          profile: rust
 
       - uses: ./.github/actions/install-tmux
 

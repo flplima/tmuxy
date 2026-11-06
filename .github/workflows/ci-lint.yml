@@ -21,11 +21,9 @@ jobs:
 
       - uses: ./.github/actions/setup-node-rust
         with:
-          rust-targets: wasm32-unknown-unknown
+          rust: guest
 
       - uses: ./.github/actions/install-linux-deps
-        with:
-          profile: lint
 
       - name: Lint gate
         run: |
