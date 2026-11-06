@@ -5,26 +5,19 @@
  * item's `disabled` and `checked` are the live state and never a copy of it.
  * Three renderers draw the same spec — the in-app floating menu
  * (`components/menus/SpecMenu.tsx`), the desktop's native popups and, on
- * macOS, the native menu bar (`infra/menus/nativeMenu.ts`) — and every item
- * dispatches through one place, `runMenuAction`. The item lists used to be
+ * macOS, the native menu bar (`infra/menus/nativeMenu.ts`) — and hand the
+ * chosen item's action to one `MenuDispatch`. The item lists used to be
  * written twice (JSX here, Rust in the desktop app) and drifted apart.
+ *
+ * The vocabulary is generic over `A`, what choosing an item does: the
+ * renderers only carry it to the dispatch, so they need not know the app's
+ * events (the app's own is `AppMenuAction`, `components/menus/specs/actions.ts`).
  */
 
-import type { AppMachineEvent } from '../../machines/types/events';
 import type { MenuIconName } from './icons';
 
-/** What choosing an item does. */
-export type MenuAction =
-  /** A menu action id, dispatched through `executeMenuAction` (`components/menus/menuActions.ts`). */
-  | { kind: 'action'; id: string }
-  /** An event sent to the app machine as is. */
-  | { kind: 'event'; event: AppMachineEvent }
-  /** Something the surface showing the menu handles itself (a dialog, a native call). */
-  | { kind: 'local'; id: string };
-
-export const action = (id: string): MenuAction => ({ kind: 'action', id });
-export const event = (event: AppMachineEvent): MenuAction => ({ kind: 'event', event });
-export const local = (id: string): MenuAction => ({ kind: 'local', id });
+/** What a renderer calls with the action of the item chosen. */
+export type MenuDispatch<A> = (action: A) => void;
 
 /** The native items a platform draws itself; the in-app renderer leaves them out. */
 export type PredefinedItem =
@@ -53,13 +46,13 @@ interface ItemBase {
   testId?: string;
 }
 
-export type MenuNode =
+export type MenuNode<A> =
   | (ItemBase & {
       kind: 'item';
-      action: MenuAction;
+      action: A;
       icon?: MenuIconName;
     })
-  | (ItemBase & { kind: 'checkbox'; checked: boolean; action: MenuAction })
+  | (ItemBase & { kind: 'checkbox'; checked: boolean; action: A })
   | {
       kind: 'radio-group';
       id: string;
@@ -68,7 +61,7 @@ export type MenuNode =
         value: string;
         label: string;
         disabled?: boolean;
-        action: MenuAction;
+        action: A;
       }>;
     }
   | { kind: 'separator' }
@@ -79,12 +72,12 @@ export type MenuNode =
       label: string;
       disabled?: boolean;
       /** Dispatched when the submenu opens, for one whose contents are read on demand. */
-      onOpen?: MenuAction;
-      children: MenuSpec;
+      onOpen?: A;
+      children: MenuSpec<A>;
     }
   | { kind: 'predefined'; which: PredefinedItem };
 
-export type MenuSpec = ReadonlyArray<MenuNode>;
+export type MenuSpec<A> = ReadonlyArray<MenuNode<A>>;
 
 /** Where a menu is shown; what each spec builder needs to know beyond the context. */
 export interface MenuEnv {
@@ -93,11 +86,13 @@ export interface MenuEnv {
   isMac: boolean;
 }
 
-export const separator: MenuNode = { kind: 'separator' };
+export const separator = { kind: 'separator' } as const;
 
 /** Drop the separators that would open, close or double up a list. */
-export function tidy(nodes: ReadonlyArray<MenuNode | false | null | undefined>): MenuNode[] {
-  const out: MenuNode[] = [];
+export function tidy<A>(
+  nodes: ReadonlyArray<MenuNode<A> | false | null | undefined>,
+): MenuNode<A>[] {
+  const out: MenuNode<A>[] = [];
   for (const node of nodes) {
     if (!node) continue;
     if (node.kind === 'separator') {
@@ -110,7 +105,7 @@ export function tidy(nodes: ReadonlyArray<MenuNode | false | null | undefined>):
 }
 
 /** Every item id in a spec, submenus included — what a test asserts a menu offers. */
-export function itemIds(spec: MenuSpec): string[] {
+export function itemIds<A>(spec: MenuSpec<A>): string[] {
   const ids: string[] = [];
   for (const node of spec) {
     if (node.kind === 'item' || node.kind === 'checkbox') ids.push(node.id);
@@ -119,4 +114,17 @@ export function itemIds(spec: MenuSpec): string[] {
     else if (node.kind === 'submenu') ids.push(node.id, ...itemIds(node.children));
   }
   return ids;
+}
+
+/**
+ * Every submenu's `onOpen`, nested ones included. A renderer that cannot
+ * tell when a submenu opens (the native menu bar) runs them all ahead of
+ * time instead, so the contents they read are there when it does.
+ */
+export function submenuOpeners<A>(spec: MenuSpec<A>): A[] {
+  return spec.flatMap((node) =>
+    node.kind === 'submenu'
+      ? [...(node.onOpen ? [node.onOpen] : []), ...submenuOpeners(node.children)]
+      : [],
+  );
 }

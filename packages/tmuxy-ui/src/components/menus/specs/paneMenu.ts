@@ -4,25 +4,31 @@
  * one list, with the parts a surface leaves out named by the options.
  */
 
-import type { AppMachineContext } from '../../machines/types/context';
+import type { AppMachineContext } from '../../../machines/types/context';
 import {
   selectMarkedPaneId,
   selectPaneTakesCopyMode,
-} from '../../machines/selectors/panesAndSidebars';
-import type { WidgetMenuItem } from '../../components/widgets/registry';
-import { MENU_OPS } from '../../components/menus/menuActions';
-import { TmuxOp } from '../commands';
-import type { PaneId } from '../ids';
-import { keyHint } from './keyHint';
+} from '../../../machines/selectors/panesAndSidebars';
+import { TmuxOp } from '../../../domain/commands';
+import type { PaneId } from '../../../domain/ids';
+import { keyHint } from '../../../domain/menus/keyHint';
 import { pluginsSubmenu } from './pluginMenu';
-import type { MenuIconName } from './icons';
-import { action, event, local, separator, tidy, type MenuNode, type MenuSpec } from './spec';
+import type { MenuIconName } from '../../../domain/menus/icons';
+import { separator, tidy } from '../../../domain/menus/spec';
+import {
+  command,
+  commandHint,
+  local,
+  op as opAction,
+  type AppMenuNode,
+  type AppMenuSpec,
+} from './actions';
 
 export interface PaneMenuOptions {
   /** The pane the menu is about; null for the app menu, which acts on the active one. */
   paneId: PaneId | null;
   /** The pane's widget's own items, shown as a section above the generic ones. */
-  widgetItems?: ReadonlyArray<WidgetMenuItem>;
+  widgetItems?: AppMenuSpec;
   /**
    * Next / Previous Pane and the adjacent swaps. The app menu offers them; a
    * context menu is about the pane it was opened on, so it leaves them out.
@@ -32,9 +38,32 @@ export interface PaneMenuOptions {
   rename?: boolean;
 }
 
-export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): MenuSpec {
+/**
+ * The pane menu's ops. Mark/unmark act on the pane the menu was opened for
+ * (the caller focuses it first); swap/join take tmux's default source, which
+ * is the marked pane whenever one exists.
+ */
+const PANE_OPS = {
+  'pane-split-below': TmuxOp.Split({ direction: 'horizontal' }),
+  'pane-split-right': TmuxOp.Split({ direction: 'vertical' }),
+  'pane-next': TmuxOp.CyclePane({ windowId: null }),
+  'pane-previous': TmuxOp.LastPane(),
+  'pane-swap-prev': TmuxOp.SwapAdjacent({ direction: 'U' }),
+  'pane-swap-next': TmuxOp.SwapAdjacent({ direction: 'D' }),
+  'pane-mark': TmuxOp.MarkPane({ marked: true }),
+  'pane-unmark': TmuxOp.MarkPane({ marked: false }),
+  'pane-swap-marked': TmuxOp.SwapMarked(),
+  'pane-join-marked': TmuxOp.JoinMarked(),
+  'pane-move-new-tab': TmuxOp.BreakPane({ paneId: null }),
+  'pane-add-to-group': TmuxOp.GroupAdd({ pane: null }),
+  'pane-copy-mode': TmuxOp.EnterCopyMode({ paneId: null }),
+  'pane-paste': TmuxOp.PasteBuffer(),
+  'pane-clear': TmuxOp.ClearPane(),
+  'view-zoom': TmuxOp.ZoomToggle({ paneId: null }),
+} as const satisfies Record<string, TmuxOp>;
+
+export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): AppMenuSpec {
   const { keybindings } = ctx;
-  const hint = (id: keyof typeof MENU_OPS) => keyHint(keybindings, MENU_OPS[id]);
   const paneId = options.paneId ?? ctx.activePaneId;
   const markedPaneId = selectMarkedPaneId(ctx);
   const isMarked = markedPaneId !== null && markedPaneId === paneId;
@@ -42,29 +71,21 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
   const single = ctx.panes.filter((p) => p.windowId === ctx.activeWindowId).length <= 1;
   const navigation = options.navigation ?? true;
 
-  const widget: MenuNode[] = (options.widgetItems ?? []).map((item) => ({
-    kind: 'item',
-    id: `widget:${item.id}`,
-    label: item.label,
-    keyHint: item.keyHint,
-    disabled: item.disabled,
-    data: { 'widget-action': item.id },
-    action: event(item.event),
-  }));
+  const widget = options.widgetItems ?? [];
 
   const op = (
-    id: keyof typeof MENU_OPS,
+    id: keyof typeof PANE_OPS,
     label: string,
     icon: MenuIconName,
     disabled = false,
-  ): MenuNode => ({
+  ): AppMenuNode => ({
     kind: 'item',
     id,
     label,
     icon,
-    keyHint: hint(id),
+    keyHint: keyHint(keybindings, PANE_OPS[id]),
     disabled,
-    action: action(id),
+    action: opAction(PANE_OPS[id]),
   });
 
   return tidy([
@@ -75,7 +96,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       id: 'pane-rename',
       label: 'Rename Pane',
       icon: 'rename',
-      action: local('pane-rename'),
+      action: local({ verb: 'rename' }),
     },
     options.rename && separator,
     op('pane-split-below', 'Split Pane Below', 'split-below'),
@@ -88,31 +109,11 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
     navigation && op('pane-swap-next', 'Swap with Next', 'swap', single),
     navigation && separator,
     isMarked ? op('pane-unmark', 'Unmark Pane', 'mark') : op('pane-mark', 'Mark Pane', 'mark'),
-    {
-      kind: 'item',
-      id: 'pane-swap-marked',
-      label: 'Swap with Marked Pane',
-      icon: 'swap',
-      disabled: !hasMarked || isMarked,
-      action: action('pane-swap-marked'),
-    },
-    {
-      kind: 'item',
-      id: 'pane-join-marked',
-      label: 'Join Marked Pane Here',
-      icon: 'join',
-      disabled: !hasMarked || isMarked,
-      action: action('pane-join-marked'),
-    },
+    op('pane-swap-marked', 'Swap with Marked Pane', 'swap', !hasMarked || isMarked),
+    op('pane-join-marked', 'Join Marked Pane Here', 'join', !hasMarked || isMarked),
     separator,
     op('pane-move-new-tab', 'Move to New Tab', 'move-out'),
-    {
-      kind: 'item',
-      id: 'pane-add-to-group',
-      label: 'Add Pane to Group',
-      icon: 'group',
-      action: action('pane-add-to-group'),
-    },
+    op('pane-add-to-group', 'Add Pane to Group', 'group'),
     separator,
     op(
       'pane-copy-mode',
@@ -121,13 +122,7 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       !paneId || !selectPaneTakesCopyMode(ctx, paneId),
     ),
     op('pane-paste', 'Paste', 'paste'),
-    {
-      kind: 'item',
-      id: 'pane-clear',
-      label: 'Clear Screen',
-      icon: 'clear',
-      action: action('pane-clear'),
-    },
+    op('pane-clear', 'Clear Screen', 'clear'),
     separator,
     pluginsSubmenu(ctx.plugins, 'pane', paneId, keybindings),
     separator,
@@ -138,8 +133,8 @@ export function paneMenuSpec(ctx: AppMachineContext, options: PaneMenuOptions): 
       id: 'pane-close',
       label: 'Close Pane',
       icon: 'close',
-      keyHint: keyHint(keybindings, TmuxOp.KillPane({ paneId: null })),
-      action: action('pane-close'),
+      keyHint: commandHint(keybindings, 'pane-close'),
+      action: command('pane-close'),
     },
   ]);
 }

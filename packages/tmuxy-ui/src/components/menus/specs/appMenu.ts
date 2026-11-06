@@ -4,43 +4,42 @@
  * host's convention says.
  */
 
-import type { AppMachineContext } from '../../machines/types/context';
-import type { TraceLevel } from '../../machines/types/domain';
-import type { WidgetMenuItem } from '../../components/widgets/registry';
-import { TmuxOp } from '../commands';
-import { PINNABLE, pinnedLabel } from '../pins';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
+import type { AppMachineContext } from '../../../machines/types/context';
+import type { TraceLevel } from '../../../machines/types/domain';
+import { renameSessionPrompt, TmuxOp } from '../../../domain/commands';
+import { PINNABLE, pinnedLabel } from '../../../domain/pins';
+import type { ThemeInfo, ThemeMode } from '../../../utils/themeManager';
+import { keyHint } from '../../../domain/menus/keyHint';
+import type { MenuIconName } from '../../../domain/menus/icons';
+import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
 import { paneMenuSpec } from './paneMenu';
 import { tabMenuSpec } from './tabMenu';
-import { keyHint } from './keyHint';
-import type { MenuIconName } from './icons';
-import { MENU_OPS } from '../../components/menus/menuActions';
+import { pluginsSubmenu } from './pluginMenu';
 import {
-  action,
+  command,
+  commandHint,
   event,
   local,
-  separator,
-  tidy,
-  type MenuEnv,
-  type MenuNode,
-  type MenuSpec,
-} from './spec';
-import { pluginsSubmenu } from './pluginMenu';
+  op,
+  type AppMenuAction,
+  type AppMenuNode,
+  type AppMenuSpec,
+} from './actions';
 
 export interface AppMenuOptions {
   /** The active pane's widget items, for the Pane submenu. */
-  widgetItems?: ReadonlyArray<WidgetMenuItem>;
+  widgetItems?: AppMenuSpec;
   /** The desktop's Window submenu, built by the surface from what it fetched. */
-  windowMenu?: MenuNode;
+  windowMenu?: AppMenuNode;
 }
 
 /** The layouts tmux offers, in the order the menus list them. */
-export const LAYOUTS: ReadonlyArray<{ id: string; label: string; icon: MenuIconName }> = [
-  { id: 'view-layout-even-horizontal', label: 'Even Horizontal', icon: 'layout-even-horizontal' },
-  { id: 'view-layout-even-vertical', label: 'Even Vertical', icon: 'layout-even-vertical' },
-  { id: 'view-layout-main-horizontal', label: 'Main Horizontal', icon: 'layout-main-horizontal' },
-  { id: 'view-layout-main-vertical', label: 'Main Vertical', icon: 'layout-main-vertical' },
-  { id: 'view-layout-tiled', label: 'Tiled', icon: 'layout-tiled' },
+const LAYOUTS: ReadonlyArray<{ layout: string; label: string; icon: MenuIconName }> = [
+  { layout: 'even-horizontal', label: 'Even Horizontal', icon: 'layout-even-horizontal' },
+  { layout: 'even-vertical', label: 'Even Vertical', icon: 'layout-even-vertical' },
+  { layout: 'main-horizontal', label: 'Main Horizontal', icon: 'layout-main-horizontal' },
+  { layout: 'main-vertical', label: 'Main Vertical', icon: 'layout-main-vertical' },
+  { layout: 'tiled', label: 'Tiled', icon: 'layout-tiled' },
 ];
 
 const MODES: ReadonlyArray<{ mode: ThemeMode; label: string }> = [
@@ -60,7 +59,7 @@ function themeHasMode(
   return modes === undefined || modes.includes(mode);
 }
 
-export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
+export function themeMenuSpec(ctx: AppMachineContext): AppMenuSpec {
   const { themeName, themeMode, availableThemes, pinnedOptions } = ctx;
   const has = (mode: 'dark' | 'light') => themeHasMode(availableThemes, themeName, mode);
   // An option tmuxy.conf sets is the config's: every item for it is greyed
@@ -71,7 +70,7 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
     // A mode the current theme declares no palette for is greyed out: picking
     // it would draw the page in the browser's defaults.
     ...MODES.map(
-      ({ mode, label }): MenuNode => ({
+      ({ mode, label }): AppMenuNode => ({
         kind: 'checkbox',
         id: `theme-mode-${mode}`,
         label: pinnedLabel(label, modePinned && themeMode === mode),
@@ -82,7 +81,7 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
     ),
     separator,
     ...availableThemes.map(
-      (t): MenuNode => ({
+      (t): AppMenuNode => ({
         kind: 'checkbox',
         id: `theme-set-${t.name}`,
         label: pinnedLabel(t.displayName, themePinned && themeName === t.name),
@@ -94,19 +93,21 @@ export function themeMenuSpec(ctx: AppMachineContext): MenuSpec {
   ]);
 }
 
-export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
+export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   return tidy([
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
     separator,
-    ...LAYOUTS.map(
-      (l): MenuNode => ({
+    ...LAYOUTS.map((l): AppMenuNode => {
+      const layout = TmuxOp.SelectLayout({ layout: l.layout });
+      return {
         kind: 'item',
-        id: l.id,
+        id: `view-layout-${l.layout}`,
         label: l.label,
         icon: l.icon,
-        action: action(l.id),
-      }),
-    ),
+        keyHint: keyHint(ctx.keybindings, layout),
+        action: op(layout),
+      };
+    }),
     separator,
     {
       kind: 'item',
@@ -190,7 +191,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
  * settings are read when the submenu opens rather than held: the backend is
  * the authority (a DO_NOT_TRACK kill switch can refuse an enable).
  */
-export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
+export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   const trace = ctx.traceSettings;
   const levels: ReadonlyArray<{ value: TraceLevel; label: string }> = [
     { value: 'shape', label: 'Shape' },
@@ -236,14 +237,14 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
       label: 'Copy trace.ndjson Path',
       icon: 'copy',
       disabled: !trace?.enabled || !trace?.path,
-      action: local('trace-copy-path'),
+      action: local({ verb: 'copy-trace-path' }),
     },
     {
       kind: 'item',
       id: 'debug-copy-state',
       label: 'Copy App State',
       icon: 'copy',
-      action: local('debug-copy-state'),
+      action: local({ verb: 'copy-app-state' }),
     },
   ]);
 }
@@ -254,21 +255,24 @@ export function debugMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
  * predefined items around them; elsewhere they are the hamburger's last
  * section (Linux keeps Restart and Quit; a browser tab has neither).
  */
-export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'): MenuSpec {
-  const own: MenuNode[] = tidy([
+export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'): AppMenuSpec {
+  const own: AppMenuNode[] = tidy<AppMenuAction>([
     !env.isDemo && {
       kind: 'item',
       id: 'session-reload-config',
       label: 'Reload Config',
       icon: 'reload',
-      action: action('session-reload-config'),
+      // tmuxy's own config, NOT ~/.tmux.conf — sourcing the user's vanilla
+      // tmux config would drag their default-server bindings/options into the
+      // isolated tmuxy socket.
+      action: op(TmuxOp.SourceConfig()),
     },
     env.isTauri && {
       kind: 'item',
       id: 'restart-app',
       label: 'Restart App',
       icon: 'restart',
-      action: action('restart-app'),
+      action: command('restart-app'),
     },
   ]);
   if (placement === 'native-bar') {
@@ -293,13 +297,14 @@ export function appItemsSpec(env: MenuEnv, placement: 'native-bar' | 'hamburger'
         label: 'Quit',
         icon: 'quit',
         accelerator: 'Ctrl+Q',
-        action: local('quit'),
+        action: local({ verb: 'quit' }),
       },
   ]);
 }
 
-export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec {
+export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   const { keybindings } = ctx;
+  const rename = renameSessionPrompt();
   return tidy([
     {
       kind: 'item',
@@ -307,25 +312,25 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       label: 'New Session',
       icon: 'new',
       disabled: env.isDemo,
-      action: action('session-new'),
+      action: command('session-new'),
     },
     {
       kind: 'item',
       id: 'session-rename',
       label: 'Rename Session',
       icon: 'rename',
-      keyHint: keyHint(keybindings, MENU_OPS['session-rename']),
+      keyHint: keyHint(keybindings, rename),
       disabled: env.isDemo,
-      action: action('session-rename'),
+      action: op(rename),
     },
     {
       kind: 'item',
       id: 'session-detach',
       label: 'Detach Session',
       icon: 'detach',
-      keyHint: keyHint(keybindings, TmuxOp.RawCommand({ command: 'detach-client' })),
+      keyHint: commandHint(keybindings, 'session-detach'),
       disabled: env.isDemo,
-      action: action('session-detach'),
+      action: command('session-detach'),
     },
     // Destructive and one click away: it asks first.
     {
@@ -334,7 +339,7 @@ export function sessionMenuSpec(ctx: AppMachineContext, env: MenuEnv): MenuSpec 
       label: 'Kill Session…',
       icon: 'trash',
       disabled: env.isDemo,
-      action: local('confirm-kill-session'),
+      action: local({ verb: 'confirm-kill-session' }),
     },
   ]);
 }
@@ -344,8 +349,8 @@ export function appMenuSpec(
   ctx: AppMachineContext,
   env: MenuEnv,
   options: AppMenuOptions = {},
-): MenuSpec {
-  return tidy([
+): AppMenuSpec {
+  return tidy<AppMenuAction>([
     {
       kind: 'submenu',
       id: 'menu-pane',

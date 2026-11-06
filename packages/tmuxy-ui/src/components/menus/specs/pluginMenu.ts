@@ -5,11 +5,16 @@
  * items, grouped under each plugin's name.
  */
 
-import type { PaneId } from '../ids';
-import type { KeyBindings } from '../wire';
-import { pluginKeyHint } from './keyHint';
-import { pluginItemId, pluginMenuEntries, type PluginInfo, type PluginMenu } from '../plugins';
-import { event, local, type MenuNode, type MenuSpec } from './spec';
+import type { PaneId } from '../../../domain/ids';
+import type { KeyBindings } from '../../../domain/wire';
+import { pluginKeyHint } from '../../../domain/menus/keyHint';
+import {
+  pluginItemId,
+  pluginMenuEntries,
+  type PluginInfo,
+  type PluginMenu,
+} from '../../../domain/plugins';
+import { event, local, type AppMenuNode, type AppMenuSpec } from './actions';
 
 /**
  * The items for `menu`. App and pane items send PLUGIN_ACTION on `paneId`
@@ -21,10 +26,10 @@ export function pluginItems(
   menu: PluginMenu,
   paneId: PaneId | null,
   keybindings: KeyBindings | null = null,
-): MenuSpec {
+): AppMenuSpec {
   const entries = pluginMenuEntries(plugins, menu);
   const several = new Set(entries.map((e) => e.plugin)).size > 1;
-  const nodes: MenuNode[] = [];
+  const nodes: AppMenuNode[] = [];
   let last: string | null = null;
   for (const { plugin, action } of entries) {
     if (several && plugin !== last) nodes.push({ kind: 'header', label: plugin });
@@ -38,7 +43,7 @@ export function pluginItems(
       data: { 'plugin-action': `${plugin}:${action.id}` },
       action:
         menu === 'selection'
-          ? local(id)
+          ? local({ verb: 'plugin-selection', plugin, action: action.id })
           : event({ type: 'PLUGIN_ACTION', plugin, action: action.id, paneId }),
     });
   }
@@ -51,7 +56,7 @@ export function pluginsSubmenu(
   menu: 'app' | 'pane',
   paneId: PaneId | null,
   keybindings: KeyBindings | null = null,
-): MenuNode | null {
+): AppMenuNode | null {
   const children = pluginItems(plugins, menu, paneId, keybindings);
   if (children.length === 0) return null;
   return { kind: 'submenu', id: `${menu}-plugins`, label: 'Plugins', children };

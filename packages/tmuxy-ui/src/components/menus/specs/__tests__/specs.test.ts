@@ -1,22 +1,24 @@
 /**
  * The menu specs per state: what each surface offers, enabled or not, and
- * that every item dispatches one of the three action kinds. The renderers
+ * that every item dispatches one of the four action kinds. The renderers
  * (in-app, native popup, native bar) draw these as they are, so a menu that
  * is wrong is wrong here first.
  */
 
 import { describe, it, expect } from 'vitest';
-import { createInitialContext } from '../../../machines/app/context';
-import { pid, wid } from '../../../test/wire';
-import type { AppMachineContext } from '../../../machines/types/context';
-import type { TmuxPane, TmuxWindow } from '../../client';
+import { createInitialContext } from '../../../../machines/app/context';
+import { pid, wid } from '../../../../test/wire';
+import type { AppMachineContext } from '../../../../machines/types/context';
+import type { TmuxPane, TmuxWindow } from '../../../../domain/client';
 import { appMenuSpec, appItemsSpec, debugMenuSpec, themeMenuSpec, viewMenuSpec } from '../appMenu';
 import { paneMenuSpec } from '../paneMenu';
 import { tabMenuSpec } from '../tabMenu';
 import { selectionMenuSpec } from '../selectionMenu';
 import { sessionSwitcherSpec } from '../sessionSwitcher';
 import { windowMenuSpec } from '../windowMenu';
-import { itemIds, tidy, type MenuEnv, type MenuNode, type MenuSpec } from '../spec';
+import { itemIds, tidy, type MenuEnv } from '../../../../domain/menus/spec';
+import type { AppMenuNode as MenuNode, AppMenuSpec as MenuSpec } from '../actions';
+import { TmuxOp } from '../../../../domain/commands';
 
 const WEB: MenuEnv = { isDemo: false, isTauri: false, isMac: false };
 const MAC: MenuEnv = { ...WEB, isTauri: true, isMac: true };
@@ -119,7 +121,15 @@ describe('paneMenuSpec', () => {
   it("a widget's items come first, with the attribute tests click by", () => {
     const spec = paneMenuSpec(ctx(), {
       paneId: pid('%1'),
-      widgetItems: [{ id: 'reload', label: 'Reload', event: { type: 'TOGGLE_TAB_OVERVIEW' } }],
+      widgetItems: [
+        {
+          kind: 'item',
+          id: 'widget:reload',
+          label: 'Reload',
+          data: { 'widget-action': 'reload' },
+          action: { kind: 'event', event: { type: 'TOGGLE_TAB_OVERVIEW' } },
+        },
+      ],
     });
     const first = spec[0];
     expect(first.kind).toBe('item');
@@ -211,7 +221,16 @@ describe('tabMenuSpec', () => {
     expect(ids).not.toContain('tab-next');
     expect(ids).toEqual(['tab-new', 'tab-overview', 'tab-stack-toggle', 'tab-rename', 'tab-close']);
     const close = find(spec, 'tab-close');
-    expect(close && 'action' in close && close.action.kind).toBe('event');
+    expect(close && 'action' in close && close.action).toEqual({
+      kind: 'op',
+      op: TmuxOp.KillWindow({ windowId: wid('@2') }),
+    });
+    // Stacked Panes flips this tab's option, not the active tab's.
+    const stacked = find(spec, 'tab-stack-toggle');
+    expect(stacked && 'action' in stacked && stacked.action).toEqual({
+      kind: 'op',
+      op: TmuxOp.SetWindowTag({ windowId: wid('@2'), tag: 'collapsible', value: '1' }),
+    });
   });
 
   it('the app menu disables navigation on a single tab and reads Stacked Panes off the active tab', () => {
@@ -395,7 +414,7 @@ describe('selection, session switcher and window menus', () => {
     const item = find(spec, 'plugin:artifacts:explain');
     expect(item?.kind === 'item' && item.action).toEqual({
       kind: 'local',
-      id: 'plugin:artifacts:explain',
+      local: { verb: 'plugin-selection', plugin: 'artifacts', action: 'explain' },
     });
   });
 

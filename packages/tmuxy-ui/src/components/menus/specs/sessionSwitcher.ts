@@ -9,10 +9,11 @@
  * name, so it is always offered.
  */
 
-import type { AppMachineContext } from '../../machines/types/context';
-import { event, separator, tidy, type MenuEnv, type MenuNode, type MenuSpec } from './spec';
+import type { AppMachineContext } from '../../../machines/types/context';
+import { separator, tidy, type MenuEnv } from '../../../domain/menus/spec';
+import { event, type AppMenuNode, type AppMenuSpec } from './actions';
 
-export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query = ''): MenuSpec {
+export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query = ''): AppMenuSpec {
   const { sessionName, sessions, servers, currentServerId, restorableSessions } = ctx;
   const needle = query.trim().toLowerCase();
   const matches = (name: string) => name.toLowerCase().includes(needle);
@@ -33,7 +34,7 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
 
   return tidy([
     (names.length > 0 || exited.length > 0) && { kind: 'header', label: 'Sessions' },
-    ...names.map((name): MenuNode => {
+    ...names.map((name): AppMenuNode => {
       const current = name === sessionName;
       return {
         kind: 'item',
@@ -48,7 +49,7 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
       };
     }),
     ...exited.map(
-      (name): MenuNode => ({
+      (name): AppMenuNode => ({
         kind: 'item',
         id: `restore:${name}`,
         label: `◌ ${name}`,
@@ -61,7 +62,7 @@ export function sessionSwitcherSpec(ctx: AppMachineContext, env: MenuEnv, query 
     showServers && { kind: 'header', label: 'Servers' },
     ...(showServers
       ? shownServers.map(
-          (server): MenuNode => ({
+          (server): AppMenuNode => ({
             kind: 'item',
             id: `server:${server.id}`,
             label: `${server.id === currentServerId ? '● ' : '○ '}${server.label}`,

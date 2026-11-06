@@ -9,7 +9,7 @@
 
 import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { selectKeyBindings } from '../machines/selectors/ui';
-import { formatPrefixKey } from './menus/keybindingLabel';
+import { formatPrefixKey } from '../domain/menus/keyHint';
 import { splitTableSwitch } from '../domain/keyTables';
 import type { KeyBindings } from '../domain/wire';
 import './KeysView.css';

@@ -37,8 +37,8 @@ vi.mock('@tauri-apps/api/menu', () => ({
 
 const { setNativeAppMenu } = await import('../nativeMenu');
 
-const spec = (label: string): MenuSpec => [
-  { kind: 'item', id: 'one', label, action: { kind: 'local', id: 'one' } },
+const spec = (label: string): MenuSpec<string> => [
+  { kind: 'item', id: 'one', label, action: 'one' },
 ];
 const settle = () => new Promise((r) => setTimeout(r, 0));
 

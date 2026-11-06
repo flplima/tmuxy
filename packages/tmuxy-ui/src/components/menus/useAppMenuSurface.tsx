@@ -22,20 +22,19 @@ import {
   type GuiWindowInfo,
   type WindowStyleSlug,
 } from '../../utils/guiWindows';
-import { windowMenuSpec } from '../../domain/menus/windowMenu';
-import type { AppMenuOptions } from '../../domain/menus/appMenu';
-import type { MenuEnv, MenuNode } from '../../domain/menus/spec';
-import { useMenuDispatch, type MenuDispatch } from './SpecMenu';
+import { windowMenuSpec } from './specs/windowMenu';
+import type { AppMenuOptions } from './specs/appMenu';
+import type { MenuEnv } from '../../domain/menus/spec';
+import { useMenuDispatch, type AppMenuDispatch } from './SpecMenu';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
-import { activeCloseTarget } from './menuActions';
+import { activeCloseTarget, op, type AppMenuNode, type MenuLocal } from './specs/actions';
+import { TmuxOp } from '../../domain/commands';
 import './AppMenu.css';
 
 export interface AppMenuSurface {
-  dispatch: MenuDispatch;
+  dispatch: AppMenuDispatch;
   /** What the spec builders take: the active pane's widget items and the Window submenu. */
   options: AppMenuOptions;
-  /** Re-read the Window submenu's lists (windows come and go from other windows). */
-  refreshWindows: () => void;
   /** The dialogs the menu opens, rendered at the body so they cover the page. */
   dialogs: ReactNode;
 }
@@ -71,27 +70,36 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     onFailed: (text) => send({ type: 'NOTIFY', text }),
   };
 
+  const onLocal = (local: MenuLocal) => {
+    switch (local.verb) {
+      case 'confirm-kill-session':
+        return setConfirmKill(true);
+      case 'copy-app-state':
+        return copyAppState(actor.getSnapshot().context, report);
+      case 'copy-trace-path':
+        return copyTracePath(tracePath, report);
+      case 'window-refresh':
+        return refreshWindows();
+      case 'window-new':
+        return newGuiWindow();
+      case 'window-close':
+        return closeGuiWindow();
+      case 'quit':
+        return quitApp();
+      case 'window-style':
+        setWindowStyle(local.slug);
+        return setStyle(local.slug);
+      case 'window-focus':
+        return focusGuiWindow(local.index);
+    }
+  };
   const dispatch = useMenuDispatch({
     closeTarget: activeCloseTarget(activePaneId, focusedFloatPaneId),
-    onLocal: (id) => {
-      if (id === 'confirm-kill-session') setConfirmKill(true);
-      else if (id === 'debug-copy-state') copyAppState(actor.getSnapshot().context, report);
-      else if (id === 'trace-copy-path') copyTracePath(tracePath, report);
-      else if (id === 'window-refresh') refreshWindows();
-      else if (id === 'window-new') newGuiWindow();
-      else if (id === 'window-close') closeGuiWindow();
-      else if (id === 'quit') quitApp();
-      else if (id.startsWith('window-style:')) {
-        const slug = id.slice('window-style:'.length) as WindowStyleSlug;
-        setWindowStyle(slug);
-        setStyle(slug);
-      } else if (id.startsWith('window-focus:'))
-        focusGuiWindow(Number(id.slice('window-focus:'.length)));
-    },
+    onLocal,
   });
 
   // OS windows are the desktop app's to manage; a browser tab has none.
-  const windowMenu: MenuNode | undefined = isTauri()
+  const windowMenu: AppMenuNode | undefined = isTauri()
     ? windowMenuSpec(env, { windows, style })
     : undefined;
 
@@ -113,7 +121,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
                 className="is-destructive"
                 onClick={() => {
                   setConfirmKill(false);
-                  dispatch({ kind: 'action', id: 'session-kill' });
+                  dispatch(op(TmuxOp.KillSession({ name: null })));
                 }}
               >
                 Kill Session
@@ -125,7 +133,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     </>
   );
 
-  return { dispatch, options: { widgetItems, windowMenu }, refreshWindows, dialogs };
+  return { dispatch, options: { widgetItems, windowMenu }, dialogs };
 }
 
 /**

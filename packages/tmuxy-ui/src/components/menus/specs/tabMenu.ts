@@ -3,16 +3,18 @@
  * tab, with navigation), and a tab's own context menu (about that tab).
  */
 
-import type { AppMachineContext } from '../../machines/types/context';
-import {
-  MENU_OPS,
-  STACK_TOGGLE_KEY_OP,
-  TAB_RENAME_KEY_OP,
-} from '../../components/menus/menuActions';
-import { TmuxOp } from '../commands';
-import type { WindowId } from '../ids';
-import { keyHint } from './keyHint';
-import { action, event, local, separator, tidy, type MenuNode, type MenuSpec } from './spec';
+import type { AppMachineContext } from '../../../machines/types/context';
+import { TmuxOp } from '../../../domain/commands';
+import type { WindowId } from '../../../domain/ids';
+import { keyHint } from '../../../domain/menus/keyHint';
+import { separator, tidy } from '../../../domain/menus/spec';
+import { command, commandHint, local, op, type AppMenuNode, type AppMenuSpec } from './actions';
+
+const TAB_OPS = {
+  'tab-next': TmuxOp.SelectWindow({ target: 'next' }),
+  'tab-previous': TmuxOp.SelectWindow({ target: 'previous' }),
+  'tab-last': TmuxOp.LastWindow(),
+} as const satisfies Record<string, TmuxOp>;
 
 export interface TabMenuOptions {
   /** The tab the menu is about; null for the app menu, which acts on the active one. */
@@ -21,7 +23,7 @@ export interface TabMenuOptions {
   navigation?: boolean;
 }
 
-export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): MenuSpec {
+export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): AppMenuSpec {
   const { keybindings } = ctx;
   const tabs = ctx.windows.filter((w) => w.windowType === 'tab');
   const single = tabs.length <= 1;
@@ -29,15 +31,15 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Me
   const target = ctx.windows.find((w) => w.id === windowId);
   const navigation = options.navigation ?? true;
   const contextMenu = options.windowId !== null;
-  const hint = (id: keyof typeof MENU_OPS) => keyHint(keybindings, MENU_OPS[id]);
+  const closeOp = TmuxOp.KillWindow({ windowId: contextMenu ? windowId : null });
 
-  const nav = (id: keyof typeof MENU_OPS, label: string): MenuNode => ({
+  const nav = (id: keyof typeof TAB_OPS, label: string): AppMenuNode => ({
     kind: 'item',
     id,
     label,
-    keyHint: hint(id),
+    keyHint: keyHint(keybindings, TAB_OPS[id]),
     disabled: single,
-    action: action(id),
+    action: op(TAB_OPS[id]),
   });
 
   return tidy([
@@ -46,17 +48,17 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Me
       id: 'tab-new',
       label: 'New Tab',
       icon: 'new',
-      keyHint: keyHint(keybindings, TmuxOp.NewWindow()),
+      keyHint: commandHint(keybindings, 'tab-new'),
       accelerator: 'CmdOrCtrl+T',
-      action: action('tab-new'),
+      action: command('tab-new'),
     },
     {
       kind: 'item',
       id: 'tab-overview',
       label: 'Show All Tabs',
       icon: 'tabs',
-      keyHint: 'ctrl+0',
-      action: action('tab-overview'),
+      keyHint: commandHint(keybindings, 'tab-overview'),
+      action: command('tab-overview'),
     },
     navigation && separator,
     navigation && nav('tab-next', 'Next Tab'),
@@ -70,8 +72,16 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Me
       id: 'tab-stack-toggle',
       label: 'Stacked Panes',
       checked: Boolean(target?.collapsible),
-      keyHint: keyHint(keybindings, STACK_TOGGLE_KEY_OP),
-      action: contextMenu && windowId ? local('tab-stack-toggle') : action('tab-stack-toggle'),
+      action:
+        contextMenu && windowId
+          ? op(
+              TmuxOp.SetWindowTag({
+                windowId,
+                tag: 'collapsible',
+                value: target?.collapsible ? null : '1',
+              }),
+            )
+          : command('tab-stack-toggle'),
     },
     // Renaming happens in the tab itself — the strip owns the field, because
     // that is where the name is.
@@ -80,8 +90,8 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Me
       id: 'tab-rename',
       label: 'Rename Tab',
       icon: 'rename',
-      keyHint: keyHint(keybindings, TAB_RENAME_KEY_OP),
-      action: contextMenu ? local('tab-rename') : action('tab-rename'),
+      keyHint: commandHint(keybindings, 'tab-rename'),
+      action: contextMenu ? local({ verb: 'rename' }) : command('tab-rename'),
     },
     separator,
     {
@@ -89,12 +99,9 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Me
       id: 'tab-close',
       label: 'Close Tab',
       icon: 'close',
-      keyHint: hint('tab-close'),
+      keyHint: keyHint(keybindings, TmuxOp.KillWindow({ windowId: null })),
       accelerator: 'CmdOrCtrl+W',
-      action:
-        contextMenu && windowId
-          ? event({ type: 'DISPATCH_OP', op: TmuxOp.KillWindow({ windowId }) })
-          : action('tab-close'),
+      action: op(closeOp),
     },
   ]);
 }
