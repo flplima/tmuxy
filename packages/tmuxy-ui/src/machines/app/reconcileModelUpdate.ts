@@ -254,9 +254,22 @@ export const reconcileModelActions = {
       transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
       ((context.lastLayoutCommandTime > 0 && Date.now() - context.lastLayoutCommandTime < 500) ||
         samePaneSet);
-    const effectiveActivePaneId = isLayoutTransition
-      ? context.activePaneId
-      : (transformed.activePaneId ?? context.activePaneId);
+    // The pane this client had is held through a layout transition, and
+    // while tmux names none (a window it has just made current, its panes not
+    // listed yet), only if it is in the current window: held from another,
+    // the keys typed into a tab just opened went to a pane of a hidden one.
+    // With none named, they go to tmux's current pane.
+    const heldActivePaneId =
+      transformed.activeWindowId === null ||
+      transformed.panes.some(
+        (p) => p.tmuxId === context.activePaneId && p.windowId === transformed.activeWindowId,
+      )
+        ? context.activePaneId
+        : null;
+    const effectiveActivePaneId =
+      isLayoutTransition && heldActivePaneId !== null
+        ? heldActivePaneId
+        : (transformed.activePaneId ?? heldActivePaneId);
 
     const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
     for (const pane of transformed.panes) {
