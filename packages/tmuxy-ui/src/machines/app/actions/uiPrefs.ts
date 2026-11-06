@@ -1,15 +1,3 @@
-/**
- * Action implementations for the uiPrefs state slice.
- *
- * Each action is prefixed `uiPrefs_` to avoid name collisions across states
- * when spread into setup({ actions }).
- *
- * Side effects (applyTheme, saveThemePref, applyFontSize,
- * saveFontSizePref) run imperatively inside enqueueActions before the
- * assigned context update; this matches the original appMachine behavior
- * where DOM/localStorage write happen synchronously with state mutation.
- */
-
 import { appearancePrefs } from '../appearance';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';

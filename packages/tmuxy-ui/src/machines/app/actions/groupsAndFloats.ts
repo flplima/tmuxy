@@ -1,7 +1,3 @@
-/**
- * Action implementations for the groupsAndFloats state slice.
- */
-
 import { sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';

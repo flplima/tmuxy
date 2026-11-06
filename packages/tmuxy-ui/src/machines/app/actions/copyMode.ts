@@ -1,7 +1,3 @@
-/**
- * Action implementations for the copyMode state slice.
- */
-
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import {
@@ -93,9 +89,7 @@ export const copyModeActions = {
     fetchHistory(enqueue, event.paneId, record);
   }),
 
-  /**
-   * Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A).
-   */
+  /** Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A). */
   copyMode_selectAll: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_ALL_SCROLLBACK') return;
 
@@ -148,10 +142,6 @@ export const copyModeActions = {
     );
   }),
 
-  /**
-   * Leave the native-like view: drop the record and the pane follows live
-   * output again.
-   */
   copyMode_exitScroll: assignCtx(({ context, event }) => {
     if (event.type !== 'EXIT_SCROLL_MODE') return {};
     if (!context.copyModeStates[event.paneId]) return {};
