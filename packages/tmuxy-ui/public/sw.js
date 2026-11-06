@@ -2,7 +2,7 @@
  * tmuxy's service worker: shows the web push notifications the server sends
  * when a pane comes to need the user (tmuxy-server/src/push.rs), and brings
  * the app forward when one is tapped. It intercepts no request — the app is
- * always the live one — and is registered by utils/pushNotifications.ts.
+ * always the live one — and is registered by infra/pushNotifications.ts.
  *
  * Every push is shown: WebKit (Safari, and every iPhone browser) revokes a
  * subscription whose pushes are received and not shown.

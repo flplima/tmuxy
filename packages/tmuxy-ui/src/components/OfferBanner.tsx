@@ -6,7 +6,7 @@
  * The restore does not type the command (it would race the shell's start-up
  * and show twice) and does not run it (a program that was running is not
  * proof it should run again). It hangs it on the pane as an `@tmuxy-ask`
- * offer (`utils/paneAsk.ts`), and whichever client the user answers in runs
+ * offer (`domain/paneAsk.ts`), and whichever client the user answers in runs
  * it or drops it. The keyboard answers while the pane holds it
  * (`machines/actors/keyboardActor`): Enter runs, Escape drops, any other key
  * drops it and goes on to the shell. A click on either half answers too.
@@ -17,7 +17,7 @@
 
 import { memo } from 'react';
 import { useAppSend, usePane } from '../machines/appHooks';
-import { paneOfferFor } from '../utils/paneAsk';
+import { paneOfferFor } from '../domain/paneAsk';
 import type { PaneId } from '../domain/ids';
 import './OfferBanner.css';
 

@@ -10,7 +10,8 @@
  */
 
 import { useAppActor, usePane } from '../../machines/appHooks';
-import { detectWidget, getWidget, type WidgetDefinition, type WidgetMenuItem } from './registry';
+import { detectWidget, getWidget, type WidgetDefinition } from './registry';
+import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
 
 interface PaneWidget {
@@ -30,7 +31,7 @@ function usePaneWidget(paneId: PaneId | null | undefined): PaneWidget | null {
   return { name: info.widgetName, definition, lines: info.contentLines };
 }
 
-const NO_ITEMS: WidgetMenuItem[] = [];
+const NO_ITEMS: AppMenuSpec = [];
 
 /**
  * The widget-specific pane menu items for a pane, or an empty list.
@@ -40,7 +41,7 @@ const NO_ITEMS: WidgetMenuItem[] = [];
  * and a selector that built a fresh array every tick would re-render the menu
  * on every model update for no gain.
  */
-export function useWidgetMenuItems(paneId: PaneId | null | undefined): WidgetMenuItem[] {
+export function useWidgetMenuItems(paneId: PaneId | null | undefined): AppMenuSpec {
   const actor = useAppActor();
   const widget = usePaneWidget(paneId);
   if (!paneId || !widget?.definition.selectMenuItems) return NO_ITEMS;

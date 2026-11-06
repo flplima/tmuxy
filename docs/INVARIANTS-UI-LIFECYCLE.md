@@ -10,7 +10,7 @@ The `U` and `L` rows of the ledger in [INVARIANTS.md](INVARIANTS.md), which hold
 | U2 | Resize preview holds for two matching quiet updates or a 2 s fallback that never clobbers newer resizes. | liveness | `appMachine.ts`, `layout.ts` | `layout.test.ts › the 2s RESIZE_COMPLETED…`, `› …does not clobber…` (two-quiet-updates hold is —) |
 | U3 | Only the latest scrollback fetch per pane applies; different panes fetch concurrently without cancelling. | ordering | `tmuxActor.ts` | `tmuxActor.test.ts › interrupts the previous fetch…`, `› different paneId fetches…` |
 | U4 | Group switch holds swap over stale snapshots, drops if a pane dies, and never selects parked/stash panes. | safety | `appMachine.ts`, `windowOps.ts` | `tests/7-regression-bugs.test.js › Clicking three pane-group tabs…` [nightly] (E2E only) |
-| U5 | Every menu renders a `domain/menus/` spec and dispatches via `executeMenuAction` or machine events. | safety | `domain/menus/`, `SpecMenu.tsx`, `nativeMenu.ts` | `specs.test.ts`; `menuActions.test.ts › sends the op of every op-backed item…` |
+| U5 | Every menu renders a spec in the `domain/menus/spec.ts` vocabulary and dispatches its item's typed action (an op, a `MENU_COMMANDS` verb, a machine event or the surface's own verb) through `useMenuDispatch`. | safety | `components/menus/specs/`, `SpecMenu.tsx`, `nativeMenu.ts` | `specs.test.ts`; `actions.test.ts › every command runs something` |
 
 ## L — session lifecycle
 

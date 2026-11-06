@@ -15,13 +15,13 @@ import { tracer } from '../infra/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
-import { createGestureActor } from './actors/gestureActor';
+import { createGestureActor } from './gestures/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../infra/store/TmuxStore';
-import { measureCellMetrics } from '../utils/cellMetrics';
-import { isTauri } from '../utils/platform';
+import { measureCellMetrics } from '../infra/dom/cellMetrics';
+import { isTauri } from '../infra/platform';
 import {
   AppActorContext,
   AppConfigContext,

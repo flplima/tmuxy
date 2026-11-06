@@ -4,14 +4,14 @@
  */
 
 import { TmuxOp } from '../domain/commands';
-import { siblingShift, type useReorderDrag } from '../hooks/useReorderDrag';
+import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { InlineRename } from './InlineRename';
 import type { WindowId } from '../domain/ids';
 import { PaneStateMark } from './PaneStateMark';
 import { tabIcon } from './paneTabDisplay';
-import { type PaneStateName } from '../utils/paneState';
+import { type PaneStateName } from '../domain/paneState';
 import type { AppMachineEvent } from '../machines/types/events';
 import type { selectTabDrop } from '../machines/selectors/layout';
 

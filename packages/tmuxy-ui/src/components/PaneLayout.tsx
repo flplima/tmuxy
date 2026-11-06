@@ -40,7 +40,7 @@ import {
   selectGesturePaneId,
 } from '../machines/selectors/ui';
 import type { TmuxPane } from '../domain/client';
-import { findZoomedPane } from '../utils/layout';
+import { findZoomedPane } from '../constants/gridSize';
 import {
   detectPaneLifecycle,
   usePaneMorphCommit,

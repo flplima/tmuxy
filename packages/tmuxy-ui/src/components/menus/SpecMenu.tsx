@@ -4,43 +4,58 @@
  * the fallback on the desktop when a native popup is not to be had.
  *
  * `useMenuDispatch` is the one place an item's action becomes something
- * happening: an action id goes through `executeMenuAction`, an event to the
- * machine, and a `local` id back to the surface that owns the menu.
+ * happening: an op goes to the store, a command through `MENU_COMMANDS`, an
+ * event to the machine, and a `local` verb back to the surface that owns the
+ * menu.
  */
 
 import { useCallback } from 'react';
 import { MenuItem, MenuDivider, MenuHeader, MenuRadioGroup, SubMenu } from '../floating/Menu';
 import { useAppSend } from '../../machines/appHooks';
-import type { MenuAction, MenuNode, MenuSpec } from '../../domain/menus/spec';
-import { executeMenuAction } from './menuActions';
+import type { MenuDispatch } from '../../domain/menus/spec';
+import {
+  executeMenuCommand,
+  type AppMenuAction,
+  type AppMenuNode,
+  type AppMenuSpec,
+  type MenuCommandId,
+  type MenuLocal,
+} from './specs/actions';
 import type { PaneId } from '../../domain/ids';
 
-export type MenuDispatch = (action: MenuAction) => void;
+export type AppMenuDispatch = MenuDispatch<AppMenuAction>;
 
 export interface MenuDispatchOptions {
   /** The pane a group-aware Close Pane acts on (see `activeCloseTarget`). */
   closeTarget?: PaneId;
-  /** Runs before an action id is dispatched — a context menu focuses its pane first. */
-  before?: (actionId: string) => void;
+  /**
+   * Runs before an op or a command is dispatched — a context menu focuses
+   * its pane first. Given the command, or null for an op.
+   */
+  before?: (command: MenuCommandId | null) => void;
   /** The surface's own verbs: dialogs, native calls, anything not an event. */
-  onLocal?: (id: string) => void;
+  onLocal?: (local: MenuLocal) => void;
 }
 
-export function useMenuDispatch(options: MenuDispatchOptions = {}): MenuDispatch {
+export function useMenuDispatch(options: MenuDispatchOptions = {}): AppMenuDispatch {
   const send = useAppSend();
   const { closeTarget, before, onLocal } = options;
-  return useCallback<MenuDispatch>(
+  return useCallback<AppMenuDispatch>(
     (action) => {
       switch (action.kind) {
-        case 'action':
+        case 'op':
+          before?.(null);
+          send({ type: 'DISPATCH_OP', op: action.op });
+          return;
+        case 'command':
           before?.(action.id);
-          executeMenuAction(send, action.id, closeTarget);
+          executeMenuCommand(send, action.id, closeTarget);
           return;
         case 'event':
           send(action.event);
           return;
         case 'local':
-          onLocal?.(action.id);
+          onLocal?.(action.local);
           return;
       }
     },
@@ -55,11 +70,11 @@ export function dataAttributes(data?: Record<string, string>): Record<string, st
 }
 
 /** The spec as floating-menu elements. */
-export function renderSpec(spec: MenuSpec, dispatch: MenuDispatch): React.ReactNode[] {
+export function renderSpec(spec: AppMenuSpec, dispatch: AppMenuDispatch): React.ReactNode[] {
   return spec.map((node, index) => renderNode(node, index, dispatch));
 }
 
-function renderNode(node: MenuNode, index: number, dispatch: MenuDispatch): React.ReactNode {
+function renderNode(node: AppMenuNode, index: number, dispatch: AppMenuDispatch): React.ReactNode {
   switch (node.kind) {
     case 'separator':
       return <MenuDivider key={`sep-${index}`} />;

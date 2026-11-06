@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { createActor } from 'xstate';
 import { appMachine } from '../appMachine';
-import type { TmuxServer } from '../../types/domain';
+import type { TmuxServer } from '../../../domain/servers';
 import { serverHostLabel } from '../../../components/paneTabDisplay';
 
 const servers: TmuxServer[] = [

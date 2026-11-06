@@ -3,14 +3,13 @@
  * a popup at a point for every context menu, and on macOS the application
  * menu bar — both built with `@tauri-apps/api/menu`, so the item callbacks
  * run here in the page and dispatch through the same `MenuDispatch` the
- * in-app menu uses. muda backs it with NSMenu on macOS and GTK on Linux.
+ * in-app menu uses; what an item's action is, is the caller's. muda backs it with NSMenu on macOS and GTK on Linux.
  *
  * Every call can fail (no Tauri, a compositor without GTK menus, a refused
  * capability); the caller then draws the in-app menu in the same gesture.
  */
 
-import type { MenuAction, MenuNode, MenuSpec, PredefinedItem } from '../../domain/menus/spec';
-import type { MenuDispatch } from '../../components/menus/SpecMenu';
+import type { MenuDispatch, MenuNode, MenuSpec, PredefinedItem } from '../../domain/menus/spec';
 import type {
   CheckMenuItem,
   IconMenuItem,
@@ -47,24 +46,24 @@ const PREDEFINED: Record<
   maximize: 'Maximize',
 };
 
-async function buildItems(
+async function buildItems<A>(
   api: MenuApi,
-  spec: MenuSpec,
-  dispatch: MenuDispatch,
+  spec: MenuSpec<A>,
+  dispatch: MenuDispatch<A>,
 ): Promise<NativeItem[]> {
   const items: NativeItem[] = [];
-  const run = (action: MenuAction) => () => dispatch(action);
+  const run = (action: A) => () => dispatch(action);
   for (const node of spec) {
     items.push(await buildItem(api, node, run, dispatch));
   }
   return items;
 }
 
-async function buildItem(
+async function buildItem<A>(
   api: MenuApi,
-  node: MenuNode,
-  run: (action: MenuAction) => () => void,
-  dispatch: MenuDispatch,
+  node: MenuNode<A>,
+  run: (action: A) => () => void,
+  dispatch: MenuDispatch<A>,
 ): Promise<NativeItem> {
   switch (node.kind) {
     case 'separator':
@@ -126,8 +125,8 @@ async function buildItem(
  * A radio group is a flat run of check items in a native menu, not a
  * submenu: lift each group's options into the list that holds it.
  */
-function flattenRadioGroups(spec: MenuSpec): MenuSpec {
-  return spec.flatMap((node): MenuNode[] => {
+function flattenRadioGroups<A>(spec: MenuSpec<A>): MenuSpec<A> {
+  return spec.flatMap((node): MenuNode<A>[] => {
     if (node.kind === 'radio-group') {
       return node.options.map((option) => ({
         kind: 'checkbox',
@@ -148,9 +147,9 @@ function flattenRadioGroups(spec: MenuSpec): MenuSpec {
  * has been shown — on macOS once it has closed again — and rejects where no
  * native popup is to be had, for the caller to fall back.
  */
-export async function popupNativeMenu(
-  spec: MenuSpec,
-  dispatch: MenuDispatch,
+export async function popupNativeMenu<A>(
+  spec: MenuSpec<A>,
+  dispatch: MenuDispatch<A>,
   at: { x: number; y: number },
 ): Promise<void> {
   const api = await import('@tauri-apps/api/menu');
@@ -178,7 +177,10 @@ let appMenuGeneration = 0;
  * away: the newer spec is the current one, and a slower, older build must
  * not replace it.
  */
-export async function setNativeAppMenu(spec: MenuSpec, dispatch: MenuDispatch): Promise<void> {
+export async function setNativeAppMenu<A>(
+  spec: MenuSpec<A>,
+  dispatch: MenuDispatch<A>,
+): Promise<void> {
   const generation = ++appMenuGeneration;
   const api = await import('@tauri-apps/api/menu');
   const menu = await api.Menu.new({

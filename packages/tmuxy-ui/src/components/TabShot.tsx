@@ -12,10 +12,10 @@
  * back to their labels, which is what the first render draws.
  */
 
-import { Terminal } from './Terminal';
+import { Terminal } from './terminal/Terminal';
 import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
-import type { SlotBox } from '../utils/tabOverview';
+import type { SlotBox } from '../domain/tabOverview';
 import type { TmuxPane } from '../domain/client';
 
 interface TabShotProps {

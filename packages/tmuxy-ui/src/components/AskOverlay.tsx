@@ -5,7 +5,7 @@
  * an agent), does not send the keys. It writes the question to this pane's
  * `@tmuxy-ask` option and blocks; this is what the user sees in answer, and
  * what they choose here is what the waiting command reads back. See
- * `utils/paneAsk.ts`.
+ * `domain/paneAsk.ts`.
  *
  * The text sits straight on the blurred pane, with no card: who is asking,
  * what they want to send, and two numbered answers. A long or multi-line send
@@ -26,8 +26,7 @@
 
 import { memo } from 'react';
 import { useAppSend, useAppSelector, usePane } from '../machines/appHooks';
-import { paneSendFor, sentText, sentTextIsLong } from '../utils/paneAsk';
-import type { AskAnswer } from '../utils/paneAsk';
+import { paneSendFor, sentText, sentTextIsLong, type AskAnswer } from '../domain/paneAsk';
 import './AskOverlay.css';
 import type { PaneId } from '../domain/ids';
 

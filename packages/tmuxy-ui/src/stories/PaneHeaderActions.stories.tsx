@@ -17,8 +17,14 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import paneHeaderOps from './fixtures/gen/pane-header-ops.json';
-import { activePaneId, findMenuItem, paneGroups, paneIds, paneRect } from './appStoryHelpers';
-import type { Canvas } from './appStoryHelpers';
+import {
+  activePaneId,
+  findMenuItem,
+  paneGroups,
+  paneIds,
+  paneRect,
+  type Canvas,
+} from './appStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Pane Header Actions',

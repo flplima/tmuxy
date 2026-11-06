@@ -1,11 +1,11 @@
-import type { PushState } from '../../utils/pushNotifications';
+import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
-import type { GridCell } from '../../utils/gridFit';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
-import type { AskAnswer } from '../../utils/paneAsk';
+import type { GridCell } from '../../domain/gridFit';
+import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
+import type { AskAnswer } from '../../domain/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
   AppNotification,
@@ -13,15 +13,15 @@ import type {
   FloatPaneState,
   GestureFlags,
   GestureState,
-  GitRepository,
   LogEntry,
-  PaneGroup,
   ResizeState,
+} from './domain';
+import type {
+  GitRepository,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
-  TraceSettings,
-} from './domain';
+} from '../../domain/servers';
 
 export interface AppMachineContext {
   connected: boolean;
@@ -61,8 +61,8 @@ export interface AppMachineContext {
   cellGap: number;
   /**
    * The pane grid's own font size in px when it differs from the chrome's —
-   * the phone layout's shrunken cell (utils/phoneLayout.ts), or a cell fitted
-   * to a grid `@tmuxy-size` sized for someone else (utils/gridFit.ts). Null
+   * the phone layout's shrunken cell (infra/dom/phoneLayout.ts), or a cell fitted
+   * to a grid `@tmuxy-size` sized for someone else (domain/gridFit.ts). Null
    * otherwise.
    */
   gridFontSize: number | null;
@@ -202,7 +202,7 @@ export interface AppMachineContext {
   sendAsk: boolean;
   /** Whether tmuxy.conf lets the server push notifications (`@tmuxy-notify`). */
   notifyAllowed: boolean;
-  /** Whether this device gets them (utils/pushNotifications.ts). */
+  /** Whether this device gets them (infra/pushNotifications.ts). */
   pushState: PushState;
   /**
    * The config's `@tmuxy-icon-<process>` icons: ASCII text, or an SVG as a

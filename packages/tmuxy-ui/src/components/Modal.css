@@ -1,0 +1,84 @@
+/* ============================================
+   Modal - Generic reusable modal
+   ============================================ */
+
+/* Full-screen overlay container, on the float rung: a float lifts itself
+   above the ones under it by its place in the stack (`--float-stack`, set by
+   Modal from its `stack` prop). */
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-float) + var(--float-stack, 0));
+}
+
+/* Semi-transparent backdrop (default: dim) */
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Blur backdrop variant */
+.modal-backdrop-blur {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+}
+
+/* No backdrop variant (transparent, still captures clicks) */
+.modal-backdrop-none {
+  background: transparent;
+}
+
+/* Modal container - centered via JS positioning */
+.modal-container {
+  position: absolute;
+  background: var(--bg-black);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+/* Modal header */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 var(--spacing-lg);
+  background: var(--bg-elevated-alt);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Modal close button */
+.modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+  background: var(--error-color);
+  color: var(--term-bright-white);
+}

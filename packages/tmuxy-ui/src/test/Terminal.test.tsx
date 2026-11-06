@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pid } from './wire';
 import { render, screen } from '@testing-library/react';
-import { Terminal } from '../components/Terminal';
-import { cellsToCss } from '../components/terminalShared';
+import { Terminal } from '../components/terminal/Terminal';
+import { cellsToCss } from '../components/terminal/terminalShared';
 import type { PaneContent, CellLine, TerminalCell } from '../domain/wireCells';
 
 // Helper to create a simple cell line from a string

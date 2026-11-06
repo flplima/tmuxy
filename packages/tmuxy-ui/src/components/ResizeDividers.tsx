@@ -19,7 +19,7 @@
 import { useAppSend } from '../machines/appHooks';
 import type { PaneCellBox } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
-import { haptics } from '../utils/haptics';
+import { haptics } from '../infra/haptics';
 import { bandScope, resizeLimits, isLocked } from '../machines/resize/limits';
 import type { PaneId } from '../domain/ids';
 import type { PaneTree } from '../domain/wire';

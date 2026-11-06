@@ -48,7 +48,7 @@ html:not([data-desktop]) body {
 
 /* On a phone the app is laid out in what is visible: a keyboard covers the
    page without resizing it, so the root follows the visual viewport instead
-   (hooks/usePhoneViewport.ts sets the class and the two variables). */
+   (components/phone/usePhoneViewport.ts sets the class and the two variables). */
 html.tmuxy-phone #root {
   position: fixed;
   top: var(--app-top, 0px);

@@ -82,7 +82,7 @@ export const MultipleFloats: Story = {
     expect(near(box('%5').width, tab.width), 'top drawer spans the tab').toBe(true);
 
     // The float opened later stacks over the one opened before it.
-    const z = FLOAT_OVERLAYS.map(([pane]) => Number(overlay(pane)!.style.zIndex));
+    const z = FLOAT_OVERLAYS.map(([pane]) => Number(getComputedStyle(overlay(pane)!).zIndex));
     for (let i = 1; i < z.length; i++) {
       expect(z[i], `${FLOAT_OVERLAYS[i][0]} over ${FLOAT_OVERLAYS[i - 1][0]}`).toBeGreaterThan(
         z[i - 1],

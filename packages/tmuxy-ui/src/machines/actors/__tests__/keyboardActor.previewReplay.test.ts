@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AnyActorRef } from 'xstate';
-import { markReplayedPreviewKey } from '../../../components/widgets/preview/previewBridge';
+import { markReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { pid } from '../../../test/wire';
 import { lastSendCommand, sendCommands, spawnKeyboardActor } from './keyboardHarness';
 

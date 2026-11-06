@@ -28,6 +28,7 @@
 
 import mermaid from 'mermaid';
 import type { PreviewTheme } from './previewTheme';
+import { decodeBase64Text } from '../../../domain/base64';
 
 let renderCounter = 0;
 let queue: Promise<unknown> = Promise.resolve();
@@ -115,7 +116,7 @@ function framedMarkup(frameHtml: string): string {
     frameHtml,
   )?.[1];
   if (!data) throw new Error('mermaid returned the diagram in a form the preview does not read');
-  return new TextDecoder().decode(Uint8Array.from(atob(data), (c) => c.charCodeAt(0)));
+  return decodeBase64Text(data);
 }
 
 async function draw(chart: string, theme: PreviewTheme, net: boolean) {

@@ -273,7 +273,7 @@ fn links_do_not_leak_onto_the_alternate_screen() {
 #[test]
 fn plain_output_records_no_links() {
     // A URL in plain output is not an OSC 8 link; the frontend's own
-    // detector decides whether to offer it (utils/urlDetect.ts).
+    // detector decides whether to offer it (components/terminal/urlDetect.ts).
     let mut pane = PaneState::new(pid("%1"), 40, 6);
     pane.process_output(b"https://example.com/not-osc8\r\nplain text");
     assert!(linked_text(&pane).is_empty());

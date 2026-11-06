@@ -8,7 +8,7 @@ const push = vi.hoisted(() => ({
   pushSupported: () => true,
   registerPushWorker: () => {},
 }));
-vi.mock('../../../../utils/pushNotifications', () => push);
+vi.mock('../../../../infra/pushNotifications', () => push);
 
 import { uiPrefsState } from '../uiPrefs';
 import { uiPrefsActions } from '../../actions/uiPrefs';

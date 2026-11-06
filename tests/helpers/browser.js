@@ -292,7 +292,7 @@ async function focusPage(page) {
  * Resolve once the app is really holding the keyboard.
  *
  * The app keeps a hidden 1px `<input>` focused on every device
- * (utils/mobileKeyboard.ts) and routes what lands in it to a pane, so that
+ * (infra/dom/mobileKeyboard.ts) and routes what lands in it to a pane, so that
  * input BEING the active element is the signal that a keystroke will arrive.
  * Anything looser — "the clicked terminal is the active element" — is true
  * the instant the click lands, before the app has taken focus, and the first

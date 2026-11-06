@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { Tooltip } from './Tooltip';
+import './Modal.css';
 
 interface ModalProps {
   open: boolean;
@@ -8,7 +9,8 @@ interface ModalProps {
   children: React.ReactNode;
   width?: number;
   className?: string;
-  zIndex?: number;
+  /** Its place among the floats open over the tab, lowest first: lifts it on the float rung. */
+  stack?: number;
   containerStyle?: React.CSSProperties;
   /** Backdrop style: 'dim' (default), 'blur', or 'none' */
   backdrop?: 'dim' | 'blur' | 'none';
@@ -25,7 +27,7 @@ export function Modal({
   children,
   width,
   className,
-  zIndex = 1000,
+  stack = 0,
   containerStyle,
   backdrop = 'dim',
   hideHeader = false,
@@ -52,7 +54,10 @@ export function Modal({
   // content only — portaled to the body it resolved against the viewport and
   // dimmed the sidebars, the tab strip and the status line with it.
   return (
-    <div className={`modal-overlay${className ? ` ${className}` : ''}`} style={{ zIndex }}>
+    <div
+      className={`modal-overlay${className ? ` ${className}` : ''}`}
+      style={{ '--float-stack': stack } as React.CSSProperties}
+    >
       <div className={backdropClass} onClick={handleBackdropClick} />
       <div
         className="modal-container"

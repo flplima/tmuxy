@@ -13,7 +13,7 @@ export const CHAR_HEIGHT = 24;
 /**
  * The pane container's padding on a phone: a few pixels each side so the
  * grid's outer borders — drawn half a cell outside the panes — stay on
- * screen, and the same below (styles/tab-overview-and-phone.css mirrors it).
+ * screen, and the same below (styles/phone.css mirrors it).
  */
 export const PHONE_CONTAINER_PADDING = 4;
 
@@ -26,7 +26,7 @@ export const CONTAINER_PADDING_BOTTOM = 4;
 
 /**
  * The side padding the pane container has: a few pixels in the phone layout,
- * enough for the grid's outer borders (styles/tab-overview-and-phone.css).
+ * enough for the grid's outer borders (styles/phone.css).
  */
 export function containerPaddingX(phone: boolean): number {
   return phone ? PHONE_CONTAINER_PADDING : CONTAINER_PADDING_X;

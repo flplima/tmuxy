@@ -1,32 +1,13 @@
 import type { ComponentType } from 'react';
 import type { PaneContent } from '../../domain/wireCells';
 import type { AppMachineContext } from '../../machines/types/context';
-import type { AppMachineEvent } from '../../machines/types/events';
+import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
 
 export interface WidgetProps {
   paneId: PaneId;
   /** The pane's text lines below the widget marker. */
   lines: string[];
-}
-
-/**
- * One entry in a widget's own section of the pane menu.
- *
- * Items are pure data derived from machine context, so the menu can show what
- * the widget can currently do (an action greyed out when it has nothing to act
- * on) without reaching into the widget component — which is a sibling of the
- * header the menu hangs off, not an ancestor.
- */
-export interface WidgetMenuItem {
-  /** Stable id — the React key, and what tests click by. */
-  id: string;
-  label: string;
-  /** Right-aligned key hint (e.g. `ctrl+r`) for actions with a shortcut. */
-  keyHint?: string;
-  disabled?: boolean;
-  /** Dispatched on the app machine when the item is chosen. */
-  event: AppMachineEvent;
 }
 
 /**
@@ -45,12 +26,14 @@ export interface WidgetDefinition {
    * the pane's own title the way a terminal pane does.
    */
   selectTitle?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => string | undefined;
-  /** The widget's own section of the pane menu, above the generic pane items. */
-  selectMenuItems?: (
-    context: AppMachineContext,
-    paneId: PaneId,
-    lines: string[],
-  ) => WidgetMenuItem[];
+  /**
+   * The widget's own section of the pane menu, above the generic pane items.
+   * Pure data derived from machine context, so the menu can show what the
+   * widget can currently do (an action greyed out when it has nothing to act
+   * on) without reaching into the widget component — which is a sibling of
+   * the header the menu hangs off, not an ancestor.
+   */
+  selectMenuItems?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => AppMenuSpec;
 }
 
 // Registry of widget name -> definition

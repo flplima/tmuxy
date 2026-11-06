@@ -4,8 +4,8 @@
  * Each action is prefixed `uiPrefs_` to avoid name collisions across states
  * when spread into setup({ actions }).
  *
- * Side effects (applyTheme, saveThemeToStorage, applyFontSize,
- * saveFontSizeToStorage) run imperatively inside enqueueActions before the
+ * Side effects (applyTheme, saveThemePref, applyFontSize,
+ * saveFontSizePref) run imperatively inside enqueueActions before the
  * assigned context update; this matches the original appMachine behavior
  * where DOM/localStorage write happen synchronously with state mutation.
  */
@@ -17,17 +17,16 @@ import {
   applyThemeMode,
   applyCssVars,
   reloadThemeCss,
-  saveThemeToStorage,
-} from '../../../utils/themeManager';
+} from '../../../infra/themeManager';
 import {
   applyFontSize,
-  saveFontSizeToStorage,
   increaseFontSize,
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
-} from '../../../utils/fontSizeManager';
-import { applyAppearance } from '../../../utils/appearanceManager';
-import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
+} from '../../../infra/fontSizeManager';
+import { applyAppearance } from '../../../infra/appearanceManager';
+import { DEFAULT_THEME, saveFontSizePref, saveThemePref } from '../../../infra/prefs';
+import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../domain/gridFit';
 import { PINNABLE } from '../../../domain/pins';
 import type { PaneId } from '../../../domain/ids';
 import {
@@ -36,7 +35,7 @@ import {
   onNotificationFocus,
   readPushState,
   type PushState,
-} from '../../../utils/pushNotifications';
+} from '../../../infra/pushNotifications';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
@@ -44,7 +43,7 @@ export const uiPrefsActions = {
     // tmuxy.conf pins it: the config's theme stays, whatever asked.
     if (context.pinnedOptions.includes(PINNABLE.theme)) return;
     applyTheme(event.name, context.themeMode);
-    saveThemeToStorage(event.name, context.themeMode);
+    saveThemePref(event.name, context.themeMode);
     enqueue(assign({ themeName: event.name }));
     // The theme is the session's, on every transport: tmux holds it, and
     // every other client watching — a phone, the desktop app — is sent it
@@ -63,7 +62,7 @@ export const uiPrefsActions = {
     if (event.type !== 'SET_THEME_MODE') return;
     if (context.pinnedOptions.includes(PINNABLE.themeMode)) return;
     applyThemeMode(event.mode);
-    saveThemeToStorage(context.themeName, event.mode);
+    saveThemePref(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
     // The session's, as the theme is (uiPrefs_applyTheme).
     enqueue(
@@ -150,7 +149,7 @@ export const uiPrefsActions = {
     // frame with. The theme is applied HERE: a page that never ran main.tsx's
     // startup apply (a story) would otherwise have no stylesheet.
     applyTheme(event.theme, event.mode);
-    saveThemeToStorage(event.theme, event.mode);
+    saveThemePref(event.theme, event.mode);
     enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
   }),
 
@@ -210,7 +209,7 @@ export const uiPrefsActions = {
     const gone = event.themes.length > 0 && !event.themes.some((t) => t.name === context.themeName);
     if (gone) {
       applyTheme('default', context.themeMode);
-      saveThemeToStorage('default', context.themeMode);
+      saveThemePref(DEFAULT_THEME.theme, context.themeMode);
       enqueue(assign({ themeName: 'default' }));
     }
   }),
@@ -253,7 +252,7 @@ export const uiPrefsActions = {
   uiPrefs_increaseFontSize: act(({ context, enqueue }) => {
     const newSize = increaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
-    saveFontSizeToStorage(newSize);
+    saveFontSizePref(newSize);
     enqueue(assign({ baseFontSize: newSize }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
@@ -261,14 +260,14 @@ export const uiPrefsActions = {
   uiPrefs_decreaseFontSize: act(({ context, enqueue }) => {
     const newSize = decreaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
-    saveFontSizeToStorage(newSize);
+    saveFontSizePref(newSize);
     enqueue(assign({ baseFontSize: newSize }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
 
   uiPrefs_resetFontSize: act(({ enqueue }) => {
     applyFontSize(DEFAULT_FONT_SIZE);
-    saveFontSizeToStorage(DEFAULT_FONT_SIZE);
+    saveFontSizePref(DEFAULT_FONT_SIZE);
     enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),

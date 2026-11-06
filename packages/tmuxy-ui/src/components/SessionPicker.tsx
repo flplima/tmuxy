@@ -15,14 +15,14 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
-import { sessionSwitcherSpec } from '../domain/menus/sessionSwitcher';
-import type { MenuNode } from '../domain/menus/spec';
+import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
+import type { AppMenuNode } from './menus/specs/actions';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
 import './SessionPicker.css';
 
-export type SwitcherItem = Extract<MenuNode, { kind: 'item' }>;
+export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
 
 const CONNECT_ID = 'session-connect';
 

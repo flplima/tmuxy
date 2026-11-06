@@ -1,0 +1,355 @@
+import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import './SmoothCursor.css';
+import { getCursorAnchor, getCursorAnchorVersion, subscribeCursorAnchor } from './cursorAnchor';
+import { isSceneChange, parseScene, sceneKey, type Scene } from './cursorScene';
+import { useAppSelector } from '../../machines/appHooks';
+
+/**
+ * The cursor as a single overlay that glides between positions, Neovide-style.
+ *
+ * Each of the cursor box's four corners eases toward its destination on its
+ * own clock: the corners facing the direction of travel arrive fast, the ones
+ * behind lag, so a jump stretches the block into a smear that snaps back into
+ * a cell. Because the overlay is one element for the whole app — anchored to
+ * whichever pane holds the keyboard (see cursorAnchor.ts) — the same glide
+ * covers a move within a pane, a jump to another pane, and a jump into the
+ * dock or a float.
+ *
+ * The overlay measures the anchor on every commit that touched it and then on
+ * every frame while anything is still moving, so it also follows the anchor
+ * through CSS transitions the app runs underneath it (a pane re-tiling, a
+ * sidebar sliding) without being told.
+ *
+ * Two moves do NOT glide: switching tabs, and switching which member of a
+ * pane group is showing. Both replace the whole picture under the cursor, so
+ * where the cursor was says nothing about where it goes — a glide across the
+ * screen there reads as motion that did not happen. The cursor is simply
+ * drawn at its new place (see `isSceneChange`).
+ */
+
+/** Time constants of the corner easing: the leading corners and the trailing ones. */
+const LEAD_TAU_MS = 11;
+const TRAIL_TAU_MS = 32;
+/** Below this many pixels off target a corner is snapped onto it. */
+const SETTLE_PX = 0.75;
+/** How long after a commit the overlay keeps re-measuring, to follow transitions. */
+const FOLLOW_MS = 450;
+/**
+ * How long after a tab or group-member switch the cursor is drawn in place.
+ * Longer than FOLLOW_MS: the new pane's content can land a beat after the
+ * switch (its capture refills the screen), moving the cursor from a
+ * provisional spot to its prompt, and that second move belongs to the switch.
+ */
+const SCENE_SNAP_MS = 1500;
+/** A cursor that reappears within this long flies in from where the last one was. */
+const FLY_FROM_MEMORY_MS = 800;
+/** How long after the page scrolls or resizes the overlay keeps re-measuring, in place. */
+const PAGE_FOLLOW_MS = 150;
+/** The block's glyph is painted once every corner is this close. */
+const GLYPH_AT_PX = 1.5;
+
+type Pt = { x: number; y: number };
+type Mode = 'block' | 'bar' | 'underline';
+
+interface Target {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  mode: Mode;
+  copy: boolean;
+  blink: boolean;
+  char: string;
+  font: string;
+  letterSpacing: string;
+}
+
+/** The shape to draw for the anchor: its cell, thinned to a bar or an underline. */
+function targetOf(anchor: HTMLElement): Target | null {
+  const r = anchor.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return null;
+  const clip = clipRectOf(anchor);
+  if (
+    clip &&
+    (r.left < clip.left - 1 ||
+      r.right > clip.right + 1 ||
+      r.top < clip.top - 1 ||
+      r.bottom > clip.bottom + 1)
+  ) {
+    return null;
+  }
+  const cls = anchor.classList;
+  const mode: Mode = cls.contains('terminal-cursor-bar')
+    ? 'bar'
+    : cls.contains('terminal-cursor-underline')
+      ? 'underline'
+      : 'block';
+  const cs = getComputedStyle(anchor);
+  return {
+    left: r.left,
+    top: mode === 'underline' ? r.bottom - 2 : r.top,
+    width: mode === 'bar' ? 2 : r.width,
+    height: mode === 'underline' ? 2 : r.height,
+    mode,
+    copy: cls.contains('terminal-cursor-copy'),
+    blink: cls.contains('terminal-cursor-blink'),
+    char: anchor.textContent ?? ' ',
+    font: cs.font,
+    letterSpacing: cs.letterSpacing,
+  };
+}
+
+/**
+ * What is actually visible around the anchor: every clipping ancestor's box,
+ * intersected.
+ *
+ * The nearest one is not enough. A pane's terminal is sized to its ROW COUNT
+ * and anchored to the bottom of the pane, so while the pane is opening — a
+ * stack moving the focus to another row — the terminal is taller than the
+ * pane it is in and hangs off the top of it. A cursor on the first row is
+ * then inside the terminal, which does not clip it, and outside the pane,
+ * which does; following it there drags the overlay in from above the window
+ * and lands it with a jump when the pane catches up. Off screen is off
+ * screen: it is not drawn until it is somewhere you could see it.
+ */
+function clipRectOf(el: HTMLElement): DOMRect | null {
+  let left = -Infinity;
+  let top = -Infinity;
+  let right = Infinity;
+  let bottom = Infinity;
+  let found = false;
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflow === 'visible') continue;
+    const box = node.getBoundingClientRect();
+    // A wrapper with no box of its own (`display: contents`, an unlaid-out
+    // node) clips nothing; intersecting its empty rect would hide everything.
+    if (box.width === 0 || box.height === 0) continue;
+    left = Math.max(left, box.left);
+    top = Math.max(top, box.top);
+    right = Math.min(right, box.right);
+    bottom = Math.min(bottom, box.bottom);
+    found = true;
+  }
+  if (!found) return null;
+  return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+}
+
+function cornersOf(t: Target): Pt[] {
+  return [
+    { x: t.left, y: t.top },
+    { x: t.left + t.width, y: t.top },
+    { x: t.left + t.width, y: t.top + t.height },
+    { x: t.left, y: t.top + t.height },
+  ];
+}
+
+const sameBox = (a: Target, b: Target) =>
+  a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+
+function reducedMotion(): boolean {
+  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+interface Motion {
+  /** Until when a new destination is drawn in place instead of glided to. */
+  snapUntil: number;
+  scene: Scene | null;
+  corners: Pt[] | null;
+  leading: boolean[];
+  target: Target | null;
+  raf: number;
+  lastFrame: number;
+  followUntil: number;
+  lostAt: number;
+}
+
+export function SmoothCursor() {
+  const version = useSyncExternalStore(
+    subscribeCursorAnchor,
+    getCursorAnchorVersion,
+    getCursorAnchorVersion,
+  );
+  // The anchor also moves when the DOM around it does without the pane's
+  // cursor re-rendering: the pane grid zooming into the Tab Overview, a
+  // sidebar opening or shutting, a font or viewport change. A single key over those
+  // states wakes the overlay to follow.
+  const layoutKey = useAppSelector(
+    (ctx) =>
+      `${ctx.tabOverviewOpen}|${ctx.leftSidebarOpen}|${ctx.rightSidebarOpen}|${ctx.containerWidth}x${ctx.containerHeight}|${ctx.charWidth}|${ctx.baseFontSize}|${ctx.activeWindowId}`,
+  );
+  const scene = useAppSelector((ctx) =>
+    sceneKey({
+      window: ctx.windows.some((w) => w.id === ctx.activeWindowId && w.windowType === 'tab')
+        ? ctx.activeWindowId
+        : null,
+      pane: ctx.activePaneId,
+      group:
+        Object.values(ctx.paneGroups).find(
+          (g) => ctx.activePaneId !== null && g.paneIds.includes(ctx.activePaneId),
+        )?.id ?? null,
+    }),
+  );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const blinkRef = useRef<HTMLDivElement>(null);
+  const shapeRef = useRef<HTMLDivElement>(null);
+  const charRef = useRef<HTMLSpanElement>(null);
+  const motion = useRef<Motion>({
+    snapUntil: 0,
+    scene: null,
+    corners: null,
+    leading: [true, true, true, true],
+    target: null,
+    raf: 0,
+    lastFrame: 0,
+    followUntil: 0,
+    lostAt: 0,
+  });
+
+  /** Runs the frame loop unless it is running; set by the effect below. */
+  const wake = useRef<(() => void) | null>(null);
+
+  useLayoutEffect(() => {
+    const m = motion.current;
+    return () => cancelAnimationFrame(m.raf);
+  }, []);
+
+  // The page the app is embedded in moves the anchor under this fixed overlay
+  // without a render — scrolled (it, or any scroller inside it), or laid out
+  // again for a resized window, which re-centres an app whose grid kept its
+  // size. Follow it, in place, since a glide would trail the text the cursor
+  // sits on.
+  useLayoutEffect(() => {
+    const onPageMove = () => {
+      const m = motion.current;
+      const until = performance.now() + PAGE_FOLLOW_MS;
+      m.snapUntil = Math.max(m.snapUntil, until);
+      m.followUntil = Math.max(m.followUntil, until);
+      wake.current?.();
+    };
+    window.addEventListener('scroll', onPageMove, { capture: true, passive: true });
+    window.addEventListener('resize', onPageMove, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onPageMove, { capture: true });
+      window.removeEventListener('resize', onPageMove);
+    };
+  }, []);
+
+  // The anchor was (re)attached or detached: measure now and keep following
+  // for a while, since the DOM it sits in may still be transitioning.
+  useLayoutEffect(() => {
+    const m = motion.current;
+    m.followUntil = performance.now() + FOLLOW_MS;
+    // The anchor of the new tab or member can attach a frame before or after
+    // the state that names it, and its content can settle later still.
+    const next = parseScene(scene);
+    if (isSceneChange(m.scene, next)) m.snapUntil = performance.now() + SCENE_SNAP_MS;
+    m.scene = next;
+    wake.current = () => {
+      if (m.raf || typeof requestAnimationFrame !== 'function') return;
+      m.lastFrame = performance.now();
+      m.raf = requestAnimationFrame(frame);
+    };
+    wake.current();
+
+    function frame(now: number) {
+      m.raf = 0;
+      const root = rootRef.current;
+      const shape = shapeRef.current;
+      const glyph = charRef.current;
+      if (!root || !shape || !glyph) return;
+
+      const dt = Math.min(50, Math.max(0, now - m.lastFrame));
+      m.lastFrame = now;
+
+      const anchor = getCursorAnchor();
+      const target = anchor && anchor.isConnected ? targetOf(anchor) : null;
+      if (!target) {
+        if (m.target) m.lostAt = now;
+        m.target = null;
+        root.style.opacity = '0';
+        // Out of sight is not the end of the story: a pane opening carries its
+        // cursor in from off its own edge, and no render announces the frames
+        // in between. Keep looking for as long as anything is still moving,
+        // or the cursor would stay hidden until something else re-rendered.
+        if (now < m.followUntil) m.raf = requestAnimationFrame(frame);
+        return;
+      }
+
+      if (!m.target || !sameBox(m.target, target)) {
+        // A new destination: the corners on the side we are heading to lead.
+        const from = m.target ?? target;
+        const dx = target.left + target.width / 2 - (from.left + from.width / 2);
+        const dy = target.top + target.height / 2 - (from.top + from.height / 2);
+        const offsets = [
+          { x: -1, y: -1 },
+          { x: 1, y: -1 },
+          { x: 1, y: 1 },
+          { x: -1, y: 1 },
+        ];
+        m.leading = offsets.map((o) => o.x * dx + o.y * dy >= 0);
+        glyph.style.font = target.font;
+        glyph.style.letterSpacing = target.letterSpacing;
+        // A cursor that just moved is a cursor being typed at: restart the
+        // blink so it is solid while the user works and only starts winking
+        // once they stop. Rewinding the running animation avoids the reflow a
+        // class flip would cost on every keystroke.
+        blinkRef.current?.getAnimations?.().forEach((a) => {
+          a.currentTime = 0;
+        });
+      }
+      m.target = target;
+
+      const dest = cornersOf(target);
+      // Appear in place unless a cursor was showing a moment ago, in which
+      // case glide in from where it was (the pane-to-pane jump).
+      const hidden = root.style.opacity !== '1';
+      const snap =
+        reducedMotion() || now < m.snapUntil || (hidden && now - m.lostAt > FLY_FROM_MEMORY_MS);
+      if (snap || !m.corners) m.corners = dest.map((p) => ({ ...p }));
+
+      let maxDist = 0;
+      m.corners.forEach((c, i) => {
+        const tau = m.leading[i] ? LEAD_TAU_MS : TRAIL_TAU_MS;
+        const k = 1 - Math.exp(-dt / tau);
+        c.x += (dest[i].x - c.x) * k;
+        c.y += (dest[i].y - c.y) * k;
+        const d = Math.hypot(dest[i].x - c.x, dest[i].y - c.y);
+        if (d < SETTLE_PX) {
+          c.x = dest[i].x;
+          c.y = dest[i].y;
+        } else if (d > maxDist) {
+          maxDist = d;
+        }
+      });
+
+      shape.style.clipPath = `polygon(${m.corners.map((c) => `${c.x}px ${c.y}px`).join(', ')})`;
+      root.classList.toggle('is-copy', target.copy);
+      root.classList.toggle('is-blinking', target.blink);
+      root.style.opacity = '1';
+
+      const showGlyph = target.mode === 'block' && maxDist < GLYPH_AT_PX;
+      glyph.style.opacity = showGlyph ? '1' : '0';
+      if (showGlyph) {
+        glyph.style.transform = `translate(${target.left}px, ${target.top}px)`;
+        glyph.style.width = `${target.width}px`;
+        glyph.style.height = `${target.height}px`;
+        glyph.style.lineHeight = `${target.height}px`;
+        if (glyph.textContent !== target.char) glyph.textContent = target.char;
+      }
+
+      if (maxDist > 0 || now < m.followUntil) m.raf = requestAnimationFrame(frame);
+    }
+  }, [version, layoutKey, scene]);
+
+  return (
+    <div ref={rootRef} className="smooth-cursor" aria-hidden="true" data-testid="smooth-cursor">
+      {/* The blink lives on its own layer: the root's and the glyph's opacity
+          are written every frame by the glide, so an animation on either would
+          be overwritten. */}
+      <div ref={blinkRef} className="smooth-cursor-blink">
+        <div ref={shapeRef} className="smooth-cursor-shape" />
+        <span ref={charRef} className="smooth-cursor-char" />
+      </div>
+    </div>
+  );
+}

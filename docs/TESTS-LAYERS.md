@@ -109,7 +109,7 @@ A push that changes only prose — `docs/**` or any `*.md` — runs no workflow 
 ## UI Unit Tests
 
 - Vitest with jsdom, configured in `packages/tmuxy-ui/vite.config.ts`; `src/test/setup.ts` installs jest-dom matchers, an in-memory `localStorage` for Node ≥ 22, and cleans up after each test
-- Tests live beside the code in `__tests__/` directories: `src/utils/`, `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/domain/` (the command vocabulary, the delta protocol, the store's pure logic), `src/infra/` (the transport service and its drivers — HTTP, Tauri, the demo backend — key batching, the store), `src/components/`, `src/hooks/`
+- Tests live beside the code in `__tests__/` directories: `src/machines/` (state handlers share `src/machines/app/states/__tests__/testHarness.ts`), `src/domain/` (the command vocabulary, the delta protocol, the store's pure logic), `src/infra/` (the transport service and its drivers — HTTP, Tauri, the demo backend — key batching, the store), `src/components/` (and its feature folders, `components/terminal/`, `components/phone/`, `components/menus/specs/`)
 - Test pure logic: parsers, state transformations, utility functions, adapter protocol handling
 - Component rendering in jsdom is limited to a few mocked-context tests in `src/test/`. jsdom has no layout, so a jsdom render test can prove "does not throw" and "renders this text", never "is visible" — anything visual belongs in a story or E2E
 - Keep unit tests fast (< 1s per file)

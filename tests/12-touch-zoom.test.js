@@ -6,7 +6,7 @@
  * scrolls sideways only, with the key row under it. Held sideways, the
  * doubled grid is taller than the screen and scrolls both ways. Either way a
  * keyboard coming up cuts the terminal short, and it scrolls to keep the
- * cursor's row in view above the keyboard (hooks/usePhoneViewport.ts).
+ * cursor's row in view above the keyboard (components/phone/usePhoneViewport.ts).
  *
  * A headless browser draws no keyboard and never shrinks its visual viewport,
  * so the suite brings up a mock one that does both (helpers/keyboard-mock.js).

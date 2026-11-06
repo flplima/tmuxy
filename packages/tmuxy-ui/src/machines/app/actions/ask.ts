@@ -10,13 +10,13 @@
  * here rather than in the overlay component because the keyboard actor moves
  * it too, from outside React.
  *
- * See `utils/paneAsk.ts` for the wire format and `packages/tmuxy-cli/bin/tmuxy/ask` for the other
+ * See `domain/paneAsk.ts` for the wire format and `packages/tmuxy-cli/bin/tmuxy/ask` for the other
  * end of it.
  */
 
 import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
-import { paneAskFor, paneSendFor, type AskAnswer } from '../../../utils/paneAsk';
+import { paneAskFor, paneSendFor, type AskAnswer } from '../../../domain/paneAsk';
 import { TmuxOp } from '../../../domain/commands';
 import { visibleFloats } from '../../selectors/panesAndSidebars';
 import type { PaneId } from '../../../domain/ids';

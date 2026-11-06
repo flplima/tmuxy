@@ -13,8 +13,8 @@ import { useAppSelector, useAppSend, usePane, usePaneGroup } from '../machines/a
 import { PaneContextMenu } from './PaneContextMenu';
 import { PaneTab } from './PaneTab';
 import { Tooltip } from './Tooltip';
-import { measureTabStrip } from '../utils/tabStripDrop';
-import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../utils/tabOverview';
+import { measureTabStrip } from '../machines/drag/tabStripDrop';
+import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../domain/tabOverview';
 import { isModelPaneId, type PaneId } from '../domain/ids';
 
 /** Maximum touch movement in px before cancelling long-press */

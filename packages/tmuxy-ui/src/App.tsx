@@ -11,8 +11,8 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } fr
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
-import { isTauri } from './utils/platform';
-import { usePluginLinks } from './hooks/usePluginLinks';
+import { isTauri } from './infra/platform';
+import { usePluginLinks } from './components/terminal/usePluginLinks';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
@@ -20,7 +20,7 @@ import { FloatContainer } from './components/FloatPane';
 import { KeysView } from './components/KeysView';
 import { Sidebar } from './components/Sidebar';
 import { TabOverview } from './components/TabOverview';
-import { GestureStage } from './components/GestureStage';
+import { GestureStage } from './components/gestures/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
 import { SessionList } from './components/SessionList';
 import { useAppSelector, useAppSend, useAppState, useAppConfig } from './machines/appHooks';
@@ -41,18 +41,22 @@ import {
   selectCursorBlink,
   selectSidebarFocused,
 } from './machines/selectors/ui';
-import { cellMetricsStyle } from './utils/cellMetrics';
-import { useSelectionRows } from './hooks/useSelectionRows';
+import { cellMetricsStyle } from './infra/dom/cellMetrics';
+import { useSelectionRows } from './components/terminal/useSelectionRows';
 import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
-import { SmoothCursor } from './components/SmoothCursor';
+import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
-import { KeyRow } from './components/KeyRow';
-import { PhoneTabStrip } from './components/PhoneTabStrip';
-import { useCursorInView, usePhoneZoomScroll, useVisualViewport } from './hooks/usePhoneViewport';
-import { PHONE_COLS } from './utils/phoneLayout';
+import { KeyRow } from './components/phone/KeyRow';
+import { PhoneTabStrip } from './components/phone/PhoneTabStrip';
+import {
+  useCursorInView,
+  usePhoneZoomScroll,
+  useVisualViewport,
+} from './components/phone/usePhoneViewport';
+import { PHONE_COLS } from './infra/dom/phoneLayout';
 import { PHONE_CONTAINER_PADDING } from './constants/layout';
-import { PhoneBottomView } from './components/PhoneBottomView';
+import { PhoneBottomView } from './components/phone/PhoneBottomView';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -257,7 +261,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
         sidebarPeek ? ' has-sidebar-peek' : ''
       }${cursorBlink ? ' app-cursor-blink' : ''}${animationsAllowed ? '' : ' app-no-animations'}`}
       // Publish the measured cell grid (--cell-w / --cell-gap) to every
-      // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
+      // terminal text run and cell-addressed box below — see infra/dom/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
     >
       {!phone && <StatusBar renderTabline={renderTabline} />}

@@ -10,11 +10,10 @@ import { useEffect } from 'react';
 import { FloatingMenu } from './floating/Menu';
 import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { TmuxOp } from '../domain/commands';
-import { selectionMenuSpec } from '../domain/menus/selectionMenu';
-import { pluginItemId, pluginMenuEntries } from '../domain/plugins';
+import { selectionMenuSpec } from './menus/specs/selectionMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { flashCopiedRange } from '../utils/copyFlash';
-import { writeClipboard } from '../utils/clipboard';
+import { flashCopiedRange } from '../infra/dom/copyFlash';
+import { writeClipboard } from '../infra/clipboard';
 import type { PaneId } from '../domain/ids';
 import { useNativeMenu } from './menus/useNativeMenu';
 
@@ -66,25 +65,20 @@ export function SelectionContextMenu({
   // Every action is the end of the selection's job: the scrollback view (or
   // copy mode) closes with the menu.
   const dispatch = useMenuDispatch({
-    onLocal: (id) => {
-      if (id === 'copy') {
-        writeClipboard(selectedText, paneId);
+    onLocal: (local) => {
+      if (local.verb === 'copy-selection') {
+        void writeClipboard(selectedText, paneId);
         flashCopiedRange(selectionRange);
-      } else if (id === 'send-keys') {
+      } else if (local.verb === 'send-selection') {
         send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: paneId, text: selectedText }) });
-      } else {
-        const entry = pluginMenuEntries(plugins, 'selection').find(
-          (e) => pluginItemId(e.plugin, e.action.id) === id,
-        );
-        if (entry) {
-          send({
-            type: 'PLUGIN_ACTION',
-            plugin: entry.plugin,
-            action: entry.action.id,
-            paneId,
-            selection: selectedText,
-          });
-        }
+      } else if (local.verb === 'plugin-selection') {
+        send({
+          type: 'PLUGIN_ACTION',
+          plugin: local.plugin,
+          action: local.action,
+          paneId,
+          selection: selectedText,
+        });
       }
       send({ type: 'EXIT_COPY_MODE', paneId });
       onClose();

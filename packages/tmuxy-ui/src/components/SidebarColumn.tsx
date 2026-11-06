@@ -23,11 +23,11 @@
  */
 
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
-import { TerminalPane } from './TerminalPane';
+import { TerminalPane } from './terminal/TerminalPane';
 import { SidebarTree } from './SidebarTree';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarCellMetrics } from '../machines/selectors/layout';
-import { cellMetricsStyle } from '../utils/cellMetrics';
+import { cellMetricsStyle } from '../infra/dom/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../domain/client';
 

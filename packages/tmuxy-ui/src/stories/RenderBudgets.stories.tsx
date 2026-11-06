@@ -1,7 +1,7 @@
 /**
  * React render-efficiency budgets.
  *
- * Every story enables the render log (utils/renderLog.tsx) BEFORE the app
+ * Every story enables the render log (components/renderLog.tsx) BEFORE the app
  * mounts, then asserts Profiler commit counts per component id. This catches
  * the class of waste MutationObserver cannot: a component that re-renders but
  * produces identical DOM still burns CPU on every state tick.
@@ -27,7 +27,7 @@ import {
   renderLogMark,
   renderCountSince,
   renderCountsById,
-} from '../utils/renderLogStore';
+} from '../components/renderLogStore';
 
 /** Enter, answered with what the line typed before it printed. */
 const enterShows = (state: string) => [{ match: /^send-keys -t %0 Enter$/, to: state }];
