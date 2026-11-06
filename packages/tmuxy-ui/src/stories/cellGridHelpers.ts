@@ -1,12 +1,20 @@
+/**
+ * Cell-grid geometry, in cells, shared by the stories and the E2E suite
+ * (tests/helpers/cell-grid.js loads this file through Node's own loader and
+ * rebuilds `cellWidthOf` and `runCells` in the page from their source): erasable
+ * TypeScript only, and those two self-contained.
+ */
+
 /** Resolve once the webfont is in and the post-load re-measure has painted. */
 export async function cellGridReady(): Promise<void> {
   await document.fonts.ready;
   await new Promise<void>((r) => requestAnimationFrame(() => r()));
 }
 
+/** The snapped cell width `grid` publishes as `--cell-w`, in CSS px. */
 export function cellWidthOf(grid: HTMLElement): number {
   const w = parseFloat(getComputedStyle(grid).getPropertyValue('--cell-w'));
-  if (!(w > 0)) throw new Error(`--cell-w not published on grid (got "${w}")`);
+  if (!(w > 0)) throw new Error(`--cell-w not published on ${grid.className} (got "${w}")`);
   return w;
 }
 

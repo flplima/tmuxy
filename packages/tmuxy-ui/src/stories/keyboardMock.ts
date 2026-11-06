@@ -1,17 +1,15 @@
 /**
- * A phone keyboard for stories, which no headless browser draws: the story's
- * screen (the frame FixtureProvider sizes) loses `height` px at the bottom,
- * as the visual viewport does when a real keyboard comes up, and a keyboard
- * is drawn in the space it leaves so a reader of the story sees why.
- *
- * tests/helpers/keyboard-mock.js does the same for the E2E suite and the
- * changelog screencasts against the real app, where it shrinks the visual
- * viewport itself; the drawing is the same.
+ * A phone keyboard, which no headless browser draws, for stories and for the
+ * E2E suite (tests/helpers/keyboard-mock.js loads this file through Node's own
+ * loader and serialises `drawKeyboard` into the page, hence erasable
+ * TypeScript only and a self-contained `drawKeyboard`). A real keyboard takes
+ * the bottom of the screen; each host takes that height its own way — a story
+ * shrinks its frame, the E2E suite the visual viewport — and both draw this
+ * one in the space it leaves.
  */
 
-const ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
-
-function drawKeyboard(host: HTMLElement, height: number): HTMLElement {
+/** Draw a keyboard `height` px tall at the end of `host`, and return it. */
+export function drawKeyboard(host: HTMLElement, height: number): HTMLElement {
   const board = document.createElement('div');
   board.dataset.testid = 'mock-keyboard';
   board.setAttribute('aria-hidden', 'true');
@@ -27,7 +25,7 @@ function drawKeyboard(host: HTMLElement, height: number): HTMLElement {
     font: '500 15px system-ui, sans-serif',
     color: '#f2f2f7',
   });
-  for (const keys of [...ROWS, ' ']) {
+  for (const keys of ['qwertyuiop', 'asdfghjkl', 'zxcvbnm', ' ']) {
     const row = document.createElement('div');
     Object.assign(row.style, { display: 'flex', gap: '5px', flex: '1', justifyContent: 'center' });
     for (const key of keys === ' ' ? ['123', 'space', 'return'] : [...keys]) {

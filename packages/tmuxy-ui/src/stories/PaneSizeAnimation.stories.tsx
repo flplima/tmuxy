@@ -22,6 +22,7 @@ import {
   waitForAnimationsEnabled,
   waitForPaneCount,
 } from './animationStoryHelpers';
+import { cursorPolygon } from './cursorShape';
 
 const SIDE_BY_SIDE = {
   fixture: asFixture(moves),
@@ -165,9 +166,7 @@ export const TheCursorStaysInsideTheOpeningRow: Story = {
     const paintedTop = (): number | null => {
       const el = shape();
       if (!el || overlay()?.style.opacity !== '1') return null;
-      const polygon = getComputedStyle(el).clipPath.match(/polygon\(([^)]*)\)/);
-      if (!polygon) return null;
-      const ys = polygon[1].split(',').map((point) => parseFloat(point.trim().split(/\s+/)[1]));
+      const ys = cursorPolygon(getComputedStyle(el).clipPath).map(([, y]) => y);
       return ys.length ? Math.min(...ys) : null;
     };
 
