@@ -332,7 +332,7 @@ impl PaneState {
     /// SGR mouse reports, and the ones in between — the flag momentarily false
     /// with the alternate screen still on — went as arrow keys, so a
     /// mouse-tracking app received both for one flick of the trackpad (see
-    /// `sendScrollLines` in tmuxy-ui/src/hooks/scrollUtils.ts, where mouse
+    /// `sendScrollLines` in tmuxy-ui/src/components/terminal/scrollUtils.ts, where mouse
     /// tracking and alt-screen are deliberately exclusive).
     ///
     /// Entering the modes up front keeps the captured screen in the grid tmux

@@ -6,10 +6,10 @@
 import type { AnyActorRef } from 'xstate';
 import type { CopyModeState } from '../../../domain/copyMode';
 import type { PaneId, WindowId } from '../../../domain/ids';
-import { decodePaneAsk, type AskAnswer } from '../../../utils/paneAsk';
-import { extractSelectedText } from '../../../utils/copyMode';
-import { focusGuiWindow, newGuiWindow } from '../../../utils/guiWindows';
-import { isTauri } from '../../../utils/platform';
+import { decodePaneAsk, type AskAnswer } from '../../../domain/paneAsk';
+import { extractSelectedText } from '../../../domain/copyModeOps';
+import { focusGuiWindow, newGuiWindow } from '../../../infra/guiWindows';
+import { isTauri } from '../../../infra/platform';
 import { isReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { isModifierOnlyKey, windowShortcut } from './keyFormatting';
 

@@ -16,7 +16,7 @@ import { useAppSelector } from '../../machines/appHooks';
 import { menuBarSpec } from './specs/menuBar';
 import { itemIds, submenuOpeners, type MenuSpec } from '../../domain/menus/spec';
 import { setNativeAppMenu } from '../../infra/menus/nativeMenu';
-import { failing } from '../../utils/logFailure';
+import { failing } from '../../infra/logFailure';
 import { useMenuEnv } from './menuEnv';
 import { useMenuHost } from './menuHost';
 import { useAppMenuSurface } from './useAppMenuSurface';

@@ -15,9 +15,9 @@ import {
   selectSidebarLayout,
 } from '../../selectors/panesAndSidebars';
 import { selectDockRows } from '../../selectors/layout';
-import { calculateTargetSize } from '../../../utils/layout';
+import { calculateTargetSize } from '../../../constants/gridSize';
 import { releaseKeyboard, sidebarStartTimeoutId } from '../helpers';
-import { fixedGridSize } from '../../../utils/gridFit';
+import { fixedGridSize } from '../../../domain/gridFit';
 import { fitWindowToSidebar } from '../../../infra/desktopWindow';
 
 /** How long a sidebar may sit on "starting…" before the column reports a failure. */

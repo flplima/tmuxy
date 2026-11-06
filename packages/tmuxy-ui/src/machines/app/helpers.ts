@@ -9,7 +9,7 @@ import type { DrawerDirection, FloatBackdrop, FloatPaneState } from '../types/do
 import type { PaneGroup } from '../../domain/client';
 import type { TmuxPane, TmuxWindow } from '../../domain/client';
 import type { Ctx, EnqueueAction } from './actionTypes';
-import { fitGridCell, fixedGridSize, type GridCell } from '../../utils/gridFit';
+import { fitGridCell, fixedGridSize, type GridCell } from '../../domain/gridFit';
 
 /** The surfaces that can hold the keyboard away from the tiled panes. */
 export type KeyboardSurface = 'left' | 'right' | 'float';
@@ -62,7 +62,7 @@ export function gridExtent(
 
 /**
  * The grid's cell for this context: the measured cell, fitted to the window
- * when `@tmuxy-size` sized it for someone else (utils/gridFit.ts). A fixed
+ * when `@tmuxy-size` sized it for someone else (domain/gridFit.ts). A fixed
  * size fits the grid it asks for, even before tmux has applied it; the
  * phone layout keeps its own cut cell.
  */

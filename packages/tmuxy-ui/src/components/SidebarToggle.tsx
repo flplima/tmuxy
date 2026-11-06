@@ -16,7 +16,7 @@
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
-import { useSidebarPeekToggle } from '../hooks/useSidebarPeek';
+import { useSidebarPeekToggle } from './useSidebarPeek';
 import './SidebarToggle.css';
 
 interface SidebarToggleProps {

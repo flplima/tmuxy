@@ -278,7 +278,7 @@ describe('uiPrefs state', () => {
   });
 
   it('RESET_FONT_SIZE resets to DEFAULT_FONT_SIZE', async () => {
-    const { DEFAULT_FONT_SIZE } = await import('../../../../utils/fontSizeManager');
+    const { DEFAULT_FONT_SIZE } = await import('../../../../infra/fontSizeManager');
     const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards, {
       baseFontSize: 22,
     });

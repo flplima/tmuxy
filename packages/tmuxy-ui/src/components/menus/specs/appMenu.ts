@@ -153,7 +153,7 @@ export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec 
       action: event({ type: 'TOGGLE_SEND_ASK' }),
     },
     // This device's push notifications: a browser or the installed web app
-    // only (utils/pushNotifications.ts). tmuxy.conf can turn them off for
+    // only (infra/pushNotifications.ts). tmuxy.conf can turn them off for
     // every device (`@tmuxy-notify off`), and the browser for this one. The
     // demo has no server to push from.
     !env.isDemo &&

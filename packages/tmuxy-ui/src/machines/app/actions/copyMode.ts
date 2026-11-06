@@ -7,15 +7,15 @@
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import type { CopyModeState } from '../../../domain/copyMode';
-import { handleCopyModeKey } from '../../../utils/copyModeKeys';
+import { handleCopyModeKey } from '../../../domain/copyModeKeys';
 import {
   clampColToLine,
   isWrappedRow,
   extractSelectedText,
   toAbsoluteRow,
-} from '../../../utils/copyMode';
+} from '../../../domain/copyModeOps';
 import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
-import { writeClipboard } from '../../../utils/clipboard';
+import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import {
   applyScrollbackChunk,

@@ -11,7 +11,7 @@
 
 import type { Image } from '@tauri-apps/api/image';
 import { menuIconSvg, type MenuIconName } from '../../domain/menus/icons';
-import { resolveThemeMode } from '../../utils/themeManager';
+import { resolveThemeMode } from '../themeManager';
 
 /** muda draws a menu item's image 18pt tall: twice that, for a Retina screen. */
 const SIZE = 36;

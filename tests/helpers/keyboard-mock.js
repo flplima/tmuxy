@@ -2,7 +2,7 @@
  * A phone keyboard for the E2E suite and the changelog screencasts, which no
  * headless browser draws. A real one covers the bottom of the page and only
  * the visual viewport shrinks (the layout viewport keeps its height), which
- * is what the app follows (hooks/usePhoneViewport.ts). So the mock does
+ * is what the app follows (components/phone/usePhoneViewport.ts). So the mock does
  * exactly that: `window.visualViewport.height` reports `height` px less and
  * fires its `resize`, and a keyboard is drawn, fixed, in the space below.
  *

@@ -16,7 +16,7 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, tapAt } from './phoneStoryHelpers';
-import { PHONE_STATUS_HEIGHT } from '../utils/phoneLayout';
+import { PHONE_STATUS_HEIGHT } from '../infra/dom/phoneLayout';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Layout',

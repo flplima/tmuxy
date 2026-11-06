@@ -11,7 +11,7 @@
 
 import React, { useCallback } from 'react';
 import { Modal } from './Modal';
-import { Terminal } from './Terminal';
+import { Terminal } from './terminal/Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
@@ -25,8 +25,8 @@ import {
   selectPhoneLayout,
 } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
-import { LogProfiler } from '../utils/renderLog';
-import { focusKeyboardInput } from '../utils/mobileKeyboard';
+import { LogProfiler } from './renderLog';
+import { focusKeyboardInput } from '../infra/dom/mobileKeyboard';
 import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';

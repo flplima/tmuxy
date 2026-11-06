@@ -20,7 +20,7 @@
  * Row anatomy, and why it is split across the two edges:
  *  - the LEFT edge answers "where am I?" — a green rail marks the active pane.
  *  - the RIGHT edge answers "what is it doing?" — the pane's own declared state
- *    (`utils/paneState.ts`), with a dead pane's exit status beside it.
+ *    (`domain/paneState.ts`), with a dead pane's exit status beside it.
  *  - in between, the process name is bold and whatever trails it is dim, so the
  *    eye lands on WHAT is running before WHICH file it has open.
  *  - a tab row carries a chevron and, on its right, the count of panes and the
@@ -58,12 +58,12 @@ import {
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
 import { selectSessions, selectRepositories } from '../machines/selectors/ui';
-import { tabPaneStates } from '../utils/paneState';
+import { tabPaneStates } from '../domain/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
 import type { PaneId, WindowId } from '../domain/ids';
-import { useReorderDrag } from '../hooks/useReorderDrag';
-import { tabWalksChrome } from '../utils/chromeTab';
+import { useReorderDrag } from './useReorderDrag';
+import { tabWalksChrome } from '../infra/dom/chromeTab';
 import { isRealFormControl } from '../machines/actors/keyboard/keyFormatting';
 import {
   rowDomId,

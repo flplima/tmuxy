@@ -13,7 +13,7 @@
  * this one waits for the release: moving a pane between tabs is disruptive
  * enough that passing over a tab on the way somewhere else must not do it.
  *
- * Over a pane header the gesture is about pane groups (see utils/groupDrop):
+ * Over a pane header the gesture is about pane groups (see machines/drag/groupDrop):
  * a member moves along its group's order, an ungrouped pane joins the group
  * of the header it is dropped on, and a parked member dragged out by its tab
  * leaves the group. These also wait for the release.
@@ -32,7 +32,7 @@ import type {
 } from '../types/domain';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
-import { tabStripDrop, tabDropOp, sameTabDrop } from '../../utils/tabStripDrop';
+import { tabStripDrop, tabDropOp, sameTabDrop } from './tabStripDrop';
 import {
   groupDropAt,
   groupDropOp,
@@ -41,10 +41,10 @@ import {
   leaveOp,
   sameGroupDrop,
   sideOf,
-} from '../../utils/groupDrop';
+} from './groupDrop';
 import { paneInsetX } from '../../constants/layout';
 import { TmuxOp } from '../../domain/commands';
-import { haptics } from '../../utils/haptics';
+import { haptics } from '../../infra/haptics';
 
 /** How long the pointer rests on a pane before the dragged pane swaps with it. */
 export const SWAP_DWELL_MS = 250;

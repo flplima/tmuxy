@@ -15,7 +15,7 @@ import {
   type TraceLevel,
 } from '../../domain/wireSettings';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
-import { openExternalUrl } from '../../utils/openUrl';
+import { openExternalUrl } from '../../infra/openUrl';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(

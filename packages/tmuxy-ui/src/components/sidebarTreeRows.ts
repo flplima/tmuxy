@@ -13,7 +13,7 @@ import type { TmuxPane, TmuxWindow } from '../domain/client';
 import type { selectSessions, selectRepositories } from '../machines/selectors/ui';
 import type { PaneGroup } from '../domain/client';
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
-import { inGridOrder } from '../utils/gridOrder';
+import { inGridOrder } from './gridOrder';
 
 /**
  * A flattened, keyboard-navigable row: the attached session's tabs, each with

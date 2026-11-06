@@ -3,9 +3,9 @@
  *
  * The smallest viewport any other test opens is 800x600 and no other browser
  * context in the suite has `hasTouch` set — so on a real phone these run
- * nowhere else: the phone layout (utils/phoneLayout.ts — the whole 80 × 25
+ * nowhere else: the phone layout (infra/dom/phoneLayout.ts — the whole 80 × 25
  * terminal, the key row and the tree under it), the hidden input that IS the
- * virtual keyboard (utils/mobileKeyboard.ts, whose `focusMobileInput`
+ * virtual keyboard (infra/dom/mobileKeyboard.ts, whose `focusMobileInput`
  * returns immediately unless `navigator.maxTouchPoints > 0`), the key row's
  * latching ctrl, the swipe that opens the scroll view, and the tree standing
  * in for the tab strip.

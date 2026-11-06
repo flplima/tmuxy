@@ -10,7 +10,7 @@
  * client invoke to the native outcome (zoom state, button geometry).
  */
 
-import { isMacPlatform, isTauri } from '../utils/platform';
+import { isMacPlatform, isTauri } from './platform';
 import { tracer } from './tracer';
 
 export const isMacTauri = isTauri() && isMacPlatform();

@@ -25,7 +25,7 @@ import {
   splitFrontMatter,
   type PreviewDocument,
 } from '../../../domain/preview';
-import { openExternalUrl, safeHref } from '../../../utils/openUrl';
+import { openExternalUrl, safeHref } from '../../../infra/openUrl';
 
 function LocalImage({ path, alt, source }: { path: string; alt: string; source: PreviewSource }) {
   const image = useKeyedRequest(path, () => source.readResource(path));

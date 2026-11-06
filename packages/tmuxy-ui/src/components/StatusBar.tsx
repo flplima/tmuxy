@@ -20,14 +20,14 @@ import type { RenderTabline } from '../App';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarLayout } from '../machines/selectors/panesAndSidebars';
 import { CONTAINER_PADDING_X } from '../constants/layout';
-import { isTauri } from '../utils/platform';
+import { isTauri } from '../infra/platform';
 import {
   isMacTauri,
   reportTitlebarHeight,
   startWindowDrag,
   titlebarDoubleClick,
 } from '../infra/desktopWindow';
-import { LogProfiler } from '../utils/renderLog';
+import { LogProfiler } from './renderLog';
 import { WindowTabs } from './WindowTabs';
 import { AppMenu } from './menus/AppMenu';
 import { SidebarToggle } from './SidebarToggle';
@@ -35,7 +35,7 @@ import { TabOverviewToggle } from './TabOverviewToggle';
 import { NewTabButton } from './NewTabButton';
 import { TabStripScroll } from './TabStripScroll';
 import { SidebarTitle } from './SidebarTitle';
-import { useWindowStyle } from '../utils/guiWindows';
+import { useWindowStyle } from '../infra/guiWindows';
 import './StatusBar.css';
 
 /** Interactive chrome inside the bar — clicks on these never drag or zoom the window. */

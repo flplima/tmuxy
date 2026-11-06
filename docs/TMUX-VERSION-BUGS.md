@@ -133,7 +133,7 @@ The native control-mode path does not need it: a `#{pane_id}` typed at the promp
 
 On 3.7a, when a pane's application has enabled mouse reporting (`?1000h`/`?1006h`, i.e. `mouse_any_flag` is set), an SGR mouse sequence (`ESC [< b;x;y M`) delivered to that pane via `paste-buffer` is **consumed by tmux and never reaches the application** — silently, with no error. The same bytes reach a pane that has NOT enabled mouse tracking. This broke tmuxy's synthetic mouse forwarding (browser click → SGR injection), which previously piped through `load-buffer`/`paste-buffer`.
 
-The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/hooks/scrollUtils.ts` (`sgrMouseCommand`).
+The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/components/terminal/scrollUtils.ts` (`sgrMouseCommand`).
 
 One trap: `-H` commands must never be merged by the frontend's send-keys batcher — joining two puts a literal `-H` token mid-keys, tmux rejects it as an unknown key, and the whole combined command fails (a click's press+release land in one batch window, so a plain click would deliver nothing).
 

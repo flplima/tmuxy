@@ -1,8 +1,8 @@
 import type { PaneGroup, TmuxPane, TmuxWindow } from '../../domain/client';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { Side, TmuxOp } from '../../domain/commands';
-import type { TabDrop, TabStripGeometry } from '../../utils/tabStripDrop';
-import type { GroupDrop } from '../../utils/groupDrop';
+import type { TabDrop, TabStripGeometry } from '../drag/tabStripDrop';
+import type { GroupDrop } from '../drag/groupDrop';
 
 // ============================================
 // Shared State Types

@@ -18,11 +18,11 @@ import {
   touchIsPrimary,
   setKeyboardInputTarget,
   setupMobileKeyboard,
-} from '../../../utils/mobileKeyboard';
-import { flashCopiedRange } from '../../../utils/copyFlash';
-import { terminalSelection, terminalTextOf } from '../../../utils/nativeSelection';
-import { getLatches, pressKey } from '../../../utils/keyLatch';
-import { noteFocus, PANE_SURFACE } from '../../../utils/chromeTab';
+} from '../../../infra/dom/mobileKeyboard';
+import { flashCopiedRange } from '../../../infra/dom/copyFlash';
+import { terminalSelection, terminalTextOf } from '../../../infra/dom/nativeSelection';
+import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
+import { noteFocus, PANE_SURFACE } from '../../../infra/dom/chromeTab';
 import { isModelPaneId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';

@@ -277,14 +277,14 @@
 }
 
 /* ============================================
-   Phone layout (utils/phoneLayout.ts)
+   Phone layout (infra/dom/phoneLayout.ts)
    ============================================ */
 
 /* Top to bottom: the tab strip, the terminal, the key row, the tree. The
    strip and the key row keep their place; the tree takes what is left and is
    the first to give when the phone's keyboard comes up. After it, the
    terminal does: it is cut short and scrolled to keep the cursor's row in
-   view (hooks/usePhoneViewport.ts). */
+   view (components/phone/usePhoneViewport.ts). */
 .app-body-phone {
   flex-direction: column;
 }
@@ -335,7 +335,7 @@
    of grid, then tmux's status line under them. The 80 columns are cut from
    the screen's width less 4px of padding each side — the grid's outer
    borders are drawn half a cell outside the panes, and with no padding they
-   were off the screen (PHONE_CONTAINER_PADDING in utils/phoneLayout.ts, the
+   were off the screen (PHONE_CONTAINER_PADDING in infra/dom/phoneLayout.ts, the
    same 4px below). */
 .phone-pty {
   --phone-zoom: 2;
@@ -376,7 +376,7 @@
    row is there, and scrolls sideways; upright, the bottom view makes way
    (App.tsx) so the whole height fits. When it does not — a keyboard up, or
    held sideways — the terminal box scrolls up and down, kept on the cursor's
-   row (hooks/usePhoneViewport.ts). The finger pans both: usePaneTouch.ts
+   row (components/phone/usePhoneViewport.ts). The finger pans both: usePaneTouch.ts
    leaves it to the browser while zoomed. */
 .phone-pty.is-zoomed {
   overflow-y: auto;

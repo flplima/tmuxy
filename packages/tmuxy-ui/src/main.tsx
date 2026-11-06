@@ -2,9 +2,9 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AppProvider } from './machines/AppContext';
-import { applyTheme, loadThemeFromStorage } from './utils/themeManager';
-import { isTauri } from './utils/platform';
-import { registerPushWorker } from './utils/pushNotifications';
+import { applyTheme, loadThemeFromStorage } from './infra/themeManager';
+import { isTauri } from './infra/platform';
+import { registerPushWorker } from './infra/pushNotifications';
 import './fonts/nerd-font.css';
 import './standalone.css';
 import './components/widgets/init';
@@ -14,7 +14,7 @@ import './components/widgets/init';
 // stays opaque (standalone.css).
 if (isTauri()) document.documentElement.dataset.desktop = '';
 
-// The worker web push notifications are shown by (utils/pushNotifications.ts).
+// The worker web push notifications are shown by (infra/pushNotifications.ts).
 registerPushWorker();
 
 // Apply saved theme (or defaults) before first render to avoid FOUC

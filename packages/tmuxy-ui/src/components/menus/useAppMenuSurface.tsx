@@ -9,8 +9,8 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
-import { isTauri } from '../../utils/platform';
-import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
+import { isTauri } from '../../infra/platform';
+import { copyAppState, type ClipboardReport } from './copyAppState';
 import {
   closeGuiWindow,
   focusGuiWindow,
@@ -21,7 +21,7 @@ import {
   setWindowStyle,
   type GuiWindowInfo,
   type WindowStyleSlug,
-} from '../../utils/guiWindows';
+} from '../../infra/guiWindows';
 import { windowMenuSpec } from './specs/windowMenu';
 import type { AppMenuOptions } from './specs/appMenu';
 import type { MenuEnv } from '../../domain/menus/spec';

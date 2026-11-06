@@ -6,9 +6,9 @@
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { calculateTargetSize } from '../../utils/layout';
+import { calculateTargetSize } from '../../constants/gridSize';
 import { CHAR_HEIGHT } from '../../constants/layout';
-import type { CellMetrics } from '../../utils/cellMetrics';
+import type { CellMetrics } from '../../infra/dom/cellMetrics';
 import {
   PHONE_COLS,
   PHONE_ROWS,
@@ -16,7 +16,7 @@ import {
   phoneLandscapeCell,
   phoneMediaQuery,
   rootFontPx,
-} from '../../utils/phoneLayout';
+} from '../../infra/dom/phoneLayout';
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
@@ -31,7 +31,7 @@ export interface SizeActorInput {
 
 /**
  * Measures the terminal font inside `host` (the observed pane container once
- * it exists, `document.body` before that) — see utils/cellMetrics.ts.
+ * it exists, `document.body` before that) — see infra/dom/cellMetrics.ts.
  */
 export interface MeasureFn {
   (host?: HTMLElement): CellMetrics;
@@ -67,7 +67,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     // inherited property that changes the advance is part of the measurement.
     let measureHost: HTMLElement | undefined;
 
-    // The phone layout (utils/phoneLayout.ts): the cell is whatever fits 80
+    // The phone layout (infra/dom/phoneLayout.ts): the cell is whatever fits 80
     // columns across the container, and the window asked for is fixed.
     const query = options.phoneLayout === undefined ? phoneMediaQuery() : null;
     let phone = options.phoneLayout ?? query?.matches ?? false;

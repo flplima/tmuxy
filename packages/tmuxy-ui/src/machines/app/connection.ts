@@ -7,13 +7,13 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from './actionTypes';
 import type { Ctx, EnqueueAction } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
-import { PHONE_COLS, PHONE_ROWS } from '../../utils/phoneLayout';
+import { PHONE_COLS, PHONE_ROWS } from '../../infra/dom/phoneLayout';
 import { fittedGridCell, gridExtent, releaseKeyboard } from './helpers';
-import { fixedGridSize } from '../../utils/gridFit';
-import { writeClipboard, clipboardWriteMessage } from '../../utils/clipboard';
+import { fixedGridSize } from '../../domain/gridFit';
+import { writeClipboard, clipboardWriteMessage } from '../../infra/clipboard';
 import { TmuxOp } from '../../domain/commands';
 import { memorableSessionName } from '../../domain/sessionNames';
-import { isTauri } from '../../utils/platform';
+import { isTauri } from '../../infra/platform';
 
 export const connectionGlobalEvents = {
   LOG_APPEND: { actions: 'connection_logAppend' },
@@ -159,7 +159,7 @@ export const connectionActions = {
     if (event.type !== 'SET_TARGET_SIZE') return;
     // A fixed `@tmuxy-size` is what every client asks for, whatever its
     // container measures: the grid keeps its cols/rows and the cell is
-    // fitted to it instead (utils/gridFit.ts).
+    // fitted to it instead (domain/gridFit.ts).
     const fixed = context.phoneLayout ? null : fixedGridSize(context.sizePolicy);
     const cols = context.phoneLayout ? PHONE_COLS : (fixed?.cols ?? event.cols);
     const rows = context.phoneLayout ? PHONE_ROWS : (fixed?.rows ?? event.rows);

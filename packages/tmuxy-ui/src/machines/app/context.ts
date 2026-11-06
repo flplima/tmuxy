@@ -1,4 +1,4 @@
-import { pushSupported } from '../../utils/pushNotifications';
+import { pushSupported } from '../../infra/pushNotifications';
 /**
  * Initial context and field-ownership registry for appMachine.
  *
@@ -15,9 +15,9 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
-import { loadThemeFromStorage } from '../../utils/themeManager';
-import { DEFAULT_SIZE_POLICY } from '../../utils/gridFit';
+import { loadFontSizeFromStorage } from '../../infra/fontSizeManager';
+import { loadThemeFromStorage } from '../../infra/themeManager';
+import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
 
 /**
  * The name of each state slice (a root-level `on` block under ./states/)

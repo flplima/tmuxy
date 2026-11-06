@@ -66,7 +66,7 @@
   --text-secondary: #cccccc;
   --text-muted: #a0a0a0;
   /* Every text tier reads at 4.5:1 on the chrome, the panes and --bg-medium
-     (utils/__tests__/themeFaces.test.ts holds each face to it). */
+     (infra/__tests__/themeFaces.test.ts holds each face to it). */
   --text-dimmed: #8c8c8c;
   /* The tabs that are not current, in the strip and the tree: the quietest
      tier that still reads at 4.5:1 on the chrome, so they stand back from

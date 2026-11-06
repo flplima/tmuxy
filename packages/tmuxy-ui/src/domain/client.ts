@@ -103,13 +103,13 @@ export const TmuxPane = Schema.mutable(
     /**
      * What the pane says it is doing (`@tmuxy-pane-state`), verbatim. Any
      * process can set it via `tmuxy pane state <value>`; the vocabulary the tree
-     * draws lives in `utils/paneState.ts`, which collapses anything unknown.
+     * draws lives in `domain/paneState.ts`, which collapses anything unknown.
      * Absent when the option is unset.
      */
     paneState: optionalFrom('pane_state', Schema.NullOr(Schema.String)),
     /**
      * The confirmation this pane is waiting on (`@tmuxy-ask`), as the base64
-     * payload `tmuxy pane send -t` wrote. Decoded by `utils/paneAsk.ts`; absent when no
+     * payload `tmuxy pane send -t` wrote. Decoded by `domain/paneAsk.ts`; absent when no
      * question is pending.
      */
     paneAsk: optionalFrom('pane_ask', Schema.NullOr(Schema.String)),

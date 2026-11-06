@@ -12,8 +12,8 @@ import { useAppSelector, useAppSend } from '../machines/appHooks';
 import { TmuxOp } from '../domain/commands';
 import { selectionMenuSpec } from './menus/specs/selectionMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { flashCopiedRange } from '../utils/copyFlash';
-import { writeClipboard } from '../utils/clipboard';
+import { flashCopiedRange } from '../infra/dom/copyFlash';
+import { writeClipboard } from '../infra/clipboard';
 import type { PaneId } from '../domain/ids';
 import { useNativeMenu } from './menus/useNativeMenu';
 

@@ -3,7 +3,7 @@ import type { AppMachineContext } from '../types/context';
 import type { FloatPaneState } from '../types/domain';
 import type { PaneGroup } from '../../domain/client';
 import { paneTakesCopyMode, type TmuxPane, type TmuxWindow } from '../../domain/client';
-import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../../utils/memoize';
+import { createMemoizedSelector, createMemoizedSelectorWithArg } from './memoize';
 import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';

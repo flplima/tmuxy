@@ -18,16 +18,16 @@ import {
   applyCssVars,
   reloadThemeCss,
   saveThemeToStorage,
-} from '../../../utils/themeManager';
+} from '../../../infra/themeManager';
 import {
   applyFontSize,
   saveFontSizeToStorage,
   increaseFontSize,
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
-} from '../../../utils/fontSizeManager';
-import { applyAppearance } from '../../../utils/appearanceManager';
-import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
+} from '../../../infra/fontSizeManager';
+import { applyAppearance } from '../../../infra/appearanceManager';
+import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../domain/gridFit';
 import { PINNABLE } from '../../../domain/pins';
 import type { PaneId } from '../../../domain/ids';
 import {
@@ -36,7 +36,7 @@ import {
   onNotificationFocus,
   readPushState,
   type PushState,
-} from '../../../utils/pushNotifications';
+} from '../../../infra/pushNotifications';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {

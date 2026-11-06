@@ -268,7 +268,7 @@
     background-color var(--transition-active);
 }
 
-/* The blink that says "copied" (utils/copyFlash.ts). Copy mode paints its own
+/* The blink that says "copied" (infra/dom/copyFlash.ts). Copy mode paints its own
    selection, so its copied cells blink in place; a browser selection is covered
    by fixed boxes laid over its rectangles. An inset shadow draws over a cell's
    background and the selection's wash (a background image) and under its

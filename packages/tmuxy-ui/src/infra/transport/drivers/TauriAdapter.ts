@@ -17,7 +17,7 @@ import { decodeEvent } from '../wireDecode';
 import { KeyBatcher } from '../keyBatching';
 import { latencyTracker } from '../../latencyTracker';
 import { tracer } from '../../tracer';
-import { tauriSchemeUrl } from '../../../utils/platform';
+import { tauriSchemeUrl } from '../../platform';
 
 // ============================================
 // Tauri Adapter

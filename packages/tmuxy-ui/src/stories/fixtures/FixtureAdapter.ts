@@ -21,7 +21,7 @@ import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../domain/wire';
 import type { Types } from 'effect';
 import type { TraceSettings } from '../../domain/wireSettings';
-import { loadThemeFromStorage, saveThemeToStorage } from '../../utils/themeManager';
+import { loadThemeFromStorage, saveThemeToStorage } from '../../infra/themeManager';
 import { parseThemeMode } from '../../domain/wireSettings';
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */

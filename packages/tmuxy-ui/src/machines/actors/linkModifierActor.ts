@@ -14,7 +14,7 @@
  */
 
 import { fromCallback } from 'xstate';
-import { isMacPlatform } from '../../utils/platform';
+import { isMacPlatform } from '../../infra/platform';
 
 export const LINK_MODIFIER_CLASS = 'link-modifier-held';
 

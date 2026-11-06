@@ -3,13 +3,13 @@
  * dispatches prefix, sticky key-table, root, and literal/keystroke ops.
  */
 
-import { clearNativeSelection, terminalSelection } from '../../utils/nativeSelection';
+import { clearNativeSelection, terminalSelection } from '../../infra/dom/nativeSelection';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { KeyBindings } from '../../domain/wire';
-import { getMobileInput, markKeyboardTarget } from '../../utils/mobileKeyboard';
+import { getMobileInput, markKeyboardTarget } from '../../infra/dom/mobileKeyboard';
 import { pinPrefix, TmuxOp } from '../../domain/commands';
 import { splitTableSwitch } from '../../domain/keyTables';
-import { tabWalksChrome } from '../../utils/chromeTab';
+import { tabWalksChrome } from '../../infra/dom/chromeTab';
 import { isPlaceholderId, type PaneId } from '../../domain/ids';
 import {
   bindingKeyOf,

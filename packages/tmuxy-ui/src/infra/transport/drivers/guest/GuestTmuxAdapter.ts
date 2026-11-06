@@ -22,7 +22,7 @@ import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
 import type { CommandFailure } from '../../../../domain/wire';
 import { decodeServerStateOrThrow, decodeStateForListener } from '../../wireDecode';
-import { saveThemeToStorage, loadThemeFromStorage } from '../../../../utils/themeManager';
+import { saveThemeToStorage, loadThemeFromStorage } from '../../../themeManager';
 import { parseThemeMode } from '../../../../domain/wireSettings';
 import { unescapeLiteralText } from '../../keyBatching';
 import { quote } from '../../../../domain/commands';

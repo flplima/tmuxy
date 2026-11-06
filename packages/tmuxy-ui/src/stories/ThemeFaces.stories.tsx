@@ -8,7 +8,7 @@
  * the theme's accent on the current tab and the active pane's outline, the
  * status line on its own band, the panes on the theme's background. The
  * probe's axe pass reads the same painted page for contrast. What the values
- * must be is `utils/__tests__/themeFaces.test.ts`; this is that they arrive.
+ * must be is `infra/__tests__/themeFaces.test.ts`; this is that they arrive.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';

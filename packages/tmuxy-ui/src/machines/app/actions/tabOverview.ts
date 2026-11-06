@@ -17,7 +17,7 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
 import { isPlaceholderId } from '../../../domain/ids';
 import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
-import { reorderOp } from '../../../utils/tabOverview';
+import { reorderOp } from '../../../domain/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
 
 /** Slot count including the trailing "+" slot. */

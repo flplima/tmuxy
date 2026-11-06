@@ -4,7 +4,7 @@ import { fromCallback } from 'xstate';
 import { copyModeState } from '../copyMode';
 import { copyModeActions } from '../../actions/copyMode';
 import { copyModeExitTimes } from '../../scrollback';
-import { COPY_FLASH_MS } from '../../../../utils/copyFlash';
+import { COPY_FLASH_MS } from '../../../../infra/dom/copyFlash';
 const copyModeGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { CopyModeState } from '../../../../domain/copyMode';
@@ -302,7 +302,7 @@ describe('copyMode state', () => {
 
   it('a word selected before its row has loaded is selected when the chunk lands', () => {
     // A finger's hold opens copy mode and selects the word under it in one
-    // breath (hooks/usePaneTouch.ts): no line has arrived yet.
+    // breath (components/terminal/usePaneTouch.ts): no line has arrived yet.
     const actor = mountState(copyModeState, copyModeActions, copyModeGuards, {
       copyModeStates: {
         [pid('%1')]: makeCopyState({ lines: new Map(), loadedRanges: [], loading: true }),
