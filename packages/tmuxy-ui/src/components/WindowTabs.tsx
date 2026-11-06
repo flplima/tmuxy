@@ -58,13 +58,11 @@ export const WindowTabs = memo(function WindowTabs() {
   const animationsAllowed = useAppSelector(selectAnimationsAllowed);
   const listRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef(false);
-  // The tab being renamed, if any: the field takes the label's place. Opened
-  // by the tab's context menu, or by Rename Tab in the app menu and the
-  // native menu bar, which name the active tab.
+  // Set by the tab's context menu, and by Rename Tab in the app menu and the
+  // native menu bar (the active tab).
   const renamingId = useAppSelector((c) =>
     c.renamingTab?.surface === 'strip' ? c.renamingTab.windowId : null,
   );
-  // The tab whose picture is showing, and the timer waiting to show the first.
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewTimerRef = useRef<number | null>(null);
   const dismissPreviewRef = useRef<() => void>(() => {});

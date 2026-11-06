@@ -1,10 +1,5 @@
 /**
- * usePaneTouch - Touch event handler for panes (mobile scrolling)
- *
- * Provides native-feeling touch scrolling for terminal panes on mobile:
- * - Follows the finger with pixel-to-line accumulation
- * - Momentum/inertia scrolling after finger lifts
- * - Routes through the same three scroll modes as wheel events:
+ * Touch scrolling routes through the same three scroll modes as wheel events:
  *   1. Alternate screen (vim, less) → arrow keys
  *   2. Mouse tracking → SGR wheel events
  *   3. Normal shell → open the native-like scroll view, then proxy to its
@@ -23,7 +18,7 @@
  *   extends the selection; the Copy and Cancel buttons over the pane
  *   (components/terminal/TouchSelectionBar) end it.
  * - A sideways slide pulls the next tab in, as the desktop's two-finger
- *   slide does (GESTURE_SWIPE, actors/gestureActor.ts).
+ *   slide does (GESTURE_SWIPE, machines/gestures/gestureActor.ts).
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
@@ -372,10 +367,8 @@ export function usePaneTouch(options: UsePaneTouchOptions) {
           lastTapRef.current = tap;
           haptics.trigger(10);
           send({ type: 'SELECT_PANE', paneId });
-          // The pane in front again: the keyboard up or away. Any other: the
-          // pane takes focus, and an open keyboard follows it — or, on the
-          // side pane, comes up for it. It has to be now: a phone brings its
-          // keyboard up only inside the tap's own handler.
+          // It has to be now: a phone brings its keyboard up only inside the
+          // tap's own handler.
           lastTapToggledRef.current = (phoneLayout || tapRaisesKeyboard) && holdsKeyboard;
           if (lastTapToggledRef.current) toggleMobileKeyboard(paneId);
           else if (tapRaisesKeyboard) raiseMobileKeyboard(paneId);

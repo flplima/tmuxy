@@ -1,8 +1,6 @@
 /**
- * KeyRow — the keys a phone keyboard has no key for, in two rows of six
- * under the terminal: esc, tab, ctrl, alt, the prefix and the keyboard on the
- * first; the arrows, enter and the zoom on the second. Two even rows, edge to
- * edge, so each key is as wide as the screen allows.
+ * KeyRow — the keys a phone keyboard has no key for, in two even rows of six
+ * under the terminal, so each key is as wide as the screen allows.
  *
  * Each key is pressed through the keyboard path (`infra/dom/keyLatch` → a keydown
  * on the window), so the prefix, the bindings and copy mode treat it as a typed
@@ -11,8 +9,7 @@
  * bindings name as one chord; a second tap while armed cancels it, as Escape does.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
- * stays up while the row is used. The app menu is a view of its own under
- * the keys (components/phone/PhoneMenu.tsx).
+ * stays up while the row is used.
  */
 
 import { memo, useMemo, useSyncExternalStore, type PointerEvent } from 'react';

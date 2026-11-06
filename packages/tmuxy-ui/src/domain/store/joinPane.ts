@@ -1,7 +1,3 @@
-/**
- * The JoinPane prediction: a pane moved into another tab.
- */
-
 import {
   type TmuxSnapshot,
   type Patch,
@@ -17,8 +13,7 @@ import { withoutPane } from './paneOps';
  * A pane moved into another tab (`join-pane -s <pane> -t <window>`): it
  * leaves its window as a kill would (a neighbour takes its space) and splits
  * the target window's active pane, stacked below it as `join-pane`'s default
- * `-v` does, as that window's active pane. Snapshot-relative, so a replay
- * over a layout tmux already moved it in passes through untouched.
+ * `-v` does, as that window's active pane.
  */
 export function predictJoinPane(
   op: TmuxOpOf<'JoinPane'>,

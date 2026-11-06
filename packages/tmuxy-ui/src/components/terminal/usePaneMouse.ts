@@ -126,9 +126,8 @@ export function usePaneMouse(send: (event: AppMachineEvent) => void, options: Us
       const target = e.target as HTMLElement;
       if (target.closest(dot(PANE_HEADER))) return;
 
-      // Focus unconditionally — SELECT_PANE is a no-op when already active.
-      // Mouse-tracking panes (vim/htop) used to forward SGR without focusing,
-      // so input stayed routed to the previous pane.
+      // Focus even a mouse-tracking pane (vim, htop) whose click is forwarded
+      // as SGR, or typed input stays routed to the previous pane.
       haptics.trigger(10);
       send({ type: 'SELECT_PANE', paneId });
       // Browser focus follows: an IME composes only into an editable element.

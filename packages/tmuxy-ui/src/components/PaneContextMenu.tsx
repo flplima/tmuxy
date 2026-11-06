@@ -17,7 +17,6 @@ interface PaneContextMenuProps {
 
 export function PaneContextMenu({ paneId, x, y, onClose, onRename }: PaneContextMenuProps) {
   const send = useAppSend();
-  // A pane running a widget gets that widget's own section at the top.
   const widgetItems = useWidgetMenuItems(paneId);
   const spec = useAppSelector((ctx) =>
     paneMenuSpec(ctx, { paneId, widgetItems, navigation: false, rename: Boolean(onRename) }),

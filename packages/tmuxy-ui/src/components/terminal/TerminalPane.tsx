@@ -63,9 +63,6 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   const gridCell = useAppSelector(selectCharSize);
   const charWidth = cellSize?.width ?? gridCell.charWidth;
   const charHeight = cellSize?.height ?? gridCell.charHeight;
-  // The pane holds the keyboard: tmux's active pane in the active window with
-  // nothing (float, dock, tree) focused over it — or whatever the dock's column
-  // says about its own pane.
   const paneHoldsKeyboard = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const holdsKeyboard = isActive ?? paneHoldsKeyboard;
   const contentRef = useRef<HTMLDivElement>(null);
@@ -127,10 +124,9 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
     forwardScrollToParent,
   });
 
-  // Touch handling for mobile scroll — and, in the phone layout, the taps,
-  // holds and slides a finger means on a tiled pane. The dock (chrome none)
-  // is drawn by the phone too, but a slide on it is not a slide between tabs,
-  // and a tap on it brings the keyboard up for it.
+  // The phone's taps, holds and slides are for a tiled pane. The dock (chrome
+  // none) is drawn by the phone too, but a slide on it is not a slide between
+  // tabs, and a tap on it brings the keyboard up for it.
   const phoneLayout = useAppSelector(selectPhoneLayout);
   const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
   const phoneGestures = phoneLayout && chrome === 'header';

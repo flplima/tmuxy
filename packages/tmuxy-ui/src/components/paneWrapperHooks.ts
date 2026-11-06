@@ -1,7 +1,3 @@
-/**
- * Hooks behind AnimatedPaneWrapper: the zoom observer.
- */
-
 import React, { useEffect, useRef } from 'react';
 import { isModelPaneId } from '../domain/ids';
 import { gridPixelSize, type PaneBox } from '../domain/paneGeometry';

@@ -1,30 +1,17 @@
 /**
- * PhoneBottomView — what a phone shows under the key row: three views side by
- * side, the app menu (PhoneMenu), the tabs/panes tree, and the side pane —
- * the pinned terminal the desktop keeps in its right column (`sidebar-right`,
- * see Sidebar.tsx), the same window, created the same way on first use. The
- * tree is in front to begin with; the tab bar along the bottom picks one, and
- * a sideways swipe moves to the view beside: right for the menu, left for the
- * side pane. The `phone` state slice owns which is in front. While the phone's
- * keyboard is up the tab bar makes way (components/phone/usePhoneViewport.ts).
- *
- * The swipe is a slide, as a swipe between tabs is: the view follows the
- * finger, its neighbour rides beside it on the side the finger pulls from,
- * and on release the pair settles on the tab slide's own curve — on to the
- * neighbour when the slide commits, back to rest when it does not; past an
- * end, where there is no view, it moves a third as far and goes back
+ * PhoneBottomView — under the key row, three views side by side: the app menu
+ * (PhoneMenu), the tabs/panes tree, and the side pane, the pinned terminal the
+ * desktop keeps in its right column (`sidebar-right`, see Sidebar.tsx), the
+ * same window, created the same way on first use. The tab bar picks one, and a
+ * sideways swipe slides to the view beside as a swipe between tabs does
  * (components/phone/bottomSlide.ts). The track moves on an inline transform
  * while the finger has it; React only mounts and unmounts the view riding
  * beside.
  *
- * A tap on the side pane brings the phone's keyboard up for it
- * (components/terminal/usePaneTouch.ts), and while it types there the terminal above gives
- * up its room first, so the side pane stays above the keyboard.
- *
- * The side pane is drawn in the chrome's small type (selectPhoneDockCellMetrics)
- * and sized to this view: the box is measured here and the cell count it
- * holds is written to the pane's window (SET_PHONE_DOCK_SIZE), which is what
- * the backend sizes the pane from — the desktop's drag writes the same tags.
+ * The side pane is drawn in the chrome's small type and sized to this view:
+ * the cell count the measured box holds is written to the pane's window
+ * (SET_PHONE_DOCK_SIZE), which is what the backend sizes the pane from — the
+ * desktop's drag writes the same tags.
  */
 
 import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
@@ -62,8 +49,7 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
   const dxRef = useRef(0);
   const samplesRef = useRef<TouchPoint[]>([]);
   const settleTimerRef = useRef<number | null>(null);
-  // The side the finger pulls a neighbour from: the view there is mounted
-  // for the slide and gone once it has settled (none past an end).
+  // The neighbour is mounted only while a slide lasts.
   const [neighbor, setNeighbor] = useState<NeighborSide | null>(null);
   const [settling, setSettling] = useState(false);
 
@@ -81,11 +67,9 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
     [],
   );
 
-  // A finger lands undecided; past the slop, mostly sideways travel is a
-  // slide and anything else is left to the view's scroll or the pane's own
-  // gestures. A finger that lands while a release is still settling waits
-  // for it: the settle is short, and the slide it ends is the one it ends.
-  // The tab bar is tapped, never slid.
+  // Travel that is not mostly sideways is left to the view's scroll or the
+  // pane's own gestures. A finger that lands while a release is still
+  // settling starts nothing: the settle is short.
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
       const t = e.touches[0];
@@ -196,7 +180,6 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
 
 const TAB_LABELS: Record<BottomView, string> = { menu: 'Menu', tree: 'Tree', dock: 'Side pane' };
 
-/** Each view's icon: line strokes on a 16 × 16 grid, in the tab's colour. */
 function TabIcon({ view }: { view: BottomView }) {
   return (
     <svg
@@ -230,7 +213,6 @@ function TabIcon({ view }: { view: BottomView }) {
   );
 }
 
-/** The tab bar under the views, an icon over a name for each, left to right. */
 function PhoneTabs({ view, onPick }: { view: BottomView; onPick: (view: BottomView) => void }) {
   return (
     <div className="phone-tabs" role="tablist" aria-label="Views">

@@ -1,8 +1,3 @@
-/**
- * WindowTabItem — individual tab item and active-tab scroll-into-view hook
- * for WindowTabs.
- */
-
 import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';

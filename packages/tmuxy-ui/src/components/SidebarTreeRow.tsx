@@ -1,8 +1,3 @@
-/**
- * SidebarTreeRow — row types, git context helpers, and tab/pane treeitem rows
- * for SidebarTree.
- */
-
 import { paneRowLines, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';

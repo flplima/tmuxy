@@ -1,11 +1,3 @@
-/**
- * App - Main application component
- *
- * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, the whole 80 × 25 terminal, the key row and the tree under it.
- * All state is accessed via hooks - no prop drilling.
- */
-
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
 import { StatusBar } from './components/StatusBar';
@@ -94,8 +86,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const ptyRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
-  // The side pane holds the keyboard: with the phone's keyboard up the
-  // terminal above gives up its room first (styles/phone.css).
+  // While the side pane types, the terminal above gives up its room first
+  // (styles/phone.css).
   const dockTyping = useAppSelector(
     (ctx) => ctx.phoneBottomView === 'dock' && selectSidebarHoldsKeyboard(ctx, 'right'),
   );
@@ -184,15 +176,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // The phone layout: the terminal, the key row and the bottom view, top to
-  // bottom — or, held sideways, the terminal on the right and the rest
-  // stacked in the column left of it. No tab strip: the tree lists the tabs
-  // and a slide on the terminal switches them, and the strip's height goes
-  // to the bottom view.
+  // No tab strip on a phone: the tree lists the tabs, a slide on the terminal
+  // switches them, and the strip's height goes to the bottom view.
   const phoneKeys = showLayout && <KeyRow />;
-  // The app menu, every tab and pane, or the dock, picked by the tab bar
-  // under them or a sideways swipe (PhoneBottomView). Zoomed and upright, it
-  // makes way: the doubled grid takes its place, every row in view.
+  // Zoomed and upright, the bottom view makes way so the doubled grid has
+  // every row in view.
   const phoneTree = showLayout && !(phoneZoom && !landscape) && <PhoneBottomView />;
   const phonePty = (
     <div

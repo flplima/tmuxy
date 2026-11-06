@@ -65,16 +65,14 @@ export function buildTreeRows(
   return out;
 }
 
-/** A tab row and the pane rows under it. */
 export interface TabGroup {
   tab: Extract<Row, { kind: 'tab' }>;
   panes: Row[];
 }
 
 /**
- * The rows of every tab, open or not, grouped under their tab rows, each tab
- * marked collapsed as `collapsed` says: what the tree draws, where a collapsed
- * tab's panes are folded away rather than left out.
+ * Every tab's rows grouped under it, a collapsed tab's included (marked, not
+ * left out) so the tree can fold them away.
  */
 export function groupByTab(all: readonly Row[], collapsed: ReadonlySet<WindowId>): TabGroup[] {
   const out: TabGroup[] = [];

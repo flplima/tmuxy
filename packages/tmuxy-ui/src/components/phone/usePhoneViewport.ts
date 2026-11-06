@@ -11,15 +11,8 @@
  * Installed on an iPhone with the status bar drawn over the page, iOS reports
  * the visible height — the visual viewport, `innerHeight`, `100dvh` — short by
  * the status bar's height while the page runs to the screen's bottom edge, so
- * the root stopped that far above it and left a blank band under the tree. The
- * slice it leaves out is put back (`standaloneShortfall`). While a keyboard
- * is up the root carries `tmuxy-keyboard-up`, and the bottom view's tab bar
- * and the home indicator's inset make way for it.
- *
- * What does not fit then is the terminal's lower rows, and the one that matters
- * is the cursor's: `useCursorInView` scrolls the clipped terminal so the row
- * being typed on stays on screen, a row of margin below it — zoomed as well,
- * where it also keeps the cursor's column in the sideways view.
+ * the root stopped that far above it and left a blank band at the bottom;
+ * `standaloneShortfall` puts the slice back.
  */
 
 import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react';
@@ -112,17 +105,13 @@ export function useVisualViewport(enabled: boolean): void {
 }
 
 /**
- * Scroll `ref` — a terminal cut short by the space it has — so the cursor's
- * row is in view a row above the bottom edge, with as much as fits of what is
- * above it: in a terminal that is the output the line being typed answers.
- * Zoomed, `xRef` is the viewport the doubled grid scrolls sideways in, and it
- * is scrolled too when the cursor's column has left it — once the cursor has
- * moved or the box has got shorter (a keyboard), never just because the zoom
+ * Scroll `ref` — a terminal cut short by the space it has (a keyboard up) — so
+ * the cursor's row is in view a row above the bottom edge, with as much as
+ * fits of the output above it. Zoomed, `xRef` is the doubled grid's sideways
+ * viewport, scrolled too when the cursor's column has left it — once the
+ * cursor has moved or the box has got shorter, never just because the zoom
  * came on: a double tap zooms around the point tapped (usePhoneZoomScroll),
- * and following the cursor then took the view straight back to it. Runs when
- * the box resizes (a keyboard coming up) and whenever `cursorKey` (where the
- * cursor is) changes. A terminal that fits has nothing to scroll, and stays
- * at its top.
+ * and following the cursor then took the view straight back to it.
  */
 export function useCursorInView(
   ref: RefObject<HTMLElement | null>,

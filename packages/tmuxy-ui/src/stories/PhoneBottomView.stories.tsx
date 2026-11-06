@@ -1,10 +1,7 @@
 /**
- * The phone's bottom view, under the key row: three views side by side, the
- * app menu, the tabs/panes tree and the side pane — the pinned terminal the
- * desktop keeps in its right column. A sideways swipe moves to the view
- * beside, a slide like the one between tabs (components/phone/
- * PhoneBottomView.tsx, components/phone/bottomSlide.ts); past an end it
- * gives a little and goes back.
+ * The phone's bottom view: a sideways swipe slides between the menu, the tree
+ * and the side pane (components/phone/bottomSlide.ts); past an end it gives a
+ * little and goes back.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -108,7 +105,6 @@ export const BottomViewSlidesToTheSidePane: Story = {
     }, SETTLE);
     expect(canvasElement.querySelector('.phone-dock')).toBeNull();
 
-    // On the same way, the menu rides in from the left and stays in front.
     await swipeTimed(bottom, yNow(), frame.left + 20, frame.right - 20);
     await waitFor(() => {
       expect(bottom.getAttribute('data-view')).toBe('menu');

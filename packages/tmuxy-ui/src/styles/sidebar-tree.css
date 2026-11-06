@@ -52,16 +52,13 @@
     background-color var(--transition-fast);
 }
 
-/* A tab's row grows by its padding: the name keeps its line, with room above
-   and below it inside the band. */
 .sidebar-tree-tab {
   box-sizing: content-box;
   padding-block: var(--tree-tab-pad-y);
 }
 
-/* A tab's panes, in a group that folds: as tall as its rows when the tab is
-   open, closed to nothing when it is collapsed (SidebarTree.tsx keeps the rows
-   and makes the closed group inert). The fold runs at the theme's speed. */
+/* A collapsed tab's group stays mounted (inert, SidebarTree.tsx), so the fold
+   animates. */
 .sidebar-tree-children {
   display: grid;
   grid-template-rows: 1fr;
@@ -218,9 +215,7 @@
   border-top-width: 1px;
 }
 
-/* Hover, as on the tab strip: the band, and the row's text a step up — the
-   name to the primary ink, the lines under it to the secondary. The pane with
-   the keyboard keeps its accent. */
+/* Hover, as on the tab strip: the band, and the row's text a step up. */
 .sidebar-tree-tab:hover,
 .sidebar-tree-pane:hover {
   background: var(--bg-medium);

@@ -1,13 +1,7 @@
 /**
  * The phone layout, at a 390 × 844 phone's width, over a recording of real
- * tmux at the 80 × 24 grid the layout asks for.
- *
- * The whole 80 × 25 terminal at the top, 80 columns spanning the screen edge
- * to edge with tmux's status line as the 25th row, then the key row, then the
- * bottom view — the tab/pane tree to begin with — over a tab bar that picks
- * the menu, the tree or the side pane. No tab strip. The frame is not the
- * viewport the media query reads, so the story asks for the layout through
- * the config.
+ * tmux at the 80 × 24 grid the layout asks for. The frame is not the viewport
+ * the media query reads, so the story asks for the layout through the config.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -58,7 +52,6 @@ export const PhoneKeyboardDown: Story = {
 
     expect(canvasElement.querySelectorAll('.tmux-status-bar')).toHaveLength(1);
 
-    // No tab strip: the terminal starts at the top of the screen.
     expect(canvasElement.querySelector('.phone-tab-strip')).toBeNull();
     expect(box(canvasElement.querySelector('.phone-pty')).top).toBeCloseTo(
       box(canvasElement.querySelector('.app-container')).top,
@@ -87,8 +80,6 @@ export const PhoneKeyboardDown: Story = {
       { timeout: 8000 },
     );
 
-    // Top to bottom: the grid, the status line as its last row, the keys,
-    // the tree, and the tab bar under it, which reaches the screen's bottom.
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const status = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
     const keys = box(canvasElement.querySelector('.key-row'));
@@ -127,9 +118,7 @@ export const PhoneKeyboardDown: Story = {
     expect(smallType('.phone-pty .statusline-hints')).toBeCloseTo(termType * 0.8, 1);
     expect(smallType('.phone-pty .statusline-host')).toBeCloseTo(termType * 0.8, 1);
 
-    // Two rows of six, every key the same width: esc, tab, ctrl, alt, the
-    // prefix and the keyboard; the arrows, enter and the zoom. Each a
-    // thumb's size.
+    // Two even rows of six, each key a thumb's size.
     const keyboxes = [...canvasElement.querySelectorAll('.key-row-key')].map(box);
     expect(keyboxes).toHaveLength(12);
     expect(keyboxes.every((k) => k.height >= 40 && k.width >= 50)).toBe(true);

@@ -1,11 +1,8 @@
 /**
- * A menu spec walked as pages, the way a phone app shows a menu: the top
- * level is the first page, and choosing a submenu goes to a page listing its
- * children (components/phone/PhoneMenu.tsx). The way down is a path of submenu ids;
+ * A menu spec walked as pages, as the phone shows a menu
+ * (components/phone/PhoneMenu.tsx). The way down is a path of submenu ids;
  * the spec is rebuilt from the live state, so a step that no longer leads
  * anywhere (a submenu gone or disabled) ends the walk there.
- *
- * Pure.
  */
 
 import type { MenuNode, MenuSpec } from './spec';

@@ -37,12 +37,12 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
     definition.selectTitle?.(context, paneId, widget.lines),
   );
 
-  // Capture-phase window listener that fires BEFORE the keyboard actor's
-  // bubble-phase window listener.
   const isActiveWidget = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const widgetKeyRef = useRef({ send, paneId, isActiveWidget });
   widgetKeyRef.current = { send, paneId, isActiveWidget };
 
+  // Capture phase, so it fires before the keyboard actor's bubble-phase
+  // window listener.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!widgetKeyRef.current.isActiveWidget) return;

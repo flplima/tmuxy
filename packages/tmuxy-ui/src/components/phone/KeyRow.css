@@ -1,8 +1,5 @@
-/* KeyRow — the phone's extra keys, between the terminal and the tree, in two
-   rows of six, edge to edge: no gap between the keys, a hairline between
-   neighbours (each key draws its right and bottom edge, the row the top and
-   left), so the screen's width all goes to the keys. The chrome's own size,
-   whatever the terminal's cell shrank to. */
+/* Edge to edge, so the screen's width all goes to the keys, in the chrome's
+   own type size whatever the terminal's cell shrank to. */
 
 .key-row {
   display: grid;

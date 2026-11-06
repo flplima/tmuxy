@@ -193,19 +193,11 @@ export function toggleMobileKeyboard(paneId: PaneId | null): void {
   }
 }
 
-/**
- * Called by usePaneTouch on a tap on the phone's side pane: the keyboard
- * comes up for it, or, already up, follows it there.
- */
 export function raiseMobileKeyboard(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   focusInput(paneId);
 }
 
-/**
- * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
- * up, follows the pane; if it is down it stays down.
- */
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   if (isMobileKeyboardOpen()) focusInput(paneId);

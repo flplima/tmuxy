@@ -47,11 +47,8 @@ import { SidebarTreeRow } from './SidebarTreeRow';
 const NO_TABS: ReadonlySet<WindowId> = new Set();
 
 /**
- * A tab row and, under it, its panes in a group that folds: open, the group is
- * as tall as its rows; collapsed, it closes to nothing and is inert, so its
- * rows can be neither clicked nor reached. The fold is a transition on the
- * group's height (styles/sidebar-tree.css), at the theme's speed and off when
- * the config turns animations off.
+ * A collapsed tab's group stays mounted, closed to nothing and inert, so the
+ * fold animates (styles/sidebar-tree.css).
  */
 function TreeTabGroup({
   tab,
@@ -102,18 +99,15 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [windows, panes],
   );
 
-  // Flatten into the ordered row list (also the keyboard nav order): this
-  // session's tabs in strip order, each followed by its panes.
-  // In the order they sit in the grid, so the list follows the layout as it
-  // changes (a split, a swap, a move) rather than tmux's creation order; a
-  // group's parked members under the member in view.
+  // The keyboard's order: tabs in strip order, each followed by its panes in
+  // the order they sit in the grid, so the list follows the layout as it
+  // changes (a split, a swap, a move) rather than tmux's creation order.
   const rows = useMemo<Row[]>(
     () => buildTreeRows(windows, panes, collapsed, paneGroups),
     [windows, panes, collapsed, paneGroups],
   );
-  // What is drawn: every tab with all of its panes, a collapsed tab's folded
-  // away in its group rather than left out, so folding and unfolding can be
-  // seen. `rows`, which leaves them out, stays the keyboard's order.
+  // What is drawn: a collapsed tab's panes are folded away rather than left
+  // out, so folding and unfolding can be seen.
   const tabGroups = useMemo(
     () => groupByTab(buildTreeRows(windows, panes, NO_TABS, paneGroups), collapsed),
     [windows, panes, collapsed, paneGroups],
@@ -263,8 +257,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     return () => window.removeEventListener('keydown', handler, true);
   }, [focused, bindingOwnsKey]);
 
-  // Drag state: which pane is being dragged, and which tab is a hover target.
-  // The tab whose name is being edited in the tree, if any.
   const renamingWindowId = useAppSelector((c) =>
     c.renamingTab?.surface === 'tree' ? c.renamingTab.windowId : null,
   );

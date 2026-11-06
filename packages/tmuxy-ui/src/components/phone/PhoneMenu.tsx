@@ -1,17 +1,10 @@
 /**
- * PhoneMenu — the app menu as a phone app shows one: a full-width list in
- * the bottom view (PhoneBottomView), its items the hamburger's own
- * (`appMenuSpec` in components/menus/specs, dispatched by
- * `useAppMenuSurface`, so an item does here
- * what it does on a desktop). A submenu is a row with a chevron that goes to
- * a page listing its children, with a back button at the top that returns
- * to the page before (`domain/menus/menuPages.ts`). A page comes in from the
- * side it is walked toward, over the theme's normal transition, and in one
- * step with animations off.
- *
- * Checkboxes and radio options are rows with a check mark on the chosen
- * ones; a choice leaves the page where it is, so the mark is seen to move.
- * Key hints are left out: a phone has no keys to press them on.
+ * PhoneMenu — the app menu as a phone app shows one, a submenu a page of its
+ * own (`domain/menus/menuPages.ts`). Its items are the hamburger's own
+ * (`appMenuSpec`, dispatched by `useAppMenuSurface`), so an item does here
+ * what it does on a desktop. A choice leaves the page where it is, so its
+ * check mark is seen to move. No key hints: a phone has no keys to press them
+ * on.
  */
 
 import { memo, useState } from 'react';

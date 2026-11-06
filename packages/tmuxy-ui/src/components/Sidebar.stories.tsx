@@ -1,13 +1,7 @@
 /**
- * Sidebar stories, over states recorded from real tmux.
- *
- * The left sidebar is a native React tab/pane tree (`SidebarTree`) drawn in a
- * fixed-width, full-height column beside the pane area, opened onto a tmux
- * window running the tree widget. The tree is derived from the recorded
- * `context.windows`/`context.panes`, so these stories exercise the real user
- * chain: TOGGLE_SIDEBAR left (the header button) → the column opens → the tree
- * lists every tab and its panes → clicking a node activates it through the
- * same events the rest of the UI uses.
+ * Sidebar stories, over states recorded from real tmux, through the user's
+ * chain: TOGGLE_SIDEBAR left (the header button) opens the column, and a click
+ * on a node activates it through the same events the rest of the UI uses.
  *
  * Context menus are floating surfaces portalled out of the tree, so menu queries
  * run against `document`, not `canvasElement`.
