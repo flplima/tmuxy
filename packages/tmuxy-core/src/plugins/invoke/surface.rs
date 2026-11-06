@@ -296,33 +296,40 @@ pub fn notify_failure(dirs: &Layout, pane: &str, plugin: &str, error: &str) {
 }
 
 /// Wait for the command a token launched to exit, and return its status
-/// (`tmuxy plugin action --wait`). A pane that closed without one (killed
-/// before its command started) is a failure, status 1.
-pub fn wait(dirs: &Layout, token_id: &str, pane: Option<&str>) -> i32 {
+/// (`tmuxy plugin action --wait`). A pane that closed or whose process
+/// died without writing one (killed before its command started, a status
+/// file that could not be written) is a failure, status 1.
+pub fn wait(dirs: &Layout, token_id: &str, pane: &str) -> i32 {
     let path = status_path(dirs, token_id);
+    let read_status = || {
+        let code = std::fs::read_to_string(&path).ok()?.trim().parse().ok()?;
+        let _ = std::fs::remove_file(&path);
+        Some(code)
+    };
     for tick in 0u64.. {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(code) = text.trim().parse() {
-                let _ = std::fs::remove_file(&path);
-                return code;
-            }
+        if let Some(code) = read_status() {
+            return code;
         }
         if tick % 20 == 19 {
-            if let Some(pane) = pane {
-                let alive = tmux(&[
-                    "display-message".into(),
-                    "-p".into(),
-                    "-t".into(),
-                    pane.into(),
-                    "#{pane_id}".into(),
-                ])
-                .is_ok_and(|out| out.trim() == pane);
-                if !alive && !path.exists() {
-                    return 1;
-                }
+            let answer = tmux(&[
+                "display-message".into(),
+                "-p".into(),
+                "-t".into(),
+                pane.into(),
+                "#{pane_id} #{pane_dead}".into(),
+            ]);
+            if !pane_running(answer.as_deref().unwrap_or(""), pane) {
+                return read_status().unwrap_or(1);
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     1
+}
+
+/// Whether `display-message -p '#{pane_id} #{pane_dead}'` says `pane` still
+/// runs its process. A pane kept open after its process exited
+/// (`remain-on-exit`) is dead: nothing in it will write a status.
+pub fn pane_running(answer: &str, pane: &str) -> bool {
+    answer.trim() == format!("{pane} 0")
 }

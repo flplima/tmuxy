@@ -233,3 +233,15 @@ fn gc_removes_only_unlisted_unused_checkouts() {
     assert!(!busy_dir.exists());
     std::fs::remove_dir_all(base).unwrap();
 }
+
+/// `--wait` polls for a status file the pane's process writes when it exits.
+/// A pane kept open after its process died (`remain-on-exit`), or one whose
+/// status could not be written, never writes it: the waiter took a pane that
+/// still answered for one that still ran, and waited for as long as it stayed.
+#[test]
+fn a_dead_pane_ends_the_wait() {
+    assert!(invoke::pane_running("%4 0\n", "%4"));
+    assert!(!invoke::pane_running("%4 1\n", "%4"));
+    assert!(!invoke::pane_running("", "%4"));
+    assert!(!invoke::pane_running("%5 0", "%4"));
+}
