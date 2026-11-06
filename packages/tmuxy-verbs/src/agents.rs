@@ -166,6 +166,21 @@ pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str>
 }
 
 #[derive(clap::Args, Debug)]
+pub struct SkillArgs {
+    /// Answer in JSON: `{"ok":true,"output":…}`.
+    #[arg(long)]
+    json: bool,
+}
+
+pub fn skill(args: SkillArgs) {
+    if args.json {
+        Answer::new(true).done(&[("output", cli_json::string(SKILL.trim_end()))], "");
+    } else {
+        print!("{SKILL}");
+    }
+}
+
+#[derive(clap::Args, Debug)]
 pub struct AgentArgs {
     #[command(subcommand)]
     verb: AgentVerb,

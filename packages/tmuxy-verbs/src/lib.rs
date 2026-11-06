@@ -53,7 +53,7 @@ pub enum Verb {
     #[command(hide = true)]
     SessionConnect(connect_cli::SessionConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
-    Skill,
+    Skill(agents::SkillArgs),
     /// Run a tmux command that reads, arranges or closes, inside run-shell.
     /// Backs `tmuxy run`.
     #[command(hide = true)]
@@ -79,9 +79,42 @@ pub async fn run(verb: Verb) {
         Verb::Send(args) => send_cli::run(args).await,
         Verb::Connect(args) => connect_cli::run(args),
         Verb::SessionConnect(args) => connect_cli::session_connect(args),
-        Verb::Skill => print!("{}", agents::SKILL),
+        Verb::Skill(args) => agents::skill(args),
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Verb;
+    use clap::Parser;
+
+    /// `--json` works on every command (`tmuxy --help`): the shell hands it to
+    /// whichever verb answers, which must take it.
+    #[test]
+    fn every_verb_the_cli_hands_json_to_takes_it() {
+        #[derive(Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            verb: Verb,
+        }
+        for argv in [
+            &["trace", "--json"][..],
+            &["trace", "--health", "--json"],
+            &["skill", "--json"],
+            &["session", "snapshots", "--json"],
+            &["agent", "status", "--json"],
+            &["config", "paths", "--json"],
+            &["plugin", "list", "--json"],
+            &["run", "--json", "--", "list-panes"],
+            &["new-tab", "--json"],
+            &["connect", "--json", "--socket", "x"],
+            &["session-connect", "--json"],
+        ] {
+            let parsed = Cli::try_parse_from(std::iter::once("tmuxy").chain(argv.iter().copied()));
+            assert!(parsed.is_ok(), "{argv:?}");
+        }
     }
 }

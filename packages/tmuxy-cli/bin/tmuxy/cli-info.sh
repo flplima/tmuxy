@@ -116,5 +116,5 @@ cmd_skill() {
     --help|-h) echo "Usage: tmuxy skill"; return ;;
   esac
   find_server_cmd || exit "$EXIT_FAILED"
-  exec "${SERVER_CMD[@]}" skill
+  exec "${SERVER_CMD[@]}" skill ${server_json[@]+"${server_json[@]}"}
 }

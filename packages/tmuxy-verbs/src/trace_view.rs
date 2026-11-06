@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
+use crate::cli_json::{self, Answer, EXIT_FAILED};
+
 mod health;
 pub use health::window;
 use health::{github_annotations, health_check};
@@ -50,38 +52,37 @@ pub struct TraceViewArgs {
     /// bug report.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
     pub last: Option<u32>,
+
+    /// Answer in JSON: `{"ok":true,"output":…}`.
+    #[arg(long)]
+    pub json: bool,
 }
 
 pub fn run(args: TraceViewArgs) {
+    let answer = Answer::new(args.json);
+    match read(args) {
+        Ok(text) if answer.is_json() => {
+            answer.done(&[("output", cli_json::string(text.trim_end()))], "")
+        }
+        Ok(text) => print!("{text}"),
+        Err(e) => answer.exit(EXIT_FAILED, &e),
+    }
+}
+
+/// What the verb says, or why it failed.
+fn read(args: TraceViewArgs) -> Result<String, String> {
     if let Some(label) = args.mark {
         let path = args
             .file
             .map(PathBuf::from)
             .unwrap_or_else(default_trace_path);
-        match append_marker(&path, &label) {
-            Ok(()) => println!("marker added → {}", path.display()),
-            Err(e) => {
-                eprintln!("tmuxy trace: {e}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        append_marker(&path, &label).map_err(|e| e.to_string())?;
+        return Ok(format!("marker added → {}\n", path.display()));
     }
 
-    let path = match resolve_path(args.file) {
-        Some(p) => p,
-        None => {
-            eprintln!("tmuxy trace: no trace file found (pass a path, or run with --trace first)");
-            std::process::exit(1);
-        }
-    };
-    let events = match load(&path) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("tmuxy trace: {e}");
-            std::process::exit(1);
-        }
-    };
+    let path = resolve_path(args.file)
+        .ok_or("no trace file found (pass a path, or run with --trace first)")?;
+    let events = load(&path).map_err(|e| e.to_string())?;
     let events = match &args.window {
         Some(label) => window(&events, label),
         None => events,
@@ -91,40 +92,35 @@ pub fn run(args: TraceViewArgs) {
         None => events,
     };
     if events.is_empty() {
-        println!("tmuxy trace: {} has no events to read", path.display());
-        return;
+        return Ok(format!(
+            "tmuxy trace: {} has no events to read\n",
+            path.display()
+        ));
     }
 
-    match args.export {
-        Some(out) => {
-            let trace = to_chrome_trace(&events);
-            let bytes = serde_json::to_vec_pretty(&trace).unwrap_or_default();
-            match tmuxy_core::private_files::write(Path::new(&out), bytes) {
-                Ok(()) => println!(
-                    "wrote {} events → {} (open at ui.perfetto.dev)",
-                    events.len(),
-                    out
-                ),
-                Err(e) => {
-                    eprintln!("tmuxy trace: failed to write {out}: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        None => {
-            if args.health && args.github {
-                print!("{}", github_annotations(&events));
-            } else if args.health {
-                print!("{}", health_check(&events));
-            } else if args.last.is_some() {
-                for ev in &events {
-                    println!("{}", Value::Object(ev.clone()));
-                }
-            } else {
-                print!("{}", summarize(&events));
-            }
-        }
+    if let Some(out) = args.export {
+        let trace = to_chrome_trace(&events);
+        let bytes = serde_json::to_vec_pretty(&trace).unwrap_or_default();
+        tmuxy_core::private_files::write(Path::new(&out), bytes)
+            .map_err(|e| format!("failed to write {out}: {e}"))?;
+        return Ok(format!(
+            "wrote {} events → {} (open at ui.perfetto.dev)\n",
+            events.len(),
+            out
+        ));
     }
+    Ok(if args.health && args.github {
+        github_annotations(&events)
+    } else if args.health {
+        health_check(&events)
+    } else if args.last.is_some() {
+        events
+            .iter()
+            .map(|ev| format!("{}\n", Value::Object(ev.clone())))
+            .collect()
+    } else {
+        summarize(&events)
+    })
 }
 
 fn resolve_path(file: Option<String>) -> Option<PathBuf> {
