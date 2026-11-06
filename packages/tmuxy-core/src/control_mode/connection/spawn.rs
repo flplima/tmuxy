@@ -459,7 +459,6 @@ impl ControlModeConnection {
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod read_line_tests {
     use super::read_line_capped;
 

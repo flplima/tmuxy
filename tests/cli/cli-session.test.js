@@ -83,8 +83,6 @@ describe('tmuxy pane restore-cmd', () => {
 
   test('writes the pane option for the calling pane, through run-shell', () => {
     const { exitCode, tmuxCalls } = runCLI(['pane', 'restore-cmd', 'claude --resume abc'], {
-      // The harness drops TMUX_PANE unless a socket is pinned, since the suite
-      // itself usually runs inside a pane.
       env: IN_PANE_7,
     });
     expect(exitCode).toBe(0);

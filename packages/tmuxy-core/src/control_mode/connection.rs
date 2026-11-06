@@ -241,5 +241,4 @@ fn one_control_mode_line(cmd: &str) -> Result<(), TmuxError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;

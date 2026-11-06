@@ -417,6 +417,17 @@ CEOF
     ;;
   gui)
     shift
+    # The app's `gui` takes no flags: a `--help` handed on would open it.
+    case "${1:-}" in
+      --help | -h)
+        cat <<'GEOF'
+Usage: tmuxy gui
+
+Open the desktop GUI application on this socket's session.
+GEOF
+        exit 0
+        ;;
+    esac
     find_desktop_cmd || _fail "$EXIT_FAILED" "the desktop app is not installed (or has never been opened)"
     exec "$DESKTOP_CMD" gui "$@"
     ;;

@@ -135,7 +135,6 @@ npm run perf:compare -- --report tests/perf/interaction-report.json
 | Output flood tests are light | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput. |
 | Uncovered crates and scripts | The `packages/tmuxy-demo` site has no tests (only its agent-docs build script does) and `deploy-demo.yml` deploys without testing. |
 | `deltaProtocol.ts` is largely untested in substance | A one-off Stryker run scored it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it; most survivors were the conditional-spread guards the property tests exercise without asserting on. |
-| Clippy is not run over test code | CI runs `cargo clippy` without `--tests`, so lints in `#[cfg(test)]` modules and `tests/` go unchecked — `packages/tmuxy-core/tests/control_mode_push_api.rs` is missing the `allow` attribute every sibling has and would fail today. |
 
 ## Related
 

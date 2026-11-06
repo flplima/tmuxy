@@ -429,6 +429,5 @@ impl SessionRuntime {
 mod emitter;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[path = "runtime_tests.rs"]
 mod tests;

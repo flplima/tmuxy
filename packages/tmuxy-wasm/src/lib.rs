@@ -308,7 +308,6 @@ impl WasmTmux {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};

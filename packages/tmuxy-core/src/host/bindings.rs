@@ -185,9 +185,10 @@ impl KeyBindings {
         }
     }
 
-    /// The option lines come first (`show-options -gv`: the prefix, then the
-    /// repeat time); the tables follow, each line naming its own table.
-    pub(super) fn parse(output: &str) -> Self {
+    /// The answer to [`KeyBindings::read`]'s query: the option lines first
+    /// (`show-options -gv`: the prefix, then the repeat time), then the
+    /// tables as `list-keys` prints them, each line naming its own table.
+    pub fn parse(output: &str) -> Self {
         let mut options = output
             .lines()
             .map(str::trim)

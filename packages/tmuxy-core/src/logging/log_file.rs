@@ -66,7 +66,6 @@ impl Write for &RotatingLog {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

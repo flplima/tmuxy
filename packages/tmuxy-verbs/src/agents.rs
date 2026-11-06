@@ -19,7 +19,6 @@ pub(crate) use config::SKILL;
 use config::*;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

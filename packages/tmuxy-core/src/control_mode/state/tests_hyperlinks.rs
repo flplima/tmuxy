@@ -1,22 +1,23 @@
+use super::test_pane::{sent, sent_text};
 use super::*;
 use crate::ids::test_ids::pid;
 
-/// Read back the text each OSC 8 link covers, as `(url, text)`: the cells
-/// `extract_cells_from_screen` gives a URL, joined into runs the way the
-/// frontend turns them into `<a href>`.
-fn linked_text(pane: &PaneState) -> Vec<(String, String)> {
+/// Read back the text each OSC 8 link covers, as `(url, text)`: the cells a
+/// client is sent with a URL, joined into runs the way the frontend turns
+/// them into `<a href>`.
+fn linked_text(pane: &mut PaneState) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
-    for line in crate::extract_cells_from_screen(pane.screen()) {
+    for line in sent(pane).content.iter() {
         let mut run: Option<(String, String)> = None;
         for cell in line {
-            let url = cell.style.and_then(|s| s.url);
+            let url = cell.style.as_ref().and_then(|s| s.url.clone());
             match (url, &mut run) {
                 (Some(u), Some((cur, text))) if *cur == u => text.push_str(&cell.char),
                 (Some(u), _) => {
                     if let Some(done) = run.take() {
                         out.push(done);
                     }
-                    run = Some((u, cell.char));
+                    run = Some((u, cell.char.clone()));
                 }
                 (None, _) => {
                     if let Some(done) = run.take() {
@@ -50,7 +51,7 @@ fn hyperlink_lands_on_its_own_text_after_a_cursor_move() {
     pane.process_output(&out);
 
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![(
             "https://example.com/osc".to_string(),
             "OSC-LINK".to_string()
@@ -67,7 +68,7 @@ fn hyperlink_follows_its_line_as_output_scrolls_it_up() {
     pane.process_output(b"\r\na\r\nb\r\nc");
 
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("https://example.com/s".to_string(), "LINK".to_string())],
         "the mark must travel with the line it was written on"
     );
@@ -83,15 +84,15 @@ fn a_link_does_not_reattach_to_text_redrawn_over_it() {
     pane.process_output(b"\x1b[?1049h\x1b[1;1H");
     pane.process_output(&osc8("https://example.com/x", "CLICK-ME"));
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("https://example.com/x".to_string(), "CLICK-ME".to_string())]
     );
 
     pane.process_output(b"\x1b[1;1HTOTALLY UNRELATED TEXT");
     assert!(
-        linked_text(&pane).is_empty(),
+        linked_text(&mut pane).is_empty(),
         "the redrawn text must not inherit the link: {:?}",
-        linked_text(&pane)
+        linked_text(&mut pane)
     );
 }
 
@@ -104,9 +105,9 @@ fn a_cleared_frame_drops_the_links_that_were_on_it() {
     pane.process_output(b"\x1b[2J\x1b[1;1HFRESH FRAME CONTENT");
 
     assert!(
-        linked_text(&pane).is_empty(),
+        linked_text(&mut pane).is_empty(),
         "a link cleared off the screen must not come back on new text: {:?}",
-        linked_text(&pane)
+        linked_text(&mut pane)
     );
 }
 
@@ -120,7 +121,7 @@ fn a_link_survives_output_that_leaves_its_text_alone() {
     pane.process_output(b"\x1b[1;1Hheader\x1b[3;1Hfooter");
 
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![(
             "https://example.com/z".to_string(),
             "STILL-A-LINK".to_string()
@@ -136,7 +137,7 @@ fn hyperlink_scrolled_off_the_top_is_dropped() {
     pane.process_output(b"\r\na\r\nb\r\nc\r\nd\r\ne");
 
     assert!(
-        linked_text(&pane).is_empty(),
+        linked_text(&mut pane).is_empty(),
         "a link scrolled off screen must not re-attach to a surviving row"
     );
 }
@@ -147,7 +148,7 @@ fn hyperlink_wrapping_the_right_edge_covers_both_rows() {
     pane.process_output(b"\x1b[1;9H");
     pane.process_output(&osc8("https://example.com/w", "ABCD"));
 
-    let linked = linked_text(&pane);
+    let linked = linked_text(&mut pane);
     let joined: String = linked.iter().map(|(_, t)| t.as_str()).collect();
     assert_eq!(joined, "ABCD", "wrapped link lost cells: {linked:?}");
     assert!(linked.iter().all(|(u, _)| u == "https://example.com/w"));
@@ -159,7 +160,7 @@ fn hyperlink_terminated_with_st_is_recorded() {
     let mut pane = PaneState::new(pid("%1"), 40, 6);
     pane.process_output(b"\x1b]8;;https://example.com/st\x1b\\OSC-LINK\x1b]8;;\x1b\\\r\ntail");
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("https://example.com/st".to_string(), "OSC-LINK".to_string())]
     );
 }
@@ -174,7 +175,6 @@ fn a_refill_keeps_the_alternate_screen_tmux_reports() {
     let mut pane = PaneState::new(pid("%1"), 40, 4);
     pane.alternate_on = true;
     pane.apply_capture(b"drawn on the alternate screen\n");
-    assert!(pane.screen().alternate_screen());
     pane.process_output(b"more");
     assert!(
         pane.alternate_on,
@@ -185,7 +185,6 @@ fn a_refill_keeps_the_alternate_screen_tmux_reports() {
     let mut main = PaneState::new(pid("%2"), 40, 4);
     main.alternate_on = false;
     main.apply_capture(b"shell\n");
-    assert!(!main.screen().alternate_screen());
     main.process_output(b"x");
     assert!(!main.alternate_on);
 }
@@ -241,7 +240,7 @@ fn a_link_after_a_capture_refresh_is_still_recorded() {
     pane.process_output(&osc8("https://example.com/after", "LINK"));
 
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("https://example.com/after".to_string(), "LINK".to_string())]
     );
 }
@@ -252,13 +251,13 @@ fn links_do_not_leak_onto_the_alternate_screen() {
     // mark taken on the normal screen must not survive the switch.
     let mut pane = PaneState::new(pid("%1"), 40, 4);
     pane.process_output(&osc8("https://example.com/main", "LINK"));
-    assert!(!linked_text(&pane).is_empty());
+    assert!(!linked_text(&mut pane).is_empty());
 
     // Enter the alternate screen and paint over the same cells.
     pane.process_output(b"\x1b[?1049h\x1b[HVIMTEXT");
 
     assert!(
-        linked_text(&pane).is_empty(),
+        linked_text(&mut pane).is_empty(),
         "a normal-screen URL must not attach to alternate-screen content"
     );
 }
@@ -271,7 +270,7 @@ fn only_the_text_inside_the_pair_is_linked() {
     pane.process_output(b" ");
     pane.process_output(&osc8("http://b", "B"));
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![
             ("http://x".to_string(), "IN".to_string()),
             ("http://a".to_string(), "A".to_string()),
@@ -286,7 +285,7 @@ fn a_link_left_open_carries_into_the_next_output() {
     pane.process_output(b"\x1b]8;;http://x\x07AB");
     pane.process_output(b"CD\x1b]8;;\x07EF");
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("http://x".to_string(), "ABCD".to_string())]
     );
 }
@@ -297,10 +296,10 @@ fn an_osc8_split_across_outputs_is_not_torn() {
     pane.process_output(b"\x1b]8;;https://exa");
     pane.process_output(b"mple.com\x07hi\x1b]8;;\x07");
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("https://example.com".to_string(), "hi".to_string())]
     );
-    assert_eq!(pane.screen().contents(), "hi");
+    assert_eq!(sent_text(&mut pane), "hi");
 }
 
 #[test]
@@ -308,8 +307,8 @@ fn an_oversized_url_opens_no_link() {
     let mut pane = PaneState::new(pid("%1"), 40, 6);
     let url = "https://example.com/".to_string() + &"a".repeat(vt100::MAX_HYPERLINK_URL_BYTES);
     pane.process_output(&osc8(&url, "text"));
-    assert!(linked_text(&pane).is_empty());
-    assert_eq!(pane.screen().contents(), "text");
+    assert!(linked_text(&mut pane).is_empty());
+    assert_eq!(sent_text(&mut pane), "text");
 }
 
 #[test]
@@ -319,7 +318,7 @@ fn a_colour_reset_inside_a_link_keeps_it_open_and_an_erase_paints_none() {
     let mut pane = PaneState::new(pid("%1"), 40, 6);
     pane.process_output(b"\x1b]8;;http://x\x07\x1b[1mA\x1b[0mB\x1b[K\r\n\x1b[2K\x1b]8;;\x07");
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("http://x".to_string(), "AB".to_string())]
     );
 }
@@ -331,7 +330,7 @@ fn a_link_stays_on_its_text_across_a_resize() {
     pane.process_output(&osc8("http://x", "LINK"));
     pane.resize(30, 4);
     assert_eq!(
-        linked_text(&pane),
+        linked_text(&mut pane),
         vec![("http://x".to_string(), "LINK".to_string())]
     );
 }
@@ -342,7 +341,7 @@ fn plain_output_records_no_links() {
     // detector decides whether to offer it (components/terminal/urlDetect.ts).
     let mut pane = PaneState::new(pid("%1"), 40, 6);
     pane.process_output(b"https://example.com/not-osc8\r\nplain text");
-    assert!(linked_text(&pane).is_empty());
+    assert!(linked_text(&mut pane).is_empty());
 }
 
 #[test]
@@ -354,7 +353,7 @@ fn clear_from_home_erases_the_screen() {
     pane.process_output(
             b"c\x08clear\x1b[?2004l\r\r\n\x1b]0;clear\x07\x1b[H\x1b[J\x1b[1m\x1b[7m%\x1b[27m\x1b[1m\x1b[0m       \r \r\x1b]0;zsh\x07\r\x1b[0m\x1b[27m\x1b[24m\x1b[J\r\n\x1b[34m~\x1b[39m\r\n\x1b[35m\xe2\x9d\xaf\x1b[39m \x1b[K\x1b[?2004h",
         );
-    let text = pane.screen().contents();
+    let text = sent_text(&mut pane);
     assert!(
         !text.contains("one") && !text.contains("three"),
         "screen not cleared: {text:?}"

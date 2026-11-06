@@ -23,7 +23,6 @@ mod start;
 mod supervise;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod protocol_fixtures;
 
 #[cfg(test)]
@@ -135,7 +134,6 @@ pub fn host_name() -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::session_start_dir_from;
     use std::path::PathBuf;

@@ -20,50 +20,17 @@
 
 use std::time::Duration;
 
-use tmuxy_core::control_mode::{
-    CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
-};
-use tmuxy_core::StateUpdate;
-
 mod common;
 
-/// Keeps what the monitor reports so a failure can say what went wrong.
-#[derive(Default)]
-struct Recorder {
-    errors: std::sync::Mutex<Vec<String>>,
-}
-impl LogSink for Recorder {}
-impl StateEmitter for Recorder {
-    fn emit_state(&self, _update: StateUpdate) {}
-    fn emit_error(&self, error: String) {
-        self.errors.lock().unwrap().push(error);
-    }
-}
-
-async fn ask(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, command: &str) -> CommandReply {
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply {
-        command: command.to_string(),
-        reply,
-    })
-    .await
-    .expect("monitor accepts commands");
-    tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .expect("a reply arrives within the deadline")
-        .expect("the monitor answers rather than dropping the request")
-}
-
-async fn option(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, name: &str) -> String {
-    let reply = ask(tx, &format!("show-options -t app -v {name}")).await;
+async fn option(monitor: &common::Monitor, name: &str) -> String {
+    let reply = monitor.ask(&format!("show-options -t app -v {name}")).await;
     assert_eq!(reply.error, None, "show-options {name} succeeded");
     reply.output.trim_end_matches('\n').to_string()
 }
 
 #[tokio::test]
 async fn connecting_enforces_the_settings_the_layout_depends_on() {
-    let socket = format!("tmuxy-enforced-settings-{}", std::process::id());
-    std::env::set_var("TMUX_SOCKET", &socket);
+    let server = common::ScratchServer::new("enforced-settings");
 
     common::tmux(&["new-session", "-d", "-s", "app", "sleep", "60"]).unwrap();
 
@@ -100,45 +67,30 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
     .unwrap();
     let second = second.trim();
 
-    let config = MonitorConfig {
-        session: "app".to_string(),
-        create_session: false,
-        ..Default::default()
-    };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
-        .await
-        .expect("control-mode connection on the scratch socket");
-    let recorder = std::sync::Arc::new(Recorder::default());
-    let runner = {
-        let recorder = std::sync::Arc::clone(&recorder);
-        tokio::spawn(async move { monitor.run(&*recorder).await })
-    };
+    let monitor = server.attach("app", false).await;
 
     // The load-bearing one: PaneLayout reserves the border row for its header,
     // so a pane at y=0 renders one row short when this is not `top`. It is a
     // window option, set on each window as the monitor first lists it, a step
     // after the connect: keep asking until then.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let border = option(&tx, "pane-border-status").await;
-        if border == "top" {
-            break;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "pane-border-status is still {border:?}"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    common::wait_until(
+        "pane-border-status top",
+        Duration::from_secs(10),
+        || async { option(&monitor, "pane-border-status").await == "top" },
+    )
+    .await;
 
     // The border row is blank so nothing of tmux's own shows through the header.
     assert!(
-        option(&tx, "pane-border-format").await.trim().is_empty(),
+        option(&monitor, "pane-border-format")
+            .await
+            .trim()
+            .is_empty(),
         "the border row is drawn empty"
     );
 
     for key in &switches {
-        assert_eq!(option(&tx, key).await, "on", "{key} is enforced on");
+        assert_eq!(option(&monitor, key).await, "on", "{key} is enforced on");
     }
 
     let mut per_window = vec!["allow-rename"];
@@ -146,7 +98,9 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         per_window.push("allow-passthrough");
     }
     for key in per_window {
-        let reply = ask(&tx, &format!("show-options -w -t {second} -v {key}")).await;
+        let reply = monitor
+            .ask(&format!("show-options -w -t {second} -v {key}"))
+            .await;
         assert_eq!(
             (reply.error, reply.output.trim()),
             (None, "on"),
@@ -154,7 +108,9 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         );
     }
 
-    let aggressive = ask(&tx, "show-window-options -t app -v aggressive-resize").await;
+    let aggressive = monitor
+        .ask("show-window-options -t app -v aggressive-resize")
+        .await;
     assert_eq!(aggressive.error, None);
     assert_eq!(
         aggressive.output.trim(),
@@ -162,13 +118,9 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
         "tmuxy manages sizing itself"
     );
 
-    assert!(
-        recorder.errors.lock().unwrap().is_empty(),
-        "no setting was rejected: {:?}",
-        recorder.errors.lock().unwrap()
+    assert_eq!(
+        monitor.errors(),
+        Vec::<String>::new(),
+        "no setting was rejected"
     );
-
-    tx.send(MonitorCommand::Shutdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = common::tmux(&["kill-server"]);
 }

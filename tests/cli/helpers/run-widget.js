@@ -13,11 +13,10 @@
 
 const { spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+const { scriptEnv, withScratchDir } = require('./env');
 
 const WIDGET = path.resolve(__dirname, '../../../packages/tmuxy-cli/bin/tmuxy/tmuxy-widget');
-const MOCKS_DIR = path.resolve(__dirname, '../mocks');
 const MARKER = '__TMUXY_WIDGET__';
 
 /**
@@ -26,25 +25,23 @@ const MARKER = '__TMUXY_WIDGET__';
  *   lines once the widget has exited, and what was left in the directory it
  *   ran in.
  */
-async function runWidgetWithPaneGone(pane) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-widget-gone-'));
-  const log = path.join(dir, 'tmux.log');
-  try {
+function runWidgetWithPaneGone(pane) {
+  return withScratchDir('tmuxy-widget-gone-', async (dir) => {
+    const log = path.join(dir, 'tmux.log');
+    const cwd = path.join(dir, 'cwd');
+    fs.mkdirSync(cwd);
     const child = spawn(
       'perl',
       ['-e', '$SIG{PIPE} = "IGNORE"; exec { "/bin/bash" } "bash", @ARGV', WIDGET, 'tree'],
       {
-        cwd: dir,
+        cwd,
         stdio: ['pipe', 'pipe', 'ignore'],
-        env: {
-          ...process.env,
-          PATH: `${MOCKS_DIR}:${process.env.PATH}`,
+        env: scriptEnv(dir, {
           MOCK_TMUX_LOG: log,
           MOCK_TMUX_PANE_PID: String(process.pid),
           TMUX_SOCKET: 'tmuxy',
           TMUX_PANE: pane,
-          TMUX: '',
-        },
+        }),
       },
     );
     const exited = new Promise((resolve) => child.once('exit', resolve));
@@ -66,10 +63,8 @@ async function runWidgetWithPaneGone(pane) {
     const calls = fs.existsSync(log)
       ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean)
       : [];
-    return { calls, files: fs.readdirSync(dir).sort() };
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+    return { calls, files: fs.readdirSync(cwd).sort() };
+  });
 }
 
 module.exports = { runWidgetWithPaneGone };

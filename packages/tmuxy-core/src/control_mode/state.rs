@@ -361,6 +361,8 @@ pub use window_state::WindowState;
 use window_state::{parse_layout_panes, LayoutPane};
 
 #[cfg(test)]
+mod test_pane;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_capture;

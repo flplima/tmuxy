@@ -274,5 +274,4 @@ fn without_controls(text: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests;

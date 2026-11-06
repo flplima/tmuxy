@@ -1,4 +1,4 @@
-//! The values the UI, the CLI scripts and the browser guests' build scripts
+//! The values the UI, the CLI scripts, the browser guests and their build scripts
 //! share with tmuxy-core, written out of tmuxy-core into files each of them
 //! reads, so no copy is kept by hand.
 //!
@@ -15,6 +15,9 @@ use tmuxy_core::paths::Layout;
 use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
 use tmuxy_core::WindowType;
+
+#[path = "generated/guest_keys.rs"]
+mod guest_keys;
 
 const HEADER: &str =
     "Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.\n\
@@ -509,5 +512,13 @@ fn the_guest_layout_and_chain_are_tmuxy_cores() {
     check(
         packages().join("tmuxy-ui/scripts/lib/guest.gen.json"),
         guest_json(),
+    );
+}
+
+#[test]
+fn the_guest_key_bindings_are_the_shipped_confs() {
+    check(
+        packages().join("tmuxy-ui/src/infra/transport/drivers/guest/defaultKeybindings.gen.json"),
+        guest_keys::guest_keybindings(),
     );
 }
