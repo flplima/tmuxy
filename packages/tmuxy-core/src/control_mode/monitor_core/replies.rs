@@ -18,6 +18,9 @@ pub(super) enum Waiter<W> {
     /// A caller's `run-shell`, relayed the same way: the caller gets what the
     /// shell command printed, and a non-zero exit as the reply's error.
     CallerRunShell(W, String),
+    /// The batch of reads out on a paced link (`reads`): answered, the next
+    /// one may go.
+    Reads,
 }
 
 /// Whether a fire-and-forget command is marker-wrapped so its `%error`
@@ -50,6 +53,7 @@ impl<W> MonitorCore<W> {
             .aggregator
             .markers()
             .relist_commands(crate::tmux_compat::relists_after(&list));
+        let relists = self.relists_behind(relists, now);
 
         // Taken whether or not the command is wrapped: ids only have to grow.
         let id = self.fresh_reply_id();
@@ -122,6 +126,7 @@ impl<W> MonitorCore<W> {
                     run_shell::caller_reply(&output, &key, error),
                 ));
             }
+            Some((Waiter::Reads, _)) => self.reads.answered(),
             Some((Waiter::ReportFailure, _)) => {
                 messages(&mut actions, output.lines());
                 // What the command printed besides messages — a
@@ -183,6 +188,12 @@ impl<W> MonitorCore<W> {
                         w,
                         CommandReply::failed("tmux did not answer in time"),
                     ));
+                }
+                // A batch of reads tmux has not answered in time is given up
+                // on, so the reads asked for since still go out.
+                Some((Waiter::Reads, _)) => {
+                    tracing::warn!(id, "reads not answered in time");
+                    self.reads.answered();
                 }
                 // A long `run-shell` is a legitimate reason for a late END
                 // marker; with nobody waiting there is nothing to report.
