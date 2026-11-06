@@ -1,8 +1,4 @@
-/**
- * Sidebar scroll and keyboard tab-order stories, over states recorded from
- * real tmux. How the column re-tiles the grid is told by real tmux in
- * `stories/AppSidebarLayout.stories.tsx`.
- */
+/** How the column re-tiles the grid is told by real tmux in `stories/AppSidebarLayout.stories.tsx`. */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
@@ -19,10 +15,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-// ---------------------------------------------------------------------------
-// A tree with more rows than the column is tall scrolls INSIDE the column
-// ---------------------------------------------------------------------------
 
 export const TallTreeScrollsInsideTheColumn: Story = {
   tags: ['nightly'],
@@ -54,35 +46,28 @@ export const TallTreeScrollsInsideTheColumn: Story = {
     const column = document.querySelector('.sidebar-column-left') as HTMLElement;
     expect(column).not.toBeNull();
 
-    // Every tab and its pane got a row — far more rows than the column is tall.
     const rows = () => [...tree.querySelectorAll('[role="treeitem"]')] as HTMLElement[];
     await waitFor(() => expect(rows()).toHaveLength(24), { timeout: 8000 });
 
-    // The tree is bounded by its column: a box that grew past the bottom edge
-    // would have its extra rows clipped by the column with nothing to scroll.
     const columnBox = column.getBoundingClientRect();
     expect(tree.getBoundingClientRect().bottom).toBeLessThanOrEqual(columnBox.bottom + 1);
 
-    // …and it overflows that box, so it is genuinely scrollable.
     expect(tree.scrollHeight).toBeGreaterThan(tree.clientHeight + 1);
 
-    // It opens on the active pane's row, at the bottom of a tree this long, so
-    // the top of it starts out scrolled off the column.
+    // It opens on the active pane's row, the last one, so the top starts scrolled off.
     const firstRow = () => rows()[0];
     const lastRow = () => rows()[rows().length - 1];
     const openedAt = tree.scrollTop;
     expect(openedAt).toBeGreaterThan(0);
     expect(firstRow().getBoundingClientRect().top).toBeLessThan(columnBox.top);
 
-    // Walking the keyboard cursor up brings the top of the tree back into view —
-    // which is what makes the rows past a fold reachable at all.
     await user.click(tree);
     await waitFor(() => expect(tree.getAttribute('data-focused')).toBe('true'), { timeout: 5000 });
     await user.keyboard('k'.repeat(rows().length));
     await waitFor(
       () => {
-        // Scrolled back up (not necessarily to 0 — the tree's top padding sits
-        // above the first row, and `block: 'nearest'` stops at the row itself).
+        // Not necessarily to 0: the tree's top padding sits above the first
+        // row, and `block: 'nearest'` stops at the row itself.
         expect(tree.scrollTop).toBeLessThan(openedAt);
         const box = firstRow().getBoundingClientRect();
         expect(box.top).toBeGreaterThanOrEqual(columnBox.top - 1);
@@ -91,7 +76,6 @@ export const TallTreeScrollsInsideTheColumn: Story = {
       { timeout: 6000, interval: 100 },
     );
 
-    // …and walking it back down scrolls the far end into view the same way.
     await user.keyboard('j'.repeat(rows().length));
     await waitFor(
       () => {
@@ -105,20 +89,10 @@ export const TallTreeScrollsInsideTheColumn: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Keyboard only: Tab walks the chrome in order and always finds its way back
-// ---------------------------------------------------------------------------
-
 /**
- * Someone driving the app from the keyboard alone has to be able to walk the
- * chrome and get back where they started. With the tree column open, Tab is
- * pressed from the sidebar toggle until the focus wraps round to it again, and
- * every stop is recorded.
- *
- * The walk has to complete the loop rather than stalling or circling inside
- * one surface, take in the tab strip and the app menu on the way, stop only on
- * controls the user can actually see, and move in document order, which is the
- * order the controls are read in.
+ * Tab from the sidebar toggle, both ways, must leave the page rather than
+ * stall or circle inside one surface, stop only on visible controls, and move
+ * in document order.
  */
 export const TabOrderNeverTrapsTheKeyboard: Story = {
   // Tabs `one` and `two` beside the tree.
@@ -135,12 +109,10 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
     const sidebar = document.querySelector('.sidebar-column-left') as HTMLElement;
     expect(sidebar).not.toBeNull();
 
-    // Walk both ways from the toggle until the focus leaves the page, which is
-    // what Tab past the last control does in any browser: a walk that never
-    // leaves is the trap. (Back into the page is the browser's own move, which
-    // a page cannot press for; from nothing focused, Tab is the terminal's.)
-    // The toggle is focused the way a keyboard user arrives, not by a click:
-    // a clicked button keeps the focus, and the Tab typed next is the shell's.
+    // Tab past the last control leaves the page in any browser; coming back in
+    // is the browser's own move, which a page cannot press for. The toggle is
+    // focused directly, not clicked: a clicked button hands the next Tab to
+    // the shell.
     toggle.focus();
     const walk = async (shift: boolean): Promise<HTMLElement[]> => {
       toggle.focus();
@@ -158,8 +130,6 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
           stops.includes(focused),
           `Tab came back to ${focused.className} without leaving the page: ${trace}`,
         ).toBe(false);
-        // Every stop is a control the user can see — a focus ring on a clipped
-        // or zero-sized element is a stop nobody can find.
         const box = focused.getBoundingClientRect();
         expect(box.width, `a stop with no width: ${focused.className}`).toBeGreaterThan(0);
         expect(box.height, `a stop with no height: ${focused.className}`).toBeGreaterThan(0);
@@ -169,7 +139,6 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
     };
     const stops = [...(await walk(true)).reverse(), toggle, ...(await walk(false))];
 
-    // In document order: the reading order and the tab order are the same.
     for (let i = 1; i < stops.length; i++) {
       const follows =
         stops[i - 1].compareDocumentPosition(stops[i]) & Node.DOCUMENT_POSITION_FOLLOWING;
@@ -179,8 +148,6 @@ export const TabOrderNeverTrapsTheKeyboard: Story = {
       ).toBe(true);
     }
 
-    // The tab strip is on the way: its "new tab" control is a stop. The trace
-    // goes in the message so a walk that changes shape says how it changed.
     const trace = stops.map((el) => el.className || el.tagName).join(' -> ');
     expect(
       stops.some((el) => el.closest('.tab-add') !== null),

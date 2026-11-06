@@ -1,8 +1,3 @@
-/**
- * PaneLayoutMorph — split & kill morph lifecycle detection, FLIP rewind, and
- * cleanup effects for PaneLayout.
- */
-
 import { useEffect, useLayoutEffect, useMemo } from 'react';
 import { PANE_LEAVE_MS, PANE_ENTER_FROM_OPACITY } from '../constants/layout';
 import { cssDurationMs } from '../infra/dom/cssTiming';
@@ -30,11 +25,9 @@ export function useRenderedPanesAndView({
   charHeight: number;
   centeringOffset: { x: number; y: number };
 }) {
-  // Merge visible + hidden panes into one stable-ordered list so React
-  // reconciles by key across tab switches — the new window's <TerminalPane>
-  // instances are already mounted (just hidden), so flipping tabs is a CSS
-  // class swap, not an unmount/remount. Sort by the effective React key
-  // (paneKeyOverrides honored so placeholder→real transitions stay stable).
+  // One list, sorted by effective key, so React reconciles by key across tab
+  // switches: the other windows' panes stay mounted (hidden), and a tab switch
+  // is a class swap, not a remount.
   const renderedPanes = useMemo(() => {
     const items: {
       pane: TmuxPane;
@@ -44,15 +37,13 @@ export function useRenderedPanesAndView({
       swipeSide: number;
     }[] = [];
     for (const pane of visiblePanes) {
-      // Zoom-collapsed rather than dropped: the pane keeps its DOM and terminal
-      // state (so unzoom restores it instantly and it stays interactive) and,
-      // unlike a window-hidden pane, is RENDERED — scaled toward the centre and
-      // faded out — so zoom in/out animates instead of hard-cutting.
+      // Zoom-collapsed rather than dropped: it keeps its DOM, so unzoom restores
+      // it instantly, and unlike a window-hidden pane it is rendered, so zoom
+      // in and out animate.
       const hiddenByZoom = zoomedPaneId !== null && pane.tmuxId !== zoomedPaneId;
       items.push({ pane, hidden: hiddenByZoom, zoomCollapsed: hiddenByZoom, swipeSide: 0 });
     }
-    // The tab a slide is pulling in is drawn with its real panes - already
-    // mounted, just hidden - so it lines up exactly with the tab it replaces.
+    // The tab a slide is pulling in is drawn with its real, already-mounted panes.
     const [neighborId, side] = parseSwipeNeighbor(swipeNeighbor);
     for (const pane of hiddenWindowPanes) {
       const pulledIn = pane.windowId === neighborId;
@@ -84,11 +75,9 @@ export function useRenderedPanesAndView({
   return { renderedPanes, currView };
 }
 
-// One rendered pane as seen by the enter/leave/shift lifecycle: its data,
-// visibility, and pixel box (null while hidden — hidden panes have no
-// geometry). Keyed by the pane's effective React key (paneKeyOverrides
-// honored) so the optimistic placeholder→real-id morph reads as the SAME
-// pane and never re-triggers an enter animation.
+// Keyed by the effective React key (paneKeyOverrides honored), so the
+// optimistic placeholder→real-id morph reads as the same pane and never
+// re-triggers an enter animation.
 export interface RenderedPaneView {
   pane: TmuxPane;
   hidden: boolean;
@@ -109,10 +98,9 @@ export interface ShiftAnim {
 }
 
 /**
- * A pane that has just gone. Nothing of it is drawn — it disappears on the
- * commit that dropped it — but the entry stays for PANE_LEAVE_MS to hold the
- * shift lifecycle open, which is what makes the surviving panes GROW into the
- * space instead of snapping into it.
+ * A pane that has just gone. Nothing of it is drawn, but the entry holds the
+ * shift lifecycle open for PANE_LEAVE_MS so the survivors grow into its space
+ * instead of snapping into it.
  */
 export interface LeaveAnim {
   pane: TmuxPane;
@@ -156,7 +144,6 @@ export function morphFallbackMs(el: Element): number {
 // running a leave morph for a pane the user never meant to see.
 const TRANSIENT_PANE_MS = 300;
 
-/** Call `done` once when `node`'s own geometry transition ends; returns the unsubscribe. */
 export function onMorphEnd(node: HTMLElement, done: () => void): () => void {
   const handler = (e: TransitionEvent) => {
     if (e.target !== node || !MORPH_PROPERTIES.has(e.propertyName)) return;
@@ -201,8 +188,7 @@ export function detectPaneLifecycle({
   groupSwitchPanes,
 }: DetectPaneLifecycleArgs): void {
   if (!lifecycleEnabled && leavingRef.current.size > 0) {
-    // Window switch / drag / animations-off: the growth these were holding
-    // open belongs to a layout that no longer exists — drop them instantly.
+    // The growth these held open belongs to a layout that no longer exists.
     for (const l of leavingRef.current.values()) {
       if (l.timer !== undefined) clearTimeout(l.timer);
     }
@@ -236,18 +222,15 @@ export function detectPaneLifecycle({
       }
     }
 
-    // A key appearing in / vanishing from the render list is NOT enough:
-    // group siblings and float panes are excluded from renderedPanes while
-    // still alive in the model, so a group switch or float create/close
-    // moves keys in and out of the render without any pane being born or
-    // dying. Only morph panes that are genuinely new to (enter) or gone
-    // from (leave) the model.
+    // A key entering or leaving the render is not enough: group siblings and
+    // float panes are left out of renderedPanes while alive in the model, so
+    // only a pane new to (or gone from) the model morphs.
     const allPaneIds = new Set<string>();
     for (const p of allPanes) allPaneIds.add(p.tmuxId);
     const prevAllPaneIds = prevAllPaneIdsRef.current;
 
-    // Enters: new visible key → FLIP from the split source's pre-split box
-    // (fallback: fade in place when nothing plausibly shrank for it).
+    // Enters FLIP from the split source's pre-split box, or fade in place when
+    // nothing plausibly shrank for it.
     for (const [key, v] of currView) {
       if (v.hidden || !v.box || prevView.has(key) || enterAnimsRef.current.has(key)) continue;
       const leave = leavingRef.current.get(key);
@@ -265,10 +248,7 @@ export function detectPaneLifecycle({
       });
     }
 
-    // Leaves: previously-visible key gone from the render entirely. A key
-    // that merely went hidden (break-pane, hidden windows) stays in
-    // currView and never triggers this; a pane that moved into a group
-    // slot or float is caught by the model-presence check above.
+    // A key that merely went hidden (break-pane, hidden windows) stays in currView.
     for (const [key, v] of prevView) {
       if (currView.has(key) || v.hidden || !v.box || leavingRef.current.has(key)) continue;
       if (allPaneIds.has(v.pane.tmuxId)) continue; // moved, not dead
@@ -331,8 +311,6 @@ export function usePaneMorphCommit({
   prevAllPaneIdsRef,
   bumpAnimTick,
 }: UsePaneMorphCommitArgs): void {
-  // Post-commit: FLIP freshly-entered panes, arm expiry timers, clean up
-  // entries whose panes vanished, and snapshot this render for the next diff.
   useLayoutEffect(() => {
     const container = containerRef.current;
     const timingRoot = container ?? document.documentElement;
@@ -352,12 +330,9 @@ export function usePaneMorphCommit({
       }
     }
 
-    // FLIP: rewind the entering pane to its from-box with transitions off,
-    // force a style recalc there, then restore React's own inline values —
-    // the .pane-entering transition morphs it into place, and neither
-    // endpoint is ever painted un-animated. Restoring React's exact values
-    // means a later re-render (e.g. confirm-time geometry correction) just
-    // retargets the live transition.
+    // FLIP: rewind to the from-box with transitions off, force a style recalc,
+    // then restore React's own inline values, so neither endpoint is painted
+    // un-animated and a later re-render just retargets the live transition.
     for (const [key, anim] of enterAnimsRef.current) {
       if (anim.flipped) continue;
       anim.flipped = true;
@@ -406,7 +381,6 @@ export function usePaneMorphCommit({
       shift.timer = window.setTimeout(finish, morphFallbackMs(node ?? timingRoot));
     }
 
-    // The collapsed siblings expand on the zoom's own transition.
     const ze = zoomExpandRef.current;
     if (ze && ze.timer === undefined) {
       ze.timer = window.setTimeout(

@@ -11,11 +11,6 @@ const CHAR_W = 8;
 const CHAR_H = 16;
 const PANES = asFixture(panes);
 
-/**
- * Feeds the pane geometry tmux recorded into ResizeDividers, the same way
- * PaneLayout does in the app — so divider positions come from real layout
- * data instead of hand-built pane literals that drift from the type.
- */
 function LiveDividers() {
   const panes = useAppSelector(selectVisiblePanes);
   const paneTree = useAppSelector(selectActivePaneTree);
@@ -56,8 +51,6 @@ export const VerticalDivider: Story = {
       { timeout: 5000 },
     );
 
-    // Side-by-side panes get one vertical (ew-resize) divider spanning the
-    // shared edge with a real hit area.
     expect(canvasElement.querySelectorAll('.resize-divider')).toHaveLength(1);
     expect(divider.style.cursor).toBe('ew-resize');
     const rect = divider.getBoundingClientRect();
@@ -73,8 +66,7 @@ export const MixedOrientations: Story = {
     </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
-    // Three panes (left + right split into top/bottom) produce N-1 = 2
-    // dividers: one per orientation.
+    // Left + right split into top/bottom: N-1 = 2 dividers, one per orientation.
     await waitFor(
       () => {
         const dividers = [...canvasElement.querySelectorAll<HTMLElement>('.resize-divider')];
@@ -88,10 +80,8 @@ export const MixedOrientations: Story = {
 };
 
 /**
- * A fully collapsed stack: every row down to the single line a collapsed pane
- * draws. The geometry is the recorded panes squashed — the layout is a real
- * one (it is what stacked panes look like with the focus on another row),
- * just not one the recording holds.
+ * The recorded panes squashed to one line each: what stacked panes look like
+ * with the focus on another row, a real layout the recording does not hold.
  */
 function CollapsedStackDividers() {
   const panes = useAppSelector(selectVisiblePanes);
@@ -143,8 +133,7 @@ export const PinnedDividerRefusesTheDrag: Story = {
       expect(rect.height).toBeGreaterThan(0);
     }
 
-    // Pressing one starts nothing: no resize state reaches the machine, so the
-    // grid never takes the class it wears while a drag is live.
+    // The grid wears this class only while a resize drag is live.
     const first = dividers[0];
     const box = first.getBoundingClientRect();
     fireEvent.mouseDown(first, {

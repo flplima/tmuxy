@@ -1,5 +1,5 @@
-/* ConnectionOverlay — sits over the pane container (which is positioned),
-   above panes, floats and the tab overview. */
+/* Sits over the pane container (which is positioned), above panes, floats
+   and the tab overview. */
 
 .connection-overlay {
   position: absolute;

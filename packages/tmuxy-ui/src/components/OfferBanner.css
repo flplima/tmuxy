@@ -1,5 +1,4 @@
-/* OfferBanner — one terminal row along the bottom of a restored pane. Sits
-   inside `.pane-content`, which is positioned, under the pane header. */
+/* Sits inside `.pane-content`, which is positioned, under the pane header. */
 
 .offer-banner {
   position: absolute;

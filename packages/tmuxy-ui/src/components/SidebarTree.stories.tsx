@@ -1,8 +1,3 @@
-/**
- * Sidebar tree structure, drag-to-reorder, and pane state stories, over
- * states recorded from real tmux.
- */
-
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, fireEvent } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
@@ -20,10 +15,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-// ---------------------------------------------------------------------------
-// Drag a tab row up the tree → the tabs reorder, shown before tmux answers
-// ---------------------------------------------------------------------------
 
 export const DragTabRowToReorder: Story = {
   args: {
@@ -52,8 +43,6 @@ export const DragTabRowToReorder: Story = {
     const pointer = { pointerId: 1, pointerType: 'mouse', button: 0, isPrimary: true };
     fireEvent.pointerDown(secondRow, { ...pointer, clientX: from.x, clientY: from.y });
     fireEvent.pointerMove(secondRow, { ...pointer, clientX: from.x, clientY: to.y - 4 });
-    // Mid-drag: the row rides with the pointer and the first tab carries the
-    // drop bar — the tree says where the drop lands before it lands.
     await waitFor(() => {
       expect(secondRow).toHaveClass('is-dragging');
       expect(firstRow).toHaveClass('is-drop-before');
@@ -62,8 +51,7 @@ export const DragTabRowToReorder: Story = {
 
     fireEvent.pointerUp(secondRow, { ...pointer, clientX: from.x, clientY: to.y - 4 });
     fireEvent.click(secondRow, { clientX: from.x, clientY: to.y - 4 });
-    // The order is the dropped one at once (predicted), in the model and in
-    // the tree; the drop was not a click, so the active tab did not change.
+    // Predicted at once; the click after the drop must not select the tab.
     const rows = () =>
       [...tree.querySelectorAll('.sidebar-tree-tab[data-window-id]')].map(
         (el) => (el as HTMLElement).dataset.windowId,
@@ -75,18 +63,13 @@ export const DragTabRowToReorder: Story = {
     expect(tree.querySelector('.is-dragging, .is-drop-before, .is-drop-after')).toBeNull();
     expect(app().context.activeWindowId).toBe('@1');
 
-    // tmux's answer is the same order: it settles without a flip back.
+    // tmux's answer settles without a flip back.
     await waitFor(() => expect(tabs().find((w) => w.id === '@1')?.index).toBe(1), {
       timeout: 5000,
     });
     expect(rows()).toEqual(['@1', '@0']);
   },
 };
-
-// ---------------------------------------------------------------------------
-// The tree sits on the chrome: nothing up to the column paints a background,
-// and one row in the whole tree takes the accent
-// ---------------------------------------------------------------------------
 
 export const TreeSitsOnTheChrome: Story = {
   // Tabs `one` and `two` (current) of two panes each beside the tree.
@@ -95,9 +78,8 @@ export const TreeSitsOnTheChrome: Story = {
     const tree = await waitForTree();
     const transparent = 'rgba(0, 0, 0, 0)';
 
-    // Docked beside the grid, from the tree up to and including the column
-    // every element is see-through: a sidebar is chrome, so the window's
-    // ground runs on behind it and only the panes are dark.
+    // A sidebar is chrome: the window's ground runs on behind it, only the
+    // panes are dark.
     let el: HTMLElement | null = tree;
     while (el && !el.classList.contains('sidebar-column')) {
       expect(getComputedStyle(el).backgroundColor, el.className).toBe(transparent);
@@ -106,8 +88,7 @@ export const TreeSitsOnTheChrome: Story = {
     expect(el).not.toBeNull();
     expect(getComputedStyle(el!).backgroundColor).toBe(transparent);
 
-    // The ink ladder: the pane with the keyboard is the one row in its colour,
-    // and the current tab's row above it is not drawn in it.
+    // The pane with the keyboard is the one row in its colour.
     await waitFor(() => expect(tree.querySelectorAll('.sidebar-tree-pane')).toHaveLength(4));
     const color = (row: Element) => getComputedStyle(row).color;
     const activePane = tree.querySelector('.sidebar-tree-pane.is-active')!;
@@ -116,15 +97,10 @@ export const TreeSitsOnTheChrome: Story = {
     const currentTab = tree.querySelector('.sidebar-tree-tab.is-active')!;
     const otherTab = tree.querySelector('.sidebar-tree-tab:not(.is-active)')!;
     expect(color(currentTab)).not.toBe(color(otherTab));
-    // Only the current tab's row sits on a band.
     expect(getComputedStyle(currentTab).backgroundColor).not.toBe(transparent);
     expect(getComputedStyle(otherTab).backgroundColor).toBe(transparent);
   },
 };
-
-// ---------------------------------------------------------------------------
-// Pane nodes show the same title + process icon as the pane header tabs
-// ---------------------------------------------------------------------------
 
 export const PaneNodesShowHeaderTitle: Story = {
   // One tab of two panes, %0 and %1, beside the tree (whose own pane is %2).
@@ -138,29 +114,21 @@ export const PaneNodesShowHeaderTitle: Story = {
     for (const p of panes) {
       const row = tree.querySelector(`[data-testid="tree-pane-${p.tmuxId}"]`) as HTMLElement;
       expect(row).not.toBeNull();
-      // `%id name` — the id leads, dim, because it is what tells two panes
-      // running the same program apart ('bash' twice is the common case); the
-      // process name follows it as the bold half.
+      // The id leads: it is what tells two panes running the same program apart.
       const id = row.querySelector('.sidebar-tree-id') as HTMLElement;
       const name = row.querySelector('.sidebar-tree-name') as HTMLElement;
       expect(id.textContent).toBe(p.tmuxId);
       expect(name.textContent).toBe('bash');
-      // Process icon rendered alongside it, after the tree connector.
       expect(row.querySelector('.sidebar-tree-icon')).not.toBeNull();
       expect(row.querySelector('.sidebar-tree-branch')).not.toBeNull();
     }
 
-    // The tree column itself is never a row in its own tree.
     const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
     const treePane = app().context.panes.find((p) => p.windowId === treeWindow.id)!;
     expect(treePane.tmuxId).toBe('%2');
     expect(tree.querySelector('[data-testid="tree-pane-%2"]')).toBeNull();
   },
 };
-
-// ---------------------------------------------------------------------------
-// A pane's state is whatever the pane declared, and a tab rolls its panes up
-// ---------------------------------------------------------------------------
 
 export const PaneStateIsWhatThePaneDeclares: Story = {
   args: {
@@ -207,8 +175,6 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
       { timeout: 6000, interval: 100 },
     );
 
-    // The indicator is really drawn, in the pane's icon place: on the first
-    // line, just ahead of the process name, as on the pane's own header.
     const badge = paneRow(blocked).querySelector(
       '.sidebar-tree-state.is-needs-input',
     ) as HTMLElement;
@@ -222,13 +188,10 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
       Math.abs(badgeBox.top + badgeBox.height / 2 - (nameBox.top + nameBox.height / 2)),
     ).toBeLessThan(nameBox.height / 2);
 
-    // The tab shows the most attention-worthy state among its panes, so the
-    // blocked pane wins over the working one.
     const tabRow = tree.querySelector(`[data-testid="tree-tab-${windowId}"]`) as HTMLElement;
     expect(tabRow.querySelector('.sidebar-tree-state.is-needs-input')).not.toBeNull();
 
-    // The mark is the Nerd Font warning triangle in the theme's orange, its
-    // whole ink inside its box; a failure is the circled x in the error red.
+    // Nerd Font glyphs: U+F071 warning triangle, U+F057 circled x.
     const tokenColor = (token: string) => {
       const probe = document.createElement('span');
       probe.style.color = `var(${token})`;

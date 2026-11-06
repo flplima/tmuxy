@@ -1,14 +1,4 @@
 /**
- * Sidebar stories, over states recorded from real tmux.
- *
- * The left sidebar is a native React tab/pane tree (`SidebarTree`) drawn in a
- * fixed-width, full-height column beside the pane area, opened onto a tmux
- * window running the tree widget. The tree is derived from the recorded
- * `context.windows`/`context.panes`, so these stories exercise the real user
- * chain: TOGGLE_LEFT_SIDEBAR (the header button) → the column opens → the tree
- * lists every tab and its panes → clicking a node activates it through the
- * same events the rest of the UI uses.
- *
  * Context menus are floating surfaces portalled out of the tree, so menu queries
  * run against `document`, not `canvasElement`.
  */
@@ -22,7 +12,6 @@ import bothColumns from '../stories/fixtures/gen/sidebar-both-columns.json';
 import treeColumn from '../stories/fixtures/gen/tree.json';
 import { app, tabPanes, waitForTree, rightClick, menuLabels } from '../stories/sidebarStoryHelpers';
 
-/** What the toggles send: a column's window created, or the open one hidden. */
 const OPEN_TREE = /^split-window\b.*@tmuxy-window-type sidebar-left$/;
 const OPEN_DOCK = /^split-window\b.*@tmuxy-window-type sidebar-right$/;
 
@@ -38,11 +27,6 @@ let adapter: FixtureAdapter | null = null;
 const keepAdapter = (a: FixtureAdapter) => {
   adapter = a;
 };
-
-// ---------------------------------------------------------------------------
-// The toggle opens the tree; clicking a tab switches tabs, clicking a pane
-// activates it and hands it the keyboard; the toggle hides the tree again
-// ---------------------------------------------------------------------------
 
 export const ClickTabAndPaneActivate: Story = {
   args: {
@@ -69,7 +53,6 @@ export const ClickTabAndPaneActivate: Story = {
     const tree = await waitForTree();
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
-    // One row per tab and one per pane, the tabs under their names.
     await waitFor(() => {
       for (const w of app().context.windows.filter((win) => win.windowType === 'tab')) {
         expect(tree.querySelector(`[data-testid="tree-tab-${w.id}"]`)).not.toBeNull();
@@ -80,7 +63,6 @@ export const ClickTabAndPaneActivate: Story = {
     });
     expect(tree.textContent).toContain('one');
     expect(tree.textContent).toContain('two');
-    // The column has real size once it settles (catches zero-height / clip bugs).
     const content = document.querySelector('[data-testid="sidebar-content"]') as HTMLElement;
     await waitFor(() => {
       const rect = content.getBoundingClientRect();
@@ -88,20 +70,17 @@ export const ClickTabAndPaneActivate: Story = {
       expect(rect.height).toBeGreaterThan(50);
     });
 
-    // Click the other tab → the app switches to it.
     await userEvent.click(tree.querySelector('[data-testid="tree-tab-@0"]') as HTMLElement);
     await waitFor(() => expect(app().context.activeWindowId).toBe('@0'), { timeout: 5000 });
-    // A click picks a target, it does not move into the tree: the keyboard
-    // goes to the tab, not to the column the row sits in.
+    // A click picks a target; the keyboard goes to the tab, not into the tree.
     expect(tree.getAttribute('data-focused')).toBe('false');
 
-    // Click that tab's pane that isn't active (%1 is) → it becomes the active pane.
+    // %1 is the tab's active pane.
     await userEvent.click(tree.querySelector('[data-testid="tree-pane-%0"]') as HTMLElement);
     await waitFor(() => expect(app().context.activePaneId).toBe('%0'), { timeout: 5000 });
     expect(tree.getAttribute('data-focused')).toBe('false');
 
-    // And what is typed next is sent to that pane — `j` and `k` are tree keys,
-    // so a tree still holding the keyboard would eat them.
+    // `j` and `k` are tree keys, so a tree still holding the keyboard would eat them.
     const sentBefore = adapter!.commands.length;
     await userEvent.setup({ delay: 5 }).keyboard('jk-typed');
     await waitFor(() => {
@@ -112,7 +91,6 @@ export const ClickTabAndPaneActivate: Story = {
       expect(typed).toBe('jk-typed');
     });
 
-    // Clicking the toggle again hides the column.
     await userEvent.click(toggle);
     await waitFor(() => expect(document.querySelector('.sidebar-tree')).toBeNull(), {
       timeout: 5000,
@@ -120,10 +98,6 @@ export const ClickTabAndPaneActivate: Story = {
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
   },
 };
-
-// ---------------------------------------------------------------------------
-// Right-clicking a pane / tab node opens the same context menu the header uses
-// ---------------------------------------------------------------------------
 
 export const RightClickContextMenus: Story = {
   args: { fixture: asFixture(twoTabs), start: 'open', onAdapterReady: keepAdapter },
@@ -138,13 +112,11 @@ export const RightClickContextMenus: Story = {
       { timeout: 8000 },
     );
 
-    // Right-click a pane node → the pane context menu (same items as the header).
     rightClick(tree.querySelector('[data-testid="tree-pane-%0"]') as HTMLElement);
     await waitFor(() => expect(menuLabels().some((t) => t.includes('Clear Screen'))).toBe(true), {
       timeout: 5000,
     });
     expect(menuLabels().some((t) => t.includes('Close Pane'))).toBe(true);
-    // Clicking an item runs it and dismisses the menu.
     const clearItem = [...document.querySelectorAll('[role="menuitem"]')].find((n) =>
       (n.textContent ?? '').includes('Clear Screen'),
     ) as HTMLElement;
@@ -154,14 +126,12 @@ export const RightClickContextMenus: Story = {
     });
     expect(adapter!.commands.some((c) => c.includes('clear-history'))).toBe(true);
 
-    // Right-click a tab node → the tab context menu (New Tab / Close Tab / …).
     rightClick(tree.querySelector('[data-testid="tree-tab-@1"]') as HTMLElement);
     await waitFor(() => expect(menuLabels().some((t) => t.includes('New Tab'))).toBe(true), {
       timeout: 5000,
     });
     expect(menuLabels().some((t) => t.includes('Close Tab'))).toBe(true);
 
-    // Clicking an item runs it and closes the menu (proves the action wiring).
     const closeTab = [...document.querySelectorAll('[role="menuitem"]')].find((n) =>
       (n.textContent ?? '').includes('Close Tab'),
     ) as HTMLElement;
@@ -172,10 +142,6 @@ export const RightClickContextMenus: Story = {
     expect(adapter!.commands.some((c) => /^kill-window\b/.test(c))).toBe(true);
   },
 };
-
-// ---------------------------------------------------------------------------
-// A tab folds its panes away, leaving the count + rolled-up state behind
-// ---------------------------------------------------------------------------
 
 export const TabsCollapseToHideTheirPanes: Story = {
   // One tab (@0) of two panes, %0 and %1, beside the tree.
@@ -190,7 +156,6 @@ export const TabsCollapseToHideTheirPanes: Story = {
       tree.querySelector(`[data-testid="tree-pane-${id}"]`) as HTMLElement | null;
     const treeBox = () => tree.getBoundingClientRect();
 
-    // Expanded by default: every pane row is drawn, and drawn inside the column.
     for (const id of paneIds) {
       const row = paneRow(id);
       expect(row).not.toBeNull();
@@ -199,7 +164,7 @@ export const TabsCollapseToHideTheirPanes: Story = {
       expect(box.top).toBeGreaterThanOrEqual(treeBox().top - 1);
     }
 
-    // Fold it from the chevron — the row itself still selects the tab.
+    // The chevron folds; the row itself selects the tab.
     const chevron = tree.querySelector(`[data-testid="tree-chevron-${windowId}"]`) as HTMLElement;
     expect(chevron).not.toBeNull();
     await user.click(chevron);
@@ -211,8 +176,6 @@ export const TabsCollapseToHideTheirPanes: Story = {
       { timeout: 5000 },
     );
 
-    // Folded, the tab still says how much it is hiding — that count and the
-    // state beside it are the only signal a collapsed tab has left.
     const tabRow = tree.querySelector(`[data-testid="tree-tab-${windowId}"]`) as HTMLElement;
     expect(tabRow.getAttribute('data-collapsed')).toBe('true');
     expect(tabRow.getAttribute('aria-expanded')).toBe('false');
@@ -222,7 +185,6 @@ export const TabsCollapseToHideTheirPanes: Story = {
     expect(countBox.width).toBeGreaterThan(0);
     expect(countBox.right).toBeLessThanOrEqual(treeBox().right + 1);
 
-    // ...and unfolding brings them back.
     await user.click(chevron);
     await waitFor(
       () => {
@@ -247,9 +209,7 @@ export const TogglesKeepTheirPlace: Story = {
     ],
   },
   play: async ({ canvasElement }) => {
-    // The click that opens a column must close it from the same spot: the
-    // tree's toggle stays at the header's left end and the dock's at its
-    // right end, whether the columns are open or closed.
+    // The click that opens a column must close it from the same spot.
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane/i }, { timeout: 8000 });
     const left = await canvas.findByRole('button', { name: /toggle tree sidebar/i });
@@ -277,11 +237,8 @@ export const TogglesKeepTheirPlace: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Chrome an embedder adds around the header (the demo's traffic lights) does
-// not push either cluster's divider off its column's
-// ---------------------------------------------------------------------------
-
+// Chrome an embedder adds around the header (the demo's traffic lights) must
+// not push either cluster's divider off its column's edge.
 export const DividersLineUpUnderEmbedderChrome: Story = {
   args: {
     fixture: asFixture(bothColumns),

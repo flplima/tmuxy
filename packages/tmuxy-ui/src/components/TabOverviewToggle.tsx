@@ -1,12 +1,3 @@
-/**
- * TabOverviewToggle - header icon-button that opens/closes the Tab Overview,
- * the "all tabs" grid (ctrl+0, prefix w).
- *
- * It sits with the "+" between the tab strip and the dock's cluster, over
- * the pane area, so a docked column never covers it. Pressed while the
- * overview is open; dispatches the same event the keybinding sends.
- */
-
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { Tooltip } from './Tooltip';
 import { selectKeyBindings } from '../machines/selectors/ui';

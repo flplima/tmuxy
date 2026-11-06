@@ -1,13 +1,8 @@
 /**
- * The Plugins submenus, over a recording of real tmux with one pane.
- *
- * The recording's tmux has no plugins installed, and a recorded transport
- * answers no queries, so the inventory the machine would read from
- * `@tmuxy-plugins` is handed to it as the read would (`PLUGINS_RECEIVED`).
- * What is under test is the menus: an installed plugin's items appear, under
- * its name, and choosing one sends `tmuxy plugin action` for the pane the menu
- * is about. Opening the action's surface in real tmux is the E2E suite's
- * (`tests/17-plugins.test.js`).
+ * The recording's tmux has no plugins and a recorded transport answers no
+ * queries, so the `@tmuxy-plugins` inventory is handed to the machine as the
+ * read would (`PLUGINS_RECEIVED`). Opening the action's surface in real tmux
+ * is `tests/17-plugins.test.js`.
  */
 
 import { useEffect, useState } from 'react';
@@ -46,7 +41,6 @@ const keepAdapter = (a: FixtureAdapter) => {
   adapter = a;
 };
 
-/** The pane menu as a right-click opens it, once the inventory is in. */
 function Host({ plugins }: { plugins: PluginInfo[] }) {
   const send = useAppSend();
   const [open, setOpen] = useState(true);

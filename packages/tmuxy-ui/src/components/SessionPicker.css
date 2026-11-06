@@ -1,11 +1,6 @@
-/* The session switcher's body (SessionPicker): a filter box over a list that
-   scrolls inside a capped box, in the menus' type and colours. The same body
-   hangs off the status line (SessionMenu) and sits on the detached overlay
-   (SessionList). */
-
-/* The dropdown's frame: the menus' card. Border-box, because SessionMenu
-   pins its minimum size to the box it measured: with the border outside the
-   size, each pin made it 2px larger, which fired the observer again. */
+/* Border-box, because SessionMenu pins its minimum size to the box it
+   measured: with the border outside the size, each pin made it 2px larger,
+   which fired the observer again. */
 .session-switcher {
   box-sizing: border-box;
   background-color: var(--bg-dark);
@@ -40,8 +35,6 @@
   color: var(--text-muted);
 }
 
-/* Capped well inside the window, so a dozen sessions — or a hundred — scroll
-   here instead of running past the edge of the screen. */
 .session-picker-list {
   max-height: min(24rem, 50vh);
   overflow-y: auto;
@@ -71,8 +64,7 @@
   user-select: none;
 }
 
-/* The row Enter would pick. Hover moves it, so there is one highlight, as in
-   the menus. */
+/* The row Enter would pick; hover moves it, so there is one highlight. */
 .session-picker-item.is-active {
   background-color: var(--bg-highlight);
 }
@@ -81,8 +73,7 @@
   color: inherit;
 }
 
-/* A session that is not running but could be brought back from a snapshot:
-   drawn muted, since it is an offer rather than a thing that exists. */
+/* Not running, but restorable from a snapshot. */
 .session-picker-item.is-restorable {
   color: var(--text-muted);
   font-style: italic;

@@ -1,7 +1,3 @@
-/**
- * The sidebar tree's row model: row and menu types, row keys and DOM ids, and the git context hook.
- */
-
 import { useCallback, useMemo } from 'react';
 import {
   findPaneGitContext,
@@ -14,26 +10,20 @@ import type { selectSessions, selectRepositories } from '../machines/selectors/u
 import { isPlaceholderId, type PaneId, type WindowId } from '../domain/ids';
 import { inGridOrder } from './gridOrder';
 
-/**
- * A flattened, keyboard-navigable row: the attached session's tabs, each with
- * its panes.
- */
 export type Row =
   /** `position` is the tab's 1-based place in the strip — the number the tab
    *  strip shows. tmux's own window index has gaps where chrome windows sit,
    *  and printing it here made the two disagree. */
   | { kind: 'tab'; window: TmuxWindow; position: number; collapsed: boolean }
-  /** `parkedBehind`: a group member out of view, listed beside the member in
-   *  view (`parkedBehind` is that pane); choosing it switches the group. */
+  /** `parkedBehind`: the group member in view that this parked member sits
+   *  behind; choosing the row switches the group. */
   | { kind: 'pane'; pane: TmuxPane; window: TmuxWindow; last: boolean; parkedBehind?: PaneId };
 
 /**
- * The rows, top to bottom: each tab in strip order, then its panes in grid
- * order. A pane group takes its slot's place with ALL its members, in the
- * group's own order, at the same level as the other panes: the parked ones
- * live in the stash session, so no window of the tab lists them, yet they are
- * the tab's panes. The order is the group's, not "shown first", so switching
- * the member in view does not move rows.
+ * A pane group takes its slot's place with ALL its members, in the group's own
+ * order: the parked ones live in the stash session, so no window of the tab
+ * lists them, yet they are the tab's panes. The order is the group's, not
+ * "shown first", so switching the member in view does not move rows.
  */
 export function buildTreeRows(
   windows: readonly TmuxWindow[],
@@ -75,26 +65,21 @@ export function buildTreeRows(
   return out;
 }
 
-/** An open right-click menu targeting a tree row, positioned at the cursor. */
 export type MenuState =
   | { kind: 'pane'; paneId: PaneId; x: number; y: number }
   | { kind: 'tab'; windowId: WindowId; x: number; y: number }
   | null;
 
-/** DOM id for a row, so the tree can point `aria-activedescendant` at it. */
 export const rowDomId = (key: string) => `tree-row-${key.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 
-/** Optimistic placeholder panes have no identity worth a row; they resolve within a round trip. */
+/** Optimistic placeholder panes get no row; they resolve within a round trip. */
 export const isPlaceholderPane = (p: TmuxPane) => isPlaceholderId(p.tmuxId);
 
-/** Stable identity per row, used to preserve the keyboard cursor across refreshes. */
 export function rowKey(r: Row): string {
   return r.kind === 'tab' ? r.window.id : r.pane.tmuxId;
 }
 
-// Git context per pane, from the poll's cwds and the discovered worktrees.
-// The poll is the only place a pane's cwd comes from — live state carries
-// none — and it is read for THIS session alone, the one the tree draws.
+// The sessions poll is the only source of a pane's cwd: live state carries none.
 export function useSidebarGitContext(
   sessions: ReturnType<typeof selectSessions>,
   sessionName: string,

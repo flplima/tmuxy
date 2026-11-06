@@ -1,8 +1,3 @@
-/**
- * TabOverviewSlots — the cards and trailing "+" slot rendered inside the
- * TabOverview grid.
- */
-
 import type React from 'react';
 import type { AppMachineEvent } from '../machines/types/events';
 import type { overviewSlots } from '../domain/tabOverview';
@@ -38,7 +33,6 @@ export function TabOverviewSlots({
 }: TabOverviewSlotsProps) {
   const { dragging, dropMarkerAt } = reorder;
 
-  // ---- pointer: click to open, drag to reorder ------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
     const slot = slots[index];
     if (!slot || e.button !== 0) return;
@@ -48,7 +42,6 @@ export function TabOverviewSlots({
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>, index: number) => {
     const press = reorder.handlePointerUp(e);
-    // A press that never became a drag is a click: open that tab.
     if (press && !press.active) activateSlot(index);
   };
 
@@ -91,9 +84,9 @@ export function TabOverviewSlots({
                 {slot.position}:{slot.window.name || `Tab ${slot.position}`}
               </span>
               <Tooltip label="Close tab">
-                {/* A pointer shortcut for Delete on the selected slot: an
-                      option may hold no control of its own, so this is no
-                      button, and is hidden from assistive technology. */}
+                {/* An ARIA option may hold no control of its own, so this
+                      pointer shortcut for Delete is no button and is hidden
+                      from assistive technology. */}
                 <span
                   className="tab-overview-slot-close"
                   aria-hidden="true"

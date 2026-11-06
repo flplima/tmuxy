@@ -1,27 +1,14 @@
 /**
- * AskOverlay — a send waiting on the user, drawn over the target pane.
+ * `tmuxy pane send -t %3 'npm test' Enter`, run from another pane, does not
+ * send the keys: it writes the question to this pane's `@tmuxy-ask` option and
+ * blocks until the answer chosen here is written back (`domain/paneAsk.ts`).
  *
- * `tmuxy pane send -t %3 'npm test' Enter`, run from another pane (usually by
- * an agent), does not send the keys. It writes the question to this pane's
- * `@tmuxy-ask` option and blocks; this is what the user sees in answer, and
- * what they choose here is what the waiting command reads back. See
- * `domain/paneAsk.ts`.
+ * Besides a click, the keyboard answers while this pane holds it (↑/↓ or 1/2,
+ * Enter, Escape declines; `machines/actors/keyboardActor`), and Cmd+Enter
+ * (Ctrl+Enter off macOS) anywhere in the tab allows every send waiting in it.
  *
- * The text sits straight on the blurred pane, with no card: who is asking,
- * what they want to send, and two numbered answers. A long or multi-line send
- * gets a block of its own that scrolls, so the question and the answers never
- * move and the keys are always shown whole.
- *
- * Ways to answer, all landing on the same machine events:
- *  - click an answer;
- *  - the keyboard, while this pane holds it — ↑/↓ or 1/2 move the highlight,
- *    Enter takes it, Escape declines (`machines/actors/keyboardActor`);
- *  - Cmd+Enter (Ctrl+Enter off macOS) from anywhere in the tab, which allows
- *    every send waiting in it without leaving the agent's pane.
- *
- * Nothing here holds DOM focus. The pane keeps it, so that the keys the user
- * types while reading a question cannot leak into the shell behind the
- * overlay, and so the arrows reach the highlight rather than a focused button.
+ * Nothing here holds DOM focus: the pane keeps it, so keys typed while reading
+ * the question cannot leak into the shell behind the overlay.
  */
 
 import { memo } from 'react';

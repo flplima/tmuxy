@@ -1,19 +1,10 @@
-/* The hover card: one for the whole strip, which slides from button to button
-   rather than appearing and disappearing at each. That slide is the point of
-   reusing the node, so `left` and `top` carry a transition of their own,
-   separate from the fade-and-slide it arrives and leaves on. Both stop when
-   the config says no animations.
-
-   Position, layer and the arrive/leave animations are `.floating-surface`'s
-   (components/floating/FloatingSurface.css) — the card and the menus are the
-   same kind of object and share them. What is left here is what a PICTURE of a
-   tab looks like. */
+/* One card for the whole strip, which slides from button to button: `left`
+   and `top` carry a transition of their own, separate from the arrive/leave
+   animation `.floating-surface` gives it. */
 .tab-preview {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  /* Room to breathe: the picture is the content, and a frame pressed against
-     the card's edge reads as a cropped screenshot rather than a preview. */
   padding: var(--spacing-2xl);
   background: var(--bg-dark);
   border: 1px solid var(--border-medium);
@@ -22,8 +13,6 @@
   /* The card takes the pointer: it holds a close button, and reaching for one
      must not be what dismisses it. */
   pointer-events: auto;
-  /* The slide from tab to tab is the preview's own: there is one card for the
-     whole strip and it travels rather than being replaced at every stop. */
   transition:
     left var(--transition-normal),
     top var(--transition-normal);
@@ -39,8 +28,6 @@
   }
 }
 
-/* The picture itself: the tab's aspect ratio, with the boxes positioned as
-   percentages of it (see TabShot). */
 .tab-preview-frame {
   position: relative;
   width: 100%;
@@ -50,9 +37,6 @@
   background: var(--bg-dark);
 }
 
-/* Closing the tab from its own picture. It has a row of its own above the
-   frame, inside the card's padding, so it never sits over the thing you are
-   looking at — and no offset of its own, because the padding is the margin. */
 .tab-preview-bar {
   display: flex;
   justify-content: flex-end;
@@ -84,11 +68,8 @@
   background-color: var(--bg-medium);
 }
 
-/* Each pane in the picture wears its own header — the real one, at the real
-   size, put through the same scale as the pane's screen. Anything drawn to
-   look "about right" at miniature size stops matching the moment the header
-   itself changes; this cannot. It sits over the top of the screen, where the
-   header sits in the pane. */
+/* The real pane header at its real size, put through the same scale as the
+   pane's screen, so the miniature cannot drift from the header. */
 .tab-shot-header {
   position: absolute;
   top: 0;
@@ -99,7 +80,6 @@
   pointer-events: none;
 }
 
-/* The card opens its tab, so it reads as something to click. */
 .tab-preview {
   cursor: pointer;
 }

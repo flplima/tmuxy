@@ -110,9 +110,7 @@ describe('splitTitleIcon', () => {
 describe('the icon an application announces', () => {
   it('replaces our guess rather than sitting beside it', () => {
     const claude = pane({ command: '2.1.251', title: '\u273b claude' });
-    // One icon, and it is the app's own.
     expect(getTabIcon(claude)).toBe('\u273b');
-    // ...and the title no longer carries it, so it is drawn once.
     expect(getTabLabel(claude)).toBe('claude');
   });
 
@@ -127,7 +125,6 @@ describe('the icon an application announces', () => {
     // freshly started pane is `claude` here even before it announces a title.
     const icon = getTabIcon(pane({ command: 'claude', title: '\u273b claude' }));
     expect(icon && isSvgIcon(icon)).toBe(true);
-    // The row does not say `claude` twice once the title arrives.
     expect(paneRowLines(pane({ command: 'claude', title: '\u273b claude' }))).toEqual({
       process: 'claude',
       title: '',
@@ -157,8 +154,6 @@ describe('the icon an application announces', () => {
 
 describe('paneRowLines', () => {
   it('puts what is RUNNING on the first line and what it is SHOWING on the second', () => {
-    // The two halves truncate at different rates — a process name is short and
-    // stable, a title is a path — which is why they get a line each.
     expect(paneRowLines(pane({ command: 'nvim', title: 'nvim styles.css' }))).toEqual({
       process: 'nvim',
       title: 'nvim styles.css',
@@ -170,8 +165,6 @@ describe('paneRowLines', () => {
   });
 
   it('draws no second line when the title would only repeat the process', () => {
-    // A column of plain shells stays compact rather than reserving a blank
-    // line under each one.
     expect(paneRowLines(pane({ command: 'zsh', title: '' }))).toEqual({
       process: 'zsh',
       title: '',
@@ -183,8 +176,6 @@ describe('paneRowLines', () => {
   });
 
   it('takes the icon off the title, which is drawn in its own place', () => {
-    // The row already draws the app's glyph beside the label; leaving it in
-    // the text would show it twice.
     expect(paneRowLines(pane({ command: '2.1.251', title: '\u273b claude' }))).toEqual({
       process: '2.1.251',
       title: 'claude',
@@ -192,8 +183,6 @@ describe('paneRowLines', () => {
   });
 
   it('gives copy mode the title line and keeps the process visible', () => {
-    // Copy mode is a state of the PANE, not the program in it — which is
-    // still worth seeing while you scroll it.
     expect(paneRowLines(pane({ command: 'nvim', inMode: true }))).toEqual({
       process: 'nvim',
       title: '[COPY MODE]',
@@ -201,8 +190,7 @@ describe('paneRowLines', () => {
   });
 
   it('names a pane showing a widget by the widget, with the widget’s icon', () => {
-    // `tmuxy open` sleeps in the shell it was typed in: the tree says what the
-    // pane shows, the way its header does, not `bash`.
+    // `tmuxy open` sleeps in the shell it was typed in.
     const preview = pane({
       command: 'bash',
       title: 'notes.md',

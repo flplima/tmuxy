@@ -1,49 +1,9 @@
 /**
- * SidebarTree — the tab/pane tree the left sidebar shows.
+ * The attached session's own tabs and panes, never the socket's other
+ * sessions: no key in the tree could reach them and no state behind them could
+ * draw them. Switching session is the session switcher's (`SessionMenu.tsx`).
  *
- * Rendered as a tmuxy WIDGET: the left column is a real tmux pane running
- * `tmuxy widget tree`, and this component is what the `tree` widget draws in
- * place of that pane's terminal (see `widgets/TmuxyTree.tsx`). The pane carries
- * no content — the tree is derived purely from the tmuxy state the app already
- * holds (`selectVisibleWindows` + `selectPanes`), with no CLI round-trip or
- * poll. The pane exists to give the column a real pane identity: something
- * `ctrl+hjkl` can navigate into and the backend can size.
- *
- * It reflects the same "tabs" the rest of the UI shows (float/backdrop/sidebar
- * windows filtered out by `selectVisibleWindows`), and ONLY those: the tree is
- * the attached session's own tabs and panes, never the socket's other
- * sessions. Listing them here put rows in the tree that no key in it could
- * reach and no state behind them to draw — switching session is a different
- * question, and it is answered where it is asked, in the session switcher
- * (`SessionMenu.tsx`).
- *
- * Row anatomy, and why it is split across the two edges:
- *  - the LEFT edge answers "where am I?" — a green rail marks the active pane.
- *  - the RIGHT edge answers "what is it doing?" — the pane's own declared state
- *    (`domain/paneState.ts`), with a dead pane's exit status beside it.
- *  - in between, the process name is bold and whatever trails it is dim, so the
- *    eye lands on WHAT is running before WHICH file it has open.
- *  - a tab row carries a chevron and, on its right, the count of panes and the
- *    most attention-worthy state among them — which is the only signal left
- *    once the tab is collapsed.
- *
- * Interactions:
- *  - click a tab → `SELECT_TAB`; click a pane → `select-pane` (tmux switches to
- *    the pane's window too). Clicking a tab's chevron collapses it instead.
- *  - when the sidebar is focused, j/k/↑/↓ move the selection, Enter activates it,
- *    h/← collapses (or steps out to the parent tab), l/→ expands a collapsed tab
- *    and otherwise hands the keyboard back to the panes, and q closes the
- *    column — driven by a capture-phase key listener so the keys never reach the
- *    pane/tmux (the keyboard actor also skips forwarding while focused). Escape
- *    is deliberately NOT a tree key: a sidebar pane may run a program that needs
- *    it, so no sidebar ever claims Escape for itself.
- *  - drag a pane node onto a different tab → `join-pane` moves the pane into that
- *    tab; the tree lists it under the new tab from the drop on.
- *  - drag a tab row up or down → the tabs reorder (`REORDER_TAB`, the strip's
- *    own move, predicted), the same press-and-drag the strip and the overview
- *    take.
- *  - right-click a pane or tab row → the same context menu the pane header /
- *    window tabs show (PaneContextMenu / TabContextMenu).
+ * Escape is never a tree key: a sidebar pane may run a program that needs it.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -91,8 +51,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
   const { cwdByPane, branchOf } = useSidebarGitContext(sessions, sessionName, repositories);
 
-  // What each tab rolls up to: how many panes it holds and the most
-  // attention-worthy state among them. Collapsed, this is all a tab shows.
   const tabSummaries = useMemo(
     () =>
       tabPaneStates(
@@ -102,17 +60,11 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [windows, panes],
   );
 
-  // Flatten into the ordered row list (also the keyboard nav order): this
-  // session's tabs in strip order, each followed by its panes.
-  // A pane dropped on another tab is shown under that tab from the drop on,
-  // not from tmux's answer on: `join-pane` has no geometry the client could
-  // predict for the grid, so the move is held here, for the tree alone, until
-  // the pane's window agrees, the pane is gone, or the hold runs out.
+  // A pane dropped on another tab is shown under that tab from the drop on:
+  // `join-pane` has no geometry the client could predict for the grid, so the
+  // move is held for the tree alone until the pane's window agrees.
   const { pendingMove, startMove } = usePendingMove(panes);
 
-  // In the order they sit in the grid, so the list follows the layout as it
-  // changes (a split, a swap, a move) rather than tmux's creation order; a
-  // group's parked members under the member in view.
   const rows = useMemo<Row[]>(() => {
     const placed = pendingMove
       ? panes.map((p) =>
@@ -122,9 +74,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     return buildTreeRows(windows, placed, collapsed, paneGroups);
   }, [windows, panes, collapsed, pendingMove, paneGroups]);
 
-  // Keyboard selection cursor, kept on a stable row identity across refreshes.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // Default the cursor to the active pane's row when first focused / on change.
   const selectedIndex = useMemo(() => {
     const byKey = rows.findIndex((r) => rowKey(r) === selectedKey);
     if (byKey >= 0) return byKey;
@@ -136,16 +86,12 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     (row: Row) => {
       switch (row.kind) {
         case 'tab':
-          // The tab's active pane takes the keyboard, as FOCUS_PANE gives it
-          // to a pane row's pane.
           send({ type: 'SELECT_TAB', windowId: row.window.id });
           send({ type: 'BLUR_LEFT_SIDEBAR' });
           return;
         case 'pane':
-          // `select-pane` only changes which pane is active WITHIN its window;
-          // it never switches the session's current window. So a pane in another
-          // tab is reached by switching the tab first, then focusing the pane
-          // through the same optimistic path a click on it takes.
+          // `select-pane` never switches the session's current window, so a
+          // pane in another tab is reached by switching the tab first.
           if (row.window.id !== activeWindowId) {
             send({ type: 'SELECT_TAB', windowId: row.window.id });
           }
@@ -173,8 +119,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [send],
   );
 
-  // Move a pane into another tab: join-pane splits that window's active pane and
-  // moves the source there (the source window closes if it was its last pane).
+  // join-pane splits the target window's active pane and moves the source
+  // there; the source window closes if it was its last pane.
   const movePaneToTab = useCallback(
     (paneId: PaneId, targetWindowId: WindowId) => {
       startMove(paneId, targetWindowId);
@@ -184,8 +130,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [send, startMove],
   );
 
-  // Capture-phase keyboard nav while the sidebar is focused (fires before the
-  // keyboard actor; stops keys from reaching the pane/tmux).
+  // Capture phase, so it runs before the keyboard actor.
   const stateRef = useRef({ rows, selectedIndex, activate, send, toggleCollapse });
   stateRef.current = { rows, selectedIndex, activate, send, toggleCollapse };
   useEffect(() => {
@@ -196,10 +141,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       // with the column focused. In a repeat window (`prefix s` then `s`)
       // only the repeated key is; anything else is the tree's again.
       if (bindingOwnsKey(e.key)) return;
-      // A key typed into a text box is the box's — a tab being renamed, the
-      // session switcher's filter opened from the column's own title — even
-      // while the column holds the keyboard. Claimed here, `q` closed the
-      // column and `j` moved the selection instead of reaching the field.
+      // A key typed into a text box (a tab being renamed, the session
+      // switcher's filter) is the box's even while the column holds the keyboard.
       if (isRealFormControl(e.target)) return;
       const target = e.target as HTMLElement | null;
       const {
@@ -209,7 +152,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         send: s,
         toggleCollapse: collapseTab,
       } = stateRef.current;
-      // A context menu opened from a row takes Escape first.
       if (menuOpenRef.current && e.key === 'Escape') {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -226,11 +168,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       };
       switch (e.key) {
         case 'Tab':
-          // From the selected row (the tree's one stop), or a control the keyboard reached,
-          // Tab moves on like anywhere else on the page. With the browser's
-          // focus on nothing (the column took the keyboard through a binding)
-          // or on a clicked button, it is claimed: moving the focus to a
-          // header button there meant the next Space "clicked" that button.
+          // With the browser's focus on nothing (the column took the keyboard
+          // through a binding) or on a clicked button, Tab is claimed: moving
+          // the focus to a header button there meant the next Space "clicked" it.
           if (tabWalksChrome(target)) return;
           claim();
           return;
@@ -249,9 +189,8 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           if (rs[idx]) act(rs[idx]);
           return;
         case 'q':
-          // Close the column from inside it. This is the tree's own command,
-          // not a global key: a program pinned in the other sidebar may need
-          // every key it gets, Escape included.
+          // The tree's own key, not a global one: a program pinned in the
+          // other sidebar may need every key it gets.
           claim();
           s({ type: 'TOGGLE_LEFT_SIDEBAR' });
           return;
@@ -259,8 +198,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         case 'ArrowRight': {
           claim();
           const row = rs[idx];
-          // On a collapsed tab these open it. Anywhere else there is nothing
-          // deeper to go into, so they mean the same as nav-right: leave.
+          // Anywhere but a collapsed tab, there is nothing deeper: leave, as nav-right.
           if (row?.kind === 'tab' && row.collapsed) {
             collapseTab(row.window.id);
             return;
@@ -272,8 +210,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
         case 'ArrowLeft': {
           claim();
           const row = rs[idx];
-          // Close an open tab; from inside one, step out to its tab row first,
-          // which is the move every tree makes.
           if (row?.kind === 'tab' && !row.collapsed) {
             collapseTab(row.window.id);
             return;
@@ -285,13 +221,9 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           return;
         }
         default:
-          // Not a tree key. Plain keys are swallowed: the tree owns the keyboard
-          // while focused, and letting them fall through would type them into
-          // the tab's pane behind the column.
-          //
-          // A chord (ctrl/alt/meta) could be a BINDING and is let through
-          // instead. Swallowing those made the column a keyboard trap: the
-          // prefix itself could no longer reach the keyboard actor.
+          // Plain keys are swallowed, or they would type into the pane behind
+          // the column. A chord could be a binding and goes through: swallowing
+          // it kept the prefix from the keyboard actor, a keyboard trap.
           if (!e.ctrlKey && !e.altKey && !e.metaKey) {
             e.stopImmediatePropagation();
           }
@@ -302,15 +234,10 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     return () => window.removeEventListener('keydown', handler, true);
   }, [focused, bindingOwnsKey]);
 
-  // Drag state: which pane is being dragged, and which tab is a hover target.
-  // The tab whose name is being edited in the tree, if any.
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null);
   const [dragPaneId, setDragPaneId] = useState<PaneId | null>(null);
   const [dropWindowId, setDropWindowId] = useState<string | null>(null);
 
-  // A tab row dragged up or down the tree reorders the tabs, the same press
-  // and drag the strip and the Tab Overview take, over the tab rows alone:
-  // the tree is one column, so only the vertical position decides.
   const treeRef = useRef<HTMLDivElement>(null);
   const tabReorder = useReorderDrag({
     containerRef: treeRef,
@@ -318,19 +245,16 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     axis: 'y',
     onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
   });
-  // A drop never doubles as a select: the click the browser fires after the
-  // release is swallowed once.
+  // The browser fires a click after a drop's release; it is swallowed once.
   const suppressClickRef = useRef(false);
   const tabCount = windows.length;
 
-  // Right-click context menu (pane or tab), anchored at the cursor.
   const [menu, setMenu] = useState<MenuState>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const menuOpenRef = useRef(false);
   menuOpenRef.current = menu !== null;
 
-  // Opening a row's menu also gives the column the keyboard, so Escape (and the
-  // menu's own keys) go to the menu rather than to the pane behind the column.
+  // The column takes the keyboard, so the menu's keys don't reach the pane behind it.
   const openMenu = useCallback(
     (state: Exclude<MenuState, null>) => {
       setMenu(state);
@@ -339,8 +263,6 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
     [send],
   );
 
-  // Keep the keyboard cursor in view: a long tree scrolls inside the column,
-  // and j/k past the fold used to leave the selection out of sight.
   useLayoutEffect(() => {
     if (!focused) return;
     treeRef.current

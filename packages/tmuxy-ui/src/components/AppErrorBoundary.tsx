@@ -1,11 +1,7 @@
 /**
- * AppErrorBoundary — the last thing between a render-time exception and a
- * blank page.
- *
- * A state update the client cannot digest used to propagate out of the render
- * tree and unmount the whole app, leaving a dark, empty document with the
- * only clue in the console. This boundary keeps the document readable: it
- * names the error and offers a reload, which re-syncs from a fresh snapshot.
+ * Without this boundary a render-time exception unmounts the whole app into a
+ * blank page. It names the error and offers a reload, which re-syncs from a
+ * fresh snapshot.
  */
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';

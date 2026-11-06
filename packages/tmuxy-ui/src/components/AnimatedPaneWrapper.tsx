@@ -1,30 +1,20 @@
-/**
- * AnimatedPaneWrapper — individual pane wrapper, zoom FLIP observer, and
- * global drag/resize listeners for PaneLayout.
- */
-
 import React, { type ReactNode } from 'react';
 import type { TmuxPane } from '../domain/client';
 import { swipeOffsetPx } from '../machines/gestures/gestures';
 import type { RenderItem } from './PaneLayoutMorph';
 
-// ============================================
-// Animated Pane Wrapper
-// ============================================
-
 interface AnimatedPaneWrapperProps {
   pane: TmuxPane;
-  /** Effective React key (paneKeyOverrides honored) — exposed on the DOM
-   * for the enter-animation FLIP to find the node post-commit. */
+  /** Effective React key (paneKeyOverrides honored), as `data-pane-key`:
+   * the enter-animation FLIP finds the node by it after commit. */
   paneKey: string;
   className: string;
   style: React.CSSProperties;
   targetX: number;
   targetY: number;
   elevated: boolean;
-  /** When set, overrides the translate3d transform — the zoom-collapse
-   *  translate-to-centre + scale (see the zoom-collapse render branch), or a
-   *  empty while a pinch draws the pane (GestureStage owns its transform). */
+  /** Replaces the translate3d: the zoom-collapse transform, or `''` while a
+   *  pinch draws the pane (GestureStage owns its inline transform). */
   collapseTransform?: string;
   children: ReactNode;
 }
@@ -90,12 +80,8 @@ export function PaneLayoutItem({
   const { key, pane, hidden, zoomCollapsed, swipeSide } = item;
 
   if (zoomCollapsed) {
-    // A zoomed sibling: keep it at its real box but transform it toward
-    // the grid centre, scaled down and faded out, so zoom IN reads as
-    // the panes collapsing into the middle while the zoomed pane grows
-    // — and zoom OUT reverses it (the DOM node persists by key, so the
-    // base transform/opacity transition runs both ways). paneBox
-    // via getPaneStyle; translate the pane's centre onto zoomCenter.
+    // A zoomed sibling collapses toward the grid centre, scaled and faded.
+    // Its node persists by key, so the transition also runs on zoom out.
     const box = getPaneStyle(pane);
     const cx = (box.left as number) + (box.width as number) / 2;
     const cy = (box.top as number) + (box.height as number) / 2;
@@ -116,8 +102,7 @@ export function PaneLayoutItem({
   }
 
   if (swipeSide !== 0) {
-    // The tab a slide is pulling in: its real panes at their own boxes,
-    // one grid width to the side, moving with the grid's transform.
+    // The tab a slide is pulling in, one grid width to the side.
     return (
       <AnimatedPaneWrapper
         paneKey={key}
@@ -134,9 +119,7 @@ export function PaneLayoutItem({
   }
 
   if (hidden) {
-    // Window-hidden (another tab's pane): mounted but display:none — no
-    // positioning math, no animation, no event handlers. Preserves
-    // <TerminalPane> + content so a tab switch shows it instantly.
+    // Another tab's pane stays mounted (display:none) so a tab switch shows it instantly.
     return (
       <AnimatedPaneWrapper
         paneKey={key}

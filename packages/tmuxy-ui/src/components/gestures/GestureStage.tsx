@@ -1,17 +1,11 @@
 /**
- * GestureStage - draws a trackpad gesture in progress onto the pane area.
- *
- * A gesture changes on every wheel or gesture event, up to once a frame, and
- * each step has to cost next to nothing or the grid trails the fingers. So
- * this component renders nothing visible and writes each step as an inline
- * `transform` (and `transition`) on `.pane-layout`, or on the one pane a pinch
- * grows. `transform` is not inherited and runs on the compositor: a step
+ * Draws a trackpad gesture in progress. A step comes up to once a frame and
+ * must cost next to nothing, so each is an inline `transform` on `.pane-layout`
+ * (or the one pane a pinch grows): not inherited and run on the compositor, it
  * invalidates no style below the element and re-renders no React tree.
- * PaneLayout re-renders only when the shape of the gesture changes - which tab
- * is being pulled in, which pane a pinch acts on - never per step.
  *
  * Every step also nudges the cursor overlay, which otherwise only re-measures
- * when a pane renders, so the cursor rides along with the panes.
+ * when a pane renders.
  */
 
 import { useLayoutEffect, useRef } from 'react';
@@ -40,7 +34,7 @@ const offsetBox = (el: HTMLElement): Box => ({
   height: el.offsetHeight,
 });
 
-/** A pinched pane, its box and the tiled grid's box, in the layout's own coordinates. */
+/** In the layout's own coordinates. */
 function measurePinch(layout: HTMLElement, paneId: PaneId) {
   const node = layout.querySelector<HTMLElement>(
     `:scope > .pane-layout-item[data-pane-id="${paneId}"]`,
@@ -72,7 +66,7 @@ function liveTranslateX(el: HTMLElement): number {
   }
 }
 
-/** One of the FLIP numbers the Tab Overview keeps on the container. */
+/** One of the FLIP numbers the Tab Overview keeps on the container's style. */
 function overviewNumber(container: HTMLElement, name: string, fallback: number): number {
   const value = parseFloat(container.style.getPropertyValue(name));
   return Number.isFinite(value) ? value : fallback;
@@ -84,11 +78,9 @@ export function GestureStage() {
   const markerRef = useRef<HTMLSpanElement>(null);
   // Measured once per pinch: the layout does not move under the fingers.
   const measuredRef = useRef<ReturnType<typeof measurePinch>>(null);
-  // Where the grid was when this slide began. Zero normally; mid-animation
-  // when a new slide took over one still sliding home, which it then carries
-  // on from instead of snapping away from. Keyed on the phase it came from,
-  // so a take-over (finishing -> tracking) is caught as a new slide, not
-  // mistaken for the same one continuing.
+  // Where the grid was when this slide began: mid-animation when it took over
+  // one still sliding home, which it carries on from. Keyed on the phase it
+  // came from, so a take-over (finishing -> tracking) counts as a new slide.
   const baseRef = useRef(0);
   const basePhaseRef = useRef<string | null>(null);
 
@@ -99,8 +91,6 @@ export function GestureStage() {
 
     const swipePhase = gesture?.kind === 'swipe' ? gesture.phase : null;
     if (swipePhase === 'tracking' && basePhaseRef.current !== 'tracking') {
-      // A slide beginning under the fingers - from rest, or taking over one
-      // still sliding home - starts from wherever the grid is drawn now.
       baseRef.current = liveTranslateX(layout);
     } else if (!swipePhase) {
       baseRef.current = 0;
@@ -126,11 +116,9 @@ export function GestureStage() {
     }
     const settleMs = gesture?.kind === 'swipe' ? gesture.settleMs : 0;
     if (gesture?.kind === 'swipe' && gesture.phase === 'finishing') {
-      // The tab has already switched, and its panes are drawn at rest where
-      // they were a frame ago one offset to the side. Put the grid back by
-      // that offset with no transition - the same picture, unmoved - force the
-      // browser to take it, then run it home. Nothing waits for this: the
-      // switch has happened.
+      // The tab has already switched and its panes are drawn at rest. Put the
+      // grid back by the offset with no transition (the same picture), force
+      // a style recalc, then run it home.
       layout.style.transition = 'none';
       layout.style.transform = transform ?? '';
       layout.getBoundingClientRect();

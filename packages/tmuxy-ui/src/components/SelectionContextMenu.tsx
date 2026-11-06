@@ -1,11 +1,3 @@
-/**
- * SelectionContextMenu - Right-click context menu for selected text.
- *
- * Copy the selection, type it into the pane, or hand it to a plugin.
- * A floating surface at the point that was right-clicked, like every other
- * menu (components/floating/Menu).
- */
-
 import { useEffect } from 'react';
 import { FloatingMenu } from './floating/Menu';
 import { useAppSelector, useAppSend } from '../machines/appHooks';
@@ -28,8 +20,6 @@ interface SelectionContextMenuProps {
 }
 
 /**
- * Pin the browser's selection to `range` for as long as the menu is mounted.
- *
  * WebKit collapses the selection on any focus move, and the menu takes focus
  * when it opens; putting the range back on every `selectionchange` keeps the
  * text the menu is about highlighted until it closes.
@@ -62,8 +52,8 @@ export function SelectionContextMenu({
   const plugins = useAppSelector((ctx) => ctx.plugins);
   const spec = selectionMenuSpec(plugins);
 
-  // Every action is the end of the selection's job: the scrollback view (or
-  // copy mode) closes with the menu.
+  // Every action ends the selection's job: the scrollback view (or copy mode)
+  // closes with the menu.
   const dispatch = useMenuDispatch({
     onLocal: (local) => {
       if (local.verb === 'copy-selection') {

@@ -1,15 +1,4 @@
-/**
- * PaneLayout renders tmux panes using absolute CSS positioning
- *
- * - Drag by pane header to swap panes (dragged pane follows the cursor)
- * - Resize from dividers between panes
- * - Enter/leave/shift lifecycle: CSS-transition FLIP morphs for pane
- *   split/kill/geometry changes, tracked component-locally via refs and a
- *   tick reducer (see STATE-MANAGEMENT.md "Pane enter/leave animations").
- *   A pane that CLOSES simply goes: what is animated is the space opening up,
- *   i.e. the survivors growing into it.
- * - Events sent to appMachine on mouse actions
- */
+/** Split, kill and geometry morphs: see docs/STATE-MANAGEMENT-UPDATES.md "Pane enter/leave animations". */
 
 import React, { useCallback, useReducer, useRef, useMemo, ReactNode } from 'react';
 import { ResizeDividers } from './ResizeDividers';
@@ -88,9 +77,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // The active cue means "the keyboard is in this tiled pane".
   const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
-  // tmux shows ONLY the zoomed pane — the others are not visible at all. The
-  // layout still knows their geometry, so without this they keep painting
-  // underneath and show through the zoomed pane's translucent surface.
+  // tmux shows only the zoomed pane; the others would otherwise paint under
+  // it and show through its translucent surface.
   const isZoomed = useAppSelector((ctx) =>
     Boolean(ctx.windows.find((w) => w.id === ctx.activeWindowId)?.zoomed),
   );
@@ -109,9 +97,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [dragOffsetX, dragOffsetY],
   );
 
-  // The grid is the visible panes' extent (see gridExtent): panes of other
-  // windows sit in independent layouts, and centering on them would put the
-  // active window's grid off-center.
+  // Other windows' panes sit in independent layouts; centring on them would
+  // put the active window's grid off-centre.
   const { totalWidth, totalHeight } = useMemo(() => {
     const { cols, rows } = gridExtent(visiblePanes, null, {
       cols: serverTotalWidth,
@@ -120,14 +107,9 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     return { totalWidth: cols, totalHeight: rows };
   }, [visiblePanes, serverTotalWidth, serverTotalHeight]);
 
-  // Which pane tmux has expanded to fill the window, or null when not zoomed.
-  //
-  // Identified by geometry rather than by `pane.active`: when a window is
-  // zoomed tmux reports exactly one pane spanning the whole grid, and that is
-  // true regardless of which client holds focus. Keying off `active` would drop
-  // the zoom treatment (or, worse, hide every pane) whenever the active flag has
-  // not propagated yet. See `findZoomedPane` for why it must be the pane that
-  // covers BOTH corners of the grid.
+  // By geometry, not `pane.active`: a zoomed window reports exactly one pane
+  // spanning the grid whichever client holds focus, while the active flag can
+  // lag and would hide every pane.
   const zoomedPaneId = useMemo(
     () => (isZoomed ? (findZoomedPane(visiblePanes)?.tmuxId ?? null) : null),
     [isZoomed, visiblePanes],
@@ -139,30 +121,22 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [totalWidth, totalHeight, charWidth, charHeight],
   );
 
-  // .pane-layout is inset by the container's padding (CSS), so its dimensions
-  // match containerWidth/Height (content-box from ResizeObserver) and pane
-  // positions are relative to the content area directly.
+  // .pane-layout is inset by the container's padding (CSS), so pane positions
+  // are relative to the content box ResizeObserver measured.
   const liveCenteringOffset = useMemo(
     () => gridCenteringOffset(containerWidth, grid.width),
     [containerWidth, grid.width],
   );
 
-  // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
-  // the dragged pane is pinned to its original slot while the optimistic swap
-  // patch moves the hovered pane into that same slot; mid-resize the preview /
-  // intermediate server layouts can transiently change the derived grid extent
-  // (e.g. a pane clamped at its min size). In both cases re-centering would
-  // shift EVERY pane by a cell under the user's cursor — the "row jumps up and
-  // then back down while resizing" glitch. Freeze so uninvolved panes hold
-  // still and only the resized panes move.
+  // Frozen during a drag or resize: the optimistic swap and intermediate
+  // server layouts change the grid extent for a moment, and re-centring would
+  // shift every pane by a cell under the cursor.
   const frozenOffsetRef = useRef(liveCenteringOffset);
   if (!isDragging && !isResizing) {
     frozenOffsetRef.current = liveCenteringOffset;
   }
   const centeringOffset = isDragging || isResizing ? frozenOffsetRef.current : liveCenteringOffset;
 
-  // The point all non-zoomed panes collapse toward (and expand out of) during
-  // a zoom: the centre of the pane grid, where the zoomed pane fills to.
   const zoomCenter = useMemo(
     () => ({ x: centeringOffset.x + grid.width / 2, y: centeringOffset.y + grid.height / 2 }),
     [centeringOffset, grid],
@@ -170,20 +144,15 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Pane enter/leave/shift lifecycle state (split & kill morph animations).
-  // See the detection block below `renderedPanes` for the mechanics.
   const [, bumpAnimTick] = useReducer((x: number) => x + 1, 0);
   const enterAnimsRef = useRef(new Map<string, EnterAnim>());
   const shiftAnimsRef = useRef(new Map<string, ShiftAnim>());
-  // The zoomed pane id across commits, for the zoom-out sibling expand. The
-  // zooming pane's own grow/shrink is driven by the DOM instead (see the zoom
-  // MutationObserver below).
+  // For the zoom-out sibling expand; the zooming pane's own grow/shrink is
+  // usePaneZoomObserver's.
   const prevZoomedRef = useRef<string | null>(null);
-  // On zoom-OUT the collapsed siblings drop their `pane-zoom-collapsing` class in
-  // the same commit that suppresses layout transitions, so without a carve-out
-  // they snap from centre-scaled back to their slots. This holds the sibling
-  // keys for the expand duration so a `pane-zoom-expanding` class (with a gated
-  // transition) animates them back out of the centre.
+  // On zoom out the siblings lose `pane-zoom-collapsing` in the same commit that
+  // suppresses layout transitions; `pane-zoom-expanding` carries a gated
+  // transition so they do not snap back to their slots.
   const zoomExpandRef = useRef<{ keys: Set<string>; timer?: number } | null>(null);
   const leavingRef = useRef(new Map<string, LeaveAnim>());
   const prevViewRef = useRef<Map<string, RenderedPaneView> | null>(null);
@@ -194,12 +163,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {
-      // Uniform mosaic box: width = charWidth*(width+1), height =
-      // charHeight*(height+1). The extra cell in each axis is the border whose
-      // two halves are shared with neighbours (or the grid edge). See
-      // paneBox for the geometry. A collapsed stacked pane (height 1)
-      // therefore renders as 2 rows — its header title row plus a blank content
-      // row — matching tmux; TerminalPane hides the content of that row.
+      // A collapsed stacked pane (height 1) renders as 2 rows, header plus a
+      // blank content row, as tmux does; TerminalPane hides that row.
       const box = paneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
       return {
         position: 'absolute',
@@ -207,8 +172,7 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         top: box.top,
         width: box.width,
         height: box.height,
-        // Content padding: half a cell each side so the terminal text fills its
-        // exact charWidth*width and aligns to the tmux column grid.
+        // Half a cell each side, so the text aligns to the tmux column grid.
         '--pane-h-padding-left': `${hPadding}px`,
         '--pane-h-padding-right': `${hPadding}px`,
       } as React.CSSProperties;
@@ -221,9 +185,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       const classes = ['pane-layout-item'];
       const isActive = pane.active && !keyboardElsewhere;
       classes.push(isActive ? 'pane-active' : 'pane-inactive');
-      // tmux's marked pane: a distinct outline so it reads apart from the
-      // active pane (the two are usually different panes — mark one, then
-      // swap/join it from another).
       if (pane.marked) classes.push('pane-marked');
       if (pane.tmuxId === zoomedPaneId) {
         classes.push('pane-zoomed');
@@ -244,20 +205,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [draggedPaneId, keyboardElsewhere, zoomedPaneId, swipeStill],
   );
 
-  // ============================================
-  // Pane enter/leave/shift lifecycle (split & kill morph animations)
-  // ============================================
-  //
-  // Each render is diffed against a snapshot of the previous render
-  // (prevViewRef, updated post-commit in a layout effect). A key that
-  // appears gets a FLIP enter (mounted at final geometry, rewound to the
-  // split source's pre-split box before paint, transitioned into place
-  // while fading in); a key that vanishes holds the shift clock open for the
-  // duration, shrinking into its own centre under the survivor while fading out; panes
-  // whose box changed alongside an enter/leave get `pane-shifting` so they
-  // animate on the same clock. All state is local (refs + a tick reducer)
-  // — detection mutations in the render phase are add-only and keyed, so
-  // StrictMode's double render is a no-op; deletions happen in effects.
+  // Detection in the render phase only adds, keyed, so StrictMode's double
+  // render is a no-op; deletions happen in effects.
 
   const { renderedPanes, currView } = useRenderedPanesAndView({
     visiblePanes,
@@ -295,11 +244,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     groupSwitchPanes,
   });
 
-  // A closed pane leaves no node behind: the model dropped it, so it is gone
-  // from the render on the same commit. What is still tracked is the WINDOW
-  // its removal opened — `leavingRef` keeps the shift lifecycle running for
-  // PANE_LEAVE_MS so the surviving panes grow into the space on that clock
-  // rather than snapping to their new boxes.
   const renderItems: RenderItem[] = renderedPanes.map(
     ({ pane, hidden, zoomCollapsed, swipeSide }) => ({
       key: paneKeyOverrides[pane.tmuxId] ?? pane.tmuxId,
@@ -362,9 +306,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
         />
       ))}
 
-      {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle exactly (same paneBox) so the ghost
-          lands precisely where the pane will. */}
       {dropTarget &&
         isDragging &&
         (() => {

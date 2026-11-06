@@ -1,29 +1,14 @@
 /**
- * SessionMenu — the session switcher: a dropdown, not a surface.
+ * The session switcher. It lists the sessions on the socket this client is
+ * attached to — the set `switch-client` can reach.
  *
- * Switching session is a one-line question ("which of these?"), and it used to
- * be answered by a float running a whole widget in a real tmux pane — a window
- * to create, a pane to spawn, a keyboard cursor of its own, and the tab behind
- * it dimmed while you read four names. A dropdown anchored to the thing you
- * clicked says the same thing without taking the screen.
+ * Servers are a second section, only when there is more than one: attaching
+ * to another socket is not a `switch-client` but a retarget of the backend's
+ * monitor (`connect_server`, a Tauri command) — a web client's server is
+ * pinned to one socket at launch. Adding a server is a form, so that item
+ * opens a pane.
  *
- * What it lists is the sessions on the socket this client is attached to
- * (`serversActor` polls them), which is the set `switch-client` can reach —
- * instant, and as available to a viewer as to a writer, since it changes only
- * this client.
- *
- * Servers are a second section, and only when there is more than one to
- * choose: attaching to another socket is not a `switch-client` but a
- * retarget of the backend's monitor (`connect_server`), which is a Tauri
- * command — a web client is served by a server pinned to one socket at
- * launch, so its list holds nothing to offer. Adding a server is a FORM, and
- * a form needs somewhere to type, so that one item opens a pane.
- *
- * Its body is a filter box over a scrolling list (SessionPicker), so it is
- * drawn in-app on every platform: a native popup has nowhere to type.
- *
- * The other session verbs (new, rename, detach, kill) live in the app menu,
- * where the rest of the session's commands are.
+ * Drawn in-app on every platform: a native popup cannot hold the filter box.
  */
 
 import { useCallback, useEffect, useRef } from 'react';
@@ -39,11 +24,8 @@ const OPEN = { open: true } as const;
 
 interface SessionMenuProps {
   /**
-   * The control the dropdown hangs from. An element rather than a point,
-   * because the surface measures both to keep the dropdown on screen — and
-   * which SIDE it opens on follows from that: the status line's switcher is a
-   * 27px strip on the last row of the window, so its dropdown is placed above
-   * rather than off the bottom of the screen (`positionSurface`).
+   * An element rather than a point: the surface measures it to keep the
+   * dropdown on screen, so the status line's switcher opens upward.
    */
   // `useRef<T>(null)` yields `RefObject<T | null>`; the dropdown reads
   // `.current` only once it is open, by which point React has attached it.
@@ -102,7 +84,6 @@ export function SessionMenu({ anchorRef, onClose }: SessionMenuProps) {
 
   const choose = useCallback(
     ({ action }: SwitcherItem) => {
-      // Picking the session or server already attached changes nothing.
       const same =
         action.kind === 'event' &&
         ((action.event.type === 'SWITCH_SESSION' && action.event.sessionName === sessionName) ||

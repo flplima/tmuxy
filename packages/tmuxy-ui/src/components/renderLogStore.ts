@@ -1,7 +1,3 @@
-/**
- * The render log stories read: entries LogProfiler records, and counts over them.
- */
-
 export interface RenderLogEntry {
   readonly id: string;
   readonly ts: number;
@@ -37,7 +33,6 @@ export function renderCountSince(mark: number, idPrefix: string): number {
   return count;
 }
 
-/** Distinct ids (with render counts) since `mark` — for debugging budgets. */
 export function renderCountsById(mark: number): Record<string, number> {
   const log = getLog();
   const counts: Record<string, number> = {};

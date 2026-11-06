@@ -1,11 +1,3 @@
-/**
- * PaneHeader - Minimalistic tab bar for pane groups
- *
- * Always shows panes as tabs (even single panes).
- * Dragging anywhere on the header initiates a pane drag.
- * Right-click shows context menu with pane operations.
- */
-
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { TmuxOp } from '../domain/commands';
 import { selectDraggedPaneId, selectGroupDrop } from '../machines/selectors/layout';
@@ -20,16 +12,14 @@ import { measureTabStrip } from '../machines/drag/tabStripDrop';
 import { DRAG_THRESHOLD_PX, LONG_PRESS_MS } from '../domain/tabOverview';
 import { isModelPaneId, type PaneId } from '../domain/ids';
 
-/** Maximum touch movement in px before cancelling long-press */
+/** px a finger may move before a long-press is taken for a scroll. */
 const LONG_PRESS_MOVE_THRESHOLD = 10;
 
 interface PaneHeaderProps {
   paneId: PaneId;
-  /** Override the tab title for this pane (used by widgets) */
   titleOverride?: string;
-  /** Float pane mode: hides group add button, wires close to onFloatClose */
+  /** In a float, ✕ calls onFloatClose. */
   isFloat?: boolean;
-  /** Called when the close button is clicked in float mode */
   onFloatClose?: () => void;
 }
 
@@ -40,7 +30,6 @@ interface ContextMenuState {
   targetPaneId: PaneId | null;
 }
 
-/** The mark badge's tooltip, with the keys that mark and clear when they are bound. */
 function markedTooltip(keybindings: KeyBindings | null): string {
   const mark = keyHint(keybindings, TmuxOp.MarkPane({ marked: true }));
   const clear = keyHint(keybindings, TmuxOp.MarkPane({ marked: false }));
@@ -58,8 +47,8 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
   const pendingDragRef = useRef<{ x: number; y: number } | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  // The pane whose title field is open — opened from this header's menu or
-  // from the pane content's own; whichever header draws that pane shows it.
+  // Opened from this header's menu or the pane content's: whichever header
+  // draws that pane shows the field.
   const renamingPaneId = useAppSelector((c) => c.renamingPaneId);
   const keybindings = useAppSelector(selectKeyBindings);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -69,14 +58,12 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
     targetPaneId: null,
   });
 
-  // Cleanup long-press timer on unmount
   useEffect(() => {
     return () => {
       if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     };
   }, []);
 
-  // Scroll selected tab into view
   useEffect(() => {
     if (!tabsRef.current || !activePaneId) return;
     const selectedTab = tabsRef.current.querySelector('.pane-tab-selected');
@@ -121,24 +108,16 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
   const { tmuxId, active: isActive, inMode } = pane;
 
   const tabPanes = groupPanes && groupPanes.length > 0 ? groupPanes : [pane];
-  // A GROUP's header is shared: each member gets an equal share of the width,
-  // with its own ⋮ and ✕ at the right of that share. One pane keeps the old
-  // shape — its title runs the full width and the buttons sit at the header's
-  // own right edge, where there is nothing to share them with.
   const isGroup = tabPanes.length > 1;
   const activeTabId = activePaneId ?? tmuxId;
-  // The pane whose content is under this header — a group shows one member at
-  // a time, and "marked" belongs to that one, not to the strip.
+  // A group shows one member at a time; "marked" belongs to that one.
   const shownPane = tabPanes.find((p) => p.tmuxId === activeTabId) ?? pane;
 
   const handleTabClick = (e: React.MouseEvent, clickedPaneId: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
-    // For a group tab, route strictly through SELECT_PANE_GROUP_TAB: it flips
-    // activePaneId and the keyboard actor's target synchronously and dispatches
-    // the GroupSwitch op. Sending FOCUS_PANE for a parked group member would
-    // fire a premature `select-pane` into the stash window, racing swap-pane.
-    // An ungrouped header tab has no group to switch, so it uses FOCUS_PANE.
+    // FOCUS_PANE on a parked group member would fire a premature `select-pane`
+    // into the stash window, racing swap-pane.
     if (isGroup) {
       send({ type: 'SELECT_PANE_GROUP_TAB', paneId: clickedPaneId });
     } else {
@@ -149,10 +128,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
   const handleClosePane = (e: React.MouseEvent, forPaneId?: PaneId) => {
     e.preventDefault();
     e.stopPropagation();
-    // Uses CLOSE_PANE which routes through `pane-group close`
-    // to handle both grouped and ungrouped panes correctly — including
-    // closing a PARKED member, which is the one thing a single shared button
-    // could never express.
+    // CLOSE_PANE goes through `pane-group close`, which can close a parked member.
     const targetId = forPaneId ?? activePaneId ?? tmuxId;
     send({ type: 'CLOSE_PANE', paneId: targetId });
   };
@@ -182,24 +158,19 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
     return index === tabPanes.length - 1 && groupDrop.index === tabPanes.length ? 'after' : null;
   };
 
-  // Drag from anywhere on the header
   const handleHeaderMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
 
-    // A header is a pane's title bar, so pressing it takes the pane — the same
-    // as pressing its body. Without this the only way to focus a pane was to
-    // click INSIDE it, which is exactly what you avoid doing when the thing
-    // you want is to move or rename the pane rather than type in it.
-    // A group's tabs each name a different pane and keep their own handler.
+    // Pressing a pane's title bar takes the pane, as pressing its body does, so
+    // moving or renaming it needs no click inside. A group's tabs keep their own handler.
     if (!target.closest('.pane-tab')) {
       send({ type: 'FOCUS_PANE', paneId: tmuxId });
     }
 
     pendingDragRef.current = { x: e.clientX, y: e.clientY };
-    // A group's tab drags the member it names — to reorder it, or, for a
-    // parked one, to take it out of the group.
+    // A group's tab drags the member it names, parked or not.
     const dragId = memberUnder(target);
 
     const startX = e.clientX;
@@ -239,7 +210,6 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
     document.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Long-press touch to initiate drag on mobile
   const handleHeaderTouchStart = (e: React.TouchEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON') return;
@@ -249,7 +219,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
     const startY = touch.clientY;
     touchStartRef.current = { x: startX, y: startY };
 
-    // Capture DOM refs eagerly — React synthetic event is recycled after this handler returns
+    // `currentTarget` is null once the handler returns.
     const headerEl = e.currentTarget as HTMLElement;
     const dragId = memberUnder(target);
 
@@ -272,7 +242,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
 
     const handleTouchMove = (moveEvt: TouchEvent) => {
       if (!touchStartRef.current) {
-        // Drag already started — let pointerTracker handle it
+        // The drag started: the drag machine's pointerTracker has it.
         document.removeEventListener('touchmove', handleTouchMove);
         document.removeEventListener('touchend', handleTouchEnd);
         document.removeEventListener('touchcancel', handleTouchEnd);
@@ -282,7 +252,7 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
       const dx = Math.abs(t.clientX - touchStartRef.current.x);
       const dy = Math.abs(t.clientY - touchStartRef.current.y);
       if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
-        // Finger moved too much — cancel long-press (user is scrolling)
+        // The user is scrolling.
         if (longPressTimerRef.current) {
           clearTimeout(longPressTimerRef.current);
           longPressTimerRef.current = null;
@@ -312,10 +282,9 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
 
   const headerClass = `pane-header ${isActive ? 'pane-header-active' : ''} ${inMode ? 'pane-header-copy-mode' : ''}`;
 
-  /** One member's buttons, or the header's own when there is no group. */
-  // A member's ⋮ and ✕ sit inside its tab, which may hold no control of its
-  // own: they are pointer targets, hidden from assistive technology. The tab's
-  // context menu (right-click, or the menu key) carries the same actions.
+  // A tab may hold no control of its own (ARIA), so a member's ⋮ and ✕ are
+  // pointer targets hidden from assistive technology; the tab's context menu
+  // carries the same actions.
   const controlsFor = (forPaneId: PaneId) => (
     <span className="pane-tab-controls" aria-hidden="true">
       <Tooltip label="Pane menu">
@@ -328,9 +297,8 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
           className="pane-header-close"
           onClick={(e) => {
             e.stopPropagation();
-            // In a float, ✕ closes the FLOAT — but only on the member the
-            // float is showing. A parked member's ✕ still closes that
-            // member, or it would take the whole float down with it.
+            // In a float only the shown member's ✕ closes the float; a parked
+            // member's closes that member.
             if (isFloat && forPaneId === activeTabId) onFloatClose?.();
             else handleClosePane(e, forPaneId);
           }}
@@ -349,10 +317,8 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
       onDoubleClick={handleDoubleClick}
       onMouseDown={handleHeaderMouseDown}
       onTouchStart={handleHeaderTouchStart}
-      // Anywhere on the header that is not a member's tab — the ⋮/✕ of a
-      // single pane, the MARKED badge, the space beside the tabs — is the
-      // header of the pane it shows. A tab handles its own right-click (and
-      // stops it) so a group's member is named by where the pointer is.
+      // Outside a member's tab the header is the shown pane's; a tab handles
+      // (and stops) its own right-click.
       onContextMenu={(e) => handleContextMenu(e, activeTabId)}
     >
       {/* The tab list is the strip of titles alone: the ⋮ and ✕ beside it are
@@ -393,11 +359,8 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
           );
         })}
       </div>
-      {/* Marked (`prefix m`) is a state of the pane SHOWN here, not of every
-          tab in the strip, so it is drawn once at the header's right edge
-          rather than as a glyph tucked beside a title. Spelled out because
-          a lone ⚑ says nothing about what it marks — and the pane's content
-          carries the same accent wash, so the two read as one thing. */}
+      {/* Marked (`prefix m`) is a state of the pane shown here, not of every
+          tab in the strip. Spelled out: a lone ⚑ says nothing about what it marks. */}
       {shownPane?.marked && (
         <Tooltip label={markedTooltip(keybindings)}>
           <span className="pane-header-mark" data-testid="pane-header-mark">
@@ -405,9 +368,6 @@ export function PaneHeader({ paneId, titleOverride, isFloat, onFloatClose }: Pan
           </span>
         </Tooltip>
       )}
-      {/* Ungrouped: the buttons belong to the one pane the header is for, so
-          they sit at the header's right edge as they always have. A group's
-          are inside each member's share instead. */}
       {!isGroup && (
         <>
           <Tooltip label="Pane menu">

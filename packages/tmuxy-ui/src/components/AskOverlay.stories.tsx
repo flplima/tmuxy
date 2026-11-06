@@ -1,16 +1,9 @@
 /**
- * AskOverlay stories, over a recording of real tmux.
- *
- * `tmuxy pane send -t %3 'npm test' Enter`, run from one pane, hangs a
- * question on ANOTHER pane instead of sending the keys: the target blurs its
- * content and asks. The recording (`fixtures/scenarios/ask-and-offer.ts`)
- * hangs it the way the CLI does — `set-option -p -t %0 @tmuxy-ask <base64>`
- * — and holds the pane before and after the app's answer took it down, so
- * the chain under test is tmux option → model → overlay → answer → option
- * cleared.
- *
- * The round trip from a real `tmuxy pane send` — Cmd+Enter, a click, a long
- * multi-line send — is tests/13-send-permission.test.js, end to end.
+ * Over a recording of real tmux (`fixtures/scenarios/ask-and-offer.ts`) that
+ * hangs the question the way the CLI does (`set-option -p -t %0 @tmuxy-ask
+ * <base64>`), so the chain under test is tmux option → model → overlay →
+ * answer → option cleared. The round trip from a real `tmuxy pane send` is
+ * tests/13-send-permission.test.js.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -36,7 +29,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-/** The overlay drawn over a pane, once it is really on screen. */
 async function waitForOverlay(paneId: string): Promise<HTMLElement> {
   return waitFor(
     () => {
@@ -70,10 +62,6 @@ const lastAnswer = () => {
   return answers[answers.length - 1]?.match(/@tmuxy-ask-answer '([^']*)'/)?.[1];
 };
 
-// ---------------------------------------------------------------------------
-// Answering from the keyboard, on the pane holding it
-// ---------------------------------------------------------------------------
-
 export const KeyboardMovesBetweenYesAndNo: Story = {
   args: { start: 'asked', transitions: answered('answered') },
   parameters: {
@@ -87,20 +75,16 @@ export const KeyboardMovesBetweenYesAndNo: Story = {
   play: async () => {
     const overlay = await waitForOverlay('%0');
     const question = overlay.querySelector('.ask-overlay-question') as HTMLElement;
-    // The Enter that runs the line is not shown; the command sits inline.
+    // The Enter that runs the line is not shown.
     expect(question.textContent).toBe('claude wants to send rm -rf dist.Allow?');
     expect(overlay.querySelector('.ask-overlay-command-block')).toBeNull();
-    // Two answers, stacked and numbered.
     const answers = [...overlay.querySelectorAll('[data-ask-choice]')];
     expect(answers.map((a) => a.textContent)).toEqual(['1.Yes', '2.No']);
     const [yesBox, noBox] = answers.map((a) => a.getBoundingClientRect());
     expect(noBox.top).toBeGreaterThanOrEqual(yesBox.bottom);
-    // No card: the text sits straight on the scrim.
     const text = overlay.querySelector('.ask-overlay-text') as HTMLElement;
     expect(getComputedStyle(text).borderTopWidth).toBe('0px');
     expect(getComputedStyle(text).backgroundColor).toBe('rgba(0, 0, 0, 0)');
-    // The pane behind it is blurred rather than emptied: the text is still
-    // there, under a scrim, which is what makes the question read as modal.
     const scrim = overlay.querySelector('.ask-overlay-scrim') as HTMLElement;
     expect(getComputedStyle(scrim).backdropFilter).toContain('blur');
     // Yes is highlighted before anything is touched — the same answer the
@@ -110,7 +94,6 @@ export const KeyboardMovesBetweenYesAndNo: Story = {
     const user = userEvent.setup({ delay: 5 });
     await user.keyboard('{ArrowDown}');
     await waitFor(() => expect(selected()).toBe('no'));
-    // The highlight is drawn, not just recorded.
     const no = document.querySelector(`[data-ask-choice="no"]`) as HTMLElement;
     expect(no.className).toContain('ask-overlay-choice-selected');
     await user.keyboard('1');
@@ -121,21 +104,15 @@ export const KeyboardMovesBetweenYesAndNo: Story = {
     await waitForNoOverlay('%0');
     expect(lastAnswer()).toBe('tok-3:no');
 
-    // Asked again; Enter takes the highlight.
     adapter!.goTo('asked');
     await waitForOverlay('%0');
     await user.keyboard('{Enter}');
     await waitForNoOverlay('%0');
     expect(lastAnswer()).toBe('tok-3:yes');
 
-    // Not one of those keys was typed into the shell.
     expect(adapter!.commands.filter((c) => c.startsWith('send-keys'))).toEqual([]);
   },
 };
-
-// ---------------------------------------------------------------------------
-// A restore's offer: a one-line banner, not a modal
-// ---------------------------------------------------------------------------
 
 const banner = () => document.querySelector('[data-pane-offer="%0"]') as HTMLElement | null;
 
@@ -158,21 +135,17 @@ export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
       { timeout: 8000, interval: 100 },
     );
     expect(shown.textContent).toBe('↵ to run:claude --resume abc123· esc to dismiss');
-    // One row, at the bottom of the pane, over nothing but that row.
     const pane = document.querySelector('[data-pane-id="%0"]')!.getBoundingClientRect();
     const box = shown.getBoundingClientRect();
     expect(box.height).toBeLessThan(40);
     expect(Math.abs(box.bottom - pane.bottom)).toBeLessThan(6);
-    // No question overlay: an offer blurs nothing.
     expect(document.querySelector('[data-pane-ask="%0"]')).toBeNull();
 
     const user = userEvent.setup({ delay: 5 });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
-    // Dismissed, not run.
     expect(adapter!.commands.some((c) => c.includes('claude --resume'))).toBe(false);
 
-    // A second offer; typing something else drops it too, and the key goes on.
     adapter!.goTo('offered-htop');
     await waitFor(() => expect(banner()).not.toBeNull(), { timeout: 8000, interval: 100 });
     const sentBefore = adapter!.commands.length;

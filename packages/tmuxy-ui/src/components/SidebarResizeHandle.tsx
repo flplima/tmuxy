@@ -1,22 +1,8 @@
 /**
- * SidebarResizeHandle — the drag strip on a sidebar column's inner edge.
- *
- * While the pointer is down the column follows it immediately: every change of
- * a whole column raises SIDEBAR_RESIZE_PREVIEW, which `selectSidebarLayout`
- * draws ahead of the server. On release the width is committed as
- * `@tmuxy-sidebar-cols` on the column's tmux window (SIDEBAR_RESIZE_COMMIT):
- * the backend sizes the column's PANE to the same number, so the content
- * rewraps to the width being drawn, the width survives a reload, and another
- * client attached to the same session sees the column move too. Committing on
- * release rather than on every move keeps the pane from rewrapping a dozen
- * times per drag.
- *
- * The width is quantised to whole terminal columns — there is no sub-cell
- * width a tmux pane could have — and clamped to the same bounds the backend
- * enforces, so the preview can never promise a size the pane won't take.
- *
- * Pointer events, not mouse events, so a finger or pen drags it too; a
- * double-click puts the column back to its default width.
+ * The drag previews locally and commits `@tmuxy-sidebar-cols` on the column's
+ * tmux window only on release, so the pane rewraps once per drag rather than
+ * on every move. The width is whole terminal columns (a tmux pane has no
+ * sub-cell width), clamped to the bounds the backend enforces.
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
@@ -30,7 +16,7 @@ interface SidebarResizeHandleProps {
   side: 'left' | 'right';
   /** The column's tmux window, which carries the width option. */
   windowId: WindowId | null;
-  /** Current column width in pixels, the drag's starting point. */
+  /** px */
   width: number;
 }
 
@@ -51,7 +37,6 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
   const colsAt = useCallback(
     (clientX: number) => {
       const d = dragRef.current;
-      // The left column grows rightwards, the right column leftwards.
       const delta = side === 'left' ? clientX - d.startX : d.startX - clientX;
       const cols = Math.round((d.startWidth + delta) / (charWidth || 1));
       return Math.min(SIDEBAR_MAX_COLS, Math.max(SIDEBAR_MIN_COLS, cols));
@@ -75,7 +60,6 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!dragging) return;
       const cols = colsAt(e.clientX);
-      // Most moves resolve to the column already drawn; only a change is news.
       if (cols === dragRef.current.lastCols) return;
       dragRef.current.lastCols = cols;
       send({ type: 'SIDEBAR_RESIZE_PREVIEW', side, cols });
@@ -91,7 +75,6 @@ export const SidebarResizeHandle = memo(function SidebarResizeHandle({
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
       const cols = dragRef.current.lastCols;
-      // A press with no movement previewed nothing, so there is nothing to write.
       if (cols >= 0) send({ type: 'SIDEBAR_RESIZE_COMMIT', side, cols });
     },
     [dragging, send, side],
