@@ -1,6 +1,6 @@
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
-import { StatusBar } from './components/StatusBar';
+import { StatusBar, type RenderTabline } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
 import { isTauri } from './infra/platform';
 import { usePluginLinks } from './components/terminal/usePluginLinks';
@@ -48,8 +48,6 @@ import {
 import { PHONE_COLS } from './infra/dom/phoneLayout';
 import { PHONE_CONTAINER_PADDING } from './constants/layout';
 import { PhoneBottomView } from './components/phone/PhoneBottomView';
-
-export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
 /** The phone's terminal type, scoped to the terminal so the chrome keeps its own. */
 function gridTypeStyle(type: { fontSize: number; rowHeight: number } | null): CSSProperties {

@@ -6,7 +6,7 @@ export { AppProvider as TmuxyProvider } from './machines/AppContext';
 export { useAppFocused } from './machines/appHooks';
 export type { AppConfig } from './machines/appContexts';
 export { default as TmuxyApp } from './App';
-export type { RenderTabline } from './App';
+export type { RenderTabline } from './components/StatusBar';
 export { V86TmuxAdapter } from './infra/transport/drivers/v86/V86TmuxAdapter';
 export type { V86TmuxAdapterOptions } from './infra/transport/drivers/v86/V86TmuxAdapter';
 export { CheerpXTmuxAdapter } from './infra/transport/drivers/cheerpx/CheerpXTmuxAdapter';
