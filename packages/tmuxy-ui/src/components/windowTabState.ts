@@ -65,11 +65,14 @@ export function useShowActiveTab(
     // two, and each of them can push a tab that was just brought to the edge
     // back off it — the strip growing WIDER is not a resize of the strip, so
     // nothing else would notice. Bounded, so a scroll the user makes later is
-    // never yanked back.
+    // never yanked back, and a strip that has not settled by then is left to
+    // the smooth scroll already under way: re-aimed every frame until it
+    // landed, on a page whose frames come slowly it re-aimed (and laid the
+    // page out) for seconds.
     const deadline = performance.now() + SHOW_ACTIVE_TAB_SETTLE_MS;
     let raf = requestAnimationFrame(function again() {
-      const settled = showActiveTab();
-      if (!settled || performance.now() < deadline) raf = requestAnimationFrame(again);
+      showActiveTab();
+      if (performance.now() < deadline) raf = requestAnimationFrame(again);
     });
     showActiveTab();
     return () => cancelAnimationFrame(raf);
