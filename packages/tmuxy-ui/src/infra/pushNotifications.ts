@@ -14,6 +14,7 @@
  */
 
 import { isTauri } from './platform';
+import { isPaneId, type PaneId } from '../domain/ids';
 
 /** Where this device stands. `working` while a switch is under way. */
 export type PushState = 'unsupported' | 'unknown' | 'denied' | 'off' | 'on' | 'working';
@@ -117,10 +118,10 @@ export async function disablePush(): Promise<PushState> {
  * A tapped notification asks the window already on its session to bring
  * its pane forward (`public/sw.js`); `focus` is how.
  */
-export function onNotificationFocus(focus: (paneId: string) => void): void {
+export function onNotificationFocus(focus: (paneId: PaneId) => void): void {
   if (!pushSupported()) return;
   navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
-    const data = event.data as { type?: string; paneId?: string | null } | null;
-    if (data?.type === 'tmuxy-focus-pane' && data.paneId) focus(data.paneId);
+    const data = event.data as { type?: string; paneId?: unknown } | null;
+    if (data?.type === 'tmuxy-focus-pane' && isPaneId(data.paneId)) focus(data.paneId);
   });
 }
