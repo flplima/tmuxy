@@ -277,3 +277,16 @@ fn a_hook_command_quotes_the_tmuxy_path() {
         "command -v /bin/tmuxy >/dev/null 2>&1 && /bin/tmuxy agent hook claude Stop 2>/dev/null || true"
     );
 }
+
+/// The screen correction runs on every agent tmuxy hooks: each one's process
+/// name is one it watches.
+#[test]
+fn every_hooked_agent_is_one_the_screen_watches() {
+    for agent in ALL {
+        assert!(
+            tmuxy_core::host::socket_watch::agent_screen::is_agent(agent.name()),
+            "{}",
+            agent.name()
+        );
+    }
+}

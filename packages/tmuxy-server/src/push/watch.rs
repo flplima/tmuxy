@@ -1,57 +1,13 @@
-//! Which panes have just come to need the user: every pane on the socket,
-//! read every couple of seconds while some device wants to hear of it.
-//!
-//! A pane's `@tmuxy-pane-state` is written by whatever runs in it (an
-//! agent's hooks, `tmuxy pane state`, a send's question) and tmux announces
-//! no option change. The monitors would see it, but there is one only while
-//! a client watches its session, and the device a notification is for is
-//! the one that is not watching. So the server reads it itself, with one
-//! read-only `list-panes -a` across every session — a read, which tmux runs
-//! safely beside an attached control-mode client (docs/TMUX.md) — and only
-//! while there is a subscription to push to.
+//! Which panes have just come to need the user, from the host's read of
+//! every pane on the socket (`tmuxy_core::host::socket_watch`): the device a
+//! notification is for is the one that is not watching, so no monitor would
+//! see it.
 
 use std::collections::HashMap;
+use tmuxy_core::host::socket_watch::PaneRow;
 
 /// The states a notification is sent for.
 const NOTIFY_STATES: [&str; 2] = ["needs-input", "error"];
-
-/// One `list-panes -a` row: every pane's id, where it is, and what it says.
-/// Tab-separated, free text last.
-pub(crate) const PANES_FORMAT: &str = "#{pane_id}\t#{session_name}\t#{@tmuxy-notify}\t\
-     #{@tmuxy-pane-state}\t#{pane_current_command}\t#{@tmuxy-label}\t#{window_name}";
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct PaneRow {
-    pub pane_id: String,
-    pub session: String,
-    /// `@tmuxy-notify` as the pane resolves it (the global option).
-    pub notify: String,
-    pub state: String,
-    pub command: String,
-    pub label: String,
-    pub window: String,
-}
-
-pub(crate) fn parse_rows(listing: &str) -> Vec<PaneRow> {
-    listing
-        .lines()
-        .filter_map(|line| {
-            let f: Vec<&str> = line.splitn(7, '\t').collect();
-            let [pane_id, session, notify, state, command, label, window] = f[..] else {
-                return None;
-            };
-            Some(PaneRow {
-                pane_id: pane_id.to_string(),
-                session: session.to_string(),
-                notify: notify.to_string(),
-                state: state.to_string(),
-                command: command.to_string(),
-                label: label.to_string(),
-                window: window.to_string(),
-            })
-        })
-        .collect()
-}
 
 /// What a notification says, and where a tap on it goes.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -139,21 +95,4 @@ impl Watch {
             .map(|row| Notice::for_row(row, host))
             .collect()
     }
-}
-
-/// Every pane on the socket, read with one read-only `list-panes -a`;
-/// `None` when there is no tmux server to ask.
-pub(crate) async fn read_panes() -> Option<Vec<PaneRow>> {
-    let output = tokio::task::spawn_blocking(|| {
-        tmuxy_core::session::tmux_command()
-            .args(["list-panes", "-a", "-F", PANES_FORMAT])
-            .output()
-    })
-    .await
-    .ok()?
-    .ok()?;
-    output
-        .status
-        .success()
-        .then(|| parse_rows(&String::from_utf8_lossy(&output.stdout)))
 }

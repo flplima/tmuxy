@@ -16,7 +16,7 @@ use tmuxy_core::PaneId;
 use tower::ServiceExt;
 
 fn app() -> Router {
-    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
+    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::default()))
 }
 
 /// A JSON-RPC message posted the way an MCP client posts it: no browser

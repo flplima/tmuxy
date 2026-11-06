@@ -19,6 +19,8 @@ pub mod executor;
 #[cfg(feature = "cli")]
 pub mod float;
 
+#[cfg(feature = "native")]
+pub mod host;
 pub mod layout;
 #[cfg(feature = "cli")]
 pub mod list_keys;
@@ -58,25 +60,6 @@ pub use error::TmuxError;
 pub use ids::{GroupId, IdError, PaneId, WindowId};
 
 use serde::{Deserialize, Serialize};
-
-/// The machine's host name, as the status line names where the user is. The
-/// web client cannot read it from `location.hostname` (that is the address it
-/// typed, `localhost` or an IP), so the server says it in its greeting.
-/// Empty when the OS will not say.
-#[cfg(feature = "native")]
-pub fn host_name() -> String {
-    #[cfg(unix)]
-    {
-        nix::unistd::gethostname()
-            .ok()
-            .map(|h| h.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    }
-    #[cfg(not(unix))]
-    {
-        String::new()
-    }
-}
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";

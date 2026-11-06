@@ -330,14 +330,32 @@ async function dumpWindows(driver) {
 }
 
 /**
- * Invoke a Tauri command via the frontend's adapter.
+ * Run a client command (e.g. 'run_tmux_command') the way the page's adapter
+ * does: through the desktop's one `dispatch` IPC command, as `{ cmd, args }`.
  *
  * @param {WebdriverIO.Browser} driver
- * @param {string} command - Tauri command name (e.g., 'run_tmux_command')
+ * @param {string} command - The client command's wire name
  * @param {Object} args - Command arguments
  * @returns {Promise<*>}
  */
 async function invokeCommand(driver, command, args = {}) {
+  return invokeIpc(driver, 'dispatch', { request: { cmd: command, args } });
+}
+
+/**
+ * Invoke one of the desktop's window-chrome IPC commands (`new_window`,
+ * `list_gui_windows`, `get_window_style`, …) directly.
+ *
+ * @param {WebdriverIO.Browser} driver
+ * @param {string} command - The IPC command's name
+ * @param {Object} args - Command arguments
+ * @returns {Promise<*>}
+ */
+async function invokeWindowCommand(driver, command, args = {}) {
+  return invokeIpc(driver, command, args);
+}
+
+async function invokeIpc(driver, command, args) {
   // Use executeAsync because Tauri invoke() returns a Promise, and the WebDriver
   // execute/sync endpoint doesn't support async functions in WebKitWebDriver.
   return driver.executeAsync(
@@ -481,6 +499,7 @@ module.exports = {
   getAppState,
   getPaneCount,
   invokeCommand,
+  invokeWindowCommand,
   waitForPaneCount,
   waitForRawWindowCount,
   TAURI_BINARY,

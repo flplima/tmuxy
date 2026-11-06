@@ -313,5 +313,58 @@ pub fn current_server_id() -> String {
         .unwrap_or_else(|| LOCALHOST_ID.to_string())
 }
 
+/// The server picker's answer: every saved server, and which one the app
+/// is attached to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerList {
+    pub servers: Vec<Server>,
+    pub current_id: String,
+}
+
+/// The saved servers (localhost and every one `tmuxy connect` added), read
+/// fresh, with `live_sessions` — the sessions the attached server holds now,
+/// when they could be read — as the current server's count.
+pub fn list(live_sessions: Option<usize>) -> ServerList {
+    let mut servers = read_servers();
+    let current_id = current_server_id();
+    if let Some(cur) = servers.iter_mut().find(|s| s.id == current_id) {
+        cur.session_count = live_sessions.or(cur.session_count);
+    }
+    ServerList {
+        servers,
+        current_id,
+    }
+}
+
+/// Where a connect to the saved server `id` goes: its socket and ssh host,
+/// and `session` — else the session it was last used with, else this
+/// process's own — which must be a usable session name. The server's
+/// `last_used` is stamped; failing to write that is logged, not fatal.
+pub fn connect_target(
+    id: &str,
+    session: Option<String>,
+) -> Result<crate::session::ConnectTarget, crate::CommandError> {
+    let server = find_server(id)
+        .ok_or_else(|| crate::CommandError::invalid(format!("unknown server '{id}'")))?;
+    let (socket, ssh) = server.connect_env();
+    let session = session
+        .or_else(|| server.session.clone())
+        .unwrap_or_else(crate::session::session_name);
+    if crate::session::SessionName::parse(&session).is_none() {
+        return Err(crate::CommandError::invalid(format!(
+            "'{session}' is not a session name"
+        )));
+    }
+    if let Err(e) = touch_server(id, Some(&session)) {
+        tracing::warn!(server = id, error = %e, "could not record the server as used");
+    }
+    Ok(crate::session::ConnectTarget {
+        socket,
+        session,
+        ssh,
+    })
+}
+
 #[cfg(test)]
 mod tests;

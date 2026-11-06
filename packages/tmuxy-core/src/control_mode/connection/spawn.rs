@@ -347,33 +347,6 @@ impl ControlModeConnection {
         if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
             cmd = cmd.env("LANG", "en_US.UTF-8");
         }
-        #[cfg(target_os = "macos")]
-        {
-            // `~/.local/bin` holds the `tmuxy` shorthand the app writes on launch
-            // (session::refresh_launcher); without it a pane's `tmuxy widget tree`
-            // (the left sidebar) is "command not found" when launched from Finder.
-            let local_bin = dirs::home_dir()
-                .map(|h| h.join(".local/bin").to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let extras: Vec<&str> = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
-                .into_iter()
-                .chain((!local_bin.is_empty()).then_some(local_bin.as_str()))
-                .collect();
-            let current = std::env::var("PATH").unwrap_or_default();
-            let missing: Vec<&str> = extras
-                .iter()
-                .copied()
-                .filter(|p| !current.split(':').any(|seg| seg == *p))
-                .collect();
-            if !missing.is_empty() {
-                let prefixed = if current.is_empty() {
-                    missing.join(":")
-                } else {
-                    format!("{}:{}", missing.join(":"), current)
-                };
-                cmd = cmd.env("PATH", prefixed);
-            }
-        }
         if let Some(dir) = working_dir {
             cmd = cmd.current_dir(dir);
         }

@@ -98,7 +98,7 @@ const CODEX_HOOKS: &[Hook] = &[
 ];
 
 /// Antigravity has no hook for a permission prompt: `needs-input` comes from
-/// its screen (`tmuxy-server`'s `agent_screen`). A tool finishing is back to working, as a
+/// its screen (`tmuxy_core::host::socket_watch::agent_screen`). A tool finishing is back to working, as a
 /// prompt answered by the user is.
 const AGY_HOOKS: &[Hook] = &[
     Hook::on("SessionStart"),

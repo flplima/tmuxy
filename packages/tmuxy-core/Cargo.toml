@@ -48,7 +48,7 @@ regex = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-# `native`: the host name (`host_name`).
+# `native`: the machine's host name, for a client's greeting (`host::host_name`).
 nix = { workspace = true, features = ["hostname"], optional = true }
 
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
@@ -66,7 +66,7 @@ default = ["native"]
 cli = ["dep:dirs"]
 # The async/pty transport (monitor, connection, transport, snapshots, trace)
 # on top of `cli`. Off for the wasm build.
-native = ["cli", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex", "dep:nix"]
+native = ["cli", "dep:nix", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex"]
 
 [lints]
 workspace = true

@@ -57,15 +57,7 @@ impl Tmux {
 
     /// Keep holding the monitor through a long wait (`AGENT_HOLD`).
     pub(super) async fn keep_alive(&self) {
-        if let Some(conns) = self
-            .state
-            .sessions
-            .write()
-            .await
-            .get_mut(self.session.as_str())
-        {
-            conns.agent_hold_until = Some(tokio::time::Instant::now() + crate::sse::AGENT_HOLD);
-        }
+        crate::sse::hold_for_agent(&self.state, &self.session).await;
     }
 
     /// How many browser streams are watching the session.

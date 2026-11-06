@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use tmuxy_core::session_snapshot::{self as snap, RestoreOptions};
+use tmuxy_core::session_snapshot as snap;
 use tmuxy_core::TmuxError;
 
 /// The CLI's `run` for the snapshot module: one tmux subprocess per command.
@@ -52,11 +52,9 @@ enum SessionVerb {
     },
 }
 
-/// Whether a session by that name runs; a name outside the alphabet names
-/// none (a snapshot file could carry one).
+/// Whether a session by that name runs (`session::session_known`).
 fn session_exists(name: &str) -> bool {
-    tmuxy_core::session::SessionName::parse(name)
-        .is_some_and(|name| tmuxy_core::session::session_exists(&name).unwrap_or(false))
+    tmuxy_core::session::session_known(name)
 }
 
 fn dir() -> PathBuf {
@@ -95,23 +93,9 @@ pub async fn run(args: SessionArgs) {
             if run && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
                 fail("--run needs a terminal; without it each command is offered in its pane");
             }
-            if !tmuxy_core::session::is_safe_session_name(&name) {
-                fail(&format!("not a usable session name: {name:?}"));
-            }
-            if session_exists(&name) {
-                fail(&format!("session {name:?} is already running"));
-            }
-            let snapshot = match snap::read_latest(&dir(), &name) {
-                Ok(Some(snapshot)) => snapshot,
-                Ok(None) => fail(&format!("no snapshot for {name:?}")),
-                Err(e) => fail(&e.to_string()),
-            };
-            let options = RestoreOptions {
-                run,
-                fallback_cwd: snap::fallback_cwd(),
-                onto_existing_window: false,
-                existing_window_index: None,
-            };
+            let running = session_exists(&name);
+            let (snapshot, options) =
+                snap::named_restore(&name, running, run).unwrap_or_else(|e| fail(&e.error));
             snap::apply(&snapshot, &options, tmux)
                 .await
                 .unwrap_or_else(|e| fail(&e.to_string()));
