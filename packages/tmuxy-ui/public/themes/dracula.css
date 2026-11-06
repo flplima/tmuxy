@@ -38,7 +38,6 @@
   --text-dimmed: #939fbf;
   --text-quiet: #8d98b7;
   --text-subtle: #555770;
-  /* The status line's text, on its band. */
   --text-dark: #f8f8f2;
 
   --border-medium: #44475a;
@@ -115,7 +114,6 @@
   --text-dimmed: #5f6068;
   --text-quiet: #696a71;
   --text-subtle: #a0a0a0;
-  /* The status line's text, on its band. */
   --text-dark: #f8f8f2;
 
   --border-medium: #d0d0d0;

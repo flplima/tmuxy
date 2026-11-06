@@ -95,7 +95,7 @@ export function loadQuarantine(path) {
 
 /**
  * The quarantined stories that time out and are still in the per-commit
- * tier — each one is two minutes of a push spent on a story that gates
+ * tier: each one costs a push the whole story deadline on a story that gates
  * nothing there. `tagsOf(id)` is the story's tags from Storybook's index.
  * Tagging the story `nightly` is the fix; the probe refuses to run until then.
  */

@@ -1,11 +1,7 @@
 /**
- * The plumbing both story probes share: argument parsing, the story index,
- * the browser, a failing story's artifacts and the failure report.
- *
- * probe-stories.mjs (one fresh page per story) and probe-spikes.mjs (every
- * v86 story on one shared page) differ only in how a story is driven; the
- * rest lives here so the two runners cannot drift apart in what they write or
- * report.
+ * What probe-stories.mjs (one fresh page per story) and probe-spikes.mjs
+ * (every v86 story on one shared page) share, so the two cannot drift apart
+ * in what they write or report.
  */
 
 import { chromium } from 'playwright';
@@ -37,12 +33,6 @@ export function parseProbeArgs(argv) {
 }
 
 /**
- * Story ids from Storybook's index, by tag and filter. `v86` stories (real
- * tmux in the x86 emulator) are slow, network-dependent and nondeterministic,
- * so they run on probe-spikes.mjs's single shared engine page and nowhere
- * else; `v86: true` selects exactly them, `false` everything else.
- */
-/**
  * Which stories a run takes, by the `nightly` tag (docs/TESTS-LAYERS.md § Tiers):
  * `commit` leaves the tagged ones out, `nightly` takes only them, `all`
  * ignores the tag.
@@ -53,13 +43,18 @@ const TIERS = {
   all: () => true,
 };
 
-/** Storybook's index: every entry by id, with its tags. */
 export async function fetchStoryIndex(storybookUrl) {
   const res = await fetch(`${storybookUrl}/index.json`);
   if (!res.ok) throw new Error(`storybook /index.json: ${res.status}`);
   return (await res.json()).entries;
 }
 
+/**
+ * Story ids from Storybook's index, by tag and filter. `v86` stories (real
+ * tmux in the x86 emulator) are slow, network-dependent and nondeterministic,
+ * so they run on probe-spikes.mjs's single shared engine page and nowhere
+ * else; `v86: true` selects exactly them, `false` everything else.
+ */
 export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }) {
   const inTier = TIERS[tier];
   if (!inTier)
@@ -93,10 +88,6 @@ export function launchChromium() {
   });
 }
 
-/**
- * A failing story's screenshot, error text and DOM, named after `label`.
- * Returns the screenshot path for the report.
- */
 export async function writeArtifacts(page, label, result) {
   mkdirSync(ARTIFACT_DIR, { recursive: true });
   const base = resolvePath(ARTIFACT_DIR, label.replace(/[^a-z0-9._-]/gi, '_'));
@@ -171,13 +162,11 @@ export async function runAxe(page, storyId, axeTimeoutMs, a11yShield) {
     // @storybook/addon-a11y bundles an axe of its own. The story URL turns its
     // automatic pass off, but a pass it had already begun is still in flight,
     // and axe refuses to run twice at once — so wait that one out.
-    // axe gets its own deadline, IN THE PAGE. `page.evaluate` has no timeout of
-    // its own, so an axe pass that never settles hangs the probe on a story
-    // that already rendered and already passed its own assertions — which is
-    // what `mocked-app-sidebar--right-click-context-menus` did: the story is
-    // fine, the scan of its tree is what never came back. A sentinel rather
-    // than a rejection, so the caller can say "the scan timed out" instead of
-    // reporting the story as broken.
+    //
+    // axe gets its own deadline in the page: `page.evaluate` has no timeout of
+    // its own, so an axe pass that never settles would hang the probe on a
+    // story that already passed. A sentinel rather than a rejection, so the
+    // caller reports a timed-out scan rather than a broken story.
     const withDeadline = (promise) =>
       Promise.race([
         promise,
@@ -212,9 +201,6 @@ export async function runAxe(page, storyId, axeTimeoutMs, a11yShield) {
     }
     throw new Error('axe never got a turn — the addon pass never finished');
   }, axeTimeoutMs);
-  // A scan that ran out of time reports nothing rather than failing the story:
-  // the story itself rendered and asserted fine, and a missing a11y result is
-  // not evidence of a violation.
   if (violations === 'axe-timeout') {
     process.stdout.write(`  NOTE  ${storyId}: a11y scan timed out after ${axeTimeoutMs}ms\n`);
     return [];
@@ -226,10 +212,6 @@ export async function runAxe(page, storyId, axeTimeoutMs, a11yShield) {
   }));
 }
 
-/**
- * Print post-run summary of failures, slowest stories, non-gating a11y
- * findings, and quarantine hygiene checks.
- */
 export function printProbeSummary({ results, ids, quarantine, quarantineStatus }) {
   const failed = results.filter((r) => !r.ok);
   const blocking = failed.filter((r) => !quarantineStatus(r.id).shielded);
@@ -263,8 +245,6 @@ export function printProbeSummary({ results, ids, quarantine, quarantineStatus }
     for (const r of undeclared) console.log(`  - ${r.id}`);
   }
 
-  // Every a11y violation is printed, whatever its impact — the ones that gate
-  // are already in the failure report above, and the rest are the backlog.
   const nonGating = new Map();
   for (const r of results) {
     for (const v of r.a11y ?? []) {
@@ -292,7 +272,6 @@ export function printProbeSummary({ results, ids, quarantine, quarantineStatus }
     }
   }
 
-  // A quarantined story that never failed has earned its way out of the list.
   const everFailed = new Set(failed.map((r) => r.id));
   const probed = new Set(ids);
   const ready = [...quarantine.byId.values()].filter(

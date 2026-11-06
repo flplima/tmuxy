@@ -37,7 +37,6 @@
   --text-dimmed: #a69682;
   --text-quiet: #9d8e7c;
   --text-subtle: #665c54;
-  /* Status-bar text: white on the dark-gray status background */
   --text-dark: #ebdbb2;
 
   --border-medium: #3c3836;
@@ -69,7 +68,6 @@
   --cursor-text: #1d2021;
   --cursor-inactive: #928374;
 
-  /* Status bar: dark gray (instead of olive green) */
   --tmux-status-bg: #3c3836;
 
   --shadow-sm: 4px 4px 0 0 rgba(0, 0, 0, 0.6);
@@ -142,7 +140,6 @@
   --cursor-text: #fbf1c7;
   --cursor-inactive: #928374;
 
-  /* Status bar: dark gray with cream text (matches dark mode treatment) */
   --tmux-status-bg: #3c3836;
   --text-dark: #ebdbb2;
 

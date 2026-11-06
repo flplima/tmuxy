@@ -98,10 +98,8 @@ async function probeStory(browser, id, attempt) {
     const outcome = await page.evaluate(
       (timeoutMs) =>
         new Promise((resolve) => {
-          // Everything Storybook knows about a failure, flattened. The payload
-          // shape differs per event (an Error, a serialized error, a bare
-          // string), and reporting only the event name is what made these
-          // failures undiagnosable.
+          // The payload shape differs per event: an Error, a serialized error,
+          // a bare string.
           const describe = (payload) => {
             const error = payload?.error ?? payload;
             const message =
@@ -152,8 +150,6 @@ async function probeStory(browser, id, attempt) {
     );
 
     result = { id, attempt, ...outcome, consoleErrors, pageErrors };
-    // Only a story that rendered has a DOM worth scanning; a failed one is
-    // already being reported and its axe result would just be noise.
     if (result.ok && RUN_A11Y) {
       try {
         result.a11y = await runAxe(page, id, AXE_TIMEOUT_MS, a11yShield);
@@ -166,9 +162,8 @@ async function probeStory(browser, id, attempt) {
             .join('\n');
         }
       } catch (err) {
-        // A scan that could not run is not a story failure — a story that
-        // navigates its own page tears the context out from under axe. Say so
-        // and leave the verdict to the play function.
+        // Not a story failure: a story that navigates its own page tears the
+        // context out from under axe.
         result.a11ySkipped = err.message.split('\n')[0];
       }
     }
@@ -193,14 +188,10 @@ async function probeStory(browser, id, attempt) {
 }
 
 /**
- * A probe-level error that says nothing about the story.
- *
- * `storybook dev` compiles on demand and pushes the result over HMR, and some
- * of those updates reload the preview iframe — which tears the execution
- * context out from under whatever the probe was evaluating. It shows up when
- * several stories are compiling at once, so it is a concurrency artefact, not
- * a verdict: the same story passes on its own. Worth one more attempt on a
- * fresh context before it is called a failure.
+ * A probe-level error that says nothing about the story: `storybook dev`
+ * compiles on demand, and some HMR updates reload the preview iframe, tearing
+ * the execution context out from under the probe while several stories
+ * compile at once. Worth one more attempt on a fresh context.
  */
 function isTornContext(result) {
   return (
@@ -209,46 +200,30 @@ function isTornContext(result) {
 }
 
 /**
- * The longest one story may take before it is called a failure.
+ * The longest one story may take. `page.evaluate` has no timeout of its own,
+ * so a story that never settles (an `axe.run` that neither resolves nor
+ * rejects) would stall the pool until GitHub kills the job at 30 minutes.
  *
- * Nothing in the probe was bounded, and a single story that never settles
- * therefore stopped the whole pool: `page.evaluate` has no timeout of its own,
- * so an `axe.run` that neither resolves nor rejects inside the browser simply
- * never came back. The job then sat until GitHub killed it at 30 minutes, with
- * no report and no clue which story it was — `storybook-probe` was cancelled in
- * EVERY run for exactly that reason.
- *
- * It MUST sit above the sum of the bounded steps inside one story, or it
- * masks the very diagnosis it exists to produce: `goto` (30s) +
- * `__STORYBOOK_PREVIEW__` (20s) + the play function (`PER_STORY_TIMEOUT_MS`,
- * 60s) + the a11y scan (`AXE_TIMEOUT_MS`, 20s) is 130s, so a 120s deadline
- * fired first and stamped `probe-timeout` over an inner timeout that would
- * have named the real reason. Raising one of those budgets means raising this.
- *
- * Generous on purpose besides: a cold CI runner compiling a story on demand is
- * slow, and this must not turn slowness into a failure. It is here to catch a
- * story that hangs with no bound of its own at all — the case that used to sit
- * until GitHub killed the job — not to police speed.
+ * It must sit above the sum of the bounded steps inside one story, or it
+ * stamps `probe-timeout` over an inner timeout that would have named the real
+ * reason: `goto` (30s) + `__STORYBOOK_PREVIEW__` (20s) + the play function
+ * (`PER_STORY_TIMEOUT_MS`, 60s) + the a11y scan (`AXE_TIMEOUT_MS`, 20s) is
+ * 130s. Raising one of those budgets means raising this. Generous besides: a
+ * cold CI runner compiling a story on demand is slow.
  */
 const STORY_TIMEOUT_MS = Number(process.env.PROBE_STORY_TIMEOUT_MS ?? 180000);
 
 /**
- * The longest one axe pass may take before its result is given up on.
- *
- * Well above a real scan (most are milliseconds; the heaviest trees are a
- * second or two) and far below the story deadline, so a stalled SCAN is
- * reported as exactly that rather than consuming the story's whole budget and
- * being indistinguishable from a story that hung.
+ * The longest one axe pass may take: well above a real scan (a second or two
+ * for the heaviest trees) and far below the story deadline, so a stalled scan
+ * is reported as one rather than as a story that hung.
  */
 const AXE_TIMEOUT_MS = Number(process.env.PROBE_AXE_TIMEOUT_MS ?? 20000);
 
 /**
- * `fn(item)`, or a failure result if it has not answered in time.
- *
- * The losing promise cannot be cancelled — Playwright has no abort for an
- * in-flight `evaluate` — so it is left pending and `browser.close()` in the
- * caller's `finally` is what releases it. That is why the pool moves on rather
- * than trying to clean up here.
+ * `fn(item)`, or a failure result if it has not answered in time. Playwright
+ * has no abort for an in-flight `evaluate`, so the losing promise stays
+ * pending until `browser.close()` in the caller's `finally` releases it.
  */
 async function withStoryDeadline(fn, item) {
   let timer;
@@ -261,11 +236,7 @@ async function withStoryDeadline(fn, item) {
           ok: false,
           reason: 'probe-timeout',
           message: `no answer in ${STORY_TIMEOUT_MS}ms — the probe hung on this story`,
-          // The reporter walks these on every failure. A synthetic result that
-          // omits them crashed it with `Cannot read properties of undefined
-          // (reading 'slice')` AFTER the run had finished and passed — the job
-          // went red on the summary, not on a story. Empty is also honest: a
-          // story that never answered told us nothing to report.
+          // The reporter walks these on every failure.
           consoleErrors: [],
           pageErrors: [],
         }),

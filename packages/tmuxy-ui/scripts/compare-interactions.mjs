@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Interaction-latency gate + trend report.
- *
- * Reads a report from `measure-interactions.mjs` and judges it two ways,
- * because the two signals in it have very different noise floors:
+ * Interaction-latency gate and trend report over a `measure-interactions.mjs`
+ * report, judged three ways because its signals have very different noise
+ * floors:
  *
  *  1. **Ratio budgets — the gate.** Each interaction's cost as a multiple of
  *     the keystroke echo measured in the same run. A slow runner inflates
@@ -39,18 +38,10 @@ const SUMMARY = opt('--summary', process.env.GITHUB_STEP_SUMMARY || null);
 const UPDATE = has('--update-baseline');
 
 /**
- * How many keystroke round trips each interaction is allowed to cost.
- *
- * These are ceilings with headroom, not targets — they exist to catch a step
- * change (an extra round trip, a synchronous subprocess batch landing on the
- * path), not to police a few percent. Raising one is a deliberate act that
- * shows up in review; tightening one belongs in the commit that earns it.
- *
- * The `measured` note on each line is what the interaction actually costs
- * today (see PERFORMANCE.md § Interaction latency). Where measured sits well
- * under the ceiling there is room for runner noise; where it sits close, the
- * interaction is known-slow and the ceiling is holding the line rather than
- * endorsing the number.
+ * How many keystroke round trips each interaction may cost: ceilings that
+ * catch a step change (an extra round trip, a synchronous subprocess batch on
+ * the path), not targets. The `measured` notes are today's cost (docs/
+ * PERFORMANCE.md, Axis C).
  */
 const RATIO_BUDGETS = {
   'key-echo': 1.5, // the reference, compared against itself
@@ -66,18 +57,9 @@ const RATIO_BUDGETS = {
 const ABSOLUTE_WARN_RATIO = 1.5;
 
 /**
- * The share of an interaction's samples that may time out before the run is
- * treated as a failure rather than a slow-but-working result.
- *
- * A timeout is not a slow sample — it is a sample where the thing the user
- * asked for never visibly happened. Percentiles are computed only over the
- * samples that DID land, so a mostly-timing-out interaction reports a fast
- * p50 from the handful that worked and sails past its ratio budget. That is
- * how a desktop run once reported `pane-nav-keyboard` at 0.2x the keystroke
- * round trip on the strength of a single surviving sample out of twelve.
- *
- * A quarter is generous for genuine flakiness and nowhere near a broken
- * interaction.
+ * The share of samples that may time out before the interaction fails.
+ * Percentiles cover only the samples that landed, so a mostly-timing-out
+ * interaction would report a fast p50 from the handful that worked.
  */
 const MAX_TIMEOUT_RATIO = 0.25;
 
@@ -97,17 +79,10 @@ if (!report) {
   process.exit(2);
 }
 /**
- * Baselines are keyed by platform *and* target.
- *
- * Milliseconds measured on a macOS laptop say nothing about an
- * `ubuntu-latest` runner — and milliseconds from the desktop app, which
- * reaches the core over Tauri IPC, say nothing about the web app's POST + SSE
- * on the very same machine. A report is only compared against a baseline
- * recorded for the same pair; where none exists the absolute-millisecond
- * column is blank and the ratio gate carries the run on its own.
- *
- * `target` is absent from reports written before the desktop harness existed,
- * and those were all web, so it defaults accordingly.
+ * Baselines are keyed by platform and target: a macOS laptop says nothing
+ * about an `ubuntu-latest` runner, and the desktop app's Tauri IPC nothing
+ * about the web app's POST + SSE on the same machine. Reports older than the
+ * desktop harness have no `target` and were all web.
  */
 const baselineKey = (r) => `${r.platform}/${r.target ?? 'web'}`;
 

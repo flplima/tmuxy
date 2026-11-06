@@ -39,16 +39,9 @@ const STATE_FILE_REGEX = /\/machines\/app\/(?:states|actions)\/([a-zA-Z0-9_-]+)\
 const ASSIGN_CALLEES = new Set(['assign', 'assignCtx']);
 
 /**
- * Walk an arbitrary AST node looking for ObjectExpression children and
- * collect their plain Identifier property keys. Used because assign() can be
- * called as either `assign({ foo: 1 })` or `assign(() => ({ foo: 1 }))`,
- * and we want to catch foreign-field assigns either way.
- *
- * We intentionally do not recurse into nested ObjectExpressions whose parent
- * is itself an inner value (e.g. nested partial state) — only direct keys
- * on the outermost assign payload count. To approximate that without full
- * type-aware analysis, we treat the first ObjectExpression encountered while
- * walking from the assign() argument as the payload object.
+ * The top-level keys of an assign payload: `assign({ foo: 1 })`,
+ * `assign(() => ({ foo: 1 }))`, or the objects a function body returns.
+ * Nested objects are values, not fields.
  */
 function findAssignPayloadKeys(arg) {
   if (!arg) return [];
@@ -58,11 +51,9 @@ function findAssignPayloadKeys(arg) {
   }
 
   if (arg.type === 'ArrowFunctionExpression' || arg.type === 'FunctionExpression') {
-    // Single-expression arrow: body is the returned object directly.
     if (arg.body.type === 'ObjectExpression') {
       return collectKeysFromObject(arg.body);
     }
-    // Block body: walk top-level return statements.
     if (arg.body.type === 'BlockStatement') {
       const keys = [];
       for (const stmt of arg.body.body) {

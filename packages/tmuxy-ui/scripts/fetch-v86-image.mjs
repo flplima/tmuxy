@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 /**
- * Fetch the v86 guest assets for the `Spikes/v86 Boot` story into the
- * gitignored `v86-assets/` dir, served same-origin by Storybook (.storybook
- * staticDirs). These binaries are NOT committed — run this once before opening
- * the spike story:  `npm run fetch:v86-image -w tmuxy-ui`
- *
- * Why same-origin: the upstream image host blocks cross-site *browser* fetches
- * via Referer checks, so v86 can't fetch them directly from the Storybook page.
- * Server-side fetch (here) has no Referer and is allowed.
+ * Fetch the v86 guest's kernel and BIOS into the gitignored `v86-assets/` dir,
+ * served same-origin by Storybook (.storybook staticDirs):
+ * `npm run fetch:v86-image -w tmuxy-ui`. The upstream image host blocks
+ * cross-site browser fetches by Referer; a server-side fetch sends none.
  */
 import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
