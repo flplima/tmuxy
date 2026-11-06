@@ -20,6 +20,7 @@ import {
   renderCountSince,
   renderCountsById,
 } from '../components/renderLogStore';
+import { wait } from './animationObservers';
 
 const enterShows = (state: string) => [{ match: /^send-keys -t %0 Enter$/, to: state }];
 
@@ -42,8 +43,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
   await waitFor(

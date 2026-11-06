@@ -10,7 +10,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
-import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import twoTabs from '../stories/fixtures/gen/sidebar-two-tabs.json';
 import bothColumns from '../stories/fixtures/gen/sidebar-both-columns.json';
 import treeColumn from '../stories/fixtures/gen/tree.json';
@@ -27,11 +27,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-let adapter: FixtureAdapter | null = null;
-const keepAdapter = (a: FixtureAdapter) => {
-  adapter = a;
-};
-
+const held = adapterHolder();
 export const ClickTabAndPaneActivate: Story = {
   args: {
     // Tabs `one` (@0: %0, %1) and `two` (@1: %2, %3), `two` active; the tree's
@@ -44,7 +40,7 @@ export const ClickTabAndPaneActivate: Story = {
       { match: /^select-pane -t %0$/, to: 'pane-picked' },
       { match: /^set-option -w -t @2 @tmuxy-sidebar-hidden 1$/, to: 'hidden' },
     ],
-    onAdapterReady: keepAdapter,
+    onAdapterReady: held.keep,
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -85,10 +81,12 @@ export const ClickTabAndPaneActivate: Story = {
     expect(tree.getAttribute('data-focused')).toBe('false');
 
     // `j` and `k` are tree keys, so a tree still holding the keyboard would eat them.
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     await userEvent.setup({ delay: 5 }).keyboard('jk-typed');
     await waitFor(() => {
-      const keys = adapter!.commands.slice(sentBefore).filter((c) => c.startsWith('send-keys '));
+      const keys = held
+        .adapter!.commands.slice(sentBefore)
+        .filter((c) => c.startsWith('send-keys '));
       expect(keys.length).toBeGreaterThan(0);
       for (const c of keys) expect(c).toMatch(/^send-keys -t %0 /);
       const typed = keys.map((c) => /-l -- '(.*)'$/.exec(c)?.[1] ?? '').join('');
@@ -104,7 +102,7 @@ export const ClickTabAndPaneActivate: Story = {
 };
 
 export const RightClickContextMenus: Story = {
-  args: { fixture: asFixture(twoTabs), start: 'open', onAdapterReady: keepAdapter },
+  args: { fixture: asFixture(twoTabs), start: 'open', onAdapterReady: held.keep },
   play: async () => {
     const tree = await waitForTree();
     await waitFor(
@@ -128,7 +126,7 @@ export const RightClickContextMenus: Story = {
     await waitFor(() => expect(document.querySelector('[role="menuitem"]')).toBeNull(), {
       timeout: 5000,
     });
-    expect(adapter!.commands.some((c) => c.includes('clear-history'))).toBe(true);
+    expect(held.adapter!.commands.some((c) => c.includes('clear-history'))).toBe(true);
 
     rightClick(tree.querySelector('[data-testid="tree-tab-@1"]') as HTMLElement);
     await waitFor(() => expect(menuLabels().some((t) => t.includes('New Tab'))).toBe(true), {
@@ -143,7 +141,7 @@ export const RightClickContextMenus: Story = {
     await waitFor(() => expect(document.querySelector('[role="menuitem"]')).toBeNull(), {
       timeout: 5000,
     });
-    expect(adapter!.commands.some((c) => /^kill-window\b/.test(c))).toBe(true);
+    expect(held.adapter!.commands.some((c) => /^kill-window\b/.test(c))).toBe(true);
   },
 };
 

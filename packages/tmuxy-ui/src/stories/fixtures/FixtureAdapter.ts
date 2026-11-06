@@ -36,6 +36,20 @@ export interface Fixture {
   readonly hostname?: string;
 }
 
+/** A story's hold on the adapter its harness made: `keep` is the `onAdapterReady`. */
+export function adapterHolder(): {
+  adapter: FixtureAdapter | null;
+  keep: (a: FixtureAdapter) => void;
+} {
+  const holder = {
+    adapter: null as FixtureAdapter | null,
+    keep: (a: FixtureAdapter) => {
+      holder.adapter = a;
+    },
+  };
+  return holder;
+}
+
 /**
  * A recording as a story imports it (`import x from './fixtures/gen/x.json'`):
  * the JSON is the wire's own encoding, which the type cannot see through.

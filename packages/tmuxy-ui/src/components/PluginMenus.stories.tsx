@@ -10,7 +10,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { PaneContextMenu } from './PaneContextMenu';
 import { FixtureProvider } from '../stories/FixtureHarness';
-import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import panes from '../stories/fixtures/gen/panes.json';
 import { PaneId } from '../domain/ids';
 import { useAppSend } from '../machines/appHooks';
@@ -36,11 +36,7 @@ const PLUGINS: PluginInfo[] = [
   },
 ];
 
-let adapter: FixtureAdapter | null = null;
-const keepAdapter = (a: FixtureAdapter) => {
-  adapter = a;
-};
-
+const held = adapterHolder();
 function Host({ plugins }: { plugins: PluginInfo[] }) {
   const send = useAppSend();
   const [open, setOpen] = useState(true);
@@ -67,7 +63,7 @@ type Story = StoryObj<typeof Host>;
 
 export const PaneMenuRunsAPluginAction: Story = {
   render: () => (
-    <FixtureProvider height={440} fixture={PANES} start="one" onAdapterReady={keepAdapter}>
+    <FixtureProvider height={440} fixture={PANES} start="one" onAdapterReady={held.keep}>
       <Host plugins={PLUGINS} />
     </FixtureProvider>
   ),
@@ -87,11 +83,11 @@ export const PaneMenuRunsAPluginAction: Story = {
     expect(box.width).toBeGreaterThan(40);
     expect(box.height).toBeGreaterThan(10);
 
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     await userEvent.click(open);
     await waitFor(() => expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed'));
     await waitFor(() =>
-      expect(adapter!.commands.slice(sentBefore)).toContain(
+      expect(held.adapter!.commands.slice(sentBefore)).toContain(
         'run-shell -b "\\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" plugin action artifacts:open' +
           ' --pane %0 --trigger menu >/dev/null 2>&1"',
       ),

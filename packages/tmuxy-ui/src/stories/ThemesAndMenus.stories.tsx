@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
-import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 import { GlitchRecorder } from './glitchRecorder';
 import {
@@ -120,30 +120,26 @@ export const MenuPaneOps: Story = {
   },
 };
 
-let adapter: FixtureAdapter | null = null;
-function keepAdapter(a: FixtureAdapter) {
-  adapter = a;
-}
-
+const held = adapterHolder();
 /**
  * Status bar drag and maximize are Tauri-only: in a browser, pressing and
  * double-clicking the empty status bar sends tmux nothing.
  */
 export const StatusBarNoOpGestures: Story = {
-  render: (args) => <FixtureApp {...args} onAdapterReady={keepAdapter} />,
+  render: (args) => <FixtureApp {...args} onAdapterReady={held.keep} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
     await settleGeometry(canvas);
     const sigBefore = rectSignature(canvas);
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     const bar = canvasElement.querySelector('.statusbar') as HTMLElement;
     expect(bar).not.toBeNull();
     bar.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, buttons: 1 }));
     bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }));
     await new Promise((r) => setTimeout(r, 800));
     expect(rectSignature(canvas)).toBe(sigBefore);
-    expect(adapter!.commands.slice(sentBefore)).toEqual([]);
+    expect(held.adapter!.commands.slice(sentBefore)).toEqual([]);
     expect(activePaneId()).toMatch(/^%\d+$/);
   },
 };

@@ -159,9 +159,9 @@
   --shadow-md: 6px 6px 0 0 rgba(0, 0, 0, 0.6);
   --shadow-lg: 8px 8px 0 0 rgba(0, 0, 0, 0.6);
 
-  /* The same values as tmuxy.defaults.conf, for the frames before the backend
-     answers and for adapters with no config (the stories); applyAppearance()
-     overrides them. */
+  /* DEFAULT_APPEARANCE's (tmuxy.defaults.conf), held by cssMirrors.test.ts,
+     for the frames before the backend answers and for adapters with no
+     config (the stories); applyAppearance() overrides them. */
   --app-opacity: 0.7;
   --active-pane-opacity: 1;
   --inactive-pane-opacity: 0.7;

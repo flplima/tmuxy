@@ -13,7 +13,7 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
-import { getApp } from './animationStoryHelpers';
+import { APPEARANCE, getApp } from './animationStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Cursor Blink',
@@ -31,16 +31,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-  animations: true,
-};
 
 function appContainer(canvasElement: HTMLElement): HTMLElement {
   const el = canvasElement.querySelector<HTMLElement>('.app-container');

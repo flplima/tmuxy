@@ -9,13 +9,10 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
-import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import ask from '../stories/fixtures/gen/ask-and-offer.json';
 
-let adapter: FixtureAdapter | null = null;
-const keepAdapter = (a: FixtureAdapter) => {
-  adapter = a;
-};
+const held = adapterHolder();
 
 /** The app's answer (or dismissal) withdraws the option first. */
 const answered = (to: string) => [{ match: /^set-option -pu -t %0 @tmuxy-ask\b/, to }];
@@ -24,7 +21,7 @@ const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/AskOverlay',
   component: FixtureApp,
   parameters: { layout: 'fullscreen' },
-  args: { fixture: asFixture(ask), onAdapterReady: keepAdapter },
+  args: { fixture: asFixture(ask), onAdapterReady: held.keep },
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
@@ -58,7 +55,7 @@ const selected = () =>
 
 /** The answer the waiting `tmuxy pane send` reads back, from the last command sent. */
 const lastAnswer = () => {
-  const answers = adapter!.commands.filter((c) => c.includes('@tmuxy-ask-answer'));
+  const answers = held.adapter!.commands.filter((c) => c.includes('@tmuxy-ask-answer'));
   return answers[answers.length - 1]?.match(/@tmuxy-ask-answer '([^']*)'/)?.[1];
 };
 
@@ -104,13 +101,13 @@ export const KeyboardMovesBetweenYesAndNo: Story = {
     await waitForNoOverlay('%0');
     expect(lastAnswer()).toBe('tok-3:no');
 
-    adapter!.goTo('asked');
+    held.adapter!.goTo('asked');
     await waitForOverlay('%0');
     await user.keyboard('{Enter}');
     await waitForNoOverlay('%0');
     expect(lastAnswer()).toBe('tok-3:yes');
 
-    expect(adapter!.commands.filter((c) => c.startsWith('send-keys'))).toEqual([]);
+    expect(held.adapter!.commands.filter((c) => c.startsWith('send-keys'))).toEqual([]);
   },
 };
 
@@ -144,13 +141,13 @@ export const RestoreOfferIsABannerAnyKeyDismisses: Story = {
     const user = userEvent.setup({ delay: 5 });
     await user.keyboard('{Escape}');
     await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
-    expect(adapter!.commands.some((c) => c.includes('claude --resume'))).toBe(false);
+    expect(held.adapter!.commands.some((c) => c.includes('claude --resume'))).toBe(false);
 
-    adapter!.goTo('offered-htop');
+    held.adapter!.goTo('offered-htop');
     await waitFor(() => expect(banner()).not.toBeNull(), { timeout: 8000, interval: 100 });
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     await user.keyboard('l');
     await waitFor(() => expect(banner()).toBeNull(), { timeout: 8000, interval: 100 });
-    expect(adapter!.commands.slice(sentBefore)).toContain("send-keys -t %0 -l -- 'l'");
+    expect(held.adapter!.commands.slice(sentBefore)).toContain("send-keys -t %0 -l -- 'l'");
   },
 };

@@ -26,7 +26,7 @@ export const GUEST_STATE_DIR = GENERATED.stateDir;
 export const GUEST_ENTRY_CONF = GENERATED.entryConf;
 
 /** The config files the app ships, copied into the guest's data dir. */
-export const GUEST_CONF_ASSETS = ['tmuxy.defaults.conf', 'tmuxy.essentials.conf'];
+export const GUEST_CONF_ASSETS = GENERATED.confAssets;
 export const GUEST_CONF_ASSETS_DIR = join(REPO, 'packages', 'tmuxy-core', 'assets');
 
 /** The chain tmux starts with: tmuxy-core's entry file for the guest's layout. */

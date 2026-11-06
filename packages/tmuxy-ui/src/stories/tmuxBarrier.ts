@@ -10,6 +10,8 @@
  * `inputPause` is the one way to let time pass there.
  */
 
+import { wait } from './animationObservers';
+
 /**
  * tmux has done everything sent so far, its notifications are in the app's
  * state and the screen shows it (`window.app.caughtUp`, `AppContext.tsx`).
@@ -38,5 +40,5 @@ export async function transitionsDone(root: Element): Promise<void> {
  * the user would see.
  */
 export function inputPause(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return wait(ms);
 }

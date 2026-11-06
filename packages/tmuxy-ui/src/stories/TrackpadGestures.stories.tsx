@@ -18,7 +18,6 @@ import { SWIPE_COMMIT_SHARE, SWIPE_EDGE_LIMIT_SHARE } from '../machines/gestures
 import {
   activePaneEl,
   actor,
-  APPEARANCE,
   atRest,
   ctx,
   cursorLeft,
@@ -29,7 +28,6 @@ import {
   ownPanes,
   paneEl,
   paneOf,
-  pause,
   pinchSteps,
   ready,
   repeat,
@@ -40,6 +38,8 @@ import {
   webkitGesture,
   zoomed,
 } from './trackpadGestureHelpers';
+import { APPEARANCE } from './animationStoryHelpers';
+import { wait } from './animationObservers';
 
 const TWO_TABS = {
   fixture: asFixture(tabsRecording),
@@ -367,7 +367,7 @@ export const TurnedOffInTheConfig: Story = {
     expect(getComputedStyle(layout()).transform).toBe('none');
     webkitGesture(pane, 'gestureend', 0.5);
 
-    await pause(400);
+    await wait(400);
     expect(ctx().activeWindowId).toBe(tab);
     expect(zoomed()).toBe(false);
     expect(ctx().tabOverviewOpen).toBe(false);

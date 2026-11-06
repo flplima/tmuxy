@@ -28,6 +28,7 @@ import { selectPhoneZoom } from '../../machines/selectors/layout';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
 import { keyEventInitOf } from '../../machines/actors/keyboard/keyFormatting';
 import './KeyRow.css';
+import { DEFAULT_PREFIX } from '../../domain/tmuxyConstants.gen';
 
 type RowKey =
   | { kind: 'key'; label: string; key: string; name: string; arrow?: true }
@@ -83,7 +84,7 @@ export const KeyRow = memo(function KeyRow() {
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
   const zoomed = useAppSelector(selectPhoneZoom) !== null;
   const prefixActive = useAppSelector(selectPrefixActive);
-  const prefixKey = useAppSelector(selectKeyBindings)?.prefix_key ?? 'C-a';
+  const prefixKey = useAppSelector(selectKeyBindings)?.prefix_key ?? DEFAULT_PREFIX;
   const repeat = useMemo(() => createKeyRepeat(pressKey), []);
 
   const press = (k: RowKey) => {

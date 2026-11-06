@@ -6,7 +6,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
-import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from './fixtures/FixtureAdapter';
 import tabActions from './fixtures/gen/tab-actions.json';
 import {
   activePaneId,
@@ -21,17 +21,14 @@ const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Tab Actions',
   component: FixtureApp,
   args: { fixture: asFixture(tabActions), start: 'one-tab' },
-  render: (args) => <FixtureApp {...args} onAdapterReady={keepAdapter} />,
+  render: (args) => <FixtureApp {...args} onAdapterReady={held.keep} />,
   parameters: { layout: 'fullscreen' },
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-let adapter: FixtureAdapter | null = null;
-function keepAdapter(a: FixtureAdapter) {
-  adapter = a;
-}
-const sent = () => `sent: ${JSON.stringify(adapter?.commands ?? [])}`;
+const held = adapterHolder();
+const sent = () => `sent: ${JSON.stringify(held.adapter?.commands ?? [])}`;
 
 async function waitForTabs(canvas: Canvas, count: number) {
   await waitFor(

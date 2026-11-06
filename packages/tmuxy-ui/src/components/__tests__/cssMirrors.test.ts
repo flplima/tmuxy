@@ -17,17 +17,20 @@ import {
 } from '../../constants/layout';
 import { PANE_OUTLINE_PX } from '../../domain/paneGeometry';
 import { MODAL_HEADER_HEIGHT } from '../Modal';
+import { DEFAULT_APPEARANCE } from '../../domain/tmuxyConstants.gen';
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const css = (path: string) => readFileSync(resolve(SRC, path), 'utf8');
 
-/** The pixel value `declaration` (`--x` or `prop`) has in the first rule `selector` opens. */
-function px(file: string, selector: string, declaration: string): number {
+/** The value in `unit` `declaration` (`--x` or `prop`) has in the first rule `selector` opens. */
+function px(file: string, selector: string, declaration: string, unit = 'px'): number {
   const text = css(file);
   const start = text.indexOf(`${selector} {`);
   expect(start, `${selector} in ${file}`).toBeGreaterThanOrEqual(0);
   const rule = text.slice(start, text.indexOf('}', start));
-  const m = rule.match(new RegExp(`(?:^|[\\s;{])${declaration}:\\s*(-?\\d+(?:\\.\\d+)?)px`));
+  const m = rule.match(
+    new RegExp(`(?:^|[\\s;{])${declaration}:\\s*(-?\\d+(?:\\.\\d+)?)${unit}(?![\\d.%a-z])`),
+  );
   expect(m, `${declaration} in ${selector}`).not.toBeNull();
   return Number(m![1]);
 }
@@ -53,6 +56,15 @@ describe('stylesheet values the layout arithmetic copies', () => {
 
   it('a pane draws its outline PANE_OUTLINE_PX outside its box', () => {
     expect(px('styles/pane-layout.css', '.pane-layout-item', 'outline')).toBe(PANE_OUTLINE_PX);
+  });
+
+  it('the opacities before the backend answers are DEFAULT_APPEARANCE', () => {
+    const root = (variable: string) => px('styles.css', ':root', variable, '');
+    expect(root('--app-opacity')).toBe(DEFAULT_APPEARANCE.opacity);
+    expect(root('--active-pane-opacity')).toBe(DEFAULT_APPEARANCE.activePaneOpacity);
+    expect(root('--inactive-pane-opacity')).toBe(DEFAULT_APPEARANCE.inactivePaneOpacity);
+    expect(root('--active-text-opacity')).toBe(DEFAULT_APPEARANCE.activeTextOpacity);
+    expect(root('--inactive-text-opacity')).toBe(DEFAULT_APPEARANCE.inactiveTextOpacity);
   });
 
   it('a modal header is MODAL_HEADER_HEIGHT tall', () => {
