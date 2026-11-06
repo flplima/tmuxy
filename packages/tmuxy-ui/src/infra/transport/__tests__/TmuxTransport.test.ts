@@ -111,7 +111,10 @@ describe('TmuxTransport over a driver', () => {
   });
 
   it('waits for each answer before the next op, unless the driver keeps its own order', async () => {
-    const sendTwo = async (ordersSends: boolean) => {
+    // The same two ops over two drivers at once, every answer held back. Once
+    // the driver that keeps its own order has both, the other has had the
+    // same turns to send its second, and must not have.
+    const sendTwo = (ordersSends: boolean) => {
       const adapter = fakeTransport({ ordersSends, send: () => new Promise(() => {}) });
       void adapter.runtime.runPromise(
         Effect.all(
@@ -121,11 +124,12 @@ describe('TmuxTransport over a driver', () => {
           { concurrency: 'unbounded' },
         ),
       );
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      return adapter.invocations.length;
+      return adapter.invocations;
     };
-    expect(await sendTwo(false)).toBe(1);
-    expect(await sendTwo(true)).toBe(2);
+    const waiting = sendTwo(false);
+    const ordered = sendTwo(true);
+    await vi.waitFor(() => expect(ordered).toHaveLength(2));
+    expect(waiting).toHaveLength(1);
   });
 
   it('a keystroke the backend refuses is reported, not dropped in silence', async () => {
