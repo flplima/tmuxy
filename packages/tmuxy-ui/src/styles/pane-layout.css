@@ -6,8 +6,8 @@
   position: absolute;
   /* Absolute children span the padding box, so inset by the container's
      padding to cover exactly its content box — the box the grid was sized
-     for (CONTAINER_PADDING_X / _BOTTOM in constants/layout.ts). */
-  inset: 0 12px 4px;
+     for. */
+  inset: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
 .pane-layout-item {

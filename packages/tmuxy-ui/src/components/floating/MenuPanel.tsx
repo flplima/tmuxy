@@ -17,7 +17,6 @@ import { createPortal } from 'react-dom';
 import { useAppSelector } from '../../machines/appHooks';
 import { selectAnimationsAllowed } from '../../machines/selectors/ui';
 import {
-  SURFACE_EXIT_MS,
   surfacePortalTarget,
   useFloatingSurface,
   type SurfaceAnchor,
@@ -110,7 +109,6 @@ export function MenuPanel({
     anchor,
     placement,
     claim,
-    exitMs: SURFACE_EXIT_MS,
     animated: animations,
     onDismiss: () => closeRef.current(),
   });

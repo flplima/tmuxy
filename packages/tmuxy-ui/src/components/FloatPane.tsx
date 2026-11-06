@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Modal } from './Modal';
+import { Modal, MODAL_HEADER_HEIGHT } from './Modal';
 import './FloatPane.css';
 import { Terminal } from './terminal/Terminal';
 import { PaneHeader } from './PaneHeader';
@@ -74,7 +74,9 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
 
   const title = getTabText(pane);
   const { drawer, backdrop, hideHeader } = floatState;
-  const headerHeight = hideHeader ? 0 : 28;
+  // A drawer's header is the modal's (`.modal-header`, Modal.css); a float's
+  // is its pane header, one terminal row (`--pane-header-height`).
+  const headerHeight = hideHeader ? 0 : drawer ? MODAL_HEADER_HEIGHT : charHeight;
 
   // Drawer mode: dock to edge with full span on the perpendicular axis. A
   // drawer is placed in the overlay, which covers the pane container's padding

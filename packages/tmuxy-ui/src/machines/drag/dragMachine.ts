@@ -42,7 +42,7 @@ import {
   sameGroupDrop,
   sideOf,
 } from './groupDrop';
-import { paneInsetX } from '../../constants/layout';
+import { paneInsetX } from '../../domain/paneGeometry';
 import { TmuxOp } from '../../domain/commands';
 import { haptics } from '../../infra/haptics';
 

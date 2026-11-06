@@ -31,6 +31,7 @@ import {
   selectActivePaneCopyMode,
 } from '../machines/selectors/ui';
 import { selectGridDimensions } from '../machines/selectors/layout';
+import { gridPixelSize } from '../domain/paneGeometry';
 import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
 import { serverHostLabel } from './paneTabDisplay';
 import { SessionMenu } from './SessionMenu';
@@ -118,7 +119,7 @@ function CommandModeInput({
 export function TmuxStatusBar() {
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
-  const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
+  const { totalWidth, totalHeight, charWidth, charHeight } = useAppSelector(selectGridDimensions);
   const sessionName = useAppSelector(selectSessionName);
   const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
@@ -132,7 +133,7 @@ export function TmuxStatusBar() {
   const switcherRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const gridPixelWidth = totalWidth * charWidth;
+  const gridPixelWidth = gridPixelSize(totalWidth, totalHeight, charWidth, charHeight).width;
 
   // Command mode: full-width input replaces everything
   if (commandMode) {

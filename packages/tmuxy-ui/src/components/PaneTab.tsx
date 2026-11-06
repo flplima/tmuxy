@@ -10,23 +10,8 @@ import { paneStateFor } from '../domain/paneState';
 import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 
-export const PaneTab = memo(function PaneTab({
-  pane,
-  isSelectedTab,
-  isActivePane,
-  titleOverride,
-  renaming,
-  onRenameEnd,
-  onClick,
-  onContextMenu,
-  controls,
-  dropMark,
-  dragging,
-}: {
-  pane: TmuxPane;
+interface PaneTabInteraction {
   isSelectedTab: boolean;
-  isActivePane: boolean;
-  titleOverride?: string;
   /** This pane's title is being edited in place. */
   renaming: boolean;
   /** The new title, or null if the edit was abandoned. */
@@ -46,11 +31,54 @@ export const PaneTab = memo(function PaneTab({
   dropMark: 'onto' | 'before' | 'after' | null;
   /** This member is the pane being dragged. */
   dragging: boolean;
-}) {
+}
+
+type PaneTabProps = {
+  pane: TmuxPane;
+  isActivePane: boolean;
+  titleOverride?: string;
+} & (
+  | PaneTabInteraction
+  /** A picture of the tab (TabShot): drawn the same, but nothing to press. */
+  | { still: true }
+);
+
+export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
+  const { pane, isActivePane, titleOverride } = props;
   const text = getTabLabel(pane, titleOverride);
   // What the pane is doing takes the icon's place while it is anything but idle.
   const state = paneStateFor(pane);
 
+  const face =
+    state !== 'idle' ? (
+      <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
+    ) : (
+      <PaneIcon
+        pane={pane}
+        titleOverride={titleOverride}
+        className="pane-tab-icon pane-tab-icon-static"
+      />
+    );
+
+  if ('still' in props) {
+    return (
+      <div className={`pane-tab${isActivePane ? ' pane-tab-active' : ''}`}>
+        {face}
+        <span className="pane-tab-title">{text}</span>
+      </div>
+    );
+  }
+
+  const {
+    isSelectedTab,
+    renaming,
+    onRenameEnd,
+    onClick,
+    onContextMenu,
+    controls,
+    dropMark,
+    dragging,
+  } = props;
   return (
     <div
       className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${dropMark ? `pane-tab-drop-${dropMark}` : ''} ${dragging ? 'pane-tab-dragging' : ''}`}
@@ -63,15 +91,7 @@ export const PaneTab = memo(function PaneTab({
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}
     >
-      {state !== 'idle' ? (
-        <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
-      ) : (
-        <PaneIcon
-          pane={pane}
-          titleOverride={titleOverride}
-          className="pane-tab-icon pane-tab-icon-static"
-        />
-      )}
+      {face}
       {renaming ? (
         <InlineRename
           className="pane-tab-input"

@@ -17,6 +17,7 @@
  */
 
 import { useAppSend } from '../machines/appHooks';
+import { dividerBox } from '../domain/paneGeometry';
 import type { PaneCellBox } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 import { haptics } from '../infra/haptics';
@@ -213,31 +214,10 @@ export function ResizeDividers({
             className={`resize-divider${locked ? ' resize-divider-locked' : ''}`}
             data-testid={`resize-divider-${idx}`}
             aria-disabled={locked || undefined}
-            style={
-              isH
-                ? {
-                    cursor: locked ? 'not-allowed' : 'ns-resize',
-                    left: centeringOffset.x + div.start * charWidth,
-                    top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
-                    width: (div.end - div.start) * charWidth,
-                    height: DIVIDER_THICKNESS,
-                  }
-                : {
-                    cursor: locked ? 'not-allowed' : 'ew-resize',
-                    // Center the 8px hit area in the 1-charWidth separator
-                    // column at axisPos; the visible 1px line (via ::before)
-                    // sits at the column's exact midpoint.
-                    left:
-                      centeringOffset.x +
-                      div.axisPos * charWidth +
-                      charWidth / 2 -
-                      DIVIDER_THICKNESS / 2,
-
-                    top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
-                    width: DIVIDER_THICKNESS,
-                    height: (div.end - Math.max(0, div.start - 1)) * charHeight,
-                  }
-            }
+            style={{
+              cursor: locked ? 'not-allowed' : isH ? 'ns-resize' : 'ew-resize',
+              ...dividerBox(div, charWidth, charHeight, centeringOffset, DIVIDER_THICKNESS),
+            }}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
