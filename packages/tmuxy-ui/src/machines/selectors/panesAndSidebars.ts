@@ -1,6 +1,6 @@
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
-import type { FloatPaneState } from '../types/domain';
+import type { FloatPaneState, SidebarSide } from '../types/domain';
 import {
   type PaneGroup,
   paneTakesCopyMode,
@@ -87,8 +87,7 @@ export function selectSettledPaneWidth(context: AppMachineContext): number | nul
 export const selectSidebarLayout = createMemoizedSelector(
   (ctx: AppMachineContext) =>
     [
-      ctx.leftSidebarOpen,
-      ctx.rightSidebarOpen,
+      ctx.sidebars,
       ctx.measuredCell,
       ctx.baseFontSize,
       ctx.windows,
@@ -105,8 +104,8 @@ export const selectSidebarLayout = createMemoizedSelector(
       return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
     };
     return {
-      leftOpen: context.leftSidebarOpen,
-      rightOpen: context.rightSidebarOpen,
+      leftOpen: context.sidebars.left.open,
+      rightOpen: context.sidebars.right.open,
       leftWidth: (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth,
       rightWidth:
         (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth,
@@ -119,6 +118,25 @@ export const selectRightSidebarPane = createMemoizedSelector(
   (ctx: AppMachineContext) => [ctx.windows, ctx.panes] as const,
   (context: AppMachineContext): TmuxPane | null => sidebarPane(context, 'right'),
 );
+
+/** The pane behind `side`'s column. */
+export function selectSidebarPane(context: AppMachineContext, side: SidebarSide): TmuxPane | null {
+  return side === 'left' ? selectLeftSidebarPane(context) : selectRightSidebarPane(context);
+}
+
+/** Whether `side`'s window is hidden (`@tmuxy-sidebar-hidden`): closed for every client. */
+export function selectSidebarHidden(context: AppMachineContext, side: SidebarSide): boolean {
+  return Boolean(context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarHidden);
+}
+
+/**
+ * Whether the tree is on screen: its docked column, a peek of it, or the
+ * phone's bottom view showing it. The sessions it lists are polled only then.
+ */
+export function selectTreeVisible(context: AppMachineContext): boolean {
+  if (context.phoneLayout) return context.phoneBottomView === 'tree';
+  return context.sidebars.left.open || context.sidebarPeek === 'left';
+}
 
 // ============================================
 // Pane Group, Visible Panes & Float Selectors

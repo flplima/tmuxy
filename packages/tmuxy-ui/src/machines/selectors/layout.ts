@@ -260,16 +260,24 @@ export function selectPhoneBottomView(context: AppMachineContext): 'tree' | 'doc
 }
 
 /**
- * Rows the dock's pane should have: the column runs the app body's height in
- * the sidebar font's shorter rows, so it holds more of them than the pane
- * grid. 0 before the body has been measured.
+ * The size the dock's pane should have, or null before there is room to
+ * measure. On a phone it is the bottom view the dock is drawn in. Beside the
+ * desktop's grid it is rows only (the column's width is the user's, dragged):
+ * the column runs the app body's height in the sidebar font's shorter rows,
+ * so it holds more of them than the pane grid.
  */
-export function selectDockRows(context: AppMachineContext): number {
-  if (context.containerHeight <= 0) return 0;
-  return Math.max(
-    1,
-    Math.floor(context.containerHeight / selectSidebarCellMetrics(context).lineHeight),
-  );
+export function selectDockSize(
+  context: AppMachineContext,
+): { cols: number | null; rows: number } | null {
+  if (context.phoneLayout) return context.phoneDockView;
+  if (context.containerHeight <= 0) return null;
+  return {
+    cols: null,
+    rows: Math.max(
+      1,
+      Math.floor(context.containerHeight / selectSidebarCellMetrics(context).lineHeight),
+    ),
+  };
 }
 
 /**

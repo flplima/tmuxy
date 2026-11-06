@@ -338,7 +338,11 @@ async function waitForKeyboardTarget(page, target, timeout = 10000) {
     () =>
       page.evaluate((want) => {
         const expected =
-          want === 'focused-float' ? window.app?.getSnapshot()?.context?.focusedFloatPaneId : want;
+          want === 'focused-float'
+            ? window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+              ? window.app.getSnapshot().context.keyboardOwner.paneId
+              : null
+            : want;
         const input = document.querySelector('input[data-keyboard-target]');
         return Boolean(expected) && input?.dataset.keyboardTarget === expected;
       }, target),

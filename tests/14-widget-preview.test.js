@@ -229,7 +229,7 @@ describe('Scenario: tmuxy open previews a local file', () => {
 
     // The tree names the pane by what it shows, as its header does: the
     // preview, its document icon and the file — not the shell under it.
-    if (!(await ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen))) {
+    if (!(await ctx.page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open))) {
       await pressPrefixed(ctx.page, 's');
     }
     let row = null;

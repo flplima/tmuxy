@@ -7,7 +7,8 @@ import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from './actionTypes';
 import { DEFAULT_COLS, DEFAULT_ROWS } from '../constants';
 import { PHONE_COLS, PHONE_ROWS } from '../../infra/dom/phoneLayout';
-import { fittedGridCell, gridExtent, releaseKeyboard } from './helpers';
+import { fittedGridCell, gridExtent, takeKeyboard } from './helpers';
+import { PANES_OWN_KEYBOARD } from '../selectors/keyboard';
 import { fixedGridSize } from '../../domain/gridFit';
 import { writeClipboard, clipboardWriteMessage } from '../../infra/clipboard';
 import { TmuxOp } from '../../domain/commands';
@@ -168,7 +169,7 @@ export const connectionActions = {
         targetRows: rows,
       }),
     );
-    enqueue.raise({ type: 'SYNC_DOCK_ROWS' as const });
+    enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
 
     const needsInitialFetch = context.connected && context.panes.length === 0;
     if (needsInitialFetch) {
@@ -223,15 +224,9 @@ export const connectionActions = {
     );
   }),
 
-  connection_appFocus: act(({ enqueue }) => {
-    enqueue(assign({ appFocused: true }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: true }));
-  }),
+  connection_appFocus: assignCtx({ appFocused: true }),
 
-  connection_appBlur: act(({ enqueue }) => {
-    enqueue(assign({ appFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_ENABLED' as const, enabled: false }));
-  }),
+  connection_appBlur: assignCtx({ appFocused: false }),
 
   connection_connectionInfo: act(({ event, enqueue }) => {
     if (event.type !== 'CONNECTION_INFO') return;
@@ -292,14 +287,12 @@ export const connectionActions = {
     enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
   }),
 
-  connection_switchSession: act(({ event, context, enqueue }) => {
+  connection_switchSession: act(({ event, enqueue }) => {
     if (event.type !== 'SWITCH_SESSION') return;
     // Pane ids are server-global: a float or column of the old session that
     // still held the keyboard would keep taking the keystrokes typed into the
-    // new one, so every surface lets go here, in the keyboard actor too.
-    releaseKeyboard(context, enqueue, 'float');
-    releaseKeyboard(context, enqueue, 'left');
-    releaseKeyboard(context, enqueue, 'right');
+    // new one, so every surface lets go here.
+    takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
     enqueue(
       assign({
         panes: [],
@@ -350,14 +343,7 @@ export const connectionActions = {
     fetchStateAtViewport(context, enqueue);
   }),
 
-  connection_keybindingsReceived: act(({ event, enqueue }) => {
-    if (event.type !== 'KEYBINDINGS_RECEIVED') return;
-    enqueue(assign({ keybindings: event.keybindings }));
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_KEYBINDINGS' as const,
-        keybindings: event.keybindings,
-      }),
-    );
-  }),
+  connection_keybindingsReceived: assignCtx(({ event }) =>
+    event.type === 'KEYBINDINGS_RECEIVED' ? { keybindings: event.keybindings } : {},
+  ),
 };

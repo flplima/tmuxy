@@ -303,7 +303,7 @@ describe('Scenario 6h: Horizontal nav through a group, the panes and the dock', 
         activeX: active?.x ?? null,
         members: group?.paneIds ?? [],
         shown: shown ?? null,
-        dockFocused: c.rightSidebarFocused,
+        dockFocused: c.keyboardOwner.kind === 'right',
       };
     });
 

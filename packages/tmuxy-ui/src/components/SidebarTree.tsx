@@ -139,7 +139,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           // The tab's active pane takes the keyboard, as FOCUS_PANE gives it
           // to a pane row's pane.
           send({ type: 'SELECT_TAB', windowId: row.window.id });
-          send({ type: 'BLUR_LEFT_SIDEBAR' });
+          send({ type: 'BLUR_SIDEBAR', side: 'left' });
           return;
         case 'pane':
           // `select-pane` only changes which pane is active WITHIN its window;
@@ -253,7 +253,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
           // not a global key: a program pinned in the other sidebar may need
           // every key it gets, Escape included.
           claim();
-          s({ type: 'TOGGLE_LEFT_SIDEBAR' });
+          s({ type: 'TOGGLE_SIDEBAR', side: 'left' });
           return;
         case 'l':
         case 'ArrowRight': {
@@ -265,7 +265,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
             collapseTab(row.window.id);
             return;
           }
-          s({ type: 'BLUR_LEFT_SIDEBAR' });
+          s({ type: 'BLUR_SIDEBAR', side: 'left' });
           return;
         }
         case 'h':
@@ -334,7 +334,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const openMenu = useCallback(
     (state: Exclude<MenuState, null>) => {
       setMenu(state);
-      send({ type: 'FOCUS_LEFT_SIDEBAR' });
+      send({ type: 'FOCUS_SIDEBAR', side: 'left' });
     },
     [send],
   );

@@ -156,15 +156,6 @@ export const layoutActions = {
       );
     }
 
-    if (targetPaneId !== context.activePaneId) {
-      enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_ACTIVE_PANE' as const,
-          paneId: targetPaneId,
-        }),
-      );
-    }
-
     // A float belongs to a tab, so the switch moves the keyboard with it: the
     // target tab's topmost float takes it back, and leaving a tab drops the
     // float that had it (the keyboard cannot stay on a surface that is no
@@ -172,7 +163,7 @@ export const layoutActions = {
     // cannot see it: this switch is optimistic, so by the time the update
     // lands the new tab is already the active one and its float no longer
     // looks like one that just came into view.
-    enqueue.raise({ type: 'SYNC_FLOAT_FOCUS' as const });
+    enqueue.raise({ type: 'SYNC_FLOAT_FOCUS' as const, claim: true });
   }),
 
   layout_forwardKeyToDragResize: act(({ event, enqueue }) => {
@@ -202,6 +193,8 @@ export const layoutActions = {
       { delay: RESIZE_PREVIEW_FALLBACK_MS, id: RESIZE_PREVIEW_CLEAR_ID },
     );
   }),
+
+  layout_suppressAnimations: assignCtx({ enableAnimations: false }),
 
   layout_dragStateUpdate: assignCtx(({ event }) => {
     if (event.type !== 'DRAG_STATE_UPDATE') return {};

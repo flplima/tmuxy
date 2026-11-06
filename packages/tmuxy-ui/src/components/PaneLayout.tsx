@@ -33,12 +33,12 @@ import {
 import {
   selectEnableAnimations,
   selectSuppressLayoutTransition,
-  selectKeyboardElsewhere,
   selectPaneKeyOverrides,
   selectSwipeNeighbor,
   selectSwipeStill,
   selectGesturePaneId,
 } from '../machines/selectors/ui';
+import { selectKeyboardElsewhere } from '../machines/selectors/keyboard';
 import type { TmuxPane } from '../domain/client';
 import { findZoomedPane } from '../constants/gridSize';
 import {

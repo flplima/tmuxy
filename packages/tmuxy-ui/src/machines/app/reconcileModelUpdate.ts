@@ -21,7 +21,8 @@ import { buildScrollbackState, fetchHistory, reconcilePaneMode } from './scrollb
 import { pruneAskSelections } from './actions/ask';
 import { normalizePaneState } from '../../domain/paneState';
 import { TmuxOp } from '../../domain/commands';
-import { reconcileFloatAndSidebarLifecycle } from './reconcileSidebars';
+import { reconcileFloats } from './actions/groupsAndFloats';
+import { reconcileSidebars } from './actions/sidebars';
 
 /** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
@@ -109,7 +110,7 @@ export const reconcileModelActions = {
     const opsInFlight = event.model.ops.length > 0;
     if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes) return;
 
-    enqueue.raise({ type: 'SYNC_DOCK_ROWS' as const });
+    enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
 
     const structurallyChanged =
       transformed.panes.length !== context.panes.length ||
@@ -161,7 +162,13 @@ export const reconcileModelActions = {
     const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
     floatPanes = keepLivePanes(floatPanes, currentPaneIdSet);
 
-    reconcileFloatAndSidebarLifecycle(context, transformed, floatPanes, enqueue);
+    reconcileFloats(context, { ...transformed, floatPanes }, enqueue);
+    reconcileSidebars(
+      context,
+      { ...context, windows: transformed.windows, panes: transformed.panes },
+      transformed.focusRequest,
+      enqueue,
+    );
 
     if (transformed.pluginsRev !== context.pluginsRev) {
       enqueue.raise({ type: 'PLUGINS_REV_CHANGED', rev: transformed.pluginsRev });
@@ -317,18 +324,6 @@ export const reconcileModelActions = {
         defaultShell: ctx.defaultShell,
         paneActivationOrder: ctx.paneActivationOrder,
       })),
-    );
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_SESSION' as const,
-        sessionName: transformed.sessionName,
-      }),
-    );
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_ACTIVE_PANE' as const,
-        paneId: effectiveActivePaneId,
-      }),
     );
 
     const grid = gridExtent(transformed.panes, transformed.activeWindowId, {

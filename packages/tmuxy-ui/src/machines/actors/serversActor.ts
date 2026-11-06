@@ -30,6 +30,7 @@ import { fromCallback, type AnyActorRef } from 'xstate';
 import { isPaneId, isWindowId, type WindowId } from '../../domain/ids';
 import { Effect, Fiber, Schedule } from 'effect';
 import type { AppRuntime } from '../../infra/runtime';
+import type { ContextView } from '../contextView';
 import { TmuxTransport } from '../../infra/transport/TmuxTransport';
 import type {
   GitRepository,
@@ -42,6 +43,8 @@ export type ServersActorEvent = { type: 'REFRESH_SESSIONS' };
 
 export interface ServersActorInput {
   parent: AnyActorRef;
+  /** Whether the tree is on screen (selectTreeVisible): the poll runs only then. */
+  treeVisible: ContextView<boolean>;
 }
 
 // Poll cadence while the sidebar tree is open. Kept deliberately slow: each
@@ -169,7 +172,7 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
  */
 export function createServersActor(runtime: AppRuntime) {
   return fromCallback<ServersActorEvent, ServersActorInput>(({ input, receive }) => {
-    const { parent } = input;
+    const { parent, treeVisible } = input;
 
     // Worktree discovery, due every DISCOVERY_INTERVAL_MS or when forced. The
     // host derives the pane paths from tmux and runs git; a failure (no git on
@@ -240,31 +243,18 @@ export function createServersActor(runtime: AppRuntime) {
     // One poll tick as an Effect. Modelling it in Effect means interrupting the
     // poll fiber (on stop) between a query and its parent.send drops the stale
     // send — no `cancelled` flag to thread through. suspend() re-reads the
-    // sidebar gate on every repeat.
+    // tree gate on every repeat.
     const tick = (force = false): Effect.Effect<void, never, TmuxTransport> =>
       Effect.suspend(() => {
         // Only enumerate while the tree is actually visible. The poll's
         // read-only tmux commands share the control-mode connection; running
         // them continuously (even with the sidebar closed) contends with the
         // control-mode pipeline and delays window creation/`@tmuxy-window-type`
-        // tagging. `force` bypasses the check for the REFRESH_SESSIONS nudge
-        // raised as the sidebar opens (whose context commit may not be visible).
-        if (!force) {
-          const snap = parent.getSnapshot() as
-            | {
-                context?: {
-                  leftSidebarOpen?: boolean;
-                };
-              }
-            | undefined;
-          const ctx = snap?.context;
-          // The tree sidebar is the one consumer that watches continuously;
-          // the session menu asks for a forced tick as it opens
-          // (SESSION_MENU_OPENED). With the tree closed nothing is watching,
-          // and these are external tmux reads — they should not churn against
-          // the control-mode pipeline.
-          if (ctx?.leftSidebarOpen !== true) return Effect.void;
-        }
+        // tagging. The tree is the one consumer that watches continuously; the session
+        // menu asks for a forced tick as it opens (SESSION_MENU_OPENED). With
+        // the tree off screen nothing is watching, and these are external tmux
+        // reads — they should not churn against the control-mode pipeline.
+        if (!force && !treeVisible.get()) return Effect.void;
 
         // Sessions tree (tmux), servers, snapshots, and git discovery run
         // concurrently so a slow socket scan never blocks snapshot listing.
@@ -291,7 +281,7 @@ export function createServersActor(runtime: AppRuntime) {
         }).pipe(Effect.asVoid, Effect.ignore);
       });
 
-    // Initial tick (respects the sidebar gate) then repeat while attached. The
+    // Initial tick (respects the tree gate) then repeat while attached. The
     // repeat cadence governs steady-state refresh; REFRESH_SESSIONS forces one.
     // In-browser sandboxes (demo, v86) are single-session — nothing to
     // enumerate, and nothing to read it with: `query` is the only call that
@@ -304,8 +294,13 @@ export function createServersActor(runtime: AppRuntime) {
     receive((event) => {
       if (event.type === 'REFRESH_SESSIONS') runtime.runFork(whileEnumerable(tick(true)));
     });
+    // The tree coming on screen shows what is there now, not the last poll's.
+    const unsubscribe = treeVisible.subscribe((visible) => {
+      if (visible) runtime.runFork(whileEnumerable(tick(true)));
+    });
 
     return () => {
+      unsubscribe();
       runtime.runFork(Fiber.interrupt(pollFiber));
     };
   });

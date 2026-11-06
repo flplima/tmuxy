@@ -26,6 +26,7 @@ import {
   selectPhoneLayout,
 } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
+import { selectFocusedFloat } from '../machines/selectors/keyboard';
 import { LogProfiler } from './renderLog';
 import { focusKeyboardInput } from '../infra/dom/mobileKeyboard';
 import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
@@ -51,8 +52,7 @@ function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
   );
-  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
-  const isFocused = focusedFloatPaneId === floatState.paneId;
+  const isFocused = useAppSelector((ctx) => selectFocusedFloat(ctx) === floatState.paneId);
   // A float can hold a widget too — the session switcher opens as one. Same
   // classification the tiled panes use, so a marker never renders as text.
   const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);

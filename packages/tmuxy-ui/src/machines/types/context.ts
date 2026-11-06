@@ -13,8 +13,11 @@ import type {
   FloatPaneState,
   GestureFlags,
   GestureState,
+  KeyboardOwner,
   LogEntry,
   ResizeState,
+  SidebarSide,
+  SidebarState,
 } from './domain';
 import type {
   GitRepository,
@@ -89,56 +92,25 @@ export interface AppMachineContext {
   containerHeight: number;
   /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<PaneId, FloatPaneState>;
-  /** Pane ID of the currently focused float (keyboard routes here instead of session) */
-  focusedFloatPaneId: PaneId | null;
   /**
-   * Whether the left sidebar column (the tab/pane tree) is shown. Its pane lives
-   * in a `sidebar-left`-typed window running `tmuxy widget tree`; closing hides
-   * the column (`@tmuxy-sidebar-hidden` on its window) and keeps that pane, so
-   * the choice survives a reload and reaches every other client.
+   * Who holds the keyboard. A float or the dock takes the keystrokes typed;
+   * the tree (left) drives its widget (j/k/Enter/l/q) instead of a pane.
    */
-  leftSidebarOpen: boolean;
-  /**
-   * Whether the tree column holds keyboard focus. While true, keys drive the
-   * tree widget (j/k/Enter/l/q) instead of reaching a tab's pane.
-   */
-  leftSidebarFocused: boolean;
-  /**
-   * The tree column was asked to open but its pane never appeared (the
-   * `tmuxy widget tree` command failed on this server). The column shows why
-   * instead of "starting…" forever.
-   */
-  leftSidebarStartFailed: boolean;
-  /**
-   * This client asked tmux to create the tree column's pane and is waiting
-   * for it. Cleared when the pane appears, or by SIDEBAR_START_TIMEOUT when
-   * it never does: then the start failed rather than a user closing it.
-   */
-  leftSidebarStarting: boolean;
-  /**
-   * Whether the right sidebar column (the pinned terminal) is open. The pane
-   * behind it lives in a `sidebar-right`-typed window and survives closing —
-   * closing hides the column, it never kills the shell.
-   */
-  rightSidebarOpen: boolean;
-  /**
-   * Whether the pinned terminal dock holds keyboard focus. While true, keys are
-   * routed to its pane instead of the active tab's pane (same mechanism a
-   * focused float uses).
-   */
-  rightSidebarFocused: boolean;
-  /** The dock was asked to open but its pane never appeared. */
-  rightSidebarStartFailed: boolean;
-  /** Same as `leftSidebarStarting`, for the dock. */
-  rightSidebarStarting: boolean;
+  keyboardOwner: KeyboardOwner;
+  /** The two sidebar columns: the tree (left) and the pinned terminal (right). */
+  sidebars: Record<SidebarSide, SidebarState>;
   /**
    * A sidebar column width being previewed while its divider is dragged, in
    * columns (null = the default). Drawn immediately; the tmux option is written
    * on release and the preview is dropped once the server reports that width.
    */
-  sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
-  /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
-  dockRowsSent: { windowId: WindowId; rows: number } | null;
+  sidebarColsPreview: { side: SidebarSide; cols: number | null } | null;
+  /**
+   * The dock size last written to its window (`@tmuxy-sidebar-rows`, and
+   * `@tmuxy-sidebar-cols` when the phone's bottom view sized it), and for
+   * which window: the one record behind the one writer, `sidebars_syncDockSize`.
+   */
+  dockSizeSent: { windowId: WindowId; cols: number | null; rows: number } | null;
 
   /**
    * The phone's browser-side zoom (the `phone` slice): the terminal drawn at
@@ -148,8 +120,11 @@ export interface AppMachineContext {
   phoneZoom: { x: number | null; y: number | null } | null;
   /** What the phone shows under the keys: the tree, or the pinned terminal (the dock). */
   phoneBottomView: 'tree' | 'dock';
-  /** The dock size last written to its window from the phone's bottom view. */
-  phoneDockSizeSent: { windowId: WindowId; cols: number; rows: number } | null;
+  /**
+   * The phone's bottom view, measured in the dock's cells: the size the dock's
+   * pane is given while a phone draws it there. Null before it is measured.
+   */
+  phoneDockView: { cols: number; rows: number } | null;
   /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,

@@ -14,7 +14,8 @@ import {
   toAbsoluteRow,
 } from '../../../domain/copyMode';
 import { handleCopyModeKey } from '../../../domain/copyModeKeys';
-import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
+import { selectPaneTakesCopyMode } from '../../selectors/panesAndSidebars';
+import { selectKeyFocusPane } from '../../selectors/keyboard';
 import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import {
@@ -374,10 +375,7 @@ export const copyModeActions = {
 
   copyMode_key: act(({ event, context, enqueue }) => {
     if (event.type !== 'COPY_MODE_KEY') return;
-    const dockPaneId = context.rightSidebarFocused
-      ? (selectRightSidebarPane(context)?.tmuxId ?? null)
-      : null;
-    const paneId = dockPaneId ?? context.activePaneId;
+    const paneId = selectKeyFocusPane(context);
     if (!paneId) return;
     const copyState = context.copyModeStates[paneId];
     if (!copyState) return;

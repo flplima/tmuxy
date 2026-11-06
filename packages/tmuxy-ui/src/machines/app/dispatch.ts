@@ -113,12 +113,11 @@ function groupStepTarget(direction: 'next' | 'prev', wrap: boolean, context: Ctx
 function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): boolean {
   // Leaving a focused column always works, even when the pane underneath
   // happens to be in a group; nav further outward has nowhere to go.
-  if (context.leftSidebarFocused) {
-    if (direction === 'R') enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
-    return true;
-  }
-  if (context.rightSidebarFocused) {
-    if (direction === 'L') enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
+  const owner = context.keyboardOwner.kind;
+  if (owner === 'left' || owner === 'right') {
+    if (direction === (owner === 'left' ? 'R' : 'L')) {
+      enqueue.raise({ type: 'BLUR_SIDEBAR', side: owner });
+    }
     return true;
   }
   const member = groupStepTarget(direction === 'L' ? 'prev' : 'next', false, context);
@@ -128,12 +127,16 @@ function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): 
   }
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
   if (!pane) return false;
-  if (direction === 'L' && context.leftSidebarOpen && pane.x === 0) {
-    enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+  if (direction === 'L' && context.sidebars.left.open && pane.x === 0) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'left' });
     return true;
   }
-  if (direction === 'R' && context.rightSidebarOpen && pane.x + pane.width >= context.totalWidth) {
-    enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+  if (
+    direction === 'R' &&
+    context.sidebars.right.open &&
+    pane.x + pane.width >= context.totalWidth
+  ) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'right' });
     return true;
   }
   return false;

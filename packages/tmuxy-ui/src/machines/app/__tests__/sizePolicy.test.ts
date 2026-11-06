@@ -63,8 +63,8 @@ describe('@tmuxy-size', () => {
 
   it('a fixed size keeps its cols/rows when a sidebar opens, and the grid is scaled instead', () => {
     const actor = client({ mode: 'fixed', cols: 100, rows: 20 });
-    let ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-    expect(ctx.rightSidebarOpen).toBe(true);
+    let ctx = sendAndGetContext(actor, { type: 'TOGGLE_SIDEBAR', side: 'right' });
+    expect(ctx.sidebars.right.open).toBe(true);
     expect([ctx.targetCols, ctx.targetRows]).toEqual([100, 20]);
 
     // The column takes 280px of the container: the grid is fitted to what is left.
@@ -78,7 +78,7 @@ describe('@tmuxy-size', () => {
 
   it('smallest asks for what the container holds and draws the measured cell', () => {
     const actor = client({ mode: 'smallest' });
-    let ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
+    let ctx = sendAndGetContext(actor, { type: 'TOGGLE_SIDEBAR', side: 'right' });
     expect(ctx.targetCols).toBe(72);
     ctx = sendAndGetContext(actor, { type: 'SET_CONTAINER_SIZE', width: 720, height: 480 });
     expect(ctx.charWidth).toBe(10);

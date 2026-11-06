@@ -83,13 +83,18 @@ describe('Scenario 6f: Float Tab Scope', () => {
     // holds it as the focused float.
     await waitForCondition(
       ctx.page,
-      () => ctx.page.evaluate(() => !!window.app?.getSnapshot()?.context?.focusedFloatPaneId),
+      () =>
+        ctx.page.evaluate(
+          () => window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float',
+        ),
       10000,
       'the new float to take focus',
     );
 
-    const floatPaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+    const floatPaneId = await ctx.page.evaluate(() =>
+      window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+        ? window.app.getSnapshot().context.keyboardOwner.paneId
+        : null,
     );
     expect(floatPaneId).toMatch(/^%\d+$/);
 
@@ -152,7 +157,9 @@ describe('Scenario 6f: Float Tab Scope', () => {
         stripAbove: s.bottom <= b.top + 1,
         parent:
           window.app?.getSnapshot()?.context?.floatPanes?.[
-            window.app?.getSnapshot()?.context?.focusedFloatPaneId
+            window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+              ? window.app.getSnapshot().context.keyboardOwner.paneId
+              : null
           ]?.parentWindowId,
       };
     };
@@ -192,7 +199,11 @@ describe('Scenario 6f: Float Tab Scope', () => {
       polling: 100,
     });
     expect(
-      await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId),
+      await ctx.page.evaluate(() =>
+        window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+          ? window.app.getSnapshot().context.keyboardOwner.paneId
+          : null,
+      ),
     ).toBeNull();
     // And that tab's own pane takes input, rather than the hidden float.
     const TOKEN = 'OTHER_TAB_' + Date.now();
@@ -205,7 +216,10 @@ describe('Scenario 6f: Float Tab Scope', () => {
     await verifyFloatVisible(ctx.page);
     const backAgain = await ctx.page.evaluate(() => ({
       count: document.querySelectorAll('.modal-overlay').length,
-      focused: window.app?.getSnapshot()?.context?.focusedFloatPaneId,
+      focused:
+        window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+          ? window.app.getSnapshot().context.keyboardOwner.paneId
+          : null,
       active: window.app?.getSnapshot()?.context?.activeWindowId,
     }));
     expect(backAgain.count).toBe(1);

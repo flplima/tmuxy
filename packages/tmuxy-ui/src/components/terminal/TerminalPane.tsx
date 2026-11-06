@@ -32,7 +32,7 @@ import {
   selectPhoneLayout,
   selectPhoneZoom,
 } from '../../machines/selectors/layout';
-import { selectKeyboardElsewhere } from '../../machines/selectors/ui';
+import { selectKeyboardElsewhere } from '../../machines/selectors/keyboard';
 import { usePaneMouse } from './usePaneMouse';
 import { usePaneTouch } from './usePaneTouch';
 import { useLatchedContent } from './useLatchedContent';

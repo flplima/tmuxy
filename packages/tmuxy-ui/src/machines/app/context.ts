@@ -28,8 +28,8 @@ export type StateName =
   | 'tabOverview'
   | 'phone'
   | 'copyMode'
-  | 'browser'
   | 'groupsAndFloats'
+  | 'keyboard'
   | 'sidebars'
   | 'commandUi'
   | 'notifications'
@@ -98,6 +98,7 @@ export const FIELD_OWNERS = {
   lastUpdateAnimated: 'layout',
   groupSwitchPaneIds: 'layout',
   lastUpdateQuiet: 'layout',
+  enableAnimations: 'layout',
 
   // ---- ask ----
   askSelections: 'ask',
@@ -108,19 +109,14 @@ export const FIELD_OWNERS = {
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
   floatPanes: 'groupsAndFloats',
-  focusedFloatPaneId: 'groupsAndFloats',
+
+  // ---- keyboard ----
+  keyboardOwner: 'keyboard',
 
   // ---- sidebars ----
-  leftSidebarOpen: 'sidebars',
-  leftSidebarFocused: 'sidebars',
-  rightSidebarOpen: 'sidebars',
-  rightSidebarFocused: 'sidebars',
-  leftSidebarStartFailed: 'sidebars',
-  rightSidebarStartFailed: 'sidebars',
-  leftSidebarStarting: 'sidebars',
-  rightSidebarStarting: 'sidebars',
+  sidebars: 'sidebars',
   sidebarColsPreview: 'sidebars',
-  dockRowsSent: 'sidebars',
+  dockSizeSent: 'sidebars',
   collapsedTabIds: 'sidebars',
   sidebarPeek: 'sidebars',
 
@@ -132,7 +128,7 @@ export const FIELD_OWNERS = {
   // ---- phone ----
   phoneZoom: 'phone',
   phoneBottomView: 'phone',
-  phoneDockSizeSent: 'phone',
+  phoneDockView: 'phone',
 
   // ---- commandUi ----
   commandMode: 'commandUi',
@@ -152,7 +148,6 @@ export const FIELD_OWNERS = {
   availableThemes: 'uiPrefs',
   traceSettings: 'uiPrefs',
   baseFontSize: 'uiPrefs',
-  enableAnimations: 'uiPrefs',
   animationsAllowed: 'uiPrefs',
   cursorBlink: 'uiPrefs',
   sendAsk: 'uiPrefs',
@@ -223,17 +218,13 @@ export function createInitialContext(): AppMachineContext {
     currentServerId: null,
     restorableSessions: [],
     floatPanes: {},
-    focusedFloatPaneId: null,
-    leftSidebarOpen: false,
-    leftSidebarFocused: false,
-    rightSidebarOpen: false,
-    rightSidebarFocused: false,
-    leftSidebarStartFailed: false,
-    rightSidebarStartFailed: false,
-    leftSidebarStarting: false,
-    rightSidebarStarting: false,
+    keyboardOwner: { kind: 'panes' },
+    sidebars: {
+      left: { open: false, starting: false, startFailed: false },
+      right: { open: false, starting: false, startFailed: false },
+    },
     sidebarColsPreview: null,
-    dockRowsSent: null,
+    dockSizeSent: null,
     collapsedTabIds: [],
     sidebarPeek: null,
     tabOverviewOpen: false,
@@ -241,7 +232,7 @@ export function createInitialContext(): AppMachineContext {
     renamingTabId: null,
     phoneZoom: null,
     phoneBottomView: 'tree',
-    phoneDockSizeSent: null,
+    phoneDockView: null,
     enableAnimations: false,
     animationsAllowed: true,
     cursorBlink: true,

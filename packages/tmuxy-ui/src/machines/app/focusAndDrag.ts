@@ -5,10 +5,11 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, type Ctx } from './actionTypes';
-import { isPlaceholderId, type PaneId } from '../../domain/ids';
+import type { PaneId } from '../../domain/ids';
 import { TmuxOp } from '../../domain/commands';
 import { getActivePaneInGroup, selectRightSidebarPane } from '../selectors/panesAndSidebars';
-import { releaseKeyboard } from './helpers';
+import { takeKeyboard } from './helpers';
+import { PANES_OWN_KEYBOARD, selectKeyFocusPane, selectKeyTarget } from '../selectors/keyboard';
 
 /** A group member parked out of view: in a group, and not in the window on screen. */
 function isParkedMember(context: Ctx, paneId: PaneId): boolean {
@@ -127,32 +128,23 @@ export const focusAndDragActions = {
   focusAndDrag_focusPane: act(({ event, context, enqueue }) => {
     if (event.type !== 'FOCUS_PANE') return;
     if (selectRightSidebarPane(context)?.tmuxId === event.paneId) {
-      enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+      enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'right' });
       return;
     }
-    releaseKeyboard(context, enqueue, 'left');
     if (context.floatPanes[event.paneId]) {
-      enqueue(assign({ focusedFloatPaneId: event.paneId }));
+      takeKeyboard(enqueue, { kind: 'float', paneId: event.paneId });
+      return;
+    }
+    takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
+    const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
+    const inActiveWindow = targetPane?.windowId === context.activeWindowId;
+    if (event.paneId !== context.activePaneId && inActiveWindow) {
       enqueue(
-        sendTo('keyboard', {
-          type: 'UPDATE_FOCUSED_FLOAT' as const,
-          paneId: event.paneId,
+        sendTo('tmuxStore', {
+          type: 'DISPATCH_OP' as const,
+          op: TmuxOp.SelectPane({ paneId: event.paneId }),
         }),
       );
-      releaseKeyboard(context, enqueue, 'right');
-    } else {
-      releaseKeyboard(context, enqueue, 'float');
-      releaseKeyboard(context, enqueue, 'right');
-      const targetPane = context.panes.find((p) => p.tmuxId === event.paneId);
-      const inActiveWindow = targetPane?.windowId === context.activeWindowId;
-      if (event.paneId !== context.activePaneId && inActiveWindow) {
-        enqueue(
-          sendTo('tmuxStore', {
-            type: 'DISPATCH_OP' as const,
-            op: TmuxOp.SelectPane({ paneId: event.paneId }),
-          }),
-        );
-      }
     }
   }),
 
@@ -167,17 +159,8 @@ export const focusAndDragActions = {
       return;
     }
 
-    releaseKeyboard(context, enqueue, 'left');
-    releaseKeyboard(context, enqueue, 'float');
-    releaseKeyboard(context, enqueue, 'right');
-
+    takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
     enqueue(assign({ activePaneId: clickedPaneId }));
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_ACTIVE_PANE' as const,
-        paneId: clickedPaneId,
-      }),
-    );
 
     const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(clickedPaneId));
 
@@ -218,27 +201,20 @@ export const focusAndDragActions = {
   }),
 
   focusAndDrag_copySelection: act(({ context, enqueue }) => {
-    const paneId = context.activePaneId;
-    if (paneId && context.copyModeStates[paneId]) {
-      if (context.copyModeStates[paneId].selectionMode) {
-        enqueue.raise({ type: 'COPY_MODE_YANK', paneId });
-        return;
-      }
-      enqueue.raise({ type: 'EXIT_COPY_MODE', paneId });
+    const paneId = selectKeyFocusPane(context);
+    const copyState = paneId ? context.copyModeStates[paneId] : undefined;
+    if (paneId && copyState) {
+      enqueue.raise(
+        copyState.selectionMode
+          ? { type: 'COPY_MODE_YANK', paneId }
+          : { type: 'EXIT_COPY_MODE', paneId },
+      );
       return;
     }
-
-    const activePane = context.activePaneId;
-    const realActivePane = activePane && !isPlaceholderId(activePane) ? activePane : null;
-    const dockPane = context.rightSidebarFocused
-      ? (selectRightSidebarPane(context)?.tmuxId ?? null)
-      : null;
-    const sigintTarget =
-      context.focusedFloatPaneId ?? dockPane ?? realActivePane ?? context.sessionName;
     enqueue(
       sendTo('tmux', {
         type: 'SEND_OP' as const,
-        op: TmuxOp.SendKeys({ target: sigintTarget, keys: 'C-c' }),
+        op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
       }),
     );
   }),

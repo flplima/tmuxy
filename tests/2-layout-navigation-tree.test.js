@@ -215,15 +215,15 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // client to another session mid-test. The title focuses the column and
     // does nothing else.
     const sidebarFocused = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.leftSidebarFocused);
+      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'left');
     const focusTree = async (label) => {
       await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
       await waitForCondition(ctx.page, async () => (await sidebarFocused()) === true, 5000, label);
     };
-    await focusTree('leftSidebarFocused set after click');
+    await focusTree('the tree holds the keyboard after the click');
 
-    // The keyboard actor hears UPDATE_LEFT_SIDEBAR_FOCUSED by message, after
-    // the context has it: wait until it says the tree holds the keys.
+    // The keyboard actor follows the context's keyboard owner after the
+    // context has it: wait until it says the tree holds the keys.
     await waitForKeyboardTarget(ctx.page, 'left-sidebar');
     await ctx.page.bringToFront();
 
@@ -324,7 +324,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       ctx.page,
       async () => (await sidebarFocused()) === false,
       5000,
-      'leftSidebarFocused cleared after l',
+      'the tree let go of the keyboard after l',
     );
     const stillOpen = await ctx.page.evaluate(() => {
       const el = document.querySelector('.sidebar-column-left');
@@ -359,8 +359,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await runCommand(ctx.page, 'echo AFTER_NAV_LEFT', 'AFTER_NAV_LEFT');
     const afterNav = await ctx.page.evaluate(() => ({
       column: !!document.querySelector('.sidebar-column-left'),
-      open: window.app.getSnapshot().context.leftSidebarOpen,
-      focused: window.app.getSnapshot().context.leftSidebarFocused,
+      open: window.app.getSnapshot().context.sidebars.left.open,
+      focused: window.app.getSnapshot().context.keyboardOwner.kind === 'left',
     }));
     expect(afterNav).toEqual({ column: false, open: false, focused: false });
   }, 180000);

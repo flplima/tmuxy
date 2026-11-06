@@ -16,6 +16,7 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
+import { selectSidebarHoldsKeyboard } from '../machines/selectors/keyboard';
 import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
@@ -25,9 +26,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
   const send = useAppSend();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const rightPane = useAppSelector(selectRightSidebarPane);
-  const focused = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
-  );
+  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, side));
 
   // The switcher is a dropdown hanging off this button — see SessionMenu for
   // why it is a dropdown and not a float.
@@ -38,10 +37,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
   // the same as clicking the column itself. That matters because a click inside
   // the column lands on whatever the pane is showing — a tree row activates it —
   // so the title is the one spot that focuses and does nothing else.
-  const focusColumn = useCallback(
-    () => send({ type: side === 'left' ? 'FOCUS_LEFT_SIDEBAR' : 'FOCUS_RIGHT_SIDEBAR' }),
-    [send, side],
-  );
+  const focusColumn = useCallback(() => send({ type: 'FOCUS_SIDEBAR', side }), [send, side]);
 
   return (
     <span

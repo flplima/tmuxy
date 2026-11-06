@@ -144,7 +144,7 @@ describe('State Sync', () => {
     const panesBefore = await getPaneCount(driver);
 
     // The path the toggle button and `prefix t` both take.
-    await driver.execute(() => window.app.send({ type: 'TOGGLE_LEFT_SIDEBAR' }));
+    await driver.execute(() => window.app.send({ type: 'TOGGLE_SIDEBAR', side: 'left' }));
 
     let names = '';
     for (let i = 0; i < 60; i++) {

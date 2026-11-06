@@ -32,3 +32,7 @@ export const layoutState = {
     DRAG_STATE_UPDATE: { actions: 'layout_dragStateUpdate' },
   },
 } as const;
+
+export const layoutGlobalEvents = {
+  SUPPRESS_ANIMATIONS: { actions: 'layout_suppressAnimations' },
+} as const;

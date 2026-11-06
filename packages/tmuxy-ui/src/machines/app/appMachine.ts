@@ -22,6 +22,7 @@ import {
   type ActorRefFrom,
   fromCallback,
   type AnyActorRef,
+  type EventObject,
 } from 'xstate';
 import type { AppMachineContext } from '../types/context';
 import type { AllAppMachineEvents } from '../types/events';
@@ -40,7 +41,7 @@ import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from './states/sidebars';
 import { sidebarsActions } from './actions/sidebars';
-import { layoutState } from './states/layout';
+import { layoutGlobalEvents, layoutState } from './states/layout';
 import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
 import { phoneGlobalEvents } from './states/phone';
@@ -59,12 +60,17 @@ import { applyFontSize } from '../../infra/fontSizeManager';
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
-import type { KeyboardActorEvent } from '../actors/keyboardActor';
+import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
 import type { GestureActorEvent } from '../gestures/gestureActor';
-import type { ServersActorEvent } from '../actors/serversActor';
+import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
+import { keyboardGlobalEvents } from './states/keyboard';
+import { keyboardActions } from './actions/keyboard';
+import { contextView } from '../contextView';
+import { sameKeyboardSurface, selectKeyContext } from '../selectors/keyboard';
+import { selectTreeVisible } from '../selectors/panesAndSidebars';
 
 export const appMachine = setup({
   types: {
@@ -74,11 +80,11 @@ export const appMachine = setup({
   actors: {
     tmuxActor: fromCallback<TmuxActorEvent, { parent: AnyActorRef }>(() => () => {}),
     tmuxStoreActor: fromCallback<TmuxStoreActorEvent, { parent: AnyActorRef }>(() => () => {}),
-    keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
     gestureActor: fromCallback<GestureActorEvent, { parent: AnyActorRef }>(() => () => {}),
-    serversActor: fromCallback<ServersActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
     resizeMachine,
   },
@@ -89,6 +95,7 @@ export const appMachine = setup({
     ...notificationsActions,
     ...copyModeActions,
     ...groupsAndFloatsActions,
+    ...keyboardActions,
     ...sidebarsActions,
     ...tabOverviewActions,
     ...phoneActions,
@@ -119,7 +126,10 @@ export const appMachine = setup({
     {
       id: 'keyboard',
       src: 'keyboardActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({
+        parent: self,
+        keys: contextView(self, selectKeyContext, sameKeyboardSurface),
+      }),
     },
     {
       id: 'size',
@@ -138,7 +148,7 @@ export const appMachine = setup({
     {
       id: 'servers',
       src: 'serversActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({ parent: self, treeVisible: contextView(self, selectTreeVisible) }),
     },
     {
       id: 'dragLogic',
@@ -155,6 +165,8 @@ export const appMachine = setup({
     ...commandUiState.on,
     ...notificationsState.on,
     ...groupsAndFloatsGlobalEvents,
+    ...keyboardGlobalEvents,
+    ...layoutGlobalEvents,
     ...sidebarsGlobalEvents,
     ...tabOverviewGlobalEvents,
     ...phoneGlobalEvents,

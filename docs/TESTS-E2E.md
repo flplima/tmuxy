@@ -97,7 +97,7 @@ For terminal text, verify positions **in cells** and against tmux, not just that
 
 When testing keyboard input to a specific pane (float, tiled, etc.):
 
-1. Verify the input target is correct before typing (check `focusedFloatPaneId` or `activePaneId`)
+1. Verify the input target is correct before typing (check `keyboardOwner` or `activePaneId`)
 2. After typing and pressing Enter, verify the **output** appears in the correct pane's visible area — not just in the DOM
 3. Verify the output did NOT appear in other panes (input isolation)
 

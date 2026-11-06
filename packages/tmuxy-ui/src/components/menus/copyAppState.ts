@@ -33,13 +33,8 @@ function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
       command: p.command,
     })),
     lastActivePaneByWindow: ctx.lastActivePaneByWindow,
-    sidebars: {
-      leftOpen: ctx.leftSidebarOpen,
-      leftFocused: ctx.leftSidebarFocused,
-      rightOpen: ctx.rightSidebarOpen,
-      rightFocused: ctx.rightSidebarFocused,
-    },
-    focusedFloatPaneId: ctx.focusedFloatPaneId,
+    sidebars: ctx.sidebars,
+    keyboardOwner: ctx.keyboardOwner,
     tabOverviewOpen: ctx.tabOverviewOpen,
   };
 }

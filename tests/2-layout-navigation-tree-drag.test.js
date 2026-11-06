@@ -204,7 +204,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     // Open the tree with its key — unless an earlier test left it open, when
     // the same key would free it to overlay the panes.
     const treeOpen = () =>
-      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+      ctx.page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open === true);
     if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
