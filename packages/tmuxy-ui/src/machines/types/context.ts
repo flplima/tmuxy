@@ -88,8 +88,6 @@ export interface AppMachineContext {
   phoneLayout: boolean;
   /** The phone layout held sideways: the terminal right, the strip, keys and tree left of it. */
   phoneLandscape: boolean;
-  /** Default shell name (e.g., "bash", "zsh") from server */
-  defaultShell: string;
   /** The server machine's name, from its greeting; null until it says. */
   serverHostname: string | null;
 
@@ -220,8 +218,6 @@ export interface AppMachineContext {
    * report is not a new entry.
    */
   copyModeExitedAt: Record<PaneId, number>;
-  /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
-  paneActivationOrder: PaneId[];
   /**
    * Whether the previous TMUX_MODEL_UPDATE carried no geometry delta on
    * existing panes. React can batch an optimistic (dirty) update and its

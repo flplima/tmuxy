@@ -1,6 +1,6 @@
 import { beforeEach, describe, it, expect } from 'vitest';
-import { pid, wid } from '../../../../test/wire';
-import { assign } from 'xstate';
+import { pid } from '../../../../test/wire';
+import { act, assignCtx } from '../../actionTypes';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../sidebars';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
@@ -43,7 +43,9 @@ const combinedActions = {
   ...groupsAndFloatsActions,
   ...sidebarsActions,
   ...keyboardActions,
-  recordOp: ({ event }: { event: { op: TmuxOp } }) => void dispatched.push(event.op),
+  recordOp: act(({ event }) => {
+    if (event.type === 'DISPATCH_OP') dispatched.push(event.op);
+  }),
 };
 
 const twoFloats = {
@@ -60,39 +62,6 @@ describe('groupsAndFloats state', () => {
     const actor = mountState(groupsAndFloatsState, combinedActions, {}, twoFloats);
     actor.send({ type: 'CLOSE_FLOAT', paneId: pid('%1') });
     expect(dispatched).toEqual([TmuxOp.KillPane({ paneId: pid('%1') })]);
-  });
-
-  it('CLOSE_TOP_FLOAT closes the most-recently-added float (last in object)', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, {}, twoFloats);
-    actor.send({ type: 'CLOSE_TOP_FLOAT' });
-    expect(dispatched).toEqual([TmuxOp.KillPane({ paneId: pid('%2') })]);
-  });
-
-  it('CLOSE_TOP_FLOAT leaves a float that belongs to another tab alone', () => {
-    // Escape closes the float the user can see. A float opened over tab @1 is
-    // not on screen while tab @0 is active, so it is not the one Escape means -
-    // and killing it would take a pane the user cannot even see.
-    const actor = mountState(
-      groupsAndFloatsState,
-      combinedActions,
-      {},
-      {
-        windows: [
-          { id: wid('@0'), index: 0, name: 'one', active: true, windowType: 'tab' },
-          { id: wid('@1'), index: 1, name: 'two', active: false, windowType: 'tab' },
-        ] as never,
-        activeWindowId: wid('@0'),
-        floatPanes: { [pid('%9')]: makeFloat(pid('%9'), { parentWindowId: wid('@1') }) },
-      },
-    );
-    actor.send({ type: 'CLOSE_TOP_FLOAT' });
-    expect(dispatched).toEqual([]);
-  });
-
-  it('CLOSE_TOP_FLOAT no-ops when there are no floats', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, {}, { floatPanes: {} });
-    actor.send({ type: 'CLOSE_TOP_FLOAT' });
-    expect(dispatched).toEqual([]);
   });
 
   describe('the keyboard as the floats on screen change', () => {
@@ -175,10 +144,9 @@ describe('groupsAndFloats state', () => {
     } as const;
     const actions = {
       ...combinedActions,
-      recordTargetSize: assign(({ event }) => {
-        const size = event as unknown as { cols: number; rows: number };
-        return { targetCols: size.cols, targetRows: size.rows };
-      }),
+      recordTargetSize: assignCtx(({ event }) =>
+        event.type === 'SET_TARGET_SIZE' ? { targetCols: event.cols, targetRows: event.rows } : {},
+      ),
     };
     // A 1000px body, 10px cells, 24px rows: the grid is 100 cols wide with
     // nothing docked and 35 narrower once the 35-col dock is open.

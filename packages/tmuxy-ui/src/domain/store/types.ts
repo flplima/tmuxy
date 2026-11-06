@@ -106,7 +106,8 @@ export class OpRejectedByTmux extends Data.TaggedError('OpRejectedByTmux')<{
 export class OpTransportError extends Data.TaggedError('OpTransportError')<{
   readonly opId: OpId;
   readonly command: string;
-  readonly cause: unknown;
+  /** The transport's failure, as the user is shown it. */
+  readonly reason: string;
 }> {}
 
 export type OpError = OpRejectedByTmux | OpTransportError;

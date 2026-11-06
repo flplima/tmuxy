@@ -166,7 +166,7 @@ describe('TmuxStore (integration)', () => {
     const before = store.getModel();
 
     const exit = await fake.runtime.runPromiseExit(store.dispatch(op));
-    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { command: ' \n\t' }));
+    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { wire: ' \n\t' }));
 
     expect(exit._tag).toBe('Success');
     expect(blank._tag).toBe('Success');
@@ -231,5 +231,45 @@ describe('notify granularity', () => {
     );
     expect(notifies).toBe(1);
     unsubscribe();
+  });
+});
+
+describe('what the predictions read', () => {
+  // Three tabs, one pane each; `active` names the tab in front.
+  function threeTabs(active: 0 | 1 | 2): ServerState {
+    const base = blankServerState();
+    const [pane] = base.panes;
+    const [window] = base.windows;
+    return {
+      ...base,
+      active_window_id: wid(`@${active}`),
+      active_pane_id: pid(`%${active}`),
+      panes: [0, 1, 2].map((n) => ({
+        ...pane,
+        id: n,
+        tmux_id: pid(`%${n}`),
+        window_id: wid(`@${n}`),
+        active: n === active,
+      })),
+      windows: [0, 1, 2].map((n) => ({
+        ...window,
+        id: wid(`@${n}`),
+        index: n,
+        name: `w${n}`,
+        active: n === active,
+      })),
+    };
+  }
+
+  it('the store learns which tab was used last from its own snapshots', () => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    store.reconcile(threeTabs(0));
+    store.reconcile(threeTabs(2));
+    store.reconcile(threeTabs(1));
+
+    fake.runtime.runFork(store.dispatch(TmuxOp.KillWindow({ windowId: wid('@1') })));
+    // tmux lands on the last tab used (@2), not the one before by index (@0).
+    expect(store.getModel().derived.activeWindowId).toBe(wid('@2'));
   });
 });

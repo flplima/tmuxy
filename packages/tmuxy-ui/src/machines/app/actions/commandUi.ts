@@ -1,4 +1,4 @@
-import { assign, cancel, raise, sendTo } from 'xstate';
+import { assign, cancel, raise } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
@@ -55,12 +55,10 @@ export const commandUiActions = {
     if (event.type !== 'RENAME_PANE_COMMIT') return;
     enqueue(assign({ renamingPaneId: null }));
     if (!event.title) return;
-    enqueue(
-      sendTo('tmuxStore', {
-        type: 'DISPATCH_OP' as const,
-        op: TmuxOp.SetPaneTitle({ paneId: event.paneId, title: event.title }),
-      }),
-    );
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SetPaneTitle({ paneId: event.paneId, title: event.title }),
+    });
   }),
 
   commandUi_setPrefixActive: assignCtx(({ event }) => {

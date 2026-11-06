@@ -6,7 +6,7 @@
  * the machine stays `idle` and `connected`; nothing after the switch would set
  * `connected` back, so a flag dropped there would gate every later resize off
  * until a real reconnect. The initial fetch belongs to the size actor's answer
- * to CONNECTED (the target size, sent again), never to the connect itself.
+ * to RESEND_SIZE (the target size, sent again), never to the connect itself.
  *
  * `appMachine` is exported with stub actors, so it starts standalone with a
  * recording stand-in for the tmux actor.
@@ -74,7 +74,7 @@ describe('TMUX_CONNECTED', () => {
   it('fetches the initial state once, at the default 80×24', () => {
     const { actor, sent } = startApp();
     actor.send({ type: 'TMUX_CONNECTED' });
-    // The size actor's answer to CONNECTED: the target size, sent again.
+    // The size actor's answer to RESEND_SIZE: the target size, sent again.
     actor.send({ type: 'SET_TARGET_SIZE', cols: 80, rows: 24 });
 
     expect(initialFetches(sent)).toEqual([{ type: 'FETCH_INITIAL_STATE', cols: 80, rows: 24 }]);

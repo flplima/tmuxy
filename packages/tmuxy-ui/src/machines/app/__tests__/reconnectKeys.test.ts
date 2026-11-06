@@ -32,6 +32,6 @@ describe('typing through an outage', () => {
     expect(actor.getSnapshot().matches({ reconnecting: 'noticed' })).toBe(true);
     actor.send({ type: 'DISPATCH_OP', op: TmuxOp.CyclePane({ windowId: null }) });
 
-    expect(sent.slice(before).map((e) => e.type)).toEqual(['DISPATCH_OP', 'DISPATCH_OP']);
+    expect(sent.slice(before).map((e) => e.type)).toEqual(['STORE_DISPATCH', 'STORE_DISPATCH']);
   });
 });

@@ -10,6 +10,7 @@ import {
 } from '../ids';
 import type { PredictContext, PredictResult } from './ops';
 import { makePlaceholderPane } from './paneOps';
+import { selectWindowTarget, stripTabs } from '../windows';
 
 export function predictNewWindow(
   snapshot: TmuxSnapshot,
@@ -118,21 +119,8 @@ export function predictSelectWindow(
   snapshot: TmuxSnapshot,
 ): PredictResult | null {
   if (!snapshot.activeWindowId) return null;
-  const visible = snapshot.windows.filter((w) => w.windowType === 'tab');
-  if (visible.length === 0) return null;
-
-  let target: TmuxWindow | undefined;
-  if (typeof op.target === 'number') {
-    target = visible.find((w) => w.index === op.target);
-  } else if (op.target.startsWith('@')) {
-    target = visible.find((w) => w.id === op.target);
-  } else {
-    const currentIdx = visible.findIndex((w) => w.id === snapshot.activeWindowId);
-    if (currentIdx === -1) return null;
-    const delta = op.target === 'next' ? 1 : -1;
-    target = visible[(currentIdx + delta + visible.length) % visible.length];
-  }
-  if (!target || target.id === snapshot.activeWindowId) return null;
+  const target = selectWindowTarget(op.target, snapshot.windows, snapshot.activeWindowId);
+  if (!target) return null;
 
   const targetId = target.id;
   // The tab strip reads the per-window `active` flag, so it flips in the same
@@ -190,7 +178,7 @@ export function predictKillWindow(
   const doomed = snapshot.windows.find((w) => w.id === windowId);
   if (!doomed) return null;
 
-  const tabs = snapshot.windows.filter((w) => w.windowType === 'tab' && w.id !== windowId);
+  const tabs = stripTabs(snapshot.windows).filter((w) => w.id !== windowId);
   // tmux makes the last window used current (its `lastw` stack), else the
   // previous one, else the next. The last used is the tab of the most recently
   // active pane outside the doomed one; the reconciler only requires the

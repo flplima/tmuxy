@@ -1,28 +1,7 @@
 import { sendTo } from 'xstate';
 import { act, type Ctx, type Enqueue } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
-import type { TmuxWindow } from '../../../domain/client';
-import { topVisibleFloat } from '../../selectors/keyboard';
 import { visibleFloats } from '../../selectors/panesAndSidebars';
-
-/**
- * The lowest window index the session isn't using, scanning up from its lowest
- * one (so a `base-index 1` session never gets a stray window 0) — where a new
- * float is created (see `OpenFloat`).
- *
- * `break-pane` picks this index on its own, but it doesn't tell us which window
- * it made — and `set-option -w` with no target resolves against the session's
- * *current* window, which `break-pane -d` deliberately leaves unchanged. Naming
- * the index up front is what lets the tag land on the NEW window inside one
- * atomic command list (tagging late would let the monitor see the `%window-add`
- * before the marker exists, and render a chrome window as a tab).
- */
-export function freeWindowIndex(windows: TmuxWindow[]): number {
-  const used = new Set(windows.map((w) => w.index));
-  let index = windows.length > 0 ? Math.min(...used) : 0;
-  while (used.has(index)) index++;
-  return index;
-}
 
 export const groupsAndFloatsActions = {
   groupsAndFloats_openConnectFloat: act(({ context, enqueue }) => {
@@ -30,9 +9,7 @@ export const groupsAndFloatsActions = {
       sendTo('tmux', {
         type: 'SEND_OP' as const,
         op: TmuxOp.OpenFloat({
-          name: 'connect',
-          run: 'tmuxy session connect',
-          index: freeWindowIndex(context.windows),
+          command: ['tmuxy', 'session', 'connect'],
           splitFrom: context.activePaneId,
         }),
       }),
@@ -46,11 +23,6 @@ export const groupsAndFloatsActions = {
   groupsAndFloats_closeFloat: act(({ event, enqueue }) => {
     if (event.type !== 'CLOSE_FLOAT') return;
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.KillPane({ paneId: event.paneId }) });
-  }),
-
-  groupsAndFloats_closeTopFloat: act(({ context, enqueue }) => {
-    const top = topVisibleFloat(context.floatPanes, context.windows, context.activeWindowId);
-    if (top) enqueue.raise({ type: 'CLOSE_FLOAT' as const, paneId: top });
   }),
 };
 

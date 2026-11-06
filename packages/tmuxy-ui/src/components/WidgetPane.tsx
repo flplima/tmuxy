@@ -12,6 +12,7 @@ import {
 import { useFramedPaneFocus } from './useFramedPaneFocus';
 import { selectPaneHoldsKeyboard } from '../machines/selectors/keyboard';
 import type { PaneId } from '../domain/ids';
+import { TmuxOp } from '../domain/commands';
 
 interface WidgetPaneProps {
   paneId: PaneId;
@@ -52,7 +53,7 @@ export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
         e.preventDefault();
         e.stopImmediatePropagation();
         const { send: s, paneId: pid } = widgetKeyRef.current;
-        s({ type: 'SEND_KEYS', paneId: pid, keys: 'C-c' });
+        s({ type: 'DISPATCH_OP', op: TmuxOp.SendKeys({ target: pid, keys: 'C-c' }) });
       }
     };
 

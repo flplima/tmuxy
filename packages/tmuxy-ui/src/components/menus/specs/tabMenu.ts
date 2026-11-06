@@ -4,6 +4,7 @@
  */
 
 import type { AppMachineContext } from '../../../machines/types/context';
+import { stripTabs } from '../../../domain/windows';
 import { TmuxOp } from '../../../domain/commands';
 import type { WindowId } from '../../../domain/ids';
 import { keyHint } from '../../../domain/keyLabels';
@@ -33,7 +34,7 @@ export interface TabMenuOptions {
 
 export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): AppMenuSpec {
   const { keybindings } = ctx;
-  const tabs = ctx.windows.filter((w) => w.windowType === 'tab');
+  const tabs = stripTabs(ctx.windows);
   const single = tabs.length <= 1;
   const windowId = options.windowId ?? ctx.activeWindowId;
   const target = ctx.windows.find((w) => w.id === windowId);

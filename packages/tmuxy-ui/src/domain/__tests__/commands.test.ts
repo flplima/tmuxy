@@ -183,14 +183,9 @@ const cases: Array<[TmuxOp, string]> = [
   ],
 
   [
-    TmuxOp.OpenFloat({
-      name: 'connect',
-      run: 'tmuxy session connect',
-      index: 3,
-      splitFrom: pid('%1'),
-    }),
-    "split-window -t %1 'tmuxy session connect' \\; break-pane -d -n connect -t :3 \\; " +
-      'set-option -w -t :3 @tmuxy-window-type float',
+    TmuxOp.OpenFloat({ command: ['tmuxy', 'session', 'connect'], splitFrom: pid('%1') }),
+    'run-shell -b "TMUX_PANE=%1 \\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" pane float --detach ' +
+      "'tmuxy' 'session' 'connect' >/dev/null 2>&1\"",
   ],
   [
     TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%1') }),

@@ -9,6 +9,7 @@
  */
 
 import { Either, Schema } from 'effect';
+import { DEFAULT_SHELL } from '../../domain/store/ops';
 import {
   ClipboardEvent,
   ConnectionInfo,
@@ -35,7 +36,7 @@ const spec = <A, I>(
 export const HOST_EVENTS = {
   'connection-info': spec(ConnectionInfo, (info) =>
     TransportEvent.ConnectionInfo({
-      defaultShell: info.default_shell ?? 'bash',
+      defaultShell: info.default_shell ?? DEFAULT_SHELL,
       hostname: info.hostname || null,
       traceEnabled: info.trace_enabled === true,
     }),

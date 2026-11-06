@@ -55,7 +55,7 @@ import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
-import type { GestureActorEvent } from '../gestures/gestureActor';
+import type { GestureActorEvent, GestureActorInput } from '../gestures/gestureActor';
 import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
 import { keyboardGlobalEvents } from './states/keyboard';
 import { keyboardActions } from './actions/keyboard';
@@ -83,7 +83,7 @@ export const appMachine = setup({
     keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
-    gestureActor: fromCallback<GestureActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    gestureActor: fromCallback<GestureActorEvent, GestureActorInput>(() => () => {}),
     serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
     resizeMachine,
@@ -147,7 +147,10 @@ export const appMachine = setup({
     {
       id: 'gestures',
       src: 'gestureActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({
+        parent: self,
+        flags: contextView(self, (context) => context.gestureFlags),
+      }),
     },
     {
       id: 'servers',
@@ -179,7 +182,6 @@ export const appMachine = setup({
     ...viewportGlobalEvents,
 
     TMUX_FATAL: { target: '.disconnected', actions: 'connection_fatal' },
-    TMUX_DISCONNECTED: { target: '.disconnected', actions: 'connection_lost' },
     TMUX_RECONNECTING: { target: '.reconnecting', actions: 'connection_reconnecting' },
     TMUX_DETACHED: { target: '.detached', actions: 'connection_lost' },
   },

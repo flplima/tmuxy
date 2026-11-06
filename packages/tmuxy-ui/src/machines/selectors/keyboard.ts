@@ -4,30 +4,15 @@
  */
 
 import type { AppMachineContext } from '../types/context';
-import type { FloatPaneState, KeyboardOwner } from '../types/domain';
+import type { KeyboardOwner } from '../types/domain';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { KeyBindings } from '../../domain/wire';
-import type { TmuxWindow } from '../../domain/client';
-import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
+import { realId, type PaneId } from '../../domain/ids';
 import { pinPrefix } from '../../domain/commands';
 import { paneAskFor, paneSendFor, type PaneAsk } from '../../domain/paneAsk';
 import { visibleFloats } from './panesAndSidebars';
-import { realPaneId } from '../actors/keyboard/keyFormatting';
 
 export const PANES_OWN_KEYBOARD: KeyboardOwner = { kind: 'panes' };
-
-/**
- * The float the keyboard goes to among those on screen: the topmost, the one
- * opened last.
- */
-export function topVisibleFloat(
-  floatPanes: Record<PaneId, FloatPaneState>,
-  windows: TmuxWindow[],
-  activeWindowId: WindowId | null,
-): PaneId | null {
-  const floats = visibleFloats(floatPanes, windows, activeWindowId);
-  return floats.length > 0 ? floats[floats.length - 1].paneId : null;
-}
 
 /**
  * The keyboard's owner once the floats on screen are `visible` (bottom-most
@@ -95,7 +80,7 @@ export function selectFocusedFloat(context: AppMachineContext): PaneId | null {
  */
 export function selectKeyTarget(context: AppMachineContext): string {
   return (
-    realPaneId(overlayPaneId(context.keyboardOwner) ?? context.activePaneId) ?? context.sessionName
+    realId(overlayPaneId(context.keyboardOwner) ?? context.activePaneId) ?? context.sessionName
   );
 }
 
@@ -131,20 +116,15 @@ export function selectVisibleSendAsks(context: AppMachineContext): PaneId[] {
  */
 function bindingPin(context: AppMachineContext): string {
   const overlay = overlayPaneId(context.keyboardOwner);
-  if (overlay) return pinPrefix(null, realPaneId(overlay));
-  let pane = realPaneId(context.activePaneId);
-  const liveWindow =
-    context.activeWindowId && !isPlaceholderId(context.activeWindowId)
-      ? context.activeWindowId
-      : null;
+  if (overlay) return pinPrefix(null, realId(overlay));
+  let pane = realId(context.activePaneId);
+  const liveWindow = realId(context.activeWindowId);
   const windowId = liveWindow ?? context.panes.find((p) => p.tmuxId === pane)?.windowId ?? null;
   if (!windowId) return pinPrefix(null, pane);
   const inWindow = (id: PaneId | null) =>
     id !== null && context.panes.some((p) => p.tmuxId === id && p.windowId === windowId);
   if (!inWindow(pane)) {
-    pane = realPaneId(
-      context.panes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null,
-    );
+    pane = realId(context.panes.find((p) => p.windowId === windowId && p.active)?.tmuxId ?? null);
   }
   return pinPrefix(windowId, pane);
 }

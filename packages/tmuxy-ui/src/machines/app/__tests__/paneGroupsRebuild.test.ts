@@ -1,10 +1,8 @@
 /**
  * A pane group follows its members: when one of them goes away in a model
  * update, the group is rebuilt from what is left — and a group of one is no
- * group. The two shapes a member can vanish in are both structural changes
- * (`structurallyChanged` in the TMUX_MODEL_UPDATE handler): the pane count
- * drops, or another pane arrives in the same update and the newcomer has no
- * previous self to compare with. Either way `buildGroupsFromPanes` runs again.
+ * group. A member can vanish in two shapes: the pane count drops, or another
+ * pane arrives in the same update. Either way the rebuild drops the group.
  *
  * `appMachine` is exported with stub actors, so it starts standalone — no
  * adapter, no tmux.

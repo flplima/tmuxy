@@ -13,7 +13,8 @@ import {
   rollbackOp,
   type RollbackEntry,
 } from '../../domain/store/model';
-import { type PredictContext, predict } from '../../domain/store/ops';
+import { DEFAULT_SHELL, predict } from '../../domain/store/ops';
+import type { PaneId } from '../../domain/ids';
 import {
   type OpError,
   type OpId,
@@ -25,13 +26,12 @@ import {
 
 export interface DispatchOptions {
   /**
-   * Override the wire-format command string sent to tmux. Use this when the
-   * caller has the full original command (including format strings like
-   * `-c "#{pane_current_path}"` or the `select-pane -t %N \;` prefix-pin
-   * the keyboardActor injects) and `toTmuxCommand(op)` would lose information.
-   * The op is still used for prediction; only the command string changes.
+   * The exact string to send in place of the op's own form, when the op was
+   * parsed from one: a binding keeps its pin and flags, `-c
+   * "#{pane_current_path}"` its format. The op is still what is predicted.
+   * Without it the op itself goes to the lane, which batches keystrokes.
    */
-  readonly command?: string;
+  readonly wire?: string;
 }
 
 export type StoreListener = (model: TmuxClientModel) => void;
@@ -81,7 +81,8 @@ export interface TmuxStore {
    */
   readonly subscribe: (listener: StoreListener) => () => void;
 
-  readonly setPredictContext: (ctx: PredictContext) => void;
+  /** The host's default shell (its greeting): what a predicted pane runs. */
+  readonly setDefaultShell: (shell: string) => void;
 
   /**
    * Hear every op a reconcile pass rolled back, whether the pass was driven
@@ -93,12 +94,19 @@ export interface TmuxStore {
 
 export function makeTmuxStore(): TmuxStore {
   let model: TmuxClientModel = EMPTY_MODEL;
-  let predictContext: PredictContext = { defaultShell: 'bash', paneActivationOrder: [] };
+  let defaultShell = DEFAULT_SHELL;
+  // Panes most recently active first, for the predictions that pick a pane as
+  // tmux would (Navigate's tie-break, where KillPane/KillWindow land).
+  let activation: PaneId[] = [];
   const listeners = new Set<StoreListener>();
   const rollbackListeners = new Set<RollbackListener>();
 
   const commit = (next: TmuxClientModel): void => {
     model = next;
+    const active = next.derived.activePaneId;
+    if (active && activation[0] !== active) {
+      activation = [active, ...activation.filter((id) => id !== active)];
+    }
     for (const l of listeners) {
       try {
         l(next);
@@ -146,7 +154,12 @@ export function makeTmuxStore(): TmuxStore {
 
   const applyOptimistic = (op: TmuxOp, command: string): OpId => {
     const opId = generateOpId();
-    const result = predict(op, model.derived, predictContext, opId);
+    const result = predict(
+      op,
+      model.derived,
+      { defaultShell, paneActivationOrder: activation },
+      opId,
+    );
     const pending = result
       ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
       : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
@@ -157,7 +170,7 @@ export function makeTmuxStore(): TmuxStore {
   const dispatchRemote = (
     transport: TmuxTransport['Type'],
     opId: OpId,
-    wire: TmuxOp,
+    sent: TmuxOp,
     command: string,
   ): Effect.Effect<OpId, OpError> =>
     Effect.suspend(() => {
@@ -165,11 +178,12 @@ export function makeTmuxStore(): TmuxStore {
       // the quick stale sweep, and a swept op would blink the optimistic UI
       // away and remount when the confirm finally lands.
       setStatus(opId, 'in-flight');
-      return transport.run(wire);
+      return transport.run(sent);
     }).pipe(
       Effect.matchEffect({
         onFailure: (err) => {
-          const { model: rolledBack, entry } = rollbackOp(model, opId, formatAdapterError(err));
+          const reason = formatAdapterError(err);
+          const { model: rolledBack, entry } = rollbackOp(model, opId, reason);
           commit(rolledBack);
           if (entry) {
             console.warn(`[TmuxStore] rolled back op ${opId} (${entry.op._tag}): ${entry.reason}`);
@@ -177,7 +191,7 @@ export function makeTmuxStore(): TmuxStore {
           return Effect.fail(
             err._tag === 'TmuxError'
               ? new OpRejectedByTmux({ opId, command, stderr: err.stderr })
-              : new OpTransportError({ opId, command, cause: err }),
+              : new OpTransportError({ opId, command, reason }),
           );
         },
         onSuccess: () =>
@@ -196,14 +210,14 @@ export function makeTmuxStore(): TmuxStore {
 
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        const command = opts?.command ?? toTmuxCommand(op);
+        const command = opts?.wire ?? toTmuxCommand(op);
         // Nothing to send (a paste that was all controls): an empty line on
         // the control-mode connection detaches it, and a pending op for it
         // would only wait out the stale sweep. Done before it starts; its id
         // is never recorded.
         if (command.trim() === '') return Effect.succeed(generateOpId());
-        const wire = opts?.command === undefined ? op : TmuxOp.RawCommand({ command });
-        return dispatchRemote(transport, applyOptimistic(op, command), wire, command);
+        const sent = opts?.wire === undefined ? op : TmuxOp.RawCommand({ command });
+        return dispatchRemote(transport, applyOptimistic(op, command), sent, command);
       }),
 
     reconcile: (state) => {
@@ -218,6 +232,7 @@ export function makeTmuxStore(): TmuxStore {
 
     clear: () => {
       appliedSeq = null;
+      activation = [];
       commit(EMPTY_MODEL);
     },
 
@@ -233,8 +248,8 @@ export function makeTmuxStore(): TmuxStore {
       };
     },
 
-    setPredictContext: (ctx) => {
-      predictContext = ctx;
+    setDefaultShell: (shell) => {
+      defaultShell = shell;
     },
 
     subscribeRollbacks: (listener) => {
