@@ -36,7 +36,6 @@ pub enum WindowStyle {
     Right,
 }
 
-/// Every style, in menu order.
 pub const ALL: [WindowStyle; 12] = [
     WindowStyle::Normal,
     WindowStyle::FullScreen,
@@ -53,7 +52,6 @@ pub const ALL: [WindowStyle; 12] = [
 ];
 
 impl WindowStyle {
-    /// The style a slug names, or `None` for a slug that is not a style.
     pub fn from_slug(slug: &str) -> Option<Self> {
         ALL.into_iter().find(|style| style.slug() == slug)
     }
@@ -77,12 +75,10 @@ impl WindowStyle {
     }
 }
 
-/// The slug naming a style, for the frontend's Window menu.
 pub fn slug_of(style: WindowStyle) -> String {
     style.slug().to_string()
 }
 
-/// A window's frame, as the platform counts pixels.
 type Frame = (PhysicalPosition<i32>, PhysicalSize<u32>);
 
 #[derive(Default)]
@@ -92,7 +88,6 @@ struct StyleRecord {
     normal: Option<Frame>,
 }
 
-/// The style each window is in. Tauri-managed state.
 #[derive(Clone, Default)]
 pub struct WindowStyles(Arc<RwLock<HashMap<String, StyleRecord>>>);
 
@@ -107,7 +102,6 @@ impl WindowStyles {
     }
 }
 
-/// Put a window into a style, remembering the frame it had while Normal.
 pub fn apply(window: &WebviewWindow, style: WindowStyle) -> tauri::Result<()> {
     let styles = window.state::<WindowStyles>().inner().clone();
     let label = window.label().to_string();
@@ -159,9 +153,8 @@ pub fn apply(window: &WebviewWindow, style: WindowStyle) -> tauri::Result<()> {
 
 const TRACE_TARGET: &str = "tmuxy_tauri_app::window_style";
 
-/// Wait for an animated window change to land: polls `done` for up to a
-/// second, which covers macOS's full-screen exit. Past that the style is
-/// applied anyway rather than lost.
+/// Polls `done` for up to 1.5 s, which covers macOS's full-screen exit. Past
+/// that the style is applied anyway rather than lost.
 fn settle(window: &WebviewWindow, done: impl Fn(&WebviewWindow) -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
     while !done(window) && std::time::Instant::now() < deadline {

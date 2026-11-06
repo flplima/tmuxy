@@ -2,18 +2,7 @@ use std::path::PathBuf;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Find the tmuxy-cli shell script.
-///
-/// Search order:
-/// 1. $TMUXY_SCRIPTS env var
-/// 2. ~/.local/share/tmuxy/bin/tmuxy-cli (materialized by ensure_bin_scripts;
-///    the canonical location whenever the .app has been launched at least
-///    once on this machine)
-/// 3. Relative to binary: ../../../packages/tmuxy-cli/bin/tmuxy-cli (dev layout)
-/// 4. Relative to binary: ../share/tmuxy/bin/tmuxy-cli (Linux installed layout)
-/// 5. Same directory as binary (flat fallback)
 fn find_cli_script() -> Option<PathBuf> {
-    // Env override
     if let Ok(dir) = std::env::var("TMUXY_SCRIPTS") {
         let p = PathBuf::from(dir).join("tmuxy-cli");
         if p.exists() {
@@ -29,7 +18,6 @@ fn find_cli_script() -> Option<PathBuf> {
         return Some(user_bin);
     }
 
-    // Relative to binary
     if let Ok(exe) = std::env::current_exe() {
         if let Some(bin_dir) = exe.parent() {
             // Dev layout: target/debug/tmuxy → repo/packages/tmuxy-cli/bin/tmuxy-cli
@@ -56,7 +44,6 @@ fn find_cli_script() -> Option<PathBuf> {
                 return Some(installed);
             }
 
-            // Flat layout: same directory as binary
             let flat = bin_dir.join("tmuxy-cli");
             if flat.exists() {
                 return Some(flat);
@@ -67,9 +54,6 @@ fn find_cli_script() -> Option<PathBuf> {
     None
 }
 
-/// Execute a CLI command by exec-ing the shell dispatcher.
-/// On Unix, this replaces the current process (no overhead).
-/// On non-Unix, falls back to spawning a child process.
 pub fn run_cli(args: Vec<String>) {
     let script = match find_cli_script() {
         Some(s) => s,
@@ -124,7 +108,6 @@ pub fn run_cli(args: Vec<String>) {
     }
 }
 
-/// Run the web server mode (delegates to tmuxy-server).
 pub fn run_server(args: Vec<String>) {
     // Match the standalone `tmuxy-server` binary: without a subscriber, every
     // server log — including the fatal dev-mode port-collision message — is
@@ -134,15 +117,12 @@ pub fn run_server(args: Vec<String>) {
     run_server_argv(args.into_iter().skip(1));
 }
 
-/// Run `tmuxy trace ...` (inspect/export a local action-trace file). The
-/// server's `Trace` subcommand; unlike `run_server`, the noun is kept so clap
-/// sees `trace` as the subcommand.
+/// Unlike `run_server`, the noun is kept so clap sees `trace` as the
+/// server's subcommand.
 pub fn run_trace(args: Vec<String>) {
     run_server_argv(args);
 }
 
-/// `tmuxy-server <args>`, parsed and run by the server crate on a runtime of
-/// this binary's own.
 fn run_server_argv(args: impl IntoIterator<Item = String>) {
     let argv = std::iter::once("tmuxy-server".to_string()).chain(args);
     tokio::runtime::Builder::new_multi_thread()

@@ -23,7 +23,6 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::monitor::{Monitor, TauriSink};
 use tmuxy_core::host::{RuntimeConfig, SessionRuntime};
 
-/// Label of the first window, created at startup.
 pub const MAIN_LABEL: &str = "main";
 
 /// How many windows a digit accelerator can reach — Cmd+1…Cmd+9.
@@ -41,7 +40,6 @@ pub struct GuiWindow {
 }
 
 impl GuiWindow {
-    /// The tmux session this window's client is attached to.
     pub fn session(&self) -> String {
         self.monitor.runtime.session()
     }
@@ -121,12 +119,10 @@ pub fn lookup_image(app: &AppHandle, path: &str) -> Option<tmuxy_core::control_m
         .find_map(|entry| entry.monitor.runtime.image(&pane, id))
 }
 
-/// Every GUI window, in Window-menu order.
 pub fn list_all<M: Manager<tauri::Wry>>(app: &M) -> Vec<GuiWindow> {
     app.state::<GuiWindows>().list()
 }
 
-/// One row of the Window menu.
 pub struct MenuEntry {
     pub label: String,
     pub index: usize,
@@ -134,7 +130,6 @@ pub struct MenuEntry {
     pub title: String,
 }
 
-/// The Window menu's rows: every open GUI window, lowest index first.
 pub fn list<M: Manager<tauri::Wry>>(app: &M) -> Vec<MenuEntry> {
     app.state::<GuiWindows>()
         .list()
@@ -185,7 +180,6 @@ pub fn monitor_for(window: &WebviewWindow) -> Result<Monitor, tmuxy_core::Comman
         })
 }
 
-/// Register the first window and start its monitor on the base session.
 pub fn open_main(app: &AppHandle) {
     let monitor = new_monitor(app, MAIN_LABEL, tmuxy_core::session::session_name());
     app.state::<GuiWindows>().add(GuiWindow {

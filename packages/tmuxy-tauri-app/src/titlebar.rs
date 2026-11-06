@@ -70,7 +70,6 @@ pub fn install(window: &WebviewWindow) {
     apply(window, None);
 }
 
-/// Record the status bar's rendered height and re-centre the traffic lights.
 #[cfg(target_os = "macos")]
 pub fn set_height(window: &WebviewWindow, height: f64, action_id: Option<&str>) {
     use tauri::Manager;
