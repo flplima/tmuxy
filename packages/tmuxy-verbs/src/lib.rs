@@ -89,6 +89,7 @@ pub enum Verb {
 }
 
 pub async fn run(verb: Verb) {
+    end_quietly_on_a_closed_stdout();
     match verb {
         #[cfg(feature = "native")]
         Verb::Trace(args) => trace_view::run(args),
@@ -110,6 +111,19 @@ pub async fn run(verb: Verb) {
         Verb::NewTab(args) => run_cli::tab_create(args),
         #[cfg(not(feature = "native"))]
         Verb::NotHere(argv) => not_here(&argv),
+    }
+}
+
+/// A verb is a shell tool: piped into `head`, it ends when the reader does.
+/// Rust starts with SIGPIPE ignored, so the next `println!` panicked with
+/// "failed printing to stdout: Broken pipe" instead. The server never runs a
+/// verb, so its sockets and children keep the ignored signal.
+fn end_quietly_on_a_closed_stdout() {
+    #[cfg(unix)]
+    // SAFETY: signal(2) only sets the process's disposition, and no code a
+    // verb runs installs a SIGPIPE handler of its own.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 

@@ -368,3 +368,21 @@ fn connect_requests_the_first_session_of_the_socket_or_tmuxy() {
     let bad = s.verb(&["connect", "--socket", "../x"]);
     assert_eq!(bad.status.code(), Some(2));
 }
+
+/// Piped into `head`, a verb ends when the reader does, as a shell tool
+/// does: killed by SIGPIPE, saying nothing. It panicked on its next write.
+#[cfg(unix)]
+#[test]
+fn a_verb_whose_reader_is_gone_ends_quietly() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = Command::new(env!("CARGO_BIN_EXE_tmuxy-server"))
+        .arg("skill")
+        .stdout(writer)
+        .output()
+        .expect("tmuxy-server runs");
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    assert_eq!(out.status.signal(), Some(libc::SIGPIPE));
+}
