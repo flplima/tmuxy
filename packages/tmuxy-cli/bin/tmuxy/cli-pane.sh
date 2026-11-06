@@ -16,12 +16,6 @@ _pane_t() {
   PANE_T=" -t $(shquote "$PANE_ID")"
 }
 
-# A mutation's answer: the JSON object under `--json`, else nothing.
-_pane_done() {
-  [ "$JSON_OUT" = true ] || return 0
-  json_ok "$@"
-}
-
 # --- Pane subcommands ---
 
 cmd_pane() {
@@ -62,7 +56,7 @@ cmd_pane() {
       else
         _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
       fi
-      _pane_done "paneId=$(json_string "$target")"
+      _done "paneId=$(json_string "$target")"
       ;;
 
     state)
@@ -96,7 +90,7 @@ cmd_pane() {
       else
         _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
       fi
-      _pane_done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
+      _done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
       ;;
 
     list)
@@ -159,20 +153,20 @@ cmd_pane() {
       done
       _pane_t "$target"
       _run_safe "killp$PANE_T"
-      _pane_done "paneId=$(json_string "$PANE_ID")"
+      _done "paneId=$(json_string "$PANE_ID")"
       ;;
 
     select)
       local arg="${1:-}"
       case "$arg" in
         --help|-h) echo "Usage: tmuxy pane select [-U|-D|-L|-R|target]"; return ;;
-        -U|-D|-L|-R) _run_safe "selectp $arg$CALLER_T"; _pane_done "direction=$(json_string "$arg")" ;;
+        -U|-D|-L|-R) _run_safe "selectp $arg$CALLER_T"; _done "direction=$(json_string "$arg")" ;;
         "") _die_usage "pane direction or target required" ;;
         -*) _die_usage "invalid argument '$arg'. Use -U, -D, -L, -R, or a target" ;;
         *)
           _pane_t "$arg"
           _run_safe "selectp$PANE_T"
-          _pane_done "paneId=$(json_string "$PANE_ID")"
+          _done "paneId=$(json_string "$PANE_ID")"
           ;;
       esac
       ;;
@@ -189,7 +183,7 @@ cmd_pane() {
       done
       [ -n "$args" ] || _die_usage "direction required (-U, -D, -L, -R)"
       _run_safe "resizep$CALLER_T$args"
-      _pane_done
+      _done
       ;;
 
     swap)
@@ -201,7 +195,7 @@ cmd_pane() {
       src="$(_resolve_target "$1")" || exit $?
       dst="$(_resolve_target "$2")" || exit $?
       _run_safe "swap-pane -s $(shquote "$src") -t $(shquote "$dst")"
-      _pane_done "src=$(json_string "$src")" "dst=$(json_string "$dst")"
+      _done "src=$(json_string "$src")" "dst=$(json_string "$dst")"
       ;;
 
     zoom)
@@ -209,7 +203,7 @@ cmd_pane() {
         --help|-h) echo "Usage: tmuxy pane zoom"; return ;;
       esac
       _run_safe "resizep -Z$CALLER_T"
-      _pane_done
+      _done
       ;;
 
     break)
@@ -299,7 +293,7 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group add"; return ;;
       esac
       _run_shell "bash '$SCRIPTS_DIR/pane-group' add #{pane_id} #{pane_width} #{pane_height}"
-      _pane_done
+      _done
       ;;
 
     close)
@@ -311,7 +305,7 @@ cmd_pane_group() {
       local target='#{pane_id}'
       [ -z "${1:-}" ] || target="$(shquote "$1")"
       _run_shell "bash '$SCRIPTS_DIR/pane-group' close $target"
-      _pane_done
+      _done
       ;;
 
     switch)
@@ -320,7 +314,7 @@ cmd_pane_group() {
       esac
       [ -n "${1:-}" ] || _die_usage "Usage: tmuxy pane group switch <pane_id>"
       _run_shell "bash '$SCRIPTS_DIR/pane-group' switch $(shquote "$1")"
-      _pane_done
+      _done
       ;;
 
     move)
@@ -329,7 +323,7 @@ cmd_pane_group() {
       esac
       [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group move <%id> <index>"
       _run_shell "bash '$SCRIPTS_DIR/pane-group' move $(shquote "$1") $(shquote "$2")"
-      _pane_done
+      _done
       ;;
 
     join)
@@ -338,7 +332,7 @@ cmd_pane_group() {
       esac
       [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"
       _run_shell "bash '$SCRIPTS_DIR/pane-group' join $(shquote "$1") $(shquote "$2") $(shquote "${3:-}")"
-      _pane_done
+      _done
       ;;
 
     leave)
@@ -350,7 +344,7 @@ cmd_pane_group() {
       [ -n "$pane_id" ] || _die_usage "no pane to take out of its group (pass %id or run inside a pane)"
       local mode="${1:---tab}" beside="${2:-}" dir="${3:-right}"
       _run_shell "bash '$SCRIPTS_DIR/pane-group' leave $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
-      _pane_done
+      _done
       ;;
 
     next|prev)
@@ -358,7 +352,7 @@ cmd_pane_group() {
         --help|-h) echo "Usage: tmuxy pane group $sub"; return ;;
       esac
       _run_shell "bash '$SCRIPTS_DIR/pane-group' $sub #{pane_id}"
-      _pane_done
+      _done
       ;;
 
     all)
@@ -370,7 +364,7 @@ cmd_pane_group() {
       local anchor="${1:-}"
       if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
       _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' all $anchor"
-      _pane_done
+      _done
       ;;
 
     ungroup)
@@ -382,7 +376,7 @@ cmd_pane_group() {
       local anchor="${1:-}"
       if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
       _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' ungroup $anchor"
-      _pane_done
+      _done
       ;;
 
     --help|-h|"")

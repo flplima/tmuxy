@@ -28,11 +28,8 @@ TMUXY_VERSION="${TMUXY_VERSION:-0.1.4}"
 # pane we are in, else the dedicated `tmuxy` socket — never the user's default
 # tmux server), `_tmux`/`_run_safe`, `shquote` and `find_server_cmd` are
 # shared with the bin/tmuxy scripts, so they live in their `_lib`. Every tmux call in this
-# script goes through `_tmux`, every mutation through `_run_safe`. `_lib`
-# resolves SCRIPTS_DIR from its own `$0` (this file, not the scripts
-# directory), so restore ours afterwards.
+# script goes through `_tmux`, every mutation through `_run_safe`.
 source "$SCRIPTS_DIR/_lib"
-SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # The real stdout, for a JSON failure raised inside a `$(…)` (`_json_fd`).
 exec 3>&1
@@ -258,7 +255,7 @@ usage_session() {
 Usage: tmuxy session <command> [args...]
 
 Commands:
-  switch        Interactive session switcher [--float]
+  switch        Interactive session switcher
   connect       Connect to a server and attach <dest> [--socket NAME]
   save          Snapshot a session now [name] [--scrollback N]
   restore       Rebuild a session from its snapshot <name> [--run]

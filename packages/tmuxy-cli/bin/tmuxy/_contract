@@ -41,6 +41,12 @@ json_ok() {
   printf '%s}\n' "$out"
 }
 
+# A mutation's answer: the JSON object under `--json`, else nothing.
+_done() {
+  [ "$JSON_OUT" = true ] || return 0
+  json_ok "$@"
+}
+
 # Where a JSON failure goes: the real stdout. tmuxy-cli keeps it open as fd 3,
 # since a failure raised inside a `$(…)` — resolving a target, say — would
 # otherwise be captured by the substitution and never seen.

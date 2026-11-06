@@ -37,12 +37,6 @@ _tab_t() {
   TAB_T=" -t $(shquote "$TAB_ID")"
 }
 
-# A mutation's answer: the JSON object under `--json`, else nothing.
-_done() {
-  [ "$JSON_OUT" = true ] || return 0
-  json_ok "$@"
-}
-
 # --- Tab subcommands ---
 
 cmd_tab() {

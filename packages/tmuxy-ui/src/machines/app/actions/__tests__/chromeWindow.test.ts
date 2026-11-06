@@ -76,7 +76,7 @@ describe('chrome window creation', () => {
     const cmd = toTmuxCommand(
       TmuxOp.OpenFloat({
         name: 'session',
-        run: 'tmuxy session switch --float',
+        run: 'tmuxy session switch',
         index: freeWindowIndex(windows),
         splitFrom: null,
       }),

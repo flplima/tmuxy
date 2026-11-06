@@ -214,7 +214,6 @@ const cases: Array<[TmuxOp, string]> = [
   [TmuxOp.RenameSession({ session: 'work', name: 'play' }), "rename-session -t work -- 'play'"],
   [TmuxOp.SourceConfig(), 'source-file $TMUXY_ENTRY_CONF'],
   [TmuxOp.ClearFocusRequest({ session: 'tmuxy' }), 'set-option -u -t tmuxy @tmuxy-focus-request'],
-  [TmuxOp.ClearSwitchRequest(), 'set-environment -g -u TMUXY_SWITCH_TO'],
 
   // Client-side
   [renameWindowPrompt(), 'command-prompt -I "#W" "rename-window -- \\"%%%\\""'],

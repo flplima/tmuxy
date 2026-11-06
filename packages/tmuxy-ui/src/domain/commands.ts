@@ -215,8 +215,6 @@ export type TmuxOp = Data.TaggedEnum<{
   SourceConfig: NoFields;
   /** Clear the one-shot focus request a shell helper queued. */
   ClearFocusRequest: { readonly session: string };
-  /** Clear the session switch a shell helper queued. */
-  ClearSwitchRequest: NoFields;
 
   // ── Plugins ────────────────────────────────────────────
   /** A plugin's action on a pane (`tmuxy plugin action`); `token` carries a selection. */
@@ -424,8 +422,6 @@ export function toTmuxCommand(op: TmuxOp): string {
       return `source-file ${CONFIG_FILE}`;
     case 'ClearFocusRequest':
       return `set-option -u -t ${target(op.session)} @tmuxy-focus-request`;
-    case 'ClearSwitchRequest':
-      return 'set-environment -g -u TMUXY_SWITCH_TO';
     case 'PluginAction':
       return pluginAction(op);
     case 'CommandPrompt':

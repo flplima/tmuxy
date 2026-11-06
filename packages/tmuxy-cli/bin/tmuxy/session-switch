@@ -1,20 +1,15 @@
 #!/bin/bash
-# session-switch — Interactive session switcher
-#
-# Standalone mode (default): switch tmux client to selected session
-# Float mode (--float): set TMUXY_SWITCH_TO env var and exit (caller handles switch)
+# session-switch — Interactive session switcher: switch the tmux client to
+# the selected session.
 set -euo pipefail
 source "${0%/*}/_lib"
 
-float_mode=false
 for arg in "$@"; do
   case "$arg" in
-    --float) float_mode=true ;;
     --help|-h)
-      echo "Usage: tmuxy session switch [--float]"
+      echo "Usage: tmuxy session switch"
       echo ""
       echo "Interactive session switcher."
-      echo "  --float   Set TMUXY_SWITCH_TO env var instead of switching directly"
       exit 0
       ;;
   esac
@@ -70,12 +65,6 @@ fi
 
 echo "$selected"
 
-if $float_mode; then
-  # `shquote`, not bare single quotes: a session name the user picked can
-  # contain one, and `run-shell` expands `#(...)` in the string it is handed.
-  _run_safe "set-environment -g TMUXY_SWITCH_TO $(shquote "$selected")"
-else
-  # switch-client acts on the calling client, so it must stay a direct call —
-  # run-shell would run without a client context and can't switch anything.
-  _tmux switch-client -t "$selected"
-fi
+# switch-client acts on the calling client, so it must stay a direct call —
+# run-shell would run without a client context and can't switch anything.
+_tmux switch-client -t "$selected"
