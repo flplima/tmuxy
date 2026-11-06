@@ -38,7 +38,6 @@ use tracing::{debug, info, warn};
 
 use crate::state::AppState;
 use store::{Store, Subscription};
-pub(crate) use watch::is_version;
 use watch::{Notice, Watch};
 
 /// How often the watcher reads the panes while a device is subscribed.

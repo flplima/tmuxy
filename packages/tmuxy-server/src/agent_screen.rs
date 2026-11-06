@@ -78,11 +78,12 @@ fn parse_rows(listing: &str) -> Vec<Row> {
         .collect()
 }
 
-/// Whether the pane runs one of the agents tmuxy installs hooks for. Claude
-/// Code runs as `…/claude/versions/<version>`, so a bare version is Claude.
+/// Whether the pane runs one of the agents tmuxy installs hooks for.
 fn is_agent(command: &str) -> bool {
-    matches!(command, "claude" | "codex" | "agy" | "antigravity")
-        || crate::push::is_version(command)
+    matches!(
+        tmuxy_core::program::program_name(command),
+        "claude" | "codex" | "agy" | "antigravity"
+    )
 }
 
 /// Whether an option's line: the cursor or a number, then `N.`.

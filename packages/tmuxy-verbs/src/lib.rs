@@ -5,8 +5,10 @@
 //! being involved.
 
 mod agents;
+mod cli_json;
 mod config_cli;
 mod plugin_cli;
+mod send_cli;
 mod session_cli;
 mod trace_view;
 
@@ -34,6 +36,11 @@ pub enum Verb {
     /// The config verbs whose work is a file tmuxy-core owns: `paths`,
     /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
     Config(config_cli::ConfigArgs),
+    /// Type keys, or paste text, into a pane, asking the user there first
+    /// when it is not the caller's own. Backs `tmuxy pane send` and
+    /// `tmuxy pane paste`, which resolve the target and the caller.
+    #[command(hide = true)]
+    Send(send_cli::SendArgs),
 }
 
 /// Run one verb to completion.
@@ -45,5 +52,6 @@ pub async fn run(verb: Verb) {
         Verb::Agent(args) => agents::run(args),
         Verb::Plugin(args) => plugin_cli::run(args),
         Verb::Config(args) => config_cli::run(args),
+        Verb::Send(args) => send_cli::run(args).await,
     }
 }

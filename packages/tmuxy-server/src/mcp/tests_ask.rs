@@ -1,60 +1,19 @@
-//! Typing into a pane for an MCP client: the question, when it is skipped,
-//! and how it ends — against a monitor that answers like tmux.
+//! Typing into a pane for an MCP client, against a monitor that answers like
+//! tmux: the endpoint's own part of the ask protocol (`tmuxy_core::ask` holds
+//! the rest, and its tests): the commands it sends on the control-mode
+//! connection, `mcp` on the allow list, and a question taken down when the
+//! client hangs up.
 
-use super::ask::{self, encode_question, program_name, send_keys_command, SendRules};
+use super::ask;
 use super::tmux::Tmux;
 use crate::state::AppState;
 use base64::Engine as _;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmuxy_core::control_mode::{CommandReply, MonitorCommand};
 use tmuxy_core::session::SessionName;
 use tmuxy_core::PaneId;
-
-#[test]
-fn the_question_is_skipped_only_when_the_user_said_so() {
-    let pane = PaneId::parse("%3").unwrap();
-    let rules = |send_ask: &str, allow: &str, allow_into: &str, program: &str| SendRules {
-        send_ask: send_ask.into(),
-        allow: allow.into(),
-        allow_into: allow_into.into(),
-        program: program.into(),
-        pane_state: String::new(),
-    };
-    let skips = |r: SendRules, caller: &str| r.skip_question(caller, &pane);
-    assert!(!skips(rules("", "", "", "zsh"), "claude-code"));
-    assert!(!skips(
-        rules("on", "codex,%4", "claude,agy", "zsh"),
-        "claude-code"
-    ));
-    assert!(skips(rules("off", "", "", "zsh"), "claude-code"));
-    assert!(skips(
-        rules("", "codex, claude-code", "", "zsh"),
-        "claude-code"
-    ));
-    assert!(skips(rules("", "%3", "", "zsh"), "claude-code"));
-    assert!(skips(rules("", "mcp", "", "zsh"), "cursor"));
-    // Into an agent's prompt: the program in the pane, not who sends.
-    assert!(skips(rules("", "", "claude, agy", "agy"), "cursor"));
-    assert!(skips(rules("", "", "claude,agy", "claude"), "cursor"));
-    assert!(!skips(rules("", "", "claude,agy", ""), "cursor"));
-}
-
-/// tmux names a pane's program by the file it runs, and Claude Code's is
-/// its version; the allow list says `claude`.
-#[test]
-fn a_pane_running_claude_code_is_named_claude() {
-    assert_eq!(program_name("2.1.314"), "claude");
-    assert_eq!(program_name("agy"), "agy");
-    assert_eq!(program_name("zsh"), "zsh");
-    assert_eq!(program_name("python3.12"), "python3.12");
-    assert_eq!(program_name(""), "");
-    let parsed = SendRules::parse("on\t\tclaude,agy\t2.1.314\tidle\n");
-    assert_eq!(parsed.program, "claude");
-    assert_eq!(parsed.allow_into, "claude,agy");
-    assert_eq!(parsed.pane_state, "idle");
-}
 
 /// What a fake monitor saw, in order, and what it holds of the pane's
 /// options.
@@ -98,10 +57,9 @@ fn fake_monitor(reply: Option<&'static str>) -> (Tmux, Arc<Mutex<FakePane>>) {
                         part.strip_prefix("set-option -p -t %3 @tmuxy-pane-state ")
                     {
                         p.state = value.trim_matches('\'').to_string();
-                    } else if let Some(value) =
-                        part.strip_prefix("set-option -p -t %3 @tmuxy-ask '")
+                    } else if let Some(value) = part.strip_prefix("set-option -p -t %3 @tmuxy-ask ")
                     {
-                        p.ask = value.trim_end_matches('\'').to_string();
+                        p.ask = value.to_string();
                         let question: Value = serde_json::from_slice(
                             &base64::engine::general_purpose::STANDARD
                                 .decode(&p.ask)
@@ -147,12 +105,11 @@ async fn keys_land_only_after_the_user_allows_them_and_the_question_is_down() {
 
     let p = pane.lock().unwrap();
     let position = |needle: &str| p.log.iter().position(|c| c.contains(needle));
-    let asked = position("@tmuxy-ask '").expect("the question went up");
+    let asked = position("set-option -p -t %3 @tmuxy-ask ").expect("the question went up");
     let taken_down = position("set-option -pu -t %3 @tmuxy-ask ;").expect("and came down");
     let typed = position("send-keys").expect("the keys were sent");
     assert!(asked < taken_down && taken_down < typed, "{:?}", p.log);
-    assert_eq!(p.log[typed], send_keys_command(&id, &keys()));
-    assert_eq!(p.log[typed], "send-keys -t %3 -- 'npm test' 'Enter'");
+    assert_eq!(p.log[typed], "send-keys -t %3 -- \"npm test\" Enter");
     assert!(p.ask.is_empty());
 }
 
@@ -166,10 +123,9 @@ async fn the_target_pane_needs_the_user_while_asked_and_gets_its_state_back() {
     let id = PaneId::parse("%3").unwrap();
     let _ = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5)).await;
     let p = pane.lock().unwrap();
-    let marked = p
-        .log
-        .iter()
-        .position(|c| c.contains("@tmuxy-ask '") && c.contains("@tmuxy-pane-state needs-input"));
+    let marked = p.log.iter().position(|c| {
+        c.contains("set-option -p -t %3 @tmuxy-ask ") && c.contains("@tmuxy-pane-state needs-input")
+    });
     assert!(
         marked.is_some(),
         "the target is marked with the question: {:?}",
@@ -191,12 +147,26 @@ async fn a_send_into_an_allowed_program_asks_nothing() {
     assert_eq!(sent["asked"], false);
     let p = pane.lock().unwrap();
     assert!(
-        !p.log.iter().any(|c| c.contains("@tmuxy-ask '")),
+        !p.log
+            .iter()
+            .any(|c| c.contains("set-option -p -t %3 @tmuxy-ask ")),
         "{:?}",
         p.log
     );
     assert!(p.log.iter().any(|c| c.starts_with("send-keys -t %3")));
     assert!(p.log.iter().any(|c| c.contains("@tmuxy-pane-state unread")));
+}
+
+/// `@tmuxy-send-allow mcp` allows every MCP client, whatever it calls itself.
+#[tokio::test]
+async fn mcp_on_the_allow_list_lets_every_client_type() {
+    let (tmux, pane) = fake_monitor(None);
+    pane.lock().unwrap().rules = "on\tmcp\t\tzsh\t".into();
+    let id = PaneId::parse("%3").unwrap();
+    let sent = ask::send_keys(&tmux, &id, &keys(), "cursor", Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(sent["asked"], false);
 }
 
 #[tokio::test]
@@ -247,19 +217,4 @@ async fn a_client_that_hangs_up_takes_its_question_down() {
         p.log
     );
     assert!(!p.log.iter().any(|c| c.contains("send-keys")));
-}
-
-#[test]
-fn the_question_carries_who_asks_and_what_they_would_type() {
-    let encoded = encode_question("3-mcp-ab", "claude-code", &keys());
-    let decoded: Value = serde_json::from_slice(
-        &base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        decoded,
-        json!({ "token": "3-mcp-ab", "caller": "claude-code", "keys": ["npm test", "Enter"] })
-    );
 }

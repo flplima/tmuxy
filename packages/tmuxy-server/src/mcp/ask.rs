@@ -1,118 +1,37 @@
-//! Typing into a pane for an MCP client: only once the user allows it there.
-//!
-//! The same question `tmuxy pane send -t` asks (`packages/tmuxy-cli/bin/tmuxy/send`
-//! holds the protocol's other copy, the UI the answering end): the target
-//! pane's `@tmuxy-ask` carries base64 of `{token, caller, keys}`, the UI blurs
-//! the pane and asks "`<caller>` wants to send `<keys>`. Allow?", and writes
-//! `<token>:yes` or `<token>:no` to `@tmuxy-ask-answer`. The keys go on yes,
-//! nothing goes on no, and the question comes down however the wait ends —
-//! the HTTP request dropped included.
-//!
-//! `@tmuxy-send-ask off` skips the question, and so does an
-//! `@tmuxy-send-allow` entry naming the client (as it introduced itself), the
-//! target pane, or `mcp` for every MCP client, and an `@tmuxy-send-allow-into`
-//! entry naming the program in front in the target pane (`claude,agy`: an
-//! agent's prompt, which an agent may type into). A send that skips it still
-//! marks the pane unread, so nothing is typed into a pane unseen.
+//! Typing into a pane for an MCP client: only once the user allows it there,
+//! by the protocol `tmuxy_core::ask` holds for every sender. What is the
+//! endpoint's own: the client is named as it introduced itself, `mcp` in an
+//! `@tmuxy-send-allow` list allows every MCP client, and the question comes
+//! down however the wait ends — the HTTP request dropped included.
 
-use base64::Engine as _;
 use serde_json::{json, Value};
 use std::time::Duration;
-use tmuxy_core::control_mode::MonitorCommandSender;
-use tmuxy_core::{tmux_quote, transport, CommandError, ErrorKind, PaneId};
-use tokio::time::Instant;
+use tmuxy_core::argv::control_line;
+use tmuxy_core::ask::{self, Argv, Deadline, Question, SendRules};
+use tmuxy_core::{CommandError, PaneId};
 
 use super::tmux::Tmux;
-
-/// How often the answer is read. tmux announces no change to a user option,
-/// and this only runs while a question is on screen.
-const POLL_INTERVAL: Duration = Duration::from_millis(150);
-
-/// How long a send waits its turn behind another sender's question before
-/// taking it for abandoned, as the CLI does.
-const PENDING_LIMIT: Duration = Duration::from_secs(60);
 
 /// The allow-list word for every MCP client.
 const ANY_MCP_CLIENT: &str = "mcp";
 
-/// The options a send reads off its target pane, in one `display-message`.
-const SEND_RULES_FORMAT: &str =
-    "#{@tmuxy-send-ask}\t#{@tmuxy-send-allow}\t#{@tmuxy-send-allow-into}\t#{pane_current_command}\t#{@tmuxy-pane-state}";
-
-/// What decides whether a send into a pane asks first.
-#[derive(Debug, Default, PartialEq)]
-pub(super) struct SendRules {
-    /// `@tmuxy-send-ask`: `off` never asks.
-    pub send_ask: String,
-    /// `@tmuxy-send-allow`: callers and panes that never ask.
-    pub allow: String,
-    /// `@tmuxy-send-allow-into`: programs a pane may be running for a send
-    /// into it not to ask.
-    pub allow_into: String,
-    /// The program in front in the target pane, by its name.
-    pub program: String,
-    /// `@tmuxy-pane-state`, which a send that does not ask marks unread.
-    pub pane_state: String,
-}
-
-impl SendRules {
-    pub(super) fn parse(line: &str) -> Self {
-        let mut fields = line.trim_end_matches('\n').split('\t').map(str::to_string);
-        let mut next = || fields.next().unwrap_or_default();
-        Self {
-            send_ask: next(),
-            allow: next(),
-            allow_into: next(),
-            program: program_name(&next()),
-            pane_state: next(),
-        }
+impl ask::Tmux for Tmux {
+    async fn read(&self, argv: Argv) -> Result<String, CommandError> {
+        Tmux::read(self, &control_line(&argv)).await
     }
 
-    /// Whether the question is skipped: asking is off, the allow list names
-    /// the caller, the pane or every MCP client, or the program in the pane
-    /// is one sends may go into.
-    pub(super) fn skip_question(&self, caller: &str, pane: &PaneId) -> bool {
-        self.send_ask == "off"
-            || entries(&self.allow)
-                .any(|entry| entry == caller || entry == ANY_MCP_CLIENT || entry == pane.as_str())
-            || (!self.program.is_empty() && entries(&self.allow_into).any(|e| e == self.program))
+    async fn mutate(&self, commands: Vec<Argv>) -> Result<(), CommandError> {
+        let line = commands
+            .iter()
+            .map(|argv| control_line(argv))
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        Tmux::mutate(self, &line).await.map(drop)
     }
-}
 
-/// A comma list's entries, spaces dropped, empty ones skipped.
-fn entries(list: &str) -> impl Iterator<Item = String> + '_ {
-    list.split(',')
-        .map(|entry| entry.replace(' ', ""))
-        .filter(|entry| !entry.is_empty())
-}
-
-/// A program as an allow list names it. Claude Code runs as
-/// `…/claude/versions/<version>`, so tmux reports a bare version (`2.1.314`)
-/// for it; the CLI's `send` reads it the same way.
-pub(super) fn program_name(command: &str) -> String {
-    let is_version = command.contains('.')
-        && command
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()));
-    if is_version {
-        "claude".to_string()
-    } else {
-        command.to_string()
+    async fn keep_alive(&self) {
+        Tmux::keep_alive(self).await;
     }
-}
-
-/// `@tmuxy-ask`'s value: base64 of the question, so the free-text keys survive
-/// a comma-separated `list-panes`.
-pub(super) fn encode_question(token: &str, caller: &str, keys: &[String]) -> String {
-    let payload = json!({ "token": token, "caller": caller, "keys": keys });
-    base64::engine::general_purpose::STANDARD.encode(payload.to_string())
-}
-
-/// The keys as one `send-keys`: an explicit target, and `--` so a key that
-/// looks like a flag is typed.
-pub(super) fn send_keys_command(pane: &PaneId, keys: &[String]) -> String {
-    let keys: Vec<String> = keys.iter().map(|k| tmux_quote(k)).collect();
-    format!("send-keys -t {pane} -- {}", keys.join(" "))
 }
 
 /// Type `keys` into `pane`, asking the user first unless the options say not
@@ -125,228 +44,47 @@ pub(super) async fn send_keys(
     caller: &str,
     timeout: Duration,
 ) -> Result<Value, CommandError> {
-    let rules = SendRules::parse(
-        &tmux
-            .read(&format!(
-                "display-message -p -t {pane} {}",
-                tmux_quote(SEND_RULES_FORMAT)
-            ))
-            .await?,
-    );
-
-    if rules.skip_question(caller, pane) {
-        tmux.mutate(&send_keys_command(pane, keys)).await?;
-        if rules.pane_state.is_empty() || rules.pane_state == "idle" {
-            tmux.mutate(&format!("set-option -p -t {pane} @tmuxy-pane-state unread"))
-                .await?;
-        }
+    let rules = SendRules::read(tmux, pane).await?;
+    if rules.skip_question(&[caller, ANY_MCP_CLIENT], pane) {
+        ask::Tmux::mutate(tmux, vec![ask::send_keys_argv(pane, keys)]).await?;
+        rules.mark_unread(tmux, pane).await?;
         return Ok(json!({ "paneId": pane, "sent": true, "asked": false }));
     }
 
-    let deadline = Instant::now() + timeout;
-    wait_for_other_question(tmux, pane, deadline).await?;
-
-    let token = format!(
-        "{}-mcp-{:016x}{:016x}",
-        pane.number(),
-        super::random_u64(),
-        super::random_u64()
-    );
-    let question = encode_question(&token, caller, keys);
+    let deadline = Some(Deadline::after(timeout));
+    ask::wait_turn(tmux, pane, deadline).await?;
+    let question = Question::new(pane, ANY_MCP_CLIENT, caller, keys, &rules);
     // Armed before the question goes up: a request dropped from here on
-    // still takes it down. A mark an abandoned question left behind is not
-    // the pane's own state.
-    let guard = QuestionGuard {
-        tx: Some(tmux.channel().clone()),
-        asked: Asked {
-            session: tmux.session().to_string(),
-            pane: pane.clone(),
-            question: question.clone(),
-            prior_state: Some(rules.pane_state)
-                .filter(|state| state != NEEDS_INPUT)
-                .unwrap_or_default(),
-        },
-    };
-    // Answer first, question second: a stale answer left by an earlier
-    // question would otherwise be read as this one's. The pane the question
-    // is over is the one waiting on the user, so it says so; the sender has
-    // no pane here, and the CLI's leaves its own alone too.
-    tmux.mutate(&format!(
-        "set-option -pu -t {pane} @tmuxy-ask-answer ; set-option -p -t {pane} @tmuxy-ask {} ; \
-         set-option -p -t {pane} @tmuxy-pane-state {NEEDS_INPUT}",
-        tmux_quote(&question)
-    ))
-    .await?;
-
-    let answer = wait_for_answer(tmux, pane, &token, deadline, timeout).await;
-    // Down before the keys land, so they are never typed under the overlay.
+    // still takes it down.
+    let guard = QuestionGuard(Some((tmux.clone(), question.clone())));
+    question.put_up(tmux).await?;
+    let answer = question.answer(tmux, deadline).await;
     guard.take_down().await;
-    match answer? {
-        Answer::Yes => {
-            tmux.mutate(&send_keys_command(pane, keys)).await?;
-            Ok(json!({ "paneId": pane, "sent": true, "asked": true }))
-        }
-        Answer::No => Err(CommandError::invalid(format!(
-            "declined in {pane}; nothing sent"
-        ))),
-    }
+    answer?;
+    ask::Tmux::mutate(tmux, vec![ask::send_keys_argv(pane, keys)]).await?;
+    Ok(json!({ "paneId": pane, "sent": true, "asked": true }))
 }
 
-enum Answer {
-    Yes,
-    No,
-}
-
-/// One question at a time per pane: wait for another sender's to be
-/// answered, until the deadline, or until `PENDING_LIMIT` says it was
-/// abandoned.
-async fn wait_for_other_question(
-    tmux: &Tmux,
-    pane: &PaneId,
-    deadline: Instant,
-) -> Result<(), CommandError> {
-    let abandoned = Instant::now() + PENDING_LIMIT;
-    loop {
-        let asking = tmux
-            .read(&format!("display-message -p -t {pane} '#{{@tmuxy-ask}}'"))
-            .await?;
-        if asking.trim().is_empty() || Instant::now() >= abandoned {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(CommandError::unavailable(format!(
-                "{pane} is still asking another sender's question; nothing sent"
-            )));
-        }
-        tmux.keep_alive().await;
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-async fn wait_for_answer(
-    tmux: &Tmux,
-    pane: &PaneId,
-    token: &str,
-    deadline: Instant,
-    timeout: Duration,
-) -> Result<Answer, CommandError> {
-    let yes = format!("{token}:yes");
-    let no = format!("{token}:no");
-    loop {
-        // A pane that is gone cannot be answered in: tmux fails the read.
-        let answer = tmux
-            .read(&format!(
-                "display-message -p -t {pane} '#{{@tmuxy-ask-answer}}'"
-            ))
-            .await
-            .map_err(|e| match e.kind {
-                ErrorKind::Tmux => CommandError::invalid(format!("{pane} is gone; nothing sent")),
-                _ => e,
-            })?;
-        let answer = answer.trim();
-        if answer == yes {
-            return Ok(Answer::Yes);
-        }
-        if answer == no {
-            return Ok(Answer::No);
-        }
-        if Instant::now() >= deadline {
-            return Err(CommandError::unavailable(format!(
-                "no answer from {pane} after {}s; nothing sent",
-                timeout.as_secs()
-            )));
-        }
-        tmux.keep_alive().await;
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-/// The `@tmuxy-pane-state` a pane waiting on the user's answer shows.
-const NEEDS_INPUT: &str = "needs-input";
-
-/// A question this sender put up, and what to put back when it comes down.
-struct Asked {
-    session: String,
-    pane: PaneId,
-    question: String,
-    /// The target's `@tmuxy-pane-state` before it was marked `needs-input`.
-    prior_state: String,
-}
-
-/// Takes the question off the pane, and its `needs-input` mark, when told to
-/// or when dropped — a client that hangs up mid-question must not leave one
-/// on screen that nothing is listening to.
-struct QuestionGuard {
-    tx: Option<MonitorCommandSender>,
-    asked: Asked,
-}
+/// Takes the question off the pane when told to or when dropped — a client
+/// that hangs up mid-question must not leave one on screen that nothing is
+/// listening to.
+struct QuestionGuard(Option<(Tmux, Question)>);
 
 impl QuestionGuard {
     async fn take_down(mut self) {
-        if let Some(tx) = self.tx.take() {
-            let asked = std::mem::replace(&mut self.asked, Asked::taken());
-            take_down(tx, asked).await;
-        }
-    }
-}
-
-impl Asked {
-    /// What a guard holds once its question has been handed on.
-    fn taken() -> Self {
-        Self {
-            session: String::new(),
-            pane: PaneId::from_number(0),
-            question: String::new(),
-            prior_state: String::new(),
+        if let Some((tmux, question)) = self.0.take() {
+            question.take_down(&tmux).await;
         }
     }
 }
 
 impl Drop for QuestionGuard {
     fn drop(&mut self) {
-        let Some(tx) = self.tx.take() else { return };
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        let Some((tmux, question)) = self.0.take() else {
             return;
         };
-        let asked = std::mem::replace(&mut self.asked, Asked::taken());
-        runtime.spawn(take_down(tx, asked));
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move { question.take_down(&tmux).await });
+        }
     }
-}
-
-/// Only this sender's own question comes down: one asked over it after
-/// `PENDING_LIMIT` belongs to that sender. The mark comes down only while it
-/// is still this sender's: a state the pane set itself since (an agent's
-/// hook) is newer news and stays.
-async fn take_down(tx: MonitorCommandSender, asked: Asked) {
-    let Asked {
-        session,
-        pane,
-        question,
-        prior_state,
-    } = asked;
-    let read = |format: &str| {
-        let command = format!("display-message -p -t {pane} {}", tmux_quote(format));
-        let tx = tx.clone();
-        async move { transport::query(&tx, &command).await.unwrap_or_default() }
-    };
-    let mut commands = Vec::new();
-    if read("#{@tmuxy-ask}").await.trim() == question {
-        commands.push(format!(
-            "set-option -pu -t {pane} @tmuxy-ask ; set-option -pu -t {pane} @tmuxy-ask-answer"
-        ));
-    }
-    if read("#{@tmuxy-pane-state}").await.trim() == NEEDS_INPUT {
-        commands.push(if prior_state.is_empty() {
-            format!("set-option -pu -t {pane} @tmuxy-pane-state")
-        } else {
-            format!(
-                "set-option -p -t {pane} @tmuxy-pane-state {}",
-                tmux_quote(&prior_state)
-            )
-        });
-    }
-    if commands.is_empty() {
-        return;
-    }
-    let _ = transport::run_with_output(&tx, &commands.join(" ; "), &session, None).await;
 }

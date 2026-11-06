@@ -70,11 +70,8 @@ impl Notice {
     fn for_row(row: &PaneRow, host: &str) -> Self {
         let name = if !row.label.is_empty() {
             row.label.clone()
-        } else if is_version(&row.command) {
-            // Claude Code runs as `…/claude/versions/<version>`.
-            "claude".to_string()
         } else {
-            row.command.clone()
+            tmuxy_core::program::program_name(&row.command).to_string()
         };
         let title = match row.state.as_str() {
             "error" => format!("{name} stopped with an error"),
@@ -101,13 +98,6 @@ impl Notice {
             pane_id: row.pane_id.clone(),
         }
     }
-}
-
-pub(crate) fn is_version(command: &str) -> bool {
-    command.contains('.')
-        && command
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// A session name as a query value; names are held to a URL-safe alphabet

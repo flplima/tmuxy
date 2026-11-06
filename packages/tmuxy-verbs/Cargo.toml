@@ -23,5 +23,8 @@ tracing.workspace = true
 clap.workspace = true
 dirs.workspace = true
 
+[dev-dependencies]
+base64.workspace = true
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

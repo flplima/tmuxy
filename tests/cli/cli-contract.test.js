@@ -138,12 +138,12 @@ describe('label targets', () => {
       env: {
         ...IN_PANE_1,
         MOCK_TMUX_LABELS: LABELS,
-        MOCK_TMUX_ANSWER: 'yes',
         MOCK_TMUX_PANE_ID: '%5',
       },
     });
     expect(sent.exitCode).toBe(0);
-    expect(runShells(sent.tmuxCalls).some((l) => l.includes("send-keys -t '%5'"))).toBe(true);
+    // The resolved pane is what the server binary's `send` verb types into.
+    expect(sent.stdout).toMatch(/mock-server-started send --target %5 /);
 
     const none = runCLI(['pane', 'send', '-t', 'nope', 'ls'], {
       env: { ...IN_PANE_1, MOCK_TMUX_LABELS: LABELS },
@@ -363,11 +363,12 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual(expected);
   });
 
-  test('pane state and send answer with the pane', () => {
+  /** `pane send`'s own answer is the `send` verb's, asked for with `--json`. */
+  test('pane state answers with the pane, and send asks its verb for JSON', () => {
     const state = runCLI(['pane', 'state', 'working', '--json'], { env: IN_PANE_1 });
     expect(JSON.parse(state.stdout)).toEqual({ ok: true, paneId: '%1', state: 'working' });
     const send = runCLI(['pane', 'send', 'ls', '--json'], { env: IN_PANE_1 });
-    expect(JSON.parse(send.stdout)).toEqual({ ok: true, paneId: '%1', sent: true });
+    expect(send.stdout).toMatch(/mock-server-started send --target %1 .* --json -- ls/);
   });
 
   test('a failure is one object on stdout, with the exit code', () => {
