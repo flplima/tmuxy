@@ -182,12 +182,12 @@ export const connectionActions = {
     });
   }),
 
-  // The size actor answers CONNECTED by sending the target size again, and
+  // The size actor answers RESEND_SIZE by sending the target size again, and
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
   connection_onConnected: act(({ enqueue }) => {
     enqueue(assign({ connected: true, error: null, fatalError: null }));
-    enqueue(sendTo('size', { type: 'CONNECTED' as const }));
+    enqueue(sendTo('size', { type: 'RESEND_SIZE' as const }));
     fetchThemes(enqueue);
   }),
 
