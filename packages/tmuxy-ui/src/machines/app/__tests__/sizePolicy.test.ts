@@ -31,7 +31,6 @@ function client(sizePolicy: SizePolicy, grid = { cols: 100, rows: 20 }) {
   return mountState(
     { on: { ...viewportGlobalEvents, ...sidebarsGlobalEvents, ...sidebarsIdleEvents } },
     { ...viewportActions, ...sidebarsActions },
-    {},
     {
       connected: true,
       sizePolicy,

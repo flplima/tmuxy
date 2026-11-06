@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../test/wire';
+import { modelPane } from '../../test/model';
 import {
   getTabText,
   getTabLabel,
@@ -16,36 +17,10 @@ import { previewWidget } from '../widgets/preview/definition';
 
 const screen = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
-const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
-  id: 0,
-  tmuxId: pid('%0'),
-  windowId: wid('@0'),
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 24,
-  x: 0,
-  y: 0,
-  active: false,
-  command: 'zsh',
-  title: '',
-  // The monitor pins pane-border-format to a single space, so this arrives
-  // blank-but-not-empty on every real pane.
-  borderTitle: ' ',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-  ...over,
-});
+const pane = (over: Partial<TmuxPane> = {}): TmuxPane =>
+  // The monitor pins pane-border-format to a single space, so the border
+  // title arrives blank-but-not-empty on every real pane.
+  modelPane(pid('%0'), wid('@0'), { command: 'zsh', borderTitle: ' ', ...over });
 
 describe('getTabText', () => {
   it('shows the title the app announced over OSC 0/2, not the process name', () => {

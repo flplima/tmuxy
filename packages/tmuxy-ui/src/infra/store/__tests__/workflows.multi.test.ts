@@ -3,71 +3,15 @@ import { makeTmuxStore } from '../TmuxStore';
 import { applyServerSnapshot, makePendingOp } from '../../../domain/store/model';
 import { modelFromSnapshot } from '../../../test/model';
 import type { OpId, TmuxSnapshot } from '../../../domain/store/types';
-import type {
-  ServerState,
-  ServerStateEncoded,
-  WirePaneEncoded,
-  WireWindowEncoded,
-} from '../../../domain/wire';
-import { pid, wid, wireState } from '../../../test/wire';
+import { pid, wid, wirePane, wireSession } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
 import { predict } from '../../../domain/store/ops';
-
-const serverPane = (over: Partial<WirePaneEncoded> = {}): WirePaneEncoded => ({
-  id: 0,
-  tmux_id: pid('%0'),
-  window_id: wid('@0'),
-  content: [],
-  cursor_x: 0,
-  cursor_y: 0,
-  width: 80,
-  height: 24,
-  x: 0,
-  y: 0,
-  active: true,
-  command: 'bash',
-  title: '',
-  border_title: '',
-  in_mode: false,
-  copy_cursor_x: 0,
-  copy_cursor_y: 0,
-  alternate_on: false,
-  mouse_any_flag: false,
-  history_size: 0,
-  selection_present: false,
-  selection_start_x: 0,
-  selection_start_y: 0,
-  cursor_shape: 0,
-  cursor_hidden: false,
-  ...over,
-});
-
-const serverWindow = (over: Partial<WireWindowEncoded> = {}): WireWindowEncoded => ({
-  id: wid('@0'),
-  index: 0,
-  name: 'main',
-  active: true,
-  window_type: 'tab',
-  ...over,
-});
-
-const serverState = (over: Partial<ServerStateEncoded> = {}): ServerState =>
-  wireState({
-    session_name: 'tmuxy',
-    active_window_id: wid('@0'),
-    active_pane_id: pid('%0'),
-    panes: [serverPane()],
-    windows: [serverWindow()],
-    total_width: 80,
-    total_height: 24,
-    ...over,
-  });
 
 describe('TmuxStore — multiple in-flight ops compose', () => {
   it('two splits in flight stack predictions on top of each other', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(serverState());
+    store.reconcile(wireSession());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
 
@@ -383,13 +327,13 @@ describe('Op predictions — tmux-output shape', () => {
   it('reconcile after sessionName change still cleanly matches new ops', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(serverState({ session_name: 'A' }));
+    store.reconcile(wireSession({ session_name: 'A' }));
     store.clear();
     // Session B reuses the ids session A had.
     store.reconcile(
-      serverState({
+      wireSession({
         session_name: 'B',
-        panes: [serverPane({ tmux_id: pid('%0'), active: true })],
+        panes: [wirePane({ tmux_id: pid('%0'), active: true })],
         active_pane_id: pid('%0'),
       }),
     );
@@ -400,11 +344,11 @@ describe('Op predictions — tmux-output shape', () => {
     await fake.runtime.runPromiseExit(store.dispatch({ _tag: 'Split', direction: 'vertical' }));
     expect(store.getModel().ops).toHaveLength(1);
     store.reconcile(
-      serverState({
+      wireSession({
         session_name: 'B',
         panes: [
-          serverPane({ tmux_id: pid('%0'), x: 0, width: 39 }),
-          serverPane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
+          wirePane({ tmux_id: pid('%0'), x: 0, width: 39 }),
+          wirePane({ tmux_id: pid('%1'), x: 40, width: 40, active: true }),
         ],
         active_pane_id: pid('%1'),
       }),

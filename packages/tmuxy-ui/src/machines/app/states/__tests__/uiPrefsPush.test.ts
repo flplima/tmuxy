@@ -22,7 +22,7 @@ describe('uiPrefs: push notifications', () => {
   // The switch: off asks the browser (inside the tap) and lands on what it
   // answered; on turns this device off; tmuxy.conf's off leaves it alone.
   it('TOGGLE_PUSH turns this device on or off, unless tmuxy.conf says no', async () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, {}, { pushState: 'off' });
+    const actor = mountState(uiPrefsState, uiPrefsActions, { pushState: 'off' });
     expect(sendAndGetContext(actor, { type: 'TOGGLE_PUSH' }).pushState).toBe('working');
     expect(push.enablePush).toHaveBeenCalledTimes(1);
     await settle();
@@ -33,15 +33,10 @@ describe('uiPrefs: push notifications', () => {
     await settle();
     expect(actor.getSnapshot().context.pushState).toBe('off');
 
-    const blocked = mountState(
-      uiPrefsState,
-      uiPrefsActions,
-      {},
-      {
-        pushState: 'off',
-        notifyAllowed: false,
-      },
-    );
+    const blocked = mountState(uiPrefsState, uiPrefsActions, {
+      pushState: 'off',
+      notifyAllowed: false,
+    });
     expect(sendAndGetContext(blocked, { type: 'TOGGLE_PUSH' }).pushState).toBe('off');
     expect(push.enablePush).toHaveBeenCalledTimes(1);
   });
@@ -49,7 +44,7 @@ describe('uiPrefs: push notifications', () => {
   // The backend's first answer says whether tmuxy.conf allows them, and is
   // when this device reads where its own notifications stand.
   it('the first theme settings read the device and carry @tmuxy-notify', async () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, {}, { pushState: 'unknown' });
+    const actor = mountState(uiPrefsState, uiPrefsActions, { pushState: 'unknown' });
     const ctx = sendAndGetContext(actor, {
       type: 'THEME_SETTINGS_RECEIVED',
       theme: 'default',

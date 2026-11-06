@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
-import { modelFromSnapshot } from '../../../test/model';
+import { modelFromSnapshot, modelPane, modelWindow } from '../../../test/model';
 import {
   addPendingOp,
   applyServerSnapshot,
@@ -18,49 +18,11 @@ import {
 } from '../types';
 import type { TmuxPane, TmuxWindow } from '../../client';
 
-const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
-  id: 0,
-  tmuxId: pid('%0'),
-  windowId: wid('@0'),
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 24,
-  x: 0,
-  y: 0,
-  active: false,
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-  ...over,
-});
+const pane = (over: Partial<TmuxPane> = {}): TmuxPane =>
+  modelPane(over.tmuxId ?? pid('%0'), over.windowId ?? wid('@0'), over);
 
-const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
-  id: wid('@0'),
-  index: 0,
-  name: 'main',
-  active: true,
-  windowType: 'tab',
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-  ...over,
-});
+const win = (over: Partial<TmuxWindow> = {}): TmuxWindow =>
+  modelWindow(over.id ?? wid('@0'), over.index ?? 0, { name: 'main', active: true, ...over });
 
 const snapshot = (over: Partial<TmuxSnapshot> = {}): TmuxSnapshot => ({
   panes: [pane({ active: true })],

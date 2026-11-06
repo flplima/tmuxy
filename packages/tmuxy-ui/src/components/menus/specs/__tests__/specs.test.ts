@@ -229,9 +229,7 @@ describe('tabMenuSpec', () => {
   it('the app menu disables navigation on a single tab and reads Stacked Panes off the active tab', () => {
     const spec = tabMenuSpec(ctx({ windows: [win('@1', true)] }), { windowId: null });
     expect(disabled(spec, 'tab-next')).toBe(true);
-    const stacked = find(spec, 'tab-stack-toggle');
-    expect(stacked?.kind).toBe('checkbox');
-    if (stacked?.kind === 'checkbox') expect(stacked.checked).toBe(true);
+    expect(find(spec, 'tab-stack-toggle')).toMatchObject({ kind: 'checkbox', checked: true });
   });
 });
 
@@ -474,10 +472,14 @@ describe('selection, session switcher and window menus', () => {
     const ids = itemIds([node]);
     expect(ids).toContain('window-style-no-title-bar');
     expect(ids).toContain('window-focus-1');
-    const style = find([node], 'window-style-no-title-bar');
-    if (style?.kind === 'checkbox') expect(style.checked).toBe(true);
-    const close = find([node], 'window-close');
-    if (close?.kind === 'item') expect(close.accelerator).toBe('CmdOrCtrl+Shift+W');
+    expect(find([node], 'window-style-no-title-bar')).toMatchObject({
+      kind: 'checkbox',
+      checked: true,
+    });
+    expect(find([node], 'window-close')).toMatchObject({
+      kind: 'item',
+      accelerator: 'CmdOrCtrl+Shift+W',
+    });
   });
 
   it('a window shortcut’s native accelerator is the key its hint names, off a Mac too', () => {

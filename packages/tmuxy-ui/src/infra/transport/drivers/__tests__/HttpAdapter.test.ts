@@ -11,9 +11,23 @@ import { Effect, ManagedRuntime, Schedule, Stream } from 'effect';
 import { HttpTransportLive } from '../../layers';
 import { TmuxTransport, type TmuxTransportService } from '../../TmuxTransport';
 import { HttpAdapter } from '../HttpAdapter';
+import { REOPEN_AFTER_DROP_MS } from '../httpStream';
 import { installMockEventSource, MockEventSource, openStreams, stream } from './mockEventSource';
 import type { ServerState } from '../../../../domain/wire';
 import { TmuxOp } from '../../../../domain/commands';
+
+/** Every Fatal the adapter publishes, and the first one once it comes. */
+const fatalsOf = (adapter: HttpAdapter) => {
+  const all: string[] = [];
+  const first = new Promise<string>((resolve) => {
+    adapter.events.subscribe((e) => {
+      if (e._tag !== 'Fatal') return;
+      all.push(e.message);
+      resolve(e.message);
+    });
+  });
+  return { all, first };
+};
 
 describe('HttpAdapter connect() lifecycle', () => {
   let restoreEventSource: () => void;
@@ -66,29 +80,31 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
-  it('ten drops in a row each reconnect at once, on the real backoff schedule', async () => {
+  it('ten drops in a row each reconnect after the same short pause, on the real backoff schedule', async () => {
     // One schedule for the channel's whole life only ever climbed: by the
     // fifth drop a reconnect waited 16s, then 30s for good, however briefly
     // the link had been down. The default schedule, deliberately — a 1ms one
     // cannot show this.
-    const adapter = new HttpAdapter();
-    const first = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await first;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const adapter = new HttpAdapter();
+      const first = adapter.connect();
+      (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+      await first;
 
-    for (let drop = 1; drop <= 10; drop++) {
-      const droppedAt = Date.now();
-      MockEventSource.instances[drop - 1].onerror?.(new Event('error'));
-      await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(drop + 1), {
-        timeout: 1500,
-      });
-      expect(Date.now() - droppedAt).toBeLessThan(1500);
-      MockEventSource.instances[drop].emit('connection-info', { data: { connection_id: drop } });
-      await vi.waitFor(() => expect(adapter.isConnected()).toBe(true));
+      for (let drop = 1; drop <= 10; drop++) {
+        MockEventSource.instances[drop - 1].onerror?.(new Event('error'));
+        const reopened = stream(drop);
+        await vi.advanceTimersByTimeAsync(REOPEN_AFTER_DROP_MS);
+        (await reopened).emit('connection-info', { data: { connection_id: drop } });
+        expect(adapter.isConnected()).toBe(true);
+      }
+      expect(openStreams().length).toBe(1);
+      adapter.disconnect();
+    } finally {
+      vi.useRealTimers();
     }
-    expect(openStreams().length).toBe(1);
-    adapter.disconnect();
-  }, 20000);
+  });
 
   it('a pinged stream that goes silent is dropped and reopened', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
@@ -129,27 +145,22 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const fatals: string[] = [];
-    adapter.events.subscribe((e) => {
-      if (e._tag === 'Fatal') fatals.push(e.message);
-    });
-    adapter.connect().catch(() => {});
+    const fatals = fatalsOf(adapter);
+    const connecting = adapter.connect();
 
     (await stream(0)).onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(fatals).toHaveLength(1));
-    expect(fatals[0]).toBe(
+    expect(await fatals.first).toBe(
       'The server refused this page: request Host is not this server (see --allowed-host)',
     );
 
-    // Whatever attempt was already scheduled fails too, and nothing follows
-    // it: the retry predicate reads `fatal` and the channel's fiber ends,
-    // which is what the adapter records by letting go of it.
-    const opened = MockEventSource.instances.length;
-    MockEventSource.instances[opened - 1].onerror?.(new Event('error'));
-    const channel = adapter as unknown as { channelFiber: unknown };
-    await vi.waitFor(() => expect(channel.channelFiber).toBeNull());
-    expect(MockEventSource.instances.length).toBeLessThanOrEqual(opened + 1);
-    expect(fatals).toHaveLength(1);
+    // The retry was already scheduled when the refusal came back: that
+    // attempt fails too, and nothing follows it — the channel gives up, and
+    // the caller still waiting on connect() hears so.
+    (await stream(1)).onerror?.(new Event('error'));
+    await expect(connecting).rejects.toThrow();
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(fatals.all).toHaveLength(1);
+    await expect(adapter.connect()).rejects.toThrow(/fatal/);
     adapter.disconnect();
   });
 
@@ -197,15 +208,13 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const fatals: string[] = [];
-    adapter.events.subscribe((e) => {
-      if (e._tag === 'Fatal') fatals.push(e.message);
-    });
+    const fatals = fatalsOf(adapter);
     adapter.connect().catch(() => {});
 
     (await stream(0)).onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(fatals).toHaveLength(1));
-    expect(fatals[0]).toBe('The server refused this session: too many sessions to create another');
+    expect(await fatals.first).toBe(
+      'The server refused this session: too many sessions to create another',
+    );
     adapter.disconnect();
   });
 });
@@ -296,8 +305,7 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     );
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 
@@ -327,8 +335,7 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     );
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
     return {
@@ -389,8 +396,7 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
     const posted: Array<{ command: string; connectionId: string }> = [];
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    MockEventSource.instances[0].emit('connection-info', { data: { connection_id: 1 } });
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await connected;
     vi.stubGlobal(
       'fetch',
@@ -435,7 +441,7 @@ describe('the HTTP transport the app runs: initial state and the serial lane', (
 
     // The stream drops; the user keeps typing, then splits the pane.
     MockEventSource.instances[0].onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    await stream(1);
     await transport.call((t) => t.run(TmuxOp.SendText({ target: '%1', text: 'x' })));
     const split = transport.call((t) => t.run(TmuxOp.Split({ direction: 'vertical' })));
 

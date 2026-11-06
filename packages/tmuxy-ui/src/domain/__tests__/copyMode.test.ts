@@ -6,10 +6,7 @@ import {
   type CopyModeState,
 } from '../copyMode';
 import type { CellLine } from '../wireCells';
-
-function makeLine(text: string): CellLine {
-  return text.split('').map((c) => ({ c }));
-}
+import { cellLine } from '../../test/model';
 
 const WIDTH = 10;
 
@@ -19,7 +16,7 @@ function makeState(
 ): CopyModeState {
   const lines = new Map<number, CellLine>();
   for (const [row, text] of Object.entries(rows)) {
-    lines.set(Number(row), makeLine(text));
+    lines.set(Number(row), cellLine(text));
   }
   return {
     mode: 'copy',
@@ -41,11 +38,11 @@ function makeState(
 
 describe('isWrappedRow', () => {
   it('is true when the row fills the full width', () => {
-    expect(isWrappedRow(makeLine('0123456789'), WIDTH)).toBe(true);
+    expect(isWrappedRow(cellLine('0123456789'), WIDTH)).toBe(true);
   });
 
   it('is false when the row is shorter than the width', () => {
-    expect(isWrappedRow(makeLine('abc'), WIDTH)).toBe(false);
+    expect(isWrappedRow(cellLine('abc'), WIDTH)).toBe(false);
   });
 
   it('is false for an unloaded (undefined) row', () => {

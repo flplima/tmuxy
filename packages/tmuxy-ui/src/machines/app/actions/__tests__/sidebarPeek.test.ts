@@ -6,85 +6,33 @@
  * keyboard. Only the toggle's click docks it.
  */
 import { describe, it, expect } from 'vitest';
-import { createActor, fromCallback } from 'xstate';
-import { appMachine } from '../../appMachine';
 import { pid, wid } from '../../../../test/wire';
+import { modelPane, modelUpdate as update, modelWindow } from '../../../../test/model';
+import { recorder, startApp } from '../../../../test/app';
 import type { TmuxOp } from '../../../../domain/commands';
 import type { TmuxPane, TmuxWindow } from '../../../../domain/client';
-import type { TmuxClientModel, TmuxSnapshot } from '../../../../domain/store/types';
 import type { PaneId, WindowId } from '../../../../domain/ids';
 
 const TAB = wid('@0');
 const TREE = wid('@1');
 
-const pane = (tmuxId: PaneId, windowId: WindowId): TmuxPane => ({
-  id: Number(tmuxId.slice(1)),
-  tmuxId,
-  windowId,
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 23,
-  x: 0,
-  y: 1,
-  active: tmuxId === pid('%0'),
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-});
+const pane = (tmuxId: PaneId, windowId: WindowId): TmuxPane =>
+  modelPane(tmuxId, windowId, { height: 23, y: 1, active: tmuxId === pid('%0') });
 
 const window = (
   id: WindowId,
   windowType: 'tab' | 'sidebar-left',
   sidebarHidden = false,
-): TmuxWindow => ({
-  id,
-  index: Number(id.slice(1)),
-  name: windowType,
-  active: id === TAB,
-  windowType,
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-  sidebarHidden,
-});
+): TmuxWindow =>
+  modelWindow(id, Number(id.slice(1)), {
+    name: windowType,
+    active: id === TAB,
+    windowType,
+    sidebarHidden,
+  });
 
-const modelUpdate = (panes: TmuxPane[], windows: TmuxWindow[]) => {
-  const snapshot: TmuxSnapshot = {
-    panes,
-    windows,
-    activePaneId: pid('%0'),
-    activeWindowId: TAB,
-    totalWidth: 80,
-    totalHeight: 24,
-    sessionName: 'main',
-    focusRequest: '',
-    pluginsRev: '',
-    themeRev: '',
-  };
-  const model: TmuxClientModel = {
-    committed: snapshot,
-    ops: [],
-    derived: snapshot,
-    paneKeyOverrides: {},
-  };
-  return { type: 'TMUX_MODEL_UPDATE' as const, model };
-};
+const modelUpdate = (panes: TmuxPane[], windows: TmuxWindow[]) =>
+  update(panes, windows, { paneId: pid('%0'), windowId: TAB });
 
 const noTree = modelUpdate([pane(pid('%0'), TAB)], [window(TAB, 'tab')]);
 /** The tree's window as tmux makes it: not hidden yet. */
@@ -101,20 +49,13 @@ const hiddenTree = modelUpdate(
 const hiddenTag = (op: TmuxOp) =>
   op._tag === 'SetWindowTag' && op.tag === 'sidebar-hidden' ? op.value : undefined;
 
-/** The app machine over a tmux actor that records the ops it is sent. */
+/** The app machine over a tmux actor that records the ops it is sent from `first` on. */
 function connected(first: ReturnType<typeof modelUpdate>) {
-  const sent: TmuxOp[] = [];
-  const tmuxActor = fromCallback(({ receive }) => {
-    receive((event) => {
-      const e = event as unknown as { type: string; op?: TmuxOp };
-      if (e.type === 'SEND_OP' && e.op) sent.push(e.op);
-    });
-  });
-  const actor = createActor(appMachine.provide({ actors: { tmuxActor } } as never)).start();
-  actor.send({ type: 'TMUX_CONNECTED' });
+  const tmux = recorder();
+  const actor = startApp({ actors: { tmuxActor: tmux.logic } });
   actor.send(first);
-  sent.length = 0;
-  return { actor, sent, ctx: () => actor.getSnapshot().context };
+  tmux.received.length = 0;
+  return { actor, sent: tmux.ops, ctx: () => actor.getSnapshot().context };
 }
 
 describe('a sidebar peek', () => {
@@ -125,7 +66,7 @@ describe('a sidebar peek', () => {
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
     expect(ctx().sidebarPeek).toBe('left');
     expect(ctx().sidebars.left.open).toBe(false);
-    expect(sent).toEqual([]);
+    expect(sent()).toEqual([]);
 
     // A click in the column: the keyboard goes to the tree, the column stays a peek.
     actor.send({ type: 'FOCUS_SIDEBAR', side: 'left' });
@@ -136,26 +77,30 @@ describe('a sidebar peek', () => {
     expect(ctx().sidebarPeek).toBeNull();
     expect(ctx().keyboardOwner.kind === 'left').toBe(false);
     expect(ctx().sidebars.left.open).toBe(false);
-    expect(sent.map(hiddenTag).filter((v) => v !== undefined)).toEqual([]);
+    expect(
+      sent()
+        .map(hiddenTag)
+        .filter((v) => v !== undefined),
+    ).toEqual([]);
   });
 
   it('starts a column that was never made, and the window it gets arrives hidden', () => {
     const { actor, sent, ctx } = connected(noTree);
 
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
-    expect(sent.filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
+    expect(sent().filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
     expect(ctx().sidebars.left.starting).toBe(true);
 
     actor.send(freshTree);
     expect(ctx().sidebars.left.open).toBe(false);
     expect(ctx().sidebarPeek).toBe('left');
-    expect(sent.map(hiddenTag)).toContain('1');
+    expect(sent().map(hiddenTag)).toContain('1');
 
     // A second peek of it starts nothing more.
     actor.send({ type: 'END_SIDEBAR_PEEK' });
     actor.send(hiddenTree);
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
-    expect(sent.filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
+    expect(sent().filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
   });
 
   it('is docked by the toggle: the column opens, unhidden, and the peek is over', () => {
@@ -165,7 +110,7 @@ describe('a sidebar peek', () => {
     actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     expect(ctx().sidebars.left.open).toBe(true);
     expect(ctx().sidebarPeek).toBeNull();
-    expect(sent.map(hiddenTag)).toContain(null);
+    expect(sent().map(hiddenTag)).toContain(null);
 
     // The pointer leaving the toggle afterwards closes nothing.
     actor.send({ type: 'END_SIDEBAR_PEEK' });

@@ -6,18 +6,16 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createActor } from 'xstate';
-import { appMachine } from '../appMachine';
 import { createTmuxStoreActor } from '../../actors/tmuxStoreActor';
 import { makeTmuxStore } from '../../../infra/store/TmuxStore';
 import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
 import { fakeTransport } from '../../../test/transport';
+import { startApp } from '../../../test/app';
 
 function connectedApp() {
   const transport = fakeTransport();
   const tmuxStoreActor = createTmuxStoreActor(makeTmuxStore(), transport.runtime);
-  const actor = createActor(appMachine.provide({ actors: { tmuxStoreActor } } as never)).start();
-  actor.send({ type: 'TMUX_CONNECTED' });
+  const actor = startApp({ actors: { tmuxStoreActor } });
   const sent = () =>
     transport.invocations.map((c) => `${c.cmd} ${(c.args as { command?: string }).command}`);
   return { actor, sent };

@@ -36,10 +36,10 @@ describe('HttpAdapter commands and recovery', () => {
     const a = adapter.connect();
     const b = adapter.connect();
 
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    const es2 = await stream(1);
     expect(openStreams().length).toBe(1);
 
-    MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
+    es2.emit('connection-info', { data: { connection_id: 2 } });
     await Promise.all([a, b]);
     expect(adapter.isConnected()).toBe(true);
     expect(openStreams().length).toBe(1);
@@ -215,8 +215,7 @@ describe('HttpAdapter commands and recovery', () => {
       runtime.runPromise(Effect.flatMap(TmuxTransport, f));
 
     const connected = call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 

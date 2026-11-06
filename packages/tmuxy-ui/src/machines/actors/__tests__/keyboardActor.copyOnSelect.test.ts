@@ -10,16 +10,11 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { pid } from '../../../test/wire';
-import { spawnKeyboardActor } from './keyboardHarness';
-import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import { pressKey, sendCommands, spawnKeyboardActor } from './keyboardHarness';
 import * as mobileKeyboard from '../../../infra/dom/mobileKeyboard';
 
 type Ev = { type: string; [k: string]: unknown };
 
-const sendCommands = (events: Ev[]) =>
-  events
-    .map((e) => (e.type === 'DISPATCH_OP' ? toTmuxCommand(e.op as TmuxOp) : undefined))
-    .filter((c): c is string => c !== undefined);
 const notices = (events: Ev[]) => events.filter((e) => e.type === 'NOTIFY').map((e) => e.text);
 
 /** A terminal row of styled runs, as the renderer builds it. */
@@ -51,8 +46,6 @@ function select(row: HTMLElement, text: string) {
 }
 
 const release = () => window.dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }));
-const key = (init: KeyboardEventInit) =>
-  window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
 const selectedText = () => window.getSelection()?.toString() ?? '';
 
 describe('keyboardActor — copy on select', () => {
@@ -85,7 +78,6 @@ describe('keyboardActor — copy on select', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    handle.actor.stop();
     window.getSelection()?.removeAllRanges();
     document.body.innerHTML = '';
   });
@@ -115,7 +107,7 @@ describe('keyboardActor — copy on select', () => {
   it('a letter clears the selection and is typed into the pane', () => {
     select(row, 'DRAG_ME');
     release();
-    key({ key: 'x' });
+    pressKey({ key: 'x' });
     expect(selectedText()).toBe('');
     expect(sendCommands(handle.events)).toEqual(["send-keys -t %3 -l -- 'x'"]);
   });
@@ -123,7 +115,7 @@ describe('keyboardActor — copy on select', () => {
   it('Ctrl+C clears the selection and interrupts the shell', () => {
     select(row, 'DRAG_ME');
     release();
-    key({ key: 'c', ctrlKey: true });
+    pressKey({ key: 'c', ctrlKey: true });
     expect(selectedText()).toBe('');
     expect(handle.events.some((e) => e.type === 'COPY_SELECTION')).toBe(true);
   });
@@ -131,7 +123,7 @@ describe('keyboardActor — copy on select', () => {
   it('Cmd+C copies the same text once more, then clears the selection', () => {
     select(row, 'DRAG_ME');
     release();
-    key({ key: 'c', code: 'KeyC', metaKey: true });
+    pressKey({ key: 'c', code: 'KeyC', metaKey: true });
     expect(copied).toEqual(['DRAG_ME', 'DRAG_ME']);
     expect(selectedText()).toBe('');
   });
@@ -139,15 +131,15 @@ describe('keyboardActor — copy on select', () => {
   it('a modifier on its own leaves the selection', () => {
     select(row, 'DRAG_ME');
     release();
-    key({ key: 'Shift', shiftKey: true });
-    key({ key: 'Meta', metaKey: true });
+    pressKey({ key: 'Shift', shiftKey: true });
+    pressKey({ key: 'Meta', metaKey: true });
     expect(selectedText()).toBe('DRAG_ME');
   });
 
   it('the same text selected again after the selection went is copied again', () => {
     select(row, 'DRAG_ME');
     release();
-    key({ key: 'x' });
+    pressKey({ key: 'x' });
     select(row, 'DRAG_ME');
     release();
     expect(copied).toEqual(['DRAG_ME', 'DRAG_ME']);

@@ -2,17 +2,16 @@
  * Session ▸ New Session names the session itself: a memorable name that no
  * running session has, nor a snapshot the switcher offers to restore, and
  * switches to it.
- *
- * `appMachine` is exported with stub actors, so it starts standalone.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createActor } from 'xstate';
-import { appMachine } from '../appMachine';
+import { startApp } from '../../../test/app';
 import words from '../../../../../tmuxy-cli/bin/tmuxy/session-names.json';
 import type { AppMachineContext } from '../../types/context';
 
-const pairAt = (noun: number) => `${words.adjectives[0]}-${words.nouns[noun]}`;
+/** The names a draw that always comes up first would try first. */
+const first = `${words.adjectives[0]}-${words.nouns[0]}`;
+const second = `${words.adjectives[0]}-${words.nouns[1]}`;
 
 describe('NEW_SESSION', () => {
   afterEach(() => {
@@ -20,23 +19,25 @@ describe('NEW_SESSION', () => {
   });
 
   it('switches to a name no session and no snapshot has', () => {
+    // Every draw comes up first, so the names taken are the ones it meets.
     vi.spyOn(Math, 'random').mockReturnValue(0);
-    const actor = createActor(appMachine).start();
+    const actor = startApp({ connected: false });
     actor.send({
       type: 'SESSIONS_UPDATED',
-      sessions: [
-        { sessionName: 'tmuxy' },
-        { sessionName: pairAt(0) },
-      ] as AppMachineContext['sessions'],
+      sessions: [{ sessionName: 'tmuxy' }, { sessionName: first }] as AppMachineContext['sessions'],
     });
     actor.send({
       type: 'SNAPSHOTS_UPDATED',
-      restorableSessions: [{ name: pairAt(1) }] as AppMachineContext['restorableSessions'],
+      restorableSessions: [{ name: second }] as AppMachineContext['restorableSessions'],
     });
 
     actor.send({ type: 'NEW_SESSION' });
 
-    expect(actor.getSnapshot().context.sessionName).toBe(pairAt(2));
+    const name = actor.getSnapshot().context.sessionName;
+    expect(['tmuxy', first, second]).not.toContain(name);
+    const [adjective, noun] = name.split('-');
+    expect(words.adjectives).toContain(adjective);
+    expect(words.nouns).toContain(noun);
     actor.stop();
   });
 });

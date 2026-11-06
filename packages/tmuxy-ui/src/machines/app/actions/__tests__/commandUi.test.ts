@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createActor } from 'xstate';
-import type { TmuxClientModel, TmuxSnapshot } from '../../../../domain/store/types';
 import { pid, wid } from '../../../../test/wire';
-import { appMachine } from '../../appMachine';
+import { modelPane, modelUpdate, modelWindow } from '../../../../test/model';
+import { startApp } from '../../../../test/app';
 import { fillTemplate } from '../commandUi';
 
 describe('fillTemplate & command prompt expansion', () => {
@@ -16,69 +15,15 @@ describe('fillTemplate & command prompt expansion', () => {
   });
 
   it("leaves dollar replacement patterns ($&, $$, $') literal when expanding #W and #S", () => {
-    const actor = createActor(appMachine).start();
-    actor.send({ type: 'TMUX_CONNECTED' });
-    const snapshot: TmuxSnapshot = {
-      panes: [
-        {
-          id: 1,
-          tmuxId: pid('%1'),
-          windowId: wid('@1'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 23,
-          x: 0,
-          y: 1,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-      ],
-      windows: [
-        {
-          id: wid('@1'),
-          index: 0,
-          name: "win-$&-$'",
-          active: true,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-      ],
-      activePaneId: pid('%1'),
-      activeWindowId: wid('@1'),
-      totalWidth: 80,
-      totalHeight: 24,
-      sessionName: 'sess-$&-$$',
-      focusRequest: '',
-      pluginsRev: '',
-      themeRev: '',
-    };
-    const model: TmuxClientModel = {
-      committed: snapshot,
-      ops: [],
-      derived: snapshot,
-      paneKeyOverrides: {},
-    };
-    actor.send({ type: 'TMUX_MODEL_UPDATE', model });
+    const actor = startApp();
+    actor.send(
+      modelUpdate(
+        [modelPane(pid('%1'), wid('@1'), { height: 23, y: 1, active: true })],
+        [modelWindow(wid('@1'), 0, { name: "win-$&-$'", active: true })],
+        { paneId: pid('%1'), windowId: wid('@1') },
+        { sessionName: 'sess-$&-$$' },
+      ),
+    );
     actor.send({
       type: 'OPEN_COMMAND_PROMPT',
       prompt: '(#S/#W):',

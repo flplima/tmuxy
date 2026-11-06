@@ -7,16 +7,12 @@
  * `connected` back, so a flag dropped there would gate every later resize off
  * until a real reconnect. The initial fetch belongs to the size actor's answer
  * to RESEND_SIZE (the target size, sent again), never to the connect itself.
- *
- * `appMachine` is exported with stub actors, so it starts standalone with a
- * recording stand-in for the tmux actor.
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor, fromCallback, type AnyActorRef } from 'xstate';
-import { appMachine } from '../appMachine';
 import { pid, wid } from '../../../test/wire';
 import { modelPane, modelUpdate, modelWindow } from '../../../test/model';
+import { recorder, startApp } from '../../../test/app';
 import type { TmuxActorEvent } from '../../actors/tmuxActor';
 
 const TAB = wid('@0');
@@ -30,15 +26,11 @@ const oneTab = (cols: number, rows: number) =>
     { paneId: PANE, windowId: TAB },
   );
 
-/** The app machine with a tmux actor that records what it is sent. */
-function startApp() {
-  const sent: TmuxActorEvent[] = [];
-  const tmuxActor = fromCallback<TmuxActorEvent, { parent: AnyActorRef }>(({ receive }) => {
-    receive((event) => sent.push(event));
-    return () => {};
-  });
-  const actor = createActor(appMachine.provide({ actors: { tmuxActor } })).start();
-  return { actor, sent };
+/** The app machine, not yet connected, with a tmux actor that records what it is sent. */
+function recordingApp() {
+  const tmux = recorder();
+  const actor = startApp({ actors: { tmuxActor: tmux.logic }, connected: false });
+  return { actor, sent: tmux.received as TmuxActorEvent[] };
 }
 
 const sizeRequests = (sent: TmuxActorEvent[]) =>
@@ -51,7 +43,7 @@ const initialFetches = (sent: TmuxActorEvent[]) =>
 
 describe('SWITCH_SESSION', () => {
   it('a window resize after the switch still resizes the new session', () => {
-    const { actor, sent } = startApp();
+    const { actor, sent } = recordingApp();
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send(oneTab(80, 24));
     actor.send({ type: 'SET_TARGET_SIZE', cols: 80, rows: 24 });
@@ -72,7 +64,7 @@ describe('SWITCH_SESSION', () => {
 
 describe('TMUX_CONNECTED', () => {
   it('fetches the initial state once, at the default 80×24', () => {
-    const { actor, sent } = startApp();
+    const { actor, sent } = recordingApp();
     actor.send({ type: 'TMUX_CONNECTED' });
     // The size actor's answer to RESEND_SIZE: the target size, sent again.
     actor.send({ type: 'SET_TARGET_SIZE', cols: 80, rows: 24 });
@@ -82,7 +74,7 @@ describe('TMUX_CONNECTED', () => {
   });
 
   it('fetches the initial state once, at a size measured before the connect', () => {
-    const { actor, sent } = startApp();
+    const { actor, sent } = recordingApp();
     actor.send({ type: 'SET_TARGET_SIZE', cols: 120, rows: 40 });
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send({ type: 'SET_TARGET_SIZE', cols: 120, rows: 40 });
