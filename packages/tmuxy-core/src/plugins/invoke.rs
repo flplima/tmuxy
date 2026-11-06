@@ -23,7 +23,8 @@ mod surface;
 mod token;
 
 pub use surface::{
-    exec_command_line, notify_failure, open, surface_argv, wait, OpenRequest, Opened, Target,
+    exec_command_line, notify_failure, open, pane_running, surface_argv, wait, OpenRequest, Opened,
+    Target,
 };
 pub use token::{is_pane_id, prepare, status_path, PaneInfo, Token, Trigger, MAX_SELECTION_BYTES};
 
@@ -121,7 +122,13 @@ pub fn exec(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> i32 {
         }
     };
     if waited {
-        let _ = crate::private_files::write(&status_path(dirs, token_id), status.to_string());
+        if let Err(e) =
+            crate::private_files::write(&status_path(dirs, token_id), status.to_string())
+        {
+            let message = format!("exec {name}:{action_id}: the exit status was not saved: {e}");
+            super::log::append(dirs, name, &message);
+            eprintln!("tmuxy plugin {name}: {message}");
+        }
     }
     if status != 0 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         eprintln!("\n[{name}:{action_id} exited with status {status}; press Enter to close]");

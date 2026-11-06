@@ -49,11 +49,19 @@ pub fn shell_line<S: AsRef<str>>(argv: &[S]) -> String {
         .join(" ")
 }
 
-/// One word of a shell line that `run-shell` runs: [`shell_word`] with its
-/// `#` doubled, since `run-shell` expands formats in its command, inside
-/// shell quotes too, before `/bin/sh` sees it.
+/// Text that tmux expands as a format before using it (`run-shell`'s
+/// command, inside shell quotes too, and `display-message`'s message), with
+/// every `#` doubled so it reads back as itself: a `#(…)` would otherwise run
+/// and a `#{…}` be replaced with whatever tmux knows by that name. The one
+/// place the rule is spelled.
+pub fn format_literal(text: &str) -> String {
+    text.replace('#', "##")
+}
+
+/// One word of a shell line that `run-shell` runs: [`shell_word`] as a
+/// [`format_literal`].
 pub fn run_shell_word(word: &str) -> String {
-    shell_word(word).replace('#', "##")
+    format_literal(&shell_word(word))
 }
 
 pub fn run_shell_line<S: AsRef<str>>(argv: &[S]) -> String {

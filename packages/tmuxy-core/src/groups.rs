@@ -278,7 +278,7 @@ pub fn quote_script_path(path: &std::path::Path) -> String {
 /// `#` doubling run-shell's format expansion asks for is therefore applied
 /// to the script path alone.
 pub fn arm(pane: &str, close_command: &str) -> Vec<Invocation> {
-    let shell_cmd = format!("bash {} {pane}", close_command.replace('#', "##"));
+    let shell_cmd = format!("bash {} {pane}", crate::argv::format_literal(close_command));
     let hook = format!("run-shell {}", crate::tmux_double_quoted(&shell_cmd));
     vec![
         Invocation::tolerant(cmd(&[

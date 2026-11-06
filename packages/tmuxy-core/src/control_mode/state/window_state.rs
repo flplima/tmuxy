@@ -284,12 +284,6 @@ impl StateAggregator {
         self.step_at(event, Instant::now())
     }
 
-    /// `tick` on the process clock, for a host (wasm) that flushes settling
-    /// on a timer.
-    pub fn tick_now(&mut self) -> Option<ChangeType> {
-        self.tick(Instant::now())
-    }
-
     /// Decoded image bytes for a pane placement (PNG/etc.), for hosts that serve
     /// image bytes themselves (the native server uses `/api/images`; the wasm
     /// host resolves via `window.__tmuxyImageSrc`). Returns `(data, mime_type)`.

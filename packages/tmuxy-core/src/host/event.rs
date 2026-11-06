@@ -10,9 +10,9 @@
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 
+use super::KeyBindings;
 use crate::control_mode::LogKind;
 use crate::theme::ThemeSettings;
-use crate::transport::KeyBindings;
 use crate::StateUpdate;
 
 /// What a client is told when it connects, before anything else.

@@ -168,7 +168,10 @@ pub(in crate::mcp) fn float_command(
         line.push(' ');
         line.push_str(&sh_quote(arg));
     }
-    format!("run-shell {}", tmux_quote(&line.replace('#', "##")))
+    format!(
+        "run-shell {}",
+        tmux_quote(&tmuxy_core::argv::format_literal(&line))
+    )
 }
 
 fn script_path(name: &str) -> String {

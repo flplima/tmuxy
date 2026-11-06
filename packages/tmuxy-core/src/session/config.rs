@@ -35,7 +35,7 @@ pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
 
 /// The tmux global environment variable naming the entry file, set beside
 /// [`DATA_DIR_ENV`]: what a client's Reload Config sources
-/// (`transport::SOURCE_ENTRY_CONF`) where no tmuxy process stands between it
+/// (`host::SOURCE_ENTRY_CONF`) where no tmuxy process stands between it
 /// and tmux (the in-browser guests). A tmuxy process sources its own path.
 pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 
@@ -160,12 +160,13 @@ fn write_starter(layout: &Layout) {
 /// `tmuxy.conf` an older build wrote did. The chain sources them now, from the
 /// data dir, so the line names a file the migration removed.
 pub(super) fn legacy_defaults_source(line: &str) -> bool {
-    let line = line.trim();
-    let sources = line.starts_with("source-file ") || line.starts_with("source ");
-    sources
-        && line
-            .trim_end_matches(['\'', '"'])
-            .ends_with("tmuxy.defaults.conf")
+    crate::tmux_command::parse(line).top_level().any(|command| {
+        command.runs(&crate::tmux_command::SOURCE_FILE)
+            && command.args().last().is_some_and(|path| {
+                path.trim_matches(['\'', '"'])
+                    .ends_with("tmuxy.defaults.conf")
+            })
+    })
 }
 
 /// The user's layer of the chain: their `tmuxy.conf`, or, while it still has

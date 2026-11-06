@@ -187,7 +187,7 @@ fn every_command_request_matches_its_fixture() {
 /// reads it with.
 #[test]
 fn every_command_answer_matches_its_fixture() {
-    use crate::transport::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings};
+    use crate::host::{PluginToken, ScrollbackCells, SnapshotInfo, TraceSettings};
     let null = || vec![serde_json::Value::Null];
     let json = |v: &dyn erased::Json| vec![v.to_json()];
     let server = crate::servers::Server {

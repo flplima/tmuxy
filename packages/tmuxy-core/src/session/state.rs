@@ -124,10 +124,7 @@ impl ManagedOption {
 pub fn pinned_options_in(conf: &str) -> Vec<&'static str> {
     let text = without_comments(conf);
     let mut pinned = Vec::new();
-    for command in crate::tmux_command::parse(&text)
-        .top_level()
-        .map(|c| c.text)
-    {
+    for command in crate::tmux_command::parse(&text).top_level() {
         let Some((name, unset)) = global_option_set(command) else {
             continue;
         };
@@ -194,11 +191,11 @@ fn without_comments(conf: &str) -> String {
 /// global session table, read the way tmux's getopt reads its flags: `-t`
 /// takes the rest of its cluster or the next word as a target. `None` for
 /// any other command, and for one aimed at a window, pane or server table.
-fn global_option_set(command: &str) -> Option<(&str, bool)> {
-    let mut words = command.split_whitespace();
-    if !matches!(words.next(), Some("set" | "set-option")) {
+fn global_option_set<'a>(command: &crate::tmux_command::Command<'a>) -> Option<(&'a str, bool)> {
+    if !command.runs(&crate::tmux_command::SET_OPTION) {
         return None;
     }
+    let mut words = command.args().iter().copied();
     let (mut global, mut unset, mut other_table) = (false, false, false);
     let name = loop {
         let word = words.next()?;

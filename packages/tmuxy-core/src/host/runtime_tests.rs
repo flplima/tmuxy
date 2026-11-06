@@ -240,3 +240,34 @@ fn a_greeting_carries_the_bindings_once_they_are_known() {
         ["connection-info", "keybindings"]
     );
 }
+
+/// A picture's bytes reach the runtime once, when they are decoded; the
+/// placement that names it may be drawn long after. A store that gave up on
+/// a contended lock lost the picture for good, while a client was fetching
+/// another one.
+#[test]
+fn a_picture_stored_while_another_is_read_is_kept() {
+    let (runtime, _) = runtime();
+    let pane = PaneId::from_number(1);
+    let reading = runtime.images.read().unwrap();
+    let writer = {
+        let runtime = Arc::clone(&runtime);
+        let pane = pane.clone();
+        std::thread::spawn(move || {
+            runtime.store_images(
+                &pane,
+                vec![(
+                    7,
+                    StoredImage {
+                        data: vec![1, 2, 3],
+                        mime_type: "image/png".to_string(),
+                    },
+                )],
+            );
+        })
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    drop(reading);
+    writer.join().unwrap();
+    assert!(runtime.image(&pane, 7).is_some());
+}
