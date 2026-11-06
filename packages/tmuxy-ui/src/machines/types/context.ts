@@ -218,6 +218,12 @@ export interface AppMachineContext {
   keybindings: KeyBindings | null;
   /** Client-side copy mode state per pane */
   copyModeStates: Record<PaneId, CopyModeState>;
+  /**
+   * When this client last left copy mode on each pane: tmux can still report
+   * the mode on for a beat after, and inside COPY_MODE_REENTRY_COOLDOWN that
+   * report is not a new entry.
+   */
+  copyModeExitedAt: Record<PaneId, number>;
   /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
   paneActivationOrder: PaneId[];
   /**

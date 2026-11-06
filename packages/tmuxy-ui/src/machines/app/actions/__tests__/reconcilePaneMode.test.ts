@@ -7,18 +7,12 @@
  * exit. It must not close the new record.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { pid } from '../../../../test/wire';
-import {
-  COPY_MODE_REENTRY_COOLDOWN,
-  copyModeExitTimes,
-  reconcilePaneMode,
-} from '../copyMode/scrollback';
+import { COPY_MODE_REENTRY_COOLDOWN, reconcilePaneMode } from '../copyMode/scrollback';
 
 const pane = (inMode: boolean) => ({ tmuxId: pid('%1'), inMode });
-const live = { now: 100_000 };
-
-afterEach(() => copyModeExitTimes.clear());
+const live = { now: 100_000, exitedAt: undefined };
 
 describe('reconcilePaneMode', () => {
   /** The race itself, in the order the snapshots arrive. */
@@ -63,10 +57,18 @@ describe('reconcilePaneMode', () => {
 
     /** The same stale report in the other direction: the mode still showing on just after the client left it. */
     it('is ignored inside the cooldown after the client exited', () => {
-      copyModeExitTimes.set(pid('%1'), live.now - COPY_MODE_REENTRY_COOLDOWN + 1);
-      expect(reconcilePaneMode(pane(false), pane(true), undefined, live)).toBe('none');
-      copyModeExitTimes.set(pid('%1'), live.now - COPY_MODE_REENTRY_COOLDOWN);
-      expect(reconcilePaneMode(pane(false), pane(true), undefined, live)).toBe('enter');
+      const exited = (ago: number) => ({ ...live, exitedAt: live.now - ago });
+      expect(
+        reconcilePaneMode(
+          pane(false),
+          pane(true),
+          undefined,
+          exited(COPY_MODE_REENTRY_COOLDOWN - 1),
+        ),
+      ).toBe('none');
+      expect(
+        reconcilePaneMode(pane(false), pane(true), undefined, exited(COPY_MODE_REENTRY_COOLDOWN)),
+      ).toBe('enter');
     });
 
     it('is not an entry when the mode was already on', () => {

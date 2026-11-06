@@ -70,6 +70,19 @@ export function selectSidebarHoldsKeyboard(
   return context.keyboardOwner.kind === side;
 }
 
+/**
+ * Whether `paneId` is the pane keys go to: the float or dock that holds the
+ * keyboard, or, while the panes hold it, the active pane of the tab in front.
+ * The one answer for every surface that takes keys of its own (a widget, a
+ * preview), so none takes them while a float, the dock or the tree has them.
+ */
+export function selectPaneHoldsKeyboard(context: AppMachineContext, paneId: PaneId): boolean {
+  const owner = context.keyboardOwner;
+  if (owner.kind !== 'panes') return owner.kind !== 'left' && owner.paneId === paneId;
+  const pane = context.panes.find((p) => p.tmuxId === paneId);
+  return pane?.active === true && pane.windowId === context.activeWindowId;
+}
+
 /** The float holding the keyboard, if one does. */
 export function selectFocusedFloat(context: AppMachineContext): PaneId | null {
   return context.keyboardOwner.kind === 'float' ? context.keyboardOwner.paneId : null;

@@ -19,7 +19,6 @@ import { TmuxOp } from '../../../domain/commands';
 import {
   applyScrollbackChunk,
   buildScrollbackState,
-  copyModeExitTimes,
   fetchHistory,
   fetchNeededChunk,
   leaveAfterCopy,
@@ -132,10 +131,14 @@ export const copyModeActions = {
 
   copyMode_exit: act(({ event, context, enqueue }) => {
     if (event.type !== 'EXIT_COPY_MODE') return;
-    copyModeExitTimes.set(event.paneId, Date.now());
     const newStates = { ...context.copyModeStates };
     delete newStates[event.paneId];
-    enqueue(assign({ copyModeStates: newStates }));
+    enqueue(
+      assign({
+        copyModeStates: newStates,
+        copyModeExitedAt: { ...context.copyModeExitedAt, [event.paneId]: Date.now() },
+      }),
+    );
 
     enqueue(
       sendTo('tmux', {

@@ -67,6 +67,7 @@ const SET = 'TEST_SET_CONTEXT';
 type Binding = { key: string; command: string; repeat?: boolean; description?: string };
 type TestKeyBindings = {
   prefix_key: string;
+  repeat_time_ms?: number;
   prefix_bindings: Binding[];
   root_bindings: Binding[];
   tables: Record<string, Binding[]>;
@@ -82,6 +83,7 @@ function withDescriptions(patch: TestPatch): Partial<AppMachineContext> {
   const describe = (bindings: Binding[]) => bindings.map((b) => ({ description: '', ...b }));
   const keybindings: KeyBindings = {
     prefix_key: kb.prefix_key,
+    repeat_time_ms: kb.repeat_time_ms ?? 300,
     prefix_bindings: describe(kb.prefix_bindings),
     root_bindings: describe(kb.root_bindings),
     tables: Object.fromEntries(

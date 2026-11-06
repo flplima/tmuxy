@@ -5,7 +5,7 @@
  * only fire when connected and idle, never during connecting.
  *
  * Action implementations live in ../actions/copyMode.ts (with the shared
- * copyModeExitTimes Map and COPY_MODE_REENTRY_COOLDOWN constant).
+ * COPY_MODE_REENTRY_COOLDOWN constant).
  */
 
 export const copyModeState = {

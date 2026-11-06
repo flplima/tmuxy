@@ -6,6 +6,7 @@ import type { KeyBindings } from '../../wire';
 /** tmux's own `&`, as `list-keys` prints it. */
 const BINDINGS: KeyBindings = {
   prefix_key: 'C-a',
+  repeat_time_ms: 300,
   prefix_bindings: [
     { key: '&', command: 'confirm-before -p "kill-window #W? (y/n)" kill-window', description: '' },
     { key: 'c', command: 'new-window -c "#{pane_current_path}"', description: '' },
@@ -31,6 +32,7 @@ describe('keyHint', () => {
 /** Bindings as tmuxy's default config and tmux's own defaults leave them, as `list-keys` prints them. */
 const REAL: KeyBindings = {
   prefix_key: 'C-a',
+  repeat_time_ms: 300,
   prefix_bindings: [
     { key: '-', command: 'split-window -v -c "#{pane_current_path}"', description: '' },
     { key: '|', command: 'split-window -h -c "#{pane_current_path}"', description: '' },

@@ -184,6 +184,7 @@ describe('the Plugins submenus', () => {
   it('an action a plugin key opens shows that key', () => {
     const keybindings = {
       prefix_key: 'C-a',
+      repeat_time_ms: 300,
       prefix_bindings: [
         {
           key: 'M-o',

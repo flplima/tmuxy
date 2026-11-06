@@ -17,6 +17,7 @@ import {
 } from '../constants';
 import { loadFontSizePref, loadThemePref } from '../../infra/prefs';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
+import { appearancePrefs } from './appearance';
 
 /** The name of each state slice: its handlers in ./states/<name>.ts, its actions in ./actions/<name>.ts. */
 export type StateName =
@@ -103,6 +104,7 @@ export const FIELD_OWNERS = {
 
   // ---- copyMode ----
   copyModeStates: 'copyMode',
+  copyModeExitedAt: 'copyMode',
 
   // ---- groupsAndFloats ----
   paneGroups: 'groupsAndFloats',
@@ -234,21 +236,15 @@ export function createInitialContext(): AppMachineContext {
     phoneBottomView: 'tree',
     phoneDockView: null,
     enableAnimations: false,
-    animationsAllowed: true,
-    cursorBlink: true,
-    sendAsk: true,
-    notifyAllowed: true,
+    ...appearancePrefs(undefined),
     pushState: pushSupported() ? 'unknown' : 'unsupported',
     processIcons: {},
-    transparency: true,
     pinnedOptions: [],
-    tabOverviewCols: 3,
-    gestureFlags: { swipeTabs: true, pinchZoom: true, pinchOverview: true },
-    nativeMenus: true,
     sizePolicy: DEFAULT_SIZE_POLICY,
     gesture: null,
     keybindings: null,
     copyModeStates: {},
+    copyModeExitedAt: {},
     suppressLayoutTransition: false,
     lastUpdateAnimated: false,
     paneKeyOverrides: {},

@@ -16,7 +16,8 @@ import { useKeyedRequest } from './useKeyedRequest';
 import type { WidgetProps } from '../registry';
 import { parsePreviewLines } from '../../../domain/preview';
 import './preview.css';
-import { useBindingOwnsKey, useIsPaneInActiveWindow, usePane } from '../../../machines/appHooks';
+import { useAppSelector, useBindingOwnsKey } from '../../../machines/appHooks';
+import { selectPaneHoldsKeyboard } from '../../../machines/selectors/keyboard';
 
 /**
  * A plain key typed at the preview is nobody's: the pane runs no program that
@@ -49,10 +50,7 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
 
   const source = usePreviewSource(paneId);
   const theme = usePreviewTheme();
-  // Both hooks every render: a `&&` between them would make the second conditional.
-  const paneActive = !!usePane(paneId)?.active;
-  const inActiveWindow = useIsPaneInActiveWindow(paneId);
-  const active = paneActive && inActiveWindow;
+  const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const doc = useKeyedRequest(rev || null, source.readDocument);
   useSwallowedTyping(active);
 

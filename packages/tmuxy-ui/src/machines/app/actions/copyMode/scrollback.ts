@@ -179,8 +179,6 @@ export function fetchHistory(enqueue: EnqueueAction, paneId: PaneId, record: Cop
   );
 }
 
-export const copyModeExitTimes = new Map<PaneId, number>();
-
 /**
  * Leave copy mode the way a copy does. tmux leaves its mode at once, as its
  * `copy-pipe-and-cancel` would; the client's view stays just long enough for
@@ -191,10 +189,10 @@ export function leaveAfterCopy(enqueue: Enqueue, context: Ctx, paneId: PaneId): 
   const copyState = context.copyModeStates[paneId];
   if (!copyState) return;
   const copiedAt = Date.now();
-  copyModeExitTimes.set(paneId, copiedAt);
   enqueue(
     assign({
       copyModeStates: { ...context.copyModeStates, [paneId]: { ...copyState, copiedAt } },
+      copyModeExitedAt: { ...context.copyModeExitedAt, [paneId]: copiedAt },
     }),
   );
   enqueue(
@@ -221,12 +219,12 @@ export function reconcilePaneMode(
   prevPane: Pick<TmuxPane, 'inMode'> | undefined,
   newPane: Pick<TmuxPane, 'tmuxId' | 'inMode'>,
   record: Pick<CopyModeState, 'copiedAt' | 'tmuxSeen'> | undefined,
-  options: { now: number },
+  options: { now: number; exitedAt: number | undefined },
 ): PaneModeReconciliation {
   if (newPane.inMode) {
     if (record) return record.tmuxSeen ? 'none' : 'confirm';
     if (prevPane?.inMode) return 'none';
-    const exitTime = copyModeExitTimes.get(newPane.tmuxId);
+    const exitTime = options.exitedAt;
     if (exitTime !== undefined && options.now - exitTime < COPY_MODE_REENTRY_COOLDOWN) {
       return 'none';
     }

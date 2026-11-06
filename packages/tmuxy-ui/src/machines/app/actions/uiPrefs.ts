@@ -10,6 +10,7 @@
  * where DOM/localStorage write happen synchronously with state mutation.
  */
 
+import { appearancePrefs } from '../appearance';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
 import {
@@ -127,19 +128,8 @@ export const uiPrefsActions = {
     if (event.cssVars) applyCssVars(event.cssVars);
     enqueue(
       assign({
-        animationsAllowed: event.appearance?.animations ?? true,
-        cursorBlink: event.appearance?.cursorBlink ?? true,
-        sendAsk: event.appearance?.sendAsk ?? true,
-        notifyAllowed: event.appearance?.notify ?? true,
+        ...appearancePrefs(event.appearance),
         processIcons: event.icons ?? {},
-        transparency: event.appearance?.transparency ?? true,
-        tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
-        gestureFlags: {
-          swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
-          pinchZoom: event.appearance?.gesturePinchZoom ?? true,
-          pinchOverview: event.appearance?.gesturePinchOverview ?? true,
-        },
-        nativeMenus: event.appearance?.nativeMenus ?? true,
         pinnedOptions: event.pinned ?? [],
       }),
     );

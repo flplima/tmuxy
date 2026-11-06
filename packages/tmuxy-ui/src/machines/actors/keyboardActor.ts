@@ -45,6 +45,8 @@ export interface KeyboardActorInput {
 /** The binding tables, as the actor looks keys up in them. */
 interface BindingMaps {
   prefixKey: string;
+  /** How long a `bind -r` key keeps the prefix armed for the next repeat (tmux's `repeat-time`). */
+  repeatTimeMs: number;
   prefix: Map<string, string>;
   prefixRepeat: Set<string>;
   root: Map<string, string>;
@@ -53,6 +55,7 @@ interface BindingMaps {
 
 const NO_BINDINGS: BindingMaps = {
   prefixKey: 'C-a',
+  repeatTimeMs: 500,
   prefix: new Map(),
   prefixRepeat: new Set(),
   root: new Map(),
@@ -62,6 +65,7 @@ const NO_BINDINGS: BindingMaps = {
 function bindingMaps(kb: KeyBindings): BindingMaps {
   return {
     prefixKey: kb.prefix_key,
+    repeatTimeMs: kb.repeat_time_ms,
     prefix: new Map(kb.prefix_bindings.map((b) => [b.key, b.command])),
     prefixRepeat: new Set(kb.prefix_bindings.filter((b) => b.repeat).map((b) => b.key)),
     root: new Map(kb.root_bindings.map((b) => [b.key, b.command])),
@@ -81,11 +85,6 @@ function keyboardMark(keys: KeyContext): string {
 }
 
 const PREFIX_TIMEOUT_MS = 8000;
-/**
- * How long a `bind -r` key keeps the prefix armed for the next repeat — tmux's
- * `repeat-time`, which the server does not export; the shipped config sets 300.
- */
-const REPEAT_TIMEOUT_MS = 300;
 
 export function createKeyboardActor() {
   return fromCallback<EventObject, KeyboardActorInput>(({ input }) => {
@@ -261,7 +260,9 @@ export function createKeyboardActor() {
         return;
       }
 
-      const { prefixKey, prefix, prefixRepeat, root, tables } = currentBindings(ctx.keybindings);
+      const { prefixKey, repeatTimeMs, prefix, prefixRepeat, root, tables } = currentBindings(
+        ctx.keybindings,
+      );
 
       const formattedKey = formatTmuxKey(event);
 
@@ -308,7 +309,7 @@ export function createKeyboardActor() {
             prefixMode.exit();
             setKeyTable(table);
           } else if (prefixRepeat.has(bindingKey)) {
-            prefixMode.enter(REPEAT_TIMEOUT_MS, prefixRepeat);
+            prefixMode.enter(repeatTimeMs, prefixRepeat);
           } else {
             prefixMode.exit();
           }

@@ -165,6 +165,10 @@ fn describe_binding(command_name: &str, command: &str) -> String {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct KeyBindings {
     pub prefix_key: String,
+    /// tmux's `repeat-time`: how long a `-r` binding keeps the prefix armed
+    /// for the next repeat, in milliseconds.
+    #[serde(default = "default_repeat_time_ms")]
+    pub repeat_time_ms: u64,
     pub prefix_bindings: Vec<KeyBinding>,
     pub root_bindings: Vec<KeyBinding>,
     /// Every other table a binding can enter with `switch-client -T` — the
@@ -181,6 +185,13 @@ const UNLISTED_TABLES: [&str; 4] = ["prefix", "root", "copy-mode", "copy-mode-vi
 /// tmux's own prefix, for a server that answers nothing.
 const DEFAULT_PREFIX: &str = "C-b";
 
+/// tmux's own `repeat-time`, for a server that answers nothing.
+const DEFAULT_REPEAT_TIME_MS: u64 = 500;
+
+fn default_repeat_time_ms() -> u64 {
+    DEFAULT_REPEAT_TIME_MS
+}
+
 impl KeyBindings {
     /// Read the live bindings in one round trip. A server that cannot answer
     /// yields tmux's defaults (prefix `C-b`, no tables) rather than an error:
@@ -188,7 +199,7 @@ impl KeyBindings {
     pub async fn read(tx: &MonitorCommandSender) -> Self {
         // Every table in one list: asking for a table by name is an error when
         // it does not exist, and an error ends the command list.
-        match query(tx, "show-options -gv prefix ; list-keys").await {
+        match query(tx, "show-options -gv prefix ; show-options -gv repeat-time ; list-keys").await {
             Ok(output) => Self::parse(&output),
             Err(e) => {
                 tracing::warn!(error = %e, "could not read key bindings");
@@ -197,16 +208,22 @@ impl KeyBindings {
         }
     }
 
-    /// The first line is the prefix (`show-options -gv`); the tables follow,
-    /// each line naming its own table.
+    /// The option lines come first (`show-options -gv`: the prefix, then the
+    /// repeat time); the tables follow, each line naming its own table.
     pub(super) fn parse(output: &str) -> Self {
-        let prefix_key = output
+        let mut options = output
             .lines()
-            .next()
             .map(str::trim)
-            .filter(|p| !p.is_empty() && !p.starts_with("bind-key"))
+            .take_while(|line| !line.starts_with("bind-key"));
+        let prefix_key = options
+            .next()
+            .filter(|p| !p.is_empty())
             .unwrap_or(DEFAULT_PREFIX)
             .to_string();
+        let repeat_time_ms = options
+            .next()
+            .and_then(|ms| ms.parse().ok())
+            .unwrap_or(DEFAULT_REPEAT_TIME_MS);
         let names: std::collections::BTreeSet<&str> = output
             .lines()
             .filter_map(|line| crate::list_keys::Row::parse(line).map(|row| row.table))
@@ -214,6 +231,7 @@ impl KeyBindings {
             .collect();
         Self {
             prefix_key,
+            repeat_time_ms,
             prefix_bindings: parse_bindings("prefix", output),
             root_bindings: parse_bindings("root", output),
             tables: names
