@@ -20,8 +20,7 @@
 
 /* The margins around the pane grid are this padding and nothing else: the
    size actor observes the container's content box, so the grid is sized
-   for — and .pane-layout fills — exactly the area inside it. Mirrored as
-   CONTAINER_PADDING_X / _Y in constants/layout.ts. */
+   for — and .pane-layout fills — exactly the area inside it. */
 .app-container .pane-container {
   flex: 1;
   position: relative;
@@ -29,7 +28,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px 4px;
+  padding: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
 /* Pane States */
@@ -377,7 +376,7 @@
    cell's own red, its green background or its reverse video read as noise
    under a selection, and some of them vanished into it. The browser's
    selection paints over a cell's colours; copy mode's renderers leave a
-   selected cell's colours off (TerminalLine.tsx, terminalRendering.ts). */
+   selected cell's colours off (components/terminal/cellPaint.ts). */
 .terminal-selectable::selection,
 .terminal-selectable *::selection {
   background-color: var(--selection-bg);

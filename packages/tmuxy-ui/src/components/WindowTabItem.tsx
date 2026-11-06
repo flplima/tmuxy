@@ -11,6 +11,10 @@ import { InlineRename } from './InlineRename';
 import type { WindowId } from '../domain/ids';
 import { PaneStateMark } from './PaneStateMark';
 import { tabIcon } from './paneTabDisplay';
+import { useAppSelector } from '../machines/appHooks';
+import { selectKeyBindings } from '../machines/selectors/ui';
+import { keyHint, withKeyHint } from '../domain/keyLabels';
+import { commandHint } from './menus/specs/actions';
 import { type PaneStateName } from '../domain/paneState';
 import type { AppMachineEvent } from '../machines/types/events';
 import type { selectTabDrop } from '../machines/selectors/layout';
@@ -46,6 +50,8 @@ interface WindowTabItemProps {
   send: (event: AppMachineEvent) => void;
 }
 
+const ZOOM_TOGGLE = TmuxOp.ZoomToggle({ paneId: null });
+
 export function WindowTabItem({
   window,
   idx,
@@ -62,6 +68,7 @@ export function WindowTabItem({
   handleContextMenu,
   send,
 }: WindowTabItemProps) {
+  const keybindings = useAppSelector(selectKeyBindings);
   const { dragging, dropMarkerAt } = reorder;
   const visualIndex = idx + 1;
   const isDragged = dragging?.windowId === window.id;
@@ -132,14 +139,14 @@ export function WindowTabItem({
       {/* What this tab is doing that its name does not say. Both are
           window state, so a background tab shows them too. */}
       {window.collapsible && (
-        <Tooltip label="Stacked Panes (prefix+S to toggle)">
+        <Tooltip label={withKeyHint('Stacked Panes', commandHint(keybindings, 'tab-stack-toggle'))}>
           <span className="tab-flag" aria-label="Stacked Panes">
             {'\uf51e'}
           </span>
         </Tooltip>
       )}
       {window.zoomed && (
-        <Tooltip label="Pane Zoom (prefix+z to toggle)">
+        <Tooltip label={withKeyHint('Pane Zoom', keyHint(keybindings, ZOOM_TOGGLE))}>
           <span className="tab-flag" aria-label="Pane Zoom">
             ⛶
           </span>

@@ -25,7 +25,7 @@
 
 import { memo } from 'react';
 import type { CellLine } from '../../domain/wireCells';
-import { rowEdgeBackground } from './terminalRendering';
+import { rowEdgeBackground } from './cellPaint';
 
 interface RowEdgesProps {
   lines: CellLine[];

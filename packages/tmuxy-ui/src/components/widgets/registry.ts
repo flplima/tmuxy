@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
-import type { PaneContent } from '../../domain/wireCells';
+import { selectPaneWidget } from '../../machines/selectors/paneWidget';
+import type { PaneWidget } from '../../domain/paneWidget';
 import type { AppMachineContext } from '../../machines/types/context';
 import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
@@ -43,65 +44,19 @@ export function registerWidget(name: string, definition: WidgetDefinition) {
   widgetRegistry[name] = definition;
 }
 
-export function getWidget(name: string): WidgetDefinition | undefined {
-  return widgetRegistry[name];
+export interface RegisteredPaneWidget extends PaneWidget {
+  definition: WidgetDefinition;
 }
 
-// Detect widget marker from CellLine[]
-const WIDGET_MARKER_PREFIX = '__TMUXY_WIDGET__:';
-
 /**
- * Which widget a pane is showing, if any.
- *
- * `authorizedWidget` is the pane's `@tmuxy-pane-widget` option, written by
- * `tmuxy-widget` out of band. It is required, because the marker itself
- * travels in pane OUTPUT: `cat` of a crafted file, a commit message in
- * `git log`, `curl` output or an ssh MOTD could otherwise replace the pane
- * with a widget the user never asked for — app UI drawn where the terminal
- * should be. Nothing in the content authorises anything; the option says the
- * user asked for this widget in this pane.
+ * The widget a pane is showing and its definition, or null when the pane draws
+ * as a terminal — no widget (`selectPaneWidget`), or one this build does not
+ * register.
  */
-export function detectWidget(
-  content: PaneContent,
-  authorizedWidget: string | null | undefined,
-): { widgetName: string; contentLines: string[] } | null {
-  if (content.length === 0) return null;
-  // The authorisation is the whole question. It is a tmux pane option, set out
-  // of band by `tmuxy-widget` and cleared on its way out, so no amount of pane
-  // output can produce or change it.
-  if (!authorizedWidget) return null;
-
-  if (!widgetRegistry[authorizedWidget]) return null;
-
-  // Scan all lines for the marker (it may not be at line 0 if run from a shell)
-  for (let i = 0; i < content.length; i++) {
-    const lineText = content[i]
-      .map((cell) => cell.c)
-      .join('')
-      .trim();
-    if (lineText.startsWith(WIDGET_MARKER_PREFIX)) {
-      const widgetName = lineText.slice(WIDGET_MARKER_PREFIX.length).trim();
-      if (!widgetName || !widgetRegistry[widgetName]) continue;
-      // The marker must name the widget the pane was tagged for. A pane
-      // legitimately running one widget must not be turned into another by
-      // something it prints.
-      if (widgetName !== authorizedWidget) continue;
-
-      // Content lines are everything after the marker line
-      const contentLines = content.slice(i + 1).map((line) =>
-        line
-          .map((cell) => cell.c)
-          .join('')
-          .trimEnd(),
-      );
-
-      return { widgetName, contentLines };
-    }
-  }
-
-  // No marker on screen means this is not a widget pane: a widget prints its
-  // marker once and then sleeps, so a tag with no marker is a stale tag over a
-  // live shell — a widget killed without its EXIT trap running. Showing a
-  // widget over that shell would be worse than showing nothing.
-  return null;
+export function paneWidgetOf(
+  pane: Parameters<typeof selectPaneWidget>[0],
+): RegisteredPaneWidget | null {
+  const widget = selectPaneWidget(pane);
+  const definition = widget ? widgetRegistry[widget.name] : undefined;
+  return widget && definition ? { ...widget, definition } : null;
 }

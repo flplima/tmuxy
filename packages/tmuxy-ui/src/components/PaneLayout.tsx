@@ -13,7 +13,12 @@
 
 import React, { useCallback, useReducer, useRef, useMemo, ReactNode } from 'react';
 import { ResizeDividers } from './ResizeDividers';
-import { computePaneBox } from '../constants/layout';
+import {
+  centeringOffset as gridCenteringOffset,
+  gridPixelSize,
+  paneBox,
+  paneContentPadding,
+} from '../domain/paneGeometry';
 import { gridExtent } from '../machines/app/helpers';
 import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/appHooks';
 import {
@@ -58,9 +63,6 @@ import { useMorphContentAnchor } from './paneContentAnchor';
 interface PaneLayoutProps {
   children: (pane: TmuxPane) => ReactNode;
 }
-
-/** The outline every pane draws outside its box (`.pane-layout-item`). */
-const PANE_OUTLINE_PX = 1;
 
 export function PaneLayout({ children }: PaneLayoutProps) {
   const send = useAppSend();
@@ -131,28 +133,19 @@ export function PaneLayout({ children }: PaneLayoutProps) {
     [isZoomed, visiblePanes],
   );
 
-  // Half a charWidth — each pane reaches this far into the tmux separator
-  // column on both sides so adjacent panes' outlines coincide pixel-for-pixel
-  // at the shared edge (the "mosaic" look). Also the content's horizontal
-  // padding, which centers the terminal text within the +1-cell-wide box.
-  const hPadding = charWidth / 2;
+  const hPadding = paneContentPadding(charWidth);
+  const grid = useMemo(
+    () => gridPixelSize(totalWidth, totalHeight, charWidth, charHeight),
+    [totalWidth, totalHeight, charWidth, charHeight],
+  );
 
-  // Centre the pane grid across the container, and hang it from the top.
-  // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so its dimensions match
-  // containerWidth/Height (content-box from ResizeObserver). No padding-box
-  // arithmetic needed — pane positions are relative to the content area directly.
-  // The rows fill the height in whole cells, and what is left over — up to a
-  // row — goes below the grid: split above and below, it was a band of empty
-  // ground between the tab strip and the panes. One pixel down, for the 1px
-  // outline every pane draws outside its own box (pane-layout.css).
-  const liveCenteringOffset = useMemo(() => {
-    const paneContentWidth = totalWidth * charWidth;
-    // Clamp x so content never overflows the right edge.
-    // This handles transient states where tmux totalWidth > targetCols.
-    const idealX = (containerWidth - paneContentWidth) / 2;
-    const maxX = containerWidth - paneContentWidth;
-    return { x: Math.max(0, Math.min(idealX, maxX)), y: PANE_OUTLINE_PX };
-  }, [totalWidth, charWidth, containerWidth]);
+  // .pane-layout is inset by the container's padding (CSS), so its dimensions
+  // match containerWidth/Height (content-box from ResizeObserver) and pane
+  // positions are relative to the content area directly.
+  const liveCenteringOffset = useMemo(
+    () => gridCenteringOffset(containerWidth, grid.width),
+    [containerWidth, grid.width],
+  );
 
   // Freeze the centering offset for the duration of a drag OR resize. Mid-drag
   // the dragged pane is pinned to its original slot while the optimistic swap
@@ -171,11 +164,8 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   // The point all non-zoomed panes collapse toward (and expand out of) during
   // a zoom: the centre of the pane grid, where the zoomed pane fills to.
   const zoomCenter = useMemo(
-    () => ({
-      x: centeringOffset.x + (totalWidth * charWidth) / 2,
-      y: centeringOffset.y + (totalHeight * charHeight) / 2,
-    }),
-    [centeringOffset, totalWidth, totalHeight, charWidth, charHeight],
+    () => ({ x: centeringOffset.x + grid.width / 2, y: centeringOffset.y + grid.height / 2 }),
+    [centeringOffset, grid],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -207,10 +197,10 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       // Uniform mosaic box: width = charWidth*(width+1), height =
       // charHeight*(height+1). The extra cell in each axis is the border whose
       // two halves are shared with neighbours (or the grid edge). See
-      // computePaneBox for the geometry. A collapsed stacked pane (height 1)
+      // paneBox for the geometry. A collapsed stacked pane (height 1)
       // therefore renders as 2 rows — its header title row plus a blank content
       // row — matching tmux; TerminalPane hides the content of that row.
-      const box = computePaneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
+      const box = paneBox(pane, charWidth, charHeight, centeringOffset.x, centeringOffset.y);
       return {
         position: 'absolute',
         left: box.left,
@@ -373,12 +363,12 @@ export function PaneLayout({ children }: PaneLayoutProps) {
       ))}
 
       {/* Ghost indicator showing dragged pane's current grid position.
-          Mirrors getPaneStyle exactly (same computePaneBox) so the ghost
+          Mirrors getPaneStyle exactly (same paneBox) so the ghost
           lands precisely where the pane will. */}
       {dropTarget &&
         isDragging &&
         (() => {
-          const box = computePaneBox(
+          const box = paneBox(
             dropTarget,
             charWidth,
             charHeight,

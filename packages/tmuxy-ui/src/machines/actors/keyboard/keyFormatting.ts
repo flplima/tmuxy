@@ -60,24 +60,6 @@ export function bindingKeyOf(event: KeyboardEvent): string {
 }
 
 /**
- * Keys the client answers itself, by table: what they open has no tmux window
- * or pane behind it (a sidebar's open/fixed state, the Tab Overview, the keys
- * view), so there is no binding for tmux to run.
- */
-export type ClientKey =
-  | 'left-sidebar'
-  | 'right-sidebar'
-  | 'tab-overview'
-  | 'keys-view'
-  | 'tab-left'
-  | 'tab-right';
-
-export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
-  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
-  tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
-};
-
-/**
  * macOS Option+key produces special Unicode characters instead of altKey=true.
  * This maps those characters back to their base keys for tmux M- notation.
  */

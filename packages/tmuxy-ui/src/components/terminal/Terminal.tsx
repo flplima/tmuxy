@@ -10,7 +10,7 @@ import { TerminalLine } from './TerminalLine';
 import { Cursor, type CursorMode } from './Cursor';
 import { cellsToCss, resolveImageSrc } from './terminalShared';
 import { cursorShapeToMode } from './cursorShape';
-import { isWrappedRow } from '../../domain/copyMode';
+import { isWrappedRow, selectionColumns } from '../../domain/copyMode';
 import { detectUrlsAcrossRows } from './urlDetect';
 import { setLinkHot } from './linkHover';
 import type { ImagePlacement } from '../../domain/client';
@@ -56,49 +56,6 @@ interface TerminalProps {
 
 // Empty line constant for padding
 const EMPTY_LINE: CellLine = [];
-
-/**
- * Compute per-line selection column ranges.
- * Returns a function that, given a line index, returns { startCol, endCol } or null.
- */
-function computeSelectionRanges(
-  selectionPresent: boolean,
-  selectionStart: { x: number; y: number } | null | undefined,
-  copyCursorX: number,
-  copyCursorY: number,
-  width: number,
-): (lineIndex: number) => { startCol: number; endCol: number } | null {
-  if (!selectionPresent || !selectionStart) return () => null;
-
-  // Normalize: ensure start is before end
-  let sy = selectionStart.y,
-    sx = selectionStart.x;
-  let ey = copyCursorY,
-    ex = copyCursorX;
-  if (sy > ey || (sy === ey && sx > ex)) {
-    [sy, sx, ey, ex] = [ey, ex, sy, sx];
-  }
-
-  return (lineIndex: number) => {
-    if (lineIndex < sy || lineIndex > ey) return null;
-
-    if (sy === ey) {
-      // Single line selection
-      return { startCol: sx, endCol: ex };
-    }
-
-    if (lineIndex === sy) {
-      // First line: from startCol to end of line
-      return { startCol: sx, endCol: width - 1 };
-    }
-    if (lineIndex === ey) {
-      // Last line: from start to endCol
-      return { startCol: 0, endCol: ex };
-    }
-    // Middle lines: fully selected
-    return { startCol: 0, endCol: width - 1 };
-  };
-}
 
 export const Terminal: React.FC<TerminalProps> = ({
   content,
@@ -150,13 +107,13 @@ export const Terminal: React.FC<TerminalProps> = ({
   // Compute selection ranges for each line
   const getSelectionRange = useMemo(
     () =>
-      computeSelectionRanges(
-        selectionPresent,
-        effectiveSelectionStart,
-        copyCursorX,
-        copyCursorY,
-        width,
-      ),
+      selectionPresent && effectiveSelectionStart
+        ? selectionColumns(
+            { row: effectiveSelectionStart.y, col: effectiveSelectionStart.x },
+            { row: copyCursorY, col: copyCursorX },
+            width,
+          )
+        : () => null,
     [selectionPresent, effectiveSelectionStart, copyCursorX, copyCursorY, width],
   );
 

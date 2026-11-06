@@ -18,8 +18,8 @@
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { PaneBox } from '../constants/layout';
-import { MORPH_FALLBACK_MS } from './PaneLayoutMorph';
+import type { PaneBox } from '../domain/paneGeometry';
+import { morphFallbackMs } from './PaneLayoutMorph';
 
 export type ContentAnchor = 'top' | 'bottom';
 
@@ -60,7 +60,7 @@ export function useMorphContentAnchor(
       const onEnd = (e: TransitionEvent) => {
         if (e.target === node && e.propertyName === 'height') release();
       };
-      const timer = window.setTimeout(() => release(), MORPH_FALLBACK_MS);
+      const timer = window.setTimeout(() => release(), morphFallbackMs(node));
       const release = () => {
         node.removeEventListener('transitionend', onEnd);
         clearTimeout(timer);

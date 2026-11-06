@@ -6,7 +6,6 @@ import {
   getTabIcon,
   isSvgIcon,
   paneRowLines,
-  paneWidgetName,
   splitLeadingEmoji,
   splitTitleIcon,
   tabIcon,
@@ -143,14 +142,12 @@ describe('the icon an application announces', () => {
 
   it('wears the icon the config gives a process, over every other', () => {
     const custom = { claude: '*', zsh: 'data:image/svg+xml;base64,PHN2Zy8+' };
-    expect(
-      getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, undefined, custom),
-    ).toBe('*');
-    expect(getTabIcon(pane({ command: 'ZSH' }), undefined, undefined, custom)).toBe(custom.zsh);
-    // A name the map does not hold, even one every object has, is not in it.
-    expect(getTabIcon(pane({ command: 'constructor' }), undefined, undefined, custom)).toBe(
-      '\ue795',
+    expect(getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, custom)).toBe(
+      '*',
     );
+    expect(getTabIcon(pane({ command: 'ZSH' }), undefined, custom)).toBe(custom.zsh);
+    // A name the map does not hold, even one every object has, is not in it.
+    expect(getTabIcon(pane({ command: 'constructor' }), undefined, custom)).toBe('\ue795');
   });
 
   it('leaves the plain title alone for the places that draw no icon', () => {
@@ -212,12 +209,10 @@ describe('paneRowLines', () => {
       paneWidget: 'preview',
       content: screen('__TMUXY_WIDGET__:preview', '/tmp/notes.md'),
     });
-    const widget = paneWidgetName(preview);
-    expect(widget).toBe('preview');
-    expect(paneRowLines(preview, widget)).toEqual({ process: 'preview', title: 'notes.md' });
-    expect(getTabIcon(preview, widget)).toBe('D');
+    expect(paneRowLines(preview)).toEqual({ process: 'preview', title: 'notes.md' });
+    expect(getTabIcon(preview)).toBe('D');
     // A tag left over a live shell (no marker on screen) is the shell again.
-    expect(paneWidgetName({ ...preview, content: screen('$ ls') })).toBeUndefined();
+    expect(paneRowLines({ ...preview, content: screen('$ ls') }).process).toBe('bash');
   });
 
   it('names an unknown process rather than leaving the line empty', () => {
