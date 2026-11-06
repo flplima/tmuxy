@@ -11,7 +11,7 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
-import { isPlaceholderId } from '../../../domain/ids';
+import { isPlaceholderId, realId } from '../../../domain/ids';
 import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
 import { reorderOp } from '../../../domain/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
@@ -113,11 +113,8 @@ export const tabOverviewActions = {
     if (event.type === 'RENAME_TAB') {
       return { renamingTab: { windowId: event.windowId, surface: event.surface ?? 'strip' } };
     }
-    const active = context.activeWindowId;
-    return {
-      renamingTab:
-        active && !isPlaceholderId(active) ? { windowId: active, surface: 'strip' } : null,
-    };
+    const active = realId(context.activeWindowId);
+    return { renamingTab: active ? { windowId: active, surface: 'strip' } : null };
   }),
 
   /** The field closed: renamed (a name), or left as it was (null). */

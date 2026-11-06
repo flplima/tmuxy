@@ -26,6 +26,7 @@ import { TmuxOp } from '../../../../domain/commands';
 import { reconcileFloats } from '../groupsAndFloats';
 import { reconcileSidebars } from '../sidebars';
 import { syncClientSize } from '../viewport';
+import { isSidebarWindow } from '../../../../domain/windows';
 
 /** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
@@ -96,9 +97,7 @@ export const layoutModelUpdateActions = {
     // it never slides up under its header for an update.
     if (!context.resizeActive) {
       const borderlessWindowIds = new Set(
-        transformed.windows
-          .filter((w) => w.windowType === 'sidebar-left' || w.windowType === 'sidebar-right')
-          .map((w) => w.id),
+        transformed.windows.filter(isSidebarWindow).map((w) => w.id),
       );
       transformed.panes = transformed.panes.map((np) => {
         if (np.y !== 0) return np;

@@ -21,10 +21,10 @@ import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
 import { noteFocus } from '../../../infra/dom/chromeTab';
 import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
 import { writeClipboard } from '../../../infra/clipboard';
-import { isModelPaneId, type PaneId } from '../../../domain/ids';
+import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
-import { isRealFormControl, realPaneId } from './keyFormatting';
+import { isRealFormControl } from './keyFormatting';
 import type { ContextView } from '../../contextView';
 import { overlayPaneId, type KeyContext } from '../../selectors/keyboard';
 
@@ -51,7 +51,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       keyboardFocusEstablished = true;
       return;
     }
-    const target = realPaneId(currentPane);
+    const target = realId(currentPane);
     if (!touchIsPrimary() && !keyboardFocusEstablished && target !== null && nothingFocused()) {
       focusKeyboardInput(target);
       keyboardFocusEstablished = true;
@@ -78,7 +78,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     const active = document.activeElement as HTMLElement | null;
     if (active === getMobileInput()) return;
     if (isRealFormControl(active) || active?.tagName === 'IFRAME') return;
-    const paneId = realPaneId(inputPaneId(deps.keys.get()));
+    const paneId = realId(inputPaneId(deps.keys.get()));
     if (paneId === null) return;
     focusKeyboardInput(paneId);
     keyboardFocusEstablished = true;
@@ -96,9 +96,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       if (!text) return;
     }
     const textTarget =
-      paneId === null
-        ? deps.keys.get().target
-        : (realPaneId(paneId) ?? deps.keys.get().sessionName);
+      paneId === null ? deps.keys.get().target : (realId(paneId) ?? deps.keys.get().sessionName);
     deps.parent.send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: textTarget, text }) });
   });
 
@@ -207,7 +205,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (touchIsPrimary() || hasSelection()) return;
     const active = document.activeElement as HTMLElement | null;
     if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
-      const paneId = realPaneId(deps.keys.get().activePaneId);
+      const paneId = realId(deps.keys.get().activePaneId);
       if (paneId === null) return;
       focusKeyboardInput(paneId);
       keyboardFocusEstablished = true;
@@ -217,7 +215,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       byPointer ? '[data-pane-id][tabindex]' : PANE_SURFACE,
     ) as HTMLElement | null;
     if (!pane || pane !== active) return;
-    const paneId = realPaneId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
+    const paneId = realId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
     if (paneId === null) return;
     focusKeyboardInput(paneId);
     keyboardFocusEstablished = true;

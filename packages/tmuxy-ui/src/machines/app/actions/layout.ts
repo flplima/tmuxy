@@ -4,7 +4,7 @@ import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { isPlaceholderId, type PaneId, type WindowId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { scrollViewsIn, takeKeyboard } from '../helpers';
-import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
+import { groupMemberInTab, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { PANES_OWN_KEYBOARD } from '../../selectors/keyboard';
 
 // A finished resize keeps its preview until a model update shows tmux's sizes
@@ -28,15 +28,6 @@ export function selectTab(context: Ctx, enqueue: EnqueueAction, windowId: Window
     enqueue(raise({ type: 'EXIT_SCROLL_MODE' as const, paneId }));
   }
   toStore(enqueue, TmuxOp.SelectWindow({ target: windowId }));
-}
-
-/** The member of a group drawn in a tab (the others are parked in the stash). */
-function shownMember(context: Ctx, members: readonly PaneId[]) {
-  const tabs = new Set(context.windows.filter((w) => w.windowType === 'tab').map((w) => w.id));
-  return (
-    context.panes.find((p) => members.includes(p.tmuxId) && p.windowId && tabs.has(p.windowId)) ??
-    null
-  );
 }
 
 /** A group member parked out of view: in a group, and not in the window on screen. */
@@ -70,7 +61,7 @@ export const layoutActions = {
     takeKeyboard(enqueue, PANES_OWN_KEYBOARD);
 
     const group = Object.values(context.paneGroups).find((g) => g.paneIds.includes(paneId));
-    const shown = group ? shownMember(context, group.paneIds) : null;
+    const shown = group ? groupMemberInTab(context, group.paneIds) : null;
     if (group && shown?.tmuxId !== paneId) {
       if (shown && shown.windowId !== context.activeWindowId) {
         selectTab(context, enqueue, shown.windowId);
