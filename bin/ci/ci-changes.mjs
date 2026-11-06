@@ -34,8 +34,8 @@ const TOOLING = [
 ];
 
 export const SKIPPABLE = {
-  // The Tauri app links tmuxy-core and tmuxy-server (with tmuxy-verbs, and
-  // tmuxy-group under it) and bundles the UI, the CLI (packages/tmuxy-cli) and
+  // The Tauri app links tmuxy-core and tmuxy-server (with tmuxy-verbs under
+  // it) and bundles the UI, the CLI (packages/tmuxy-cli) and
   // the shipped tmux confs (packages/tmuxy-core/assets, include_str!'d by
   // tmuxy-core). Its suites are tests/tauri and tests/smoke, on tests/helpers.
   desktop: [
@@ -46,8 +46,8 @@ export const SKIPPABLE = {
     /^packages\/tmuxy-ui\/(src\/stories\/|scripts\/|\.storybook\/|eslint-rules\/)/,
   ],
   // The v86 probe runs Storybook over tmuxy-wasm (on tmuxy-core) and a guest
-  // image baked from tmuxy-group, the CLI and the shipped confs.
-  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|verbs|tauri-app)\//],
+  // image baked from tmuxy-verbs, the CLI and the shipped confs.
+  v86: [...PROSE, ...TOOLING, /^tests\//, /^packages\/tmuxy-(demo|server|tauri-app)\//],
 };
 
 export const TRIGGERED = {

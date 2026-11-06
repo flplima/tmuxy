@@ -1,18 +1,28 @@
 //! The `tmuxy server <verb>` tools that serve nothing: plugins, session
-//! snapshots, coding agents, pane groups, the config files and trace files.
-//! The CLI scripts call them; both binaries (`tmuxy-server`, and the desktop
-//! app's `tmuxy server …`) run them through [`Verb`] without the web server
-//! being involved.
+//! snapshots, coding agents, pane groups, floats, tabs, sends, the config
+//! files and trace files. The CLI scripts call them; every binary
+//! (`tmuxy-server`, the desktop app's `tmuxy server …`, and `tmuxy-verbs`
+//! where neither is installed) runs them through [`Verb`] without the web
+//! server being involved.
+//!
+//! Built without the `native` feature (the in-browser guests' `tmuxy-verbs`)
+//! the verbs on tmuxy-core's async transport are left out, and each answers
+//! as not available here, under the CLI's contract.
 
 mod agents;
 mod cli_json;
 mod config_cli;
+#[cfg(feature = "native")]
 mod connect_cli;
 mod float_cli;
+mod group_cli;
+#[cfg(feature = "native")]
 mod plugin_cli;
 mod run_cli;
 mod send_cli;
+#[cfg(feature = "native")]
 mod session_cli;
+#[cfg(feature = "native")]
 mod trace_view;
 
 use clap::Subcommand;
@@ -21,20 +31,23 @@ use clap::Subcommand;
 pub enum Verb {
     /// Inspect a local action-trace file: print a summary, or export a
     /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
+    #[cfg(feature = "native")]
     Trace(trace_view::TraceViewArgs),
     /// Save, restore, list or forget session snapshots. Backs
     /// `tmuxy session save|restore|snapshots|forget`.
+    #[cfg(feature = "native")]
     Session(session_cli::SessionArgs),
     /// Pane-group operations. Backs the `packages/tmuxy-cli/bin/tmuxy/pane-group` script,
     /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
     /// the user's way in.
     #[command(hide = true)]
-    Group(tmuxy_group::GroupArgs),
+    Group(group_cli::GroupArgs),
     /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks
     /// that show their state, and the tmuxy skill. Backs `tmuxy agent`.
     Agent(agents::AgentArgs),
     /// Install, list, update and remove plugins, and run their actions.
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
+    #[cfg(feature = "native")]
     Plugin(plugin_cli::PluginArgs),
     /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
     /// `use-tmux-conf`. Backs `tmuxy config`.
@@ -46,10 +59,12 @@ pub enum Verb {
     Send(send_cli::SendArgs),
     /// Ask the desktop app to reconnect to another tmux server. Backs
     /// `tmuxy connect <socket>`.
+    #[cfg(feature = "native")]
     #[command(hide = true)]
     Connect(connect_cli::ConnectArgs),
     /// Check a server stage by stage, save it for the session menu and ask
     /// the desktop app to attach to it. Backs `tmuxy session connect`.
+    #[cfg(feature = "native")]
     #[command(hide = true)]
     SessionConnect(connect_cli::SessionConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
@@ -66,27 +81,51 @@ pub enum Verb {
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
     Float(float_cli::FloatArgs),
+    /// A verb this build leaves out (see the crate's doc), as the CLI handed
+    /// it over: its name, then its arguments.
+    #[cfg(not(feature = "native"))]
+    #[command(external_subcommand)]
+    NotHere(Vec<String>),
 }
 
 pub async fn run(verb: Verb) {
     match verb {
+        #[cfg(feature = "native")]
         Verb::Trace(args) => trace_view::run(args),
+        #[cfg(feature = "native")]
         Verb::Session(args) => session_cli::run(args).await,
-        Verb::Group(args) => tmuxy_group::run(args),
+        Verb::Group(args) => group_cli::run(args),
         Verb::Agent(args) => agents::run(args),
+        #[cfg(feature = "native")]
         Verb::Plugin(args) => plugin_cli::run(args),
         Verb::Config(args) => config_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
+        #[cfg(feature = "native")]
         Verb::Connect(args) => connect_cli::run(args),
+        #[cfg(feature = "native")]
         Verb::SessionConnect(args) => connect_cli::session_connect(args),
         Verb::Skill(args) => agents::skill(args),
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
+        #[cfg(not(feature = "native"))]
+        Verb::NotHere(argv) => not_here(&argv),
     }
 }
 
-#[cfg(test)]
+/// The answer to a verb this build leaves out: a failure under the CLI's
+/// contract, in JSON when the command line asked for it.
+#[cfg(not(feature = "native"))]
+fn not_here(argv: &[String]) -> ! {
+    let verb = argv.first().map_or("", String::as_str);
+    let answer = cli_json::Answer::new(argv.iter().any(|arg| arg == "--json"));
+    answer.exit(
+        cli_json::EXIT_FAILED,
+        &format!("`{verb}` is not available here: it needs tmuxy-server, which this machine does not have"),
+    )
+}
+
+#[cfg(all(test, feature = "native"))]
 mod tests {
     use super::Verb;
     use clap::Parser;

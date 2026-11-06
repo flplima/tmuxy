@@ -3,7 +3,7 @@
  * Build the CheerpX guest image, `cheerpx-assets/tmuxy.ext2`: 32-bit Alpine
  * with bash, tmux built from source (every `cheerpx/patches/*.patch` applied),
  * the repo's `tmuxy` CLI and scripts, the shipped tmux config, the i686
- * `tmuxy-group` and `tmuxy-pty`, the terminal each pane runs on — see
+ * `tmuxy-verbs` and `tmuxy-pty`, the terminal each pane runs on — see
  * cheerpx/Dockerfile for the guest layout.
  *
  * Needs Docker with linux/386 emulation (binfmt; Docker Desktop and Colima
@@ -48,7 +48,7 @@ await cp(join(CHEERPX, 'patches'), join(CONTEXT, 'patches'), { recursive: true }
 // The guest tree, overlaid on the Alpine root by the Dockerfile: the files
 // kept in cheerpx/rootfs, then what is built or copied from the repo.
 await cp(join(CHEERPX, 'rootfs'), GUEST, { recursive: true });
-await crossCompileGuestBinaries(['tmuxy-group', 'tmuxy-pty'], join(GUEST, 'usr', 'bin'));
+await crossCompileGuestBinaries(['tmuxy-verbs', 'tmuxy-pty'], join(GUEST, 'usr', 'bin'));
 await stageTmuxyScripts(join(GUEST, 'opt', 'tmuxy', 'bin'));
 const config = join(GUEST, GUEST_CONFIG_DIR);
 const data = join(GUEST, GUEST_DATA_DIR);

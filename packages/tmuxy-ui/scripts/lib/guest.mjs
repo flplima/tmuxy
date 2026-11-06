@@ -1,6 +1,6 @@
 /**
  * What every in-browser guest (the v86 snapshot, the CheerpX image) takes from
- * the repo: the i686 static binaries the pane-group scripts run, the `tmuxy`
+ * the repo: the i686 static binaries the CLI scripts run, the `tmuxy`
  * CLI with its helper scripts, and the tmux config the app ships.
  */
 import { readFileSync } from 'node:fs';
@@ -56,8 +56,9 @@ export function guestBashrc(host = '\\h') {
 
 /**
  * Cross-compile the guest's Rust binaries static for i686 and place each at
- * `<destDir>/<name>` (the guest has no tmuxy-server, so what the scripts need
- * from Rust ships on its own).
+ * `<destDir>/<name>`. The guest has no tmuxy-server, so the CLI's verbs ship
+ * as `tmuxy-verbs`, without the default `native` feature: what needs the
+ * server's async transport stays out, and answers as not available.
  */
 export async function crossCompileGuestBinaries(names, destDir) {
   console.log(`… cross-compiling ${names.join(', ')} (i686-musl)`);
@@ -68,6 +69,7 @@ export async function crossCompileGuestBinaries(names, destDir) {
     [
       'build',
       ...names.flatMap((name) => ['-p', name, '--bin', name]),
+      '--no-default-features',
       '--target',
       'i686-unknown-linux-musl',
       '--release',

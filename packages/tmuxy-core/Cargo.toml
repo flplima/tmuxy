@@ -15,8 +15,8 @@ description = "Core tmux interaction library for tmuxy"
 # (session) is the `cli` feature, and the async/pty transport
 # (monitor/connection/transport) on top of it is the default `native`
 # feature, so the pure core can build with
-# --no-default-features for the WASM (tmuxy-wasm) crate and the v86 guest's
-# tmuxy-group binary can take `cli` without tokio.
+# --no-default-features for the WASM (tmuxy-wasm) crate, and the in-browser
+# guests' tmuxy-verbs binary can take `cli` without the pty transport.
 [dependencies]
 # Pure path — always compiled, wasm-safe.
 serde.workspace = true
@@ -39,7 +39,7 @@ getrandom = "0.4"
 
 # `cli`: the user's config directory.
 dirs = { workspace = true, optional = true }
-# `native`: the async transport.
+# `cli`: the ask protocol's waits (`ask`); `native`: the async transport.
 tokio = { workspace = true, optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
 # `native`: plugin manifests (`plugins::manifest`).
@@ -64,12 +64,13 @@ criterion = "0.5"
 
 [features]
 default = ["native"]
-# Running tmux as a subprocess and the user's config directory (session):
-# what a CLI verb needs, and all tmuxy-group takes.
-cli = ["dep:dirs"]
+# Running tmux as a subprocess, the user's config directory (session) and
+# asking a pane's user (ask): what a CLI verb needs, and all the guests'
+# tmuxy-verbs binary takes.
+cli = ["dep:dirs", "dep:tokio"]
 # The async/pty transport (monitor, connection, transport, snapshots, trace)
 # on top of `cli`. Off for the wasm build.
-native = ["cli", "dep:nix", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex"]
+native = ["cli", "dep:nix", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex"]
 
 [lints]
 workspace = true

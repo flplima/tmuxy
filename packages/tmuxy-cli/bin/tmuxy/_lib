@@ -189,13 +189,19 @@ shquote() {
 
 source "$SCRIPTS_DIR/_contract"
 
-# --- The server binary -----------------------------------------------------
+# --- The verbs binary ------------------------------------------------------
+#
+# Set SERVER_CMD to the command that runs a Rust verb (tmuxy-verbs `Verb`):
+# every CLI command written in Rust goes through here, on any host.
 #
 # TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND) is what the running tmuxy
 # published to its tmux server's global environment, which run-shell hands
 # every script: the build actually serving this socket. Without it the bundled
 # copies under the data dir's bin/, which sit nowhere near a build tree, could
-# only guess. The desktop app's server verbs are `tmuxy server <verb>`.
+# only guess. The desktop app's server verbs are `tmuxy server <verb>`. Last
+# comes `tmuxy-verbs`, the verbs without the server, which is what the
+# in-browser guests ship: there a verb that needs the server answers as not
+# available, under the CLI's contract.
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
   local root="${SCRIPTS_DIR%/*}/../../.."
@@ -209,6 +215,8 @@ find_server_cmd() {
     SERVER_CMD=("$root/target/release/tmuxy-server")
   elif find_desktop_cmd; then
     SERVER_CMD=("$DESKTOP_CMD" server)
+  elif command -v tmuxy-verbs &>/dev/null; then
+    SERVER_CMD=(tmuxy-verbs)
   else
     echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
     return 1
@@ -230,23 +238,11 @@ find_desktop_cmd() {
   fi
 }
 
-# TMUXY_SCRIPTS_DIR names the directory whose `pane-group close` a member's
-# pane-died hook runs (read by tmuxy-group).
+# A pane-group verb. TMUXY_SCRIPTS_DIR names the directory whose
+# `pane-group close` a member's pane-died hook runs (read by the `group` verb).
 group_verb() {
-  find_group_cmd || exit 1
-  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${GROUP_CMD[@]}" "$@"
-}
-
-# Set GROUP_CMD to the command that runs a pane-group verb: the standalone
-# tmuxy-group binary where it is installed (the v86 guest ships the operations
-# that way, having no server), else the server's `group` subcommand.
-find_group_cmd() {
-  if command -v tmuxy-group &>/dev/null; then
-    GROUP_CMD=(tmuxy-group)
-    return
-  fi
-  find_server_cmd || return 1
-  GROUP_CMD=("${SERVER_CMD[@]}" group)
+  find_server_cmd || exit 1
+  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${SERVER_CMD[@]}" group "$@"
 }
 
 # --- Cross-process mutex ---------------------------------------------------

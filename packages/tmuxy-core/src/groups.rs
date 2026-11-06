@@ -10,8 +10,8 @@
 //!
 //! Everything here is pure: an operation takes one `list-panes -a` read
 //! ([`Panes`]) and returns the tmux commands that carry it out
-//! ([`Invocation`]s). The `group` verb of the server binary (and
-//! `packages/tmuxy-group`) does the reading and the running; the
+//! ([`Invocation`]s). The `group` verb (`tmuxy-verbs/src/group_cli.rs`)
+//! does the reading and the running; the
 //! `packages/tmuxy-cli/bin/tmuxy/pane-group` script is its name.
 
 use std::fmt;

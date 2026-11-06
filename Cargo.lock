@@ -5398,14 +5398,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tmuxy-group"
-version = "0.1.4"
-dependencies = [
- "clap",
- "tmuxy-core",
-]
-
-[[package]]
 name = "tmuxy-pty"
 version = "0.1.4"
 dependencies = [
@@ -5483,7 +5475,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tmuxy-core",
- "tmuxy-group",
  "tokio",
  "tracing",
 ]
