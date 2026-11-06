@@ -1,6 +1,3 @@
-//! `install`, `update` and `remove`, and the checks every install path
-//! shares: what refuses a plugin outright, before the gate asks.
-
 use std::path::{Path, PathBuf};
 
 use tmuxy_core::paths::Layout;
@@ -175,7 +172,6 @@ fn intact_checkout(checkout: &Path, source: &RepoSource, name: &str) -> Result<(
     Ok(())
 }
 
-/// Move a staged checkout to its permanent place.
 pub(super) fn commit_checkout(
     dirs: &Layout,
     staging: &Path,
@@ -203,8 +199,6 @@ pub(super) fn declined() -> Failure {
         message: "declined; nothing installed".into(),
     }
 }
-
-// ── install ─────────────────────────────────────────────────────────────
 
 pub(super) fn install(
     dirs: &Layout,
@@ -339,8 +333,6 @@ fn install_path(dirs: &Layout, path: &Path, answer: &Answer, json: bool) -> Outc
     Ok(serde_json::json!({ "name": manifest.name, "path": root }))
 }
 
-/// The dependencies `manifest` brings, fetched and checked, with no verb
-/// claimed twice among them and it.
 pub(super) fn with_dependencies(
     dirs: &Layout,
     registry: &Registry,

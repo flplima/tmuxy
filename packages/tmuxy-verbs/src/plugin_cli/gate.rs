@@ -17,7 +17,6 @@ use tmuxy_core::plugins::manifest::{
 use tmuxy_core::plugins::registry::on_path;
 use tmuxy_core::plugins::PluginError;
 
-/// What is being installed, for the heading.
 pub struct Subject<'a> {
     pub manifest: &'a Manifest,
     /// `owner/repo[/subdir]`, or the linked path.
@@ -307,10 +306,8 @@ pub fn diff(old: &Manifest, new: &Manifest) -> Vec<String> {
     changes
 }
 
-/// How the gate is answered.
 #[derive(Debug, Clone, Default)]
 pub struct Answer {
-    /// `--yes`.
     pub yes: bool,
     /// `--sha`, once per commit: the commits a `--yes` was given for.
     pub sha: Vec<String>,
@@ -321,7 +318,6 @@ pub fn ask(subject: &Subject<'_>, answer: &Answer) -> Result<bool, PluginError> 
     ask_all(std::slice::from_ref(subject), answer)
 }
 
-/// ` --sha <commit>` for every commit, as a `--yes` must name them.
 fn sha_flags(commits: &[&str]) -> String {
     commits.iter().map(|sha| format!(" --sha {sha}")).collect()
 }

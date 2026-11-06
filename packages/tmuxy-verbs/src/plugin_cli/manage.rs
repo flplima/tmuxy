@@ -1,5 +1,3 @@
-//! `update` and `remove`: moving installed plugins on, and taking them off.
-
 use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::lockfile::{Entry, EntrySource, Lockfile};
 use tmuxy_core::plugins::registry::Registry;

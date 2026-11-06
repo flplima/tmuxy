@@ -56,7 +56,6 @@ pub enum Verb {
     Float(float_cli::FloatArgs),
 }
 
-/// Run one verb to completion.
 pub async fn run(verb: Verb) {
     match verb {
         Verb::Trace(args) => trace_view::run(args),

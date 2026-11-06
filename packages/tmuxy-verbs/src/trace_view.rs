@@ -1,10 +1,3 @@
-//! `tmuxy trace` — inspect a local NDJSON action-trace file (docs/TRACING.md).
-//!
-//! Loads the append-only NDJSON written by the trace `Layer` and the `/trace`
-//! ingest, and either prints a per-action summary (correlating by `action_id`)
-//! or exports a Chrome-trace / Perfetto JSON timeline (`--export`), which opens
-//! directly at ui.perfetto.dev for a flame-graph view across all layers.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -134,8 +127,6 @@ pub fn run(args: TraceViewArgs) {
     }
 }
 
-/// Resolve the file to read: the explicit arg, else the file the server
-/// writes by default (`tmuxy_core::paths::trace_file`) if it exists.
 fn resolve_path(file: Option<String>) -> Option<PathBuf> {
     if let Some(f) = file {
         return Some(PathBuf::from(f));
@@ -144,8 +135,6 @@ fn resolve_path(file: Option<String>) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// The default trace path, creating its directory (used by `--mark`, which may
-/// need to create the file).
 fn default_trace_path() -> PathBuf {
     let path = tmuxy_core::paths::trace_file();
     if let Some(dir) = path.parent() {
@@ -154,9 +143,8 @@ fn default_trace_path() -> PathBuf {
     path
 }
 
-/// Append a content-free marker line. The label is bounded; serde escaping keeps
-/// it from breaking the NDJSON framing. O_APPEND makes this safe alongside a
-/// running server's writer.
+/// O_APPEND makes this safe alongside a running server's writer; serde
+/// escaping keeps the label from breaking the NDJSON framing.
 fn append_marker(path: &Path, label: &str) -> Result<(), String> {
     use std::io::Write;
     let now = std::time::SystemTime::now()
@@ -207,8 +195,7 @@ fn load(path: &Path) -> Result<Vec<Map<String, Value>>, String> {
     Ok(parse_lines(&content))
 }
 
-/// Parse NDJSON leniently: one object per line, blank and malformed lines
-/// skipped (a torn final line after a crash must not abort the whole load).
+/// Lenient: a torn final line after a crash must not abort the whole load.
 fn parse_lines(content: &str) -> Vec<Map<String, Value>> {
     content
         .lines()
@@ -292,8 +279,6 @@ fn event_ts_us(ev: &Map<String, Value>) -> f64 {
     ev.get("ts_mono").and_then(Value::as_u64).unwrap_or(0) as f64
 }
 
-/// Human-readable summary: event counts by layer, and the actions correlated by
-/// `action_id` with the layer chain each one touched.
 fn summarize(events: &[Map<String, Value>]) -> String {
     let mut by_layer: BTreeMap<String, usize> = BTreeMap::new();
     let mut by_action: BTreeMap<String, Vec<String>> = BTreeMap::new();

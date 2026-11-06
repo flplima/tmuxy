@@ -16,8 +16,6 @@ struct SessionHealth {
     errors: usize,
 }
 
-/// Field health check: reports reconnects, rejected commands, errors, and session counts
-/// across real usage recorded in the trace.
 pub(super) fn health_check(events: &[Map<String, Value>]) -> String {
     let mut by_session: BTreeMap<String, SessionHealth> = BTreeMap::new();
     let mut total_reconnects = 0;

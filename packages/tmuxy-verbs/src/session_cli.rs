@@ -1,19 +1,15 @@
-//! `tmuxy session save|restore|snapshots|forget` — the command line onto
-//! session snapshots (`tmuxy_core::session_snapshot`).
-//!
-//! Everything here runs tmux as a subprocess. That is safe for `save`,
-//! `snapshots` and `forget`, which only read; `restore` creates and splits,
-//! which must not run as bare subprocesses while a control-mode client is
-//! attached (docs/TMUX.md) — so the CLI wraps it in `tmux run-shell`, where
-//! this binary's own tmux calls become tmux-internal. From a shell with
-//! nothing attached it is simply safe as it is.
+//! Everything here runs tmux as a subprocess. That is safe for `save` and
+//! `snapshots`, which only read; `restore` creates and splits, and
+//! `forget --force` kills the session, which must not run as bare subprocesses
+//! while a control-mode client is attached (docs/TMUX.md) — so the CLI wraps
+//! both in `tmux run-shell`, where this binary's own tmux calls become
+//! tmux-internal. From a shell with nothing attached it is simply safe as it is.
 
 use std::path::PathBuf;
 
 use tmuxy_core::session_snapshot as snap;
 use tmuxy_core::TmuxError;
 
-/// The CLI's `run` for the snapshot module: one tmux subprocess per command.
 fn tmux(argv: Vec<String>) -> std::future::Ready<Result<String, TmuxError>> {
     std::future::ready(tmuxy_core::session::tmux_output(&argv))
 }
@@ -52,7 +48,6 @@ enum SessionVerb {
     },
 }
 
-/// Whether a session by that name runs (`session::session_known`).
 fn session_exists(name: &str) -> bool {
     tmuxy_core::session::session_known(name)
 }
