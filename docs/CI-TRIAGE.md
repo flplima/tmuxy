@@ -38,6 +38,10 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts; add `--red-prs` for what a hand-dispatched run with `red_prs` would hand over) |
 | `dependabot actions merge / merge` | `gh pr diff <n> \| node bin/ci/actions-bump.mjs` — it merges a green Dependabot PR only when that prints nothing (a moved `actions/*` pin and no other line); anything else waits for a review |
 
+## Where the pieces live
+
+A phase more than one job runs is a composite action under `.github/actions/`, so a job reads as the list of phases it runs: `setup-node-rust` (Node, the npm dependencies, a Rust toolchain or none), `build-frontend` and `build-server` (the `frontend-dist` and `tmuxy-server-release` artifacts), `start-test-server` (those artifacts, the CLI on `PATH`, the server started and waited for; with `e2e`, the suites' socket, port, wait scale and snapshot policy), `install-tmux`, `install-chromium`, `install-desktop-test-deps` and `start-xvfb` (the desktop suites' WebKitGTK headers, WebDriver, tauri-driver and display), `v86-guest` (tmuxy-wasm and the cached v86 guest) and `storybook-probe-setup`. The versions and package names they install — the tmux pin, the rust targets, the apt sets, the tauri-driver pin — are `bin/toolchain`'s, which the devcontainer image and `bin/install-dev-tools` read too.
+
 ## Artifact/log entry points
 
 - `interaction-latency-*`: `tests/perf/interaction-report.json` (nightly `perf measurements`)

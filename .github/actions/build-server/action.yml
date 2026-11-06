@@ -1,0 +1,39 @@
+name: Build the server
+description: tmuxy-server with the frontend embedded, uploaded as the `tmuxy-server-release` artifact.
+# The server embeds the dist at compile time (rust-embed in
+# tmuxy-server/src/server.rs), so it is built after the frontend: from the
+# `frontend-dist` artifact, unless this job built the dist itself.
+# Artifacts do not carry the executable bit; consumers chmod it.
+inputs:
+  profile:
+    description: "The cargo profile: 'ci' (Cargo.toml, release optimisation without the fat-LTO link) or 'release'"
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      with:
+        toolchain: stable
+
+    - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+
+    - name: Download frontend dist
+      if: hashFiles('packages/tmuxy-ui/dist/index.html') == ''
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: frontend-dist
+        path: packages/tmuxy-ui/dist
+
+    - name: Build server (${{ inputs.profile }} profile)
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+      run: cargo build --profile "$PROFILE" -p tmuxy-server
+
+    - name: Upload server binary
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: tmuxy-server-release
+        path: target/${{ inputs.profile }}/tmuxy-server
+        if-no-files-found: error
+        retention-days: 1

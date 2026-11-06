@@ -170,7 +170,7 @@ Key pieces (under `tmuxy-ui/src/infra/transport/drivers/`):
 
 The public demo site (`packages/tmuxy-demo`) runs CheerpX where the page is cross-origin isolated and v86 elsewhere; `?guest=v86` asks for v86. Its dev server sends the isolation headers; GitHub Pages, which hosts the static export, cannot, so a service worker adds them to the site's own responses (`public/coi-sw.js`), reloading a page it does not serve yet (a first visit, a hard reload) once to put it under the worker. A browser without service workers gets v86. The Storybook `v86` stories run v86. Assets (kernel, BIOS, state snapshot, ext2 image, wasm bindings) are served statically; nothing leaves the browser.
 
-The v86 guest is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (cached on the build-script hash), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests. The CheerpX guest has no automated test yet.
+The v86 guest is CI-tested: the `storybook-v86-probe` job builds the wasm bindings and guest assets (the `v86-guest` action, cached on everything the guest is built from: its build scripts, the CLI and shipped confs, and the `tmuxy-group` it cross-compiles), starts a Storybook dev server, and drives the gate stories on one shared page (`tmuxy-ui/scripts/probe-spikes.mjs`); every `v86`-tagged story runs nightly in `nightly-v86.yml`. The deterministic stories run in the parallel `storybook-probe` job. See `docs/TESTS.md` § Storybook Tests. The CheerpX guest has no automated test yet.
 
 ## Additional API Endpoints
 

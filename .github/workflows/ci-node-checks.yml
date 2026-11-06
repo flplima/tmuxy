@@ -13,11 +13,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
-      - uses: ./.github/actions/install-node-modules
+          rust: none
       # That the site compiles. Without `prebuild`, which stages the v86
       # guest's assets for the page to load at runtime: building those is
       # Deploy Demo's, and a compile check has no use for them.
@@ -30,11 +28,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
-      - uses: ./.github/actions/install-node-modules
+          rust: none
       - name: Vitest
         run: npm test
 
@@ -44,10 +40,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
-      - uses: ./.github/actions/install-node-modules
+          rust: none
       - name: CLI suite
         run: npm run test:cli

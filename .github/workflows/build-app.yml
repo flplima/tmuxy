@@ -120,13 +120,13 @@ jobs:
 
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
+      # With their recommended packages, as every release so far was built.
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
         run: |
           bin/ci/apt-get update
-          bin/ci/apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev
+          # shellcheck disable=SC2046 # one package per word
+          bin/ci/apt-get install -y $(bin/toolchain packages webkit-dev)
 
       # `npm ci` (not `npm install`): the release build must use exactly the
       # locked dependency tree, not whatever the ranges resolve to today.
@@ -224,23 +224,10 @@ jobs:
       # Linux: tauri-driver (WebKitGTK driver) + Xvfb
       # macOS: tauri-webdriver (embeds WebDriver in the app via plugin)
 
-      - name: Install smoke test deps (Linux)
+      - uses: ./.github/actions/install-desktop-test-deps
         if: matrix.platform == 'linux'
-        run: |
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison webkit2gtk-driver xvfb x11-utils
-
-      - name: Cache tauri-driver (Linux)
-        if: matrix.platform == 'linux'
-        id: tauri-driver-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cargo/bin/tauri-driver
-          key: ${{ matrix.os }}-tauri-driver-2.0.6
-
-      - name: Install tauri-driver (Linux, cache miss)
-        if: matrix.platform == 'linux' && steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked --force
+          cache-key-namespace: ${{ matrix.os }}
 
       # The same source-built pinned tmux as lint-and-tests.yml rather than
       # ubuntu-22.04's apt 3.2a, keyed per runner image so the 22.04 and arm
@@ -266,32 +253,24 @@ jobs:
         run: npx tauri build --debug --no-bundle --features webdriver
         working-directory: packages/tmuxy-tauri-app
 
+      - uses: ./.github/actions/start-xvfb
+        if: matrix.platform == 'linux'
+
       - name: Run smoke test (Linux)
         if: matrix.platform == 'linux'
+        env:
+          DISPLAY: ':99'
+          BINARY: ${{ matrix.binary }}
         run: |
-          # Start virtual display
-          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          XVFB_PID=$!
-          export DISPLAY=:99
-
-          # Wait for display
-          for i in $(seq 1 20); do
-            xdpyinfo -display :99 >/dev/null 2>&1 && break
-            sleep 0.25
-          done
-
-          # Start tauri-driver
           tauri-driver --port 4444 &
           DRIVER_PID=$!
-          sleep 2
+          bin/ci/wait-for-server http://localhost:4444/status
 
-          # Run smoke test
-          node tests/smoke/smoke-test.js "${{ matrix.binary }}"
+          node tests/smoke/smoke-test.js "$BINARY"
           RESULT=$?
 
-          # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
 
           exit $RESULT
 
