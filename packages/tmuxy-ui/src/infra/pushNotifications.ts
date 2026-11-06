@@ -31,9 +31,17 @@ export function pushSupported(): boolean {
   );
 }
 
+/** A failed step's fallback, with the reason on the console: the menu shows only the state. */
+function warned<T>(step: string, fallback: T): (error: unknown) => T {
+  return (error) => {
+    console.warn(`[push] ${step} failed:`, error);
+    return fallback;
+  };
+}
+
 export function registerPushWorker(): void {
   if (!pushSupported()) return;
-  navigator.serviceWorker.register(WORKER_URL).catch(() => {});
+  navigator.serviceWorker.register(WORKER_URL).catch(warned('worker registration', undefined));
 }
 
 async function subscription(): Promise<PushSubscription | null> {
@@ -88,21 +96,21 @@ export function enablePush(): Promise<PushState> {
       return 'off';
     }
     return 'on';
-  })().catch(() => 'off');
+  })().catch(warned<PushState>('enable', 'off'));
 }
 
 /** Turn notifications off for this device: the server forgets it too. */
 export async function disablePush(): Promise<PushState> {
-  const current = await subscription().catch(() => null);
+  const current = await subscription().catch(warned('reading the subscription', null));
   if (current) {
     await fetch('/api/push/subscription', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: current.endpoint }),
-    }).catch(() => {});
-    await current.unsubscribe().catch(() => false);
+    }).catch(warned('telling the server', undefined));
+    await current.unsubscribe().catch(warned('unsubscribing', false));
   }
-  return readPushState().catch(() => 'off');
+  return readPushState().catch(warned<PushState>('reading the state', 'off'));
 }
 
 /**
