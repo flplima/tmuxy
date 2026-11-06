@@ -2,7 +2,7 @@
  * A fully client-side `TransportDriver` backed by REAL tmux in an in-browser
  * guest machine; its `tmux -CC` control-mode stream is parsed by the
  * tmuxy-core Rust engine compiled to WASM — the SAME code the native server
- * runs. No simulation, no client-side VT emulator.
+ * runs.
  *
  *   TmuxyApp --run(op)--> send(run_tmux_command) --> engine --> real tmux -CC
  *     --guest stream--> tmuxy-wasm (parse + aggregate) --> ServerState --> onStateChange
@@ -80,7 +80,6 @@ export interface GuestTmuxAdapterOptions {
   files?: Record<string, string | URL>;
 }
 
-/** The bytes of each file the options name; one that cannot be fetched is left out. */
 export async function loadGuestFiles(files: Record<string, string | URL>): Promise<GuestFile[]> {
   const loaded = await Promise.all(
     Object.entries(files).map(async ([name, source]): Promise<GuestFile | null> => {
@@ -104,12 +103,10 @@ export class GuestTmuxAdapter implements TransportDriver {
   private readonly initCommands: string[];
   private readonly initDoneOption: string | null;
   private readonly files: Record<string, string | URL>;
-  /** The sink this adapter installed on the engine (null when detached). */
   private sink: EngineSink | null = null;
 
   readonly events = new EventHub<TransportEvent>();
 
-  /** `ownsEngine`: tear the engine down on disconnect (false for a shared one). */
   constructor(
     private readonly engine: GuestEngine,
     private readonly ownsEngine: boolean,
@@ -121,19 +118,9 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async connect(): Promise<void> {
-    // NB: do NOT emit a reconnection signal here. That drives the app machine
-    // into its `reconnecting` state, so the subsequent TMUX_CONNECTED is handled
-    // by the reconnect branch — which skips the initial theme + keybindings fetch
-    // that only the `connecting` branch performs. The app already shows connecting
-    // feedback via its own `connecting` state until connect() resolves.
     this.events.emit(TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: null }));
     this.events.emit(TransportEvent.KeyBindings({ keybindings: DEFAULT_KEYBINDINGS }));
 
-    // reset() serializes on the engine's lifecycle queue: it gives a booted
-    // engine a clean start (v86 restores its pinned snapshot), cold-boots
-    // otherwise,
-    // and queues behind any transition still in flight (a story switch can
-    // call connect() before the previous story's boot/reset finished).
     // The option is cleared first, so a value left by an earlier start does
     // not end the wait at once.
     const done = this.initDoneOption;
@@ -143,12 +130,9 @@ export class GuestTmuxAdapter implements TransportDriver {
     );
     if (done) await this.engine.waitForOption(done);
 
-    // Install our sink only AFTER the reset settled. Installing it before
-    // would let the still-attached PREVIOUS story's core stream its final
-    // states into this adapter's fresh machine (a dead active-window id the
-    // new state never contains — the app then renders zero panes forever).
-    // The engine tracks lastState independently of the sink, so the machine's
-    // get_initial_state still returns the post-reset state.
+    // Installed only after the reset settled: before it, the previous story's
+    // core would stream its final states into this adapter (a dead
+    // active-window id the new state never contains, so zero panes forever).
     this.sink = {
       onState: (raw) => {
         // A sandbox engine emits a full state every time, so one that fails
@@ -168,12 +152,8 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   disconnect(): void {
-    // Detach OUR sink so an unmounted story never receives further state —
-    // but never a successor's: this cleanup can run after the next story's
-    // adapter already installed its own sink on the shared engine.
     if (this.sink) this.engine.clearSink(this.sink);
     this.sink = null;
-    // A private engine is torn down; a shared engine stays alive for reuse.
     if (this.ownsEngine) this.engine.destroy();
   }
 
@@ -240,7 +220,6 @@ export class GuestTmuxAdapter implements TransportDriver {
     }
   }
 
-  /** A mutation, under the routing policy every transport applies. */
   private async runCommand(command: string): Promise<void> {
     if (!command) return;
     const route = this.engine.route(command, 'command');
@@ -256,9 +235,7 @@ export class GuestTmuxAdapter implements TransportDriver {
       return;
     }
     const reply = await this.engine.ask(wire);
-    // Reject the way the real transports do when tmux refuses a command,
-    // so it is typed a TmuxError (with tmux's message), not a generic
-    // TransportError.
+    // Typed a TmuxError, as the native transports reject a refusal.
     if (reply.error !== null) {
       throw {
         error: reply.error || `tmux rejected: ${command}`,
@@ -267,8 +244,6 @@ export class GuestTmuxAdapter implements TransportDriver {
     }
   }
 
-  /** Read from tmux, under the query policy every transport applies: the
-   *  command's output, or tmux's refusal. */
   private async query(command: string): Promise<string> {
     const route = this.engine.route(command, 'query');
     if ('blocked' in route) throw forbidden(route.blocked);
@@ -278,11 +253,9 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async switchSession(sessionName: string): Promise<void> {
-    // Switch the attached control client to another session (real tmux
-    // switch-client); the engine re-syncs either way, so a failed switch
-    // (unknown session) flows the CURRENT session's state back in rather
-    // than leaving the app in cleared-optimistic-state limbo, and rejects so
-    // the failure surfaces as TMUX_ERROR.
+    // The engine re-syncs either way, so a failed switch flows the current
+    // session's state back in rather than leaving the app with its optimistic
+    // state cleared.
     const reply = await this.engine.switchSession(sessionName);
     if (reply.error !== null) {
       throw {

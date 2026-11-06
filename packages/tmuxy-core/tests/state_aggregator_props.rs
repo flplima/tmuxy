@@ -69,18 +69,23 @@ fn the_seam_events_reach_every_effect_of_a1() {
 }
 
 proptest! {
-    /// `step` must never panic on any sequence of synthetic events: a panic
-    /// takes down the monitor task that owns the session.
+    /// `step` must never panic, whatever tmux and the panes send: nothing
+    /// can catch one. The release profile is `panic = "abort"`, so a panic
+    /// ends the whole server or desktop app, and in the browser it traps the
+    /// wasm module. The events start from an attached session's panes, so
+    /// output, captures and resizes down to a 0-cell side all reach the
+    /// emulator.
     #[test]
-    fn step_never_panics(events in prop::collection::vec(any_event_strategy(), 1..50)) {
-        let mut agg = StateAggregator::new();
-        for ev in events {
-            let _ = agg.step(ev);
+    fn step_never_panics(runs in prop::collection::vec(emulator_event_strategy(), 1..40)) {
+        let mut agg = seeded_aggregator();
+        for ev in runs.into_iter().flatten() {
+            let _ = agg.step(signed(&agg, ev));
         }
     }
 
-    /// Closes can only ever reduce the window count; closing a window that
-    /// does not exist is a no-op, not an error.
+    /// The window count is the windows added and not closed since: an add
+    /// of a window already there is one window, and a close of one that does
+    /// not exist is a no-op, not an error.
     #[test]
     fn window_count_matches_add_close_delta(
         adds in prop::collection::vec(prop::sample::select(vec!["@0", "@1", "@2", "@3"]), 0..10),
@@ -90,12 +95,16 @@ proptest! {
         for w in &adds {
             agg.step(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
-        let after_adds = agg.to_tmux_state().windows.len();
+        let added: HashSet<&str> = adds.iter().copied().collect();
+        prop_assert_eq!(agg.to_tmux_state().windows.len(), added.len());
         for w in &closes {
             agg.step(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
-        let after_closes = agg.to_tmux_state().windows.len();
-        prop_assert!(after_closes <= after_adds);
+        let closed: HashSet<&str> = closes.iter().copied().collect();
+        prop_assert_eq!(
+            agg.to_tmux_state().windows.len(),
+            added.difference(&closed).count()
+        );
     }
 
     /// Settling is a sticky state — arming it and then clearing it must

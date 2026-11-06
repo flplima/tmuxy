@@ -7,8 +7,6 @@ use crate::control_mode::state::{
     LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
 
-/// A core for a paced link (`ReadPacing::OneBatchInFlight`) with `%0` in
-/// `@0` known and nothing out; `copy_mode` puts the pane in copy mode.
 fn paced(now: Instant, copy_mode: bool) -> Core {
     let (mut core, _) = core("app");
     with_a_pane(&mut core, now);
@@ -48,7 +46,6 @@ fn batches(core: &Core, actions: &[Action<&'static str>]) -> Vec<(String, usize)
     out
 }
 
-/// tmux's answer to the batch of reads that closes with reply `id`.
 fn answer(core: &mut Core, id: &str, now: Instant) -> Vec<Action<&'static str>> {
     let (begin, end) = (
         marked(core, REPLY_BEGIN_MARKER, id),
@@ -59,9 +56,6 @@ fn answer(core: &mut Core, id: &str, now: Instant) -> Vec<Action<&'static str>> 
     actions
 }
 
-/// On a link where every byte costs the guest CPU time, five windows opened
-/// at once cost two re-lists, not five: one at once, and one for everything
-/// that changed while it was out, sent once tmux has answered it.
 #[test]
 fn on_a_paced_link_reads_asked_for_while_a_batch_is_out_go_once_after_it() {
     let start = Instant::now();
@@ -90,9 +84,7 @@ fn on_a_paced_link_reads_asked_for_while_a_batch_is_out_go_once_after_it() {
     assert!(sent(&quiet).is_empty(), "{quiet:?}");
 }
 
-/// The copy-mode poll is due every 50 ms, which a guest's tmux cannot
-/// answer: paced, the polls due meanwhile go as one, once the last is
-/// answered.
+/// A guest's tmux cannot answer a poll every 50 ms.
 #[test]
 fn on_a_paced_link_the_copy_mode_poll_waits_for_its_answer() {
     let start = Instant::now();
@@ -109,7 +101,6 @@ fn on_a_paced_link_the_copy_mode_poll_waits_for_its_answer() {
     assert_eq!(batches(&core, &answered).len(), 1, "{answered:?}");
 }
 
-/// A batch tmux never answers holds nothing back past the reply timeout.
 #[test]
 fn on_a_paced_link_an_unanswered_batch_is_given_up_at_the_reply_timeout() {
     let start = Instant::now();

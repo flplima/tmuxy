@@ -214,18 +214,37 @@ pub struct TmuxDelta {
 }
 
 impl TmuxDelta {
+    /// True when the delta carries no change; `seq` alone is not one. Every
+    /// field is named (no `..`), so a field added to the struct does not
+    /// compile until it is counted here. Not read off the serialized form
+    /// like [`PaneDelta::is_empty`]: that would serialize every pane's lines
+    /// once more on each emit.
     pub fn is_empty(&self) -> bool {
-        self.panes.is_none()
-            && self.windows.is_none()
-            && self.new_panes.is_none()
-            && self.new_windows.is_none()
-            && self.active_window_id.is_none()
-            && self.active_pane_id.is_none()
-            && self.focus_request.is_none()
-            && self.plugins_rev.is_none()
-            && self.theme_rev.is_none()
-            && self.total_width.is_none()
-            && self.total_height.is_none()
+        let Self {
+            seq: _,
+            panes,
+            windows,
+            new_panes,
+            new_windows,
+            active_window_id,
+            active_pane_id,
+            focus_request,
+            plugins_rev,
+            theme_rev,
+            total_width,
+            total_height,
+        } = self;
+        panes.is_none()
+            && windows.is_none()
+            && new_panes.is_none()
+            && new_windows.is_none()
+            && active_window_id.is_none()
+            && active_pane_id.is_none()
+            && focus_request.is_none()
+            && plugins_rev.is_none()
+            && theme_rev.is_none()
+            && total_width.is_none()
+            && total_height.is_none()
     }
 }
 

@@ -55,8 +55,10 @@ async fn drain_recent_output(recent: &Arc<Mutex<Vec<String>>>) -> String {
     guard.join("\n")
 }
 
-/// Initial PTY size. Large enough to avoid tiny panes that crash vt100; the
-/// browser sends a real resize once it knows its viewport.
+/// The window size from attach until a client reports its viewport, which
+/// the browser does once it knows it. Roomy, because a session rebuilt from
+/// a snapshot is split before any client has sized it, and tmux refuses a
+/// split it has no room for (`no space for new pane`).
 pub const INITIAL_PTY_COLS: u32 = 200;
 pub const INITIAL_PTY_ROWS: u32 = 50;
 
