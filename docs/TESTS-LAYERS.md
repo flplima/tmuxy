@@ -5,20 +5,20 @@ Every test layer, where a new test goes, and which tier runs it. Part of [TESTS.
 ## The Test Layers
 
 ```
-                 cost / realism
-                       ^
-                       |   Desktop smoke (built app, Linux + macOS)   build-app.yml, tags + daily
-                       |   Tauri E2E (WebDriver -> WebKitGTK app)     desktop
-                       |   Web E2E + snapshots (Chromium -> server    e2e matrix (10 runners)
-                       |     -> tmux 3.7a)
-                       |   Storybook v86 probe (real tmux in an       storybook-v86-probe
-                       |     x86 emulator, in the browser)
-                       |   Storybook probe (recorded tmux states,     storybook-probe
-                       |     Chromium)
-                       |   CLI suite (mocked tmux)                    cli-tests
-                       |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
-                       |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
-                       +-------------------------------------------------------------------->
+ cost / realism
+       ^
+       |   Desktop smoke (built app, Linux + macOS)   build-app.yml, tags + daily
+       |   Tauri E2E (WebDriver -> WebKitGTK app)     desktop
+       |   Web E2E + snapshots (Chromium -> server    e2e matrix (10 runners)
+       |     -> tmux 3.7a)
+       |   Storybook v86 probe (real tmux in an       storybook-v86-probe
+       |     x86 emulator, in the browser)
+       |   Storybook probe (recorded tmux states,     storybook-probe
+       |     Chromium)
+       |   CLI suite (mocked tmux)                    cli-tests
+       |   Vitest (jsdom)  |  cargo test              unit-tests | rust-tests
+       |   ESLint, tsc, Prettier, rustfmt, clippy     lint (+ pre-commit hook)
+       +-------------------------------------------------------------------->
 ```
 
 | Layer | Tool | Location | What it is for | Run locally | CI job | Fails the run? |
@@ -68,7 +68,7 @@ ESLint rules that exist to protect test quality (`eslint.config.mjs`):
 - `jest/no-disabled-tests` is an error for `tests/**/*.js`.
 - Every `tests/**/*.test.js` outside `tests/tauri/` may not call `tmuxRun` or `tmuxCmd`, use `execSync` or import `child_process`; setup and ground-truth reads go through `tmuxExec()` in `tests/helpers/tmux-socket.js`. The interaction helpers `tests/helpers/pane-ops.js` and `tests/helpers/keyboard.js` may not call `tmuxExec` or `tmuxRun` at all, since they must act the way a user does.
 
-Clippy warns on `unwrap_used` and `expect_used` workspace-wide; CI promotes all warnings to errors. Tests may unwrap and expect (`clippy.toml`); an integration test crate allows both at its root, for its helpers.
+Clippy warns on `unwrap_used` and `expect_used` workspace-wide, test code included (`--all-targets`); CI promotes all warnings to errors. Tests may unwrap and expect (`clippy.toml`; an integration test crate's helpers by an `allow` at its root).
 
 ## Which Layer Does a New Test Go In?
 
@@ -120,7 +120,6 @@ A push that changes only prose — `docs/**` or any `*.md` — runs no workflow 
 - `cargo test --workspace` runs every crate's `#[cfg(test)]` modules plus the integration tests in `packages/tmuxy-core/tests/`. Most of the count is in `tmuxy-core`; `tmuxy-server`, `tmuxy-verbs`, `tmuxy-tauri-app`, `tmuxy-wasm` and `tmuxy-pty` (whose `tests/pane.rs` drives the helper over a socket pair) have smaller suites
 - Prefer fixtures over a live tmux: `control_mode_push_api.rs` feeds recorded `tmux -CC` text through the parser and aggregator, `terminal_fidelity.rs` and `pane_reflow_parity.rs` replay byte streams through the emulator (`tests/fixtures/`), and `state_aggregator_props.rs` is a proptest suite (its regressions file is committed)
 - `initial_state.rs`, `initial_state_history.rs`, `reply_channel.rs`, `pinned_split_race.rs`, `enforced_settings.rs`, `pane_output_spoofs.rs` and `control_mode_refused.rs` drive a real `tmux -CC` monitor on a per-process scratch socket and need a `tmux` binary; use that pattern only when the bug depends on how tmux itself answers. `tests/common`'s `ScratchServer` picks the socket, attaches the monitor with a recording emitter and kills the server when the test ends, a failed one included
-- Clippy runs over test code (`--all-targets`); `clippy.toml` lets tests unwrap and expect
 
 ## CLI Tests
 
