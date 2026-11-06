@@ -228,6 +228,32 @@ fn keys_parse_tmux_syntax_and_ours_are_known_by_their_marker() {
     assert!(keys::binding_command("p", "a").contains("--pane #{pane_id} --trigger key"));
 }
 
+/// The client runs a plugin key as `list-keys` prints it, so its command
+/// must print as itself. tmux escapes `$`, `"` and `\` when it prints one,
+/// and before 3.5 a `$` came back as another command (the key ran nothing
+/// on tmux 3.4); none of them may be in it. The CLI is the option the entry
+/// file sets, which `run-shell` expands, shell-quoted, at the key press.
+#[test]
+fn a_plugin_key_command_prints_back_as_itself() {
+    let command = keys::binding_command("artifacts", "open");
+    for c in ['$', '"', '\\', '\''] {
+        assert!(!command.contains(c), "{c:?} in {command}");
+    }
+    assert!(command.starts_with(&format!(
+        "#{{q:{}}} plugin action artifacts:open ",
+        crate::session::CLI_OPTION
+    )));
+
+    // As tmux prints it: double-quoted for its spaces and `#{`, nothing
+    // inside escaped. What the client reads back is the command it bound.
+    let listing =
+        format!("bind-key    -T prefix       M-a                  run-shell -b \"{command}\"\n");
+    let bindings = crate::transport::parse_bindings("prefix", &listing);
+    let bound = &bindings[0];
+    assert_eq!(bound.key, "M-a");
+    assert_eq!(bound.command, format!("run-shell -b \"{command}\""));
+}
+
 /// The commands that rebind the plugin keys come from the tables as read:
 /// a user's binding keeps its key, every old plugin binding goes first.
 #[test]

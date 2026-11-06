@@ -24,9 +24,18 @@ pub const MARKER: &str = "--trigger key";
 /// The command a plugin key runs: the CLI the config chain publishes, the
 /// pane the key was pressed in, output dropped (a `run-shell -b` that
 /// prints opens a view mode).
+///
+/// The client does not press a key into tmux: it reads the bindings back
+/// from `list-keys` and runs each command as tmux printed it. So the command
+/// holds no `$`, quote or backslash, the characters tmux escapes when it
+/// prints. tmux before 3.5 escaped a `$` there in a form that parsed back to
+/// another command, and the key ran nothing. The CLI is named by the option
+/// the chain sets (`session::CLI_OPTION`), which `run-shell` expands and
+/// shell-quotes (`#{q:…}`) when the key is pressed.
 pub fn binding_command(plugin: &str, action: &str) -> String {
+    let cli = crate::session::CLI_OPTION;
     format!(
-        "\"$TMUXY_DATA_DIR/bin/tmuxy-cli\" plugin action {plugin}:{action} --pane #{{pane_id}} {MARKER} >/dev/null 2>&1"
+        "#{{q:{cli}}} plugin action {plugin}:{action} --pane #{{pane_id}} {MARKER} >/dev/null 2>&1"
     )
 }
 

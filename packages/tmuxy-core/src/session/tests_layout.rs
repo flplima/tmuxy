@@ -479,5 +479,12 @@ fn the_chain_is_in_the_state_dir_and_publishes_the_data_dir_first() {
             ),
         ]
     );
-    assert!(lines[2].starts_with("source-file ") && lines[2].ends_with("tmuxy.essentials.conf'"));
+    assert_eq!(
+        lines[2],
+        format!(
+            "set-option -g @tmuxy-cli '{}'",
+            a.layout.data.join("bin/tmuxy-cli").display()
+        )
+    );
+    assert!(lines[3].starts_with("source-file ") && lines[3].ends_with("tmuxy.essentials.conf'"));
 }

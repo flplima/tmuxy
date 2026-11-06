@@ -53,6 +53,15 @@ pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
 /// and tmux (the in-browser guests). A tmuxy process sources its own path.
 pub const ENTRY_CONF_ENV: &str = "TMUXY_ENTRY_CONF";
 
+/// The global tmux option naming the bundled CLI (`<data>/bin/tmuxy-cli`),
+/// set beside [`DATA_DIR_ENV`] for a command that must reach the CLI with no
+/// `$` or quote in it: a plugin key (`plugins::keys::binding_command`), whose
+/// text the client reads back from `list-keys` and runs. tmux before 3.5
+/// prints a `$` there in a form that does not parse back to itself, so the
+/// command names the CLI as `#{q:@tmuxy-cli}`, a format `run-shell` expands
+/// and shell-quotes when the key is pressed.
+pub const CLI_OPTION: &str = "@tmuxy-cli";
+
 /// The starter, mirrored for `tmuxy config init`.
 const EXAMPLE_CONF: &str = "tmuxy.conf.example";
 
@@ -349,6 +358,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
          # Where the scripts and this file are, for the commands that name them.\n\
          set-environment -g {DATA_DIR_ENV} {data}\n\
          set-environment -g {ENTRY_CONF_ENV} {entry}\n\
+         set-option -g {CLI_OPTION} {cli}\n\
          # The chain tmux is started with and every reload sources, in order.\n\
          source-file {essentials}\n\
          source-file {defaults}\n\
@@ -358,6 +368,7 @@ fn entry_conf(layout: &Layout, use_tmux_conf: bool, user: &Path) -> String {
         header = CONF_HEADER,
         data = quote(&layout.data),
         entry = quote(&layout.entry_conf()),
+        cli = quote(&layout.data.join("bin").join("tmuxy-cli")),
         defaults = quote(&layout.data.join("tmuxy.defaults.conf")),
         user = quote(user),
     )
