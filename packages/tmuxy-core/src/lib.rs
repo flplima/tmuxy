@@ -1,3 +1,5 @@
+#[cfg(feature = "cli")]
+pub mod argv;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;
@@ -14,6 +16,8 @@ pub mod command_router;
 pub mod executor;
 
 pub mod layout;
+#[cfg(feature = "cli")]
+pub mod list_keys;
 pub mod mime;
 #[cfg(feature = "cli")]
 pub mod paths;

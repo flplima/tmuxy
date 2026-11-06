@@ -40,23 +40,6 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
 }
 
 #[test]
-fn a_tmux_word_quotes_what_tmux_would_otherwise_split_or_expand() {
-    // A bare `#` is a comment to tmux's parser: a format is always quoted.
-    assert_eq!(tmux_word("#{window_id}"), "\"#{window_id}\"");
-    assert_eq!(
-        tmux_word("#{s/,/%2C/:window_layout}"),
-        "\"#{s/,/%2C/:window_layout}\""
-    );
-    // `{` opens a command block: a side-by-side layout is quoted.
-    assert_eq!(
-        tmux_word("b1c2,80x24,0,0{40x24,0,0,1}"),
-        "\"b1c2,80x24,0,0{40x24,0,0,1}\""
-    );
-    assert_eq!(tmux_word("a b"), "\"a b\"");
-    assert_eq!(tmux_word("say \"hi\" $HOME"), "\"say \\\"hi\\\" \\$HOME\"");
-}
-
-#[test]
 fn a_delta_is_structural_when_the_shape_moves_not_when_output_arrives() {
     let mut d = crate::TmuxDelta {
         seq: 1,

@@ -51,9 +51,13 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // server has none until something writes them). A server over SSH is
         // another machine's, whose own tmuxy publishes its plugins.
         if crate::session::ssh_target().is_none() {
-            let dirs = crate::paths::Layout::current();
-            for cmd in crate::plugins::inventory::commands(&dirs) {
-                self.connection.send_command(&cmd).await?;
+            match crate::plugins::inventory::commands(&crate::paths::Layout::current()) {
+                Ok(commands) => {
+                    for cmd in commands {
+                        self.connection.send_command(&cmd).await?;
+                    }
+                }
+                Err(e) => warn!(error = %e, "the plugin inventory is not published"),
             }
             // The plugin keys need the tables read back, which only the
             // running loop answers: the host binds them once this sync is

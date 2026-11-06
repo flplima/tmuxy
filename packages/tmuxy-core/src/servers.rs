@@ -23,7 +23,7 @@ pub mod discovery;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
     query_local_socket_sessions, tmux_socket_dirs, touch_server, RemoteSessionInfo,
-    ServerReachability,
+    ServerReachability, LIST_SESSIONS,
 };
 
 /// Where the local machine's server sits in the picker.

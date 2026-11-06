@@ -67,7 +67,7 @@ pub const TMUXY_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// tests hold this list to its clap subcommands.
 pub const RESERVED_VERBS: &[&str] = &[
     "install", "list", "update", "remove", "action", "log", "check", "new", "config", "path",
-    "search", "exec", "publish", "help",
+    "search", "exec", "help",
 ];
 
 /// A plugin, action or verb name: lowercase ASCII letters, digits and `-`,
@@ -141,6 +141,20 @@ pub enum PluginError {
     },
     #[error("git {step} failed: {message}")]
     Git { step: String, message: String },
+    /// No tmux server answered on the socket.
+    #[error("no tmux server: {0}")]
+    NoServer(String),
+}
+
+impl From<crate::TmuxError> for PluginError {
+    fn from(e: crate::TmuxError) -> Self {
+        let message = e.to_string();
+        if crate::session::is_no_server(&message) {
+            PluginError::NoServer(message)
+        } else {
+            PluginError::Invalid(message)
+        }
+    }
 }
 
 impl PluginError {
@@ -152,10 +166,11 @@ impl PluginError {
     }
 
     /// The CLI contract's exit code (`bin/tmuxy/_contract`): 3 for a name
-    /// that names nothing, 1 for everything else.
+    /// that names nothing, 4 for no tmux server, 1 for everything else.
     pub fn exit_code(&self) -> i32 {
         match self {
             PluginError::NotFound(_) => 3,
+            PluginError::NoServer(_) => 4,
             _ => 1,
         }
     }
@@ -184,10 +199,16 @@ pub(crate) fn random_hex() -> Result<String> {
 /// config, which is how its clients get the new key bindings
 /// (`docs/DATA-FLOW.md`: bindings reach a client at connect and on a
 /// reload). With no tmux server there is nothing to do: the next server to
-/// attach does all of it.
+/// attach does all of it. The change itself is made by then, so a step that
+/// fails is reported, and the others still run.
 pub fn refresh(dirs: &Layout) {
-    inventory::publish(dirs);
-    let _ = keys::apply(dirs);
+    if let Err(e) = inventory::publish(dirs) {
+        tracing::warn!(error = %e, "could not publish the plugin inventory");
+    }
+    match keys::apply(dirs) {
+        Ok(_) | Err(PluginError::NoServer(_)) => {}
+        Err(e) => tracing::warn!(error = %e, "could not bind the plugin keys"),
+    }
     if let Err(e) = crate::session::request_reload(dirs) {
         tracing::warn!(error = %e, "could not ask the running apps to reload");
     }

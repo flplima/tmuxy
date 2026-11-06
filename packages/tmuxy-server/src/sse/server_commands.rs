@@ -50,13 +50,9 @@ async fn current_live_sessions(
     state: &Arc<AppState>,
     session: &str,
 ) -> Option<Vec<RemoteSessionInfo>> {
-    let out = query_via_control_mode(
-        state,
-        session,
-        "list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}'",
-    )
-    .await
-    .ok()?;
+    let out = query_via_control_mode(state, session, tmuxy_core::servers::LIST_SESSIONS)
+        .await
+        .ok()?;
     Some(tmuxy_core::servers::parse_session_list(&out))
 }
 

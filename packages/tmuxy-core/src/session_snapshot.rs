@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::constants::tmux_options;
-use crate::{GroupId, PaneId, WindowId};
+use crate::{GroupId, PaneId, WindowId, WindowType};
 
 mod autosave;
 mod capture;
@@ -111,7 +111,7 @@ impl HiddenMember {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }
@@ -173,7 +173,7 @@ impl PaneSnapshot {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }

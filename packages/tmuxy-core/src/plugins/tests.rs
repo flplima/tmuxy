@@ -392,16 +392,14 @@ fn the_inventory_is_compact_and_its_rev_follows_its_content() {
         "same inventory, same rev"
     );
     assert_ne!(inventory::encode(&[]).1, rev);
-    let cmds = inventory::commands(&dirs);
+    let cmds = inventory::commands(&dirs).unwrap();
     assert_eq!(cmds[0], format!("set-option -g @tmuxy-plugins {b64}"));
     assert_eq!(cmds[1], format!("set-option -g @tmuxy-plugins-rev {rev}"));
+    // A lockfile that no longer loads publishes nothing, rather than an
+    // inventory with no plugins in it.
+    std::fs::write(dirs.lockfile(), "{ not json").unwrap();
+    assert!(inventory::commands(&dirs).is_err());
     std::fs::remove_dir_all(base).unwrap();
-}
-
-#[test]
-fn a_shell_word_is_quoted_with_its_hashes_doubled() {
-    assert_eq!(job::shell_word("/usr/bin/tmux"), "/usr/bin/tmux");
-    assert_eq!(job::shell_word("/a b/it's#1"), r"'/a b/it'\''s##1'");
 }
 
 #[test]

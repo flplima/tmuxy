@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::invoke::{self, OpenRequest, Trigger};
 use tmuxy_core::plugins::registry::Registry;
-use tmuxy_core::plugins::{inventory, log, PluginError};
+use tmuxy_core::plugins::{log, PluginError};
 
 mod config;
 mod gate;
@@ -128,9 +128,6 @@ enum PluginCommand {
         action: String,
         token: String,
     },
-    /// Publish the inventory to the tmux server. Internal: `config reload`.
-    #[command(hide = true)]
-    Publish,
     /// Any other word: an installed plugin's `[[cli]]` verb and its arguments.
     #[command(external_subcommand)]
     Verb(Vec<String>),
@@ -206,10 +203,6 @@ pub fn run(args: PluginArgs) {
             token,
         } => std::process::exit(invoke::exec(&dirs, &name, &action, &token)),
         PluginCommand::Verb(words) => run_cli_verb(&dirs, &words),
-        PluginCommand::Publish => {
-            inventory::publish(&dirs);
-            Ok(serde_json::Value::Null)
-        }
     };
     match result {
         Ok(value) => {

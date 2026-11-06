@@ -116,7 +116,7 @@ fn is_ours(handler: &Value) -> bool {
 /// agent runs this line through a shell, and `--hook-command` may name a path
 /// with a space (`~/Library/Application Support/…`) or worse.
 pub(super) fn hook_command(agent: Agent, event: &str, tmuxy: &str) -> String {
-    let tmuxy = tmuxy_core::session_snapshot::shell_quote(tmuxy);
+    let tmuxy = tmuxy_core::argv::shell_word(tmuxy);
     format!(
         "command -v {tmuxy} >/dev/null 2>&1 && {tmuxy}{HOOK_VERB}{} {event} 2>/dev/null || true",
         agent.name()

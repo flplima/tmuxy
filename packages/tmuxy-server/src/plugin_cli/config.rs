@@ -25,7 +25,7 @@ pub(super) fn config(
                 "name the setting: tmuxy plugin config <name> <key> …",
             ));
         }
-        let rows: Vec<serde_json::Value> = settings::current(dirs, plugin)
+        let rows: Vec<serde_json::Value> = settings::current(dirs, plugin)?
             .iter()
             .map(|c| {
                 serde_json::json!({
@@ -64,7 +64,7 @@ pub(super) fn config(
         say(json, format!("{name}.{key} is back to its default"));
         return Ok(serde_json::json!({ "key": key, "unset": true }));
     }
-    let current = settings::current(dirs, plugin);
+    let current = settings::current(dirs, plugin)?;
     let Some(entry) = current.iter().find(|c| c.setting.key == key) else {
         return Err(
             PluginError::NotFound(format!("plugin {name:?} has no setting {key:?}")).into(),

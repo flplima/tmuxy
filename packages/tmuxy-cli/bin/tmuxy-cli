@@ -43,7 +43,7 @@ trap 'exit 130' INT
 # `tmuxy plugin`'s own commands. Any other word after `plugin` is a plugin's
 # verb, whose arguments are its own. RESERVED_VERBS in tmuxy-core lists the
 # same words; tests/cli/cli-plugin.test.js holds the two together.
-PLUGIN_COMMANDS=" install list update remove action log check new config path search exec publish help --help -h "
+PLUGIN_COMMANDS=" install list update remove action log check new config path search exec help --help -h "
 
 # `--json` on the line is the output mode, not an argument of the command: it
 # is taken off here so every subcommand reads one switch, and the verbs that

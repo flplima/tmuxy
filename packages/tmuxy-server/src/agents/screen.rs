@@ -20,8 +20,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tmuxy_core::argv::run_shell_word;
 use tmuxy_core::constants::tmux_options;
-use tmuxy_core::plugins::job::shell_word;
 use tracing::debug;
 
 use crate::state::AppState;
@@ -188,12 +188,12 @@ fn pass(corrector: &mut Corrector) {
         debug!(target: "tmuxy_server::agents", pane = %row.pane_id, state, "the screen corrects the pane state");
         let tmux: Vec<String> = tmuxy_core::session::tmux_argv(false)
             .iter()
-            .map(|w| shell_word(w))
+            .map(|w| run_shell_word(w))
             .collect();
         let line = format!(
             "{} set-option -p -t {} {} {}",
             tmux.join(" "),
-            shell_word(&row.pane_id),
+            run_shell_word(&row.pane_id),
             tmux_options::PANE_STATE,
             state
         );

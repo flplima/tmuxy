@@ -82,7 +82,7 @@ fn the_exec_line_carries_names_and_a_token_only() {
     .unwrap();
     assert_eq!(
         line,
-        "exec '/opt/tmuxy app/tmuxy' 'server' 'plugin' 'exec' 'p' 'a' '0123456789abcdef0123456789abcdef'"
+        "exec '/opt/tmuxy app/tmuxy' server plugin exec p a 0123456789abcdef0123456789abcdef"
     );
     assert!(invoke::exec_command_line(Path::new("/a#b"), None, "p", "a", "t").is_err());
 }
@@ -158,18 +158,21 @@ fn the_context_names_the_pane_and_the_selection_file() {
         tab: "@1".into(),
         session: "main".into(),
     };
-    let json: serde_json::Value = serde_json::from_str(&invoke::context_json(
-        &dirs,
-        plugin,
-        invoke::Context {
-            action: Some("plain"),
-            trigger: Trigger::Menu,
-            pane: "%9",
-            info: Some(&info),
-            selection_file: Some(Path::new("/s/file")),
-            link: None,
-        },
-    ))
+    let json: serde_json::Value = serde_json::from_str(
+        &invoke::context_json(
+            &dirs,
+            plugin,
+            invoke::Context {
+                action: Some("plain"),
+                trigger: Trigger::Menu,
+                pane: "%9",
+                info: Some(&info),
+                selection_file: Some(Path::new("/s/file")),
+                link: None,
+            },
+        )
+        .unwrap(),
+    )
     .unwrap();
     assert_eq!(json["pane"]["id"], "%9");
     assert_eq!(json["pane"]["cwd"], "/w");

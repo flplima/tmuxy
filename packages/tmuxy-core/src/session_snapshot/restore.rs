@@ -53,7 +53,7 @@ fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
     let option = answer_option(session);
     let relay = format!(
         "{} set-option -g {option} \"$({shell} 2>&1)\"; true",
-        tmux_shell_command()
+        crate::session::tmux_shell_line()
     );
     vec![
         Step::Run(argv(&["run-shell", &run_shell_literal(&relay)])),
@@ -72,10 +72,6 @@ fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
 fn run_shell_literal(shell: &str) -> String {
     shell.replace('#', "##")
 }
-
-/// The window types tmuxy itself sets; a snapshot naming another is not one
-/// it wrote.
-const WINDOW_TYPES: [&str; 3] = ["float", "sidebar-left", "sidebar-right"];
 
 /// The pane options a snapshot carries ([`capture`]): a group's id and the
 /// pane's place in it.
@@ -290,7 +286,11 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
         if let Some(kind) = w
             .window_type
             .as_ref()
-            .filter(|k| WINDOW_TYPES.contains(&k.as_str()))
+            // The window types tmuxy itself sets; a snapshot naming another
+            // is not one it wrote.
+            .filter(|k| {
+                WindowType::parse(k).is_some_and(|t| t == WindowType::Float || t.is_sidebar())
+            })
         {
             steps.push(Step::Run(argv(&[
                 "set-option",
@@ -376,10 +376,10 @@ fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mu
         let key = format!("HID{n}");
         let park = format!(
             "bash {} park {} {} {}{}",
-            shell_quote(&group_script()),
-            shell_quote(&pane_target(s, w.index, p.index)),
-            shell_quote(member.group_id.as_str()),
-            shell_quote(&cwd_or_fallback(&member.cwd, options)),
+            crate::argv::shell_word(&group_script()),
+            crate::argv::shell_word(&pane_target(s, w.index, p.index)),
+            crate::argv::shell_word(member.group_id.as_str()),
+            crate::argv::shell_word(&cwd_or_fallback(&member.cwd, options)),
             member
                 .position
                 .map(|pos| format!(" {pos}"))
@@ -461,14 +461,17 @@ fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
                         "run-shell",
                         "-t",
                         &pane,
-                        &run_shell_literal(&format!("printf '%s\\n' {}", shell_quote(&text))),
+                        &run_shell_literal(&format!(
+                            "printf '%s\\n' {}",
+                            crate::argv::shell_word(&text)
+                        )),
                     ])));
                 }
             }
             if let Some(cmd) = p.offered_command() {
                 // tmuxy's own sidebar widget runs without asking; any other
                 // command a snapshot names, in a sidebar or not, is offered.
-                let chrome = w.window_type.as_deref() == Some("sidebar-left")
+                let chrome = w.window_type.as_deref() == Some(WindowType::SidebarLeft.as_str())
                     && (cmd == LEFT_SIDEBAR_WIDGET
                         || LEGACY_LEFT_SIDEBAR_WIDGETS.contains(&cmd.as_str()));
                 // An older snapshot's bare `tmuxy widget tree` runs as the

@@ -89,24 +89,12 @@ pub async fn reload_plugins(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    for cmd in crate::plugins::inventory::commands(&crate::paths::Layout::current()) {
+    let commands = crate::plugins::inventory::commands(&crate::paths::Layout::current())
+        .map_err(|e| CommandError::invalid(e.to_string()))?;
+    for cmd in commands {
         super::run(tx, &cmd).await?;
     }
     apply_plugin_keys(tx).await
-}
-
-/// One word of a command line sent over control mode: a key name or a
-/// command name as it is, anything else quoted.
-fn tmux_word(word: &str) -> String {
-    if !word.is_empty()
-        && word
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-    {
-        word.to_string()
-    } else {
-        crate::executor::tmux_quote(word)
-    }
 }
 
 /// Bind the plugin keys (`plugins::keys`) over the control-mode connection:
@@ -120,16 +108,14 @@ pub async fn apply_plugin_keys(
     if crate::session::ssh_target().is_some() {
         return Ok(());
     }
-    let registry = Registry::load(&crate::paths::Layout::current()).unwrap_or_default();
+    // A lockfile that does not load binds nothing and unbinds nothing: an
+    // empty registry would take every plugin key away.
+    let registry = Registry::load(&crate::paths::Layout::current())
+        .map_err(|e| CommandError::invalid(e.to_string()))?;
     let mut listings = Vec::new();
     for table in [KeyTable::Prefix, KeyTable::Root] {
-        let listing = match super::query(tx, &keys::list_command(table)).await {
-            Ok(listing) => listing,
-            // tmux refuses to list a table with no bindings: nothing in it.
-            Err(e) if e.kind == crate::ErrorKind::Tmux => String::new(),
-            // Unread is not empty: binding blind could take a user's key.
-            Err(e) => return Err(e),
-        };
+        let listing =
+            crate::list_keys::listing(super::query(tx, &keys::list_command(table)).await)?;
         listings.push((table, listing));
     }
     let (planned, cmds) = keys::commands(&registry, |table| {
@@ -141,12 +127,7 @@ pub async fn apply_plugin_keys(
     });
     let lines: Vec<String> = cmds
         .iter()
-        .map(|argv| {
-            argv.iter()
-                .map(|w| tmux_word(w))
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
+        .map(|argv| crate::argv::control_line(argv))
         .collect();
     tracing::debug!(
         target: "tmuxy_core::plugins",

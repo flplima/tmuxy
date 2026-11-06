@@ -7,6 +7,7 @@ use super::super::manifest::{Dim, Size, Surface};
 use super::super::registry::{resolve_command, Registry};
 use super::super::{PluginError, Result};
 use super::token::{is_pane_id, status_path, token_path, PaneInfo, Token, Trigger};
+use crate::constants::tmux_options;
 use crate::paths::Layout;
 
 /// What `tmuxy plugin action` was asked to do.
@@ -104,28 +105,18 @@ pub fn surface_argv(
                 .unwrap_or(1)
                 .min(target.window_height.max(1))
                 .to_string();
-            then(&["break-pane", "-d", "-n", "float", "-t", &at]);
-            then(&["set-option", "-w", "-t", &at, "@tmuxy-window-type", "float"]);
-            then(&[
-                "set-option",
-                "-w",
-                "-t",
-                &at,
-                "@tmuxy-float-parent",
-                &target.window,
-            ]);
-            then(&["set-option", "-w", "-t", &at, "@tmuxy-float-width", &width]);
-            then(&[
-                "set-option",
-                "-w",
-                "-t",
-                &at,
-                "@tmuxy-float-height",
-                &height,
-            ]);
+            let float = crate::WindowType::Float.as_str();
+            then(&["break-pane", "-d", "-n", float, "-t", &at]);
+            let mut tag = |option: &str, value: &str| {
+                then(&["set-option", "-w", "-t", &at, option, value]);
+            };
+            tag(tmux_options::WINDOW_TYPE, float);
+            tag(tmux_options::FLOAT_PARENT, &target.window);
+            tag(tmux_options::FLOAT_WIDTH, &width);
+            tag(tmux_options::FLOAT_HEIGHT, &height);
             if surface == Surface::Popup {
-                then(&["set-option", "-w", "-t", &at, "@tmuxy-float-noheader", "1"]);
-                then(&["set-option", "-w", "-t", &at, "@tmuxy-float-bg", "dim"]);
+                tag(tmux_options::FLOAT_NOHEADER, "1");
+                tag(tmux_options::FLOAT_BG, "dim");
             }
             then(&["resize-pane", "-t", &at, "-x", &width]);
             then(&["resize-pane", "-t", &at, "-y", &height]);
@@ -137,8 +128,8 @@ pub fn surface_argv(
     argv
 }
 
-/// The new pane's command: this build's binary running `plugin exec`, every
-/// word single-quoted. Only the binary's path is free text, and a path with
+/// The new pane's command: this build's binary running `plugin exec`, as a
+/// shell line ([`crate::argv::shell_line`]). Only the binary's path is free text, and a path with
 /// `#` is refused rather than escaped: tmux format-expands what it hands the
 /// shell, and the escape is not the same on every version.
 pub fn exec_command_line(
@@ -154,13 +145,10 @@ pub fn exec_command_line(
             "tmuxy's binary path {exe:?} contains '#', which tmux would expand"
         )));
     }
-    let quote = |w: &str| format!("'{}'", w.replace('\'', r"'\''"));
-    let mut words = vec![quote(&exe)];
-    if let Some(sub) = subcommand {
-        words.push(quote(sub));
-    }
-    words.extend(["plugin", "exec", name, action, token].map(quote));
-    Ok(format!("exec {}", words.join(" ")))
+    let mut argv = vec![exe.as_str()];
+    argv.extend(subcommand);
+    argv.extend(["plugin", "exec", name, action, token]);
+    Ok(format!("exec {}", crate::argv::shell_line(&argv)))
 }
 
 /// This build's binary and the subcommand its server verbs sit under.
