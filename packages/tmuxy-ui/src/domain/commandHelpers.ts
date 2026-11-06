@@ -18,6 +18,33 @@ export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/**
+ * What the backend must know of a script run: `settle` for a script that takes
+ * several tmux steps (the clients see only where it lands), `relist-windows`
+ * for one that writes `@tmuxy-*` options tmux never announces. The marker is
+ * the first word of the line `run-shell` hands the shell — an environment
+ * assignment the script ignores — and the essentials aliases' bodies carry
+ * the same word, so the monitor reads one marker whoever sent the command.
+ */
+export type ScriptEffect = 'settle' | 'relist-windows';
+
+const EFFECT_MARKER = /^run-shell\s+"?TMUXY_EFFECT=(settle|relist-windows)\s/;
+
+/** {@link script}, marked with the effect the backend must apply. */
+export function scriptWith(
+  effect: ScriptEffect,
+  name: string,
+  ...args: Array<string | number>
+): string {
+  return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/** The effect a raw command's script run is marked with, if any. */
+export function scriptEffect(command: string): ScriptEffect | null {
+  const effect = EFFECT_MARKER.exec(command.trim())?.[1];
+  return effect === 'settle' || effect === 'relist-windows' ? effect : null;
+}
+
 /** Commands run as one list (` \; ` between them). */
 export function list(commands: ReadonlyArray<string>): string {
   return commands.join(' \\; ');

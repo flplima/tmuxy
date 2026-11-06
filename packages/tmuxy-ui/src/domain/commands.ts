@@ -25,6 +25,7 @@ import {
   pastedText,
   pluginAction,
   script,
+  scriptWith,
   target,
   tmuxDoubleQuoted,
 } from './commandHelpers';
@@ -284,9 +285,7 @@ export function toTmuxCommand(op: TmuxOp): string {
     case 'Split':
       return op.direction === 'vertical' ? 'split-window -h' : 'split-window -v';
     case 'Navigate':
-      return op.script
-        ? `run-shell "bash ${SCRIPTS_DIR}/nav ${NAV_WORD[op.direction]} #{pane_id}"`
-        : `select-pane -${op.direction}`;
+      return op.script ? `tmuxy-nav-${NAV_WORD[op.direction]}` : `select-pane -${op.direction}`;
     case 'SelectPane':
       return `select-pane -t ${op.paneId}`;
     case 'CyclePane':
@@ -382,14 +381,21 @@ export function toTmuxCommand(op: TmuxOp): string {
         : `set-option -w -t ${op.windowId} @tmuxy-${op.tag} ${op.value}`;
     case 'GroupAdd':
       return op.pane
-        ? script('pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
-        : script('pane-group', 'add', '#{pane_id}', '#{pane_width}', '#{pane_height}');
+        ? scriptWith('settle', 'pane-group', 'add', op.pane.paneId, op.pane.width, op.pane.height)
+        : scriptWith(
+            'settle',
+            'pane-group',
+            'add',
+            '#{pane_id}',
+            '#{pane_width}',
+            '#{pane_height}',
+          );
     case 'GroupClose':
-      return script('pane-group', 'close', op.paneId);
+      return scriptWith('settle', 'pane-group', 'close', op.paneId);
     case 'GroupSwitch':
-      return script('pane-group', 'switch', op.clickedPaneId);
+      return scriptWith('settle', 'pane-group', 'switch', op.clickedPaneId);
     case 'GroupStep':
-      return script('pane-group', op.direction, op.paneId ?? '#{pane_id}');
+      return scriptWith('settle', 'pane-group', op.direction, op.paneId ?? '#{pane_id}');
     case 'GroupMove':
       return script('pane-group', 'move', op.paneId, op.index);
     case 'GroupJoin':

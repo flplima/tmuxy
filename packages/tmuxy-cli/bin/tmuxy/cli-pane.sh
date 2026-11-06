@@ -283,108 +283,45 @@ FEOF
 
 # --- Pane group subcommands ---
 
+# `tmuxy pane group <verb>`: one run-shell of the pane-group script (or, for
+# `all` and `ungroup`, pane-group-tab), whose verbs and arguments are
+# tmuxy-group's (`packages/tmuxy-group`). What is the CLI's: the caller's pane
+# as the default, given as a format run-shell expands for its target, and the
+# usage errors of a command line missing what the verb needs.
 cmd_pane_group() {
-  local sub="${1:-}"
+  local sub="${1:-}" script=pane-group
   shift 2>/dev/null || true
-
   case "$sub" in
-    add)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group add"; return ;;
-      esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' add #{pane_id} #{pane_width} #{pane_height}"
-      _done
+    --help|-h|"") usage_pane_group; return ;;
+    all|ungroup) script=pane-group-tab ;;
+    add|close|switch|next|prev|move|join|leave) ;;
+    *) _die_usage "Unknown group command: $sub" usage_pane_group ;;
+  esac
+  case "${1:-}" in
+    --help|-h)
+      echo "Usage: tmuxy pane group $sub"
+      usage_pane_group | awk -v verb="$sub" '$1 == verb'
+      return
       ;;
-
-    close)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
-      esac
-      # The default stays a bare format for run-shell to expand; `shquote`
-      # doubles its `#`, which would hand the script the text instead.
-      local target='#{pane_id}'
-      [ -z "${1:-}" ] || target="$(shquote "$1")"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' close $target"
-      _done
-      ;;
-
-    switch)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
-      esac
-      [ -n "${1:-}" ] || _die_usage "Usage: tmuxy pane group switch <pane_id>"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' switch $(shquote "$1")"
-      _done
-      ;;
-
-    move)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group move <%id> <index>   (0 is first)"; return ;;
-      esac
-      [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group move <%id> <index>"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' move $(shquote "$1") $(shquote "$2")"
-      _done
-      ;;
-
-    join)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"; return ;;
-      esac
-      [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' join $(shquote "$1") $(shquote "$2") $(shquote "${3:-}")"
-      _done
-      ;;
-
-    leave)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group leave [%id] [--tab | --beside <%id> <left|right|up|down>]"; return ;;
-      esac
+  esac
+  # A pane named on the command line is quoted; a default is a bare format,
+  # since `shquote` doubles its `#` and would hand the script the text.
+  local words=() arg
+  for arg in "$@"; do words+=("$(shquote "$arg")"); done
+  case "$sub:$#" in
+    add:0) words=('#{pane_id}' '#{pane_width}' '#{pane_height}') ;;
+    close:0 | next:0 | prev:0 | all:0 | ungroup:0) words=('#{pane_id}') ;;
+    switch:0) _die_usage "Usage: tmuxy pane group switch <pane_id>" ;;
+    move:[01]) _die_usage "Usage: tmuxy pane group move <%id> <index>" ;;
+    join:[01]) _die_usage "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]" ;;
+    leave:*)
       local pane_id="${TMUX_PANE:-}"
       case "${1:-}" in %*) pane_id="$1"; shift ;; esac
       [ -n "$pane_id" ] || _die_usage "no pane to take out of its group (pass %id or run inside a pane)"
-      local mode="${1:---tab}" beside="${2:-}" dir="${3:-right}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' leave $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
-      _done
-      ;;
-
-    next|prev)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group $sub"; return ;;
-      esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' $sub #{pane_id}"
-      _done
-      ;;
-
-    all)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group all [%id]   (every pane in the tab joins %id's group)"; return ;;
-      esac
-      # A pane named on the command line is quoted; the default is a format
-      # for run-shell to expand to the caller's pane.
-      local anchor="${1:-}"
-      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' all $anchor"
-      _done
-      ;;
-
-    ungroup)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group ungroup [%id]   (the group's members become splits in the tab)"; return ;;
-      esac
-      # A pane named on the command line is quoted; the default is a format
-      # for run-shell to expand to the caller's pane.
-      local anchor="${1:-}"
-      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' ungroup $anchor"
-      _done
-      ;;
-
-    --help|-h|"")
-      usage_pane_group
-      ;;
-
-    *)
-      _die_usage "Unknown group command: $sub" usage_pane_group
+      words=("$(shquote "$pane_id")" "$(shquote "${1:---tab}")")
+      [ $# -lt 2 ] || words+=("$(shquote "$2")" "$(shquote "${3:-right}")")
       ;;
   esac
+  _run_shell "bash $(shquote "$SCRIPTS_DIR/$script") $sub ${words[*]}"
+  _done
 }
