@@ -1,3 +1,6 @@
+import type { TmuxPane } from './client';
+import type { WindowId } from './ids';
+
 /**
  * The pane grid in pixels: where a pane, a divider and the grid itself sit,
  * from tmux's cell geometry. Every surface that draws or hit-tests the grid
@@ -78,13 +81,31 @@ export function paneContentPadding(charWidth: number): number {
   return charWidth / 2;
 }
 
-/** Horizontal inset the drag machine hit-tests a pane with: half a cell, to whole pixels. */
-export function paneInsetX(charWidth: number): number {
-  return Math.round(charWidth / 2);
-}
-
 export function isCollapsedPane(pane: { height: number }): boolean {
   return pane.height <= 1;
+}
+
+/**
+ * The grid's extent in cells: the far edges of the panes in the active
+ * window — what the client draws and sizes its viewport against. Every
+ * other window's panes (hidden group members, floats, sidebars, a tab left
+ * at an older size) live in their own layouts and must not count, or the
+ * client compares its viewport with a size it can never reach and asks tmux
+ * for a resize on every update. Falls back to every pane when the active
+ * window has none, and to the server's own numbers when there are no panes.
+ */
+export function gridExtent(
+  panes: ReadonlyArray<Pick<TmuxPane, 'windowId' | 'x' | 'y' | 'width' | 'height'>>,
+  activeWindowId: WindowId | null,
+  fallback: { cols: number; rows: number },
+): { cols: number; rows: number } {
+  const inWindow = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : [];
+  const extent = inWindow.length > 0 ? inWindow : panes;
+  if (extent.length === 0) return fallback;
+  return {
+    cols: Math.max(...extent.map((p) => p.x + p.width)),
+    rows: Math.max(...extent.map((p) => p.y + p.height)),
+  };
 }
 
 export function gridPixelSize(
@@ -143,4 +164,32 @@ export function dividerBox(
     width: thickness,
     height: (div.end - top) * charHeight,
   };
+}
+
+/**
+ * The pane tmux has zoomed, identified by geometry: while a window is zoomed
+ * tmux reports the zoomed pane spanning the whole grid while every other pane
+ * keeps its pre-zoom box. Only the zoomed pane covers both corners (the
+ * bottom-right pane of any layout touches the far one too). Null when no pane
+ * spans the grid.
+ */
+export function findZoomedPane<P extends Pick<TmuxPane, 'x' | 'y' | 'width' | 'height'>>(
+  panes: readonly P[],
+): P | null {
+  if (panes.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxRight = 0;
+  let maxBottom = 0;
+  for (const p of panes) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxRight = Math.max(maxRight, p.x + p.width);
+    maxBottom = Math.max(maxBottom, p.y + p.height);
+  }
+  return (
+    panes.find(
+      (p) => p.x <= minX && p.y <= minY && p.x + p.width >= maxRight && p.y + p.height >= maxBottom,
+    ) ?? null
+  );
 }

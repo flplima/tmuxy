@@ -3,6 +3,7 @@ import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type { Side, TmuxOp } from '../../domain/commands';
 import type { TabDrop, TabStripGeometry } from '../drag/tabStripDrop';
 import type { GroupDrop } from '../drag/groupDrop';
+import type { GridOffset } from '../../domain/paneGeometry';
 
 /** A sidebar column: the tree on the left, the pinned terminal (the dock) on the right. */
 export type SidebarSide = 'left' | 'right';
@@ -78,6 +79,13 @@ export interface DragState {
   startY: number;
   currentX: number;
   currentY: number;
+  /**
+   * Where the grid sat in the pane container when the drag started. The hit
+   * test and PaneLayout both place the panes from it for the whole drag: the
+   * dragged pane is drawn at its original box while tmux swaps it, so the
+   * drawn panes' extent (and its centring) changes under the pointer.
+   */
+  origin: GridOffset;
   /** Original position of dragged pane (for stable visual tracking during swaps) */
   originalX: number;
   originalY: number;

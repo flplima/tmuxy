@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { wid } from '../../../test/wire';
-import { gridExtent } from '../helpers';
-import type { WindowId } from '../../../domain/ids';
+import { wid } from '../../test/wire';
+import { gridExtent } from '../paneGeometry';
+import type { WindowId } from '../ids';
 
 const pane = (windowId: WindowId, x: number, y: number, width: number, height: number) => ({
   windowId,

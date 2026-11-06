@@ -1,7 +1,8 @@
 import { assign, raise, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx, type EnqueueAction } from '../actionTypes';
 import { PHONE_COLS, PHONE_ROWS } from '../../../infra/dom/phoneLayout';
-import { fittedGridCell, gridExtent } from '../helpers';
+import { fittedGridCell } from '../helpers';
+import { gridExtent } from '../../../domain/paneGeometry';
 import { fixedGridSize } from '../../../domain/gridFit';
 
 /**

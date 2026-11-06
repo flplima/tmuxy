@@ -4,11 +4,12 @@ import React, { useCallback, useReducer, useRef, useMemo, ReactNode } from 'reac
 import { ResizeDividers } from './ResizeDividers';
 import {
   centeringOffset as gridCenteringOffset,
+  findZoomedPane,
+  gridExtent,
   gridPixelSize,
   paneBox,
   paneContentPadding,
 } from '../domain/paneGeometry';
-import { gridExtent } from '../machines/app/helpers';
 import { useAppSelector, useAppSend, useIsDragging, useIsResizing } from '../machines/appHooks';
 import {
   selectVisiblePanes,
@@ -34,7 +35,6 @@ import {
 } from '../machines/selectors/ui';
 import { selectKeyboardElsewhere } from '../machines/selectors/keyboard';
 import type { TmuxPane } from '../domain/client';
-import { findZoomedPane } from '../constants/gridSize';
 import {
   detectPaneLifecycle,
   usePaneMorphCommit,
@@ -122,20 +122,14 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   );
 
   // .pane-layout is inset by the container's padding (CSS), so pane positions
-  // are relative to the content box ResizeObserver measured.
+  // are relative to the content box ResizeObserver measured. A drag keeps the
+  // origin it started with (DragState.origin), the one its hit test uses.
   const liveCenteringOffset = useMemo(
     () => gridCenteringOffset(containerWidth, grid.width),
     [containerWidth, grid.width],
   );
-
-  // Frozen during a drag or resize: the optimistic swap and intermediate
-  // server layouts change the grid extent for a moment, and re-centring would
-  // shift every pane by a cell under the cursor.
-  const frozenOffsetRef = useRef(liveCenteringOffset);
-  if (!isDragging && !isResizing) {
-    frozenOffsetRef.current = liveCenteringOffset;
-  }
-  const centeringOffset = isDragging || isResizing ? frozenOffsetRef.current : liveCenteringOffset;
+  const dragOrigin = useAppSelector((ctx) => ctx.drag?.origin ?? null);
+  const centeringOffset = dragOrigin ?? liveCenteringOffset;
 
   const zoomCenter = useMemo(
     () => ({ x: centeringOffset.x + grid.width / 2, y: centeringOffset.y + grid.height / 2 }),

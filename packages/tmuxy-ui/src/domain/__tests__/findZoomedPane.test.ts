@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findZoomedPane } from '../gridSize';
+import { findZoomedPane } from '../paneGeometry';
 
 // Geometry straight from tmux (`list-panes`) on a 139×30 window with a 2×2
 // grid and the TOP-LEFT pane zoomed: the zoomed pane spans the grid, the other
