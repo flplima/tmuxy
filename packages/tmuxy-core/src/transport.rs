@@ -367,22 +367,29 @@ pub struct SnapshotInfo {
 /// how both transports already create one
 /// ([`snapshot::named_restore`] says what is refused).
 pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), CommandError> {
-    let running =
-        crate::session::SessionName::parse(name).is_some() && session_running(tx, name).await;
+    let running = match crate::session::SessionName::parse(name) {
+        Some(_) => session_running(tx, name).await?,
+        None => false,
+    };
     let (saved, options) = snapshot::named_restore(name, running, false)?;
     snapshot::restore_via_monitor(&saved, &options, tx)
         .await
         .map_err(|e| CommandError::tmux(e.to_string()))
 }
 
-/// Whether a session of exactly this name exists, asked over control mode.
-async fn session_running(tx: &MonitorCommandSender, name: &str) -> bool {
-    query(
+/// Whether a session of exactly this name exists, asked over control mode:
+/// tmux's `%error` is "no", and a monitor that could not ask is no answer.
+async fn session_running(tx: &MonitorCommandSender, name: &str) -> Result<bool, CommandError> {
+    match query(
         tx,
         &format!("has-session -t {}", tmux_quote(&format!("={name}"))),
     )
     .await
-    .is_ok()
+    {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind == crate::ErrorKind::Tmux => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]

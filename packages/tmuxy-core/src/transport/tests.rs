@@ -241,6 +241,17 @@ async fn a_running_session_is_not_restored_over() {
     assert_eq!(asked.lock().unwrap()[0], "has-session -t '=work'");
 }
 
+/// A monitor that cannot answer `has-session` says nothing about the
+/// session: it was taken for "not running", and the restore went ahead over
+/// a session that may be live.
+#[tokio::test]
+async fn a_session_nobody_could_ask_about_is_not_restored() {
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    drop(rx);
+    let refused = restore_named("work", &tx).await.unwrap_err();
+    assert_eq!(refused.kind, crate::ErrorKind::Unavailable, "{refused}");
+}
+
 #[tokio::test]
 async fn an_unusable_session_name_reaches_no_tmux() {
     let (tx, asked) = answering(Ok(String::new()));
