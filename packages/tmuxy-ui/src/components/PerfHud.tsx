@@ -1,32 +1,24 @@
 /**
  * Axis-B latency HUD (docs/PERFORMANCE.md), mounted only when
- * `latencyTracker.isEnabled()` (`?perf` / localStorage). Notifications are
- * coalesced to one animation frame so an output burst cannot storm React
- * re-renders and distort the numbers being measured.
+ * `latencyTracker.isEnabled()` (`?perf` / localStorage). While it is mounted,
+ * the tracker's notifications are coalesced to one animation frame so an
+ * output burst cannot storm React re-renders and distort the numbers being
+ * measured.
  */
 
 import { useSyncExternalStore } from 'react';
 import { latencyTracker, type LatencySnapshot } from '../infra/latencyTracker';
 
-let rafPending = false;
-const hudListeners = new Set<() => void>();
-
-latencyTracker.subscribe(() => {
-  if (rafPending) return;
-  rafPending = true;
-  const raf =
-    typeof requestAnimationFrame !== 'undefined'
-      ? requestAnimationFrame
-      : (cb: FrameRequestCallback) => setTimeout(() => cb(0), 16);
-  raf(() => {
-    rafPending = false;
-    hudListeners.forEach((l) => l());
-  });
-});
-
 function subscribe(cb: () => void): () => void {
-  hudListeners.add(cb);
-  return () => hudListeners.delete(cb);
+  let framePending = false;
+  return latencyTracker.subscribe(() => {
+    if (framePending) return;
+    framePending = true;
+    requestAnimationFrame(() => {
+      framePending = false;
+      cb();
+    });
+  });
 }
 
 function getSnapshot(): LatencySnapshot {
