@@ -28,6 +28,7 @@
     "@types/react": "^19",
     "postcss": "^8.5.31",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.12"
   }
 }

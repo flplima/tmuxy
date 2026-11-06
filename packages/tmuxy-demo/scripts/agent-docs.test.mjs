@@ -1,6 +1,3 @@
-// The generator lives with the site that serves its output
-// (packages/tmuxy-demo/scripts/agent-docs.mjs); its test lives here, in the
-// unit suite CI runs, because the demo package has no test runner of its own.
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,7 +11,7 @@ import {
   slugify,
   splitSections,
   writeAgentDocs,
-} from '../../tmuxy-demo/scripts/agent-docs.mjs';
+} from './agent-docs.mjs';
 
 const DOCS = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'docs');
 const BLOB = 'https://github.com/flplima/tmuxy/blob/main/';

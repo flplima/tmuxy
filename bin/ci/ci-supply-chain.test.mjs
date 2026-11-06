@@ -4,13 +4,11 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// The repo's one vitest root is this package; bin/ has no runner of its own,
-// so what keeps third-party code out of CI's credentials is tested from here.
-import { unpinned, workflowFiles } from '../../../bin/ci/workflow-pins.mjs';
-import { refusals } from '../../../bin/ci/actions-bump.mjs';
-import { fenced, inline, withoutControls } from '../../../bin/ci/untrusted-text.mjs';
+import { unpinned, workflowFiles } from './workflow-pins.mjs';
+import { refusals } from './actions-bump.mjs';
+import { fenced, inline, withoutControls } from './untrusted-text.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (file) => readFileSync(join(ROOT, file), 'utf8');
 const SHA = 'a'.repeat(40);
 const OTHER_SHA = 'b'.repeat(40);

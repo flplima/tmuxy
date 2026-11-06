@@ -42,6 +42,7 @@ PRETTIER_SCOPE=(
   'packages/tmuxy-ui/.storybook/*.ts'
   'packages/tmuxy-ui/eslint-rules/*.mjs'
   eslint.config.mjs
+  vitest.config.mjs
   'packages/tmuxy-demo/{app,components,lib,scripts}/**/*.{ts,tsx,mjs,css}'
   'packages/tmuxy-demo/*.{ts,mjs}'
 )
@@ -54,6 +55,7 @@ ESLINT_ROOT_SCOPE=(
   tests
   bin
   eslint.config.mjs
+  vitest.config.mjs
   packages/tmuxy-demo/scripts
   packages/tmuxy-demo/postcss.config.mjs
 )

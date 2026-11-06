@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-// The repo's one vitest root is this package; bin/ has no runner of its own.
-import { plan } from '../../../bin/ci/e2e-plan.mjs';
+import { plan } from './e2e-plan.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { suites } = JSON.parse(readFileSync(join(ROOT, 'tests/e2e-suites.json'), 'utf8'));
 
 /** The test files a suite entry's `path` names: a file, or every file under a prefix. */

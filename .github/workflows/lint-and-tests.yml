@@ -45,7 +45,7 @@ jobs:
   # push: the desktop build, the v86 probe, the Mac cargo test and the
   # dependency audit each skip a push that changed nothing they cover, and the
   # [nightly] E2E tier runs only for a push that edited the web suites. The
-  # rules are bin/ci/ci-changes.mjs (tested from the UI package); a base this
+  # rules are bin/ci/ci-changes.mjs (tested beside it); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
   changes:
     runs-on: ubuntu-26.04

@@ -16,7 +16,7 @@
  * tier's lookahead followed by the suite's own shard filter, anchored once.
  * Composing the two here keeps the workflow to one `--testNamePattern`.
  *
- * `plan` is exported for its test (packages/tmuxy-ui/scripts/e2e-plan.test.mjs),
+ * `plan` is exported for its test (e2e-plan.test.mjs, beside it),
  * which also holds the shard filters to the real suites: every describe block
  * of a split file lands in exactly one shard.
  */

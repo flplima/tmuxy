@@ -13,6 +13,7 @@ export default [
       'bin/**/*.mjs',
       'tests/perf/**/*.mjs',
       'eslint.config.mjs',
+      'vitest.config.mjs',
       'packages/tmuxy-demo/**/*.mjs',
     ],
     ...js.configs.recommended,
@@ -26,6 +27,13 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
     },
+  },
+  // The Vitest tests beside those scripts: no skipped test, as in tests/.
+  {
+    files: ['bin/**/*.test.mjs', 'packages/tmuxy-demo/scripts/**/*.test.mjs'],
+    plugins: { jest },
+    settings: { jest: { globalPackage: 'vitest' } },
+    rules: { 'jest/no-disabled-tests': 'error' },
   },
   {
     files: ['tests/**/*.js'],
