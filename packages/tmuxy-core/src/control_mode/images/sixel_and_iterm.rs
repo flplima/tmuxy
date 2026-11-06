@@ -447,14 +447,10 @@ pub(super) fn ends_pending_escape(pending: &[u8], next: &[u8]) -> bool {
         || last_terminator_start(next).is_some()
 }
 
-/// Find the end of an OSC sequence (BEL or ESC \).
-/// Input starts after `ESC ]` (so `content[0]` is the first byte after `]`).
-/// Returns (bytes consumed from input INCLUDING terminator, content slice).
 /// Find the terminator of an OSC body (BEL or ESC \\). `content` starts
-/// AFTER the `ESC ]` prefix; returns (bytes consumed from `content`, body).
-/// Shared with `OscParser` — the two modules used to carry near-identical
-/// copies with different slicing conventions.
-pub(crate) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
+/// AFTER the `ESC ]` prefix; returns (bytes consumed from `content`,
+/// terminator included, and the body).
+pub(super) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
     for i in 0..content.len() {
         if content[i] == 0x07 {
             return Some((i + 1, &content[..i]));
