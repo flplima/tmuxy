@@ -56,7 +56,6 @@ function preservePane(prev: TmuxPane, next: TmuxPane): TmuxPane {
     prev.alternateOn === next.alternateOn &&
     Boolean(prev.marked) === Boolean(next.marked) &&
     prev.mouseAnyFlag === next.mouseAnyFlag &&
-    prev.paused === next.paused &&
     prev.historySize === next.historySize &&
     prev.selectionPresent === next.selectionPresent &&
     prev.selectionStartX === next.selectionStartX &&

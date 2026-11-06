@@ -1,6 +1,7 @@
 use super::tests::*;
 use super::tests_panes::list_panes_line;
 use super::*;
+use crate::constants::tmux_formats::{RowBuilder, StashColumn, TmuxList, WindowColumn};
 use crate::ids::test_ids::{gid, pid, wid};
 use crate::WindowType;
 
@@ -8,7 +9,6 @@ use crate::WindowType;
 fn a_window_whose_index_moved_is_in_the_delta() {
     // move-window renumbers the windows behind the moved one; the strip
     // orders by index, so an index-only change must reach the client.
-    let agg = StateAggregator::new();
     let before = crate::TmuxWindow {
         id: wid("@0"),
         index: 0,
@@ -31,24 +31,35 @@ fn a_window_whose_index_moved_is_in_the_delta() {
     let mut after = before.clone();
     after.index = 3;
     after.active_pane_id = Some(pid("%7"));
-    let delta = agg.compute_window_delta(&before, &after);
+    let delta = super::delta_emit::window_delta(&before, &after);
     assert_eq!(delta.index, Some(3));
     assert_eq!(delta.active_pane_id, Some(Some(pid("%7"))));
     assert!(!delta.is_empty());
-    assert!(agg.compute_window_delta(&before, &before).is_empty());
+    assert!(super::delta_emit::window_delta(&before, &before).is_empty());
 }
 
 #[test]
 fn list_windows_carries_the_dock_rows_and_sizing_uses_them() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,52,__sidebar-right");
+    agg.parse_list_windows_line(
+        &window_row("@4", 5, false, "__sidebar-right")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .set(WindowColumn::SidebarCols, "35")
+            .set(WindowColumn::SidebarRows, "52")
+            .build(),
+    );
     let w = agg.windows.get("@4").expect("window parsed");
     assert_eq!(w.sidebar_rows, Some(52));
     assert_eq!(w.name, "__sidebar-right");
     let (_, sidebars) = agg.window_ids_by_sizing();
     assert_eq!(sidebars, vec![(wid("@4"), 35, Some(52))]);
     // A row without the trailing column: the name is still the last field.
-    agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,__sidebar-right");
+    agg.parse_list_windows_line(
+        &window_row("@4", 5, false, "__sidebar-right")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .set(WindowColumn::SidebarCols, "35")
+            .build(),
+    );
     let w = agg.windows.get("@4").expect("window parsed");
     assert_eq!(w.sidebar_rows, None);
     assert_eq!(w.name, "__sidebar-right");
@@ -57,14 +68,25 @@ fn list_windows_carries_the_dock_rows_and_sizing_uses_them() {
 #[test]
 fn list_windows_carries_the_sidebar_hidden_flag() {
     let mut agg = StateAggregator::new();
-    agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,1,,0,__sidebar-right");
+    agg.parse_list_windows_line(
+        &window_row("@4", 5, false, "__sidebar-right")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .set(WindowColumn::SidebarCols, "35")
+            .set(WindowColumn::SidebarHidden, "1")
+            .build(),
+    );
     let w = agg.windows.get("@4").expect("window parsed");
     assert_eq!(w.window_type, Some(WindowType::SidebarRight));
     assert_eq!(w.sidebar_cols, Some(35));
     assert!(w.sidebar_hidden);
     assert_eq!(w.name, "__sidebar-right");
 
-    agg.parse_list_windows_line("@4,5,0,sidebar-right,,,,,,,,35,,,0,__sidebar-right");
+    agg.parse_list_windows_line(
+        &window_row("@4", 5, false, "__sidebar-right")
+            .set(WindowColumn::WindowType, "sidebar-right")
+            .set(WindowColumn::SidebarCols, "35")
+            .build(),
+    );
     assert!(!agg.windows.get("@4").expect("window parsed").sidebar_hidden);
 }
 
@@ -124,12 +146,22 @@ fn list_panes_parses_group_id() {
     assert_eq!(agg.panes.get("%4").expect("pane parsed").group_id, None);
 }
 
-/// A `stashmember,` block rebuilds hidden members without conjuring real
-/// panes or windows into the active-session plane.
+/// A stash block rebuilds hidden members without conjuring real panes or
+/// windows into the active-session plane.
 #[test]
 fn stash_block_does_not_create_real_panes() {
     let mut agg = StateAggregator::new();
-    agg.handle_command_response("stashmember,%7,@9,g5,,vim,editing");
+    listed(
+        &mut agg,
+        TmuxList::Stash,
+        &RowBuilder::<StashColumn>::new()
+            .set(StashColumn::PaneId, "%7")
+            .set(StashColumn::WindowId, "@9")
+            .set(StashColumn::GroupId, "g5")
+            .set(StashColumn::Command, "vim")
+            .set(StashColumn::Title, "editing")
+            .build(),
+    );
     assert!(
         agg.panes.is_empty(),
         "stash rows must not become real panes"
@@ -181,7 +213,15 @@ fn an_osc_graphics_probe_does_not_become_the_title() {
 #[test]
 fn a_parked_members_title_is_not_a_graphics_payload() {
     let mut agg = StateAggregator::new();
-    agg.handle_command_response("stashmember,%7,@9,g5,,agy,Ga=q,f=32,s=1,v=1,i=31;AAAAAA==");
+    agg.rebuild_stash_members(
+        &RowBuilder::<StashColumn>::new()
+            .set(StashColumn::PaneId, "%7")
+            .set(StashColumn::WindowId, "@9")
+            .set(StashColumn::GroupId, "g5")
+            .set(StashColumn::Command, "agy")
+            .set(StashColumn::Title, "Ga=q,f=32,s=1,v=1,i=31;AAAAAA==")
+            .build(),
+    );
     let member = agg.stash_members.get("%7").expect("member parsed");
     assert_eq!(member.title, "");
     // ...and the process name is still there to fall back on.
@@ -192,7 +232,15 @@ fn a_parked_members_title_is_not_a_graphics_payload() {
 #[test]
 fn a_parked_members_real_title_survives() {
     let mut agg = StateAggregator::new();
-    agg.handle_command_response("stashmember,%7,@9,g5,,go,Go build ./...");
+    agg.rebuild_stash_members(
+        &RowBuilder::<StashColumn>::new()
+            .set(StashColumn::PaneId, "%7")
+            .set(StashColumn::WindowId, "@9")
+            .set(StashColumn::GroupId, "g5")
+            .set(StashColumn::Command, "go")
+            .set(StashColumn::Title, "Go build ./...")
+            .build(),
+    );
     assert_eq!(
         agg.stash_members.get("%7").expect("member parsed").title,
         "Go build ./..."
@@ -207,9 +255,23 @@ fn stash_members_emit_stubs_only_for_active_groups() {
     // Visible member of g5 in window @4.
     agg.parse_list_panes_line("%3,0,0,0,80,24,0,0,1,zsh,vis,0,0,0,0,@4,,0,0,0,0,0,0,100,g5,,,,,,");
     // Hidden member of g5, plus an orphan in g6 (no visible member).
-    agg.handle_command_response(
-        "stashmember,%7,@9,g5,,vim,hidden-title\nstashmember,%8,@9,g6,,top,orphan",
-    );
+    let rows = [
+        RowBuilder::<StashColumn>::new()
+            .set(StashColumn::PaneId, "%7")
+            .set(StashColumn::WindowId, "@9")
+            .set(StashColumn::GroupId, "g5")
+            .set(StashColumn::Command, "vim")
+            .set(StashColumn::Title, "hidden-title")
+            .build(),
+        RowBuilder::<StashColumn>::new()
+            .set(StashColumn::PaneId, "%8")
+            .set(StashColumn::WindowId, "@9")
+            .set(StashColumn::GroupId, "g6")
+            .set(StashColumn::Command, "top")
+            .set(StashColumn::Title, "orphan")
+            .build(),
+    ];
+    agg.rebuild_stash_members(&rows.join("\n"));
 
     let state = agg.to_tmux_state();
     let ids: Vec<&str> = state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
@@ -240,9 +302,9 @@ fn stash_members_emit_stubs_only_for_active_groups() {
 fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
     let mut agg = StateAggregator::new();
     // @id,index,active,type(empty),float*,zoomed,name
-    agg.parse_list_windows_line("@5,0,1,,,,,,,,,,,,0,shell");
+    agg.parse_list_windows_line(&window_row("@5", 0, true, "shell").build());
 
-    let cmds = agg.collect_window_tag_commands();
+    let cmds = agg.window_setup_commands();
     assert!(
         cmds.iter().any(|c| c.contains("pane-border-status top")),
         "tab needs pane-border enforcement: {cmds:?}"
@@ -252,7 +314,7 @@ fn untagged_window_is_a_tab_and_gets_only_border_enforcement() {
         "a tab must never be tagged: {cmds:?}"
     );
     // Idempotent — already enforced, so nothing new.
-    assert!(agg.collect_window_tag_commands().is_empty());
+    assert!(agg.window_setup_commands().is_empty());
 
     // Emitted as a tab despite carrying no marker.
     let state = agg.to_tmux_state();

@@ -91,7 +91,6 @@ fn every_pane_delta_field_makes_it_non_empty() {
         "alternate_on": true,
         "mouse_any_flag": true,
         "marked": true,
-        "paused": true,
         "history_size": 10,
         "selection_present": true,
         "selection_start_x": 1,

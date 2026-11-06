@@ -290,7 +290,6 @@ function applyPaneDelta(pane: WirePane, delta: PaneDelta): WirePane {
     ...(delta.alternate_on !== undefined && { alternate_on: delta.alternate_on }),
     ...(delta.marked !== undefined && { marked: delta.marked }),
     ...(delta.mouse_any_flag !== undefined && { mouse_any_flag: delta.mouse_any_flag }),
-    ...(delta.paused !== undefined && { paused: delta.paused }),
     ...(delta.history_size !== undefined && { history_size: delta.history_size }),
     ...(delta.selection_present !== undefined && { selection_present: delta.selection_present }),
     ...(delta.selection_start_x !== undefined && { selection_start_x: delta.selection_start_x }),

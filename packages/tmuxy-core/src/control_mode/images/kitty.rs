@@ -191,7 +191,7 @@ impl ImageParser {
             }
         };
 
-        let encoded = base64_decode(&entry.payload);
+        let encoded = base64_decode(&entry.payload).unwrap_or_default();
         let raw = match entry.compression {
             None => encoded,
             Some(b'z') => match zlib_decompress_bounded(&encoded) {

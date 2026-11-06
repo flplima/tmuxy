@@ -41,7 +41,6 @@ const pane = (tmuxId: PaneId, windowId: WindowId, inMode = false): TmuxPane => (
   copyCursorY: 0,
   alternateOn: false,
   mouseAnyFlag: false,
-  paused: false,
   historySize: 500,
   selectionPresent: false,
   selectionStartX: 0,

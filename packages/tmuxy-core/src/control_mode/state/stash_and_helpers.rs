@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::tmux_formats::{Row, StashColumn};
 use crate::{GroupId, PaneContent, PaneId, TmuxPane, TmuxState, TmuxWindow, WindowId};
 
 /// Prepare capture-pane bytes for vt100: strip the trailing newline (which
@@ -16,32 +17,12 @@ pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Does this line look like a `list-panes` record (`%<digits>,...`)?
-///
-/// tmux pane ids are always `%` followed by digits, and `LIST_PANES_CMD` puts
-/// `#{pane_id}` first, so a genuine record always starts that way.
-pub(super) fn is_list_panes_line(line: &str) -> bool {
-    line.trim_start()
-        .split_once(',')
-        .is_some_and(|(id, _)| PaneId::parse(id).is_ok())
-}
-
 /// The process name to show for a pane, given tmux's `#{pane_current_command}`:
 /// normalised once here, in the backend state, so no surface shows Claude
 /// Code's version number where the user expects `claude`
 /// ([`crate::program::program_name`]).
 pub(super) fn normalize_pane_command(command: &str) -> String {
     crate::program::program_name(command).to_string()
-}
-
-/// Literal sentinel prefixed on every `LIST_STASH_PANES_CMD` row so a stash
-/// response routes to the stash-member handler and never reaches the
-/// active-session pane/window parsers (a stash row carries a `@<id>` window id
-/// that would otherwise trip the list-windows loop).
-const STASH_MEMBER_PREFIX: &str = "stashmember,";
-
-pub(super) fn is_stash_member_line(line: &str) -> bool {
-    line.trim_start().starts_with(STASH_MEMBER_PREFIX)
 }
 
 /// A HIDDEN pane-group member living in the stash session — just enough to
@@ -87,7 +68,6 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         alternate_on: false,
         mouse_any_flag: false,
         marked: false,
-        paused: false,
         history_size: 0,
         selection_present: false,
         selection_start_x: 0,
@@ -206,45 +186,29 @@ impl StateAggregator {
         self.settling_until = Some(debounced.min(max_deadline));
     }
 
-    /// Rebuild the hidden pane-group member map from a `LIST_STASH_PANES_CMD`
-    /// response. Row shape: `stashmember,<pane>,<window>,<group-id>,<cmd>,<title>`
-    /// (title is free text and last). Members without a group id are ignored.
+    /// Rebuild the hidden pane-group member map from a stash list's rows
+    /// (`TmuxList::Stash`). Members without a group id are ignored.
     pub(super) fn rebuild_stash_members(&mut self, output: &str) {
         let mut members = HashMap::new();
-        for line in output.lines() {
-            if !is_stash_member_line(line) {
-                continue;
-            }
-            let parts: Vec<&str> = line.trim_start().splitn(7, ',').collect();
-            if parts.len() < 7 {
-                continue;
-            }
+        for row in output.lines().filter_map(Row::<StashColumn>::parse) {
             let (Ok(pane_id), Ok(window_id), Ok(group_id)) = (
-                PaneId::parse(parts[1].trim()),
-                WindowId::parse(parts[2].trim()),
-                GroupId::parse(parts[3].trim()),
+                PaneId::parse(row.field(StashColumn::PaneId)),
+                WindowId::parse(row.field(StashColumn::WindowId)),
+                GroupId::parse(row.field(StashColumn::GroupId)),
             ) else {
                 continue;
             };
-            // Same guard as a visible pane's title (see is_graphics_payload).
             // A parked member streams no content, so its tab label is tmux's
             // `pane_title` and nothing else — which is exactly where a Kitty
-            // graphics probe lands when tmux reads the APC as a title. Without
-            // this the strip labelled the member `Ga=q,f=32,s=1,…` while the
-            // visible pane running the same program was labelled properly.
-            let title = parts[6].to_string();
+            // graphics probe lands when tmux reads the APC as a title.
             members.insert(
                 pane_id,
                 StashMember {
                     window_id,
                     group_id,
-                    group_pos: parts[4].trim().parse().ok(),
-                    command: normalize_pane_command(parts[5]),
-                    title: if is_graphics_payload(&title) {
-                        String::new()
-                    } else {
-                        title
-                    },
+                    group_pos: row.parse_field(StashColumn::GroupPos),
+                    command: normalize_pane_command(&row.text(StashColumn::Command)),
+                    title: shown_title(row.text(StashColumn::Title)),
                 },
             );
         }
@@ -252,9 +216,9 @@ impl StateAggregator {
     }
 
     /// Whether `to_tmux_state` would describe the session in full: the
-    /// initial list-panes and list-windows have been parsed and no
-    /// capture-pane refill is on its way — a snapshot taken mid-refill would
-    /// carry the blank panes a reset parser holds until capture-pane answers.
+    /// initial list-panes and list-windows have been parsed and no capture is
+    /// on its way — a snapshot taken before would carry the blank panes a new
+    /// (or moved) pane's emulator holds until capture-pane answers.
     pub fn initial_state_ready(&self) -> bool {
         self.panes_synced && self.windows_synced && self.pending_captures.is_empty()
     }

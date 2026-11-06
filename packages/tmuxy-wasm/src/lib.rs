@@ -21,9 +21,7 @@ fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
-use tmuxy_core::control_mode::{
-    window_relist_commands, ControlModeEvent, Parser, SideEffect, StateAggregator,
-};
+use tmuxy_core::control_mode::{ControlModeEvent, Parser, SideEffect, StateAggregator};
 use tmuxy_core::StateUpdate;
 
 /// Result of feeding a chunk of control-mode text.
@@ -71,7 +69,8 @@ impl Session {
                 SideEffect::SendTmuxCommand(cmd) => out.commands.push(cmd),
                 SideEffect::AdoptUntaggedWindows(cmds) => out.commands.extend(cmds),
                 SideEffect::RefreshAfterWindowAdd => {
-                    out.commands.extend(window_relist_commands());
+                    out.commands
+                        .extend(self.agg.markers().window_relist_commands());
                 }
                 SideEffect::RefreshPanes { pane_ids } => {
                     let queued = self.agg.queue_captures(&pane_ids);
@@ -125,8 +124,9 @@ impl Session {
     /// the aggregator and emitted here, so hosts must call this on a timer.
     fn tick(&mut self) -> FeedOutput {
         let mut out = FeedOutput::default();
-        let effects = self.agg.tick_now();
-        self.apply_effects(effects, &mut out);
+        if let Some(change) = self.agg.tick_now() {
+            self.apply_effects(vec![SideEffect::EmitState { change }], &mut out);
+        }
         out
     }
 }
@@ -172,7 +172,7 @@ impl WasmTmux {
     /// without them there's no active window/pane. The order is the native
     /// monitor's (panes before windows).
     pub fn initial_sync(&self) -> Vec<String> {
-        window_relist_commands().to_vec()
+        self.inner.agg.markers().window_relist_commands().to_vec()
     }
 
     /// Parse raw `capture-pane -p -e` scrollback text into structured cells.
@@ -209,20 +209,40 @@ mod tests {
 
     #[test]
     fn feed_reconstructs_panes_and_reports_no_spurious_commands() {
+        use tmuxy_core::constants::tmux_formats::{RowBuilder, TmuxList, WindowColumn};
+        use tmuxy_core::control_mode::{
+            CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER,
+        };
+
         let mut s = Session::new("m");
-        let stream = concat!(
-            "%begin 1 1 0\n%end 1 1 0\n%session-changed $0 m\n%window-add @0\n",
-            "%begin 2 2 1\n",
-            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-            "%1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-            "%end 2 2 1\n",
-            "%layout-change @0 8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} ",
-            "8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
+        let markers = s.agg.markers().clone();
+        // The aggregator's own marked list, as tmux answers it: three blocks.
+        let list = |n: u32, list: TmuxList, rows: &str| {
+            let (a, b, c) = (n, n + 1, n + 2);
+            format!(
+                "%begin {a} {a} 1\n{} {}\n%end {a} {a} 1\n\
+                 %begin {b} {b} 1\n{rows}%end {b} {b} 1\n\
+                 %begin {c} {c} 1\n{}\n%end {c} {c} 1\n",
+                markers.tag(LIST_BEGIN_MARKER),
+                list.name(),
+                markers.tag(LIST_END_MARKER),
+            )
+        };
+        let stream = format!(
+            "%begin 1 1 0\n%end 1 1 0\n%session-changed $0 m\n%window-add @0\n{}{}",
+            list(
+                2,
+                TmuxList::Panes,
+                "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
+                 %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+            ),
+            "%layout-change @0 8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} \
+             8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
         );
-        let out = s.feed(stream);
+        let out = s.feed(&stream);
         // Every %begin/%end block surfaces as a response for host-side
-        // command correlation (two blocks in this stream, both successful).
-        assert_eq!(out.responses.len(), 2);
+        // command correlation (four blocks in this stream, all successful).
+        assert_eq!(out.responses.len(), 4);
         assert!(out.responses.iter().all(|(ok, _)| *ok));
         // The listed panes are captured; nothing is shown before the
         // windows are listed and those captures have landed.
@@ -238,16 +258,24 @@ mod tests {
             out.updates
         );
 
-        let markers = s.agg.markers().clone();
         let capture = |pane: &str| {
             format!(
                 "%begin 4 4 1\n{} {pane}\n%end 4 4 1\n%begin 5 5 1\n$ \n%end 5 5 1\n%begin 6 6 1\n{}\n%end 6 6 1\n",
-                markers.tag(tmuxy_core::control_mode::CAPTURE_BEGIN_MARKER),
-                markers.tag(tmuxy_core::control_mode::CAPTURE_END_MARKER),
+                markers.tag(CAPTURE_BEGIN_MARKER),
+                markers.tag(CAPTURE_END_MARKER),
             )
         };
+        let window = RowBuilder::<WindowColumn>::new()
+            .set(WindowColumn::WindowId, "@0")
+            .set(WindowColumn::Index, 0)
+            .set(WindowColumn::Active, 1)
+            .set(WindowColumn::WindowType, "tab")
+            .set(WindowColumn::Zoomed, 0)
+            .set(WindowColumn::Name, "shell")
+            .build();
         let synced = s.feed(&format!(
-            "%begin 3 3 1\n@0,0,1,tab,,,,,,,,,,,0,shell\n%end 3 3 1\n{}{}",
+            "{}{}{}",
+            list(7, TmuxList::Windows, &format!("{window}\n")),
             capture("0"),
             capture("1")
         ));

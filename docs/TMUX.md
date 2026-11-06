@@ -93,7 +93,7 @@ in-band, by the aggregator, on both hosts.
 | --- | --- | --- |
 | `has-session` | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode |
 | `new-session` | `session.rs` | Create session **before** control mode attaches |
-| `source-file` | `session.rs`, `monitor.rs` | Source config during session creation and initial state sync |
+| `source-file` | `session.rs` | Source config during session creation (the monitor's initial sync sends its own over control mode, `control_mode/monitor/sync.rs`) |
 | `kill-session` | `session.rs` | Destroy session (no control mode attached) |
 | `show-options` | `gui.rs` (desktop setup) | The window's blur/appearance is read before the monitor starts |
 | `load-buffer -` | the server binary's `send --paste` (`tmuxy-verbs/src/send_cli.rs`, behind `pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
@@ -133,7 +133,7 @@ A pane header shows what the running application called itself, falling back to 
 | App title | `pane_title` | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary. |
 | Process name | `pane_current_command` | Only the executable's **file name**. A version-pinned launcher symlink (`~/.local/bin/claude` → `…/versions/2.1.251`) reports the version number, which is useless as a label. |
 
-The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `packages/tmuxy-cli/bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
+The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `packages/tmuxy-cli/bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants/tests.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
 
 Downstream, an empty title unambiguously means "no app title", so every consumer resolves `title → command → 'shell'` (`getTabText` in `tmuxy-ui/src/components/paneTabDisplay.ts`). One consequence is inherent to the rule: tmux keeps the last title a pane was given, so a title can outlive the program that set it until the shell's own prompt hook replaces it.
 
@@ -141,7 +141,9 @@ Titles change without any control-mode event, so they ride the regular `list-pan
 
 ### Pane rows
 
-The `list-panes` format the monitor polls with is built from one column table (`PaneColumn` in `tmuxy-core/src/constants/tmux_formats.rs`): each column's name is the index the parser reads its field at, and the command string is assembled from the same list, so the two cannot drift. Every free-text column — the app title, the border title, the process name, the restore line — is comma-escaped by tmux itself (`s/,/%2C/`), so a row always has exactly one field per column and a comma in a title cannot shift the fields after it; the parser drops a row with any other field count rather than guess. Only `list-panes -F` output is read this way: `display-message -p` strips the `%` from the escape.
+Every list the monitor polls — `list-panes`, `list-windows` and the stash session's panes — is built from one column table (`PaneColumn`, `WindowColumn`, `StashColumn` in `tmuxy-core/src/constants/tmux_formats.rs`): each column's name is the index the parser (`Row`) reads its field at, the command string is assembled from the same list, and the test fixtures write their rows with the same table (`RowBuilder`), so none of them can drift. Every `@tmuxy-*` column is spelled by its `tmux_options` constant. Every free-text column — the app title, the border title, the process name, the restore line, the window name — is comma-escaped by tmux itself (`s/,/%2C/`), so a row always has exactly one field per column and a comma in a title cannot shift the fields after it; the parser drops a row with any other field count, or without a pane size, rather than guess. Only `-F` list output is read this way: `display-message -p` strips the `%` from the escape.
+
+Each of those lists goes out marker-bracketed like a capture (`Markers::list_command`), and its rows are read only as the answer the marker names. A block with no marker before it — the ack of a keystroke, of a setup command, a client's query — is never sniffed for rows and changes nothing.
 
 See [TMUX-TAGS.md](TMUX-TAGS.md) for this section: Window Tags (`@tmuxy-*`).
 

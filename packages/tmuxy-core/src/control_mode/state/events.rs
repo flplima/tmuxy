@@ -13,12 +13,7 @@ impl StateAggregator {
     /// Returns information about state changes and any panes that need content refresh.
     pub(crate) fn process_event(&mut self, event: ControlModeEvent) -> ProcessEventResult {
         match event {
-            // %output and %extended-output differ only in the extra metadata
-            // the parser already discarded — one handler serves both.
-            ControlModeEvent::Output { pane_id, content }
-            | ControlModeEvent::ExtendedOutput {
-                pane_id, content, ..
-            } => self.output_result(pane_id, &content),
+            ControlModeEvent::Output { pane_id, content } => self.output_result(pane_id, &content),
 
             ControlModeEvent::LayoutChange {
                 window_id,
@@ -62,8 +57,7 @@ impl StateAggregator {
             ControlModeEvent::UnlinkedWindowClose { window_id } => {
                 if self.windows.contains_key(&window_id) {
                     self.windows.remove(&window_id);
-                    self.border_enforced.remove(&window_id);
-                    self.sidebar_border_cleared.remove(&window_id);
+                    self.window_setup.remove(&window_id);
                     self.panes.retain(|_, p| !p.in_window(&window_id));
                     self.prune_capture_bookkeeping();
                     ProcessEventResult {
@@ -93,8 +87,7 @@ impl StateAggregator {
 
             ControlModeEvent::WindowClose { window_id } => {
                 self.windows.remove(&window_id);
-                self.border_enforced.remove(&window_id);
-                self.sidebar_border_cleared.remove(&window_id);
+                self.window_setup.remove(&window_id);
                 self.panes.retain(|_, p| !p.in_window(&window_id));
                 self.prune_capture_bookkeeping();
                 ProcessEventResult {
@@ -211,7 +204,7 @@ impl StateAggregator {
                 if is_paste_staging_buffer(&buffer_name) {
                     return ProcessEventResult::default();
                 }
-                self.pending_buffer_reads.push_back(buffer_name.clone());
+                self.pending_buffer_reads += 1;
                 ProcessEventResult {
                     commands: vec![self.markers.buffer_read_command(&buffer_name)],
                     ..Default::default()
@@ -294,27 +287,15 @@ impl StateAggregator {
             // ============================================
             // Flow Control Events (tmux 3.2+ pause-after)
             // ============================================
-            ControlModeEvent::Pause { pane_id } => {
-                if let Some(pane) = self.panes.get_mut(&pane_id) {
-                    pane.paused = true;
-                    return ProcessEventResult {
-                        state_changed: true,
-                        change_type: ChangeType::FlowPause { pane_id },
-                        ..Default::default()
-                    };
+            // A paused pane is resumed at once (the step's `ResumePane`):
+            // nothing in the state says it was ever paused.
+            ControlModeEvent::Pause { pane_id } if self.panes.contains_key(&pane_id) => {
+                ProcessEventResult {
+                    change_type: ChangeType::FlowPause { pane_id },
+                    ..Default::default()
                 }
-                ProcessEventResult::default()
             }
-
-            ControlModeEvent::Continue { pane_id } => {
-                if let Some(pane) = self.panes.get_mut(&pane_id) {
-                    pane.paused = false;
-                    return ProcessEventResult {
-                        state_changed: true,
-                        change_type: ChangeType::FlowContinue { pane_id },
-                        ..Default::default()
-                    };
-                }
+            ControlModeEvent::Pause { .. } | ControlModeEvent::Continue { .. } => {
                 ProcessEventResult::default()
             }
         }

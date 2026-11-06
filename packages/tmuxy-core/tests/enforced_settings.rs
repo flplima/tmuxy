@@ -1,8 +1,9 @@
 //! The settings the frontend cannot work without are enforced on connect.
 //!
-//! `enforce_settings` (in `control_mode/monitor.rs`) sets a handful of tmux
-//! options on the attached session every time a monitor connects, whatever the
-//! user's `tmux.conf` says. They are invariants, not preferences: without
+//! `enforce_settings` (in `control_mode/monitor/sync.rs`) sets a handful of
+//! tmux options on the attached session every time a monitor connects, and
+//! the aggregator's window setup (`window_setup_commands`) the window options
+//! on each window it lists, whatever the user's `tmux.conf` says. They are invariants, not preferences: without
 //! `pane-border-status top` a pane at y=0 loses a row of content to the header
 //! tmuxy draws over the border row; without `mouse on` clicking a pane does not
 //! focus it; without `allow-passthrough` hyperlinks and images never reach the
@@ -98,8 +99,21 @@ async fn connecting_enforces_the_settings_the_layout_depends_on() {
     };
 
     // The load-bearing one: PaneLayout reserves the border row for its header,
-    // so a pane at y=0 renders one row short when this is not `top`.
-    assert_eq!(option(&tx, "pane-border-status").await, "top");
+    // so a pane at y=0 renders one row short when this is not `top`. It is a
+    // window option, set on each window as the monitor first lists it, a step
+    // after the connect: keep asking until then.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let border = option(&tx, "pane-border-status").await;
+        if border == "top" {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "pane-border-status is still {border:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 
     // The border row is blank so nothing of tmux's own shows through the header.
     assert!(

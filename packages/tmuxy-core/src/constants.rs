@@ -71,9 +71,9 @@ pub mod tmux_options {
     pub const FOCUS_REQUEST: &str = "@tmuxy-focus-request";
 
     /// How a pane says it should be brought back after a session restore
-    /// (`tmuxy pane restore-cmd`), read by `session_snapshot`'s own query
-    /// rather than the hot-path pane poll: it changes rarely and is only
-    /// wanted when a snapshot is taken.
+    /// (`tmuxy pane restore-cmd`): a column of the pane rows
+    /// (`tmux_formats::PaneColumn::Restore`), and of `session_snapshot`'s
+    /// own query.
     pub const PANE_RESTORE: &str = "@tmuxy-pane-restore";
 
     /// Pane-scoped group identity (e.g. `g5`). Set on every member of a pane
@@ -264,22 +264,13 @@ pub mod sidebar_dock {
     }
 }
 
-// A macro as well as `STASH_SESSION` so format strings can splice the name in
-// with `concat!`, which only accepts literals.
-macro_rules! stash_session {
-    () => {
-        "__tmuxy_stash"
-    };
-}
-pub(crate) use stash_session;
-
 /// The dedicated tmux session tmuxy parks HIDDEN panes in (non-active pane-group
 /// members). It is never attached, never shown in any session enumeration, and
 /// created lazily by the pane-group shell helpers. Keeping hidden panes here —
 /// rather than as extra windows in the attached session — means a native
 /// `tmux attach` (or any non-tmuxy client) sees only the user's real tabs, and
 /// the attached session's window list maps 1:1 to the tmuxy tab strip.
-pub const STASH_SESSION: &str = stash_session!();
+pub const STASH_SESSION: &str = "__tmuxy_stash";
 
 pub mod tmux_formats;
 

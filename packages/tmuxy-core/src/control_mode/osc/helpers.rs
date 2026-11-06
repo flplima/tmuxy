@@ -18,7 +18,7 @@ pub(super) fn decode_osc52(content: &str) -> Option<String> {
     if base64_data.len() > MAX_CLIPBOARD_BASE64_BYTES {
         return None;
     }
-    String::from_utf8(base64_decode(base64_data).ok()?).ok()
+    String::from_utf8(crate::control_mode::images::base64_decode(base64_data)?).ok()
 }
 
 /// Parse Kitty OSC 66 text-sizing sequence (`66 ; metadata ; text`) and append
@@ -54,40 +54,4 @@ pub(super) fn emit_osc66(rest: &[u8], out: &mut OscOutput) {
         out.sized
             .push((start, end, crate::CellSize::DoubleWidth, false));
     }
-}
-
-/// Simple base64 decoder (standard alphabet)
-pub(super) fn base64_decode(input: &str) -> Result<Vec<u8>, &'static str> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    let mut output = Vec::new();
-    let mut buffer: u32 = 0;
-    let mut bits = 0;
-
-    for c in input.bytes() {
-        if c == b'=' {
-            // Padding
-            break;
-        }
-        if c == b'\n' || c == b'\r' || c == b' ' {
-            // Skip whitespace
-            continue;
-        }
-
-        let value = match ALPHABET.iter().position(|&x| x == c) {
-            Some(v) => v as u32,
-            None => return Err("Invalid base64 character"),
-        };
-
-        buffer = (buffer << 6) | value;
-        bits += 6;
-
-        if bits >= 8 {
-            bits -= 8;
-            output.push((buffer >> bits) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-
-    Ok(output)
 }

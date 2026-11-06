@@ -44,7 +44,6 @@ function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
         copy_cursor_y: 0,
         alternate_on: false,
         mouse_any_flag: false,
-        paused: false,
         history_size: 0,
         selection_present: false,
         selection_start_x: 0,

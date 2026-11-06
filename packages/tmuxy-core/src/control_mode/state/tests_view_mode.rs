@@ -3,6 +3,7 @@
 
 use super::tests::*;
 use super::*;
+use crate::constants::tmux_formats::TmuxList;
 use crate::ids::test_ids::pid;
 
 /// A view mode is closed, and said so, once nobody who could see it is
@@ -17,20 +18,20 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
     seed_active_pane(&mut agg, "%0", "@0");
     agg.step(ControlModeEvent::SessionsChanged);
 
-    let listed = agg.step(response(&pane_row_in_mode("%0", "@0", 2), true));
+    let opened = listed(&mut agg, TmuxList::Panes, &pane_row_in_mode("%0", "@0", 2));
     assert!(!agg.panes["%0"].in_mode, "view mode is not copy mode");
     assert!(agg.panes["%0"].view_mode);
     let asked = agg.markers().clients_read_command(&pid("%0"));
     assert!(
-        listed
+        opened
             .effects
             .iter()
             .any(|e| matches!(e, SideEffect::SendTmuxCommand(cmd) if cmd == &asked)),
         "the row asks who is attached ({:?})",
-        listed.effects
+        opened.effects
     );
     // The same row again is the same view mode, not a second question.
-    let again = agg.step(response(&pane_row_in_mode("%0", "@0", 2), true));
+    let again = listed(&mut agg, TmuxList::Panes, &pane_row_in_mode("%0", "@0", 2));
     assert!(
         !again
             .effects
@@ -60,9 +61,9 @@ fn a_view_mode_nobody_sees_is_closed_with_a_notice() {
     );
 
     // Closed: the next row says so, and the next opening is asked about.
-    agg.step(response(&pane_row_in_mode("%0", "@0", 0), true));
+    listed(&mut agg, TmuxList::Panes, &pane_row_in_mode("%0", "@0", 0));
     assert!(!agg.panes["%0"].view_mode);
-    let reopened = agg.step(response(&pane_row_in_mode("%0", "@0", 2), true));
+    let reopened = listed(&mut agg, TmuxList::Panes, &pane_row_in_mode("%0", "@0", 2));
     assert!(reopened
         .effects
         .iter()
@@ -77,7 +78,7 @@ fn a_view_mode_a_terminal_client_is_reading_is_left_open() {
         let mut agg = StateAggregator::with_session_name("m");
         seed_active_pane(&mut agg, "%0", "@0");
         agg.step(ControlModeEvent::SessionsChanged);
-        agg.step(response(&pane_row_in_mode("%0", "@0", 2), true));
+        listed(&mut agg, TmuxList::Panes, &pane_row_in_mode("%0", "@0", 2));
 
         agg.step(response(&marked(&agg, CLIENTS_BEGIN_MARKER, "0"), true));
         let answer = agg.step(response(clients, true));

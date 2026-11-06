@@ -86,7 +86,7 @@ A group's **order** is `@tmuxy-group-pos` on each member, ascending, with member
 
 ### How the tags are consumed
 
-The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`collect_window_tag_commands` in `control_mode/state.rs`) re-tags a float/sidebar window whose option went missing, takes the `pane-border-status` row back off a window that turns out to be a sidebar, and enforces `pane-border-status top` per tab window (a session-level `set` is not inherited by windows), but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (rows carry a `stashmember,` sentinel) and emitted as lightweight pane stubs carrying `group_id`.
+The backend (`tmuxy-core`) reads the options off `list-windows` and emits each window's `windowType` on the wire, defaulting an untagged window to `tab` (see `WindowState::to_tmux_window`). The setup pass (`window_setup_commands` in `control_mode/state/window_state.rs`) re-tags a float/sidebar window whose option went missing and sets each window's options once — `window-size manual` and `aggressive-resize off` on every window, `pane-border-status top` on a tab (a session-level `set` reaches only the current window), the border row taken back off a window that turns out to be a sidebar — but it never writes a `tab` marker. Hidden group members are enumerated with a separate `list-panes` against the stash session (its own marked list, `TmuxList::Stash` in `constants/tmux_formats.rs`) and emitted as lightweight pane stubs carrying `group_id`.
 
 The frontend filters on `windowType`:
 
