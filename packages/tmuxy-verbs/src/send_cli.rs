@@ -203,7 +203,11 @@ struct Delivery<'a> {
 impl Delivery<'_> {
     async fn deliver<T: ask::Tmux>(&self, tmux: &T, answer: &Answer) -> Result<(), (i32, String)> {
         let command = if self.paste {
-            let buffer = format!("tmuxy-cli-paste-{}", std::process::id());
+            let buffer = format!(
+                "{}{}",
+                tmuxy_core::constants::CLI_PASTE_BUFFER_PREFIX,
+                std::process::id()
+            );
             load_buffer(&buffer, &self.keys.concat()).map_err(|e| (EXIT_FAILED, e))?;
             // -p: bracketed when the program in the pane asked for it
             // (?2004h), so a multi-line paste is inserted rather than run a

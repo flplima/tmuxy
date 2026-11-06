@@ -1,11 +1,8 @@
 use super::*;
 
-/// Whether `name` is a buffer tmuxy stages a paste in: the client's
-/// (`PASTE_BUFFER` in `tmuxy-ui/src/domain/commandHelpers.ts`) or the CLI's
-/// (`tmuxy pane paste`, per-PID `tmuxy-cli-paste-<pid>` in
-/// `tmuxy-verbs/src/send_cli.rs`). Never a yank, so never mirrored.
 fn is_paste_staging_buffer(name: &str) -> bool {
-    name == "tmuxy-paste" || name.starts_with("tmuxy-cli-paste-")
+    use crate::constants::{CLI_PASTE_BUFFER_PREFIX, PASTE_BUFFER};
+    name == PASTE_BUFFER || name.starts_with(CLI_PASTE_BUFFER_PREFIX)
 }
 
 impl StateAggregator {

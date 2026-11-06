@@ -4,6 +4,14 @@
 /// tmuxy-ui's `domain/commands.ts`, from the generated constants).
 pub const SIDEBAR_WINDOW_PREFIX: &str = "__sidebar-";
 
+/// The buffer the client stages a paste in (`PASTE_BUFFER` in
+/// `tmuxy-ui/src/domain/commandHelpers.ts`). A staging buffer is never a yank,
+/// so the aggregator never mirrors it to the clipboard.
+pub const PASTE_BUFFER: &str = "tmuxy-paste";
+
+/// `tmuxy pane paste`'s staging buffers: this prefix and the CLI's PID.
+pub const CLI_PASTE_BUFFER_PREFIX: &str = "tmuxy-cli-paste-";
+
 /// User-option keys tmuxy sets on tmux windows, panes and the global session,
 /// all `@tmuxy-*` so they cannot collide with tmux's own options or a user's
 /// plugins. The schema is in docs/TMUX-TAGS.md.
