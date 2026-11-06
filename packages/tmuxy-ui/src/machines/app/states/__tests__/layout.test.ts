@@ -5,6 +5,7 @@ import { fromCallback } from 'xstate';
 import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
+import { act } from '../../actionTypes';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { ResizeState, DragState } from '../../../types/domain';
@@ -25,7 +26,9 @@ describe('layout state', () => {
       },
     );
     const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@1') });
-    expect(sent).toEqual([{ type: 'DISPATCH_OP', op: TmuxOp.SelectWindow({ target: wid('@1') }) }]);
+    expect(sent).toEqual([
+      { type: 'STORE_DISPATCH', op: TmuxOp.SelectWindow({ target: wid('@1') }) },
+    ]);
     // The machine assigns nothing itself: the store's model update does.
     expect(ctx.activeWindowId).toBe(wid('@0'));
   });
@@ -110,33 +113,25 @@ describe('layout state', () => {
 
   describe('CLOSE_PANE with no pane named (the app menu’s Close Pane)', () => {
     const close = (context: Record<string, unknown>) => {
-      const toStore: unknown[] = [];
       const raised: TmuxOp[] = [];
-      const tmuxStore = fromCallback(({ receive }) => {
-        receive((event) => void toStore.push(event));
-      });
-      const state = {
-        on: {
-          ...layoutState.on,
-          DISPATCH_OP: { actions: 'recordOp' },
-        },
-      };
+      const state = { on: { ...layoutState.on, DISPATCH_OP: { actions: 'recordOp' } } };
       const actor = mountState(
         state,
         {
           ...layoutActions,
-          recordOp: ({ event }: { event: { op: TmuxOp } }) => void raised.push(event.op),
+          recordOp: act(({ event }) => {
+            if (event.type === 'DISPATCH_OP') raised.push(event.op);
+          }),
         },
         {},
         context,
-        { extraActors: { tmuxStore } },
       );
       actor.send({ type: 'CLOSE_PANE', paneId: null });
-      return { toStore, raised };
+      return raised;
     };
 
     it('closes the float that holds the keyboard, through the group-aware close', () => {
-      const { raised } = close({
+      const raised = close({
         activePaneId: pid('%3'),
         keyboardOwner: { kind: 'float', paneId: pid('%9') },
         floatPanes: { [pid('%9')]: { paneId: pid('%9') } },
@@ -145,15 +140,13 @@ describe('layout state', () => {
     });
 
     it('else the active pane', () => {
-      const { toStore } = close({ activePaneId: pid('%3') });
-      expect(toStore).toEqual([
-        { type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: pid('%3') }) },
-      ]);
+      expect(close({ activePaneId: pid('%3') })).toEqual([TmuxOp.KillPane({ paneId: pid('%3') })]);
     });
 
     it('else, while the active pane is a placeholder, tmux’s own active pane', () => {
-      const { toStore } = close({ activePaneId: placeholderPaneId('5') });
-      expect(toStore).toEqual([{ type: 'DISPATCH_OP', op: TmuxOp.KillPane({ paneId: null }) }]);
+      expect(close({ activePaneId: placeholderPaneId('5') })).toEqual([
+        TmuxOp.KillPane({ paneId: null }),
+      ]);
     });
   });
 });

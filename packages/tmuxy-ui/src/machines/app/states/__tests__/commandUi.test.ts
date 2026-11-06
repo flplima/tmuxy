@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { commandUiState } from '../commandUi';
 import { commandUiActions } from '../../actions/commandUi';
+import { act } from '../../actionTypes';
 const commandUiGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import { STATUS_MESSAGE_DURATION } from '../../helpers';
@@ -32,9 +33,9 @@ describe('commandUi state', () => {
       { on: { ...commandUiState.on, SEND_TMUX_COMMAND: { actions: 'recordCommand' } } },
       {
         ...commandUiActions,
-        recordCommand: ({ event }: { event: { command: string } }) => {
-          sent.push(event.command);
-        },
+        recordCommand: act(({ event }) => {
+          if (event.type === 'SEND_TMUX_COMMAND') sent.push(event.command);
+        }),
       },
       commandUiGuards,
       { commandMode: { prompt: ':', input: '', template } },

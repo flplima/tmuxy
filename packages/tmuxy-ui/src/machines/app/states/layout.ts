@@ -6,10 +6,8 @@
  */
 export const layoutState = {
   on: {
-    SEND_KEYS: { actions: 'layout_sendKeysToTmux' },
     CLOSE_PANE: { actions: 'layout_closePane' },
     ZOOM_PANE: { actions: 'layout_zoomPane' },
-    WRITE_TO_PANE: { actions: 'layout_writeToPane' },
     SELECT_TAB: { actions: 'layout_selectTab' },
     SELECT_PANE: { actions: 'layout_selectPane' },
     DRAG_START: { actions: 'layout_dragStart' },

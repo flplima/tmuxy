@@ -15,7 +15,7 @@ Optimistic state lives outside XState in a dedicated client model: `tmuxy-ui/src
 
 A `TmuxOp` is a typed value, not a parsed command string. The store knows how to:
 
-1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context (default shell + MRU pane activation order for the Navigate tiebreak) is mirrored from the machine on every model update via `UPDATE_PREDICT_CONTEXT`.
+1. **Predict** — `ops.ts`'s `predict(op, snapshot, ctx) → Patch | null` produces the patch applied on top of `committed`. The predict context is the store's own: the MRU pane activation order (Navigate's tiebreak, where a kill lands) from the snapshots it commits, and the host's default shell from its greeting (`SET_DEFAULT_SHELL`).
 2. **Dispatch** — `TmuxStore.dispatch(op)` runs predict → applies the patch → marks the op `in-flight` → sends the command through the adapter → rolls the patch back if the send fails. Once the adapter acks, the op moves to `awaiting-confirm`.
 3. **Reconcile** — `TmuxStore.reconcile(serverState)` advances `committed`, runs each pending op's reconciler, drops matched/stale ones, recomputes `derived`.
 
@@ -25,7 +25,7 @@ Predicted ops today: Split, NewWindow, SelectPane, Navigate (with the MRU tiebre
 
 Focus ops (SelectPane / Navigate) additionally **linger** after confirmation (`FOCUS_CONFIRM_LINGER_MS`): snapshots computed before the focus change can arrive after it, and dropping the op's pin on first confirmation would flap the highlight. A confirmed-then-superseded focus (the server reports a third pane past `FOCUS_SUPERSEDE_GRACE_MS`) yields to the server immediately. Placeholder ids (`__placeholder_*`) are client-only: the keyboardActor never targets them (it falls back to no pane target while a placeholder is active — commands queue FIFO, so by execution time tmux's own active pane is the pane the placeholder stands for).
 
-The XState `appMachine` is a thin bridge: `SEND_TMUX_COMMAND` routes to `tmuxStoreActor` → `store.dispatch`; `TMUX_STATE_UPDATE` routes to `tmuxStoreActor` → `store.reconcile`. Every model change fires a `TMUX_MODEL_UPDATE` event back to the parent, where context.panes/windows/activePaneId are mirrored from `model.derived`. The 600+ lines of split-anti-flicker, position-tolerance heuristics, and stale-timeout fallbacks that used to live inline in `appMachine.ts` are gone — the store owns all of it via pure reducers in `store/model.ts`.
+The XState `appMachine` is a thin bridge: `DISPATCH_OP` (an op) and `SEND_TMUX_COMMAND` (a string, parsed into its op) go through `routeOp` (`machines/app/dispatch.ts`) to `tmuxStoreActor` (`STORE_DISPATCH`) → `store.dispatch`; `TMUX_STATE_UPDATE` routes to `tmuxStoreActor` → `store.reconcile`. Every model change fires a `TMUX_MODEL_UPDATE` event back to the parent, where context.panes/windows/activePaneId are mirrored from `model.derived`. The 600+ lines of split-anti-flicker, position-tolerance heuristics, and stale-timeout fallbacks that used to live inline in `appMachine.ts` are gone — the store owns all of it via pure reducers in `store/model.ts`.
 
 ### Keystroke-routing contract
 
@@ -43,7 +43,7 @@ Rules an action that flips focus must follow:
 2. **Move the keyboard with `TAKE_KEYBOARD` / `RELEASE_KEYBOARD`** — the `keyboard` slice owns `keyboardOwner`; exactly one surface holds it, so taking it releases the others.
 3. **Don't trust tmux's active pane** — for the third case, prefix and root bindings are auto-pinned at dispatch time: keyboardActor prepends `select-pane -t <activePaneId> \;` to every binding command. New code should not bypass this.
 
-Reference implementations: `SELECT_TAB` (top tab clicks, `machines/app/actions/layout.ts`) and `SELECT_PANE` (any pane picked — its body, header tab or tree row — `machines/app/focusAndDrag.ts`, which decides between a group switch, a tab switch first and a plain select). Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these (`machines/app/dispatch.ts`), and the store predicts each op they dispatch.
+Reference implementations: `SELECT_TAB` (top tab clicks, `machines/app/actions/layout.ts`) and `SELECT_PANE` (any pane picked — its body, header tab or tree row — `layout_selectPane` in `machines/app/actions/layout.ts`, which decides between a group switch, a tab switch first and a plain select). Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these (`machines/app/dispatch.ts`), and the store predicts each op they dispatch.
 
 ### Errors and messages the user sees
 

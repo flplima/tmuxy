@@ -18,8 +18,10 @@ import {
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
-  | { type: 'CONNECTED' }
-  /** Send the size again even if unchanged: what the machine asks tmux for has changed. */
+  /**
+   * Send the size again even if unchanged: the connection is new, or what the
+   * machine asks tmux for has changed.
+   */
   | { type: 'RESEND_SIZE' }
   | { type: 'REMEASURE' };
 
@@ -224,7 +226,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
           bodyObserver.observe(body);
         }
       }
-      if (event.type === 'CONNECTED' || event.type === 'RESEND_SIZE') {
+      if (event.type === 'RESEND_SIZE') {
         lastCols = 0;
         lastRows = 0;
         updateTargetSize();

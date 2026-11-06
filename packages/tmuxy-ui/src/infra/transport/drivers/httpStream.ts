@@ -47,8 +47,7 @@ export function getSessionFromUrl(): string {
 }
 
 export function buildEndpointUrl(path: string, session?: string): string {
-  const protocol = window.location.protocol;
-  const host = window.location.host || 'localhost:3853';
+  const { protocol, host } = window.location;
   const query = session !== undefined ? `?session=${encodeURIComponent(session)}` : '';
   return `${protocol}//${host}${path}${query}`;
 }

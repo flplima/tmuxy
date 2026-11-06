@@ -39,10 +39,9 @@ export type AppMachineEvent =
   /** A failed command or call, as the display string the snackbar shows. */
   | { type: 'TMUX_ERROR'; error: string }
   | { type: 'TMUX_FATAL'; message: string }
-  | { type: 'TMUX_DISCONNECTED' }
   /**
    * Adapter detected the SSE/Tauri channel dropped but is retrying. Distinct
-   * from TMUX_DISCONNECTED (gave up) and TMUX_FATAL (no recovery possible).
+   * from TMUX_FATAL (no recovery possible).
    */
   | { type: 'TMUX_RECONNECTING' }
   /**
@@ -127,7 +126,6 @@ export type AppMachineEvent =
    * dock taking the keyboard).
    */
   | { type: 'SELECT_PANE'; paneId: PaneId }
-  | { type: 'SEND_KEYS'; paneId: PaneId; keys: string }
   /**
    * A command that arrives as a string — a binding tmux reported, what the user
    * typed at the prompt, a tmuxy.conf alias. The machine parses it into the op
@@ -149,7 +147,6 @@ export type AppMachineEvent =
   /** A plain key typed into a pane with a question on it; the ask slice decides what it does. */
   | { type: 'ASK_KEY'; paneId: PaneId; key: string }
   | { type: 'CLOSE_FLOAT'; paneId: PaneId }
-  | { type: 'CLOSE_TOP_FLOAT' }
 
   // Who holds the keyboard (the keyboard slice)
   | { type: 'TAKE_KEYBOARD'; owner: KeyboardOwner }
@@ -194,7 +191,6 @@ export type AppMachineEvent =
   | { type: 'MOVE_PANE_TO_TAB'; paneId: PaneId; windowId: WindowId }
   /** Stacked panes on, or off, for a tab (the active one when none is named). */
   | { type: 'TOGGLE_STACKED_PANES'; windowId?: WindowId }
-  | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }
 
   // Copy mode & scrollback events

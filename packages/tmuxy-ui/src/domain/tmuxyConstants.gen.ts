@@ -1,6 +1,12 @@
 // Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.
 // Rewrite with UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants
 
+/** What a script run that settles or re-lists is marked with (`tmux_compat::SETTLE_TAG`, `RELIST_TAG`). */
+export const SCRIPT_EFFECT_TAGS = {
+  settle: 'TMUXY_EFFECT=settle',
+  'relist-windows': 'TMUXY_EFFECT=relist-windows',
+} as const;
+
 /** The session parked pane-group members live in (`STASH_SESSION`). */
 export const STASH_SESSION = '__tmuxy_stash';
 

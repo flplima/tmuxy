@@ -4,7 +4,6 @@ import {
   type PendingOp,
   type OpId,
   type Patch,
-  EMPTY_SNAPSHOT,
   OP_STALE_TIMEOUT_MS,
   OP_ACKED_STALE_TIMEOUT_MS,
 } from './types';
@@ -151,15 +150,6 @@ export function rollbackOp(
     ops: model.ops.filter((o) => o.id !== opId),
   });
   return { model: next, entry: { opId, op: op.op, reason } };
-}
-
-export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
-  return recomputeDerived({
-    committed: snapshot,
-    ops: [],
-    derived: EMPTY_SNAPSHOT,
-    paneKeyOverrides: {},
-  });
 }
 
 export function makePendingOp(args: {

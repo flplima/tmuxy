@@ -9,6 +9,7 @@
 import { Schema } from 'effect';
 import { GroupId, PaneId, WindowId } from './ids';
 import { PaneContent, SparseContent } from './wireCells';
+import { CHROME_WINDOW_TYPES } from './tmuxyConstants.gen';
 
 export const WireImagePlacement = Schema.Struct({
   id: Schema.Number,
@@ -24,8 +25,8 @@ export type WireImagePlacement = Schema.Schema.Type<typeof WireImagePlacement>;
 
 const Images = Schema.mutable(Schema.Array(WireImagePlacement));
 
-/** Window type (`@tmuxy-window-type`). A window without one is foreign. */
-export const WindowType = Schema.Literal('tab', 'float', 'sidebar-left', 'sidebar-right');
+/** Window type (`@tmuxy-window-type`): a tab, or one of the chrome's. A window without one is foreign. */
+export const WindowType = Schema.Literal('tab', ...CHROME_WINDOW_TYPES);
 export type WindowType = Schema.Schema.Type<typeof WindowType>;
 
 const OptionalNull = <S extends Schema.Schema.Any>(s: S) => Schema.optional(Schema.NullOr(s));

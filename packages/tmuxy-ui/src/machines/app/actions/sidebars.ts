@@ -1,4 +1,5 @@
 import { assign, sendTo } from 'xstate';
+import { sidebarWindow } from '../../../domain/windows';
 import { act, type Ctx, type Enqueue } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import {
@@ -88,7 +89,7 @@ export const sidebarsActions = {
    * gives it both.
    */
   sidebars_syncDockSize: act(({ context, enqueue }) => {
-    const dock = context.windows.find((w) => w.windowType === 'sidebar-right');
+    const dock = sidebarWindow(context.windows, 'right');
     const size = selectDockSize(context);
     if (!dock || !size) return;
     const sent = context.dockSizeSent;
@@ -319,7 +320,7 @@ export function reconcileSidebars(
 
   const preview = prev.sidebarColsPreview;
   if (preview) {
-    const win = next.windows.find((w) => w.windowType === `sidebar-${preview.side}`);
+    const win = sidebarWindow(next.windows, preview.side);
     if (win && (win.sidebarCols ?? null) === preview.cols) {
       enqueue(assign({ sidebarColsPreview: null }));
     }

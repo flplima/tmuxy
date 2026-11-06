@@ -37,6 +37,9 @@ import {
   reconcileSelectWindow,
 } from './windowOps';
 
+/** The shell a predicted pane shows until tmux names its command, before the host has said which. */
+export const DEFAULT_SHELL = 'bash';
+
 export interface PredictContext {
   readonly defaultShell: string;
   /** MRU pane order, used by Navigate to break overlap ties (mirrors tmux's

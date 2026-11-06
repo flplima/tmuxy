@@ -21,6 +21,8 @@ import { noAnswer, type BackendCall } from '../../../../domain/backendCalls';
 import { EventHub } from '../../../eventHub';
 import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
+import { MANAGED_OPTIONS } from '../../../../domain/tmuxyConstants.gen';
+import { commandListParts, commandWords } from '../../../../domain/store/parseCommand';
 import type { CommandFailure } from '../../../../domain/wire';
 import { decodeStateForListener } from '../../wireDecode';
 import { answerThemeCall, isThemeCall, loadThemePref } from '../../../prefs';
@@ -33,6 +35,14 @@ import {
   type GuestEngine,
   type GuestFile,
 } from './GuestEngine';
+
+/** Whether any command of a routed line (its lines, their lists) is a `send-keys`. */
+export function typesKeys(line: string): boolean {
+  return line
+    .split('\n')
+    .flatMap(commandListParts)
+    .some((part) => ['send-keys', 'send'].includes(commandWords(part)[0]));
+}
 
 /** A command the routing policy refused, as the native transports refuse it. */
 function forbidden(reason: string): CommandFailure {
@@ -138,7 +148,7 @@ export class GuestTmuxAdapter implements TransportDriver {
     if (isThemeCall(call)) {
       const answer = answerThemeCall(call);
       if (call.cmd === 'set_theme')
-        this.engine.send(`set -g @tmuxy-theme ${loadThemePref().theme}`);
+        this.engine.send(`set -g ${MANAGED_OPTIONS.theme} ${loadThemePref().theme}`);
       return answer;
     }
     switch (call.cmd) {
@@ -161,16 +171,20 @@ export class GuestTmuxAdapter implements TransportDriver {
       case 'query_tmux':
         return this.query(call.args.command);
       case 'set_cursor_blink':
-        this.engine.send(`set -g @tmuxy-cursor-blink ${call.args.enabled ? 'on' : 'off'}`);
+        this.engine.send(
+          `set -g ${MANAGED_OPTIONS.cursorBlink} ${call.args.enabled ? 'on' : 'off'}`,
+        );
         return null;
       case 'set_send_ask':
-        this.engine.send(`set -g @tmuxy-send-ask ${call.args.enabled ? 'on' : 'off'}`);
+        this.engine.send(`set -g ${MANAGED_OPTIONS.sendAsk} ${call.args.enabled ? 'on' : 'off'}`);
         return null;
       case 'get_scrollback_cells': {
         const { paneId, start, end } = call.args;
         const pane = this.engine.getLastState().panes.find((p) => p.tmux_id === paneId);
-        const width = pane?.width ?? 80;
-        const historySize = pane?.history_size ?? 0;
+        if (!pane) {
+          throw { error: `can't find pane: ${paneId}`, kind: 'tmux' } satisfies CommandFailure;
+        }
+        const { width, history_size: historySize } = pane;
         const text = await this.engine.captureScrollback(paneId, start, end);
         const cells = this.engine.parseScrollback(text, width);
         return { cells, historySize, start, end, width };
@@ -191,17 +205,12 @@ export class GuestTmuxAdapter implements TransportDriver {
     const route = this.engine.route(command, 'command');
     if ('blocked' in route) throw forbidden(route.blocked);
     const wire = route.routed;
-    // Everything but the hot paths is awaited, so a refusal rejects and rolls
-    // the optimistic op back. A compound is hot only if every segment is: the
-    // keyboard actor pins `select-pane -t %N ; <binding>` to every binding,
-    // and a rejected split classified by its prefix left its optimistic pane
-    // wedged forever.
-    const isHot =
-      !wire.includes('\n') &&
-      wire
-        .split(' ; ')
-        .every((seg) => /^(send-keys|refresh-client|select-pane|select-window)\b/.test(seg));
-    if (wire.includes('\n') || isHot) {
+    // Keystrokes are the hot path over the guest's slow serial line: a list
+    // that types keys is sent without a reply to wait for, the one kind the
+    // core reports no failure of either (`reports_failure`, tmuxy-core
+    // monitor_core/replies.rs). Any other list is awaited, so a refusal
+    // rejects as a TmuxError and the store rolls its prediction back.
+    if (typesKeys(wire)) {
       this.engine.run(wire);
       return;
     }

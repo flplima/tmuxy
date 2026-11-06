@@ -1,9 +1,9 @@
-import { isPlaceholderId, type PaneId } from './ids';
+import { realId, type PaneId } from './ids';
 import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
-import { CLI_DISPATCHER, PASTE_BUFFER } from './tmuxyConstants.gen';
+import { CLI_DISPATCHER, PASTE_BUFFER, SCRIPT_EFFECT_TAGS } from './tmuxyConstants.gen';
 
 const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
 
@@ -25,14 +25,14 @@ export function script(name: string, ...args: Array<string | number>): string {
  * assignment the script ignores — and the essentials aliases' bodies carry
  * the same word, so the monitor reads one marker whoever sent the command.
  */
-export type ScriptEffect = 'settle' | 'relist-windows';
+export type ScriptEffect = keyof typeof SCRIPT_EFFECT_TAGS;
 
 export function scriptWith(
   effect: ScriptEffect,
   name: string,
   ...args: Array<string | number>
 ): string {
-  return `run-shell "${[`TMUXY_EFFECT=${effect}`, `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+  return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
 export function list(commands: ReadonlyArray<string>): string {
@@ -176,33 +176,41 @@ export function mouseReport(op: TmuxOpOf<'SendMouse'>): string {
 }
 
 /**
- * The `split-window ; break-pane ; set-option` list that creates a chrome
- * window running `run` (the default shell when `null`) and tags it in one
- * shot — the list `tmuxy-core/src/float.rs` builds for a float.
- *
- * `at` names the new window: a float by its index (picked free up front —
- * `set-option -w` with no target would land on the session's CURRENT window,
- * which `break-pane -d` leaves unchanged), a sidebar by its fixed, unique name
- * (so the list never depends on the client's copy of the indices, which go
- * stale for a beat whenever a window closes). `splitFrom` is the pane to split,
- * so the new pane is born beside what the user sees rather than wherever tmux
- * happens to be; without one (or with a placeholder), tmux's current pane.
+ * The `split-window ; break-pane ; set-option` list that creates a sidebar
+ * column's window running `run` (the default shell when `null`) and tags it
+ * in one shot. The window is named by its fixed, unique name, so the list
+ * never depends on the client's copy of the indices, which go stale for a
+ * beat whenever a window closes. `splitFrom` is the pane to split, so the new
+ * pane is born beside what the user sees rather than wherever tmux happens to
+ * be; without one (or with a placeholder), tmux's current pane.
  */
-export function chromeWindow(
-  windowType: 'float' | 'sidebar-left' | 'sidebar-right',
+export function sidebarWindowCommand(
+  side: 'left' | 'right',
   name: string,
   run: string | null,
   splitFrom: PaneId | null,
-  index: number | null,
 ): string {
-  const at = index === null ? `:${name}` : `:${index}`;
-  // A placeholder is no target: tmux has never heard of it.
-  const from = splitFrom && !isPlaceholderId(splitFrom) ? ` -t ${splitFrom}` : '';
+  const from = realId(splitFrom) ? ` -t ${splitFrom}` : '';
   return list([
     run === null ? `split-window${from}` : `split-window${from} ${quote(run)}`,
-    index === null ? `break-pane -d -n ${name}` : `break-pane -d -n ${name} -t ${at}`,
-    `set-option -w -t ${at} @tmuxy-window-type ${windowType}`,
+    `break-pane -d -n ${name}`,
+    `set-option -w -t :${name} @tmuxy-window-type sidebar-${side}`,
   ]);
+}
+
+/**
+ * A float running `command`, made by the CLI's `pane float`: the server's
+ * `float` verb, the one builder of a float (`tmuxy-core/src/float.rs`), split
+ * from `splitFrom` so the float belongs to that pane's tab. In the background
+ * with its output dropped: the pane id `--detach` prints would open a view
+ * mode on the pane.
+ */
+export function openFloat(op: TmuxOpOf<'OpenFloat'>): string {
+  const caller = op.splitFrom && /^%\d+$/.test(op.splitFrom) ? `TMUX_PANE=${op.splitFrom} ` : '';
+  return (
+    `run-shell -b "${caller}\\"${CLI_PATH}\\" pane float --detach ` +
+    `${op.command.map(quote).join(' ')} >/dev/null 2>&1"`
+  );
 }
 
 export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;

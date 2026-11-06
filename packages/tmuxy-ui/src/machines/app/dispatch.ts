@@ -13,10 +13,11 @@
  */
 
 import { sendTo } from 'xstate';
-import { act, type Ctx, type Enqueue } from './actionTypes';
-import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
+import { act, type Ctx, type Enqueue, type EnqueueAction } from './actionTypes';
+import { TmuxOp } from '../../domain/commands';
+import { selectWindowTarget, stripTabs } from '../../domain/windows';
 import { isMultiStep } from '../../domain/opTraits';
-import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
+import { realId, type PaneId, type WindowId } from '../../domain/ids';
 import { parseCommandToOp, tabPosition } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
 
@@ -26,11 +27,7 @@ import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
  * so the command falls back to tmux's own current one instead of failing.
  */
 function activeTargets(context: Ctx): { windowId: WindowId | null; paneId: PaneId | null } {
-  const { activeWindowId, activePaneId } = context;
-  return {
-    windowId: activeWindowId && !isPlaceholderId(activeWindowId) ? activeWindowId : null,
-    paneId: activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null,
-  };
+  return { windowId: realId(context.activeWindowId), paneId: realId(context.activePaneId) };
 }
 
 /**
@@ -56,27 +53,6 @@ function bindActiveTargets(op: TmuxOp, context: Ctx): TmuxOp {
     default:
       return op;
   }
-}
-
-/**
- * The window a tab-navigation op lands on, or null when it is not one the
- * strip shows or is already the current one (so SELECT_TAB has nothing to do).
- */
-function tabNavTarget(target: TmuxOpOf<'SelectWindow'>['target'], context: Ctx): WindowId | null {
-  if (!context.activeWindowId) return null;
-  const visible = context.windows.filter((w) => w.windowType === 'tab');
-  let window;
-  if (target === 'next' || target === 'previous') {
-    const current = visible.findIndex((w) => w.id === context.activeWindowId);
-    if (current === -1) return null;
-    const step = target === 'next' ? 1 : -1;
-    window = visible[(current + step + visible.length) % visible.length];
-  } else if (typeof target === 'number') {
-    window = visible.find((w) => w.index === target);
-  } else {
-    window = visible.find((w) => w.id === target);
-  }
-  return window && window.id !== context.activeWindowId ? window.id : null;
 }
 
 /**
@@ -163,9 +139,9 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       return;
     case 'SelectWindow': {
       // Shares what a click on the tab does (the scroll views it leaves).
-      const windowId = tabNavTarget(op.target, context);
-      if (windowId) {
-        enqueue.raise({ type: 'SELECT_TAB', windowId });
+      const window = selectWindowTarget(op.target, context.windows, context.activeWindowId);
+      if (window) {
+        enqueue.raise({ type: 'SELECT_TAB', windowId: window.id });
         return;
       }
       break;
@@ -195,10 +171,18 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
   // PaneLayout's enter/shift lifecycle owns the split morph.
   if (isMultiStep(op)) enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' });
 
-  // The store applies the op's predicted patch synchronously (this machine
-  // sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it back if the
-  // send fails.
-  enqueue(sendTo('tmuxStore', { type: 'DISPATCH_OP' as const, op, command: wire }));
+  toStore(enqueue, op, wire);
+}
+
+/**
+ * Hand a routed op to the store, which applies its predicted patch at once
+ * (this machine sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it
+ * back if the send fails. The one way an op reaches the store: `routeOp`'s
+ * last step, and the actions that are themselves where an op is routed to
+ * (a tab click, a pane click). Anything else raises DISPATCH_OP.
+ */
+export function toStore(enqueue: EnqueueAction, op: TmuxOp, wire?: string) {
+  enqueue(sendTo('tmuxStore', { type: 'STORE_DISPATCH' as const, op, wire }));
 }
 
 /**
@@ -258,10 +242,7 @@ export const dispatchActions = {
     // (chrome windows consume indices), so it names the window by ID —
     // never its index, which is stale whenever tmux has renumbered.
     const position = tabPosition(command);
-    const positioned =
-      position !== null
-        ? context.windows.filter((w) => w.windowType === 'tab')[position - 1]
-        : undefined;
+    const positioned = position !== null ? stripTabs(context.windows)[position - 1] : undefined;
     if (positioned) {
       routeOp(TmuxOp.SelectWindow({ target: positioned.id }), undefined, context, enqueue);
       return;

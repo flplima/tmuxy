@@ -1,8 +1,9 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
+import { Effect, Exit, Fiber, Stream } from 'effect';
 import type { ThemeSettings } from '../../domain/wire';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
+import { failureText } from './failureText';
 import type { PaneId } from '../../domain/ids';
 import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
@@ -106,20 +107,10 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
-          const failure = Cause.failureOption(exit.cause);
-          if (failure._tag !== 'Some') return;
-          const tagged = failure.value;
-
-          // Trace the failure by its typed tag (TransportError/ProtocolError/…),
-          // never the message text.
-          tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
-          const display = formatAdapterError(tagged);
+          const display = failureText(exit.cause);
+          if (display === null) return;
           if (opts.silentFail) {
-            console.error(
-              `[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`,
-              tagged._tag,
-              display,
-            );
+            console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, display);
             logError(`${opts.logPrefix ?? 'effect'} -> ${display}`);
             return;
           }
@@ -133,6 +124,16 @@ export function createTmuxActor(runtime: AppRuntime) {
       opts: RunOptions<T> = {},
     ): void => {
       runtime.runFork(reported(effect, opts));
+    };
+
+    /** An op straight on the transport, logged as the command it is. */
+    const runOp = (op: TmuxOp): void => {
+      const command = toTmuxCommand(op);
+      logCommand(command);
+      run(
+        withTransport((t) => t.run(op)),
+        { logPrefix: command },
+      );
     };
 
     /**
@@ -213,12 +214,7 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     receive((event) => {
       if (event.type === 'SEND_OP') {
-        const command = toTmuxCommand(event.op);
-        logCommand(command);
-        run(
-          withTransport((t) => t.run(event.op)),
-          { logPrefix: command },
-        );
+        runOp(event.op);
       } else if (event.type === 'INVOKE') {
         logCommand(`${event.cmd} ${JSON.stringify(event.args)}`);
         run(
@@ -355,40 +351,35 @@ export function createTmuxActor(runtime: AppRuntime) {
                 : t.call('open_text', event.args),
             ),
             {
-              onFailure: fallback,
+              // The link still opens, as the fallback; the log says why it was one.
+              onFailure: (e) => {
+                logError(`${event.cmd} -> ${formatAdapterError(e)}`);
+                fallback();
+              },
               onSuccess: (prepared) => {
                 if (!prepared) return fallback();
-                const op = TmuxOp.PluginAction({
-                  plugin: prepared.plugin,
-                  action: prepared.action,
-                  paneId: event.paneId,
-                  token: prepared.token,
-                });
-                const command = toTmuxCommand(op);
-                logCommand(command);
-                run(
-                  withTransport((t) => t.run(op)),
-                  { logPrefix: command },
+                runOp(
+                  TmuxOp.PluginAction({
+                    plugin: prepared.plugin,
+                    action: prepared.action,
+                    paneId: event.paneId,
+                    token: prepared.token,
+                  }),
                 );
               },
             },
           ),
         );
       } else if (event.type === 'RUN_PLUGIN_ACTION') {
-        const launch = (token: string | null) => {
-          const op = TmuxOp.PluginAction({
-            plugin: event.plugin,
-            action: event.action,
-            paneId: event.paneId,
-            token,
-          });
-          const command = toTmuxCommand(op);
-          logCommand(command);
-          run(
-            withTransport((t) => t.run(op)),
-            { logPrefix: command },
+        const launch = (token: string | null) =>
+          runOp(
+            TmuxOp.PluginAction({
+              plugin: event.plugin,
+              action: event.action,
+              paneId: event.paneId,
+              token,
+            }),
           );
-        };
         if (event.selection === null) {
           launch(null);
         } else {

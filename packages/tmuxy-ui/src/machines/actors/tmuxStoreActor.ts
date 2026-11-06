@@ -10,8 +10,8 @@
  */
 
 import { isStructural } from '../../domain/opTraits';
-import { Exit, Cause } from 'effect';
-import type { PaneId } from '../../domain/ids';
+import { Exit } from 'effect';
+import { failureText } from './failureText';
 import { fromCallback, type AnyActorRef } from 'xstate';
 import type { TmuxStore } from '../../infra/store/TmuxStore';
 import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
@@ -36,10 +36,10 @@ function traceOp(op: TmuxOp): void {
 
 export type TmuxStoreActorEvent =
   /**
-   * Dispatch an op. `command`, when given, is the exact string to send in
-   * place of the op's own form — a parsed binding keeps its pin and flags.
+   * Dispatch an op: only `routeOp` sends this. `wire`, when given, is the
+   * string the op was parsed from, sent in place of the op's own form.
    */
-  | { type: 'DISPATCH_OP'; op: TmuxOp; command?: string }
+  | { type: 'STORE_DISPATCH'; op: TmuxOp; wire?: string }
   | { type: 'RECONCILE_SERVER'; state: ServerState }
   /**
    * Drop every pending op and snapshot, on SWITCH_SESSION: the old session's
@@ -47,11 +47,7 @@ export type TmuxStoreActorEvent =
    * stale (OP_STALE_TIMEOUT_MS).
    */
   | { type: 'CLEAR' }
-  | {
-      type: 'UPDATE_PREDICT_CONTEXT';
-      defaultShell: string;
-      paneActivationOrder: readonly PaneId[];
-    };
+  | { type: 'SET_DEFAULT_SHELL'; shell: string };
 
 export interface TmuxStoreActorInput {
   parent: AnyActorRef;
@@ -90,32 +86,21 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
       command: string,
     ): void => {
       void runtime.runPromiseExit(program).then((exit) => {
-        if (Exit.isFailure(exit)) {
-          const failure = Cause.failureOption(exit.cause);
-          if (failure._tag === 'Some') {
-            const e = failure.value;
-
-            // Trace the failure by its typed code — never the stderr text.
-            tracer.event({ layer: 'effect', name: 'fail', code: e._tag });
-            const reason =
-              e._tag === 'OpRejectedByTmux'
-                ? e.stderr
-                : String((e as { cause?: unknown }).cause ?? 'transport error');
-            parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
-          }
-        }
+        if (Exit.isSuccess(exit)) return;
+        const reason = failureText(exit.cause);
+        if (reason !== null) parent.send({ type: 'TMUX_ERROR', error: `${command}: ${reason}` });
       });
     };
 
     receive((event) => {
-      if (event.type === 'DISPATCH_OP') {
-        const command = event.command ?? toTmuxCommand(event.op);
+      if (event.type === 'STORE_DISPATCH') {
+        const command = event.wire ?? toTmuxCommand(event.op);
         parent.send({ type: 'LOG_APPEND', kind: 'command', message: command });
         traceOp(event.op);
         // Fire-and-forget — the store rolls a failed op back on its own (the
         // next TMUX_MODEL_UPDATE reflects it); dispatchWithErrorSurface
         // reports the failure.
-        dispatchWithErrorSurface(store.dispatch(event.op, { command }), command);
+        dispatchWithErrorSurface(store.dispatch(event.op, { wire: event.wire }), command);
         return;
       }
 
@@ -130,11 +115,8 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
         return;
       }
 
-      if (event.type === 'UPDATE_PREDICT_CONTEXT') {
-        store.setPredictContext({
-          defaultShell: event.defaultShell,
-          paneActivationOrder: event.paneActivationOrder,
-        });
+      if (event.type === 'SET_DEFAULT_SHELL') {
+        store.setDefaultShell(event.shell);
         return;
       }
     });

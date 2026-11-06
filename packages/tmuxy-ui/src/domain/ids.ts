@@ -78,6 +78,11 @@ export function isPlaceholderId(id: PaneId | WindowId): boolean {
   return isPlaceholder(id);
 }
 
+/** `id`, or null when it is a placeholder: what a command may target. */
+export function realId<T extends PaneId | WindowId>(id: T | null): T | null {
+  return id !== null && isPlaceholder(id) ? null : id;
+}
+
 /** `%12` → 12; 0 for a placeholder. */
 export function paneNumber(id: PaneId): number {
   return isPlaceholder(id) ? 0 : Number(id.slice(1));
