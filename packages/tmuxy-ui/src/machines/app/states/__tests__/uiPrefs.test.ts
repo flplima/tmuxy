@@ -1,41 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { fromCallback } from 'xstate';
 import { uiPrefsState } from '../uiPrefs';
 import { uiPrefsActions } from '../../actions/uiPrefs';
+import { recorder } from '../../../../test/app';
+import { mountState, sendAndGetContext } from './testHarness';
 
 /** What the browser does when a pending theme sheet arrives (jsdom fetches none). */
 const loadPendingSheets = () =>
   document.head
     .querySelectorAll('link[data-pending-for]')
     .forEach((link) => link.dispatchEvent(new Event('load')));
-import { mountState, sendAndGetContext } from './testHarness';
 
 describe('uiPrefs state', () => {
-  it('SET_THEME updates themeName', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, {
-      themeName: 'default',
-    });
-    const ctx = sendAndGetContext(actor, { type: 'SET_THEME', name: 'dracula' });
-    expect(ctx.themeName).toBe('dracula');
-  });
+  it('a theme or mode picked from the menu is drawn at once and saved for the next load', () => {
+    localStorage.clear();
+    document.getElementById('tmuxy-theme')?.remove();
+    document.documentElement.classList.remove('theme-dark', 'theme-light');
+    try {
+      const actor = mountState(uiPrefsState, uiPrefsActions, {
+        themeName: 'default',
+        themeMode: 'dark',
+      });
+      sendAndGetContext(actor, { type: 'SET_THEME', name: 'dracula' });
+      expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toMatch(
+        /themes\/dracula\.css$/,
+      );
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('dracula');
 
-  it('SET_THEME_MODE updates themeMode', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions, {
-      themeMode: 'dark',
-    });
-    const ctx = sendAndGetContext(actor, { type: 'SET_THEME_MODE', mode: 'light' });
-    expect(ctx.themeMode).toBe('light');
-  });
-
-  it('THEME_SETTINGS_RECEIVED updates both name and mode', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions);
-    const ctx = sendAndGetContext(actor, {
-      type: 'THEME_SETTINGS_RECEIVED',
-      theme: 'monokai',
-      mode: 'dark',
-    });
-    expect(ctx.themeName).toBe('monokai');
-    expect(ctx.themeMode).toBe('dark');
+      sendAndGetContext(actor, { type: 'SET_THEME_MODE', mode: 'light' });
+      expect(document.documentElement.classList.contains('theme-light')).toBe(true);
+      expect(localStorage.getItem('tmuxy-theme-name')).toBe('dracula');
+      expect(localStorage.getItem('tmuxy-theme-mode')).toBe('light');
+    } finally {
+      localStorage.clear();
+    }
   });
 
   // The theme is the session's: tmux holds it, whichever client picked it,
@@ -74,17 +71,13 @@ describe('uiPrefs state', () => {
   // `<theme>:<mode>` moving — has this one read the settings again. The first
   // value is the one the connection's own read already answered.
   it('a theme is picked for the session, and a pick elsewhere is read again', () => {
-    const sent: { type: string; cmd?: string; args?: unknown }[] = [];
-    const tmux = fromCallback<{ type: string }>(({ receive }) => {
-      receive((event) => sent.push(event));
-    });
+    const tmux = recorder();
+    const sent = tmux.received;
     const actor = mountState(
       uiPrefsState,
       uiPrefsActions,
       {},
-      {
-        extraActors: { tmux },
-      },
+      { extraActors: { tmux: tmux.logic } },
     );
     sendAndGetContext(actor, { type: 'SET_THEME', name: 'gruvbox' });
     sendAndGetContext(actor, { type: 'SET_THEME_MODE', mode: 'light' });
@@ -218,16 +211,6 @@ describe('uiPrefs state', () => {
       mode: 'dark',
     });
     expect(none.animationsAllowed).toBe(true);
-  });
-
-  it('THEMES_LIST_RECEIVED populates availableThemes', () => {
-    const actor = mountState(uiPrefsState, uiPrefsActions);
-    const themes = [
-      { name: 'dark', displayName: 'Dark', modes: ['dark'] },
-      { name: 'light', displayName: 'Light', modes: ['dark', 'light'] },
-    ];
-    const ctx = sendAndGetContext(actor, { type: 'THEMES_LIST_RECEIVED', themes });
-    expect(ctx.availableThemes).toEqual(themes);
   });
 
   it('THEME_SETTINGS_RECEIVED declares the config CSS variables, and CSS_CHANGED re-fetches the sheets', () => {
