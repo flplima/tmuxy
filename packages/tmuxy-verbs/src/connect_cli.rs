@@ -26,7 +26,7 @@ pub fn run(args: ConnectArgs) {
     let request =
         match ConnectRequest::new(&args.socket, args.session.as_deref(), args.ssh.as_deref()) {
             Ok(request) => request,
-            Err(message) => std::process::exit(answer.fail(EXIT_USAGE, &message)),
+            Err(message) => answer.exit(EXIT_USAGE, &message),
         };
     if args.save {
         if let Some(server) = request.server(&tmuxy_core::session::tmux_socket()) {
@@ -42,7 +42,7 @@ pub fn run(args: ConnectArgs) {
         request.encode(),
     ];
     if let Err(e) = tmuxy_core::plugins::job::run(&tmuxy_core::paths::Layout::current(), &publish) {
-        std::process::exit(answer.fail(EXIT_FAILED, &e.to_string()));
+        answer.exit(EXIT_FAILED, &e.to_string());
     }
     let session = request.session.as_deref().unwrap_or_default();
     answer.done(

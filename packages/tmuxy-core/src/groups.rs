@@ -19,6 +19,10 @@ use std::fmt;
 use crate::constants::{tmux_options, STASH_SESSION};
 use crate::{GroupId, PaneId, WindowId};
 
+/// The exit status of `next`/`prev --no-wrap` with no member that way:
+/// `nav` then moves to the neighbouring split instead.
+pub const NOTHING_TO_STEP_TO: i32 = 3;
+
 /// `session_name` is last because it is the one free-text field: it may hold
 /// the separator. The separator is a space, not a tab: tmux 3.4 prints a
 /// control character in a format as `_`.

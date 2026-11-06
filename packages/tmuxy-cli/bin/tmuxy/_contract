@@ -6,10 +6,8 @@
 #   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
 #   4 no tmux server on the socket · 130 interrupted. A command that waits for
 #   a program (`pane run --wait`, `pane wait`) exits with the program's status.
-EXIT_FAILED=1
-EXIT_USAGE=2
-EXIT_TARGET=3
-EXIT_NO_SERVER=4
+# The codes and a failure's shape are tmuxy-core's (`cli_contract`), from
+# `_options`.
 
 # `--json` anywhere on the command line (tmuxy-cli takes it off the arguments
 # and sets this): every answer, including a failure, is one JSON object on
@@ -57,7 +55,7 @@ _json_fd() {
 _fail() {
   local code="$1" message="$2"
   if [ "$JSON_OUT" = true ]; then
-    printf '{"ok":false,"error":%s,"code":%s}\n' "$(json_string "$message")" "$code" >&"$(_json_fd)"
+    printf "$JSON_FAILURE_FORMAT\\n" "$(json_string "$message")" "$code" >&"$(_json_fd)"
   else
     echo "Error: $message" >&2
   fi

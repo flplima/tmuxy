@@ -2,6 +2,7 @@
 pub mod argv;
 #[cfg(feature = "native")]
 pub mod ask;
+pub mod cli_contract;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;

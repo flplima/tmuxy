@@ -75,8 +75,6 @@ pub enum GroupVerb {
     },
 }
 
-const NOTHING_TO_STEP_TO: i32 = 3;
-
 impl GroupVerb {
     fn name(&self) -> &'static str {
         match self {
@@ -217,7 +215,7 @@ fn step(pane: &str, direction: Direction, no_wrap: bool) -> Result<Option<String
         groups::step(&panes, &pane, direction)
     };
     if plan.is_empty() && no_wrap {
-        return Err(Outcome::Exit(NOTHING_TO_STEP_TO));
+        return Err(Outcome::Exit(groups::NOTHING_TO_STEP_TO));
     }
     run_all(&plan)?;
     Ok(None)

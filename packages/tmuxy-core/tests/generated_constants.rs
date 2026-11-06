@@ -134,7 +134,30 @@ fn shell() -> String {
         "\n# A pane's title with tmux's host-name seed filtered out: tmux seeds every\n# pane's title with the host name.\nAPP_PANE_TITLE_FMT={}",
         quoted(APP_PANE_TITLE)
     );
+    shell_cli_contract(&mut out);
     out
+}
+
+/// The CLI's contract (`cli_contract`) and the exit statuses its scripts
+/// read from the verbs.
+fn shell_cli_contract(out: &mut String) {
+    use tmuxy_core::cli_contract as c;
+    let _ = writeln!(
+        out,
+        "\n# The CLI's exit codes and its failure under --json (`cli_contract`).\n\
+         EXIT_FAILED={}\nEXIT_USAGE={}\nEXIT_TARGET={}\nEXIT_NO_SERVER={}\nJSON_FAILURE_FORMAT={}",
+        c::EXIT_FAILED,
+        c::EXIT_USAGE,
+        c::EXIT_TARGET,
+        c::EXIT_NO_SERVER,
+        quoted(c::JSON_FAILURE_FORMAT)
+    );
+    let _ = writeln!(
+        out,
+        "\n# What `pane-group next|prev --no-wrap` exits with when there is no member\n\
+         # that way (`groups::NOTHING_TO_STEP_TO`).\nGROUP_NOTHING_TO_STEP_TO={}",
+        tmuxy_core::groups::NOTHING_TO_STEP_TO
+    );
 }
 
 /// The guest's tmuxy layout: tmuxy's own on Linux for a `root` whose home is

@@ -52,8 +52,7 @@ EOF
     sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
   esac
 
-  # A grouped pane steps to the neighbouring member first, without wrapping:
-  # `--no-wrap` exits 3 when there is no member that way.
+  # A grouped pane steps to the neighbouring member first, without wrapping.
   if [ -n "$gid" ]; then
     local step=next rc=0
     [ "$edge_dir" = "left" ] && step=prev
@@ -61,7 +60,7 @@ EOF
     TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${GROUP_CMD[@]}" "$step" --no-wrap "$PANE_ID" || rc=$?
     case "$rc" in
       0) return ;;
-      3) ;;
+      "$GROUP_NOTHING_TO_STEP_TO") ;;
       *) exit "$rc" ;;
     esac
   fi

@@ -1,23 +1,8 @@
-//! A verb's answer, as the CLI's contract has it (`packages/tmuxy-cli/README.md`,
-//! the shell side is `bin/tmuxy/_contract`): text, or under `--json` one object
-//! on stdout — `{"ok":true,…}` for a success, `{"ok":false,"error","code"}`
-//! for a failure — and the exit code.
+//! A verb's answer, under the CLI's contract (`tmuxy_core::cli_contract`):
+//! text, or under `--json` one object on stdout, and the exit code.
 
-pub const EXIT_FAILED: i32 = 1;
-pub const EXIT_USAGE: i32 = 2;
-pub const EXIT_TARGET: i32 = 3;
-
-pub fn string(value: &str) -> String {
-    serde_json::Value::from(value).to_string()
-}
-
-fn ok_object(fields: &[(&str, String)]) -> String {
-    let mut out = String::from(r#"{"ok":true"#);
-    for (name, value) in fields {
-        out.push_str(&format!(",{}:{value}", string(name)));
-    }
-    out + "}"
-}
+use tmuxy_core::cli_contract::{json_failure, json_ok};
+pub use tmuxy_core::cli_contract::{json_string as string, EXIT_FAILED, EXIT_TARGET, EXIT_USAGE};
 
 pub struct Answer {
     json: bool,
@@ -31,7 +16,7 @@ impl Answer {
     /// Each value in `fields` is already a JSON literal (see [`string`]).
     pub fn done(&self, fields: &[(&str, String)], text: &str) {
         if self.json {
-            println!("{}", ok_object(fields));
+            println!("{}", json_ok(fields));
         } else if !text.is_empty() {
             println!("{text}");
         }
@@ -39,27 +24,15 @@ impl Answer {
 
     pub fn fail(&self, code: i32, message: &str) -> i32 {
         if self.json {
-            println!(
-                r#"{{"ok":false,"error":{},"code":{code}}}"#,
-                string(message)
-            );
+            println!("{}", json_failure(code, message));
         } else {
             eprintln!("Error: {message}");
         }
         code
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_success_is_ok_and_its_fields_and_a_string_is_escaped() {
-        assert_eq!(
-            ok_object(&[("paneId", string("%1")), ("sent", "true".into())]),
-            r#"{"ok":true,"paneId":"%1","sent":true}"#
-        );
-        assert_eq!(string("a\"b\u{1b}"), r#""a\"b\u001b""#);
+    /// [`Answer::fail`], then exit with its code.
+    pub fn exit(&self, code: i32, message: &str) -> ! {
+        std::process::exit(self.fail(code, message))
     }
 }
