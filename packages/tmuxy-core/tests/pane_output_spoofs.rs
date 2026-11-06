@@ -14,19 +14,9 @@
 
 use std::time::Duration;
 
-use tmuxy_core::control_mode::{
-    CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
-};
-use tmuxy_core::{StateUpdate, TmuxPane};
+use tmuxy_core::TmuxPane;
 
 mod common;
-
-struct Quiet;
-impl LogSink for Quiet {}
-impl StateEmitter for Quiet {
-    fn emit_state(&self, _update: StateUpdate) {}
-    fn emit_error(&self, _error: String) {}
-}
 
 /// What each pane prints, then holds on screen. Every line is something the
 /// monitor once read as its own: a capture's END marker, a reply's BEGIN
@@ -53,24 +43,9 @@ fn screen_text(pane: &TmuxPane) -> String {
         .join("\n")
 }
 
-async fn ask(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, command: &str) -> CommandReply {
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply {
-        command: command.to_string(),
-        reply,
-    })
-    .await
-    .expect("monitor accepts commands");
-    tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .expect("a reply arrives within the deadline")
-        .expect("the monitor answers rather than dropping the request")
-}
-
 #[tokio::test]
 async fn a_pane_printing_tmuxys_markers_cannot_stall_or_end_the_monitor() {
-    let socket = format!("tmuxy-spoof-test-{}", std::process::id());
-    std::env::set_var("TMUX_SOCKET", &socket);
+    let server = common::ScratchServer::new("spoof-test");
 
     // Scaffolding before any control-mode client exists: one pane per spoof,
     // each printing its lines and then holding them on screen.
@@ -107,24 +82,11 @@ async fn a_pane_printing_tmuxys_markers_cannot_stall_or_end_the_monitor() {
     })
     .await;
 
-    let config = MonitorConfig {
-        session: "app".to_string(),
-        create_session: false,
-        ..Default::default()
-    };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
-        .await
-        .expect("control-mode connection on the scratch socket");
-    let runner = tokio::spawn(async move { monitor.run(&Quiet).await });
+    let monitor = server.attach("app", false).await;
 
     // The first state waits for every pane's capture: it comes back only if
     // each capture landed on its own pane.
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetState { reply }).await.unwrap();
-    let state = tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .expect("the first state arrives while the panes show tmuxy's markers")
-        .expect("the monitor answered");
+    let state = monitor.state().await;
 
     assert_eq!(state.panes.len(), SPOOFS.len(), "{:?}", state.panes);
     let screens: Vec<String> = state.panes.iter().map(screen_text).collect();
@@ -136,11 +98,7 @@ async fn a_pane_printing_tmuxys_markers_cannot_stall_or_end_the_monitor() {
     }
 
     // The connection is still up and replies still pair with their callers.
-    let hello = ask(&tx, "display-message -p STILL_ANSWERING").await;
+    let hello = monitor.ask("display-message -p STILL_ANSWERING").await;
     assert_eq!(hello.error, None);
     assert_eq!(hello.output.trim(), "STILL_ANSWERING");
-
-    tx.send(MonitorCommand::Shutdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = common::tmux(&["kill-server"]);
 }

@@ -17,28 +17,11 @@
 
 use std::time::Duration;
 
-use tmuxy_core::control_mode::{LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor};
-use tmuxy_core::StateUpdate;
-
 mod common;
-
-/// Keeps what the monitor reports so a failure can say what went wrong.
-#[derive(Default)]
-struct Recorder {
-    errors: std::sync::Mutex<Vec<String>>,
-}
-impl LogSink for Recorder {}
-impl StateEmitter for Recorder {
-    fn emit_state(&self, _update: StateUpdate) {}
-    fn emit_error(&self, error: String) {
-        self.errors.lock().unwrap().push(error);
-    }
-}
 
 #[tokio::test]
 async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
-    let socket = format!("tmuxy-initial-history-{}", std::process::id());
-    std::env::set_var("TMUX_SOCKET", &socket);
+    let server = common::ScratchServer::new("initial-history");
 
     // Far more lines than any window is tall, so tmux has real history to
     // report, and the pane stays alive afterwards.
@@ -63,31 +46,8 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
     )
     .await;
 
-    let config = MonitorConfig {
-        session: "app".to_string(),
-        create_session: false,
-        ..Default::default()
-    };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
-        .await
-        .expect("control-mode connection on the scratch socket");
-    let recorder = std::sync::Arc::new(Recorder::default());
-    let runner = {
-        let recorder = std::sync::Arc::clone(&recorder);
-        tokio::spawn(async move { monitor.run(&*recorder).await })
-    };
-
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::GetState { reply }).await.unwrap();
-    let state = tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .unwrap_or_else(|_| {
-            panic!(
-                "the initial state arrives; errors: {:?}",
-                recorder.errors.lock().unwrap()
-            )
-        })
-        .expect("the monitor answered");
+    let monitor = server.attach("app", false).await;
+    let state = monitor.state().await;
 
     assert_eq!(state.panes.len(), 1, "one pane: {:?}", state.panes);
     let pane = &state.panes[0];
@@ -104,8 +64,4 @@ async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
         pane.history_size,
         pane.height
     );
-
-    tx.send(MonitorCommand::Shutdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = common::tmux(&["kill-server"]);
 }

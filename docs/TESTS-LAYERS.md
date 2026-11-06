@@ -118,7 +118,7 @@ A push that changes only prose — `docs/**` or any `*.md` — runs no workflow 
 
 - `cargo test --workspace` runs every crate's `#[cfg(test)]` modules plus the integration tests in `packages/tmuxy-core/tests/`. Most of the count is in `tmuxy-core`; `tmuxy-server`, `tmuxy-verbs`, `tmuxy-tauri-app`, `tmuxy-wasm` and `tmuxy-pty` (whose `tests/pane.rs` drives the helper over a socket pair) have smaller suites
 - Prefer fixtures over a live tmux: `control_mode_push_api.rs` feeds recorded `tmux -CC` text through the parser and aggregator, `terminal_fidelity.rs` and `pane_reflow_parity.rs` replay byte streams through the emulator (`tests/fixtures/`), and `state_aggregator_props.rs` is a proptest suite (its regressions file is committed)
-- `initial_state.rs`, `initial_state_history.rs`, `reply_channel.rs`, `pinned_split_race.rs` and `enforced_settings.rs` drive a real `tmux -CC` monitor on a per-process scratch socket and need a `tmux` binary; use that pattern only when the bug depends on how tmux itself answers
+- `initial_state.rs`, `initial_state_history.rs`, `reply_channel.rs`, `pinned_split_race.rs`, `enforced_settings.rs`, `pane_output_spoofs.rs` and `control_mode_refused.rs` drive a real `tmux -CC` monitor on a per-process scratch socket and need a `tmux` binary; use that pattern only when the bug depends on how tmux itself answers. `tests/common`'s `ScratchServer` picks the socket, attaches the monitor with a recording emitter and kills the server when the test ends, a failed one included
 - Test code opts out of the `unwrap_used`/`expect_used` lints with an `allow` attribute
 
 ## CLI Tests
