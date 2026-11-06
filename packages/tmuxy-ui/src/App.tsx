@@ -2,8 +2,7 @@
  * App - Main application component
  *
  * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, a tab strip, the whole 80 × 25 terminal, the key row and the tree
- * under it.
+ * phone, the whole 80 × 25 terminal, the key row and the tree under it.
  * All state is accessed via hooks - no prop drilling.
  */
 
@@ -48,7 +47,6 @@ import { PerfHud } from './components/PerfHud';
 import { SmoothCursor } from './components/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
 import { KeyRow } from './components/KeyRow';
-import { PhoneTabStrip } from './components/PhoneTabStrip';
 import { useCursorInView, usePhoneZoomScroll, useVisualViewport } from './hooks/usePhoneViewport';
 import { PHONE_COLS } from './utils/phoneLayout';
 import { PHONE_CONTAINER_PADDING } from './constants/layout';
@@ -199,10 +197,11 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // The phone layout: the tab strip, the terminal, the key row and the tree,
-  // top to bottom — or, held sideways, the terminal on the right and the
-  // rest stacked in the column left of it.
-  const phoneTabs = showLayout && <PhoneTabStrip />;
+  // The phone layout: the terminal, the key row and the tree, top to bottom
+  // — or, held sideways, the terminal on the right and the rest stacked in
+  // the column left of it. No tab strip: the tree lists the tabs and a slide
+  // on the terminal switches them, and the strip's height goes to the tree.
+  // The app menu is a key of the key row.
   const phoneKeys = showLayout && <KeyRow />;
   // Every tab and pane, where the tab strip would be on a desktop — or the
   // dock, after a sideways swipe (PhoneBottomView). Zoomed and upright, it
@@ -233,7 +232,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneBody = landscape ? (
     <>
       <div className="phone-side">
-        {phoneTabs}
         {phoneKeys}
         {phoneTree}
       </div>
@@ -241,7 +239,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </>
   ) : (
     <>
-      {phoneTabs}
       {phonePty}
       {phoneKeys}
       {phoneTree}

@@ -280,9 +280,9 @@
    Phone layout (utils/phoneLayout.ts)
    ============================================ */
 
-/* Top to bottom: the tab strip, the terminal, the key row, the tree. The
-   strip and the key row keep their place; the tree takes what is left and is
-   the first to give when the phone's keyboard comes up. After it, the
+/* Top to bottom: the terminal, the key row, the tree. The key row keeps its
+   place; the tree takes what is left and is the first to give when the
+   phone's keyboard comes up. After it, the
    terminal does: it is cut short and scrolled to keep the cursor's row in
    view (hooks/usePhoneViewport.ts). */
 .app-body-phone {
@@ -290,7 +290,7 @@
 }
 
 /* Held sideways: the terminal on the right at its 80 columns' width (App.tsx
-   sets it), the strip, the keys and the tree stacked in the column left of it. */
+   sets it), the keys and the tree stacked in the column left of it. */
 .app-body-phone.is-landscape {
   flex-direction: row;
 }
@@ -302,38 +302,6 @@
   min-width: 0;
   min-height: 0;
   border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
-}
-
-/* The app menu at the strip's left end, then the tabs (PhoneTabStrip). The
-   tab list takes the rest of the width and scrolls sideways when it
-   overflows. Sticky and painted in the window colour: in the installed app it
-   is the solid box at the top edge that keeps iOS 26's edge blur off it
-   (standalone.css). Nothing scrolls above it, so sticky moves nothing. */
-.phone-tab-strip {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex: none;
-  background-color: rgb(var(--window-bg-rgb));
-  align-items: center;
-  gap: var(--spacing-md);
-  height: var(--statusbar-height);
-  padding: 0 var(--spacing-md);
-  box-sizing: border-box;
-}
-
-/* A thumb's target: the desktop hamburger is a 24px glyph for a pointer.
-   Same height as the tabs and a key's width, with no border — the glyph on
-   the strip, not a key of the key row. */
-.phone-tab-strip .app-menu-button {
-  width: 40px;
-  min-width: 40px;
-  height: 32px;
-  border: none;
-  background-color: transparent;
-  color: var(--text-primary);
-  font-size: 18px;
-  touch-action: manipulation;
 }
 
 /* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows

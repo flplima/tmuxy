@@ -14,7 +14,8 @@ import { useMenuEnv } from './menuEnv';
 import { useAppMenuSurface } from './useAppMenuSurface';
 import './AppMenu.css';
 
-export function AppMenu() {
+/** `className` adds to the button's own: the phone draws it as a key of its key row. */
+export function AppMenu({ className }: { className?: string } = {}) {
   // The button owns the open flag and the menu hangs off the button: the
   // floating layer, the placement and the exit are the surface's
   // (components/floating), which is what makes this the same object as the
@@ -33,7 +34,7 @@ export function AppMenu() {
     <>
       <button
         ref={buttonRef}
-        className="app-menu-button"
+        className={className ? `app-menu-button ${className}` : 'app-menu-button'}
         aria-label="Menu"
         aria-haspopup="menu"
         aria-expanded={menuOpen}

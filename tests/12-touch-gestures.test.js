@@ -170,8 +170,8 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
     await createWindowKeyboard(ctx.page);
     const selectedTab = () =>
       ctx.page.evaluate(() =>
-        [...document.querySelectorAll('.phone-tab-strip [role="tab"]')].findIndex(
-          (t) => t.getAttribute('aria-selected') === 'true',
+        [...document.querySelectorAll('.phone-tree .sidebar-tree-tab')].findIndex((t) =>
+          t.classList.contains('is-active'),
         ),
       );
     await waitForCondition(ctx.page, async () => (await selectedTab()) === 1, 15000, 'the new tab');
