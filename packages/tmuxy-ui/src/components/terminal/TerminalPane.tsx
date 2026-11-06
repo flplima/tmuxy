@@ -265,9 +265,10 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
                   paneId={pane.tmuxId}
                 />
               )}
-              {/* Hidden, not unmounted, behind an open scroll view: Chrome
-                  cancels a touch sequence the moment its target leaves the
-                  document, and the swipe that opens the view targets these rows. */}
+              {/* Hidden, not unmounted, behind an open scroll view: a touch
+                  is dispatched to the node it started on for its whole life,
+                  and once that node is out of the document the event reaches
+                  no listener. The swipe that opens the view starts on these rows. */}
               {
                 <div hidden={!!copyState} className="pane-live-screen">
                   <Terminal
