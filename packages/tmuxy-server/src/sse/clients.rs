@@ -8,9 +8,6 @@ use tracing::{debug, info, warn};
 use super::{start_monitoring, SessionRejection, MAX_AUTO_CREATED_SESSIONS};
 use crate::state::{AppState, SessionConnections};
 
-/// Start `session`'s monitor unless one is running, `create`-ing the tmux
-/// session when it is missing. One place, for the stream that attaches and
-/// for `ensure_session`.
 pub(super) fn ensure_monitor(
     state: &Arc<AppState>,
     session: &str,
@@ -26,12 +23,9 @@ pub(super) fn ensure_monitor(
     let monitor_session = session.to_string();
     let monitor_state = Arc::clone(state);
     let runtime = Arc::clone(&conns.runtime);
-    // A command that arrives before the loop's first attempt waits for it.
     runtime.set_connecting();
-    // Plain `tokio::spawn` (not the `AppState` JoinSet): the `JoinHandle` is
-    // kept on `SessionConnections` so the deferred-cleanup path can shut down
-    // just one session. On server Ctrl+C `start_monitoring`'s own
-    // cancellation checks end its loop.
+    // Not the `AppState` JoinSet: the deferred cleanup shuts down one
+    // session through this handle.
     conns.monitor_handle = Some(tokio::spawn(async move {
         start_monitoring(runtime, monitor_session, monitor_state, create).await;
     }));
@@ -125,7 +119,6 @@ pub(crate) async fn monitor_for_agent(
     state.monitor_tx(session).await
 }
 
-/// An agent called: the session's monitor stays up for [`AGENT_HOLD`] from now.
 pub(crate) async fn hold_for_agent(state: &Arc<AppState>, session: &str) {
     if let Some(conns) = state.sessions.write().await.get_mut(session) {
         conns.agent_hold_until = Some(tokio::time::Instant::now() + AGENT_HOLD);
@@ -168,7 +161,6 @@ pub(super) async fn open_client(
     open.then_some(conn_id)
 }
 
-/// Remove a connection and resize tmux to the clients still watching
 pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
     let (runtime, last_left) = {
         let mut sessions = state.sessions.write().await;
@@ -186,16 +178,12 @@ pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, con
     }
 }
 
-/// How long a stopped monitor is given to detach before it is left to finish
-/// on its own.
 const MONITOR_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Wait `grace`, and if `session` still has no attached SSE connections, shut
-/// down its monitor and remove its map entry. A client that registers during
-/// the wait retires the guard (`SessionConnections::register`): the guard
-/// scheduled when that client leaves again is the one that counts, so a
-/// reload inside an older guard's grace is not cut short by it. An agent's
-/// hold (`SessionConnections::agent_hold_until`) is waited out the same way.
+/// A client that registers during the wait retires the guard
+/// (`SessionConnections::register`): the guard scheduled when that client
+/// leaves again is the one that counts, so a reload inside an older guard's
+/// grace is not cut short by it.
 pub(super) async fn schedule_idle_monitor_cleanup(
     state: &Arc<AppState>,
     session: &str,

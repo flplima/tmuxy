@@ -1,5 +1,3 @@
-//! The tools that change the session: they open, type into and close panes.
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -9,7 +7,6 @@ use super::super::tmux::Tmux;
 use super::super::{ask, Caller};
 use super::timeout;
 
-/// The first `%N` or `@N` id in what a command printed.
 fn printed_id(output: &str, sigil: char) -> Option<String> {
     output.split_whitespace().find_map(|word| {
         let digits = word.strip_prefix(sigil)?;
@@ -76,7 +73,6 @@ pub(in crate::mcp) struct SendArgs {
 
 const SEND_DEFAULT: Duration = Duration::from_secs(120);
 pub(in crate::mcp) const SEND_MAX: Duration = Duration::from_secs(600);
-/// The most text one send types.
 const MAX_SEND_BYTES: usize = 64 * 1024;
 
 pub(in crate::mcp) async fn pane_send_keys(
@@ -126,7 +122,6 @@ pub(in crate::mcp) struct FloatArgs {
     pub background: Option<Backdrop>,
 }
 
-/// `float-create`'s arguments for `args`, and the program after them.
 pub(in crate::mcp) fn float_create_args(args: &FloatArgs, program: &[String]) -> Vec<String> {
     let mut out = vec!["--detach".to_string()];
     match args.position {
@@ -157,14 +152,12 @@ pub(in crate::mcp) fn float_create_args(args: &FloatArgs, program: &[String]) ->
     out
 }
 
-/// `value` as one word for a POSIX shell.
 fn sh_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-/// The `run-shell` that runs the CLI's `float-create` from `anchor`, the way
-/// `tmuxy pane float` does. run-shell expands formats in its command first,
-/// so every `#` is doubled to reach the shell as it was written.
+/// run-shell expands formats in its command first, so every `#` is doubled
+/// to reach the shell as it was written.
 pub(in crate::mcp) fn float_command(
     script: &str,
     anchor: &PaneId,
@@ -270,7 +263,6 @@ pub(in crate::mcp) struct PreviewArgs {
 /// What the preview widget renders (`tmuxy-widget-preview`).
 const PREVIEW_EXTENSIONS: &[&str] = &["md", "markdown", "html", "htm"];
 
-/// A path the preview widget can show, or why not.
 pub(in crate::mcp) fn preview_path(path: &str) -> Result<std::path::PathBuf, CommandError> {
     let path = std::path::PathBuf::from(path);
     if !path.is_absolute() {

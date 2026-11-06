@@ -13,10 +13,9 @@ use crate::state::{build_response, AppState};
 #[folder = "../tmuxy-ui/dist/"]
 struct FrontendAssets;
 
-/// The user's stylesheets — `/themes/<name>.css` and `/custom.css` — from
-/// the config dir, as `session::resolve_user_css` reads them (a built-in
-/// theme name falls back to the bundled copy). `None` for any other path. Not
-/// cached: a save is meant to show on the next fetch.
+/// `/themes/<name>.css` and `/custom.css` from the config dir (a built-in
+/// theme name falls back to the bundled copy). Not cached: a save is meant to
+/// show on the next fetch.
 pub(super) fn serve_user_css(path: &str) -> Option<Response> {
     let path = path.trim_start_matches('/');
     if path != "custom.css" && !path.starts_with("themes/") {
@@ -60,7 +59,6 @@ pub(super) const APP_CSP: &str = "default-src 'self'; script-src 'self'; \
 pub(super) const DEV_CSP: &str =
     "frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
 
-/// Put the app's security headers on a response for one of its own files.
 /// Not for `/api/preview/{pane}`, which is framed by the app and carries a
 /// policy of its own.
 pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Response {
@@ -82,15 +80,12 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     response
 }
 
-/// Serve files from embedded frontend assets (SPA with index.html fallback),
-/// under [`APP_CSP`].
 pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
     with_app_headers(embedded_file(uri.path()), APP_CSP)
 }
 
-/// `--dev`: the app from Vite, under [`DEV_CSP`]. The user's stylesheets are
-/// the server's to serve in dev mode too: Vite only knows the bundled copies
-/// under `public/`.
+/// The user's stylesheets are the server's to serve in dev mode too: Vite
+/// only knows the bundled copies under `public/`.
 pub(super) async fn serve_dev(req: axum::extract::Request) -> Response {
     let response = match serve_user_css(req.uri().path()) {
         Some(response) => response,
@@ -120,9 +115,6 @@ fn embedded_file(path: &str) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
-    // Response::builder().body() returns Err only for invalid header values, which
-    // none of these literal mime types can produce — fall back to a 500 on the
-    // off-chance the embedded asset's mime string somehow becomes invalid.
     if let Some(response) = serve_user_css(path) {
         response
     } else if path == "index.html" {
@@ -149,14 +141,8 @@ fn embedded_file(path: &str) -> Response {
     }
 }
 
-// ============================================
-// PID file management
-// ============================================
-
 /// One pid file per port, so a second server beside the first neither
-/// overwrites its pid nor gets stopped in its place. In the state dir, with
-/// the rest of this machine's runtime files; the default port keeps the
-/// historical name.
+/// overwrites its pid nor gets stopped in its place.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
     pid_file_in(&tmuxy_core::paths::state_dir(), port)
 }
@@ -205,8 +191,6 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
     }
 }
 
-/// The pid the port's pid file names: the state dir's, else the one an older
-/// build wrote under `~/.tmuxy`.
 fn read_pid_file(port: u16) -> Option<u32> {
     [pid_file_path(port), legacy_pid_file_path(port)]
         .into_iter()
@@ -228,7 +212,6 @@ fn parse_pid(text: &str) -> Option<u32> {
         .and_then(|pid| u32::try_from(pid).ok())
 }
 
-/// `pid` as kill(2) takes it, for a pid `parse_pid` accepted.
 #[cfg(unix)]
 fn signal_target(pid: u32) -> Option<nix::unistd::Pid> {
     i32::try_from(pid)
@@ -257,7 +240,6 @@ fn matches_tmuxy_command(text: &str) -> bool {
     base.to_ascii_lowercase().contains("tmuxy")
 }
 
-/// Whether `pid` runs a tmuxy binary, checked before `stop` signals it.
 #[cfg(target_os = "linux")]
 fn is_tmuxy_process(pid: u32) -> bool {
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"));
@@ -338,7 +320,6 @@ pub(super) fn server_status(port: u16) {
 /// the `stop`, so the wait has to outlast the old one's slowest exit.
 pub(super) const BIND_RETRIES: u32 = 15;
 
-/// Bind to addr, retrying up to `max_retries` times with 1s delay if port is in use.
 pub(super) async fn bind_with_retry(
     addr: std::net::SocketAddr,
     max_retries: u32,
@@ -364,17 +345,13 @@ pub(super) async fn bind_with_retry(
     unreachable!()
 }
 
-/// How long shutdown waits for tracked tasks to finish before giving up.
 const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// How long the final snapshot of a session may hold up shutdown.
 const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::ViteChild>) {
-    // Signal handler installation only fails on platforms without sigaction (none we
-    // target) or when the process has already taken too many file descriptors —
-    // either way, a server that can't react to Ctrl+C is unusable, so panic is
-    // the right call.
+    // Installing the handler fails only without sigaction or out of file
+    // descriptors, and a server that cannot react to Ctrl+C is unusable.
     #[allow(clippy::expect_used)]
     let ctrl_c = async {
         signal::ctrl_c()
@@ -415,10 +392,6 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
         runtime.save_snapshot_now(FINAL_SNAPSHOT_TIMEOUT).await;
     }
 
-    // Structured shutdown: broadcast cancellation, then drain every tracked
-    // background task. Tasks already check `state.shutdown.cancelled()` in
-    // their select branches so the cancel fires the actual exit; the drain
-    // here is just a join-to-completion safety net.
     state.shutdown.cancel();
     let mut join_set = state.join_set.lock().await;
     let mut drained = 0usize;

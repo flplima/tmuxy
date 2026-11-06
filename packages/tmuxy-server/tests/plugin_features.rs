@@ -1,7 +1,5 @@
-//! Plugins that bring more than actions: dependencies, settings, the index
-//! and themes, end to end with the real binary against local repositories
-//! (`plugin_common`). Keys and link handlers need a tmux server and a page:
-//! the E2E suite's (`tests/17-plugins.test.js`).
+//! Keys and link handlers need a tmux server and a page, so the E2E suite
+//! covers them (`tests/17-plugins.test.js`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

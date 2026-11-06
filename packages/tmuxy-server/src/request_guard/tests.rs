@@ -80,7 +80,7 @@ fn a_rebound_domain_is_refused_on_a_loopback_bind() {
     assert!(check(&rebound, &loopback()).is_err());
 }
 
-/// SEC-CRIT-01. A wildcard bind with no allowed list let any `Host`
+/// A wildcard bind with no allowed list used to let any `Host`
 /// through, on the theory that a container's published port was the
 /// boundary. Docker publishes on every host interface, and the dev server
 /// runs `--no-auth` there, so a rebound name was a shell for any page the
@@ -142,7 +142,7 @@ fn a_missing_host_is_refused_on_a_loopback_bind() {
     assert!(check(&HeaderMap::new(), &loopback()).is_err());
 }
 
-/// SEC-10. The `Host` rule used to run only under `Loopback`, and every
+/// The `Host` rule used to run only under `Loopback`, and every
 /// routable bind got `Any` — so with `--no-auth` on a LAN address, a
 /// hostile page pointing a name it owns at that address had a shell. A
 /// browser holds no credentials for an IP literal, but it will happily
@@ -166,7 +166,7 @@ fn a_rebound_domain_is_refused_on_a_routable_bind_too() {
     }
 }
 
-/// SEC-15. A name the operator listed reaches the server on a routable
+/// A name the operator listed reaches the server on a routable
 /// bind, and one they did not does not — which is what the public demo's
 /// README already claimed.
 #[test]
