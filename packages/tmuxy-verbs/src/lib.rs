@@ -44,11 +44,14 @@ pub enum Verb {
     /// `tmuxy pane paste`, which resolve the target and the caller.
     #[command(hide = true)]
     Send(send_cli::SendArgs),
-    /// Ask the desktop app to reconnect to another tmux server, and save the
-    /// server for the session menu. Backs `tmuxy connect` and
-    /// `tmuxy session connect`, which probe the server first.
+    /// Ask the desktop app to reconnect to another tmux server. Backs
+    /// `tmuxy connect <socket>`.
     #[command(hide = true)]
     Connect(connect_cli::ConnectArgs),
+    /// Check a server stage by stage, save it for the session menu and ask
+    /// the desktop app to attach to it. Backs `tmuxy session connect`.
+    #[command(hide = true)]
+    SessionConnect(connect_cli::SessionConnectArgs),
     /// Print the agent guide (the tmuxy skill). Backs `tmuxy skill`.
     Skill,
     /// Run a tmux command that reads, arranges or closes, inside run-shell.
@@ -75,6 +78,7 @@ pub async fn run(verb: Verb) {
         Verb::Config(args) => config_cli::run(args),
         Verb::Send(args) => send_cli::run(args).await,
         Verb::Connect(args) => connect_cli::run(args),
+        Verb::SessionConnect(args) => connect_cli::session_connect(args),
         Verb::Skill => print!("{}", agents::SKILL),
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),

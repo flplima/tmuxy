@@ -218,3 +218,153 @@ fn config_init_writes_the_starter_once_and_never_through_a_link() {
     assert!(!target.exists());
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// A stand-in `ssh` that runs the remote command here (so "the host" is this
+/// machine's tmux) and logs every call; `FAKE_SSH_FAIL` is a host that will
+/// not let us in, `FAKE_SSH_LIST_FAIL` a tmux that cannot list its sessions.
+fn fake_ssh(dir: &Path) -> String {
+    let ssh = dir.join("ssh");
+    std::fs::write(
+        &ssh,
+        r#"#!/bin/bash
+echo "$*" >> "$FAKE_SSH_LOG"
+while [ $# -gt 0 ]; do case "$1" in -o) shift 2 ;; --) shift; break ;; *) break ;; esac; done
+shift
+if [ -n "${FAKE_SSH_FAIL:-}" ]; then echo "Permission denied (publickey)." >&2; exit 255; fi
+case "$*" in *list-sessions*) if [ -n "${FAKE_SSH_LIST_FAIL:-}" ]; then echo "$FAKE_SSH_LIST_FAIL" >&2; exit 1; fi ;; esac
+exec sh -c "$*"
+"#,
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+    format!(
+        "{}:{}",
+        dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+fn session_connect(s: &Server, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let path = fake_ssh(&s.home);
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tmuxy-server"));
+    command
+        .arg("session-connect")
+        .args(args)
+        .env("TMUX_SOCKET", &s.socket)
+        .env("HOME", &s.home)
+        .env("XDG_CONFIG_HOME", s.home.join("config"))
+        .env("XDG_DATA_HOME", s.home.join("data"))
+        .env("TMUXY_STATE_DIR", s.home.join("state"))
+        .env("PATH", path)
+        .env("FAKE_SSH_LOG", s.home.join("ssh.log"))
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .env_remove("TMUXY_DATA_DIR")
+        .stdin(std::process::Stdio::null());
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.output().expect("tmuxy-server runs")
+}
+
+fn published(s: &Server) -> String {
+    s.tmux(&["show-environment", "-g", "TMUXY_CONNECT"])
+}
+
+#[test]
+fn session_connect_checks_the_host_stage_by_stage_then_saves_and_requests_it() {
+    let s = Server::start("connect");
+    s.tmux(&["new-session", "-d", "-s", "__tmuxy_stash"]);
+    let out = session_connect(&s, &["ssh felipe@prod", "--socket", &s.socket], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let lines: Vec<String> = stdout(&out).lines().map(String::from).collect();
+    assert_eq!(lines[0], "✓ ssh felipe@prod");
+    assert!(
+        lines[1].starts_with("✓ tmux ")
+            && lines[1].ends_with(&format!(" on the socket {}", s.socket))
+    );
+    assert_eq!(lines[2..], ["✓ listing sessions", "✓ attach"]);
+    // The listing reached the remote shell quoted: its format is no comment.
+    let request = published(&s);
+    assert!(request.contains(r#""session":"work""#), "{request}");
+    assert!(request.contains(r#""ssh":"felipe@prod""#), "{request}");
+    let saved = std::fs::read_to_string(s.home.join("state/servers.json")).unwrap();
+    assert!(saved.contains("felipe@prod"), "{saved}");
+}
+
+#[test]
+fn a_stage_that_fails_prints_what_failed_and_requests_nothing() {
+    let s = Server::start("connect-fail");
+    let refused = session_connect(&s, &["badhost"], &[("FAKE_SSH_FAIL", "1")]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(stderr(&refused).contains("✗ ssh badhost\nPermission denied (publickey)."));
+
+    // A listing that fails for any reason but "no server yet" stops the flow.
+    let listing = session_connect(
+        &s,
+        &["felipe@prod", "--json"],
+        &[("FAKE_SSH_LIST_FAIL", "open terminal failed: not a terminal")],
+    );
+    assert_eq!(listing.status.code(), Some(1));
+    let answer: serde_json::Value = serde_json::from_str(&stdout(&listing)).unwrap();
+    assert_eq!(answer["ok"], false);
+    assert!(answer["error"]
+        .as_str()
+        .unwrap()
+        .starts_with("listing sessions: open terminal failed"));
+    assert!(s
+        .tmux(&["show-environment", "-g"])
+        .lines()
+        .all(|l| !l.starts_with("TMUXY_CONNECT=")));
+}
+
+/// ssh runs a ProxyCommand as a local command: an option where the host
+/// goes is refused before ssh runs, as is a socket or session name tmuxy
+/// will not put on a command line.
+#[test]
+fn a_destination_or_name_that_is_not_one_is_a_bad_command_line() {
+    let s = Server::start("connect-bad");
+    for args in [
+        &["ssh -oProxyCommand=touch%20/tmp/owned"][..],
+        &[" -oProxyCommand=id"],
+        &["host;id"],
+        &["a b"],
+        &["localhost", "--socket", "../escape"],
+        &["felipe@prod", "--socket", "sock;id"],
+        &["felipe@prod", "--session", "x;y"],
+    ] {
+        let out = session_connect(&s, args, &[]);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
+    }
+    assert!(!s.home.join("ssh.log").exists(), "ssh ran");
+}
+
+/// Any local socket is listed, not only the one this tmuxy serves: its first
+/// session is attached when none is named.
+#[test]
+fn a_local_socket_of_its_own_is_listed_too() {
+    let s = Server::start("connect-local");
+    let other = Server::start("connect-other");
+    other.tmux(&["rename-session", "-t", "work", "dev"]);
+    let out = session_connect(&s, &["localhost", "--socket", &other.socket], &[]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).starts_with("✓ localhost\n"));
+    assert!(published(&s).contains(r#""session":"dev""#));
+}
+
+#[test]
+fn connect_requests_the_first_session_of_the_socket_or_tmuxy() {
+    let s = Server::start("reconnect");
+    let other = Server::start("reconnect-other");
+    let out = s.verb(&["connect", "--socket", &other.socket]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).contains(&format!("socket '{}' (session 'work')", other.socket)));
+
+    let none = s.verb(&["connect", "--json", "--socket", "tmuxy-cli-verbs-nobody"]);
+    let answer: serde_json::Value = serde_json::from_str(&stdout(&none)).unwrap();
+    assert_eq!(answer["session"], "tmuxy");
+
+    let bad = s.verb(&["connect", "--socket", "../x"]);
+    assert_eq!(bad.status.code(), Some(2));
+}

@@ -186,10 +186,7 @@ cmd_session() {
       ;;
 
     connect)
-      case "${1:-}" in
-        --help|-h) exec bash "$SCRIPTS_DIR/session-connect" --help ;;
-      esac
-      exec bash "$SCRIPTS_DIR/session-connect" "$@"
+      session_connect "$@"
       ;;
 
     save|snapshots)
@@ -298,37 +295,18 @@ cmd_run() {
 
 # --- Connect to a different tmux server (desktop app) ---
 
+# The stages, the checks and the request are the server binary's
+# `session-connect` and `connect` (tmuxy-verbs `connect_cli`).
+session_connect() {
+  find_server_cmd || exit "$EXIT_FAILED"
+  exec "${SERVER_CMD[@]}" session-connect ${server_json[@]+"${server_json[@]}"} "$@"
+}
+
 cmd_connect() {
   case "${1:-}" in
     --help|-h) usage_connect; return ;;
-    "")
-      exec bash "$SCRIPTS_DIR/session-connect"
-      ;;
+    "") session_connect ;;
   esac
-
-  local socket="$1"
-  local session="${2:-}"
-
-  if ! _is_safe_socket "$socket"; then
-    _fail "$EXIT_USAGE" "'$socket' is not a valid tmux socket name or absolute path"
-  fi
-
-  # The app creates `tmuxy` on attach. Querying the target socket directly is
-  # read-only, so safe with control mode attached.
-  if [ -z "$session" ]; then
-    local target_flag="-L"
-    case "$socket" in */*) target_flag="-S" ;; esac
-    session="$(_first_safe_session "$(command "$TMUX_BIN" "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
-    [ -z "$session" ] && session="tmuxy"
-  fi
-
-  # The server binary publishes the request on the CURRENT server, where the
-  # desktop app's connect watcher reads it (tmuxy_core::servers::connect).
   find_server_cmd || exit "$EXIT_FAILED"
-  if [ "$JSON_OUT" = true ]; then
-    exec "${SERVER_CMD[@]}" connect --socket "$socket" --session "$session" --json
-  fi
-  "${SERVER_CMD[@]}" connect --socket "$socket" --session "$session" || exit $?
-  echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
-  echo "No effect in the web UI — the web server's socket is fixed at launch."
+  exec "${SERVER_CMD[@]}" connect ${server_json[@]+"${server_json[@]}"} --socket "$1" ${2:+--session "$2"}
 }
