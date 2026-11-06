@@ -323,9 +323,9 @@ jobs:
     # job): the E2E suites, the server, the desktop crate, prose.
     needs: changes
     if: needs.changes.outputs.v86 == 'true'
-    # Only the blocking GATE (three optimistic-UX stories) runs per commit;
-    # the full sweep (~20 minutes) is nightly-v86.yml's, where a failure opens
-    # an issue and the per-story timings are kept.
+    # Only the blocking GATE (the stories tagged `gate`) runs per commit; the
+    # full sweep (~20 minutes) is nightly-v86.yml's, where a failure opens an
+    # issue and the per-story timings are kept.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -338,7 +338,7 @@ jobs:
           storybook-log: /tmp/storybook.log
 
       - name: Gate stories (blocking)
-        run: npm run test-storybook:v86 -w tmuxy-ui -- 6006 split-optimistic-timeline split-rejected-rollback resize-pane-drag
+        run: PROBE_TIER=gate npm run test-storybook:v86 -w tmuxy-ui -- 6006
 
       # A screenshot, a DOM dump and the real stack for every failed story:
       # the test runner itself reports only `playFunctionThrewException`.

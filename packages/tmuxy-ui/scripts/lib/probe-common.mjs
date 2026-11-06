@@ -33,13 +33,14 @@ export function parseProbeArgs(argv) {
 }
 
 /**
- * Which stories a run takes, by the `nightly` tag (docs/TESTS-LAYERS.md § Tiers):
- * `commit` leaves the tagged ones out, `nightly` takes only them, `all`
- * ignores the tag.
+ * Which stories a run takes, by tag (docs/TESTS-LAYERS.md § Tiers): `commit`
+ * leaves the `nightly` ones out, `nightly` takes only them, `gate` takes only
+ * the `gate` ones (the v86 stories every push must pass), `all` ignores both.
  */
 const TIERS = {
   commit: (tags) => !tags.includes('nightly'),
   nightly: (tags) => tags.includes('nightly'),
+  gate: (tags) => tags.includes('gate'),
   all: () => true,
 };
 
@@ -50,29 +51,36 @@ export async function fetchStoryIndex(storybookUrl) {
 }
 
 /**
- * Story ids from Storybook's index, by tag and filter. `v86` stories (real
- * tmux in the x86 emulator) are slow, network-dependent and nondeterministic,
- * so they run on probe-spikes.mjs's single shared engine page and nowhere
- * else; `v86: true` selects exactly them, `false` everything else.
+ * Story ids from Storybook's index entries, by tag and filter. `v86` stories
+ * (real tmux in the x86 emulator) are slow, network-dependent and
+ * nondeterministic, so they run on probe-spikes.mjs's single shared engine
+ * page and nowhere else; `v86: true` selects exactly them, `false` everything
+ * else. `exact` takes the filters as whole ids, otherwise as substrings.
  */
-export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }) {
+export function selectStoryIds(entries, { filters = [], v86, tier = 'all', exact = false }) {
   const inTier = TIERS[tier];
   if (!inTier)
     throw new Error(
       `unknown tier ${JSON.stringify(tier)}; one of ${Object.keys(TIERS).join(', ')}`,
     );
-  const entries = await fetchStoryIndex(storybookUrl);
   const ids = Object.keys(entries).filter((id) => {
     const entry = entries[id];
     const tags = entry.tags ?? [];
     return entry.type === 'story' && tags.includes('v86') === v86 && inTier(tags);
   });
   if (filters.length === 0) return ids;
-  // PROBE_EXACT=1 takes the filters as whole ids: the nightly's re-run of
-  // tonight's failures must not also take every story an id is a prefix of
-  // (`resize-pane-drag` would take its Vertical and Grid siblings).
-  const exact = process.env.PROBE_EXACT === '1';
   return ids.filter((id) => filters.some((f) => (exact ? id === f : id.includes(f))));
+}
+
+/**
+ * `selectStoryIds` over the running Storybook's index. PROBE_EXACT=1 takes the
+ * filters as whole ids: the nightly's re-run of tonight's failures must not
+ * also take every story an id is a prefix of (`resize-pane-drag` would take
+ * its Vertical and Grid siblings).
+ */
+export async function fetchStoryIds({ storybookUrl, filters, v86, tier = 'all' }) {
+  const exact = process.env.PROBE_EXACT === '1';
+  return selectStoryIds(await fetchStoryIndex(storybookUrl), { filters, v86, tier, exact });
 }
 
 /**
