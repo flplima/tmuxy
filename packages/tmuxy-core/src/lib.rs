@@ -158,16 +158,10 @@ pub(crate) fn is_false(b: &bool) -> bool {
 }
 
 impl CellStyle {
+    /// No attribute set: the default style, so a field added to the struct
+    /// counts the moment it exists.
     pub fn is_empty(&self) -> bool {
-        self.fg.is_none()
-            && self.bg.is_none()
-            && !self.bold
-            && !self.dim
-            && !self.italic
-            && !self.underline
-            && !self.inverse
-            && self.url.is_none()
-            && self.size.is_none()
+        *self == Self::default()
     }
 }
 
