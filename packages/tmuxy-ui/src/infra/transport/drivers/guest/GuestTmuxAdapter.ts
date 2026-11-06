@@ -23,8 +23,7 @@ import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
 import type { CommandFailure } from '../../../../domain/wire';
 import { decodeStateForListener } from '../../wireDecode';
-import { loadThemePref, saveThemePref } from '../../../prefs';
-import { parseThemeMode } from '../../../../domain/wireSettings';
+import { answerThemeCall, isThemeCall, loadThemePref } from '../../../prefs';
 import { DEFAULT_KEYBINDINGS } from './defaultKeybindings';
 import { readGuestPreview } from './guestPreview';
 import {
@@ -34,18 +33,6 @@ import {
   type GuestEngine,
   type GuestFile,
 } from './GuestEngine';
-
-/** Theme names bundled with tmuxy (mirrors the server's `get_themes_list`). */
-const BUNDLED_THEMES: { name: string; displayName: string }[] = [
-  { name: 'catppuccin', displayName: 'Catppuccin' },
-  { name: 'default', displayName: 'Default' },
-  { name: 'dracula', displayName: 'Dracula' },
-  { name: 'fallout', displayName: 'Fallout' },
-  { name: 'gruvbox', displayName: 'Gruvbox' },
-  { name: 'nord', displayName: 'Nord' },
-  { name: 'solarized', displayName: 'Solarized' },
-  { name: 'tokyonight', displayName: 'Tokyo Night' },
-];
 
 /** A command the routing policy refused, as the native transports refuse it. */
 function forbidden(reason: string): CommandFailure {
@@ -168,6 +155,12 @@ export class GuestTmuxAdapter implements TransportDriver {
   }
 
   async send(call: BackendCall): Promise<unknown> {
+    if (isThemeCall(call)) {
+      const answer = answerThemeCall(call);
+      if (call.cmd === 'set_theme')
+        this.engine.send(`set -g @tmuxy-theme ${loadThemePref().theme}`);
+      return answer;
+    }
     switch (call.cmd) {
       case 'get_initial_state': {
         // Sized to the client's viewport first, as the native server does, so
@@ -187,15 +180,6 @@ export class GuestTmuxAdapter implements TransportDriver {
         return null;
       case 'query_tmux':
         return this.query(call.args.command);
-      case 'set_theme': {
-        const name = call.args.name || loadThemePref().theme;
-        saveThemePref(name, parseThemeMode(call.args.mode));
-        this.engine.send(`set -g @tmuxy-theme ${name}`);
-        return null;
-      }
-      case 'set_theme_mode':
-        saveThemePref(loadThemePref().theme, parseThemeMode(call.args.mode));
-        return null;
       case 'set_cursor_blink':
         this.engine.send(`set -g @tmuxy-cursor-blink ${call.args.enabled ? 'on' : 'off'}`);
         return null;
@@ -217,10 +201,6 @@ export class GuestTmuxAdapter implements TransportDriver {
           call.args.paneId,
           call.args.path ?? undefined,
         );
-      case 'get_theme_settings':
-        return loadThemePref();
-      case 'get_themes_list':
-        return BUNDLED_THEMES;
       default:
         return noAnswer(call.cmd);
     }

@@ -21,8 +21,8 @@ import { decodeStateForListener } from '../../infra/transport/wireDecode';
 import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../domain/wire';
 import type { Types } from 'effect';
-import { type TraceSettings, parseThemeMode } from '../../domain/wireSettings';
-import { loadThemePref, saveThemePref } from '../../infra/prefs';
+import type { TraceSettings } from '../../domain/wireSettings';
+import { answerThemeCall, isThemeCall } from '../../infra/prefs';
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */
 export interface Fixture {
@@ -70,17 +70,6 @@ export interface FixtureAdapterOptions {
    */
   failCommand?: (command: string) => string | false | null | undefined;
 }
-
-const THEMES = [
-  { name: 'catppuccin', displayName: 'Catppuccin' },
-  { name: 'default', displayName: 'Default' },
-  { name: 'dracula', displayName: 'Dracula' },
-  { name: 'fallout', displayName: 'Fallout' },
-  { name: 'gruvbox', displayName: 'Gruvbox' },
-  { name: 'nord', displayName: 'Nord' },
-  { name: 'solarized', displayName: 'Solarized' },
-  { name: 'tokyonight', displayName: 'Tokyo Night' },
-];
 
 export class FixtureAdapter implements TransportDriver {
   readonly events = new EventHub<TransportEvent>();
@@ -159,6 +148,7 @@ export class FixtureAdapter implements TransportDriver {
   }
 
   async send(call: BackendCall): Promise<unknown> {
+    if (isThemeCall(call)) return answerThemeCall(call);
     switch (call.cmd) {
       case 'get_initial_state':
         return this.state(this.current);
@@ -188,19 +178,6 @@ export class FixtureAdapter implements TransportDriver {
       case 'detach_client':
         this.events.emit(TransportEvent.Detached({ reason: null }));
         return null;
-      case 'set_theme': {
-        const saved = loadThemePref();
-        const { name, mode } = call.args;
-        saveThemePref(name || saved.theme, mode == null ? saved.mode : parseThemeMode(mode));
-        return null;
-      }
-      case 'set_theme_mode':
-        saveThemePref(loadThemePref().theme, parseThemeMode(call.args.mode));
-        return null;
-      case 'get_theme_settings':
-        return loadThemePref();
-      case 'get_themes_list':
-        return THEMES;
       case 'get_trace_settings':
         return { ...this.traceSettings };
       case 'set_trace_enabled':

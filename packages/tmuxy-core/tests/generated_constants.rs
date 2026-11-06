@@ -115,7 +115,128 @@ fn typescript() -> String {
          export const CLI_DISPATCHER = {};",
         quoted(tmuxy_core::paths::CLI_DISPATCHER)
     );
+    ui_shared(&mut out);
     out
+}
+
+// --- Values the UI shares with the shipped config and the CLI's scripts ---
+
+/// A number as TypeScript writes it after prettier: `1`, not `1.0`.
+fn ts_number(value: &serde_json::Number) -> String {
+    value
+        .as_f64()
+        .map_or_else(|| value.to_string(), |v| format!("{v}"))
+}
+
+/// A JSON value as a TypeScript literal, keys in sorted order and indented
+/// the way prettier prints it (objects only nest one level here).
+fn ts_literal(value: &serde_json::Value, indent: &str) -> String {
+    match value {
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => ts_number(n),
+        serde_json::Value::String(s) => quoted(s),
+        serde_json::Value::Array(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(|v| ts_literal(v, indent))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<_> = map.keys().collect();
+            keys.sort();
+            if indent.is_empty() {
+                let inner = "  ";
+                let body: String = keys
+                    .iter()
+                    .map(|k| format!("{inner}{k}: {},\n", ts_literal(&map[*k], inner)))
+                    .collect();
+                format!("{{\n{body}}}")
+            } else {
+                let body = keys
+                    .iter()
+                    .map(|k| format!("{k}: {}", ts_literal(&map[*k], indent)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{{ {body} }}")
+            }
+        }
+        serde_json::Value::Null => "null".to_string(),
+    }
+}
+
+/// The prefix the shipped defaults set (`set -g prefix` in tmuxy.defaults.conf).
+fn default_prefix() -> String {
+    let path = packages().join("tmuxy-core/assets/tmuxy.defaults.conf");
+    let conf = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    conf.lines()
+        .find_map(|line| line.trim().strip_prefix("set -g prefix "))
+        .map(|key| key.trim().to_string())
+        .unwrap_or_else(|| panic!("{} sets no prefix", path.display()))
+}
+
+/// The themes the UI ships (`tmuxy-ui/public/themes`), named and moded as
+/// the server's `get_themes_list` names them.
+fn bundled_themes() -> Vec<tmuxy_core::theme::ThemeInfo> {
+    let dir = packages().join("tmuxy-ui/public/themes");
+    let mut stems: Vec<(String, PathBuf)> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "css"))
+        .filter_map(|path| Some((path.file_stem()?.to_str()?.to_string(), path)))
+        .collect();
+    stems.sort();
+    stems
+        .into_iter()
+        .map(|(name, path)| {
+            let css = std::fs::read_to_string(&path).unwrap_or_default();
+            tmuxy_core::theme::ThemeInfo {
+                display_name: tmuxy_core::theme::display_theme_name(&name),
+                modes: tmuxy_core::session::theme_modes(&css),
+                name,
+            }
+        })
+        .collect()
+}
+
+fn ui_shared(out: &mut String) {
+    let appearance =
+        serde_json::to_value(tmuxy_core::theme::Appearance::default()).unwrap_or_default();
+    let _ = writeln!(
+        out,
+        "\n/** The appearance options before a config has said (`theme::Appearance::default()`, tmuxy.defaults.conf's). */\n\
+         export const DEFAULT_APPEARANCE = {} as const;",
+        ts_literal(&appearance, "")
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The prefix key tmuxy.defaults.conf sets. */\nexport const DEFAULT_PREFIX = {};",
+        quoted(&default_prefix())
+    );
+    let _ = writeln!(
+        out,
+        "\n/** What `tmuxy-widget` prints before a widget's name (`constants::WIDGET_MARKER`). */\n\
+         export const WIDGET_MARKER = {};",
+        quoted(tmuxy_core::constants::WIDGET_MARKER)
+    );
+    out.push_str(
+        "\n/** The themes the app ships, as the server lists them (`theme::get_themes_list`). */\n\
+         export const BUNDLED_THEMES = [\n",
+    );
+    for theme in bundled_themes() {
+        let value = serde_json::to_value(&theme).unwrap_or_default();
+        let _ = writeln!(out, "  {},", ts_literal(&value, "  "));
+    }
+    out.push_str("];\n");
+}
+
+fn shell_ui_shared(out: &mut String) {
+    let _ = writeln!(
+        out,
+        "\n# What tmuxy-widget prints before a widget's name, for the client to draw it.\nWIDGET_MARKER={}",
+        quoted(tmuxy_core::constants::WIDGET_MARKER)
+    );
 }
 
 fn shell() -> String {
@@ -134,6 +255,7 @@ fn shell() -> String {
         "\n# A pane's title with tmux's host-name seed filtered out: tmux seeds every\n# pane's title with the host name.\nAPP_PANE_TITLE_FMT={}",
         quoted(APP_PANE_TITLE)
     );
+    shell_ui_shared(&mut out);
     out
 }
 
@@ -157,6 +279,10 @@ fn guest_json() -> String {
     // so only a sorted literal reads the same both ways.
     let value = serde_json::json!({
         "_generated": HEADER.lines().collect::<Vec<_>>(),
+        "confAssets": [
+            tmuxy_core::paths::ESSENTIALS_CONF.name,
+            tmuxy_core::paths::DEFAULTS_CONF.name,
+        ],
         "configDir": path(layout.config.clone()),
         "dataDir": path(layout.data.clone()),
         "entryConf": path(layout.entry_conf()),

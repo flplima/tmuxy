@@ -119,7 +119,7 @@ pub mod tmux_options {
     pub const ASK_ANSWER: &str = "@tmuxy-ask-answer";
 
     /// Pane-scoped authorisation for a widget, written by `tmuxy-widget` on the
-    /// pane it runs in. The `__TMUXY_WIDGET__:` marker the widget prints is
+    /// pane it runs in. The [`super::WIDGET_MARKER`] the widget prints is
     /// pane OUTPUT — a crafted file, a commit message in `git log`, an ssh MOTD
     /// — so the marker alone never turns a pane into a widget: the client
     /// honours it only when this option names the same widget.
@@ -199,6 +199,11 @@ pub mod tmux_options {
     /// see [`crate::client_size::SizePolicy`].
     pub const SIZE: &str = "@tmuxy-size";
 }
+
+/// What `tmuxy-widget` prints at the top of its pane, followed by the widget's
+/// name, for the client to draw that widget there (when
+/// [`tmux_options::PANE_WIDGET`] agrees). Generated into the UI and the CLI.
+pub const WIDGET_MARKER: &str = "__TMUXY_WIDGET__:";
 
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).

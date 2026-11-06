@@ -10,3 +10,6 @@ STASH_SESSION='__tmuxy_stash'
 # A pane's title with tmux's host-name seed filtered out: tmux seeds every
 # pane's title with the host name.
 APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
+
+# What tmuxy-widget prints before a widget's name, for the client to draw it.
+WIDGET_MARKER='__TMUXY_WIDGET__:'

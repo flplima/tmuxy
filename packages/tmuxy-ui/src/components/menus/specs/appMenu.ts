@@ -51,8 +51,7 @@ function themeHasMode(
   name: string,
   mode: 'dark' | 'light',
 ): boolean {
-  // A theme whose file the server has not described (a list from an adapter
-  // without the file) is taken to support both modes.
+  // A theme the list does not name (yet) is taken to support both modes.
   const modes = themes.find((t) => t.name === name)?.modes;
   return modes === undefined || modes.includes(mode);
 }
