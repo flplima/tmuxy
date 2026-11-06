@@ -84,6 +84,11 @@ export function surfacePortalTarget(): HTMLElement {
 interface FloatingSurfaceOptions<T> {
   /** Identity in the registry. Peers with other ids dismiss each other. */
   id: string;
+  /**
+   * What it shows; null closes it. Compared by identity, so a caller builds it
+   * once per change (a constant, or `useMemo`): a literal rebuilt every render
+   * would re-open the surface every render.
+   */
   content: T | null;
   /** Where it hangs. Re-read on every render, so a moving anchor is followed. */
   anchor: SurfaceAnchor;
@@ -124,15 +129,9 @@ export function useFloatingSurface<T>({
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
 
-  // Keyed on `JSON.stringify(content)`, not `content`: callers pass an object
-  // literal, whose identity changes every render, and an effect keyed on it that
-  // sets state loops forever (it froze the main thread while a surface was open).
-  const contentKey = content === null ? null : JSON.stringify(content);
-  const contentRef = useRef(content);
-  contentRef.current = content;
   useEffect(() => {
-    if (contentKey !== null) {
-      setShown(contentRef.current);
+    if (content !== null) {
+      setShown(content);
       setLeaving(false);
       return;
     }
@@ -142,15 +141,14 @@ export function useFloatingSurface<T>({
     const exitMs = animated && ref.current ? cssDurationMs(ref.current, '--transition-normal') : 0;
     const timer = setTimeout(() => setShown(null), exitMs);
     return () => clearTimeout(timer);
-  }, [contentKey, animated]);
+  }, [content, animated]);
 
   useEffect(() => {
-    if (contentKey === null || !claim) return;
+    if (content === null || !claim) return;
     return openSurface(id, () => dismissRef.current());
-  }, [contentKey, claim, id]);
+  }, [content, claim, id]);
 
-  // Read through refs for the same reason as `contentKey`: the anchor is a
-  // literal rebuilt every render.
+  // Read through refs: the anchor is a literal rebuilt every render.
   const anchorRef = useRef(anchor);
   anchorRef.current = anchor;
   const placementRef = useRef(placement);
