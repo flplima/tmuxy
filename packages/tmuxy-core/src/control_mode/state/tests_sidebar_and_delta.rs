@@ -195,8 +195,8 @@ fn window_renamed_creating_a_window_also_gets_provisional_index() {
 
 /// A metadata-only change (window rename) must produce a delta carrying NO
 /// pane content: untouched grids are Arc-shared between snapshots, so the
-/// diff skips them by pointer identity instead of walking every cell — the
-/// fix for "a one-field delta costs as much as a full sync".
+/// diff skips them by pointer identity instead of walking every cell, or a
+/// one-field delta costs as much as a full sync.
 #[test]
 fn metadata_delta_shares_content_and_omits_grids() {
     let mut agg = StateAggregator::new();
@@ -209,7 +209,6 @@ fn metadata_delta_shares_content_and_omits_grids() {
         content: b"hello world\r\n".to_vec(),
     });
 
-    // First update is the full snapshot.
     assert!(matches!(
         agg.to_state_update(),
         Some(crate::StateUpdate::Full { .. })

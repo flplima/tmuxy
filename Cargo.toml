@@ -24,7 +24,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-# Pinned once for the crates that share them (a crate adds its own features).
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 dirs = "6.0"

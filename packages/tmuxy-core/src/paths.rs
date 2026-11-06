@@ -45,9 +45,8 @@ pub fn data_dir() -> PathBuf {
 /// `~/.config/tmuxy`. Resolving it creates nothing.
 ///
 /// Not `dirs::config_dir()`: on macOS that is `~/Library/Application
-/// Support`, where nobody looks for a `tmuxy.conf` — the docs, the CLI and
-/// every other OS say `~/.config/tmuxy`, and a first-run config written there
-/// left the desktop app with tmux's default prefix.
+/// Support`, where nobody looks for a `tmuxy.conf`: the docs, the CLI and
+/// every other OS say `~/.config/tmuxy`.
 pub fn config_dir() -> PathBuf {
     config_dir_from(std::env::var_os("XDG_CONFIG_HOME"))
 }
@@ -128,8 +127,6 @@ pub fn default_state_dir() -> PathBuf {
     state_dir_from(None)
 }
 
-/// [`state_dir`] as a function of the override, so the rule is testable
-/// without touching the process environment.
 fn state_dir_from(override_dir: Option<OsString>) -> PathBuf {
     if let Some(dir) = override_dir.filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
@@ -164,10 +161,8 @@ fn data_dir_from(
 /// for the user's own ([`USER_PLUGIN_MANIFEST`]).
 pub const PLUGIN_MANIFEST_FILE: &str = "tmuxy-plugin.toml";
 
-/// The CLI dispatcher's name in the data dir's `bin/`.
 pub const CLI_DISPATCHER: &str = "tmuxy-cli";
 
-/// Which of the three directories a file lives in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Dir {
@@ -376,7 +371,6 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The directories this process resolves from its environment.
     pub fn current() -> Self {
         Self {
             config: config_dir(),
@@ -394,7 +388,6 @@ impl Layout {
         }
     }
 
-    /// Where `file` is under this layout.
     pub fn path(&self, file: &File) -> PathBuf {
         self.dir(file.dir).join(file.name.trim_end_matches('/'))
     }
@@ -427,12 +420,10 @@ impl Layout {
         self.path(&BUILTIN_THEMES)
     }
 
-    /// The mirrored CLI dispatcher (`<data>/bin/tmuxy-cli`).
     pub fn cli(&self) -> PathBuf {
         self.bin().join(CLI_DISPATCHER)
     }
 
-    /// The lockfile (`plugins.json`).
     pub fn lockfile(&self) -> PathBuf {
         self.path(&LOCKFILE)
     }
@@ -442,7 +433,6 @@ impl Layout {
         self.path(&PLUGINS_STATE)
     }
 
-    /// The checkout of plugin `name` at `sha`.
     pub fn checkout(&self, name: &str, sha: &str) -> PathBuf {
         self.plugins_root().join(format!("{name}@{sha}"))
     }

@@ -24,7 +24,6 @@ tracing.workspace = true
 thiserror.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 axum = { version = "0.8" }
-# HTTP Basic auth: decode the `Authorization: Basic <base64>` header.
 base64.workspace = true
 clap.workspace = true
 rust-embed = "8"
@@ -42,7 +41,6 @@ aes-gcm = "0.10"
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
 tmuxy-verbs = { path = "../tmuxy-verbs" }
-# `pane_wait_for` on `/mcp`: wait until a pane's screen matches a pattern.
 regex = "1"
 
 [target.'cfg(unix)'.dependencies]

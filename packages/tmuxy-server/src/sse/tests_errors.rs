@@ -157,12 +157,6 @@ async fn a_lagged_stream_is_served_the_ring_tail_once_in_order() {
     state.shutdown.cancel();
 }
 
-// ============================================
-// Command Error Tests
-// ============================================
-
-/// POST `body` to `/commands` for `session` and return the status and the
-/// decoded body.
 async fn post(
     state: &Arc<AppState>,
     session: Option<&str>,

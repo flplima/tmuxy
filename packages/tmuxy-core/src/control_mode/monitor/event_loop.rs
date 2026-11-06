@@ -15,10 +15,8 @@ pub(super) const THROTTLE_THRESHOLD: u32 = 20;
 pub(super) const RATE_WINDOW: Duration = Duration::from_millis(100);
 
 /// The native emission policy: output throttled under load and debounced
-/// otherwise, layout changes coalesced, everything else at once. Kept in one
-/// struct so the throttling/debounce logic is tested without tmux.
+/// otherwise, layout changes coalesced, everything else at once.
 pub(super) struct RunState {
-    // Output throttling / debouncing
     pub(super) last_output_emit: Instant,
     pub(super) pending_output_emit: bool,
     pub(super) last_output_event_at: Option<Instant>,
@@ -27,7 +25,6 @@ pub(super) struct RunState {
     pub(super) rate_event_count: u32,
     pub(super) in_throttle_mode: bool,
 
-    // Layout debouncing
     pub(super) layout_emit_at: Option<tokio::time::Instant>,
 }
 
@@ -55,9 +52,6 @@ impl RunState {
         }
     }
 
-    /// Compute the sleep duration for the throttle-tick branch.
-    /// `Duration::from_secs(3600)` is the "effectively infinite" sentinel; the
-    /// `if pending_output_emit` guard on the branch is what actually parks us.
     pub(super) fn compute_throttle_sleep(&self, config: &MonitorConfig, now: Instant) -> Duration {
         if !self.pending_output_emit {
             return LONG_SLEEP;
@@ -84,7 +78,6 @@ impl RunState {
         }
     }
 
-    /// Mark a fresh output emission — reset the debounce / rate-tracking trackers.
     pub(super) fn mark_emitted(&mut self, now: Instant) {
         self.last_output_emit = now;
         self.pending_output_emit = false;
@@ -122,8 +115,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
             return;
         }
 
-        // Notify emitter that initial sync (including config sourcing) is done.
-        // SseEmitter uses this to broadcast keybindings with correct prefix key.
         emitter.on_initial_sync_complete();
 
         let mut rs = RunState::new(&self.config, Instant::now());
@@ -156,26 +147,21 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     }
                 },
 
-                // Throttle timer - emit pending output when in high-throughput mode
                 _ = tokio::time::sleep(throttle_sleep), if rs.pending_output_emit => {
                     self.flush(emitter, &mut rs);
                     true
                 }
 
-                // Layout debounce timer - coalesce rapid layout changes (zoom-out)
                 _ = tokio::time::sleep_until(layout_deadline), if rs.layout_emit_at.is_some() => {
                     self.flush(emitter, &mut rs);
                     true
                 }
 
-                // Whatever the core has due: the settling flush, the metadata
-                // re-list, the copy-mode poll or heartbeat, expired replies.
                 _ = tokio::time::sleep(core_sleep) => {
                     let actions = self.core.tick(Instant::now());
                     self.dispatch(emitter, &mut rs, actions).await
                 }
 
-                // Handle external commands (resize, etc.)
                 cmd = self.command_rx.recv() => self.on_command(emitter, &mut rs, cmd).await,
             };
             if !running {
@@ -207,10 +193,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
                     let _ = caller.send(reply);
                 }
                 Action::Ended(reason) => {
-                    // Carry tmux's own reason before it is collapsed: `%exit
-                    // detached` means the user detached, and a client that
-                    // cannot tell that from a dropped link has to present a
-                    // deliberate detach as a failure to retry.
                     emitter.emit_disconnected(reason.clone());
                     let msg = reason.unwrap_or_else(|| "disconnected".to_string());
                     warn!(reason = %msg, "control mode exit event");
@@ -223,7 +205,6 @@ impl<C: ControlLink> TmuxMonitor<C> {
     }
 }
 
-/// Hand a notice to the emitter.
 pub(super) fn notify<E: StateEmitter>(emitter: &E, notice: Notice) {
     match notice {
         Notice::Images { pane_id, images } => emitter.store_images(&pane_id, images),

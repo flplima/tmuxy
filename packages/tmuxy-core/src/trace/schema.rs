@@ -40,9 +40,6 @@ impl Layer {
         }
     }
 
-    /// The layer of an event from its `tracing` target, by module path: the
-    /// aggregator is `tmuxy_core::control_mode::state`, the rest of
-    /// `control_mode` the monitor.
     pub fn of_target(target: &str) -> Self {
         let path: Vec<&str> = target.split("::").collect();
         match path.as_slice() {
@@ -113,8 +110,6 @@ pub const VERBATIM: &[&str] = &[
     "y",
 ];
 
-/// VS Code hashes a folder's git remote rather than its name; un-hashed at
-/// `Labeled`/`Full`.
 pub const HASHED: &[&str] = &["path"];
 
 pub const SCRUBBED: &[&str] = &["error", "message", "reason"];

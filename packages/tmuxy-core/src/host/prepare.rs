@@ -1,6 +1,5 @@
 //! What a host does once, before it serves anything: the web server before
-//! it binds, the desktop app before its first window. One function, so a new
-//! start-up step is added once and runs in one order on both.
+//! it binds, the desktop app before its first window.
 
 use std::path::{Path, PathBuf};
 
@@ -15,24 +14,13 @@ pub struct Prepared {
     pub tmux_version: String,
 }
 
-/// Get the process ready to serve tmux:
+/// Get the process ready to serve tmux.
 ///
-/// 1. On macOS, put the usual tool directories on PATH ([`gui_path`]). Done
-///    first, while nothing else runs: every tmux and script this process
-///    starts inherits it, and a `setenv` beside a `getenv` on another thread
-///    is undefined behaviour.
-/// 2. Check tmux is there and new enough. A host stops here with the reason
-///    and how to fix it, rather than serve clients that would reconnect for
-///    ever to a monitor that cannot attach.
-/// 3. Lay out the config dirs (`paths::Layout`): migrate an older install,
-///    mirror the shipped config, the built-in themes and the scripts into the
-///    data dir, and build the config chain — without which the prefix is
-///    never re-bound and the in-config aliases reach no script.
-/// 4. Collect what plugins left behind.
-///
-/// The chain publishes the data dir and the tmux binary to every tmux
-/// server it is sourced into (`session::TMUX_BIN_ENV`), so a script under
-/// `run-shell` drives the same tmux as this process.
+/// PATH is fixed first, while nothing else runs: every tmux and script this
+/// process starts inherits it, and a `setenv` beside a `getenv` on another
+/// thread is undefined behaviour. A missing or too old tmux stops the host
+/// with the reason, rather than serve clients that would reconnect for ever
+/// to a monitor that cannot attach.
 pub fn prepare() -> Result<Prepared, TmuxCheckError> {
     #[cfg(target_os = "macos")]
     {
@@ -63,12 +51,11 @@ pub fn prepare() -> Result<Prepared, TmuxCheckError> {
     })
 }
 
-/// The directories a macOS app started by launchd (Finder, the Dock,
-/// Spotlight) is missing from its PATH — `/usr/bin:/bin:/usr/sbin:/sbin` —
-/// prepended to `current`: Homebrew's (tmux, and the tools a pane's shell
-/// expects) and `~/.local/bin`, where the `tmuxy` shorthand
-/// (`session::refresh_launcher`) is, so a pane's shell can run `tmuxy`.
-/// `None` when nothing is missing.
+/// `current` with the directories a macOS app started by launchd (Finder,
+/// the Dock, Spotlight) lacks prepended: its PATH is only
+/// `/usr/bin:/bin:/usr/sbin:/sbin`, without Homebrew's (tmux, and the tools a
+/// pane's shell expects) or `~/.local/bin` (the `tmuxy` launcher). `None`
+/// when nothing is missing.
 pub fn gui_path(current: &str, home: Option<&Path>) -> Option<String> {
     let local_bin = home.map(|h| h.join(".local/bin").to_string_lossy().into_owned());
     let missing: Vec<&str> = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]

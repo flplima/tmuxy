@@ -6,7 +6,7 @@
 //!
 //! 1. [`open`] (`tmuxy plugin action`, in the caller's process) writes the
 //!    token file `.run/<token>.json` (owner-only) with everything the command
-//!    should know — the target pane, its cwd, the selection — and opens the
+//!    should know (the target pane, its cwd, the selection) and opens the
 //!    action's surface running `tmuxy plugin exec <plugin> <action> <token>`,
 //!    the one tmux command list that changes anything going through
 //!    `run-shell` (`job`).
@@ -35,7 +35,6 @@ use super::{private_dir, PluginError, Result};
 use crate::paths::Layout;
 use token::selection_path;
 
-/// What a command's context is about, beside its plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub action: Option<&'a str>,
@@ -70,7 +69,7 @@ pub fn context_json(dirs: &Layout, plugin: &Installed, ctx: Context<'_>) -> Resu
     Ok(context.to_string())
 }
 
-/// The environment every plugin command gets.
+/// The environment every plugin command gets (docs/PLUGIN-API.md).
 pub fn plugin_env(
     dirs: &Layout,
     plugin: &Installed,

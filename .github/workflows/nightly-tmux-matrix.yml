@@ -1,20 +1,11 @@
 name: nightly tmux version matrix
 
-# Every other workflow pins ONE tmux (`bin/toolchain tmux-version`, source-built
-# and cache-shared), so
-# nothing in CI has ever executed the version-specific paths docs/TMUX.md is
-# full of: the 3.5a `neww` crash and the `splitw ; breakp` rewrite, the 3.4
+# Every other workflow pins ONE tmux (`bin/toolchain tmux-version`), so
+# nothing else in CI executes the version-specific paths docs/TMUX.md is full
+# of: the 3.5a `neww` crash and the `splitw ; breakp` rewrite, the 3.4
 # auto-adopt race on `@tmuxy-window-type`, the control-mode differences the
-# router works around. This job runs the tmux-facing suites against each
-# supported version once a night, so those workarounds are exercised by
-# something other than a user's machine.
-#
-# Scope per version:
-#   - the tmuxy-core integration tests that drive a real `tmux -CC`
-#   - the snapshot E2E suite
-#   - tests/8-tui-alternate-screen.test.js (alternate-screen / TUI path)
-#   - the whole E2E suite, on every released version but the pinned one
-#     (which the per-commit jobs already run it on)
+# router works around. This runs the tmux-facing suites against each
+# supported version once a night.
 #
 # Blocking policy: the RELEASED versions gate this workflow. `HEAD`
 # (tmux master) does not — upstream can break, or change behaviour, on any
@@ -117,9 +108,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # The core integration tests are compiled here, so this job needs a
-      # toolchain (unlike the per-commit e2e job, which only consumes the
-      # prebuilt server).
       - uses: ./.github/actions/setup-node-rust
 
       # A released tmux's build dependencies come with install-tmux, on a
@@ -150,7 +138,7 @@ jobs:
 
       - uses: ./.github/actions/install-chromium
 
-      # Every test step below is `continue-on-error` so that ALL three suites
+      # Every test step below is `continue-on-error` so that ALL the suites
       # report on every version — a 3.4 crash in the core tests should not hide
       # whether the snapshot suite also breaks there. The gate step at the end
       # turns the collected outcomes back into a job result.
@@ -186,12 +174,10 @@ jobs:
         run: npx jest tests/8-tui-alternate-screen.test.js
 
       # The [nightly] E2E tier (docs/TESTS-LAYERS.md § Tiers): tests a push skips
-      # because a cheaper layer already holds their logic, run once a day
-      # against the real server and tmux. On the one tmux version the
-      # per-commit jobs pin, since that is the tier's whole point; the other
-      # versions are what the two suites above are for. Every file is given
-      # to jest, which skips what the pattern leaves out, so a file whose
-      # every test is tagged needs no listing anywhere.
+      # because a cheaper layer already holds their logic, run once a day on
+      # the tmux the per-commit jobs pin. Every file is given to jest, which
+      # skips what the pattern leaves out, so a file whose every test is
+      # tagged needs no listing anywhere.
       - name: Nightly E2E tier
         id: nightly-tier
         if: matrix.tmux.pinned
@@ -276,7 +262,6 @@ jobs:
 
           BODY="$BODY" bin/ci/nightly-issue report "$TITLE"
 
-      # The released versions gate; HEAD only reports.
       - name: Gate on the result
         if: always()
         run: |

@@ -1,8 +1,8 @@
 name: Build the server
 description: tmuxy-server with the frontend embedded, uploaded as the `tmuxy-server-release` artifact.
 # The server embeds the dist at compile time (rust-embed in
-# tmuxy-server/src/server.rs), so it is built after the frontend: from the
-# `frontend-dist` artifact, unless this job built the dist itself.
+# tmuxy-server/src/server/lifecycle.rs), so it is built after the frontend:
+# from the `frontend-dist` artifact, unless this job built the dist itself.
 # Artifacts do not carry the executable bit; consumers chmod it.
 inputs:
   profile:

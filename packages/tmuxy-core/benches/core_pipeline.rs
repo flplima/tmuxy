@@ -4,12 +4,6 @@
 //! truth, no VT reimplementation). This is the "how fast is our code with the
 //! network removed" baseline described in docs/PERFORMANCE.md.
 //!
-//! Three groups:
-//! - `full_sync`: cold parse of the first sync block → first FULL snapshot.
-//! - `delta_rename`: one single-field change on a synced session → DELTA.
-//! - `output_burst`: a `seq 1 N` flood of %output events → vt100 feed + delta,
-//!   reported as bytes/sec throughput.
-//!
 //! Run: `cargo bench -p tmuxy-core`
 
 use std::time::Duration;
@@ -75,7 +69,6 @@ fn synced_session() -> (Parser, StateAggregator) {
     (parser, agg)
 }
 
-/// A `seq`-style burst of `%output` events for pane %0, one line each.
 fn output_burst(lines: usize) -> Vec<ControlModeEvent> {
     (0..lines)
         .map(|i| ControlModeEvent::Output {

@@ -1,6 +1,3 @@
-//! What the plugin integration tests share: a scratch home and state dir,
-//! the real binary run against them, and git for fixture repositories.
-
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -28,8 +25,6 @@ impl Scratch {
         self.base.join(rel)
     }
 
-    /// The binary, with every directory pointed into the scratch dir, a
-    /// tmux socket nothing listens on, and no terminal.
     pub fn tmuxy(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_tmuxy-server"))
             .arg("plugin")
@@ -63,7 +58,6 @@ impl Drop for Scratch {
     }
 }
 
-/// git for building fixtures: no user config either way.
 pub fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args([

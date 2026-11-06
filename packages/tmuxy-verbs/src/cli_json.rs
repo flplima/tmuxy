@@ -7,12 +7,10 @@ pub const EXIT_FAILED: i32 = 1;
 pub const EXIT_USAGE: i32 = 2;
 pub const EXIT_TARGET: i32 = 3;
 
-/// One string as a JSON string literal, quotes included.
 pub fn string(value: &str) -> String {
     serde_json::Value::from(value).to_string()
 }
 
-/// `{"ok":true}` plus `fields`, each value a JSON literal.
 fn ok_object(fields: &[(&str, String)]) -> String {
     let mut out = String::from(r#"{"ok":true"#);
     for (name, value) in fields {
@@ -30,8 +28,7 @@ impl Answer {
         Self { json }
     }
 
-    /// A success: `{"ok":true}` plus `fields` (each value a JSON literal)
-    /// under `--json`, else `text` on stdout.
+    /// Each value in `fields` is already a JSON literal (see [`string`]).
     pub fn done(&self, fields: &[(&str, String)], text: &str) {
         if self.json {
             println!("{}", ok_object(fields));
@@ -40,7 +37,6 @@ impl Answer {
         }
     }
 
-    /// A failure, said as the mode wants it; returns the exit code.
     pub fn fail(&self, code: i32, message: &str) -> i32 {
         if self.json {
             println!(

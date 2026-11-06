@@ -41,7 +41,6 @@ pub const MAX_STAGED_BYTES: usize = 48 * 1024 * 1024;
 /// How many panes' staged pages are kept; the oldest goes first.
 const STAGED_PAGES: usize = 16;
 
-/// The widget name the authorisation must carry.
 const WIDGET: &str = "preview";
 
 /// What tmux says a pane may preview.
@@ -54,7 +53,6 @@ pub struct Authorisation {
     pub net: bool,
 }
 
-/// The two kinds of document a preview renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentKind {
     Html,
@@ -78,9 +76,8 @@ impl DocumentKind {
     }
 }
 
-/// Whether a document may link the file at `path`: one of the types a page
-/// loads to draw itself (`mime::PreviewUse::Resource`), nothing that is merely
-/// a file (`.txt`, `.json`, `.pdf`, a key).
+/// Only the types a page loads to draw itself, nothing that is merely a file
+/// (`.txt`, `.json`, `.pdf`, a key).
 fn is_resource(path: &Path) -> bool {
     preview_use(&path.to_string_lossy()) == PreviewUse::Resource
 }
@@ -114,7 +111,6 @@ fn authorisation_query(pane: &PaneId) -> String {
         .join(" ; ")
 }
 
-/// Ask tmux what `pane` may preview.
 pub async fn authorisation(
     tx: &MonitorCommandSender,
     pane: &PaneId,
@@ -172,9 +168,6 @@ fn read_capped(path: &Path, cap: u64) -> Result<Vec<u8>, CommandError> {
     Ok(bytes)
 }
 
-/// Resolve and validate the previewed document itself: it must carry an `.html`
-/// or `.md` extension, must not be a symlink, and must still carry that same
-/// kind once canonicalized.
 fn resolve_document(document: &Path) -> Result<(PathBuf, DocumentKind), CommandError> {
     let kind = DocumentKind::of(document).ok_or_else(|| {
         CommandError::forbidden("a preview shows an .html or .md file, nothing else")
@@ -195,8 +188,6 @@ fn resolve_document(document: &Path) -> Result<(PathBuf, DocumentKind), CommandE
     Ok((resolved, kind))
 }
 
-/// Whether a path component is one a resource may pass through: not hidden,
-/// not `..`, not the root.
 fn plain_component(component: Component<'_>) -> bool {
     match component {
         Component::Normal(name) => !name.to_string_lossy().starts_with('.'),
@@ -245,7 +236,6 @@ pub fn resolve_resource(document: &Path, relative: &str) -> Result<PathBuf, Comm
     Ok(resolved)
 }
 
-/// The document itself.
 pub fn read_document(auth: &Authorisation) -> Result<PreviewDocument, CommandError> {
     let (resolved, kind) = resolve_document(&auth.document)?;
     let bytes = read_capped(&resolved, MAX_DOCUMENT_BYTES)?;
@@ -262,7 +252,6 @@ pub fn read_document(auth: &Authorisation) -> Result<PreviewDocument, CommandErr
     })
 }
 
-/// A resource the document links.
 pub fn read_resource(
     auth: &Authorisation,
     relative: &str,
@@ -368,7 +357,6 @@ pub struct PreviewPages {
     store: std::sync::Mutex<PreviewStore>,
 }
 
-/// A staged page and the policy it is served under.
 #[derive(Debug, Clone)]
 pub struct StagedPage {
     pub html: String,
@@ -414,7 +402,6 @@ impl PreviewPages {
         Ok(())
     }
 
-    /// `pane`'s page, if one is staged.
     pub fn page(&self, pane: &PaneId) -> Option<StagedPage> {
         let store = self.store.lock().unwrap_or_else(|e| e.into_inner());
         store
@@ -424,7 +411,6 @@ impl PreviewPages {
             .map(|(_, page)| page.clone())
     }
 
-    /// Drop `pane`'s staged page.
     pub fn evict(&self, pane: &PaneId) {
         let mut store = self.store.lock().unwrap_or_else(|e| e.into_inner());
         store.pages.retain(|(id, _)| id != pane);

@@ -52,7 +52,6 @@ impl Subscription {
     }
 }
 
-/// The push directory and what is in it.
 pub(crate) struct Store {
     dir: PathBuf,
 }
@@ -86,8 +85,6 @@ impl Store {
         {
             return Ok(key);
         }
-        // A key file that does not read was another key: the devices on it
-        // are its, not the new one's.
         if self.key_path().exists() {
             match std::fs::remove_file(self.subscriptions_path()) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
@@ -145,7 +142,6 @@ impl Store {
     }
 }
 
-/// Write `bytes` to `path` readable by the user alone, replacing it whole.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

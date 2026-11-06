@@ -2,15 +2,7 @@
 #
 # The lint gate: ONE list of what is formatted, linted, type-checked and
 # clippy'd, run by the pre-commit hook (`format`), the pre-push hook and CI's
-# `lint` job (`check`).
-#
-# The hooks and the job each used to keep their own list, and the lists
-# drifted: pre-commit formatted three crates while CI checked five, clippy ran
-# in both hooks but never for the wasm target, the demo site was type-checked
-# by nothing but its CI build, and ~4,000 lines of scripts under bin/, tests/perf/
-# and the UI package were formatted and linted by nothing at all. A push was
-# then red for a reason no hook had looked at. Now a green `check` here IS a
-# green lint job, because they are the same commands over the same files.
+# `lint` job (`check`): a green `check` here IS a green lint job.
 #
 # Usage:
 #   bin/lint-gate format             # rewrite: prettier, eslint --fix, cargo fmt
@@ -19,9 +11,6 @@
 #                                    # types knip clippy clippy-wasm
 #   bin/lint-gate steps              # the step names, one per line (CI's
 #                                    # lint job runs each by name)
-#
-# Unit tests are not here: they are the `unit-tests` job, and `npm run
-# check:fast` is this gate followed by them.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -64,7 +53,6 @@ ESLINT_ROOT_SCOPE=(
 
 step() { printf '\n== %s ==\n' "$1"; }
 
-# `-p a -p b …` for cargo, from a list of crate names.
 pkgs() {
   for crate in "$@"; do printf -- '-p %s ' "$crate"; done
 }
@@ -108,7 +96,7 @@ check_types() {
   step types
   (cd packages/tmuxy-ui && npx tsc --noEmit)
   # The demo imports the UI package, so a renamed export or a changed prop
-  # breaks its build; before this it was type-checked only by CI building it.
+  # breaks its build.
   npx tsc --noEmit -p packages/tmuxy-demo
 }
 

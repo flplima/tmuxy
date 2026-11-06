@@ -1,8 +1,4 @@
 //! Unit tests for the sans-IO `StateAggregator::step` entry point.
-//!
-//! Drives the aggregator with synthetic events and asserts the typed
-//! `SideEffect` values it emits. No tokio, no real tmux, no real time —
-//! just `step(event) -> StepResult`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

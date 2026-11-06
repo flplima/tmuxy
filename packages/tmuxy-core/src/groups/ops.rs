@@ -6,10 +6,6 @@ use super::{
     split, swap_into_view, ungroup, Context, GroupError, Invocation, Panes,
 };
 
-// ---------------------------------------------------------------------------
-// Operations
-// ---------------------------------------------------------------------------
-
 /// The first half of a two-step operation: what runs before the split, the
 /// split itself (it prints the new pane's id), and the group the new pane
 /// joins.
@@ -188,7 +184,6 @@ pub fn switch(panes: &Panes, target: &PaneId) -> Vec<Invocation> {
     }
 }
 
-/// Which way `step` goes through the group's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Next,
@@ -213,8 +208,6 @@ pub fn step_within(panes: &Panes, pane: &PaneId, direction: Direction) -> Vec<In
     })
 }
 
-/// Switch to the member `pick` chooses, given the visible member's place and
-/// the group's size.
 fn step_by(
     panes: &Panes,
     pane: &PaneId,
@@ -352,8 +345,7 @@ impl Side {
 
 /// `leave`: take a member out of its group. A member on screen first hands
 /// its place to the next member in the order (or the one before, if it was
-/// last), so the group keeps showing something; a group left with one member
-/// is no group.
+/// last), so the group keeps showing something.
 pub fn leave(
     panes: &Panes,
     pane: &PaneId,

@@ -2,12 +2,11 @@
 //! `@tmuxy-plugins` (base64 JSON) and `@tmuxy-plugins-rev`.
 //!
 //! They live on the tmux server rather than in a file the web server reads
-//! because the client's menus belong to whatever tmux server it shows: the web
-//! UI's, a local desktop app's, and a desktop app attached over SSH to a
-//! remote one alike. tmux announces no change to a user option, so only the
-//! small `@tmuxy-plugins-rev` rides the pane-metadata subscription and the
-//! `list-panes` rows (`tmux_formats`); a new rev makes the client read the
-//! inventory itself with one `query`.
+//! because the client's menus belong to whatever tmux server it shows (the
+//! web UI's, a local desktop app's, or a remote one over SSH). tmux announces
+//! no change to a user option, so only the small `@tmuxy-plugins-rev` rides
+//! the pane-metadata subscription and the `list-panes` rows; a new rev makes
+//! the client read the inventory itself with one `query`.
 //!
 //! Written by `tmuxy plugin install|update|remove`, by `tmuxy config reload`
 //! (the user's own plugin), and by every monitor when it attaches, so a fresh

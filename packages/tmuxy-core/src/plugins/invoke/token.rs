@@ -53,7 +53,6 @@ pub struct PaneInfo {
     pub session: String,
 }
 
-/// An invocation token's file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Token {
@@ -86,7 +85,6 @@ fn now() -> u64 {
         .unwrap_or_default()
 }
 
-/// A pane id as tmux names one.
 pub fn is_pane_id(pane: &str) -> bool {
     pane.strip_prefix('%')
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
@@ -128,7 +126,6 @@ impl Token {
         }
     }
 
-    /// Write it under a fresh id, owner-only.
     pub fn create(&self, dirs: &Layout) -> Result<String> {
         let id = random_hex()?;
         self.write(dirs, &id)?;

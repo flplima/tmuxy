@@ -4,10 +4,8 @@
 //! agent's hooks, `tmuxy pane state`, a send's question) and tmux announces
 //! no option change. A monitor would see it, but there is one only while a
 //! client watches that session. So the host reads every pane itself, with
-//! one read-only `list-panes -a` across every session — a read, which tmux
-//! runs safely beside an attached control-mode client (docs/TMUX.md) — and
-//! hands the rows to what follows them: the agent-dialog correction
-//! ([`agent_screen`]), on every host, and the web's push notifications.
+//! one `list-panes -a` across every session: a read, which tmux runs safely
+//! beside an attached control-mode client (docs/TMUX.md).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,15 +14,13 @@ use tokio::sync::watch;
 
 pub mod agent_screen;
 
-/// How often the panes are read.
 pub const INTERVAL: Duration = Duration::from_millis(1500);
 
-/// One `list-panes -a` row, tab-separated, the free-text fields last.
+/// Tab-separated, the free-text fields last (a window name may hold a tab).
 pub const PANES_FORMAT: &str = "#{pane_id}\t#{session_name}\t#{@tmuxy-notify}\t\
      #{@tmuxy-pane-state}\t#{pane_current_command}\t#{@tmuxy-ask}\t#{@tmuxy-label}\t\
      #{window_name}";
 
-/// A pane, as [`PANES_FORMAT`] prints it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PaneRow {
     pub pane_id: String,
@@ -39,7 +35,7 @@ pub struct PaneRow {
     pub window: String,
 }
 
-/// The rows of a [`PANES_FORMAT`] listing; a line missing a field is skipped.
+/// A line missing a field is skipped.
 pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
     listing
         .lines()
@@ -62,7 +58,6 @@ pub fn parse_rows(listing: &str) -> Vec<PaneRow> {
         .collect()
 }
 
-/// Every pane on the socket, read with one read-only `list-panes -a`;
 /// `None` when there is no tmux server to ask.
 pub fn read_panes() -> Option<Vec<PaneRow>> {
     let output = crate::session::tmux_command()
@@ -78,10 +73,9 @@ pub fn read_panes() -> Option<Vec<PaneRow>> {
 /// The rows as last read: empty until the first read.
 pub type Rows = watch::Receiver<Arc<Vec<PaneRow>>>;
 
-/// Read the panes every [`INTERVAL`], for as long as the future runs,
-/// publishing each read (a server that cannot be asked publishes nothing),
-/// and correcting agent panes from their screens as it goes. `watch` is how
-/// the host's other consumers subscribe.
+/// Read the panes every [`INTERVAL`] for as long as the future runs,
+/// correcting agent panes from their screens and publishing each read (a
+/// server that cannot be asked publishes nothing).
 pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
     let mut corrector = agent_screen::Corrector::default();
     loop {
@@ -103,7 +97,6 @@ pub async fn run(watch: watch::Sender<Arc<Vec<PaneRow>>>) {
     }
 }
 
-/// A channel [`run`] publishes to, and its first receiver.
 pub fn channel() -> (watch::Sender<Arc<Vec<PaneRow>>>, Rows) {
     watch::channel(Arc::new(Vec::new()))
 }

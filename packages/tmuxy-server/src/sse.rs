@@ -37,8 +37,6 @@ use commands::command_failure;
 #[cfg(test)]
 use commands::handle_command;
 
-/// An event frame as the browser receives it: the name it dispatches on, the
-/// seq it resumes from, the serialised event.
 fn sse_frame(seq: Option<u64>, frame: &Frame) -> Event {
     let event = Event::default().event(frame.name).data(&*frame.data);
     match seq {
@@ -47,16 +45,11 @@ fn sse_frame(seq: Option<u64>, frame: &Frame) -> Event {
     }
 }
 
-// ============================================
-// Query Parameters
-// ============================================
-
 #[derive(Debug, Deserialize)]
 pub struct SessionQuery {
     session: Option<String>,
 }
 
-/// A `?session=` the server will not serve.
 #[derive(Debug)]
 pub(super) enum SessionRejection {
     /// A name the server will not write into a command line; a 400.
@@ -81,7 +74,6 @@ impl SessionRejection {
         }
     }
 
-    /// The same refusal for `POST /commands`, in its error shape.
     pub(super) fn into_command_failure(self) -> Response {
         let error = match self {
             Self::Invalid | Self::TooMany => CommandError::invalid(self.message()),
@@ -103,7 +95,6 @@ impl IntoResponse for SessionRejection {
 }
 
 impl SessionQuery {
-    /// The session the request names — the default one when it names none.
     /// The name is written into control-mode command lines, where a newline
     /// (or any control character) would end the command and start another.
     fn session(self) -> Result<SessionName, SessionRejection> {
@@ -114,18 +105,10 @@ impl SessionQuery {
     }
 }
 
-// ============================================
-// SSE Handler (GET /events)
-// ============================================
-
-/// Whether the ring buffer can resume a reconnecting client without a gap.
-///
-/// `last_event_id` is the `Last-Event-Id` header the browser replays;
-/// `oldest` is the lowest seq still buffered. The client needs everything
-/// strictly after `last_event_id`, so the buffer serves it only when it still
-/// holds that event's successor. A client that fell further behind than the
-/// buffer is resynced with a full snapshot instead — serving it a partial
-/// replay would leave the UI silently diverged from tmux.
+/// The buffer serves a reconnecting client only while it still holds the
+/// successor of the browser's `Last-Event-Id`. A client further behind is
+/// resynced with a full snapshot instead: a partial replay would leave the UI
+/// silently diverged from tmux.
 fn can_replay_from(last_event_id: Option<u64>, oldest: Option<u64>) -> bool {
     match (last_event_id, oldest) {
         (Some(last), Some(oldest)) => last >= oldest.saturating_sub(1),
@@ -143,9 +126,9 @@ pub async fn sse_handler(
         Err(rejection) => return rejection.into_response(),
     };
 
-    // SEC-16: one long-lived task and one broadcast receiver per stream, with
-    // nothing counting them. The slot is released when the stream generator is
-    // dropped, which is what a client disconnecting does.
+    // Each stream is a long-lived task and a broadcast receiver: uncounted, a
+    // connection flood grows them without bound. The slot is released when
+    // the stream generator is dropped, which is what a client disconnecting does.
     let Some(stream_slot) = state.claim_stream_slot() else {
         tracing::warn!(
             target: "tmuxy_server::sse",
@@ -160,10 +143,6 @@ pub async fn sse_handler(
             .into_response();
     };
 
-    // Browser passes the id of the last event it received via the standard
-    // `Last-Event-Id` header on reconnect. If we can find it in the per-session
-    // ring buffer, we replay the missing events. If the id is older than the
-    // buffer head (or absent), the live stream takes over from the next event.
     let last_event_id: Option<u64> = headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
@@ -185,12 +164,10 @@ pub async fn sse_handler(
     }
     let session = session.into_string();
 
-    // Generate unique connection ID
     let conn_id = state.next_conn_id.fetch_add(1, Ordering::SeqCst);
 
-    // Register the connection and start the session's monitor if it has
-    // none (one that died is restarted). A stream never creates the session:
-    // only `ensure_session` does, under its cap.
+    // A stream never creates the session: only `ensure_session` does, under
+    // its cap.
     let (session_rx, session_broadcast, runtime) = {
         let mut sessions = state.sessions.write().await;
         let conns = sessions
@@ -205,18 +182,11 @@ pub async fn sse_handler(
         )
     };
 
-    // Create the SSE stream
-    //
-    // IMPORTANT: When the SSE client disconnects, Axum detects the broken connection
-    // on the next keepalive write and DROPS the stream generator. The generator is
-    // suspended at `session_rx.recv().await`, so any cleanup code after the loop
-    // never executes. We use a oneshot channel: the sender lives inside the generator,
-    // and when the generator is dropped, the sender is dropped, signaling the cleanup task.
+    // When the client disconnects, Axum DROPS the stream generator at the next
+    // keepalive write, suspended at `recv().await`: code after its loop never
+    // runs. The cleanup waits on this channel's sender, dropped with it.
     let (drop_tx, drop_rx) = tokio::sync::oneshot::channel::<()>();
 
-    // Spawn cleanup task that fires when the stream is dropped (client disconnect).
-    // Tracked in `AppState::join_set` so server shutdown drains it instead of
-    // leaving it dangling on Ctrl+C.
     {
         let cleanup_state = state.clone();
         let cleanup_session = session.clone();
@@ -239,12 +209,7 @@ pub async fn sse_handler(
 
     let stream_shutdown = state.shutdown.clone();
     let stream = async_stream::stream! {
-        // Keep the drop sender alive for the lifetime of the stream.
-        // When this generator is dropped (client disconnect), _drop_guard is dropped,
-        // which drops drop_tx, signaling the cleanup task.
         let _drop_guard = drop_tx;
-        // Same lifetime, same reason: the slot this stream occupies in the
-        // server's budget is given back when the generator goes.
         let _stream_slot = stream_slot;
 
         // Who the client is, and — for a client reconnecting to a monitor
@@ -260,18 +225,12 @@ pub async fn sse_handler(
 
         let mut session_rx = session_rx;
 
-        // Last-Event-Id replay: if the client reconnected with a known seq,
-        // dump everything in the ring buffer above that seq before entering the
-        // live loop. If the requested seq is older than the buffer head (or no
-        // header at all), we can't fill the gap from cache alone — the live
-        // stream just resumes from the next event, whose delta seq the
-        // client's sequencer sees as a gap and answers with a refetch (S3 and
-        // C1 in `docs/INVARIANTS.md`).
-        // Only advance past events we actually replayed from the ring buffer.
-        // Seeding this from a stale Last-Event-Id would make the live loop's
-        // `seq <= last_replayed` dedupe drop every fresh event when the buffer
-        // can't serve the gap (server restart resets the seq counter, or a
-        // >buffer disconnect), freezing the UI.
+        // A gap the ring cannot fill is left to the client's sequencer, which
+        // sees it in the delta seqs and refetches (S3 and C1 in
+        // `docs/INVARIANTS.md`). `last_replayed` only advances past events
+        // actually replayed: seeded from a stale Last-Event-Id (a restarted
+        // server's seqs start over) the dedupe below would drop every fresh
+        // event and freeze the UI.
         let mut last_replayed: u64 = 0;
         let buffer_can_serve = can_replay_from(last_event_id, session_broadcast.oldest_seq());
         if buffer_can_serve {
@@ -292,7 +251,6 @@ pub async fn sse_handler(
                     info!(conn_id, "server shutting down, ending stream");
                     break;
                 }
-                // Handle session-specific state changes
                 result = session_rx.recv() => {
                     match result {
                         Ok((seq, frame)) => {
@@ -306,18 +264,10 @@ pub async fn sse_handler(
                             yield Ok(sse_frame(Some(seq), &frame));
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            // The subscriber fell behind and the channel dropped
-                            // `n` messages. Replay whatever is still in the ring
-                            // buffer above what we've already sent so the client
-                            // recovers without waiting for the next full snapshot.
-                            // If the gap exceeds the buffer, replay covers the
-                            // buffered tail only: the client's sequencer sees the
-                            // jump in delta seqs (it never reads these ids) and
-                            // refetches a full state (C1 in `docs/INVARIANTS.md`);
-                            // a lag that drops only other events is not seen by
-                            // anything. The `seq <= last_replayed`
-                            // dedup below absorbs any overlap with resumed
-                            // delivery.
+                            // A gap past the ring is seen by the client's
+                            // sequencer in the delta seqs (it never reads these
+                            // ids), which refetches a full state (C1 in
+                            // `docs/INVARIANTS.md`).
                             warn!(conn_id, lagged = n, "client lagged; replaying ring buffer");
                             for (seq, frame) in session_broadcast.replay_since(last_replayed) {
                                 last_replayed = seq;
@@ -336,8 +286,8 @@ pub async fn sse_handler(
     Sse::new(stream)
         // A named event rather than the default comment line: a page never sees
         // a comment, and the client times a silent link out by these (the
-        // `ping` watchdog in HttpAdapter). An event with no data is dropped by
-        // the browser before dispatch, hence the placeholder.
+        // `ping` watchdog in tmuxy-ui's httpStream.ts). An event with no data
+        // is dropped by the browser before dispatch, hence the placeholder.
         .keep_alive(
             KeepAlive::new()
                 .interval(Duration::from_secs(1))

@@ -4,11 +4,11 @@ name: Build App
 # already proves per-commit that the Linux release binary builds and launches,
 # so what is left for this workflow to catch is macOS and arm64 breakage and
 # the installer/bundle paths (DMG, AppImage, .deb, the upgrade path) — real
-# risks, but ones a day of latency is fine for. It used to run on every push
-# to main, putting a 3-platform build and notarization behind every commit.
+# risks, but ones a day of latency is fine for.
 #
-# Everything that PUBLISHES (release, bump-cask, bump-formula, verify) is
-# gated on a tag ref, so a scheduled run builds and smoke-tests only.
+# Everything that PUBLISHES is gated on a tag (release) or on a promotion
+# (bump-cask, bump-formula, verify-brew-cask), so a scheduled run builds and
+# smoke-tests only.
 on:
   push:
     tags: ['v*']
@@ -32,13 +32,8 @@ permissions:
   contents: read
 
 jobs:
-  # The full test suite, run against the TAG ref itself.
-  #
-  # `lint and tests` triggers on pushes to main and on pull requests, so a tag
-  # push used to run nothing but this workflow: the artifacts that became a
-  # release had never been tested as tagged. The release skill's CI gate checks
-  # the version-bump *sha*, which is close but not the same thing and is not
-  # structural — a `needs:` is.
+  # The full test suite, run against the TAG ref itself: `lint and tests`
+  # triggers on pushes to main and on pull requests, never on a tag.
   #
   # `workflow_call` rather than adding `push: tags` to lint-and-tests.yml: a
   # separate tag-triggered run is a different run that `release` cannot depend
@@ -128,8 +123,6 @@ jobs:
           # shellcheck disable=SC2046 # one package per word
           bin/ci/apt-get install -y $(bin/toolchain packages webkit-dev)
 
-      # `npm ci` (not `npm install`): the release build must use exactly the
-      # locked dependency tree, not whatever the ranges resolve to today.
       - run: npm ci
 
       # The Rust suite on a Mac, against Homebrew's tmux: daily and on every
@@ -143,8 +136,6 @@ jobs:
           brew list tmux >/dev/null 2>&1 || brew install tmux
           mkdir -p packages/tmuxy-ui/dist
           cargo test --workspace
-
-      # --- Build ---
 
       # Notarization wants the App Store Connect key as a file, and secrets are
       # strings — so materialise it and hand the CLI its path. Skipped (with the
@@ -182,14 +173,10 @@ jobs:
       # quarantined, and Gatekeeper assesses the image before anything inside
       # it: `spctl` rejects it with `source=Unnotarized Developer ID` and the
       # user gets the "cannot be opened" dialog on the thing they just
-      # downloaded. Verified on alpha.67 and alpha.68 alike, so this was never
-      # right rather than newly broken.
-      #
-      # Submitting the image too, and stapling the ticket INTO it, is what
-      # makes the direct-download path match what the signing section of the
-      # release skill already promises. Homebrew is unaffected either way (the
-      # cask strips the quarantine attribute) — this is for the person who
-      # clicks the asset on the releases page.
+      # downloaded. So the image is submitted too, and the ticket stapled INTO
+      # it. Homebrew is unaffected either way (the cask strips the quarantine
+      # attribute) — this is for the person who clicks the asset on the
+      # releases page.
       - name: Notarize and staple the DMG itself (macOS)
         if: env.NOTARIZE == 'true'
         env:
@@ -218,11 +205,9 @@ jobs:
         if: always() && env.NOTARIZE == 'true'
         run: rm -rf "$HOME/private_keys"
 
-      # --- Smoke Test (Linux + macOS) ---
-      # Both platforms use WebdriverIO for full GUI verification: launch app,
-      # type a command, verify output appears in the terminal UI.
-      # Linux: tauri-driver (WebKitGTK driver) + Xvfb
-      # macOS: tauri-webdriver (embeds WebDriver in the app via plugin)
+      # GUI smoke test drivers. Linux: tauri-driver (WebKitGTK's driver) under
+      # Xvfb. macOS has no WebKit driver, so tauri-webdriver proxies W3C
+      # WebDriver to a plugin embedded in a debug build.
 
       - uses: ./.github/actions/install-desktop-test-deps
         if: matrix.platform == 'linux'
@@ -277,16 +262,13 @@ jobs:
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
         run: |
-          # Start tauri-webdriver (proxies W3C WebDriver to the embedded plugin)
           tauri-webdriver --port 4444 &
           DRIVER_PID=$!
           sleep 2
 
-          # Run smoke test using the debug binary (has webdriver plugin)
           node tests/smoke/smoke-test.js target/debug/tmuxy
           RESULT=$?
 
-          # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
 
           exit $RESULT
@@ -315,10 +297,7 @@ jobs:
       # Everything above runs `target/release/tmuxy` (or the debug build),
       # which is not what any user installs. These steps exercise the DMG, the
       # AppImage and the .deb themselves — the bundle layout, the bundled
-      # resources and, for the .deb, its declared dependencies. They are an
-      # extra layer on top of tests/smoke/smoke-test.js, not a replacement:
-      # that one drives the GUI, these one prove the package is installable
-      # and launchable.
+      # resources and, for the .deb, its declared dependencies.
 
       - name: Smoke-test the shipped DMG (macOS)
         if: matrix.platform == 'macos'
@@ -354,8 +333,7 @@ jobs:
       # Signing and notarization are silent no-ops when the Apple secrets are
       # absent (see the env block above), so an unsigned DMG looks identical in
       # the logs. On a tag that is a release nobody can install without the
-      # Gatekeeper dialog — assert it, and fail. No continue-on-error, no
-      # `|| true`: a release that cannot be verified is not a release.
+      # Gatekeeper dialog, so it fails here.
       - name: Assert the DMG is signed, notarized and stapled (macOS, tags)
         if: matrix.platform == 'macos' && startsWith(github.ref, 'refs/tags/')
         run: |
@@ -394,8 +372,7 @@ jobs:
           # quarantines. Asserted with the `open` context and the primary
           # signature — the same assessment Gatekeeper makes on a mount — so a
           # DMG that carries no ticket of its own fails here rather than
-          # greeting a user with "cannot be opened". This is the check that was
-          # missing when alpha.67 and alpha.68 shipped an unnotarized image.
+          # greeting a user with "cannot be opened".
           echo "--- the DMG itself ---"
           set +e
           spctl -a -vvv -t open --context context:primary-signature "$DMG" \
@@ -516,9 +493,6 @@ jobs:
             ' | tee "${RUNNER_TEMP}/deb-install.txt"
           grep -q '^tmuxy ' "${RUNNER_TEMP}/deb-install.txt"
 
-      # --- Collect & Upload Artifacts ---
-      # Linux uploads .deb and .AppImage as separate artifacts
-
       - name: Upload AppImage
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -543,8 +517,6 @@ jobs:
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
-  # --- Release (only on tag push, after all builds + smoke tests pass) ---
-
   # --- Upgrade path: the previous release, replaced by this build ---
   #
   # The bug class here is f1905d7 (a stopping server deleted the pid file of
@@ -554,8 +526,8 @@ jobs:
   # build that is already installed and running is replaced by a new one, which
   # is exactly the sequence no other job performs.
   #
-  # Runs on every push, not only tags, so a regression surfaces before the tag
-  # rather than at it. With no previous release published (the very first tag,
+  # Runs on the daily build too, not only tags, so a regression surfaces before
+  # the tag rather than at it. With no previous release published (the very first tag,
   # or a fork) the job says so and passes.
   upgrade-path:
     needs: build
@@ -592,7 +564,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # The newest published release that is not the tag being built.
           PREV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
                    --json tagName,isDraft \
                    --jq '[.[] | select(.isDraft | not) | .tagName]
@@ -633,7 +604,6 @@ jobs:
             return 1
           }
 
-          # $1 = how many seconds to keep looking, $2 = pattern, $3 = file.
           wait_for_line() {
             for _ in $(seq 1 "$1"); do
               grep -q "$2" "$3" && return 0
@@ -682,10 +652,9 @@ jobs:
             || { echo "the tab never got a stream from the old build"; \
                  cat "${RUNNER_TEMP}/sse.log"; exit 1; }
 
-          # 3. The new build takes over: its own binary stops the running
-          #    server through the pid file, then binds the same port. Started
-          #    immediately, with no sleep — f1905d7 was a race between the
-          #    old server's exit and the new server's pid file.
+          # 3. The new build takes over. Started immediately, with no sleep:
+          #    f1905d7 was a race between the old server's exit and the new
+          #    server's pid file.
           "$NEW" server --port "$PORT" stop | tee "${RUNNER_TEMP}/stop.txt"
           grep -q 'Sent SIGTERM' "${RUNNER_TEMP}/stop.txt" \
             || { echo "the new build did not recognise the running server"; exit 1; }
@@ -731,8 +700,8 @@ jobs:
           [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
             || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
 
-          # 5. The open tab recovers: the stream it reconnects to delivers a
-          #    fresh snapshot rather than hanging on "Connecting…" (722bd14).
+          # 5. The open tab recovers rather than hanging on "Connecting…"
+          #    (722bd14).
           for _ in $(seq 1 30); do
             if [ "$(grep -c '^open 200' "${RUNNER_TEMP}/sse.log")" -ge 2 ] \
                && [ "$(grep -c 'event:[[:space:]]*connection-info' "${RUNNER_TEMP}/sse.log")" -ge 2 ]; then
@@ -788,14 +757,12 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
 
-          # Flatten all platform artifacts into one directory
           mkdir -p release-assets
           find all-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' \) \
             -exec cp {} release-assets/ \;
 
           ls -lh release-assets/
 
-          # Create release with all assets
           # PRE-release, deliberately. The tap is not bumped from here, so
           # nothing reaches a `brew upgrade` until a human has used the build
           # and promoted it — which is the whole point of the soak. Promote
@@ -805,15 +772,10 @@ jobs:
             --notes "Release candidate — not yet promoted to brew. Install the asset for your platform below to try it; \`brew upgrade\` still serves the last promoted build until this one is promoted." \
             --prerelease
 
-  # --- Bump Homebrew Cask (only on tag push, after release publishes) ---
+  # --- Bump Homebrew Cask (on promotion) ---
   #
-  # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-  # `brew install --cask flplima/tap/tmuxy`. The DMG is signed and notarized
-  # (see the Apple secrets on the build job), and Homebrew's `binary` stanza
-  # links `tmuxy.app/Contents/MacOS/tmuxy` into `$(brew --prefix)/bin/tmuxy`.
   # Requires the HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on
   # flplima/homebrew-tap).
-
   bump-cask:
     # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
     # stops; `gh release edit <tag> --prerelease=false --latest` fires
@@ -878,9 +840,7 @@ jobs:
           cd tap
           mkdir -p Casks
 
-          # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-          # `brew install --cask flplima/tap/tmuxy`. It is the cask that would
-          # go to Homebrew/homebrew-cask, byte for byte, so every release proves
+          # The cask that would go to Homebrew/homebrew-cask, byte for byte, so every release proves
           # it: `verify-brew-cask` runs `brew style` and `brew audit --new` on
           # it. The `binary` stanza links the app's executable, which is the
           # full CLI, into `$(brew --prefix)/bin/tmuxy`. `zap` lists what the
@@ -933,20 +893,14 @@ jobs:
             git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
           fi
 
-  # --- Bump Homebrew Formula (only on tag push, after the cask is pushed) ---
+  # --- Bump Homebrew Formula (on promotion, after the cask) ---
   #
-  # Homebrew casks are macOS-only; Linux Homebrew installs from formulae.
-  # This pushes a Formula/tmuxy.rb to flplima/homebrew-tap so Linux users can
-  # `brew install flplima/tap/tmuxy`. The formula installs the release
-  # AppImage as the `tmuxy` binary. Runs after bump-cask (not in parallel) so
+  # Homebrew casks are macOS-only; Linux Homebrew installs from formulae, so
+  # the formula installs the release AppImage as `tmuxy`. After bump-cask so
   # the two jobs don't race pushing to the same tap repo.
-
   bump-formula:
     needs: bump-cask
-    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
-    # stops; `gh release edit <tag> --prerelease=false --latest` fires
-    # `release: released` and runs this. Forgetting to promote leaves users on
-    # the last good build, which is the failure mode we want.
+    # Promotion only, as bump-cask.
     if: github.event_name == 'release' && github.event.action == 'released'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -1007,8 +961,6 @@ jobs:
           cd tap
           mkdir -p Formula
 
-          # Single-quoted heredoc so bash leaves Ruby `#{version}` interpolation
-          # untouched. Placeholders sed-replaced below.
           cat > Formula/tmuxy.rb <<'FORMULA'
           class Tmuxy < Formula
             desc "Web-based tmux interface"
@@ -1092,7 +1044,7 @@ jobs:
             git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
           fi
 
-  # --- Verify the published install path (only on tag push, after the bumps) ---
+  # --- Verify the published install path (on promotion, after the bumps) ---
   #
   # Everything above verifies bytes we built. This verifies what a user gets:
   # a clean macOS runner with no tmuxy on it, installing the cask straight from
@@ -1106,10 +1058,7 @@ jobs:
   # which is the difference between a same-hour fix and a user bug report.
   verify-brew-cask:
     needs: [bump-cask, bump-formula]
-    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
-    # stops; `gh release edit <tag> --prerelease=false --latest` fires
-    # `release: released` and runs this. Forgetting to promote leaves users on
-    # the last good build, which is the failure mode we want.
+    # Promotion only, as bump-cask.
     if: github.event_name == 'release' && github.event.action == 'released'
     runs-on: macos-26
     timeout-minutes: 30

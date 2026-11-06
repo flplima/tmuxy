@@ -113,7 +113,6 @@ pub(super) fn resolve(
         let nested = resolve(dirs, registry, &dep_manifest, chain, out);
         chain.pop();
         let slug = src.slug();
-        // Deepest first: a dependency is installed before what needs it.
         out.push(Staged {
             source: src,
             slug,
@@ -126,7 +125,6 @@ pub(super) fn resolve(
     Ok(())
 }
 
-/// No two plugins of one install may claim the same verb.
 pub(super) fn verbs_unique(manifests: &[&Manifest]) -> Result<(), Failure> {
     let mut seen = std::collections::HashMap::new();
     for m in manifests {
@@ -148,7 +146,6 @@ pub(super) fn discard(staged: &[Staged]) {
     }
 }
 
-/// Move every staged dependency into place and pin it in the lockfile.
 pub(super) fn commit(
     dirs: &Layout,
     staged: Vec<Staged>,

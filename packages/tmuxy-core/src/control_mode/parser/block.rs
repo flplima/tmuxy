@@ -1,6 +1,3 @@
-//! A command's `%begin` … `%end`/`%error` block: where one opens, and the
-//! one line that closes it.
-
 use super::{ControlModeEvent, Parser};
 
 impl Parser {

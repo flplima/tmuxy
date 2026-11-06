@@ -56,7 +56,6 @@ pub use ids::{GroupId, IdError, PaneId, WindowId};
 
 use serde::{Deserialize, Serialize};
 
-/// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
 
 /// Single-quote a value for interpolation into a tmux command string.
@@ -106,17 +105,10 @@ pub fn tmux_double_quoted(value: &str) -> String {
     out
 }
 
-// ============================================
-// Structured Cell Types (for eliminating double ANSI parsing)
-// ============================================
-
-/// Color representation for terminal cells
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum CellColor {
-    /// Indexed color (0-255)
     Indexed(u8),
-    /// RGB color
     Rgb { r: u8, g: u8, b: u8 },
 }
 
@@ -131,7 +123,6 @@ pub enum CellSize {
     DoubleHeightBottom,
 }
 
-/// Cell style attributes (only present if cell has non-default styling)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct CellStyle {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,7 +132,7 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub bold: bool,
-    /// SGR 2: faint/dim text. Apps like Claude Code use this for autosuggestions.
+    /// SGR 2 (faint).
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub dim: bool,
@@ -154,10 +145,9 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub inverse: bool,
-    /// OSC 8 hyperlink URL (if cell is part of a hyperlink)
+    /// OSC 8 hyperlink URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub size: Option<CellSize>,
@@ -181,13 +171,11 @@ impl CellStyle {
     }
 }
 
-/// A single terminal cell with character and optional styling
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalCell {
-    /// The character(s) in this cell (usually single char, but can be multi-byte)
+    /// A grapheme: can be more than one char.
     #[serde(rename = "c")]
     pub char: String,
-    /// Style attributes (only present if cell has styling)
     #[serde(rename = "s", skip_serializing_if = "Option::is_none")]
     pub style: Option<CellStyle>,
 }
@@ -203,18 +191,13 @@ impl TerminalCell {
     }
 }
 
-/// A line of terminal cells
 pub type TerminalLine = Vec<TerminalCell>;
 
-/// Pane content as structured cells (pre-parsed from ANSI)
 pub type PaneContent = Vec<TerminalLine>;
 
-/// One cell's character, as everything downstream spells it.
-///
-/// vt100 gives an unwritten cell — and the continuation half of a wide one —
-/// an empty string; a space keeps the joined line on the column grid. Shared
-/// so the sizes a capture refill carries over are compared in the same
-/// spelling the extraction writes.
+/// vt100 gives an unwritten cell, and the continuation half of a wide one, an
+/// empty string; a kitty image placeholder (U+10EEEE) is no text either. A
+/// space keeps the joined line on the column grid.
 pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     let raw = screen
         .cell(row, col)
@@ -227,9 +210,6 @@ pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     }
 }
 
-/// Extract structured cells from a vt100 screen: the single source of truth
-/// for cell extraction, used by both `parse_ansi_to_cells` (polling mode) and
-/// `PaneState::get_content` (control mode).
 pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
     let (rows, cols) = screen.size();
     let mut lines: Vec<TerminalLine> = Vec::with_capacity(rows as usize);
@@ -245,8 +225,6 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
         };
 
         for col in 0..cols {
-            // `screen.cell` only returns None when row/col exceed the grid bounds,
-            // which the `0..rows` / `0..cols` loops guarantee against.
             let Some(cell) = screen.cell(row, col) else {
                 continue;
             };
@@ -305,7 +283,6 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
             line.push(TerminalCell::with_style(char_content, style));
         }
 
-        // Trim trailing empty cells (ignoring line-wide `row_line_size` on blank tail cells)
         while let Some(last) = line.last() {
             let unstyled_or_line_size_only = last.style.as_ref().is_none_or(|s| {
                 s.fg.is_none()
@@ -324,9 +301,8 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
                 break;
             }
         }
-        // The line was allocated for the full width; give back what the
-        // trimmed tail held. Kept per pane between updates, a blank row would
-        // otherwise hold a row's worth of cells (64 B each) for nothing.
+        // Kept per pane between updates, a blank row would otherwise hold a
+        // row's worth of cells (64 B each) for nothing.
         line.shrink_to_fit();
 
         lines.push(line);
@@ -335,19 +311,14 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
     lines
 }
 
-/// Parse scrollback content into structured cells.
-/// Uses the line count from the content itself as the height.
 pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
     let line_count = content.lines().count().max(1) as u32;
     parse_ansi_to_cells(content, width, line_count)
 }
 
-/// Parse ANSI content into structured cells using vt100 terminal emulation.
-///
-/// The grid is at most `u16::MAX` on a side and at least 1: a capture of a
-/// pane with a deep history can run past 65,535 lines, and a plain `as u16`
-/// wrapped that to a zero-row grid the first character panicked on. A taller
-/// capture keeps its last 65,535 lines.
+/// The grid is clamped to `1..=u16::MAX` a side: a capture of a pane with a
+/// deep history can run past 65,535 lines, and a taller capture keeps its
+/// last 65,535.
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
     let side = |n: u32| u16::try_from(n.max(1)).unwrap_or(u16::MAX);
     let mut parser = vt100::Parser::new(side(height), side(width), 0);

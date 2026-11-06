@@ -1,6 +1,5 @@
-//! `tmuxy plugin …`: install, list, update and remove plugins, run their
-//! actions, and help write one (docs/PLUGINS.md). The machinery is
-//! `tmuxy_core::plugins`; this is the command line and the install gate.
+//! The command line and the install gate over `tmuxy_core::plugins`
+//! (docs/PLUGINS.md).
 //!
 //! Every verb runs as a plain process, so the gate can ask on the terminal
 //! and `action --wait` waits in the caller's own process. What changes tmux
@@ -141,7 +140,6 @@ enum TriggerArg {
     Key,
 }
 
-/// How a verb ended: what to print, and the exit code.
 struct Failure {
     code: i32,
     message: String,
@@ -228,14 +226,11 @@ pub fn run(args: PluginArgs) {
     }
 }
 
-/// Print a line for a person; nothing under `--json`.
 fn say(json: bool, text: impl AsRef<str>) {
     if !json {
         println!("{}", text.as_ref());
     }
 }
-
-// ── action / cli ────────────────────────────────────────────────────────
 
 /// `<plugin>:<id>`.
 fn split_target(target: &str) -> Result<(String, String), Failure> {

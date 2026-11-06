@@ -21,7 +21,6 @@ use std::process::{Command, Output};
 
 use super::{is_sha, PluginError, Result};
 
-/// A git command with every configurable side effect switched off.
 fn git() -> Command {
     let mut cmd = Command::new("git");
     for (key, _) in std::env::vars_os() {

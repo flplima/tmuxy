@@ -29,8 +29,6 @@ impl RepoSource {
         }
     }
 
-    /// The URL git fetches: GitHub over HTTPS, or the base a test points
-    /// `TMUXY_PLUGIN_GIT_BASE` at.
     pub fn url(&self) -> String {
         format!("{}/{}/{}.git", git_base(), self.owner, self.repo)
     }
@@ -46,7 +44,6 @@ pub fn git_base() -> String {
         .unwrap_or_else(|| "https://github.com".to_string())
 }
 
-/// What `tmuxy plugin install <arg>` was given.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallSource {
     Repo(RepoSource),
@@ -87,7 +84,6 @@ pub fn is_ref(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"._/-".contains(&b))
 }
 
-/// Parse `owner/repo[/subdir…][@ref]`.
 pub fn parse_repo(spec: &str) -> Result<RepoSource> {
     let invalid = |why: &str| {
         PluginError::Invalid(format!(

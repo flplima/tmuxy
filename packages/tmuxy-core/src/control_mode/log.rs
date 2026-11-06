@@ -1,13 +1,7 @@
-//! Streaming log sink for surfacing connection-time progress.
-//!
-//! Connection setup can run external `tmux` invocations before control mode
-//! is up: a `has-session` preflight when the session must already exist (and
-//! a `list-sessions` to name the ones that do when it does not), then a PTY
-//! spawn of `tmux -CC` — `new-session -A` when the session may be created,
-//! `attach-session` otherwise. When something fails on a user's machine, knowing *which* step failed
-//! and what its output was is far more useful than a single consolidated
-//! error string. The sink is threaded through connection.rs and monitor.rs
-//! so each step can be reported as it happens.
+//! Streaming log sink for connection-time progress. Connecting runs external
+//! `tmux` invocations before control mode is up; when one fails on a user's
+//! machine, knowing *which* step failed and what it printed is far more
+//! useful than one consolidated error string.
 
 use serde::{Deserialize, Serialize};
 

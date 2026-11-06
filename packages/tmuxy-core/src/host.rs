@@ -10,15 +10,6 @@
 //!                                                                      │
 //!   client ◀──HostEvent── Sink (SSE frame / Tauri event) ◀────── runtime emits
 //! ```
-//!
-//! - [`SessionRuntime`]: a watched session — its command channel and how a
-//!   command waits for it, its snapshot keeper, images, key bindings and
-//!   client sizes, and the one `StateEmitter`.
-//! - [`supervise`]: the monitor loop, with [`Host`] as the host's policy.
-//! - [`HostEvent`]: every event, with the name it travels under.
-//! - [`command`]: every client command and its one handler.
-//! - [`prepare`]: what a host does once before it serves anything.
-//! - [`socket_watch`]: the one poll of every pane on the socket.
 
 pub mod command;
 mod event;
@@ -38,10 +29,8 @@ pub use supervise::*;
 
 use crate::control_mode::MonitorConfig;
 
-/// Whether tmux has a session called `session` (`session::session_known`,
-/// the one rule), asked off the async worker threads with a read-only
-/// subprocess — before a host's own connection is attached, so it is safe
-/// beside one.
+/// Whether tmux has a session called `session`. Asked with a subprocess, so
+/// only before the host's own control-mode connection attaches (docs/TMUX.md).
 pub async fn session_exists(session: &str) -> bool {
     let session = session.to_string();
     tokio::task::spawn_blocking(move || crate::session::session_known(&session))
@@ -49,9 +38,6 @@ pub async fn session_exists(session: &str) -> bool {
         .unwrap_or(true)
 }
 
-/// How a host watches `session`: the working dir both hosts start a session
-/// in ([`session_start_dir`]) and the core's throttle; a host changes only
-/// what it has its own reason for.
 pub fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
     MonitorConfig {
         session: session.to_string(),
@@ -61,12 +47,11 @@ pub fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
     }
 }
 
-/// The directory a session a host creates starts in, and so the cwd of every
-/// new tab in it. Inside a checkout, the checkout (the dev loop lives
-/// there); otherwise the home directory. Never the bare process cwd: an
-/// AppImage runs from its mount (`/tmp/.mount_tmuxy…/usr`), and a desktop
-/// app launched from Finder or a launcher from `/`, and every new tab opened
-/// a shell there.
+/// The directory a host-created session starts in, and so every new tab's
+/// cwd: the checkout when run from one (the dev loop lives there), else the
+/// home directory. Never the process cwd: an AppImage runs from its mount
+/// (`/tmp/.mount_tmuxy…/usr`), and an app opened from Finder or a launcher
+/// runs from `/`.
 pub fn session_start_dir() -> std::path::PathBuf {
     session_start_dir_from(
         checkout_root(),
@@ -86,8 +71,8 @@ fn session_start_dir_from(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
 }
 
-/// The nearest ancestor of the cwd whose package.json declares "workspaces":
-/// the repository, when the process runs from a checkout.
+/// The repository root when the process runs from a checkout: the nearest
+/// ancestor whose package.json declares "workspaces" (a package's own does not).
 pub fn checkout_root() -> Option<std::path::PathBuf> {
     let mut current = std::env::current_dir().ok()?;
     loop {
@@ -103,10 +88,9 @@ pub fn checkout_root() -> Option<std::path::PathBuf> {
     }
 }
 
-/// The machine's host name, as the status line names where the user is. The
-/// web client cannot read it from `location.hostname` (that is the address it
-/// typed, `localhost` or an IP), so the greeting says it. Empty when the OS
-/// will not say.
+/// The machine's host name for the status line. The web client cannot use
+/// `location.hostname` (the address typed, `localhost` or an IP), so the
+/// greeting carries it. Empty when the OS will not say.
 pub fn host_name() -> String {
     #[cfg(unix)]
     {

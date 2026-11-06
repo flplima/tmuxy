@@ -25,9 +25,5 @@ jobs:
       - name: Frontend dist placeholder
         run: mkdir -p packages/tmuxy-ui/dist
 
-      # The Axis A bench (docs/PERFORMANCE.md) is not here: it compiles
-      # tmuxy-core a second time under the release profile for a ratio that
-      # has not moved in months. It runs nightly in nightly-perf.yml, where
-      # its ratio budget still fails the run.
       - name: Cargo test
         run: cargo test --workspace

@@ -53,7 +53,6 @@ pub(super) fn dirs_in(base: &Path) -> Layout {
     }
 }
 
-/// A plugin directory with the given manifest and executable commands.
 pub(super) fn plugin_dir(base: &Path, manifest_text: &str, commands: &[&str]) -> PathBuf {
     let dir = base.join("plugin");
     std::fs::create_dir_all(&dir).unwrap();
@@ -70,8 +69,6 @@ pub(super) fn plugin_dir(base: &Path, manifest_text: &str, commands: &[&str]) ->
     }
     dir
 }
-
-// ── Manifest ────────────────────────────────────────────────────────────
 
 #[test]
 fn a_full_manifest_parses() {
@@ -187,8 +184,6 @@ fn a_percentage_resolves_against_the_tab() {
     assert_eq!(Dim::Cells(0).resolve(10), 1);
 }
 
-// ── Sources ─────────────────────────────────────────────────────────────
-
 #[test]
 fn a_repo_source_parses_with_subdir_and_ref() {
     let s = source::parse_repo("someone/tmuxy-tools/plugins/devtools@v1.2").unwrap();
@@ -230,8 +225,6 @@ fn an_install_argument_is_a_repo_a_name_or_neither() {
     );
     assert!(source::parse_install("Not A Name").is_err());
 }
-
-// ── Lockfile ────────────────────────────────────────────────────────────
 
 #[test]
 fn the_lockfile_round_trips_sorted_and_owner_only() {
@@ -278,8 +271,6 @@ fn a_hand_broken_entry_is_refused() {
     assert!(entry(r#"{"name":"x"}"#).is_err(), "no source");
     assert!(serde_json::from_str::<Entry>(r#"{"name":"x","path":"/a","extra":1}"#).is_err());
 }
-
-// ── Registry & commands ─────────────────────────────────────────────────
 
 #[test]
 fn a_linked_plugin_and_the_users_own_load() {
@@ -357,8 +348,6 @@ fn a_command_that_escapes_its_plugin_is_refused() {
     assert!(err.contains("missing"), "{err}");
     std::fs::remove_dir_all(base).unwrap();
 }
-
-// ── Inventory ───────────────────────────────────────────────────────────
 
 #[test]
 fn the_inventory_is_compact_and_its_rev_follows_its_content() {

@@ -85,7 +85,6 @@ fn the_ring_keeps_no_more_than_its_byte_budget() {
     assert_eq!(b.oldest_seq(), Some(3));
     assert_eq!(kept.iter().map(|(s, _)| *s).collect::<Vec<_>>(), [3, 4]);
 
-    // One event over the whole budget is still kept, alone.
     b.broadcast("state-update", "y".repeat(EVENT_BUFFER_MAX_BYTES + 1));
     assert_eq!(b.replay_since(0).len(), 1);
     assert_eq!(b.oldest_seq(), Some(5));

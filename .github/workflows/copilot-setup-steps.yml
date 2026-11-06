@@ -37,9 +37,7 @@ jobs:
       - uses: ./.github/actions/install-linux-deps
 
       # The same list the devcontainer image installs, so the two agent
-      # environments cannot drift apart: apt extras, cargo-watch (which is what
-      # `npm start` runs on) and agent-browser with its Chrome — the browser
-      # both an agent and the Playwright-driven suites use.
+      # environments cannot drift apart.
       - name: Install shared agent tooling
         run: bash bin/install-dev-tools
 

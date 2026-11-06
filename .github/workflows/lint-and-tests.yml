@@ -12,8 +12,8 @@ on:
   # Callable as a job, so another workflow can make a real `needs:` dependency
   # on this suite. `Build App` calls it on the TAG ref: the artifacts that
   # become a release are then gated on the same tests, for the same ref —
-  # every test, including the [nightly] tier a push skips (docs/TESTS.md
-  # § Tiers).
+  # every test, including the [nightly] tier a push skips
+  # (docs/TESTS-LAYERS.md § Tiers).
   workflow_call:
     inputs:
       e2e-tier:
@@ -64,14 +64,10 @@ jobs:
         run: node bin/ci/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
 
   # The frontend bundle and the test server, each built ONCE and handed to
-  # every job that needs them. They used to be rebuilt inside each of the e2e
-  # matrix entries — the same two builds a dozen times over, for the largest
-  # share of this workflow's runner minutes.
-  #
-  # Two jobs so the desktop job, which only needs the dist, starts as soon as
-  # the frontend is built rather than after the server too. The server job
-  # still waits for the dist: the server embeds it at compile time
-  # (rust-embed in tmuxy-server/src/server.rs), and the E2E suites hit the
+  # every job that needs them. Two jobs so the desktop job, which only needs
+  # the dist, starts as soon as the frontend is built. The server job still
+  # waits for the dist: the server embeds it at compile time (rust-embed in
+  # tmuxy-server/src/server/lifecycle.rs), and the E2E suites hit the
   # embedded copy.
   #
   # Every consumer runs on ubuntu-26.04, so one linux-x86_64 binary serves
@@ -109,9 +105,7 @@ jobs:
   # ever executed this code on a Mac.
   #
   # Only the platform-SENSITIVE suites: the CLI (shell, paths, PATH lookup) and
-  # cargo test (a real `tmux -CC` against Homebrew's tmux). Vitest ran here too
-  # and was dropped — it is pure JS logic with no platform surface, already
-  # covered by `node-checks / unit-tests`.
+  # cargo test (a real `tmux -CC` against Homebrew's tmux).
   #
   # The CLI suite runs on every push: it is cheap and the shell is where the
   # platform shows. The Rust suite runs only when the push touches the code
@@ -139,7 +133,7 @@ jobs:
 
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
-      # The five tmuxy-core integration tests drive a real `tmux -CC`.
+      # The tmuxy-core integration tests drive a real `tmux -CC`.
       # Homebrew's tmux, not a source build: this job exists to catch macOS
       # platform differences, and brew's is what macOS users actually run.
       - name: Install tmux
@@ -158,8 +152,6 @@ jobs:
         if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: mkdir -p packages/tmuxy-ui/dist
 
-      # Only when the push touched the code with a macOS branch (the `changes`
-      # job's list), and always on a tag build.
       - name: Cargo test
         if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: cargo test --workspace
@@ -167,14 +159,11 @@ jobs:
   rust-tests:
     uses: ./.github/workflows/ci-rust-tests.yml
 
-  # The E2E matrix for this run's tier, from tests/e2e-suites.json: on a push
-  # the suites a [nightly] test does not fill, each with a jest name pattern
-  # that skips the tagged tests; on a tag build (`e2e-tier: full`) every suite
-  # and every test. A tiny job of its own so the list is data a script can
-  # test, and so the list and the patterns are composed in one place
-  # (bin/ci/e2e-plan.mjs) rather than once per matrix entry here.
-  # A push that edited the web suites also gets the [nightly] tier, on one
-  # more runner (the `changes` job decides).
+  # The E2E matrix for this run's tier, from tests/e2e-suites.json, composed
+  # by bin/ci/e2e-plan.mjs: on a push the suites a [nightly] test does not
+  # fill, each with a jest name pattern that skips the tagged tests; on a tag
+  # build (`e2e-tier: full`) every suite and every test. A push that edited
+  # the web suites also gets the [nightly] tier (the `changes` job decides).
   plan:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -189,9 +178,6 @@ jobs:
           WITH_NIGHTLY: ${{ needs.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
         run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
-  # E2E + snapshot suites run in parallel — one matrix entry per suite,
-  # one runner per suite. Previously these were serial inside a single
-  # job (~10 min total); matrix puts walltime at max-of-suites.
   e2e:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -217,12 +203,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # No Rust toolchain here any more: the release server arrives as an
-      # artifact from `build-server`, and nothing else in this job compiles.
+      # The server arrives as an artifact from `build-server`, and nothing
+      # else in this job compiles.
       - uses: ./.github/actions/setup-node-rust
         with:
           rust: none
-
 
       # The runner image's apt index is used as it is; a refresh is ~10s on
       # every runner, and only needed when the image's lists have gone stale.
@@ -240,8 +225,6 @@ jobs:
 
       - uses: ./.github/actions/install-chromium
 
-      # Only the WebKit suite; every other entry would pay the download for a
-      # browser it never launches.
       - uses: ./.github/actions/install-webkit
         if: matrix.suite.webkit
 
@@ -288,9 +271,9 @@ jobs:
   # Storybook probes. Both jobs drive stories in a real Chromium against a
   # `storybook dev` server — dev (not static) on purpose: no build step, and
   # stories compile on demand.
-  # Two runners, each a stride of the story list (PROBE_SHARD): with the
-  # nightly tier gone the probe was still the longest job on every push, and
-  # a second runner's setup (~90s) is cheaper than the half it takes over.
+  # Two runners, each a stride of the story list (PROBE_SHARD): the probe is
+  # the longest job on a push, and a second runner's setup (~90s) is cheaper
+  # than the half it takes over.
   storybook-probe:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -310,18 +293,16 @@ jobs:
       # The per-commit tier: stories tagged `nightly` (frame-sampled
       # animations, render-count budgets, language sweeps) run in the nightly
       # v86 workflow's deterministic job instead. The axe accessibility pass
-      # runs here too: it used to be nightly-only while every blocking rule
-      # was quarantined, and five of the next thirteen probe misses were
-      # accessibility regressions nobody saw until the morning.
+      # runs here too: when it was nightly-only, five of thirteen probe misses
+      # were accessibility regressions nobody saw until the morning.
       - name: Probe deterministic stories
         env:
           PROBE_TIER: commit
           PROBE_SHARD: ${{ matrix.shard }}
         run: npm run test-storybook -w tmuxy-ui
 
-      # A screenshot, a DOM dump and the real stack for every story that
-      # failed — the probe used to report only `playFunctionThrewException`,
-      # which nobody could act on.
+      # A screenshot, a DOM dump and the real stack for every failed story:
+      # the test runner itself reports only `playFunctionThrewException`.
       - name: Probe failure artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -342,12 +323,9 @@ jobs:
     # job): the E2E suites, the server, the desktop crate, prose.
     needs: changes
     if: needs.changes.outputs.v86 == 'true'
-    # Only the blocking GATE (three optimistic-UX stories the pane-stability
-    # review promoted once the correlation fixes proved stable) runs per
-    # commit. The full ~110-story sweep used to run here too, behind a
-    # step-level continue-on-error — 20 minutes on the critical path producing
-    # a result nobody was obliged to read. It moved to nightly-v86.yml, where
-    # a failure opens an issue and the per-story timings are kept.
+    # Only the blocking GATE (three optimistic-UX stories) runs per commit;
+    # the full sweep (~20 minutes) is nightly-v86.yml's, where a failure opens
+    # an issue and the per-story timings are kept.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -362,9 +340,8 @@ jobs:
       - name: Gate stories (blocking)
         run: npm run test-storybook:v86 -w tmuxy-ui -- 6006 split-optimistic-timeline split-rejected-rollback resize-pane-drag
 
-      # A screenshot, a DOM dump and the real stack for every story that
-      # failed — the probe used to report only `playFunctionThrewException`,
-      # which nobody could act on.
+      # A screenshot, a DOM dump and the real stack for every failed story:
+      # the test runner itself reports only `playFunctionThrewException`.
       - name: Probe failure artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -378,16 +355,8 @@ jobs:
         if: failure()
         run: tail -200 /tmp/storybook.log
 
-  # The packaged desktop app: built ONCE, then both desktop suites run against
-  # that one binary.
-  #
-  # These were two jobs — `tauri-e2e` (debug build, WebdriverIO suite) and
-  # `desktop-smoke` (release build, launch smoke test). They installed the same
-  # WebKitGTK/Xvfb apt set, shared the same tauri-driver and tmux caches,
-  # and compiled the Tauri app twice between them, for the two jobs that
-  # between them produced most of this workflow's failures.
-  #
-  # The smoke test runs FIRST and brings its own tauri-driver up and down; the
+  # The desktop app, built ONCE for both desktop suites. The smoke test runs
+  # FIRST and brings its own tauri-driver up and down; the
   # jest suite then starts its own on the same port.
   desktop:
     runs-on: ubuntu-26.04
@@ -408,11 +377,10 @@ jobs:
       # devcontainer's and docs/TMUX.md's target). Ubuntu's apt ships tmux
       # 3.4, which has a race where the initial auto-adopt of
       # `@tmuxy-window-type=tab` gets clobbered by an in-flight list-windows
-      # response under the load the Ctx/Tower Tauri path puts on the CC stream
+      # response under the load the Tauri app puts on the control-mode stream
       # at startup.
       - uses: ./.github/actions/install-tmux
 
-      # Reuses the frontend-dist artifact from build-frontend instead of rebuilding.
       - name: Download frontend dist
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:

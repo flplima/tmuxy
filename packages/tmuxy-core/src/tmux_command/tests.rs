@@ -1,6 +1,5 @@
 use super::*;
 
-/// The top-level commands of `cmd`, as written.
 fn top_level(cmd: &str) -> Vec<String> {
     parse(cmd).top_level().map(|c| c.text.to_string()).collect()
 }
@@ -104,7 +103,6 @@ fn the_new_window_rewrite_passes_through_unpinned_and_unrelated() {
 
 #[test]
 fn a_list_splits_outside_quotes_only() {
-    // Unquoted separators split.
     assert_eq!(
         top_level("splitw \\; breakp"),
         vec!["splitw ".to_string(), " breakp".to_string()]
@@ -114,12 +112,10 @@ fn a_list_splits_outside_quotes_only() {
         top_level("send-keys -l 'a\\;b'"),
         vec!["send-keys -l 'a\\;b'".to_string()]
     );
-    // Same for double quotes.
     assert_eq!(
         top_level("send-keys -l \"a\\;b\""),
         vec!["send-keys -l \"a\\;b\"".to_string()]
     );
-    // Mixed: quoted payload preserved, real separator still splits.
     assert_eq!(
         top_level("send-keys -l 'a\\;b' \\; selectp -t %1"),
         vec![
@@ -216,7 +212,6 @@ fn the_new_window_rewrite_reaches_inside_blocks() {
         out.as_deref(),
         Some("display-menu -x M \"New Pane\" p { new-pane ; join-pane } \"New Window\" w { splitw -t 'tmuxy' ; breakp }")
     );
-    // Every new-window in the list, not only the first.
     assert_eq!(
         parse("neww ; if -F 1 { neww }")
             .rewrite_new_window("tmuxy", None)

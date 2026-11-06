@@ -20,7 +20,6 @@ updates:
     commit-message:
       prefix: "🔧"
 
-  # cargo: one workspace lockfile at the root.
   - package-ecosystem: cargo
     directory: /
     schedule:

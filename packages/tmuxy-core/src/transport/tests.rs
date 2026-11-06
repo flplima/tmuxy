@@ -14,8 +14,6 @@ bind-key    -T prefix \\% send-keys %";
     assert_eq!(prefix[0].key, "%");
     assert_eq!(prefix[0].description, "Split pane vertically");
     assert!(!prefix[0].repeat);
-    // -r bindings keep their repeat flag (the old root copy hardcoded
-    // repeat: false — this drift is what the shared parser fixes).
     assert_eq!(prefix[1].key, "h");
     assert!(prefix[1].repeat);
     // Escaped keys are unescaped.
@@ -85,8 +83,6 @@ async fn scrollback_lines_out_of_range_are_clamped_to_what_tmux_parses() {
     );
 }
 
-/// The width is tmux's or nothing: a guessed 80 re-wraps every captured
-/// line at the wrong column.
 #[tokio::test]
 async fn tmux_refusing_is_kind_tmux_and_a_gone_monitor_unavailable() {
     let (tx, _) = answering(Err("unknown command: frob".to_string()));
@@ -114,6 +110,8 @@ async fn restoring_a_bad_name_is_an_invalid_argument() {
     );
 }
 
+/// The width is tmux's or nothing: a guessed 80 re-wraps every captured
+/// line at the wrong column.
 #[tokio::test]
 async fn scrollback_without_a_width_fails_rather_than_guessing() {
     let (tx, _) = answering(Ok("\nhello\n".to_string()));
@@ -210,8 +208,6 @@ fn a_client_reload_sources_this_processs_own_entry_file() {
         source_with_entry(format!("  {SOURCE_ENTRY_CONF} "), Some(entry)),
         "source-file '/st ate/tmuxy.entry.conf'"
     );
-    // Any other file is the client's to name; with no entry file written,
-    // the command goes as it came.
     assert_eq!(
         source_with_entry("source-file ~/.tmux.conf".to_string(), Some(entry)),
         "source-file ~/.tmux.conf"
@@ -284,7 +280,6 @@ fn an_ordinary_pane_of_pictures_is_left_alone() {
     assert_eq!(store.images.len(), 50, "10MB of pictures is under the cap");
 }
 
-/// One pane's flood must not evict another pane's pictures.
 #[test]
 fn the_cap_is_per_pane() {
     let mut store = ImageStore::default();
@@ -295,7 +290,6 @@ fn the_cap_is_per_pane() {
     assert!(store.get(&pid("%2"), 1).is_some());
 }
 
-/// A pane that has gone takes its pictures with it.
 #[test]
 fn a_full_state_forgets_the_pictures_of_dead_panes() {
     let mut store = ImageStore::default();
@@ -318,8 +312,7 @@ fn a_full_state_forgets_the_pictures_of_dead_panes() {
     assert!(store.get(&pid("%2"), 1).is_none());
 }
 
-/// SEC-01/SEC-13, for both transports: the desktop forwarded a clipboard
-/// write of any size.
+/// For both transports: the desktop forwarded a clipboard write of any size.
 #[test]
 fn a_clipboard_write_over_the_cap_is_refused() {
     assert!(clipboard_write_allowed("yanked"));

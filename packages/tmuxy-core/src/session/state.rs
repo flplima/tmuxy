@@ -39,8 +39,7 @@ pub struct ManagedState {
 }
 
 /// An option the menus can change: one [`ManagedState`] remembers and the
-/// user's `tmuxy.conf` can pin. The one list of them; everything that reads,
-/// re-applies or remembers a menu choice goes through it.
+/// user's `tmuxy.conf` can pin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManagedOption {
     Theme,
@@ -59,7 +58,6 @@ impl ManagedOption {
         Self::Transparency,
     ];
 
-    /// The tmux option.
     pub fn name(self) -> &'static str {
         match self {
             Self::Theme => tmux_options::THEME,
@@ -260,9 +258,8 @@ pub fn current_managed_state_commands() -> Vec<String> {
     managed_state_commands(&read_managed_state(), &pinned_options())
 }
 
-/// Read the managed state from disk. Returns a default (all-None) struct if
-/// the file is missing or unparseable rather than erroring — losing app
-/// state should never crash startup.
+/// The managed state on disk, or the default when the file is missing or does
+/// not parse: losing app state never stops startup.
 pub fn read_managed_state() -> ManagedState {
     read_managed_state_in(&Layout::current())
 }

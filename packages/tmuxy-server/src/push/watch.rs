@@ -1,15 +1,12 @@
-//! Which panes have just come to need the user, from the host's read of
-//! every pane on the socket (`tmuxy_core::host::socket_watch`): the device a
-//! notification is for is the one that is not watching, so no monitor would
-//! see it.
+//! Reads every pane on the socket (`tmuxy_core::host::socket_watch`) rather
+//! than a session's monitor: the device a notification is for is the one
+//! that is not watching, so no monitor would see it.
 
 use std::collections::HashMap;
 use tmuxy_core::host::socket_watch::PaneRow;
 
-/// The states a notification is sent for.
 const NOTIFY_STATES: [&str; 2] = ["needs-input", "error"];
 
-/// What a notification says, and where a tap on it goes.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Notice {
@@ -17,7 +14,6 @@ pub(crate) struct Notice {
     pub body: String,
     /// One per pane and state: a newer notice for the same replaces it.
     pub tag: String,
-    /// The app, on the pane's session.
     pub url: String,
     pub pane_id: String,
 }
@@ -68,7 +64,6 @@ fn urlencode(value: &str) -> String {
         .collect()
 }
 
-/// Every pane's last state, and what changed since.
 #[derive(Default)]
 pub(crate) struct Watch {
     /// `None` until the first read: what is already in a state when the

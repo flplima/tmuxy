@@ -6,15 +6,6 @@
 //! and the program each pane was running, and on restore it rebuilds the tree
 //! and *offers* the programs again. A shell comes back as a shell; `vim notes`
 //! comes back typed at a prompt, waiting for Enter.
-//!
-//! Three things are deliberately NOT here, and docs/NON-GOALS.md says why:
-//! process state, screen contents by default, and a boot service.
-//!
-//! The module is pure except for the thin `std::process`/`std::fs` edges at
-//! the bottom, because every decision in it — which process is the foreground
-//! one, what a restore does first, whether a file is stale — is the kind that
-//! only ever goes wrong on a machine nobody is looking at. So the decisions
-//! take their inputs as values and are tested as values; the edges just fetch.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -54,9 +45,8 @@ pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// (`OpenSidebar` in domain/commands.ts). A sidebar is tmuxy's own window, so a
 /// restore runs it rather than offering it. The bundled script by its installed
 /// path, not a bare `tmuxy`: that is whatever PATH holds, and a stale one exits
-/// at once and takes the column's window with it. The data dir is the one the
-/// entry file publishes (`session::DATA_DIR_ENV`), which the pane's shell
-/// expands.
+/// at once and takes the column's window with it. The pane's shell expands
+/// `$TMUXY_DATA_DIR` (`session::DATA_DIR_ENV`).
 pub const LEFT_SIDEBAR_WIDGET: &str = "$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree";
 /// What a left sidebar ran before: a bare `tmuxy widget tree`, then the
 /// bundled script under the config dir, before the scripts moved to the data
@@ -66,10 +56,6 @@ pub const LEGACY_LEFT_SIDEBAR_WIDGETS: [&str; 2] = [
     "tmuxy widget tree",
     "$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree",
 ];
-
-// =============================================================================
-// Model
-// =============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -177,10 +163,6 @@ impl PaneSnapshot {
             .or_else(|| self.offer.clone())
     }
 }
-
-// =============================================================================
-// Storage
-// =============================================================================
 
 /// Where a server's snapshots live: `sessions/<socket>/` under the state dir.
 /// A session is named within its tmux server, not the machine — a released

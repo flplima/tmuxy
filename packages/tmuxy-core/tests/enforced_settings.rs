@@ -54,7 +54,6 @@ async fn ask(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, command: &str) -> C
         .expect("the monitor answers rather than dropping the request")
 }
 
-/// Value of a session option as tmux reports it for the session under test.
 async fn option(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, name: &str) -> String {
     let reply = ask(tx, &format!("show-options -t app -v {name}")).await;
     assert_eq!(reply.error, None, "show-options {name} succeeded");

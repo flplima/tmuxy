@@ -1,8 +1,3 @@
-//! `tmuxy-server connect`: ask the desktop app to reconnect to another tmux
-//! server (`tmuxy_core::servers::connect`), and with `--save` remember the
-//! server in `servers.json`. Backs `tmuxy connect <socket>` and the last stage
-//! of `tmuxy session connect`, which probe the server first.
-
 use tmuxy_core::servers::connect::{remember, ConnectRequest, CONNECT_REQUEST};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_USAGE};

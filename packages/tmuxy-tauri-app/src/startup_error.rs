@@ -4,7 +4,6 @@
 
 const TITLE: &str = "tmuxy can't start";
 
-/// Show `message` in a native error dialog and wait for it to be dismissed.
 #[cfg(target_os = "linux")]
 pub(crate) fn show(message: &str) {
     use gtk::prelude::*;
@@ -27,7 +26,6 @@ pub(crate) fn show(message: &str) {
     dialog.close();
 }
 
-/// Show `message` in a native error dialog and wait for it to be dismissed.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn show(message: &str) {
     rfd::MessageDialog::new()

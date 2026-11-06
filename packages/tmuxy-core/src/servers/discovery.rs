@@ -1,5 +1,3 @@
-//! Local socket scanning and reachability enrichment.
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
@@ -21,7 +19,6 @@ pub enum ServerReachability {
     Offline,
 }
 
-/// Summary of a tmux session on a server, as `list-sessions` reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteSessionInfo {
     pub name: String,
@@ -29,7 +26,6 @@ pub struct RemoteSessionInfo {
     pub attached: bool,
 }
 
-/// Current UNIX timestamp in seconds.
 pub fn now_unix_secs() -> Option<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -37,8 +33,7 @@ pub fn now_unix_secs() -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-/// Record a fresh `last_used` timestamp (and optional preferred session) for a
-/// saved server in `servers.json`.
+/// Stamp `last_used` (and the session, when given) on a saved server.
 pub fn touch_server(id: &str, session: Option<&str>) -> std::io::Result<()> {
     let mut servers = read_servers_strict()?.unwrap_or_default();
     if let Some(existing) = servers.iter_mut().find(|s| s.id == id) {
@@ -51,8 +46,6 @@ pub fn touch_server(id: &str, session: Option<&str>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Whether a socket name belongs to an automated test harness rather than a
-/// user server.
 pub fn is_ephemeral_test_socket(name: &str) -> bool {
     const PREFIXES: &[&str] = &[
         "tmuxy-test",

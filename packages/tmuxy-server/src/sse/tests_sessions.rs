@@ -23,8 +23,6 @@ pub(super) async fn session_with_fake_monitor(
     resizes
 }
 
-/// Session `session`, watched by the streams `clients`, with `tx` as its
-/// monitor's channel.
 pub(super) async fn watched_with(
     state: &Arc<AppState>,
     session: &str,
@@ -41,8 +39,6 @@ pub(super) async fn watched_with(
         .insert(session.to_string(), conns);
 }
 
-/// `get_initial_state` carrying a viewport, dispatched the way the HTTP
-/// layer dispatches it.
 pub(super) async fn initial_state_with_viewport(state: &Arc<AppState>) {
     let cmd = ClientCommand::GetInitialState {
         cols: Some(40),
@@ -268,7 +264,7 @@ async fn session_answering_queries(
     queries
 }
 
-/// SEC-11/SEC-16. The greeting's bindings used to cost three `tmux`
+/// Unbounded per-connection work: the greeting's bindings used to cost three `tmux`
 /// subprocesses per connecting client. They are read once per monitor
 /// connection, over the monitor, and every later greeting is served the
 /// copy the session keeps.

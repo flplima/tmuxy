@@ -31,7 +31,6 @@ pub enum PaneTree {
     },
 }
 
-/// One cell of a layout tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     Leaf {
@@ -82,7 +81,6 @@ impl Node {
         }
     }
 
-    /// This cell's shape, without sizes (see `PaneTree`).
     pub fn pane_tree(&self) -> PaneTree {
         match self {
             Node::Leaf { pane, .. } => PaneTree::Pane(PaneId::from_number(*pane)),
@@ -160,8 +158,6 @@ impl Node {
     }
 }
 
-/// Scale `current` sizes to sum to `total`, never below each cell's minimum,
-/// with rounding leftovers going to the last cell.
 fn distribute(current: Vec<u32>, mins: Vec<u32>, total: u32) -> Vec<u32> {
     let n = current.len();
     if n == 0 {
@@ -178,7 +174,6 @@ fn distribute(current: Vec<u32>, mins: Vec<u32>, total: u32) -> Vec<u32> {
     if used < total {
         out[n - 1] += total - used;
     } else if used > total {
-        // Minimums overshot: trim the largest cells down to what fits.
         let mut excess = used - total;
         for i in (0..n).rev() {
             let room = out[i].saturating_sub(mins[i]);
@@ -347,7 +342,6 @@ pub fn serialize(node: &Node) -> String {
     format!("{:04x},{}", checksum(&body), body)
 }
 
-/// Heights of the first-level rows when the root is a vertical stack.
 pub fn first_level_heights(layout: &str) -> Option<Vec<u32>> {
     match parse(layout)? {
         Node::Split {
@@ -359,15 +353,11 @@ pub fn first_level_heights(layout: &str) -> Option<Vec<u32>> {
     }
 }
 
-/// The height to give a collapsed first-level row: one row of content, plus
-/// one more for the row at the very top of the window.
-///
 /// tmuxy runs with `pane-border-status top`, so every pane has a status line
 /// drawn on its top border. For all but the topmost row that line sits on the
 /// separator the layout already reserves between rows. The top row has no
-/// separator above it, so tmux takes the line out of the pane itself — ask
-/// for one row there and the pane is left with nothing to show, which is why
-/// the first pane of a stack came out as a bare header.
+/// separator above it, so tmux takes the line out of the pane itself: asked
+/// for one row there, the pane is left with nothing to show.
 fn collapsed_height(index: usize, node: &Node) -> u32 {
     node.min_height() + u32::from(index == 0)
 }

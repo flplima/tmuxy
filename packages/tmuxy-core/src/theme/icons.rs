@@ -22,7 +22,6 @@ const MAX_SVG_BYTES: u64 = 64 * 1024;
 /// Longest text icon, in characters: an icon, not a label.
 const MAX_TEXT_CHARS: usize = 2;
 
-/// A process name as a pane reports it: an executable's file name.
 fn is_process_name(name: &str) -> bool {
     !name.is_empty()
         && name
@@ -39,7 +38,6 @@ fn is_svg_name(file: &str) -> bool {
             .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("svg"))
 }
 
-/// A text icon: printable ASCII, not all blank.
 fn is_text_icon(value: &str) -> bool {
     value.len() <= MAX_TEXT_CHARS
         && value.bytes().all(|b| b == b' ' || b.is_ascii_graphic())

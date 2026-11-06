@@ -3,15 +3,10 @@
 //! The wire shape is `{ "cmd": "run_tmux_command", "args": { "command":
 //! "splitw -h" } }` on both transports: the body of the web's
 //! `POST /commands`, and the request the desktop's one `dispatch` IPC
-//! command carries. It is decoded once at the door, so a misspelt field or a
-//! changed signature is an `invalid` failure rather than a silent `None`
-//! deep in a handler. A field the client sends in camelCase (`paneId`) is
-//! renamed explicitly.
+//! command carries.
 //!
-//! What only a host knows — which client is asking, how to switch servers,
-//! how to open a link on this machine — is [`HostCtx`]. What a host cannot
-//! do it answers `unavailable`, so the client can tell "not here" from "it
-//! failed".
+//! What a host cannot do it answers `unavailable`, so the client can tell
+//! "not here" from "it failed".
 
 use std::future::Future;
 
@@ -43,9 +38,8 @@ pub enum ClientCommand {
     RunTmuxCommand {
         command: String,
     },
-    /// Run a tmux command and return what it printed. The one way a client
-    /// reads from tmux; rides the monitor's control-mode connection like every
-    /// mutation (`RunCommandWithReply`), so nothing a client sends ever
+    /// Run a tmux command and return what it printed, over the monitor's
+    /// control-mode connection like every mutation, so nothing a client sends
     /// reaches a shell.
     QueryTmux {
         command: String,
@@ -86,30 +80,25 @@ pub enum ClientCommand {
         mode: String,
     },
     GetThemesList,
-    /// View menu: whether the cursor blinks (`@tmuxy-cursor-blink`).
     SetCursorBlink {
         enabled: bool,
     },
-    /// View menu: whether a send into another pane asks first (`@tmuxy-send-ask`).
     SetSendAsk {
         enabled: bool,
     },
-    /// View menu: whether the window is see-through (`@tmuxy-transparency`).
     SetTransparency {
         enabled: bool,
     },
-    /// Git worktree context for the sidebar tree, discovered from the cwd of
-    /// every pane on the socket. Takes no paths from the client: on the web
-    /// that would let anyone reaching the server probe the filesystem.
+    /// Git worktrees found from the cwd of every pane on the socket. Takes no
+    /// paths from the client: on the web that would let anyone reaching the
+    /// server probe the filesystem.
     ListGitWorktrees,
-    /// The sessions that have a snapshot to restore from (`session_snapshot`).
     ListSnapshots,
-    /// Rebuild a session from its latest snapshot, through this session's
-    /// control-mode client. Refused when the session is already running.
+    /// Rebuild a session from its latest snapshot. Refused when the session
+    /// is already running.
     RestoreSession {
         session: String,
     },
-    /// Debug menu: the trace switch, level and path (docs/TRACING.md).
     GetTraceSettings,
     SetTraceEnabled {
         enabled: bool,
@@ -117,18 +106,15 @@ pub enum ClientCommand {
     SetTraceLevel {
         level: String,
     },
-    /// A batch of the client tracer's events, for the shared trace file.
     RecordTrace {
         events: Vec<serde_json::Map<String, Value>>,
     },
-    /// Open the trace file in the OS default handler, where the file is.
     OpenTraceFile,
     /// Open a web link in the user's default browser, where a webview does
     /// not open one itself.
     OpenUrl {
         url: String,
     },
-    /// The server picker.
     ListServers,
     ConnectServer {
         id: String,
@@ -137,7 +123,7 @@ pub enum ClientCommand {
     },
     DetachClient,
     /// Write the invocation token a plugin's menu action opens with,
-    /// carrying the selected text (`plugins::invoke::prepare`).
+    /// carrying the selected text.
     PreparePluginAction {
         plugin: String,
         action: String,
@@ -176,15 +162,13 @@ fn default_scrollback_end() -> i64 {
 }
 
 impl ClientCommand {
-    /// Decode a request body.
     pub fn decode(body: &[u8]) -> Result<Self, serde_json::Error> {
         Self::from_value(serde_json::from_slice(body)?)
     }
 
-    /// Decode a request. The client always sends an `args` object, `{}` for
-    /// a command that takes none; serde's adjacently-tagged form rejects a
-    /// map where a unit variant is expected, so an empty `args` is dropped
-    /// before a second try.
+    /// The client always sends an `args` object, `{}` for a command that
+    /// takes none; serde's adjacently-tagged form rejects a map where a unit
+    /// variant is expected, so an empty `args` is dropped before a second try.
     pub fn from_value(mut value: Value) -> Result<Self, serde_json::Error> {
         match Self::deserialize(&value) {
             Ok(cmd) => Ok(cmd),
@@ -208,16 +192,15 @@ impl ClientCommand {
 
 /// What a command needs of the host that received it.
 pub trait HostCtx: Sync {
-    /// The session the command is for.
     fn runtime(&self) -> &SessionRuntime;
 
-    /// The client asking, when the host can vouch for it — the web only for
-    /// a connection id whose stream is open, since a size kept for an id no
+    /// The client asking, when the host can vouch for it: the web only for a
+    /// connection id whose stream is open, since a size kept for an id no
     /// stream owns would pin the session's size for every real client.
     fn client(&self) -> Option<ClientId>;
 
-    /// Whether this host can point itself at another tmux server. The web
-    /// server serves the socket it was started on.
+    /// Whether this host can point itself at another tmux server (the web
+    /// server serves only the socket it was started on).
     fn switches_servers(&self) -> bool {
         false
     }
@@ -240,21 +223,18 @@ pub trait HostCtx: Sync {
         Err(not_here("opening a link"))
     }
 
-    /// Hand a file to the system's default opener.
     fn open_path(&self, _path: &std::path::Path) -> Result<(), CommandError> {
         Err(not_here("opening a file"))
     }
 }
 
-/// What a host answers for something it does not do.
 fn not_here(what: &str) -> CommandError {
     CommandError::unavailable(format!("{what} is not available here"))
 }
 
-/// Whether a link a pane printed may be handed to the browser: a web or mail
-/// link, with none of the characters a URL must percent-encode (whitespace,
-/// quotes, `<>^`{}|\`), so an opener that reads it as text finds nothing to
-/// parse in it.
+/// Whether a link a pane printed may be handed to the browser: http(s) or
+/// mailto, with none of the characters a URL must percent-encode, so an
+/// opener that reads it as text finds nothing to parse in it.
 pub fn is_openable_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     (lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:"))
@@ -268,16 +248,13 @@ pub fn is_openable_url(url: &str) -> bool {
         })
 }
 
-/// Run a client's command for the session `ctx` serves; the answer is what
-/// the client decodes.
 pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, CommandError> {
     let runtime = ctx.runtime();
     match cmd {
         ClientCommand::GetInitialState { cols, rows } => {
-            // The monitor's own picture of the session — the same state its
-            // `Full` broadcast carries, at the size just asked for. A client
-            // that connects after that broadcast would otherwise start from a
-            // baseline the deltas never correct.
+            // The monitor's own state, as its `Full` broadcast carries it: a
+            // client that connects after that broadcast would otherwise start
+            // from a baseline the deltas never correct.
             let tx = runtime.channel().await?;
             if let (Some(cols), Some(rows), Some(client)) = (cols, rows, ctx.client()) {
                 runtime.set_client_size(client, cols, rows).await;
@@ -348,10 +325,9 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             Ok(Value::Null)
         }
         ClientCommand::GetThemeSettings => to_json(runtime.theme_settings().await?, "theme"),
-        // The theme is the session's, not the client's: every client
-        // watching it is sent the new settings at once. Clients of other
-        // monitors learn it from the pane-metadata subscription (`ThemeRev`)
-        // about a second later.
+        // The theme is the session's: every client watching it is sent the
+        // new settings at once; clients of other monitors learn it from the
+        // pane-metadata subscription (`theme_rev`) about a second later.
         ClientCommand::SetTheme { name, mode } => {
             let tx = runtime.channel().await?;
             crate::theme::set_theme(&tx, &name, mode.as_deref()).await?;
@@ -371,7 +347,7 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
         ClientCommand::SetSendAsk { enabled } => {
             set_flag(runtime, ManagedOption::SendAsk, enabled).await
         }
-        // Every surface repaints and the blur follows at once, without
+        // Pushed now so every surface repaints and the blur follows without
         // waiting for a config reload.
         ClientCommand::SetTransparency { enabled } => {
             set_flag(runtime, ManagedOption::Transparency, enabled).await?;
@@ -383,16 +359,14 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             to_json(transport::git_worktrees(&tx).await?, "worktrees")
         }
         ClientCommand::ListSnapshots => to_json(transport::list_snapshots().await?, "snapshots"),
-        // Through THIS session's client: a new session made from inside a
-        // control-mode client is how both hosts already create one.
         ClientCommand::RestoreSession { session } => {
             let tx = runtime.channel().await?;
             transport::restore_named(&session, &tx).await?;
             Ok(Value::Null)
         }
         ClientCommand::GetTraceSettings => to_json(transport::trace_settings(), "trace settings"),
-        // The state actually in force: `false` for a request the kill
-        // switch refuses — the client renders the answer, never its request.
+        // The state in force: `false` when the kill switch refuses, and the
+        // client renders the answer, never its request.
         ClientCommand::SetTraceEnabled { enabled } => {
             Ok(Value::Bool(crate::trace::set_enabled(enabled)))
         }

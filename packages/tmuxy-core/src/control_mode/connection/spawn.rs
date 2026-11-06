@@ -1,27 +1,20 @@
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-/// Build the argv passed to `tmux` plus a human-readable description that's
-/// safe to log (one socket flag pair only — `tmux_bin()` already includes
-/// the socket, so omit it from the args for the log line). `tmux_args`
-/// carries the actual argv used by `spawn`.
+/// The argv that launches `tmux -CC`, led by its program (the tmux path, or
+/// `ssh -tt <dest> tmux`), and the same argv joined, for the log.
 pub(super) fn build_tmux_args(
     session_name: &str,
     create_if_missing: bool,
     group_target: Option<&str>,
     first_window: Option<&(String, String)>,
 ) -> (Vec<String>, String) {
-    // Full argv including the program token: the local tmux path, or
-    // `ssh -tt <dest> tmux` when tunneled to a remote host. `-tt` is required
-    // for `-CC` control mode's remote pty.
+    // Over ssh, `-tt` is required for `-CC` control mode's remote pty.
     let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
-    // Apply the tmuxy config chain (session::get_config_path: the defaults,
-    // the user's tmuxy.conf, the essentials) at server-startup time. tmux only reads
-    // `-f` when it forks a new server, so this only affects the create path;
-    // the monitor's `sync_initial_state()` source-files the same config after
-    // attach to cover the attach path. Skipped over SSH — the local config
-    // path doesn't exist on the remote host (the remote server uses its own
-    // tmux config, and sync_initial_state's remote source-file is a no-op).
+    // tmux only reads `-f` when it forks a new server, so this covers the
+    // create path; `sync_initial_state` source-files the same config after an
+    // attach. Skipped over SSH: the local config path does not exist on the
+    // remote host.
     if crate::session::ssh_target().is_none() {
         if let Some(path) = crate::session::get_config_path() {
             tmux_args.push("-f".to_string());
@@ -29,9 +22,8 @@ pub(super) fn build_tmux_args(
         }
     }
     if create_if_missing {
-        // -A: attach to existing session if it exists, otherwise create.
-        // Atomic from tmux's perspective — no clientless gap for the macOS
-        // launchd reaper to hit.
+        // `-A` attaches or creates in one step: no clientless gap for the
+        // macOS launchd reaper to hit.
         tmux_args.extend([
             "-CC".to_string(),
             "new-session".to_string(),
@@ -39,11 +31,9 @@ pub(super) fn build_tmux_args(
             "-s".to_string(),
             session_name.to_string(),
         ]);
-        // A second GUI window on the same session: `-t <base>` makes the new
-        // session a member of the base session's group, so the two share every
-        // window and pane but keep their own current window — which is what
-        // lets one OS window sit on one tab while another sits on a different
-        // one. With `-A` the flag is inert when the session already exists.
+        // A second GUI window on the same session: `-t <base>` joins the base
+        // session's group, sharing every window and pane but keeping its own
+        // current window. With `-A` the flag is inert when the session exists.
         if let Some(base) = group_target {
             tmux_args.extend(["-t".to_string(), base.to_string()]);
         }
@@ -67,23 +57,15 @@ pub(super) fn build_tmux_args(
         ]);
     }
 
-    // `tmux_args` now leads with the program token (tmux path or `ssh …`), so
-    // the joined argv is itself the human-readable, log-safe description.
     let shell_desc = tmux_args.join(" ");
 
     (tmux_args, shell_desc)
 }
 
-/// Spawn the PTY-master parser task. Reads raw bytes from the master end of
-/// the pty, converts each line to UTF-8 lossily, parses control-mode events,
-/// forwards them to `tx`, and signals readiness via `ready_tx` after the
-/// first successfully parsed event.
-///
-/// Every line — parsed or not — is also pushed into `recent_output`, capped
-/// to the last 200 entries, so a later send error can include tmux's final
-/// words. With pty-process the child's stdout AND stderr are merged into
-/// the same PTY stream, so any error tmux writes on its way out lands here
-/// for capture.
+/// Parse the PTY master's lines into events on `tx`, signalling `ready_tx`
+/// on the first one. Every line also goes to `recent_output` (the last 200):
+/// pty-process merges the child's stdout and stderr into the PTY stream, so
+/// whatever tmux says on its way out lands there for error messages.
 pub(super) fn spawn_parser_task(
     reader: pty_process::OwnedReadPty,
     tx: mpsc::Sender<ControlModeEvent>,
@@ -100,10 +82,10 @@ pub(super) fn spawn_parser_task(
             buf.clear();
             match read_line_capped(&mut buf_reader, &mut buf, MAX_LINE_BYTES).await {
                 Ok(0) => {
-                    // EOF — tmux process exited (or PTY was closed). tmux's
-                    // parting words (often a `%error` or `%exit detached`
-                    // line) are raw control-mode output, so they are logged at
-                    // `trace`, below the action trace's floor (docs/TRACING.md).
+                    // tmux's parting words (often a `%error` or `%exit
+                    // detached` line) are raw control-mode output, so they are
+                    // logged at `trace`, below the action trace's floor
+                    // (docs/TRACING.md).
                     let tail: Vec<String> = {
                         let guard = recent_output.lock().await;
                         let n = guard.len();
@@ -116,7 +98,6 @@ pub(super) fn spawn_parser_task(
                     }
                     break;
                 }
-                // A line past the cap, dropped whole.
                 Ok(_) if buf.is_empty() => {}
                 Ok(_) => {
                     while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
@@ -138,7 +119,6 @@ pub(super) fn spawn_parser_task(
                     }
 
                     if let Some(event) = parser.parse_line(&buf) {
-                        // Signal readiness on first parsed event
                         if let Some(rtx) = ready_tx.take() {
                             let _ = rtx.send(());
                         }
@@ -206,10 +186,8 @@ where
 }
 
 impl ControlModeConnection {
-    /// Check that `session_name` actually exists before we burn a PTY on it.
-    /// Returns `Err(SessionNotFound)` enriched with the running session list
-    /// for diagnostics — operators almost always need to see "what *do* you
-    /// have" when this fires.
+    /// `Err(SessionNotFound)` names the sessions that do exist: whoever hits
+    /// this almost always needs to see "what *do* you have".
     pub(super) fn preflight_session(
         session_name: &str,
         log: Option<&Arc<dyn LogSink>>,
@@ -271,7 +249,6 @@ impl ControlModeConnection {
         })
     }
 
-    /// Allocate a fresh PTY sized to `INITIAL_PTY_COLS x INITIAL_PTY_ROWS`.
     pub(super) fn allocate_pty(
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(pty_process::Pty, pty_process::Pts), TmuxError> {
@@ -292,12 +269,8 @@ impl ControlModeConnection {
         Ok((pty, pts))
     }
 
-    /// Spawn `tmux -CC …` attached to the supplied pty slave.
-    ///
-    /// Sets `TERM=xterm-256color`, `LANG=en_US.UTF-8` (only if absent), and
-    /// prepends the Homebrew bin paths to `PATH` on macOS. These all exist
-    /// to keep `.app`-from-Finder launches functional: launchd hands us a
-    /// sparse env that breaks `default-command`s using Homebrew binaries.
+    /// Sets `TERM` and `LANG` when absent: launchd hands an `.app` started
+    /// from Finder a sparse environment.
     pub(super) fn spawn_tmux(
         tmux_args: &[String],
         pts: pty_process::Pts,
@@ -305,8 +278,6 @@ impl ControlModeConnection {
         shell_desc: &str,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<tokio::process::Child, TmuxError> {
-        // `tmux_args[0]` is the program to launch — the local tmux path, or
-        // `ssh` when tunneling to a remote host (see `build_tmux_args`).
         let program = &tmux_args[0];
         let mut cmd = pty_process::Command::new(program);
         cmd = cmd.args(&tmux_args[1..]);
@@ -361,9 +332,7 @@ impl ControlModeConnection {
         })
     }
 
-    /// Block until the parser task signals readiness (first parsed event from
-    /// tmux), or `Err(TmuxError::Timeout)` after 10 seconds. The 10s ceiling
-    /// is long enough to swallow a slow first-time `default-command` startup
+    /// The 10s ceiling swallows a slow first-time `default-command` startup
     /// while still surfacing a dead tmux server quickly.
     pub(super) async fn wait_for_initial_state(
         child: &mut tokio::process::Child,

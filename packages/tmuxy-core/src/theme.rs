@@ -1,11 +1,6 @@
-//! Theme operations shared by both transports.
-//!
-//! The SSE server and the Tauri app used to carry near-verbatim copies of
-//! these handlers — which had already drifted (one used the
-//! `tmux_options::THEME` constants, the other hardcoded `"@tmuxy-theme"`
-//! strings). One implementation over the monitor's command channel keeps them
-//! in lockstep, and keeps every read and write on the control-mode connection
-//! (an external `tmux` while it is attached can crash tmux 3.5a).
+//! Theme operations shared by both transports. Every read and write goes over
+//! the monitor's command channel: an external `tmux` while control mode is
+//! attached can crash tmux 3.5a.
 
 use crate::client_size::SizePolicy;
 use crate::constants::tmux_options;
@@ -23,10 +18,8 @@ use css_vars::parse_css_vars;
 const DEFAULT_THEME: &str = "default";
 const DEFAULT_MODE: &str = "dark";
 
-/// How much of each surface's background the UI paints, plus the native blur
-/// flag — the `@tmuxy-*` appearance options from `tmuxy.conf`, read the same
-/// way on every platform. Alphas are clamped to 0.0–1.0; what shows through
-/// the remainder is the platform's business (the blurred desktop on macOS,
+/// The `@tmuxy-*` appearance options. What shows through the unpainted part
+/// of a surface is the platform's business (the blurred desktop on macOS,
 /// the desktop on Linux, the theme bg in a browser).
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,8 +120,6 @@ pub fn parse_count(value: &str, default: u32, max: u32) -> u32 {
         .map_or(default, |v| v.min(max))
 }
 
-/// Every option the theme settings are read from, in the order the query
-/// prints them.
 const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::THEME,
     tmux_options::THEME_MODE,
@@ -151,11 +142,9 @@ const SETTINGS_OPTIONS: [&str; 19] = [
     tmux_options::SIZE,
 ];
 
-/// One command list printing every settings option as `name=value`, a line
-/// each, then every global option for the `@tmuxy-css-*` ones among them.
-/// Named rather than positional: an unset option prints an empty value, and
-/// a blank line does not survive the control-mode reply, so the lines of a
-/// positional read shifted — a fresh config read its opacity as its theme.
+/// Each option prints as `name=value`, not positionally: an unset option
+/// prints an empty value, and a blank line does not survive the control-mode
+/// reply, so positional lines shift.
 fn settings_query() -> String {
     SETTINGS_OPTIONS
         .iter()
@@ -268,8 +257,6 @@ fn parse_settings(output: &str) -> ThemeSettings {
     }
 }
 
-/// Read the theme settings from tmux in one round trip, the SVG icons from
-/// the config dir, and the options the user's `tmuxy.conf` pins.
 pub async fn get_theme_settings(tx: &MonitorCommandSender) -> Result<ThemeSettings, CommandError> {
     let output = query(tx, &settings_query()).await?;
     let mut settings = parse_settings(&output);
@@ -293,7 +280,6 @@ fn option_value(value: &str) -> Result<String, CommandError> {
     Ok(tmux_quote(value))
 }
 
-/// Set global options in one command list.
 async fn set_options(
     tx: &MonitorCommandSender,
     options: &[(&str, &str)],
@@ -382,7 +368,6 @@ pub async fn set_theme(
     set_managed(tx, &options, "theme").await
 }
 
-/// Set only the mode (dark/light) and remember it.
 pub async fn set_theme_mode(tx: &MonitorCommandSender, mode: &str) -> Result<(), CommandError> {
     set_managed(tx, &[(ManagedOption::ThemeMode, mode)], "theme mode").await
 }
@@ -428,8 +413,6 @@ pub fn get_themes_list() -> Vec<ThemeInfo> {
         .collect()
 }
 
-/// One theme the View menu offers: its stylesheet's name, the name it is
-/// shown by, and the modes the stylesheet defines.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeInfo {

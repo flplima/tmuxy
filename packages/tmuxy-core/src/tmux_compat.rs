@@ -50,7 +50,6 @@ pub enum Relist {
 /// One kind of command tmux answers with no notification. What goes
 /// unannounced, and on which tmux versions, is said where each is listed.
 pub struct Silent {
-    /// The list to refresh behind it.
     pub relist: Relist,
     /// The commands this applies to; empty means any command.
     pub commands: &'static [&'static TmuxCommand],
@@ -62,7 +61,6 @@ const fn always(_: &Command) -> bool {
     true
 }
 
-/// A `@tmuxy-*` option is named in the command.
 fn names_tmuxy_option(command: &Command) -> bool {
     command.args().iter().any(|w| w.contains("@tmuxy-"))
 }
@@ -82,7 +80,6 @@ fn runs_a_relisting_script(command: &Command) -> bool {
     starts_tagged_script(command, RELIST_TAG)
 }
 
-/// The mark is toggled: `select-pane -m` / `-M`.
 fn marks_a_pane(command: &Command) -> bool {
     command.args().iter().any(|w| *w == "-m" || *w == "-M")
 }
@@ -133,7 +130,6 @@ pub const SILENT_COMMANDS: &[Silent] = &[
     },
 ];
 
-/// The lists to refresh behind a command.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Relists {
     pub windows: bool,
@@ -176,7 +172,6 @@ pub const SETTLE_TAG: &str = "TMUXY_EFFECT=settle";
 /// `@tmuxy-collapsible`): the windows are re-listed behind it.
 pub const RELIST_TAG: &str = "TMUXY_EFFECT=relist-windows";
 
-/// Whether `list` starts a script tagged to settle ([`SETTLE_TAG`]).
 pub fn settles(list: &CommandList) -> bool {
     let mut found = false;
     each_command(list, &mut |command| {
@@ -185,7 +180,6 @@ pub fn settles(list: &CommandList) -> bool {
     found
 }
 
-/// Whether `command` is a `run-shell` whose shell command starts with `tag`.
 fn starts_tagged_script(command: &Command, tag: &str) -> bool {
     command.runs(&RUN_SHELL)
         && command.args().iter().any(|word| {
@@ -195,8 +189,6 @@ fn starts_tagged_script(command: &Command, tag: &str) -> bool {
         })
 }
 
-/// Every command of `list`, with a command that names one of tmuxy's own
-/// command-aliases read as the alias's body.
 fn each_command(list: &CommandList, visit: &mut dyn FnMut(&Command)) {
     for command in list.every() {
         match tmuxy_alias(command.verb()) {

@@ -5,8 +5,7 @@ use crate::{GroupId, PaneId, WindowId, WindowType};
 impl StateAggregator {
     /// Parse a line from list-panes output: one field per [`PaneColumn`], in
     /// that order, free-text fields comma-escaped by the format itself.
-    /// Returns (pane_id, needs_capture) if successfully parsed.
-    /// needs_capture is true if pane is new OR was resized.
+    /// Returns the pane and whether it needs a capture.
     pub(super) fn parse_list_panes_line(&mut self, line: &str) -> Option<(PaneId, bool)> {
         let Some(row) = Row::<PaneColumn>::parse(line) else {
             debug!(
@@ -34,7 +33,6 @@ impl StateAggregator {
         let window_id = WindowId::parse(row.field(PaneColumn::WindowId)).ok();
         let restore = row.text(PaneColumn::Restore).trim().to_string();
 
-        // Check if this is a new pane
         let is_new_pane = !self.panes.contains_key(&pane_id);
         let pane = self
             .panes
@@ -123,13 +121,11 @@ impl StateAggregator {
         // wins, as `focus_request` does for the window rows.
         self.plugins_rev = row.option(PaneColumn::PluginsRev);
 
-        // Store tmux's authoritative cursor position
         pane.tmux_cursor_x = number(PaneColumn::CursorX);
         pane.tmux_cursor_y = number(PaneColumn::CursorY);
 
-        // Need to capture if pane is new, was resized, or just exited copy mode
-        // (exiting copy mode requires re-syncing the vt100 terminal with tmux's actual content,
-        // since %output events during copy mode may have desynchronized it)
+        // The %output that arrived during copy mode may have left vt100 out
+        // of step with tmux's content.
         let exited_copy_mode = was_in_mode && !in_mode;
         let needs_capture = is_new_pane || was_resized || exited_copy_mode || moved_window;
         Some((pane_id, needs_capture))
