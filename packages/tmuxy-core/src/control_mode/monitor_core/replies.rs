@@ -5,28 +5,24 @@
 use super::*;
 use crate::tmux_command::{self, CommandList, SEND_KEYS};
 
-/// Who is waiting on a reply-wrapped command.
 pub(super) enum Waiter<W> {
-    /// A caller: gets the whole reply, success or not.
     Caller(W),
-    /// A fire-and-forget command: nobody wants the output, but a `%error`
-    /// is reported so the person learns why nothing happened.
+    /// A fire-and-forget command whose `%error` is shown, so the person
+    /// learns why nothing happened.
     ReportFailure,
     /// A fire-and-forget `run-shell`, relayed through the server option it
-    /// names (`run_shell`): what it printed is shown, and a failure reported.
+    /// names (`run_shell`).
     RunShell(String),
-    /// A caller's `run-shell`, relayed the same way: the caller gets what the
-    /// shell command printed, and a non-zero exit as the reply's error.
+    /// A caller's `run-shell`, relayed the same way: a non-zero exit is the
+    /// reply's error.
     CallerRunShell(W, String),
-    /// The batch of reads out on a paced link (`reads`): answered, the next
-    /// one may go.
+    /// The batch of reads out on a paced link (`reads`).
     Reads,
 }
 
-/// Whether a fire-and-forget command is marker-wrapped so its `%error`
-/// reaches the person: everything but keystrokes (`send-keys`, pinned or
-/// not). Keystrokes are the hot path — one command per key — and the only
-/// way they fail is a vanished pane, which the layout already shows.
+/// Keystrokes (`send-keys`, pinned or not) are not marker-wrapped: they are
+/// the hot path, one command per key, and the only way they fail is a
+/// vanished pane, which the layout already shows.
 pub(super) fn reports_failure(list: &CommandList) -> bool {
     !list.top_level().any(|command| command.runs(&SEND_KEYS))
 }
@@ -34,14 +30,8 @@ pub(super) fn reports_failure(list: &CommandList) -> bool {
 impl<W> MonitorCore<W> {
     /// A command a client sent — routed already (`command_router`) — as the
     /// lines that run it, with `waiter` (the caller, when one wants the
-    /// output) registered for its reply.
-    ///
-    /// One path for a caller and for fire-and-forget, so what has to happen
-    /// around a client's command cannot drift between the two: settling for
-    /// a multi-step script (`tmux_compat::settles`), the `run-shell` relay
-    /// that keeps tmux 3.4's view mode out of a pane tmuxy draws, failure
-    /// reporting, and the re-lists after what tmux leaves unannounced
-    /// (`tmux_compat::relists_after`).
+    /// output) registered for its reply. A `run-shell` goes through the relay
+    /// that keeps tmux 3.4's view mode out of a pane tmuxy draws.
     pub fn command(&mut self, command: &str, waiter: Option<W>, now: Instant) -> Outgoing {
         let list = tmux_command::parse(command);
         let settles = crate::tmux_compat::settles(&list);
@@ -55,7 +45,6 @@ impl<W> MonitorCore<W> {
             .relist_commands(crate::tmux_compat::relists_after(&list));
         let relists = self.relists_behind(relists, now);
 
-        // Taken whether or not the command is wrapped: ids only have to grow.
         let id = self.fresh_reply_id();
         let key = run_shell::relay_key(id);
         let relayed = run_shell::relay_run_shell(command, &key, &self.shell_line);
@@ -106,8 +95,6 @@ impl<W> MonitorCore<W> {
         actions
     }
 
-    /// A reply-wrapped command has finished: its output goes to whoever
-    /// asked, or is shown.
     pub(super) fn on_reply(
         &mut self,
         id: u64,
@@ -129,10 +116,8 @@ impl<W> MonitorCore<W> {
             Some((Waiter::Reads, _)) => self.reads.answered(),
             Some((Waiter::ReportFailure, _)) => {
                 messages(&mut actions, output.lines());
-                // What the command printed besides messages — a
-                // `show-messages` or `list-keys` typed at the prompt — is
-                // answered to a control client here, never shown in a pane:
-                // one notice, clipped.
+                // tmux answers a control client's `show-messages` or
+                // `list-keys` inside the command's reply, never in a pane.
                 let printed: Vec<&str> = output
                     .lines()
                     .filter(|line| super::super::parser::message_line(line).is_none())
@@ -171,7 +156,7 @@ impl<W> MonitorCore<W> {
         actions
     }
 
-    /// Fail every reply that has outlived `REPLY_TIMEOUT` (M7).
+    /// M7.
     pub(super) fn expire_replies(&mut self, now: Instant) -> Vec<Action<W>> {
         let expired: Vec<u64> = self
             .replies
@@ -189,8 +174,7 @@ impl<W> MonitorCore<W> {
                         CommandReply::failed("tmux did not answer in time"),
                     ));
                 }
-                // A batch of reads tmux has not answered in time is given up
-                // on, so the reads asked for since still go out.
+                // M12: the reads asked for since still go out.
                 Some((Waiter::Reads, _)) => {
                     tracing::warn!(id, "reads not answered in time");
                     self.reads.answered();
@@ -204,10 +188,8 @@ impl<W> MonitorCore<W> {
     }
 }
 
-/// The `display-message` lines of a fire-and-forget command's output, as
-/// notices. A `display-message` this client ran is answered inside its own
-/// block, so it is here as output, not as a notification. Nothing else reads
-/// this output; a caller's reply is left as tmux sent it.
+/// A `display-message` this client ran is answered inside its own block, so
+/// it arrives as output, not as a notification.
 fn messages<'a, W>(actions: &mut Vec<Action<W>>, lines: impl Iterator<Item = &'a str>) {
     for text in lines.filter_map(super::super::parser::message_line) {
         if !text.is_empty() {

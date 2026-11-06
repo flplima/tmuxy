@@ -1,9 +1,8 @@
 /**
  * What a control-mode client in an in-browser guest needs whatever machine
  * the guest runs in (v86, CheerpX): the tmuxy-core client compiled to wasm
- * (`packages/tmuxy-wasm`), which does what the native server's monitor does —
- * the attach settings, routing, reply correlation, the re-list timers,
- * window sizing — and the promises a host keeps for the replies it asked for.
+ * (`packages/tmuxy-wasm`), and the promises a host keeps for the replies it
+ * asked for.
  */
 import type { ServerStateEncoded } from '../../../../domain/wire';
 import type { PaneContent } from '../../../../domain/wireCells';
@@ -23,7 +22,6 @@ export interface Feed {
   ended: { reason: string | null } | null;
 }
 
-/** Where the routing policy sends a client's command. */
 export type Routed = { routed: string } | { blocked: string };
 
 export interface WasmCore {
@@ -67,7 +65,6 @@ export async function loadWasmModule(): Promise<WasmModule> {
   return wasm;
 }
 
-/** A reply the core answered: its output, or tmux's reason it failed. */
 export interface Reply {
   output: string;
   error: string | null;
@@ -82,7 +79,6 @@ export class ReplyBook {
   private nextId = 0;
   private waiting = new Map<number, (reply: Reply) => void>();
 
-  /** A fresh id, and the reply it will resolve with. */
   open(): { id: number; reply: Promise<Reply> } {
     const id = ++this.nextId;
     const reply = new Promise<Reply>((resolve) => this.waiting.set(id, resolve));

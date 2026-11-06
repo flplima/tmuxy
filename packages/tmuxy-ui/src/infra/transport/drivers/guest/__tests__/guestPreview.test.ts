@@ -1,8 +1,4 @@
-/**
- * `read_preview` on the in-browser guests: tmux names the file a pane may
- * preview and a run-shell reads it, under the server's rules. The query here
- * plays tmux.
- */
+/** The query here plays tmux. */
 import { describe, expect, it } from 'vitest';
 import { readGuestPreview } from '../guestPreview';
 
