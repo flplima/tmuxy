@@ -60,7 +60,6 @@ class GlitchDetector {
     }
     const { scope, ...config } = { ...DEFAULT_OPTIONS, ...options };
     this.config = config;
-    this.isRunning = true;
 
     const started = await this.page.evaluate(
       `(() => {
@@ -69,9 +68,9 @@ class GlitchDetector {
         return collector !== null;
       })()`,
     );
-    if (!started) {
-      console.warn(`[GlitchDetector] Scope element not found: ${scope}`);
-    }
+    // Nothing to watch would analyse an empty recording, and pass.
+    if (!started) throw new Error(`GlitchDetector: no element matches the scope ${scope}`);
+    this.isRunning = true;
   }
 
   /**
