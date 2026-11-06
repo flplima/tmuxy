@@ -1,8 +1,9 @@
 //! `update` and `remove`: moving installed plugins on, and taking them off.
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::lockfile::{Entry, EntrySource, Lockfile};
 use tmuxy_core::plugins::registry::Registry;
-use tmuxy_core::plugins::{fetch, gc, Dirs, PluginError, USER_PLUGIN};
+use tmuxy_core::plugins::{fetch, gc, PluginError, USER_PLUGIN};
 
 use super::gate::{self, Answer, Subject};
 use super::graph;
@@ -11,7 +12,7 @@ use super::install::{
 };
 use super::{say, Failure, Outcome};
 
-pub(super) fn update(dirs: &Dirs, name: Option<String>, answer: &Answer, json: bool) -> Outcome {
+pub(super) fn update(dirs: &Layout, name: Option<String>, answer: &Answer, json: bool) -> Outcome {
     let lock = Lockfile::load(dirs)?;
     if let Some(name) = &name {
         if lock.get(name).is_none() {
@@ -109,7 +110,7 @@ pub(super) fn update(dirs: &Dirs, name: Option<String>, answer: &Answer, json: b
 
 /// Remove a plugin. Refused while installed plugins depend on it, unless
 /// `--force`, which removes them too, named first.
-pub(super) fn remove(dirs: &Dirs, name: &str, purge: bool, force: bool, json: bool) -> Outcome {
+pub(super) fn remove(dirs: &Layout, name: &str, purge: bool, force: bool, json: bool) -> Outcome {
     if name == USER_PLUGIN {
         return Err(Failure {
             code: 1,
@@ -148,7 +149,7 @@ pub(super) fn remove(dirs: &Dirs, name: &str, purge: bool, force: bool, json: bo
     Ok(serde_json::json!({ "name": name, "removed": removed }))
 }
 
-fn report_gc(dirs: &Dirs, json: bool) {
+fn report_gc(dirs: &Layout, json: bool) {
     for dir in gc::collect(dirs).busy {
         say(
             json,

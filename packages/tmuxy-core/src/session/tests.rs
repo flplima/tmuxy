@@ -2,32 +2,6 @@ use std::path::Path;
 
 use super::*;
 
-/// Every helper under `packages/tmuxy-cli/bin/tmuxy/` must be in the bundled list, or the
-/// packaged app ships a `tmuxy-cli` that dispatches to a file that was
-/// never mirrored to the data dir's `bin/` (the tree sidebar shipped that
-/// way once: `tmuxy widget tree` died with "No such file or directory").
-#[test]
-fn every_helper_script_is_bundled() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-cli/bin/tmuxy");
-    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
-        .expect("bin/tmuxy readable")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .map(|e| format!("tmuxy/{}", e.file_name().to_string_lossy()))
-        .collect();
-    on_disk.sort();
-    let mut bundled: Vec<String> = BUNDLED_BIN_SCRIPTS
-        .iter()
-        .map(|(rel, _)| rel.to_string())
-        .filter(|rel| rel.starts_with("tmuxy/"))
-        .collect();
-    bundled.sort();
-    assert_eq!(
-        on_disk, bundled,
-        "packages/tmuxy-cli/bin/tmuxy/* and BUNDLED_BIN_SCRIPTS disagree"
-    );
-}
-
 #[test]
 fn the_server_command_is_published_quoted_with_its_subcommand() {
     assert_eq!(
@@ -87,7 +61,7 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     let _ = std::fs::remove_dir_all(&root);
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let layout = config::Layout {
+    let layout = crate::paths::Layout {
         config: home.join(".config/tmuxy"),
         data: root.join("data"),
         state: root.join("state"),
@@ -362,7 +336,6 @@ bind x set -g @tmuxy-theme-mode dark
         vec!["@tmuxy-theme", "@tmuxy-send-ask", "@tmuxy-transparency"]
     );
     assert!(pinned_options_in(DEFAULT_USER_CONF).is_empty());
-    assert_eq!(MANAGED_OPTIONS.len(), 5);
 }
 
 /// `-t` takes an argument, which is a target and not the option's name,

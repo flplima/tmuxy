@@ -283,7 +283,7 @@ fn read() -> Result<Panes, Outcome> {
         "list-panes".to_string(),
         "-a".to_string(),
         "-F".to_string(),
-        groups::LIST_PANES_FORMAT.to_string(),
+        groups::list_panes_format(),
     ])?;
     Ok(Panes::parse(&output))
 }

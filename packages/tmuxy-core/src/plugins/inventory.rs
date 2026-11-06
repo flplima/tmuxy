@@ -18,8 +18,9 @@ use serde::Serialize;
 
 use super::manifest::LinkMatch;
 use super::registry::Registry;
-use super::Dirs;
+use super::{PluginError, Result};
 use crate::constants::tmux_options::{PLUGINS, PLUGINS_REV};
+use crate::paths::Layout;
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct Plugin {
@@ -96,26 +97,34 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
-/// The tmux commands that publish the inventory. Both values are base64 or
-/// hex, so they need no quoting on a command line.
-pub fn commands(dirs: &Dirs) -> Vec<String> {
-    let registry = Registry::load(dirs).unwrap_or_default();
-    let (b64, rev) = encode(&build(&registry));
-    vec![
-        format!("set-option -g {PLUGINS} {b64}"),
-        format!("set-option -g {PLUGINS_REV} {rev}"),
-    ]
+/// The tmux commands that publish the inventory, as argv. A lockfile that
+/// does not load is an error, not an empty inventory: publishing one would
+/// take every plugin out of every client's menus.
+fn argv(dirs: &Layout) -> Result<[Vec<String>; 2]> {
+    let (b64, rev) = encode(&build(&Registry::load(dirs)?));
+    let set = |option: &str, value: String| {
+        vec!["set-option".to_string(), "-g".into(), option.into(), value]
+    };
+    Ok([set(PLUGINS, b64), set(PLUGINS_REV, rev)])
+}
+
+/// [`argv`] as control-mode lines, for the monitor.
+pub fn commands(dirs: &Layout) -> Result<Vec<String>> {
+    Ok(argv(dirs)?
+        .iter()
+        .map(|a| crate::argv::control_line(a))
+        .collect())
 }
 
 /// Publish from a CLI verb, inside `tmux run-shell` (`job`). No server on
 /// the socket is no error: the next monitor to attach publishes it.
-pub fn publish(dirs: &Dirs) {
-    let mut argv: Vec<String> = Vec::new();
-    for command in commands(dirs) {
-        if !argv.is_empty() {
-            argv.push(";".into());
-        }
-        argv.extend(command.split_whitespace().map(str::to_string));
+pub fn publish(dirs: &Layout) -> Result<()> {
+    let [option, rev] = argv(dirs)?;
+    let mut line = option;
+    line.push(";".into());
+    line.extend(rev);
+    match super::job::run(dirs, &line) {
+        Err(PluginError::NoServer(_)) => Ok(()),
+        other => other.map(|_| ()),
     }
-    let _ = super::job::run(dirs, &argv);
 }

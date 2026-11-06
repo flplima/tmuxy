@@ -164,9 +164,10 @@ fn append_marker(path: &Path, label: &str) -> Result<(), String> {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let safe: String = label.chars().take(120).collect();
+    use tmuxy_core::trace::schema::{field, Layer};
     let line = serde_json::json!({
-        "layer": "marker", "name": "mark", "phase": "event",
-        "label": safe, "ts_wall": now
+        field::LAYER: Layer::Marker.as_str(), field::NAME: "mark", "phase": "event",
+        field::LABEL: safe, field::TS_WALL: now
     })
     .to_string();
     let mut file = tmuxy_core::private_files::open_append(path)

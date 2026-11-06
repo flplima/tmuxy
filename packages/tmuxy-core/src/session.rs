@@ -226,6 +226,26 @@ pub fn tmux_output(argv: &[String]) -> Result<String> {
     }
 }
 
+/// Whether what tmux said means there is no server to talk to: none running
+/// on the socket, or a socket file that is gone. The CLI's `_no_server_in`
+/// (`tmuxy-cli/bin/tmuxy/_contract`) reads tmux's words the same way.
+pub fn is_no_server(message: &str) -> bool {
+    [
+        "no server running",
+        "error connecting to",
+        "No such file or directory",
+    ]
+    .iter()
+    .any(|sign| message.contains(sign))
+}
+
+/// tmux on tmuxy's server, as a shell command line: what a job `run-shell`
+/// starts calls to reach the server that started it.
+pub fn tmux_shell_line() -> String {
+    let [flag, socket] = tmux_socket_args();
+    crate::argv::shell_line(&[tmux_path(), &flag, &socket])
+}
+
 /// Build the tmux shell command string with the socket flag for use in shell
 /// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy", or when tunneled
 /// "ssh user@host tmux -L tmuxy".

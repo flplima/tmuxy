@@ -26,19 +26,15 @@ fn verbatim_keys_pass_through_but_unknown_keys_drop() {
 }
 
 #[test]
-fn name_and_path_fields_are_hashed_not_stored_raw() {
+fn path_fields_are_hashed_not_stored_raw() {
     let mut v = FieldVisitor::default();
-    v.put_str("name", "my-secret-window-title");
     v.put_str("path", "/home/alice/projects/acme/secret.txt");
 
-    let name = v.fields.get("name").unwrap().as_str().unwrap();
     let path = v.fields.get("path").unwrap().as_str().unwrap();
-    assert!(name.starts_with("h:"));
     assert!(path.starts_with("h:"));
-    assert!(!name.contains("secret"));
     assert!(!path.contains("secret"));
     // Stable: same input → same id.
-    assert_eq!(name, hash_str("my-secret-window-title"));
+    assert_eq!(path, hash_str("/home/alice/projects/acme/secret.txt"));
 }
 
 #[test]
@@ -69,9 +65,9 @@ fn sanitize_client_fields_drops_content_and_hashes_names() {
     // A hostile/careless client trying to smuggle terminal content:
     input.insert("command".into(), Value::from("send-keys -l my-password"));
     input.insert("keys".into(), Value::from("password123"));
-    input.insert("title".into(), Value::from("secret-project"));
+    input.insert("path".into(), Value::from("secret-project"));
 
-    let out = super::sanitize_client_fields(input);
+    let out = super::sanitize_client_fields(input, TraceLevel::Shape);
 
     assert_eq!(out.get("layer").unwrap(), "xstate");
     assert_eq!(out.get("op").unwrap(), "split-window");
@@ -80,33 +76,30 @@ fn sanitize_client_fields_drops_content_and_hashes_names() {
     // Content-bearing keys not on any list are dropped.
     assert!(!out.contains_key("command"));
     assert!(!out.contains_key("keys"));
-    // A name/path key is admitted only as an opaque hash.
-    let title = out.get("title").unwrap().as_str().unwrap();
-    assert!(title.starts_with("h:"));
-    assert!(!title.contains("secret"));
+    // A path key is admitted only as an opaque hash.
+    let path = out.get("path").unwrap().as_str().unwrap();
+    assert!(path.starts_with("h:"));
+    assert!(!path.contains("secret"));
 }
 
 #[test]
 fn levels_trade_hashing_and_command_strings() {
     // Shape: names hashed, command dropped (safe/shareable default).
     assert!(
-        super::admit_json_at("title", Value::from("secret-proj"), TraceLevel::Shape)
+        super::admit("path", Value::from("secret-proj"), TraceLevel::Shape)
             .unwrap()
             .as_str()
             .unwrap()
             .starts_with("h:")
     );
-    assert!(
-        super::admit_json_at("command", Value::from("split-window -h"), TraceLevel::Shape)
-            .is_none()
-    );
+    assert!(super::admit("command", Value::from("split-window -h"), TraceLevel::Shape).is_none());
 
     // Labeled: names in the clear, command still dropped.
     assert_eq!(
-        super::admit_json_at("title", Value::from("secret-proj"), TraceLevel::Labeled).unwrap(),
+        super::admit("path", Value::from("secret-proj"), TraceLevel::Labeled).unwrap(),
         "secret-proj"
     );
-    assert!(super::admit_json_at(
+    assert!(super::admit(
         "command",
         Value::from("split-window -h"),
         TraceLevel::Labeled
@@ -115,7 +108,7 @@ fn levels_trade_hashing_and_command_strings() {
 
     // Full: command string admitted (local-debug only).
     assert_eq!(
-        super::admit_json_at("command", Value::from("split-window -h"), TraceLevel::Full).unwrap(),
+        super::admit("command", Value::from("split-window -h"), TraceLevel::Full).unwrap(),
         "split-window -h"
     );
 }
@@ -127,7 +120,7 @@ fn levels_trade_hashing_and_command_strings() {
 #[test]
 fn full_keeps_the_command_but_never_the_keys_or_the_paste() {
     let full = |cmd: &str| {
-        super::admit_json_at("command", Value::from(cmd), TraceLevel::Full)
+        super::admit("command", Value::from(cmd), TraceLevel::Full)
             .unwrap()
             .as_str()
             .unwrap()
@@ -174,7 +167,7 @@ fn client_structural_fields_admit_only_identifiers() {
     input.insert("component".into(), Value::from("open_url"));
     input.insert("phase".into(), Value::from("x".repeat(65)));
     input.insert("level".into(), Value::from(3));
-    let out = sanitize_client_fields(input);
+    let out = sanitize_client_fields(input, TraceLevel::Shape);
     assert_eq!(out.get("layer").unwrap(), "xstate");
     assert_eq!(out.get("component").unwrap(), "open_url");
     assert!(!out.contains_key("name"));
@@ -182,15 +175,44 @@ fn client_structural_fields_admit_only_identifiers() {
     assert!(!out.contains_key("level"));
 }
 
+/// Over a given environment, not the process's: a test that set and removed
+/// `DO_NOT_TRACK` raced the others and failed where the machine exports it.
 #[test]
 fn kill_switch_env_disables() {
-    std::env::set_var("TMUXY_NO_TRACE", "1");
-    assert!(kill_switch());
-    std::env::remove_var("TMUXY_NO_TRACE");
-    std::env::set_var("DO_NOT_TRACK", "1");
-    assert!(kill_switch());
-    std::env::remove_var("DO_NOT_TRACK");
-    assert!(!kill_switch());
+    let env = |set: &'static [(&str, &str)]| {
+        move |name: &str| {
+            set.iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        }
+    };
+    assert!(kill_switch_in(env(&[("TMUXY_NO_TRACE", "1")])));
+    assert!(kill_switch_in(env(&[("DO_NOT_TRACK", "1")])));
+    assert!(!kill_switch_in(env(&[("DO_NOT_TRACK", "0")])));
+    assert!(!kill_switch_in(env(&[])));
+}
+
+/// One policy for both paths: what a Rust event's field records is what
+/// the same key from a client records.
+#[test]
+fn a_rust_field_and_a_client_field_are_admitted_alike() {
+    for (key, value) in [
+        ("session", "~/x"),
+        ("path", "/home/a/b"),
+        ("error", "failed at /tmp"),
+        ("command", "send-keys -l x"),
+        ("keys", "hunter2"),
+    ] {
+        let mut v = FieldVisitor::default();
+        v.put_str(key, value);
+        let mut client = Map::new();
+        client.insert(key.to_string(), Value::from(value));
+        assert_eq!(
+            v.fields.get(key),
+            sanitize_client_fields(client, level()).get(key),
+            "{key}"
+        );
+    }
 }
 
 #[test]

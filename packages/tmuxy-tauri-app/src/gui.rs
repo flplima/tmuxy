@@ -108,7 +108,7 @@ pub fn run() {
                 "tmuxy starting"
             );
 
-            // Lay out the config dirs (session::Layout): migrate an older
+            // Lay out the config dirs (paths::Layout): migrate an older
             // install's ~/.config/tmuxy, mirror the shipped config, built-in
             // themes and scripts into the data dir, write the starter
             // tmuxy.conf on the very first run, and build the config chain

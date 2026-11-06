@@ -24,7 +24,7 @@ pub const MAX_DISCOVERY_PATHS: usize = 256;
 /// every pane on the tmux server.
 pub const LIST_PANE_PATHS_CMD: &str = "list-panes -a -F '#{pane_current_path}'";
 
-/// The distinct, non-empty paths in a `list_pane_paths_cmd` listing, in
+/// The distinct, non-empty paths in a [`LIST_PANE_PATHS_CMD`] listing, in
 /// order, capped at `MAX_DISCOVERY_PATHS` so a runaway pane count bounds the
 /// git work rather than failing it.
 pub fn paths_from_pane_listing(listing: &str) -> Vec<String> {
@@ -43,8 +43,6 @@ pub type WorktreeDiscoveryResult<T> = std::result::Result<T, WorktreeDiscoveryEr
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WorktreeDiscoveryError {
-    #[error("worktree discovery accepts at most {max} paths (received {count})")]
-    TooManyPaths { count: usize, max: usize },
     #[error("failed to execute git {operation} in {}: {message}", path.display())]
     GitProcess {
         operation: &'static str,
@@ -106,12 +104,6 @@ struct ParsedWorktree {
 /// pane directories belong to it. SSH pane paths are remote paths, so local
 /// Git discovery is skipped for an SSH-backed tmux connection.
 pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<GitRepository>> {
-    if paths.len() > MAX_DISCOVERY_PATHS {
-        return Err(WorktreeDiscoveryError::TooManyPaths {
-            count: paths.len(),
-            max: MAX_DISCOVERY_PATHS,
-        });
-    }
     if paths.is_empty() || crate::session::ssh_target().is_some() {
         return Ok(Vec::new());
     }

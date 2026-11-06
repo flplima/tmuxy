@@ -21,7 +21,7 @@
 //! - the copy-mode flag asked as `#{pane_mode}`, not `#{pane_in_mode}` (3.4
 //!   put a fresh pane in view-mode): `constants::tmux_formats`;
 //! - a space as the group listing's separator (3.4 prints a control
-//!   character as `_`): `groups::LIST_PANES_FORMAT`;
+//!   character as `_`): `groups::list_panes_format`;
 //! - `set -q` for `allow-passthrough` (absent on 3.2): `monitor/sync.rs`;
 //! - the JSON `#{window_layout}` of 3.8 read back into the classic string:
 //!   `layout::parse_json`;

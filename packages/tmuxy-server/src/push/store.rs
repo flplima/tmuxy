@@ -63,7 +63,7 @@ impl Store {
     }
 
     pub(crate) fn in_state_dir() -> Self {
-        Self::new(tmuxy_core::paths::state_dir().join("push"))
+        Self::new(tmuxy_core::paths::Layout::current().path(&tmuxy_core::paths::PUSH))
     }
 
     fn key_path(&self) -> PathBuf {

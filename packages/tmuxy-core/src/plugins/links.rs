@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use super::invoke::{Token, Trigger};
 use super::manifest::{sections::compile, LinkHandler, LinkMatch};
 use super::registry::{Installed, Registry};
-use super::{Dirs, PluginError, Result};
+use super::{PluginError, Result};
+use crate::paths::Layout;
 
 /// The longest URL or line a handler is matched against.
 pub const MAX_LINK_CHARS: usize = 4096;
@@ -162,7 +163,7 @@ pub struct Prepared {
 /// last argument, as `tmuxy plugin action <plugin>:<id> -- <url>` passes it.
 /// `None` when no handler takes it (the client then opens a URL in the
 /// browser as before).
-pub fn prepare(dirs: &Dirs, found: Option<Found<'_>>, pane: &str) -> Result<Option<Prepared>> {
+pub fn prepare(dirs: &Layout, found: Option<Found<'_>>, pane: &str) -> Result<Option<Prepared>> {
     let Some(found) = found else {
         return Ok(None);
     };

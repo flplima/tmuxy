@@ -3,13 +3,14 @@
 //! it is set; setting one without a value reads it from the terminal with
 //! echo off, so it lands in neither the shell history nor `ps`.
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::registry::Registry;
-use tmuxy_core::plugins::{settings, Dirs, PluginError};
+use tmuxy_core::plugins::{settings, PluginError};
 
 use super::{say, usage, Failure, Outcome};
 
 pub(super) fn config(
-    dirs: &Dirs,
+    dirs: &Layout,
     name: &str,
     key: Option<String>,
     value: Option<String>,
@@ -24,7 +25,7 @@ pub(super) fn config(
                 "name the setting: tmuxy plugin config <name> <key> …",
             ));
         }
-        let rows: Vec<serde_json::Value> = settings::current(dirs, plugin)
+        let rows: Vec<serde_json::Value> = settings::current(dirs, plugin)?
             .iter()
             .map(|c| {
                 serde_json::json!({
@@ -63,7 +64,7 @@ pub(super) fn config(
         say(json, format!("{name}.{key} is back to its default"));
         return Ok(serde_json::json!({ "key": key, "unset": true }));
     }
-    let current = settings::current(dirs, plugin);
+    let current = settings::current(dirs, plugin)?;
     let Some(entry) = current.iter().find(|c| c.setting.key == key) else {
         return Err(
             PluginError::NotFound(format!("plugin {name:?} has no setting {key:?}")).into(),

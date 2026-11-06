@@ -219,6 +219,9 @@ pub enum ServerAction {
     /// Install, list, update and remove plugins, and run their actions.
     /// Backs `tmuxy plugin` (docs/PLUGINS.md).
     Plugin(crate::plugin_cli::PluginArgs),
+    /// The config verbs whose work is a file tmuxy-core owns: `paths`,
+    /// `reload`, `use-tmux-conf`. What `tmuxy config` can call.
+    Config(crate::config_cli::ConfigArgs),
 }
 
 /// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
@@ -280,6 +283,7 @@ pub async fn run(args: ServerArgs) {
         Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
         Some(ServerAction::Agent(agent_args)) => crate::agents::run(agent_args),
         Some(ServerAction::Plugin(plugin_args)) => crate::plugin_cli::run(plugin_args),
+        Some(ServerAction::Config(config_args)) => crate::config_cli::run(config_args),
     }
 }
 

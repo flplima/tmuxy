@@ -445,13 +445,13 @@ pub(super) fn every_other_sse_event() -> Vec<SseEvent> {
         },
         SseEvent::KeyBindings(KeyBindings {
             prefix_key: "C-b".to_string(),
-            prefix_bindings: vec![tmuxy_core::KeyBinding {
+            prefix_bindings: vec![tmuxy_core::transport::KeyBinding {
                 key: "c".to_string(),
                 command: "new-window".to_string(),
                 description: "new window".to_string(),
                 repeat: false,
             }],
-            root_bindings: vec![tmuxy_core::KeyBinding {
+            root_bindings: vec![tmuxy_core::transport::KeyBinding {
                 key: "M-Left".to_string(),
                 command: "select-pane -L".to_string(),
                 description: "pane left".to_string(),
@@ -459,7 +459,7 @@ pub(super) fn every_other_sse_event() -> Vec<SseEvent> {
             }],
             tables: [(
                 "pane".to_string(),
-                vec![tmuxy_core::KeyBinding {
+                vec![tmuxy_core::transport::KeyBinding {
                     key: "x".to_string(),
                     command: "kill-pane \\; switch-client -T pane".to_string(),
                     description: "kill-pane \\; switch-client -T pane".to_string(),

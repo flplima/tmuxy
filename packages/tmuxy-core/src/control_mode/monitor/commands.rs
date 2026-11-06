@@ -37,11 +37,8 @@ impl<C: ControlLink> TmuxMonitor<C> {
         // inside the reply instead of in a tmux 3.4 view-mode the UI does not
         // draw — to the caller that asked for it, or shown when nobody did.
         let relay_key = run_shell::relay_key(self.next_reply_id + 1);
-        let relayed = run_shell::relay_run_shell(
-            &unescaped,
-            &relay_key,
-            &crate::session_snapshot::tmux_shell_command(),
-        );
+        let relayed =
+            run_shell::relay_run_shell(&unescaped, &relay_key, &crate::session::tmux_shell_line());
         let (outgoing, waiter) = match (reply, relayed) {
             (Some(reply), Some(relayed)) => {
                 (relayed, Some(ReplyWaiter::CallerRunShell(reply, relay_key)))

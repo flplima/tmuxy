@@ -7,6 +7,7 @@
 mod agents;
 mod auth;
 mod command;
+mod config_cli;
 mod dev;
 mod log_file;
 mod mcp;

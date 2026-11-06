@@ -243,7 +243,8 @@ production pays nothing.
   `ui.perfetto.dev` for a flame-graph timeline across all layers — the view that
   makes a complex cross-layer stall legible at a glance.
 - **Health check:** `tmuxy trace --check` reports reconnects (a second `connect`
-  for a session), rejected commands, errors, and **silent shell panes**: a pane
+  for a session), rejected commands, errors, the events the writer dropped
+  under pressure (its `overflow` lines), and **silent shell panes**: a pane
   running a shell that lived 10 s or more without one byte of output, replay or
   non-empty capture — a shell that never started talking, or output that never
   reached the aggregator. Each names the marker it appeared under (in an E2E
@@ -262,9 +263,14 @@ production pays nothing.
 All of the below ships today; the trace file is one Rust-owned NDJSON sink that
 every layer writes into.
 
-- **Rust** — `tmuxy_core::trace` defines the `TraceLayer` (allowlist +
-  hash/scrub visitor) and a lossy background writer (mode `0600`, 64 MiB
-  rotation). Registered by `tmuxy_server::init_logging`, installed on the server
+- **Rust** — `tmuxy_core::trace` defines the `TraceLayer` and a lossy
+  background writer (mode `0600`, 64 MiB rotation), which opens the file before
+  tracing says it is on. `trace::schema` (`tmuxy-core/src/trace/schema.rs`) is
+  the one vocabulary: the layer of an event by its module path, the class of
+  every field key, and the event and field names `tmuxy trace --check` reads.
+  One field policy (`admit`) applies it to a Rust event's fields and to a
+  client's alike; the client's own allowlist in `tracer.ts` is tested against
+  it. Registered by `tmuxy_server::init_logging`, installed on the server
   binary, the `tmuxy server` subcommand, and the Tauri GUI path alike. Gating and
   the `--trace` flag live in `trace::init` / `ServerArgs`. Existing spans
   (monitor `connect`/`run`, the `transport.rs` reads) flow in with no new call sites.

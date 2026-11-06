@@ -169,7 +169,7 @@ fn legacy_pid_file_path(port: u16) -> std::path::PathBuf {
 
 fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
     if port == DEFAULT_PORT {
-        dir.join("tmuxy.pid")
+        dir.join(tmuxy_core::paths::PID.name)
     } else {
         dir.join(format!("tmuxy-{port}.pid"))
     }

@@ -1,3 +1,5 @@
+#[cfg(feature = "cli")]
+pub mod argv;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;
@@ -14,6 +16,8 @@ pub mod command_router;
 pub mod executor;
 
 pub mod layout;
+#[cfg(feature = "cli")]
+pub mod list_keys;
 pub mod mime;
 #[cfg(feature = "cli")]
 pub mod paths;
@@ -43,14 +47,10 @@ pub mod transport;
 pub mod worktrees;
 
 pub use command_error::{CommandError, ErrorKind};
-pub use error::{Result as TmuxResult, TmuxError};
+pub use error::TmuxError;
 pub use ids::{GroupId, IdError, PaneId, WindowId};
 
 use serde::{Deserialize, Serialize};
-
-// Re-export the key binding type
-#[cfg(feature = "native")]
-pub use transport::KeyBinding;
 
 /// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";

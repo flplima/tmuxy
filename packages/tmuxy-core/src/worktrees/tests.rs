@@ -6,19 +6,6 @@ fn empty_paths_never_fall_back_to_an_ambient_scan() {
 }
 
 #[test]
-fn rejects_requests_over_the_documented_path_limit() {
-    let paths = vec!["/same/path".to_string(); MAX_DISCOVERY_PATHS + 1];
-
-    assert_eq!(
-        list_git_worktrees(paths),
-        Err(WorktreeDiscoveryError::TooManyPaths {
-            count: MAX_DISCOVERY_PATHS + 1,
-            max: MAX_DISCOVERY_PATHS,
-        })
-    );
-}
-
-#[test]
 fn canonical_input_paths_are_deduplicated_before_git_runs() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let cargo_toml = manifest_dir.join("Cargo.toml");

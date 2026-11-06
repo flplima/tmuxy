@@ -249,7 +249,7 @@ pub fn trace_settings_json() -> serde_json::Value {
     serde_json::json!({
         "enabled": crate::trace::is_enabled(),
         "level": crate::trace::level_name(),
-        "path": crate::trace::trace_path().map(|p| p.display().to_string()),
+        "path": crate::trace::trace_path().display().to_string(),
         "locked": crate::trace::is_locked_off(),
     })
 }

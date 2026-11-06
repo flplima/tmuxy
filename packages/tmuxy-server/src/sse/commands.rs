@@ -253,12 +253,18 @@ pub(super) async fn handle_command(
         }
         ClientCommand::SetCursorBlink { enabled } => {
             let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_cursor_blink(&tx, enabled).await?;
+            tmuxy_core::theme::set_flag(
+                &tx,
+                tmuxy_core::session::ManagedOption::CursorBlink,
+                enabled,
+            )
+            .await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::SetSendAsk { enabled } => {
             let tx = state.monitor_tx(session).await?;
-            tmuxy_core::theme::set_send_ask(&tx, enabled).await?;
+            tmuxy_core::theme::set_flag(&tx, tmuxy_core::session::ManagedOption::SendAsk, enabled)
+                .await?;
             Ok(serde_json::json!(null))
         }
         ClientCommand::GetThemesList => Ok(tmuxy_core::theme::get_themes_list()),

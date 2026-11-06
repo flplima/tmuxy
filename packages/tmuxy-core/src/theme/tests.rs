@@ -141,7 +141,7 @@ fn the_config_readme_documents_every_option() {
             "{option} is undocumented"
         );
     }
-    assert!(readme.contains(&format!("`{CSS_VAR_PREFIX}<variable>`")));
+    assert!(readme.contains(&format!("`{}<variable>`", tmux_options::CSS_VAR_PREFIX)));
 }
 
 /// The value goes into a control-mode command line: quoted so `;` stays
@@ -190,4 +190,60 @@ fn a_menu_change_skips_what_tmuxy_conf_pins() {
         unpinned(&[(tmux_options::CURSOR_BLINK, "off")], &pinned).unwrap(),
         vec![(tmux_options::CURSOR_BLINK, "off")]
     );
+}
+
+/// The `set -g @tmuxy-* <value>` lines of the shipped defaults.
+fn shipped_defaults() -> Vec<(&'static str, &'static str)> {
+    include_str!("../../assets/tmuxy.defaults.conf")
+        .lines()
+        .filter_map(|line| line.strip_prefix("set -g @tmuxy-"))
+        .filter_map(|rest| rest.split_once(' '))
+        .map(|(name, value)| (name, value.trim()))
+        .collect()
+}
+
+/// What the app falls back to for an unset appearance option is what
+/// tmuxy.defaults.conf sets it to, and what the config README's table says:
+/// three copies of each value, held to one.
+#[test]
+fn the_fallbacks_are_the_shipped_defaults_and_the_readmes() {
+    let shipped = shipped_defaults();
+    let value_of = |option: &str| {
+        shipped
+            .iter()
+            .find(|(name, _)| Some(*name) == option.strip_prefix("@tmuxy-"))
+            .map(|(_, value)| *value)
+    };
+    let appearance: Vec<(&str, &str)> = SETTINGS_OPTIONS
+        .iter()
+        .filter(|o| ![tmux_options::THEME, tmux_options::THEME_MODE].contains(o))
+        .map(|o| {
+            (
+                *o,
+                value_of(o).unwrap_or_else(|| panic!("{o} is not in tmuxy.defaults.conf")),
+            )
+        })
+        .collect();
+    assert_eq!(
+        parse_settings(&printed(&appearance))["appearance"],
+        serde_json::to_value(Appearance::default()).unwrap()
+    );
+
+    let readme = include_str!("../../assets/config-README.md");
+    for option in SETTINGS_OPTIONS {
+        let expected = match option {
+            o if o == tmux_options::THEME => DEFAULT_THEME,
+            o if o == tmux_options::THEME_MODE => DEFAULT_MODE,
+            o => value_of(o).unwrap(),
+        };
+        let row = readme
+            .lines()
+            .find(|l| l.starts_with(&format!("| `{option}`")))
+            .unwrap_or_else(|| panic!("{option} has no row"));
+        assert_eq!(
+            row.split('|').nth(2).map(str::trim),
+            Some(expected),
+            "{option}"
+        );
+    }
 }

@@ -152,7 +152,9 @@ pub mod tmux_options {
     /// Theme mode: `dark` / `light` / `auto` (follow the OS).
     pub const THEME_MODE: &str = "@tmuxy-theme-mode";
     /// `@tmuxy-css-<variable> <value>`: one CSS variable set on the page over
-    /// the theme file — see [`crate::theme::CSS_VAR_PREFIX`].
+    /// the theme file (`@tmuxy-css-term-background '#101010'` is
+    /// `--term-background: #101010`). One option per variable, so a script in
+    /// a pane can set a colour without writing a stylesheet.
     pub const CSS_VAR_PREFIX: &str = "@tmuxy-css-";
     /// `@tmuxy-icon-<process> <text|file.svg>`: the icon a pane running
     /// `<process>` wears — see `theme/icons.rs`.

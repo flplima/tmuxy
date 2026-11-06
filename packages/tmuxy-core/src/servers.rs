@@ -1,11 +1,10 @@
-//! Saved tmux *servers* the desktop app can attach to.
+//! Saved tmux *servers* the app can attach to.
 //!
 //! A "server" is a tmux server tmuxy drives in control mode: the local machine
 //! (the default) or a remote host reached over SSH. Entries are persisted to
 //! `servers.json` in the state dir (this machine's list, not portable config)
-//! by the `tmuxy connect` TUI and read by the
-//! desktop app's sidebar server picker. This is a desktop-only concept — the
-//! web server always uses whatever socket/host it was launched against.
+//! by `tmuxy session connect` and read by the sidebar's server picker, in
+//! the desktop app and the web app alike.
 //!
 //! Attaching to a server means pointing the monitor at its socket and, for a
 //! remote, its SSH tunnel. Both go into the [`crate::session::ConnectTarget`]
@@ -23,7 +22,7 @@ pub mod discovery;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
     query_local_socket_sessions, tmux_socket_dirs, touch_server, RemoteSessionInfo,
-    ServerReachability,
+    ServerReachability, LIST_SESSIONS,
 };
 
 /// Where the local machine's server sits in the picker.
@@ -185,7 +184,7 @@ fn slug(value: &str) -> String {
 /// Path to the servers file in the state dir: saved servers are machine
 /// state (an ssh host reachable from here, a socket on this machine).
 pub fn servers_path() -> PathBuf {
-    crate::paths::state_dir().join("servers.json")
+    crate::paths::state_dir().join(crate::paths::SERVERS.name)
 }
 
 /// Read and parse the servers file, distinguishing an absent file (`Ok(None)`)
@@ -285,7 +284,7 @@ pub fn write_servers(servers: &[Server]) -> std::io::Result<PathBuf> {
         })
         .collect();
     let body = serde_json::to_string_pretty(&persisted).map_err(std::io::Error::other)?;
-    std::fs::write(&path, format!("{body}\n"))?;
+    crate::private_files::replace(&path, format!("{body}\n"))?;
     Ok(path)
 }
 

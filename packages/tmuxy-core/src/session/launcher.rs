@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use super::config::Layout;
+use crate::paths::Layout;
 
 /// The tmux global environment variables naming the binary that runs this
 /// build's server verbs (`group`, `session`, …), and the subcommand it needs
@@ -181,7 +181,7 @@ pub(super) fn refresh_launcher_if_installed_in(layout: &Layout, exe_path: &Path)
     }
     let wrapper_stale =
         std::fs::read_to_string(&wrapper_path).ok().as_deref() != Some(LAUNCHER_WRAPPER);
-    let launcher_file = layout.state.join("launcher");
+    let launcher_file = layout.path(&crate::paths::LAUNCHER);
     let target_missing = match std::fs::read_to_string(&launcher_file) {
         Ok(recorded) => {
             let trimmed = recorded.trim();
@@ -201,7 +201,7 @@ pub(super) fn refresh_launcher_in(layout: &Layout, exe_path: &Path) {
         return;
     }
 
-    let launcher_file = dir.join("launcher");
+    let launcher_file = layout.path(&crate::paths::LAUNCHER);
     let exe_str = exe_path.to_string_lossy();
     let content = format!("{exe_str}\n");
     if std::fs::read_to_string(&launcher_file).ok().as_deref() != Some(content.as_str()) {

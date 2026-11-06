@@ -1,5 +1,36 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parsePreviewLines, previewKind, previewResourcePath, splitFrontMatter } from '../preview';
+import {
+  isPreviewResource,
+  parsePreviewLines,
+  previewKind,
+  previewResourcePath,
+  splitFrontMatter,
+} from '../preview';
+
+const MIME_RS = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../tmuxy-core/src/mime.rs',
+);
+
+describe('the preview rules the server holds', () => {
+  // The server's table of file types decides what a preview shows and what a
+  // document may link; the client's copy only spares a round trip, so it
+  // must agree with it row for row.
+  it('agree with every row of tmuxy-core mime::FILE_TYPES', () => {
+    const rows = [
+      ...readFileSync(MIME_RS, 'utf8').matchAll(/t\("([a-z0-9]+)", "[^"]+", PreviewUse::(\w+)\)/g),
+    ];
+    expect(rows.length).toBeGreaterThan(10);
+    for (const [, ext, use] of rows) {
+      expect(isPreviewResource(`a.${ext}`), ext).toBe(use === 'Resource');
+      const kind = use === 'Html' ? 'html' : use === 'Markdown' ? 'markdown' : null;
+      expect(previewKind(`a.${ext}`), ext).toBe(kind);
+    }
+  });
+});
 
 describe('preview resource paths', () => {
   it('normalises what a document wrote into the path read_preview takes', () => {

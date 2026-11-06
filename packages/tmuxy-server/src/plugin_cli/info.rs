@@ -3,15 +3,16 @@
 
 use std::path::Path;
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::manifest::Manifest;
 use tmuxy_core::plugins::registry::{self, Kind, Registry};
 use tmuxy_core::plugins::{
-    log, satisfies_min_tmuxy, scaffold, Dirs, PluginError, RESERVED_VERBS, USER_PLUGIN,
+    log, satisfies_min_tmuxy, scaffold, PluginError, RESERVED_VERBS, USER_PLUGIN,
 };
 
 use super::{say, usage, Failure, Outcome};
 
-pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
+pub(super) fn list(dirs: &Layout, json: bool) -> Outcome {
     let registry = Registry::load(dirs)?;
     let keys = tmuxy_core::plugins::keys::plan(&registry);
     let mut rows = Vec::new();
@@ -112,7 +113,7 @@ pub(super) fn list(dirs: &Dirs, json: bool) -> Outcome {
     Ok(serde_json::json!({ "plugins": rows }))
 }
 
-pub(super) fn show_log(dirs: &Dirs, name: &str, follow: bool) -> Outcome {
+pub(super) fn show_log(dirs: &Layout, name: &str, follow: bool) -> Outcome {
     if !tmuxy_core::plugins::is_valid_name(name) {
         return Err(usage(format!("{name:?} is not a plugin name")));
     }
@@ -173,7 +174,7 @@ pub(super) fn check(dir: &Path, json: bool) -> Outcome {
             problems.push(format!("{shown}: {what}: {e}"));
         }
     }
-    let installed = Registry::load(&Dirs::current()).unwrap_or_default();
+    let installed = Registry::load(&Layout::current()).unwrap_or_default();
     for c in &m.cli {
         if let Some((other, _)) = installed.verb(&c.verb).filter(|(p, _)| p.name != m.name) {
             problems.push(format!(
@@ -189,7 +190,7 @@ pub(super) fn check(dir: &Path, json: bool) -> Outcome {
         }
     }
     if m.name == USER_PLUGIN
-        && dir.canonicalize().ok() != tmuxy_core::session::config_dir().canonicalize().ok()
+        && dir.canonicalize().ok() != tmuxy_core::paths::config_dir().canonicalize().ok()
     {
         problems.push(format!(
             "{shown}: name {USER_PLUGIN:?} is reserved for your own config dir's manifest"
@@ -271,7 +272,7 @@ pub(super) fn new(name: &str, json: bool) -> Outcome {
 }
 
 /// `tmuxy plugin path <name>`: the directory a plugin's commands run in.
-pub(super) fn path(dirs: &Dirs, name: &str, json: bool) -> Outcome {
+pub(super) fn path(dirs: &Layout, name: &str, json: bool) -> Outcome {
     let registry = Registry::load(dirs)?;
     let plugin = registry.require(name)?;
     say(json, plugin.root.display().to_string());

@@ -3,6 +3,7 @@ pub mod window_size;
 
 use serde_json::Value;
 use tauri::{Manager, State};
+use tmuxy_core::session::ManagedOption;
 use tmuxy_core::transport::{self, to_json};
 use tmuxy_core::CommandError;
 
@@ -168,13 +169,13 @@ pub async fn set_cursor_blink(
     enabled: bool,
 ) -> Result<(), CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_cursor_blink(&tx, enabled).await
+    tmuxy_core::theme::set_flag(&tx, ManagedOption::CursorBlink, enabled).await
 }
 
 #[tauri::command]
 pub async fn set_send_ask(window: tauri::WebviewWindow, enabled: bool) -> Result<(), CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_send_ask(&tx, enabled).await
+    tmuxy_core::theme::set_flag(&tx, ManagedOption::SendAsk, enabled).await
 }
 
 /// `@tmuxy-transparency`, from View ▸ Enable Window Transparency (macOS).
@@ -187,7 +188,7 @@ pub async fn set_transparency(
     enabled: bool,
 ) -> Result<(), CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_transparency(&tx, enabled).await?;
+    tmuxy_core::theme::set_flag(&tx, ManagedOption::Transparency, enabled).await?;
     crate::monitor::emit_theme_settings(&app, &tx).await;
     Ok(())
 }
@@ -484,8 +485,7 @@ pub fn set_trace_level(level: String) -> String {
 /// file lives on the machine running the backend.
 #[tauri::command]
 pub fn open_trace_file() -> Result<(), CommandError> {
-    let path = tmuxy_core::trace::trace_path()
-        .ok_or_else(|| CommandError::unavailable("no trace file path could be resolved"))?;
+    let path = tmuxy_core::trace::trace_path();
     if !path.exists() {
         return Err(CommandError::unavailable(format!(
             "{} does not exist yet",

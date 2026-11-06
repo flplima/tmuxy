@@ -9,9 +9,10 @@
 
 use std::path::PathBuf;
 
+use tmuxy_core::paths::Layout;
 use tmuxy_core::plugins::invoke::{self, OpenRequest, Trigger};
 use tmuxy_core::plugins::registry::Registry;
-use tmuxy_core::plugins::{inventory, log, Dirs, PluginError};
+use tmuxy_core::plugins::{log, PluginError};
 
 mod config;
 mod gate;
@@ -127,9 +128,6 @@ enum PluginCommand {
         action: String,
         token: String,
     },
-    /// Publish the inventory to the tmux server. Internal: `config reload`.
-    #[command(hide = true)]
-    Publish,
     /// Any other word: an installed plugin's `[[cli]]` verb and its arguments.
     #[command(external_subcommand)]
     Verb(Vec<String>),
@@ -168,7 +166,7 @@ fn usage(message: impl Into<String>) -> Failure {
 type Outcome = Result<serde_json::Value, Failure>;
 
 pub fn run(args: PluginArgs) {
-    let dirs = Dirs::current();
+    let dirs = Layout::current();
     let json = args.json;
     let result = match args.verb {
         PluginCommand::Install {
@@ -205,10 +203,6 @@ pub fn run(args: PluginArgs) {
             token,
         } => std::process::exit(invoke::exec(&dirs, &name, &action, &token)),
         PluginCommand::Verb(words) => run_cli_verb(&dirs, &words),
-        PluginCommand::Publish => {
-            inventory::publish(&dirs);
-            Ok(serde_json::Value::Null)
-        }
     };
     match result {
         Ok(value) => {
@@ -256,7 +250,7 @@ fn split_target(target: &str) -> Result<(String, String), Failure> {
 
 #[allow(clippy::too_many_arguments)]
 fn action(
-    dirs: &Dirs,
+    dirs: &Layout,
     target: &str,
     pane: Option<String>,
     wait: bool,
@@ -321,7 +315,7 @@ fn action(
 /// `tmuxy plugin <verb> [args…]`: the plugin's command, run in place of this
 /// process so its input, output and exit status are the caller's. A word no
 /// plugin has is a bad command line, like any unknown subcommand.
-fn run_cli_verb(dirs: &Dirs, words: &[String]) -> Outcome {
+fn run_cli_verb(dirs: &Layout, words: &[String]) -> Outcome {
     let (verb, args) = words.split_first().ok_or_else(|| usage("no command"))?;
     let known = Registry::load(dirs).is_ok_and(|r| r.verb(verb).is_some());
     if !known {
