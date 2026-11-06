@@ -66,6 +66,15 @@ export const DEFAULT_PREFIX = 'C-a';
 /** What `tmuxy-widget` prints before a widget's name (`constants::WIDGET_MARKER`). */
 export const WIDGET_MARKER = '__TMUXY_WIDGET__:';
 
+/** The buffer the client stages a paste in (`constants::PASTE_BUFFER`). */
+export const PASTE_BUFFER = 'tmuxy-paste';
+
+/** Which links a pane printed may be opened (`host::command::is_openable_url`). */
+export const OPENABLE_URL = {
+  schemes: ['http://', 'https://', 'mailto:'],
+  forbidden: ['"', "'", '<', '>', '^', '`', '{', '}', '|', '\\'],
+} as const;
+
 /** The themes the app ships, as the server lists them (`theme::get_themes_list`). */
 export const BUNDLED_THEMES = [
   { displayName: 'Catppuccin', modes: ['dark', 'light'], name: 'catppuccin' },

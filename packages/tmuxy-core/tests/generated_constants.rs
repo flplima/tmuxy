@@ -166,6 +166,68 @@ fn ts_literal(value: &serde_json::Value, indent: &str) -> String {
     }
 }
 
+/// A character as a TypeScript string literal, quoted the way prettier quotes it.
+fn ts_char(c: char) -> String {
+    match c {
+        '\'' => "\"'\"".to_string(),
+        '\\' => "'\\\\'".to_string(),
+        c => format!("'{c}'"),
+    }
+}
+
+/// Links and whether core's `is_openable_url` opens them, for the client's
+/// rule to be held to (`infra/__tests__/openUrl.test.ts`).
+fn openable_url_cases() -> String {
+    let cases = [
+        "https://example.com/a?b=c",
+        "HTTP://EXAMPLE.COM",
+        "mailto:someone@example.com",
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "https://example.com/\u{1b}[31m",
+        "https://example.com/\"&calc.exe",
+        "https://example.com/'x",
+        "https://example.com/a b",
+        "https://example.com/a\u{a0}b",
+        "https://example.com/a\u{85}b",
+        "https://example.com/a\u{feff}b",
+        "https://example.com/a\u{2028}b",
+        "https://example.com/<x>",
+        "https://example.com/{x}|^`\\",
+        "https://example.com/caf\u{e9}",
+        "",
+    ];
+    let rows: Vec<String> = cases
+        .iter()
+        .map(|url| {
+            format!(
+                "  [{}, {}]",
+                json_ascii(url),
+                tmuxy_core::host::command::is_openable_url(url)
+            )
+        })
+        .collect();
+    format!("[\n{}\n]\n", rows.join(",\n"))
+}
+
+/// A JSON string with everything outside printable ASCII escaped, so the
+/// fixture shows each case's character by its code.
+fn json_ascii(value: &str) -> String {
+    let mut out = String::from('"');
+    for c in value.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            ' '..='~' => out.push(c),
+            c => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// The prefix the shipped defaults set (`set -g prefix` in tmuxy.defaults.conf).
 fn default_prefix() -> String {
     let path = packages().join("tmuxy-core/assets/tmuxy.defaults.conf");
@@ -219,6 +281,23 @@ fn ui_shared(out: &mut String) {
         "\n/** What `tmuxy-widget` prints before a widget's name (`constants::WIDGET_MARKER`). */\n\
          export const WIDGET_MARKER = {};",
         quoted(tmuxy_core::constants::WIDGET_MARKER)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The buffer the client stages a paste in (`constants::PASTE_BUFFER`). */\n\
+         export const PASTE_BUFFER = {};",
+        quoted(tmuxy_core::constants::PASTE_BUFFER)
+    );
+    let _ = writeln!(
+        out,
+        "\n/** Which links a pane printed may be opened (`host::command::is_openable_url`). */\n\
+         export const OPENABLE_URL = {{\n  schemes: [{}],\n  forbidden: [{}],\n}} as const;",
+        tmuxy_core::constants::OPENABLE_URL_SCHEMES
+            .map(quoted)
+            .join(", "),
+        tmuxy_core::constants::URL_FORBIDDEN_CHARS
+            .map(ts_char)
+            .join(", ")
     );
     out.push_str(
         "\n/** The themes the app ships, as the server lists them (`theme::get_themes_list`). */\n\
@@ -313,6 +392,14 @@ fn the_ui_module_is_tmuxy_cores_values() {
     check(
         packages().join("tmuxy-ui/src/domain/tmuxyConstants.gen.ts"),
         typescript(),
+    );
+}
+
+#[test]
+fn the_ui_url_cases_are_tmuxy_cores_verdicts() {
+    check(
+        packages().join("tmuxy-ui/src/infra/__tests__/openableUrlCases.gen.json"),
+        openable_url_cases(),
     );
 }
 

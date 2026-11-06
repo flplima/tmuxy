@@ -1,0 +1,19 @@
+[
+  ["https://example.com/a?b=c", true],
+  ["HTTP://EXAMPLE.COM", true],
+  ["mailto:someone@example.com", true],
+  ["file:///etc/passwd", false],
+  ["javascript:alert(1)", false],
+  ["https://example.com/\u001b[31m", false],
+  ["https://example.com/\"&calc.exe", false],
+  ["https://example.com/'x", false],
+  ["https://example.com/a b", false],
+  ["https://example.com/a\u00a0b", false],
+  ["https://example.com/a\u0085b", false],
+  ["https://example.com/a\ufeffb", true],
+  ["https://example.com/a\u2028b", false],
+  ["https://example.com/<x>", false],
+  ["https://example.com/{x}|^`\\", false],
+  ["https://example.com/caf\u00e9", true],
+  ["", false]
+]
