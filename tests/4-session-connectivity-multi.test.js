@@ -222,7 +222,7 @@ describe('Scenario 24: Session Switcher (web)', () => {
       const primaryName = ctx.session.name;
 
       // Open the sidebar the way a user does — the header toggle button
-      // (dispatches the same TOGGLE_LEFT_SIDEBAR as `prefix t`).
+      // (dispatches the same TOGGLE_SIDEBAR as `prefix s`).
       await ctx.page.click('button[aria-label="Toggle tree sidebar"]');
       await ctx.page.waitForSelector('.sidebar-column-left', { timeout: 20000 });
 

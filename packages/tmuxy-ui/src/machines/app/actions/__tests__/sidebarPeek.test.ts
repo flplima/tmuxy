@@ -120,22 +120,22 @@ function connected(first: ReturnType<typeof modelUpdate>) {
 describe('a sidebar peek', () => {
   it('shows a hidden column without unhiding it, takes the keyboard without docking, and gives it back', () => {
     const { actor, sent, ctx } = connected(hiddenTree);
-    expect(ctx().leftSidebarOpen).toBe(false);
+    expect(ctx().sidebars.left.open).toBe(false);
 
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
     expect(ctx().sidebarPeek).toBe('left');
-    expect(ctx().leftSidebarOpen).toBe(false);
+    expect(ctx().sidebars.left.open).toBe(false);
     expect(sent).toEqual([]);
 
     // A click in the column: the keyboard goes to the tree, the column stays a peek.
-    actor.send({ type: 'FOCUS_LEFT_SIDEBAR' });
-    expect(ctx().leftSidebarFocused).toBe(true);
-    expect(ctx().leftSidebarOpen).toBe(false);
+    actor.send({ type: 'FOCUS_SIDEBAR', side: 'left' });
+    expect(ctx().keyboardOwner.kind === 'left').toBe(true);
+    expect(ctx().sidebars.left.open).toBe(false);
 
     actor.send({ type: 'END_SIDEBAR_PEEK' });
     expect(ctx().sidebarPeek).toBeNull();
-    expect(ctx().leftSidebarFocused).toBe(false);
-    expect(ctx().leftSidebarOpen).toBe(false);
+    expect(ctx().keyboardOwner.kind === 'left').toBe(false);
+    expect(ctx().sidebars.left.open).toBe(false);
     expect(sent.map(hiddenTag).filter((v) => v !== undefined)).toEqual([]);
   });
 
@@ -144,10 +144,10 @@ describe('a sidebar peek', () => {
 
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
     expect(sent.filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
-    expect(ctx().leftSidebarStarting).toBe(true);
+    expect(ctx().sidebars.left.starting).toBe(true);
 
     actor.send(freshTree);
-    expect(ctx().leftSidebarOpen).toBe(false);
+    expect(ctx().sidebars.left.open).toBe(false);
     expect(ctx().sidebarPeek).toBe('left');
     expect(sent.map(hiddenTag)).toContain('1');
 
@@ -162,19 +162,19 @@ describe('a sidebar peek', () => {
     const { actor, sent, ctx } = connected(hiddenTree);
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
 
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
-    expect(ctx().leftSidebarOpen).toBe(true);
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
+    expect(ctx().sidebars.left.open).toBe(true);
     expect(ctx().sidebarPeek).toBeNull();
     expect(sent.map(hiddenTag)).toContain(null);
 
     // The pointer leaving the toggle afterwards closes nothing.
     actor.send({ type: 'END_SIDEBAR_PEEK' });
-    expect(ctx().leftSidebarOpen).toBe(true);
+    expect(ctx().sidebars.left.open).toBe(true);
   });
 
   it('is not for a column already docked', () => {
     const { actor, ctx } = connected(hiddenTree);
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     actor.send({ type: 'PEEK_SIDEBAR', side: 'left' });
     expect(ctx().sidebarPeek).toBeNull();
   });

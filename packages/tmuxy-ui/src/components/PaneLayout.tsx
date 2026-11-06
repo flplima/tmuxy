@@ -38,12 +38,12 @@ import {
 import {
   selectEnableAnimations,
   selectSuppressLayoutTransition,
-  selectKeyboardElsewhere,
   selectPaneKeyOverrides,
   selectSwipeNeighbor,
   selectSwipeStill,
   selectGesturePaneId,
 } from '../machines/selectors/ui';
+import { selectKeyboardElsewhere } from '../machines/selectors/keyboard';
 import type { TmuxPane } from '../domain/client';
 import { findZoomedPane } from '../constants/gridSize';
 import {
@@ -57,7 +57,7 @@ import {
   type ShiftAnim,
 } from './PaneLayoutMorph';
 import { PaneLayoutItem } from './AnimatedPaneWrapper';
-import { usePaneDragResizeListeners, usePaneZoomObserver } from './paneWrapperHooks';
+import { usePaneZoomObserver } from './paneWrapperHooks';
 import { useMorphContentAnchor } from './paneContentAnchor';
 
 interface PaneLayoutProps {
@@ -189,8 +189,6 @@ export function PaneLayout({ children }: PaneLayoutProps) {
   const prevViewRef = useRef<Map<string, RenderedPaneView> | null>(null);
   const prevActiveWindowIdRef = useRef<string | null | undefined>(undefined);
   const prevAllPaneIdsRef = useRef<Set<string>>(new Set());
-
-  usePaneDragResizeListeners(isDragging, isResizing, send);
 
   const getPaneStyle = useCallback(
     (pane: TmuxPane): React.CSSProperties => {

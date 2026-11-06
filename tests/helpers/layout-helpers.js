@@ -59,7 +59,11 @@ async function waitForNoModal(page) {
 }
 
 const focusedFloatPaneId = (page) =>
-  page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId ?? null);
+  page.evaluate(() =>
+    window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
+      ? window.app.getSnapshot().context.keyboardOwner.paneId
+      : null,
+  );
 
 /**
  * How far the float's centre sits from the centre of the pane container's
@@ -115,7 +119,7 @@ async function openFloatFromCli(ctx) {
     ctx.page,
     async () => (await focusedFloatPaneId(ctx.page)) !== null,
     5000,
-    'focusedFloatPaneId to be set after float appears',
+    'the float to hold the keyboard after it appears',
   );
   return focusedFloatPaneId(ctx.page);
 }

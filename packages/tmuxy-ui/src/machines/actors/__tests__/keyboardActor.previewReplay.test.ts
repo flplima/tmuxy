@@ -1,13 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import type { AnyActorRef } from 'xstate';
+import { describe, expect, it } from 'vitest';
 import { markReplayedPreviewKey } from '../../../infra/dom/replayedKeys';
 import { pid } from '../../../test/wire';
 import { lastSendCommand, sendCommands, spawnKeyboardActor } from './keyboardHarness';
-
-const running: AnyActorRef[] = [];
-afterEach(() => {
-  running.splice(0).forEach((actor) => actor.stop());
-});
 
 function dispatchReplayed(init: KeyboardEventInit) {
   window.dispatchEvent(
@@ -19,10 +13,8 @@ function dispatchReplayed(init: KeyboardEventInit) {
 
 describe('keyboardActor — preview-replayed keys', () => {
   it('allows Ctrl+C, prefix activation, and navigation root bindings while blocking chained prefix chords, zoom, tab jumps, and arbitrary root commands', () => {
-    const { actor, child, events } = spawnKeyboardActor(pid('%3'));
-    running.push(actor);
-    child.send({
-      type: 'UPDATE_KEYBINDINGS',
+    const { events, set } = spawnKeyboardActor(pid('%3'));
+    set({
       keybindings: {
         prefix_key: 'C-a',
         prefix_bindings: [{ key: 'x', command: 'kill-pane', repeat: false }],

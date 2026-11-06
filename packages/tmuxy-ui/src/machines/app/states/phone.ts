@@ -1,8 +1,6 @@
 /**
  * phone state — what only the phone layout has (infra/dom/phoneLayout.ts).
  *
- * Owns context fields: phoneZoom, phoneBottomView, phoneDockSizeSent.
- *
  * Every event here is spread into the machine root: the zoom is drawn by the
  * client alone, and the bottom view's dock reaches tmux through the same
  * sidebar ops the desktop's right column uses.

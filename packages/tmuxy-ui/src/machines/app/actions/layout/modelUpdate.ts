@@ -1,27 +1,31 @@
 /**
- * TMUX_MODEL_UPDATE reconciliation handler for the app machine.
+ * TMUX_MODEL_UPDATE: the store's derived snapshot mirrored into the context,
+ * with what follows from the change (groups and floats rebuilt, copy-mode
+ * records reconciled, the columns' lifecycle, the size this client asks for).
  */
 
 import { assign, sendTo } from 'xstate';
-import { act, assignCtx } from './actionTypes';
-import type { AppMachineContext } from '../types/context';
-import type { PaneCellBox } from '../types/domain';
-import type { PaneId } from '../../domain/ids';
-import type { TmuxClientModel, TmuxSnapshot } from '../../domain/store/types';
-import { dragCells, resizedBand } from '../resize/limits';
-import { isBoxPermutation, samePanes } from './layoutChange';
+import { act, assignCtx } from '../../actionTypes';
+import type { AppMachineContext } from '../../../types/context';
+import type { PaneCellBox } from '../../../types/domain';
+import type { PaneId } from '../../../../domain/ids';
+import type { TmuxClientModel, TmuxSnapshot } from '../../../../domain/store/types';
+import { dragCells, resizedBand } from '../../../resize/limits';
+import { isBoxPermutation, samePanes } from '../../layoutChange';
 import {
   buildGroupsFromPanes,
   buildFloatPanesFromWindows,
   closeScrollViewsIn,
   gridExtent,
   keepLivePanes,
-} from './helpers';
-import { buildScrollbackState, fetchHistory, reconcilePaneMode } from './scrollback';
-import { pruneAskSelections } from './actions/ask';
-import { normalizePaneState } from '../../domain/paneState';
-import { TmuxOp } from '../../domain/commands';
-import { reconcileFloatAndSidebarLifecycle } from './reconcileSidebars';
+} from '../../helpers';
+import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
+import { pruneAskSelections } from '../ask';
+import { normalizePaneState } from '../../../../domain/paneState';
+import { TmuxOp } from '../../../../domain/commands';
+import { reconcileFloats } from '../groupsAndFloats';
+import { reconcileSidebars } from '../sidebars';
+import { syncClientSize } from '../viewport';
 
 /** `T` without its readonly, arrays included: a store snapshot as the context declares it. */
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends ReadonlyArray<infer U> ? U[] : T[K] };
@@ -64,8 +68,8 @@ function updateActivationOrder(order: PaneId[], paneId: PaneId | null): PaneId[]
   return [paneId, ...order.filter((id) => id !== paneId)];
 }
 
-export const reconcileModelActions = {
-  reconcile_reconnectingModelUpdate: assignCtx(({ event }) => {
+export const layoutModelUpdateActions = {
+  layout_reconnectingModelUpdate: assignCtx(({ event }) => {
     if (event.type !== 'TMUX_MODEL_UPDATE') return {};
     const transformed = snapshotFromModel(event.model);
     return {
@@ -78,12 +82,18 @@ export const reconcileModelActions = {
     };
   }),
 
-  reconcile_modelUpdate: act(({ event, context, enqueue }) => {
+  layout_modelUpdate: act(({ event, context, enqueue }) => {
     if (event.type !== 'TMUX_MODEL_UPDATE') return;
     const transformed = snapshotFromModel(event.model);
 
     if (transformed.panes.length === 0) return;
 
+    // The backend gives every tab `pane-border-status top` (and sidebars
+    // `off`, tmuxy-core control_mode/state/window_state.rs), so a tab's
+    // topmost pane sits at y=1 under the row its header is drawn in. A pane
+    // already on screen that a layout reports at y=0 (before the option has
+    // taken effect on its window) is drawn a row down and a row shorter, so
+    // it never slides up under its header for an update.
     if (!context.resizeActive) {
       const borderlessWindowIds = new Set(
         transformed.windows
@@ -109,7 +119,7 @@ export const reconcileModelActions = {
     const opsInFlight = event.model.ops.length > 0;
     if (!opsInFlight && switchingWindow && !newActiveHasPanes && currentlyRenderingPanes) return;
 
-    enqueue.raise({ type: 'SYNC_DOCK_ROWS' as const });
+    enqueue.raise({ type: 'SYNC_DOCK_SIZE' as const });
 
     const structurallyChanged =
       transformed.panes.length !== context.panes.length ||
@@ -161,7 +171,13 @@ export const reconcileModelActions = {
     const currentPaneIdSet = new Set(transformed.panes.map((p) => p.tmuxId));
     floatPanes = keepLivePanes(floatPanes, currentPaneIdSet);
 
-    reconcileFloatAndSidebarLifecycle(context, transformed, floatPanes, enqueue);
+    reconcileFloats(context, { ...transformed, floatPanes }, enqueue);
+    reconcileSidebars(
+      context,
+      { ...context, windows: transformed.windows, panes: transformed.panes },
+      transformed.focusRequest,
+      enqueue,
+    );
 
     if (transformed.pluginsRev !== context.pluginsRev) {
       enqueue.raise({ type: 'PLUGINS_REV_CHANGED', rev: transformed.pluginsRev });
@@ -175,7 +191,12 @@ export const reconcileModelActions = {
     for (const newPane of transformed.panes) {
       const prevPane = context.panes.find((p) => p.tmuxId === newPane.tmuxId);
       const record = context.copyModeStates[newPane.tmuxId];
-      switch (reconcilePaneMode(prevPane, newPane, record, { now })) {
+      switch (
+        reconcilePaneMode(prevPane, newPane, record, {
+          now,
+          exitedAt: context.copyModeExitedAt[newPane.tmuxId],
+        })
+      ) {
         case 'confirm': {
           updatedCopyModeStates = {
             ...updatedCopyModeStates,
@@ -244,21 +265,11 @@ export const reconcileModelActions = {
       samePanes(context.panes, transformed.panes) &&
       !isBoxPermutation(context.panes, transformed.panes);
 
-    const samePaneSet =
-      hasDimensionChange &&
-      transformed.panes.length === context.panes.length &&
-      transformed.panes.every((p) => context.panes.some((cp) => cp.tmuxId === p.tmuxId));
-    const isLayoutTransition =
-      context.activePaneId !== null &&
-      transformed.activePaneId !== null &&
-      transformed.panes.some((p) => p.tmuxId === context.activePaneId) &&
-      ((context.lastLayoutCommandTime > 0 && Date.now() - context.lastLayoutCommandTime < 500) ||
-        samePaneSet);
-    // The pane this client had is held through a layout transition, and
-    // while tmux names none (a window it has just made current, its panes not
-    // listed yet), only if it is in the current window: held from another,
-    // the keys typed into a tab just opened went to a pane of a hidden one.
-    // With none named, they go to tmux's current pane.
+    // tmux names no active pane while the window it has just made current has
+    // none listed yet. The pane this client had is held through that only if
+    // it is in that window: held from another, the keys typed into a tab
+    // just opened went to a pane of a hidden one; with none, they go to
+    // tmux's current pane.
     const heldActivePaneId =
       transformed.activeWindowId === null ||
       transformed.panes.some(
@@ -266,19 +277,10 @@ export const reconcileModelActions = {
       )
         ? context.activePaneId
         : null;
-    const effectiveActivePaneId =
-      isLayoutTransition && heldActivePaneId !== null
-        ? heldActivePaneId
-        : (transformed.activePaneId ?? heldActivePaneId);
-
-    const lastActivePaneByWindow = { ...context.lastActivePaneByWindow };
-    for (const pane of transformed.panes) {
-      if (pane.active && pane.windowId) {
-        lastActivePaneByWindow[pane.windowId] = pane.tmuxId;
-      }
-    }
+    const effectiveActivePaneId = transformed.activePaneId ?? heldActivePaneId;
 
     enqueue(
+      // cross-cutting: the store's snapshot is mirrored into every slice that derives from it.
       assign(({ context: ctx }) => ({
         ...transformed,
         activePaneId: effectiveActivePaneId,
@@ -302,7 +304,6 @@ export const reconcileModelActions = {
           effectiveActivePaneId !== ctx.activePaneId
             ? updateActivationOrder(ctx.paneActivationOrder, effectiveActivePaneId)
             : ctx.paneActivationOrder,
-        lastActivePaneByWindow,
       })),
     );
 
@@ -331,18 +332,6 @@ export const reconcileModelActions = {
         paneActivationOrder: ctx.paneActivationOrder,
       })),
     );
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_SESSION' as const,
-        sessionName: transformed.sessionName,
-      }),
-    );
-    enqueue(
-      sendTo('keyboard', {
-        type: 'UPDATE_ACTIVE_PANE' as const,
-        paneId: effectiveActivePaneId,
-      }),
-    );
 
     const grid = gridExtent(transformed.panes, transformed.activeWindowId, {
       cols: transformed.totalWidth,
@@ -358,28 +347,11 @@ export const reconcileModelActions = {
         enqueue.raise({ type: 'REFIT_GRID' as const });
       }
     }
-    const shouldResize =
-      context.targetCols > 0 &&
-      context.targetRows > 0 &&
-      (context.targetCols !== grid.cols || context.targetRows !== grid.rows);
-    if (shouldResize) {
-      enqueue(
-        sendTo('tmux', {
-          type: 'SET_CLIENT_SIZE' as const,
-          cols: context.targetCols,
-          rows: context.targetRows,
-        }),
-      );
-    }
-
-    if (
-      !context.enableAnimations &&
-      context.targetCols > 0 &&
-      !shouldResize &&
-      !hasDimensionChange &&
-      context.lastUpdateQuiet
-    ) {
-      enqueue(assign({ enableAnimations: true }));
-    }
+    syncClientSize(
+      { ...context, ...transformed, connected: true },
+      enqueue,
+      { cols: context.targetCols, rows: context.targetRows },
+      !hasDimensionChange && context.lastUpdateQuiet,
+    );
   }),
 };

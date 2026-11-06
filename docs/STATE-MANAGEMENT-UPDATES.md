@@ -34,16 +34,16 @@ Anything that changes the user's perceived "focused pane" MUST keep three pieces
 | State | Owner | Why it matters |
 | --- | --- | --- |
 | `context.activePaneId` | appMachine | Drives the UI focus indicator (PaneHeader tab highlight, pane border, etc.). |
-| `activePaneId` (local) | keyboardActor | Resolved as the `-t` target for every `send-keys`, paste, and IME-commit command: a focused overlay (float, dock) wins, then the active pane, then the session name; a placeholder id at either step falls through to the session. The hidden keyboard input is re-aimed on every change. |
+| `keyboardOwner` + `activePaneId` | keyboardActor, through its key context | Resolved as the `-t` target for every `send-keys`, paste, and IME-commit command (`selectKeyTarget` in `machines/selectors/keyboard.ts`): the float or dock holding the keyboard wins, then the active pane, then the session name; a placeholder id at either step falls through to the session. The hidden keyboard input is re-aimed whenever it changes. |
 | Server-side active pane | tmux | Used by any prefix/root binding that omits `-t` (e.g., `split-window`). |
 
 Rules an action that flips focus must follow:
 
-1. **Set `activePaneId` in context** — via `assign({ activePaneId: ... })`.
-2. **Push `UPDATE_ACTIVE_PANE` to the keyboard actor** — so the next keypress already targets the new pane. The keyboardActor stores `activePaneId` as a local variable (see `tmuxy-ui/src/machines/actors/keyboardActor.ts`) and only updates it on this event.
+1. **Set `activePaneId` in context** — or let the store's prediction set it. The keyboard actor holds no copy: it reads the machine through one view of one selector (`selectKeyContext`, through `machines/contextView.ts`), so the next keypress already targets the new pane.
+2. **Move the keyboard with `TAKE_KEYBOARD` / `RELEASE_KEYBOARD`** — the `keyboard` slice owns `keyboardOwner`; exactly one surface holds it, so taking it releases the others.
 3. **Don't trust tmux's active pane** — for the third case, prefix and root bindings are auto-pinned at dispatch time: keyboardActor prepends `select-pane -t <activePaneId> \;` to every binding command. New code should not bypass this.
 
-Reference implementations: `SELECT_TAB` (top tab clicks) and `SELECT_PANE_GROUP_TAB` (pane-group tab clicks) in `appMachine.ts`. Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these via `resolveTabNavTarget` / `resolvePaneGroupNavTarget` so they share the same optimism.
+Reference implementations: `SELECT_TAB` (top tab clicks, `machines/app/actions/layout.ts`) and `SELECT_PANE` (any pane picked — its body, header tab or tree row — `machines/app/focusAndDrag.ts`, which decides between a group switch, a tab switch first and a plain select). Pane-group prev/next, tab next/prev/last, and Ctrl+1..9 all route through these (`machines/app/dispatch.ts`), and the store predicts each op they dispatch.
 
 ### Errors and messages the user sees
 

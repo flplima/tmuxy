@@ -1,172 +1,32 @@
 import { describe, it, expect, vi } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
+import { fromCallback } from 'xstate';
+import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
 const layoutGuards = {};
 import { mountState, sendAndGetContext } from './testHarness';
 import type { ResizeState, DragState } from '../../../types/domain';
-import type { PaneId, WindowId } from '../../../../domain/ids';
 
 describe('layout state', () => {
-  it('SELECT_TAB flips activeWindowId and computes optimistic activePaneId', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@0'),
-      activePaneId: pid('%0'),
-      windows: [
-        {
-          id: wid('@0'),
-          index: 0,
-          name: 'a',
-          active: true,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-        {
-          id: wid('@1'),
-          index: 1,
-          name: 'b',
-          active: false,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-      ],
-      panes: [
-        {
-          id: 0,
-          tmuxId: pid('%0'),
-          windowId: wid('@0'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 24,
-          x: 0,
-          y: 0,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-        {
-          id: 1,
-          tmuxId: pid('%1'),
-          windowId: wid('@1'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 24,
-          x: 0,
-          y: 0,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-      ],
+  it('SELECT_TAB hands the switch to the store, which predicts it', () => {
+    const sent: unknown[] = [];
+    const tmuxStore = fromCallback(({ receive }) => {
+      receive((event) => void sent.push(event));
     });
-    const ctx = sendAndGetContext(actor, {
-      type: 'SELECT_TAB',
-      windowId: wid('@1'),
-    });
-    expect(ctx.activeWindowId).toBe(wid('@1'));
-    expect(ctx.activePaneId).toBe(pid('%1'));
-    // Outgoing window's active pane was recorded for restore-on-return
-    expect(ctx.lastActivePaneByWindow[wid('@0')]).toBe(pid('%0'));
-  });
-
-  it("SELECT_TAB lands on the target window's own active pane, not its first pane", () => {
-    // `pane.active` is session-wide: none of a background tab's panes carry
-    // it. The window's own activePaneId (from the server) is what the switch
-    // must use — the first pane was a wrong guess the server then corrected.
-    const win = (id: WindowId, index: number, active: boolean, activePaneId: PaneId | null) => ({
-      id,
-      index,
-      name: id,
-      active,
-      windowType: 'tab' as const,
-      floatParent: null,
-      floatWidth: null,
-      floatHeight: null,
-      floatDrawer: null,
-      floatBg: null,
-      floatNoheader: false,
-      activePaneId,
-    });
-    const pane = (tmuxId: PaneId, windowId: WindowId, active: boolean) => ({
-      id: Number(tmuxId.slice(1)),
-      tmuxId,
-      windowId,
-      content: [],
-      cursorX: 0,
-      cursorY: 0,
-      width: 80,
-      height: 24,
-      x: 0,
-      y: 0,
-      active,
-      command: 'bash',
-      title: '',
-      borderTitle: '',
-      inMode: false,
-      copyCursorX: 0,
-      copyCursorY: 0,
-      alternateOn: false,
-      mouseAnyFlag: false,
-      marked: false,
-      historySize: 0,
-      selectionPresent: false,
-      selectionStartX: 0,
-      selectionStartY: 0,
-      images: [],
-      cursorShape: 0,
-      cursorHidden: false,
-    });
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@0'),
-      activePaneId: pid('%0'),
-      windows: [win(wid('@0'), 0, true, pid('%0')), win(wid('@4'), 4, false, pid('%36'))],
-      panes: [
-        pane(pid('%0'), wid('@0'), true),
-        pane(pid('%50'), wid('@4'), false),
-        pane(pid('%36'), wid('@4'), false),
-      ],
-    });
-    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@4') });
-    expect(ctx.activeWindowId).toBe(wid('@4'));
-    expect(ctx.activePaneId).toBe(pid('%36'));
+    const actor = mountState(
+      layoutState,
+      layoutActions,
+      {},
+      { activeWindowId: wid('@0') },
+      {
+        extraActors: { tmuxStore },
+      },
+    );
+    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@1') });
+    expect(sent).toEqual([{ type: 'DISPATCH_OP', op: TmuxOp.SelectWindow({ target: wid('@1') }) }]);
+    // The machine assigns nothing itself: the store's model update does.
+    expect(ctx.activeWindowId).toBe(wid('@0'));
   });
 
   it('SELECT_TAB is a no-op when already on the target window', () => {

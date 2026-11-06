@@ -126,11 +126,13 @@ async fn scrollback_without_a_width_fails_rather_than_guessing() {
 fn key_bindings_parse_the_prefix_and_both_tables() {
     let parsed = KeyBindings::parse(
         "C-a\n\
+         300\n\
          bind-key    -T prefix % split-window -h\n\
          bind-key -r -T prefix h resize-pane -L 5\n\
          bind-key    -T root C-Left select-pane -L\n",
     );
     assert_eq!(parsed.prefix_key, "C-a");
+    assert_eq!(parsed.repeat_time_ms, 300);
     assert_eq!(parsed.prefix_bindings.len(), 2);
     assert!(parsed.prefix_bindings[1].repeat);
     assert_eq!(parsed.root_bindings.len(), 1);
@@ -166,6 +168,7 @@ async fn key_bindings_fall_back_to_the_default_prefix_when_tmux_cannot_answer() 
     let (tx, _) = answering(Err("no server".to_string()));
     let read = KeyBindings::read(&tx).await;
     assert_eq!(read.prefix_key, "C-b");
+    assert_eq!(read.repeat_time_ms, 500);
     assert!(read.prefix_bindings.is_empty());
 }
 

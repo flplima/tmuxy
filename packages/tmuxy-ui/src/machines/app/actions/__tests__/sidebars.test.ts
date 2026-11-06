@@ -113,50 +113,50 @@ describe('the sidebar start timeout', () => {
     const { actor, opens } = connected();
     const ctx = () => actor.getSnapshot().context;
 
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     expect(opens()).toBe(1);
-    expect(ctx().leftSidebarStarting).toBe(true);
+    expect(ctx().sidebars.left.starting).toBe(true);
 
     // The pane lands, then its widget dies.
     vi.advanceTimersByTime(500);
     actor.send(withTree);
-    expect(ctx().leftSidebarStarting).toBe(false);
-    expect(ctx().leftSidebarOpen).toBe(true);
+    expect(ctx().sidebars.left.starting).toBe(false);
+    expect(ctx().sidebars.left.open).toBe(true);
     vi.advanceTimersByTime(100);
     actor.send(noTree);
-    expect(ctx().leftSidebarOpen).toBe(false);
+    expect(ctx().sidebars.left.open).toBe(false);
 
     // A reopen shortly before the first open's timer would have fired.
     vi.advanceTimersByTime(SIDEBAR_START_TIMEOUT_MS - 1000);
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     expect(opens()).toBe(2);
-    expect(ctx().leftSidebarStarting).toBe(true);
+    expect(ctx().sidebars.left.starting).toBe(true);
 
     // Past the first open's deadline, well before the second's.
     vi.advanceTimersByTime(1500);
-    expect(ctx().leftSidebarStarting).toBe(true);
-    expect(ctx().leftSidebarStartFailed).toBe(false);
+    expect(ctx().sidebars.left.starting).toBe(true);
+    expect(ctx().sidebars.left.startFailed).toBe(false);
 
     // With `Starting` intact a close and reopen ride the pending request.
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     expect(opens()).toBe(2);
 
     // The second open's own deadline still judges it.
     vi.advanceTimersByTime(SIDEBAR_START_TIMEOUT_MS);
-    expect(ctx().leftSidebarStarting).toBe(false);
-    expect(ctx().leftSidebarStartFailed).toBe(true);
+    expect(ctx().sidebars.left.starting).toBe(false);
+    expect(ctx().sidebars.left.startFailed).toBe(true);
   });
 
   it('is cancelled when the pane lands, so it cannot mark a landed start failed', () => {
     vi.useFakeTimers();
     const { actor } = connected();
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     actor.send(withTree);
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     actor.send(noTree);
     // Closed by the user (not a failed start), then the column vanished.
     vi.advanceTimersByTime(SIDEBAR_START_TIMEOUT_MS + 1);
-    expect(actor.getSnapshot().context.leftSidebarStartFailed).toBe(false);
+    expect(actor.getSnapshot().context.sidebars.left.startFailed).toBe(false);
   });
 });

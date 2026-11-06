@@ -8,7 +8,14 @@ import type { PaneId, WindowId } from '../../domain/ids';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
-import type { ChildMachineEvent, KeyPressEvent, NotificationKind, ResizeHandle } from './domain';
+import type {
+  ChildMachineEvent,
+  KeyboardOwner,
+  KeyPressEvent,
+  NotificationKind,
+  ResizeHandle,
+  SidebarSide,
+} from './domain';
 import type {
   GitRepository,
   RestorableSession,
@@ -58,8 +65,6 @@ export type AppMachineEvent =
       containerTop: number;
       tabStrip: TabStripGeometry | null;
     }
-  | { type: 'DRAG_MOVE'; clientX: number; clientY: number }
-  | { type: 'DRAG_END' }
 
   // Resize events
   | {
@@ -69,8 +74,6 @@ export type AppMachineEvent =
       startX: number;
       startY: number;
     }
-  | { type: 'RESIZE_MOVE'; clientX: number; clientY: number }
-  | { type: 'RESIZE_END' }
 
   // Keyboard events
   | KeyPressEvent
@@ -102,9 +105,12 @@ export type AppMachineEvent =
   /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
   | { type: 'SET_PHONE_BOTTOM_VIEW'; view: 'tree' | 'dock' }
+  /** The phone's bottom view was measured, in the dock's cells. */
   | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }
-  /** Break the dock's pane out if it does not exist yet (the sidebars slice). */
-  | { type: 'START_RIGHT_SIDEBAR' }
+  /** A change about to land must not animate: the next settled update turns animations back on. */
+  | { type: 'SUPPRESS_ANIMATIONS' }
+  /** The grid is the size this client asked for and settled: layout changes may animate again. */
+  | { type: 'ANIMATIONS_SETTLED' }
   | {
       type: 'SET_TARGET_SIZE';
       cols: number;
@@ -114,7 +120,12 @@ export type AppMachineEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
 
   // Pane events
-  | { type: 'FOCUS_PANE'; paneId: PaneId }
+  /**
+   * The user picked a pane: a click on it, its header tab or its tree row. The
+   * machine decides how (a group switch, a tab switch first, a float or the
+   * dock taking the keyboard).
+   */
+  | { type: 'SELECT_PANE'; paneId: PaneId }
   | { type: 'SEND_KEYS'; paneId: PaneId; keys: string }
   /**
    * A command that arrives as a string — a binding tmux reported, what the user
@@ -126,11 +137,6 @@ export type AppMachineEvent =
   | { type: 'DISPATCH_OP'; op: TmuxOp }
   | { type: 'COPY_SELECTION' }
   | { type: 'CLOSE_PANE'; paneId: PaneId }
-  /**
-   * Click on a pane-group tab (the tabs inside a `PaneHeader`, not the top
-   * window tabs — those use `SELECT_TAB`).
-   */
-  | { type: 'SELECT_PANE_GROUP_TAB'; paneId: PaneId }
   | { type: 'CREATE_TAB' }
   | { type: 'ZOOM_PANE'; paneId: PaneId }
 
@@ -138,24 +144,30 @@ export type AppMachineEvent =
   | { type: 'MOVE_ASK_SELECTION'; paneId: PaneId; to: AskAnswer }
   | { type: 'ANSWER_ASK'; paneId: PaneId; answer: AskAnswer }
   | { type: 'ANSWER_VISIBLE_ASKS'; answer: AskAnswer }
+  /** A plain key typed into a pane with a question on it; the ask slice decides what it does. */
+  | { type: 'ASK_KEY'; paneId: PaneId; key: string }
   | { type: 'CLOSE_FLOAT'; paneId: PaneId }
   | { type: 'CLOSE_TOP_FLOAT' }
 
-  // Left & Right sidebars
-  | { type: 'TOGGLE_LEFT_SIDEBAR' }
-  | { type: 'FOCUS_LEFT_SIDEBAR' }
-  | { type: 'BLUR_LEFT_SIDEBAR' }
+  // Who holds the keyboard (the keyboard slice)
+  | { type: 'TAKE_KEYBOARD'; owner: KeyboardOwner }
+  | { type: 'RELEASE_KEYBOARD'; from: KeyboardOwner['kind'] }
+  /** The floats on screen changed; with `claim` the topmost takes the keyboard. */
+  | { type: 'SYNC_FLOAT_FOCUS'; claim: boolean }
+
+  // The sidebar columns
+  | { type: 'TOGGLE_SIDEBAR'; side: SidebarSide }
+  | { type: 'FOCUS_SIDEBAR'; side: SidebarSide }
+  | { type: 'BLUR_SIDEBAR'; side: SidebarSide }
+  /** Break the column's pane out if it does not exist yet. */
+  | { type: 'START_SIDEBAR'; side: SidebarSide }
   | { type: 'TOGGLE_TAB_COLLAPSE'; windowId: WindowId }
-  | { type: 'TOGGLE_RIGHT_SIDEBAR' }
-  | { type: 'SYNC_DOCK_ROWS' }
-  | { type: 'SYNC_FLOAT_FOCUS' }
-  | { type: 'FOCUS_RIGHT_SIDEBAR' }
-  | { type: 'BLUR_RIGHT_SIDEBAR' }
-  | { type: 'SIDEBAR_START_TIMEOUT'; side: 'left' | 'right' }
-  | { type: 'SIDEBAR_RESIZE_PREVIEW'; side: 'left' | 'right'; cols: number | null }
-  | { type: 'SIDEBAR_RESIZE_COMMIT'; side: 'left' | 'right'; cols: number | null }
-  | { type: 'SIDEBAR_PREVIEW_EXPIRE'; side: 'left' | 'right' }
-  | { type: 'PEEK_SIDEBAR'; side: 'left' | 'right' }
+  | { type: 'SYNC_DOCK_SIZE' }
+  | { type: 'SIDEBAR_START_TIMEOUT'; side: SidebarSide }
+  | { type: 'SIDEBAR_RESIZE_PREVIEW'; side: SidebarSide; cols: number | null }
+  | { type: 'SIDEBAR_RESIZE_COMMIT'; side: SidebarSide; cols: number | null }
+  | { type: 'SIDEBAR_PREVIEW_EXPIRE'; side: SidebarSide }
+  | { type: 'PEEK_SIDEBAR'; side: SidebarSide }
   | { type: 'END_SIDEBAR_PEEK' }
   | { type: 'SET_BODY_SIZE'; width: number }
 
@@ -169,11 +181,17 @@ export type AppMachineEvent =
   | { type: 'MOVE_ACTIVE_TAB'; by: -1 | 1 }
   | { type: 'CLOSE_TAB'; windowId: WindowId }
   | { type: 'RENAME_ACTIVE_TAB' }
-  | { type: 'RENAME_TAB'; windowId: WindowId }
-  | { type: 'TAB_RENAME_END' }
+  /** Open a tab's rename field, in the strip or in the tree (`surface`, the strip by default). */
+  | { type: 'RENAME_TAB'; windowId: WindowId; surface?: 'strip' | 'tree' }
+  /** The tab's rename field closed: with the new name, or `null` when cancelled. */
+  | { type: 'RENAME_TAB_COMMIT'; windowId: WindowId; name: string | null }
   | { type: 'RENAME_PANE'; paneId: PaneId }
-  | { type: 'PANE_RENAME_END' }
-  | { type: 'TOGGLE_STACKED_PANES' }
+  /** The pane's rename field closed: with the new title, or `null` when cancelled. */
+  | { type: 'RENAME_PANE_COMMIT'; paneId: PaneId; title: string | null }
+  /** A pane dropped on another tab: it moves there, and that tab comes to the front. */
+  | { type: 'MOVE_PANE_TO_TAB'; paneId: PaneId; windowId: WindowId }
+  /** Stacked panes on, or off, for a tab (the active one when none is named). */
+  | { type: 'TOGGLE_STACKED_PANES'; windowId?: WindowId }
   | { type: 'WRITE_TO_PANE'; paneId: PaneId; data: string }
   | { type: 'SELECT_TAB'; windowId: WindowId }
 

@@ -90,3 +90,9 @@ export const modelUpdate = (
   };
   return { type: 'TMUX_MODEL_UPDATE' as const, model };
 };
+
+/** The `sidebars` field with the named columns open (and nothing starting). */
+export const sidebarsOpen = (open: { left?: boolean; right?: boolean }) => ({
+  left: { open: open.left ?? false, starting: false, startFailed: false },
+  right: { open: open.right ?? false, starting: false, startFailed: false },
+});

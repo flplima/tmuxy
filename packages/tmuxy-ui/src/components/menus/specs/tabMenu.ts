@@ -8,7 +8,15 @@ import { TmuxOp } from '../../../domain/commands';
 import type { WindowId } from '../../../domain/ids';
 import { keyHint } from '../../../domain/keyLabels';
 import { separator, tidy } from '../../../domain/menus/spec';
-import { command, commandHint, local, op, type AppMenuNode, type AppMenuSpec } from './actions';
+import {
+  command,
+  commandHint,
+  event,
+  local,
+  op,
+  type AppMenuNode,
+  type AppMenuSpec,
+} from './actions';
 
 const TAB_OPS = {
   'tab-next': TmuxOp.SelectWindow({ target: 'next' }),
@@ -73,16 +81,7 @@ export function tabMenuSpec(ctx: AppMachineContext, options: TabMenuOptions): Ap
       label: 'Stacked Panes',
       checked: Boolean(target?.collapsible),
       keyHint: commandHint(keybindings, 'tab-stack-toggle'),
-      action:
-        contextMenu && windowId
-          ? op(
-              TmuxOp.SetWindowTag({
-                windowId,
-                tag: 'collapsible',
-                value: target?.collapsible ? null : '1',
-              }),
-            )
-          : command('tab-stack-toggle'),
+      action: event({ type: 'TOGGLE_STACKED_PANES', ...(windowId ? { windowId } : {}) }),
     },
     // Renaming happens in the tab itself — the strip owns the field, because
     // that is where the name is.

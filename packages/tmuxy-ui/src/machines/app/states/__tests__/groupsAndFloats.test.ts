@@ -1,11 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../../test/wire';
 import { assign } from 'xstate';
 import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from '../groupsAndFloats';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../sidebars';
 import { groupsAndFloatsActions } from '../../actions/groupsAndFloats';
 import { sidebarsActions } from '../../actions/sidebars';
-const groupsAndFloatsGuards = {};
+import { keyboardGlobalEvents } from '../keyboard';
+import { keyboardActions } from '../../actions/keyboard';
+import { selectFocusedFloat } from '../../../selectors/keyboard';
+import { TmuxOp } from '../../../../domain/commands';
+import { sidebarsOpen } from '../../../../test/model';
 import { mountState, sendAndGetContext } from './testHarness';
 import type { FloatPaneState } from '../../../types/domain';
 import type { PaneId } from '../../../../domain/ids';
@@ -22,86 +26,145 @@ function makeFloat(paneId: PaneId, extra: Partial<FloatPaneState> = {}): FloatPa
 }
 
 // Compose the event maps and actions as appMachine spreads them, so the test
-// drives the same handler set the real machine mounts.
+// drives the same handler set the real machine mounts. The ops a close
+// dispatches are recorded, as the store would receive them.
+const dispatched: TmuxOp[] = [];
 const groupsAndFloatsState = {
   on: {
     ...groupsAndFloatsGlobalEvents,
     ...groupsAndFloatsIdleEvents,
     ...sidebarsGlobalEvents,
     ...sidebarsIdleEvents,
+    ...keyboardGlobalEvents,
+    DISPATCH_OP: { actions: 'recordOp' },
   },
 } as const;
-const combinedActions = { ...groupsAndFloatsActions, ...sidebarsActions };
+const combinedActions = {
+  ...groupsAndFloatsActions,
+  ...sidebarsActions,
+  ...keyboardActions,
+  recordOp: ({ event }: { event: { op: TmuxOp } }) => void dispatched.push(event.op),
+};
+
+const twoFloats = {
+  floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
+};
+const floatOwner = (paneId: PaneId) => ({ kind: 'float' as const, paneId });
 
 describe('groupsAndFloats state', () => {
-  it('CLOSE_FLOAT removes the float from floatPanes', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
-      focusedFloatPaneId: pid('%2'),
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%1') });
-    expect(ctx.floatPanes[pid('%1')]).toBeUndefined();
-    expect(ctx.floatPanes[pid('%2')]).toBeDefined();
-    // focusedFloatPaneId untouched because closed pane wasn't focused
-    expect(ctx.focusedFloatPaneId).toBe(pid('%2'));
+  beforeEach(() => {
+    dispatched.length = 0;
   });
 
-  it('CLOSE_FLOAT re-focuses next remaining float when the focused one is closed', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
-      focusedFloatPaneId: pid('%2'),
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%2') });
-    expect(ctx.floatPanes[pid('%2')]).toBeUndefined();
-    expect(ctx.focusedFloatPaneId).toBe(pid('%1'));
+  it('CLOSE_FLOAT kills the float’s pane through the store', () => {
+    const actor = mountState(groupsAndFloatsState, combinedActions, {}, twoFloats);
+    actor.send({ type: 'CLOSE_FLOAT', paneId: pid('%1') });
+    expect(dispatched).toEqual([TmuxOp.KillPane({ paneId: pid('%1') })]);
   });
 
-  it('CLOSE_FLOAT clears focus when last float is closed', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      floatPanes: { [pid('%1')]: makeFloat(pid('%1')) },
-      focusedFloatPaneId: pid('%1'),
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_FLOAT', paneId: pid('%1') });
-    expect(ctx.focusedFloatPaneId).toBeNull();
-  });
-
-  it('CLOSE_TOP_FLOAT removes the most-recently-added float (last in object)', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      floatPanes: { [pid('%1')]: makeFloat(pid('%1')), [pid('%2')]: makeFloat(pid('%2')) },
-      focusedFloatPaneId: pid('%1'),
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
-    expect(ctx.floatPanes[pid('%2')]).toBeUndefined();
-    expect(ctx.floatPanes[pid('%1')]).toBeDefined();
-    // After closing the top (pane-2), focus moves to the next one
-    expect(ctx.focusedFloatPaneId).toBe(pid('%1'));
+  it('CLOSE_TOP_FLOAT closes the most-recently-added float (last in object)', () => {
+    const actor = mountState(groupsAndFloatsState, combinedActions, {}, twoFloats);
+    actor.send({ type: 'CLOSE_TOP_FLOAT' });
+    expect(dispatched).toEqual([TmuxOp.KillPane({ paneId: pid('%2') })]);
   });
 
   it('CLOSE_TOP_FLOAT leaves a float that belongs to another tab alone', () => {
     // Escape closes the float the user can see. A float opened over tab @1 is
     // not on screen while tab @0 is active, so it is not the one Escape means -
     // and killing it would take a pane the user cannot even see.
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      windows: [
-        { id: wid('@0'), index: 0, name: 'one', active: true, windowType: 'tab' },
-        { id: wid('@1'), index: 1, name: 'two', active: false, windowType: 'tab' },
-      ] as never,
-      activeWindowId: wid('@0'),
-      floatPanes: { [pid('%9')]: makeFloat(pid('%9'), { parentWindowId: wid('@1') }) },
-      focusedFloatPaneId: null,
-    });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
-    expect(ctx.floatPanes[pid('%9')]).toBeDefined();
+    const actor = mountState(
+      groupsAndFloatsState,
+      combinedActions,
+      {},
+      {
+        windows: [
+          { id: wid('@0'), index: 0, name: 'one', active: true, windowType: 'tab' },
+          { id: wid('@1'), index: 1, name: 'two', active: false, windowType: 'tab' },
+        ] as never,
+        activeWindowId: wid('@0'),
+        floatPanes: { [pid('%9')]: makeFloat(pid('%9'), { parentWindowId: wid('@1') }) },
+      },
+    );
+    actor.send({ type: 'CLOSE_TOP_FLOAT' });
+    expect(dispatched).toEqual([]);
   });
 
   it('CLOSE_TOP_FLOAT no-ops when there are no floats', () => {
-    const actor = mountState(groupsAndFloatsState, combinedActions, groupsAndFloatsGuards, {
-      floatPanes: {},
-      focusedFloatPaneId: null,
+    const actor = mountState(groupsAndFloatsState, combinedActions, {}, { floatPanes: {} });
+    actor.send({ type: 'CLOSE_TOP_FLOAT' });
+    expect(dispatched).toEqual([]);
+  });
+
+  describe('the keyboard as the floats on screen change', () => {
+    it('a float that holds it and goes hands it to the topmost one left', () => {
+      const actor = mountState(
+        groupsAndFloatsState,
+        combinedActions,
+        {},
+        {
+          floatPanes: { [pid('%1')]: makeFloat(pid('%1')) },
+          keyboardOwner: floatOwner(pid('%2')),
+        },
+      );
+      const ctx = sendAndGetContext(actor, { type: 'SYNC_FLOAT_FOCUS', claim: false });
+      expect(selectFocusedFloat(ctx)).toBe(pid('%1'));
     });
-    const ctx = sendAndGetContext(actor, { type: 'CLOSE_TOP_FLOAT' });
-    expect(ctx.floatPanes).toEqual({});
-    expect(ctx.focusedFloatPaneId).toBeNull();
+
+    it('the last float going gives it back to the panes', () => {
+      const actor = mountState(
+        groupsAndFloatsState,
+        combinedActions,
+        {},
+        {
+          floatPanes: {},
+          keyboardOwner: floatOwner(pid('%1')),
+        },
+      );
+      const ctx = sendAndGetContext(actor, { type: 'SYNC_FLOAT_FOCUS', claim: false });
+      expect(ctx.keyboardOwner).toEqual({ kind: 'panes' });
+    });
+
+    it('a float that keeps it, or a column that holds it, is left alone without a claim', () => {
+      const actor = mountState(
+        groupsAndFloatsState,
+        combinedActions,
+        {},
+        {
+          ...twoFloats,
+          keyboardOwner: floatOwner(pid('%1')),
+        },
+      );
+      expect(
+        selectFocusedFloat(sendAndGetContext(actor, { type: 'SYNC_FLOAT_FOCUS', claim: false })),
+      ).toBe(pid('%1'));
+      const tree = { kind: 'left' as const, paneId: pid('%7') };
+      const column = mountState(
+        groupsAndFloatsState,
+        combinedActions,
+        {},
+        {
+          ...twoFloats,
+          keyboardOwner: tree,
+        },
+      );
+      expect(
+        sendAndGetContext(column, { type: 'SYNC_FLOAT_FOCUS', claim: false }).keyboardOwner,
+      ).toEqual(tree);
+    });
+
+    it('a claim gives it to the topmost float', () => {
+      const actor = mountState(
+        groupsAndFloatsState,
+        combinedActions,
+        {},
+        {
+          ...twoFloats,
+          keyboardOwner: { kind: 'left', paneId: pid('%7') },
+        },
+      );
+      const ctx = sendAndGetContext(actor, { type: 'SYNC_FLOAT_FOCUS', claim: true });
+      expect(selectFocusedFloat(ctx)).toBe(pid('%2'));
+    });
   });
 
   describe('sidebar toggles', () => {
@@ -131,22 +194,27 @@ describe('groupsAndFloats state', () => {
     };
 
     it('opening the dock sizes the grid for it at once', () => {
-      const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, measured);
-      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-      expect(ctx.rightSidebarOpen).toBe(true);
+      const actor = mountState(withSizeRecorder, actions, {}, measured);
+      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_SIDEBAR', side: 'right' });
+      expect(ctx.sidebars.right.open).toBe(true);
       // 35 dock columns in the 12px sidebar font (8px cells) leave the grid
       // 1000 - 280 = 720px, 72 columns.
       expect(ctx.targetCols).toBe(72);
     });
 
     it('closing it gives the grid its width back at once', () => {
-      const actor = mountState(withSizeRecorder, actions, groupsAndFloatsGuards, {
-        ...measured,
-        rightSidebarOpen: true,
-        targetCols: 72,
-      });
-      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_RIGHT_SIDEBAR' });
-      expect(ctx.rightSidebarOpen).toBe(false);
+      const actor = mountState(
+        withSizeRecorder,
+        actions,
+        {},
+        {
+          ...measured,
+          sidebars: sidebarsOpen({ right: true }),
+          targetCols: 72,
+        },
+      );
+      const ctx = sendAndGetContext(actor, { type: 'TOGGLE_SIDEBAR', side: 'right' });
+      expect(ctx.sidebars.right.open).toBe(false);
       expect(ctx.targetCols).toBe(100);
     });
   });

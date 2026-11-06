@@ -21,7 +21,6 @@ import { TouchSelectionBar } from './TouchSelectionBar';
 import {
   useAppSend,
   usePane,
-  useIsPaneInActiveWindow,
   useIsSinglePane,
   useCopyModeState,
   useAppSelector,
@@ -32,7 +31,7 @@ import {
   selectPhoneLayout,
   selectPhoneZoom,
 } from '../../machines/selectors/layout';
-import { selectKeyboardElsewhere } from '../../machines/selectors/ui';
+import { selectPaneHoldsKeyboard } from '../../machines/selectors/keyboard';
 import { usePaneMouse } from './usePaneMouse';
 import { usePaneTouch } from './usePaneTouch';
 import { useLatchedContent } from './useLatchedContent';
@@ -80,17 +79,15 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // refresh leaves it momentarily empty. A pane-group switch does `swap-pane`,
   // which is exactly that gap — and drawing it blinked the pane.
   const content = useLatchedContent(pane?.content);
-  const isInActiveWindow = useIsPaneInActiveWindow(paneId);
   const isSinglePane = useIsSinglePane();
   const gridCell = useAppSelector(selectCharSize);
   const charWidth = cellSize?.width ?? gridCell.charWidth;
   const charHeight = cellSize?.height ?? gridCell.charHeight;
-  const keyboardElsewhere = useAppSelector(selectKeyboardElsewhere);
   // The pane holds the keyboard: tmux's active pane in the active window with
   // nothing (float, dock, tree) focused over it — or whatever the dock's column
   // says about its own pane.
-  const holdsKeyboard =
-    isActive ?? (pane?.active === true && isInActiveWindow && !keyboardElsewhere);
+  const paneHoldsKeyboard = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
+  const holdsKeyboard = isActive ?? paneHoldsKeyboard;
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);

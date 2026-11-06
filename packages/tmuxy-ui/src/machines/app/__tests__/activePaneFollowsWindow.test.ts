@@ -124,12 +124,11 @@ describe('the active pane across a window switch', () => {
     expect(actor.getSnapshot().context.activePaneId).toBe(pid('%1'));
   });
 
-  it('is the one tmux names in the window it switched to, mid layout transition too', () => {
+  it('is the one tmux names in the window it switched to, while panes resize', () => {
     const actor = createActor(appMachine).start();
     actor.send({ type: 'TMUX_CONNECTED' });
     actor.send(update(ONE, pid('%1'), [pane(pid('%1'), ONE), pane(pid('%2'), TWO)]));
-    // The same panes, one of them resized: what holds the active pane still
-    // through a layout transition.
+    // The same panes, one of them resized.
     actor.send(update(TWO, pid('%2'), [pane(pid('%1'), ONE, 40), pane(pid('%2'), TWO)], true));
     expect(actor.getSnapshot().context.activeWindowId).toBe(TWO);
     expect(actor.getSnapshot().context.activePaneId).toBe(pid('%2'));

@@ -21,6 +21,7 @@
  *   actor easy to swap for a mock in integration tests.
  */
 
+import { isStructural } from '../../domain/opTraits';
 import { Exit, Cause } from 'effect';
 import type { PaneId } from '../../domain/ids';
 import { fromCallback, type AnyActorRef } from 'xstate';
@@ -73,17 +74,6 @@ export interface TmuxStoreActorInput {
   parent: AnyActorRef;
 }
 
-/** Op kinds whose rollback visibly reverts the layout (vs. a focus pin). */
-const STRUCTURAL_OPS = new Set([
-  'Split',
-  'NewWindow',
-  'KillPane',
-  'KillWindow',
-  'RenameWindow',
-  'ZoomToggle',
-  'Swap',
-]);
-
 /**
  * Build the bridge actor. The store is captured in a closure; tests can
  * supply a fresh store per test for isolation. Dispatches run on the app
@@ -108,7 +98,7 @@ export function createTmuxStoreActor(store: TmuxStore, runtime: AppRuntime) {
         // supersession noise; keep those console-only.
         // 'previously failed' entries already surfaced their error when
         // dispatchRemote rejected — re-sending here would double-report.
-        if (STRUCTURAL_OPS.has(entry.op._tag) && entry.reason !== 'previously failed') {
+        if (isStructural(entry.op) && entry.reason !== 'previously failed') {
           parent.send({
             type: 'TMUX_ERROR',
             error: `${entry.op._tag} was not confirmed by tmux (${entry.reason})`,

@@ -8,14 +8,15 @@
  * than streamed through the pane.
  *
  * Keyboard focus is the column's, not the pane's — the tree runs its own
- * capture-phase key handling while `leftSidebarFocused` is set, exactly as it
+ * capture-phase key handling while the column holds the keyboard, exactly as it
  * did before the column became a pane.
  */
 
 import { SidebarTree } from '../SidebarTree';
 import { useAppSelector } from '../../machines/appHooks';
+import { selectSidebarHoldsKeyboard } from '../../machines/selectors/keyboard';
 
 export function TmuxyTree() {
-  const focused = useAppSelector((ctx) => ctx.leftSidebarFocused);
+  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'left'));
   return <SidebarTree focused={focused} />;
 }

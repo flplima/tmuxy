@@ -40,9 +40,9 @@ export const EscapeSemanticsMatrix: Story = {
     const focusedFloat = () =>
       (
         window as unknown as {
-          app: { getSnapshot(): { context: { focusedFloatPaneId: string | null } } };
+          app: { getSnapshot(): { context: { keyboardOwner: { kind: string; paneId?: string } } } };
         }
-      ).app.getSnapshot().context.focusedFloatPaneId;
+      ).app.getSnapshot().context.keyboardOwner.paneId ?? null;
 
     // The float opens over the tab and takes the keyboard.
     await waitFor(

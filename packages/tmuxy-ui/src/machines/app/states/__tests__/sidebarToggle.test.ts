@@ -43,27 +43,27 @@ const noSidebar = {
 describe('toggling a sidebar whose window is still being made', () => {
   it('asks tmux for one left column, however fast the toggles come', () => {
     const { actor, sent } = mountSidebars(noSidebar);
-    for (let i = 0; i < 6; i++) actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    for (let i = 0; i < 6; i++) actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     const opens = sent.filter((op) => op._tag === 'OpenSidebar');
     expect(opens).toHaveLength(1);
-    expect(actor.getSnapshot().context.leftSidebarStarting).toBe(true);
+    expect(actor.getSnapshot().context.sidebars.left.starting).toBe(true);
     // An even number of toggles: the user wants it closed when it lands.
-    expect(actor.getSnapshot().context.leftSidebarOpen).toBe(false);
+    expect(actor.getSnapshot().context.sidebars.left.open).toBe(false);
   });
 
   it('asks tmux for one right column too', () => {
     const { actor, sent } = mountSidebars(noSidebar);
-    for (let i = 0; i < 5; i++) actor.send({ type: 'TOGGLE_RIGHT_SIDEBAR' });
+    for (let i = 0; i < 5; i++) actor.send({ type: 'TOGGLE_SIDEBAR', side: 'right' });
     expect(sent.filter((op) => op._tag === 'OpenSidebar')).toHaveLength(1);
-    expect(actor.getSnapshot().context.rightSidebarOpen).toBe(true);
+    expect(actor.getSnapshot().context.sidebars.right.open).toBe(true);
   });
 
   it('asks again once the first attempt has timed out', () => {
     const { actor, sent } = mountSidebars(noSidebar);
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     actor.send({ type: 'SIDEBAR_START_TIMEOUT', side: 'left' });
-    actor.send({ type: 'TOGGLE_LEFT_SIDEBAR' });
+    actor.send({ type: 'TOGGLE_SIDEBAR', side: 'left' });
     expect(sent.filter((op) => op._tag === 'OpenSidebar')).toHaveLength(2);
   });
 });

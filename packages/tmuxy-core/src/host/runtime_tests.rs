@@ -247,6 +247,7 @@ fn a_greeting_carries_the_bindings_once_they_are_known() {
     assert_eq!(names(runtime.greeting(7)), ["connection-info"]);
     *runtime.bindings.lock().unwrap() = Some(KeyBindings {
         prefix_key: "C-a".to_string(),
+        repeat_time_ms: 300,
         prefix_bindings: Vec::new(),
         root_bindings: Vec::new(),
         tables: Default::default(),
