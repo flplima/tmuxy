@@ -90,7 +90,7 @@ export function predict(
     case 'KillPane':
       return predictKillPane(op, snapshot, ctx);
     case 'KillWindow':
-      return predictKillWindow(op, snapshot);
+      return predictKillWindow(op, snapshot, ctx);
     case 'JoinPane':
       return predictJoinPane(op, snapshot);
     case 'RenameWindow':
