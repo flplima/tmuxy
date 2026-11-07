@@ -142,9 +142,12 @@ fn a_window_with_no_panes_yet_is_still_asked() {
 
 #[test]
 fn only_keystrokes_skip_failure_reporting() {
-    let reports_failure =
-        |command: &str| replies::reports_failure(&crate::tmux_command::parse(command));
+    let reports_failure = replies::command_reports_failure;
     assert!(!reports_failure("send-keys -t %1 -l x"));
+    assert!(!reports_failure("send -t %1 x"));
+    assert!(!reports_failure(
+        "send-keys -t %1 -l -- 'a'\nsend-keys -t %1 Enter"
+    ));
     assert!(!reports_failure(
         "select-window -t @1 ; select-pane -t %1 ; send-keys Enter"
     ));
@@ -156,6 +159,8 @@ fn only_keystrokes_skip_failure_reporting() {
         "select-window -t @1 ; select-pane -t %1 ; kill-pane"
     ));
     assert!(reports_failure("run-shell 'tmuxy pane float'"));
+    assert!(reports_failure("select-window -t @2"));
+    assert!(reports_failure("refresh-client -C 80x24"));
 }
 
 /// A pane `%0` in window `@0` the core knows, as an initial sync leaves it.

@@ -156,6 +156,15 @@ export abstract class GuestEngine {
         );
   }
 
+  /**
+   * Whether the core reports tmux's refusal of a routed `command`
+   * (tmuxy-core `command_reports_failure`): keystrokes are the one kind it
+   * does not.
+   */
+  reportsFailure(command: string): boolean {
+    return this.wasmModule?.reportsFailure(command) ?? true;
+  }
+
   /** The core answers a command tmux never does with a failure of its own. */
   ask(command: string): Promise<Reply> {
     if (!this.core) return Promise.resolve({ output: '', error: 'the guest is not running' });

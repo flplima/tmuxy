@@ -22,7 +22,6 @@ import { EventHub } from '../../../eventHub';
 import { TransportEvent } from '../../events';
 import { isPaneId } from '../../../../domain/ids';
 import { MANAGED_OPTIONS } from '../../../../domain/tmuxyConstants.gen';
-import { commandListParts, commandWords } from '../../../../domain/store/parseCommand';
 import type { CommandFailure } from '../../../../domain/wire';
 import { decodeStateForListener } from '../../wireDecode';
 import { answerThemeCall, isThemeCall, loadThemePref } from '../../../prefs';
@@ -35,14 +34,6 @@ import {
   type GuestEngine,
   type GuestFile,
 } from './GuestEngine';
-
-/** Whether any command of a routed line (its lines, their lists) is a `send-keys`. */
-export function typesKeys(line: string): boolean {
-  return line
-    .split('\n')
-    .flatMap(commandListParts)
-    .some((part) => ['send-keys', 'send'].includes(commandWords(part)[0]));
-}
 
 /** A command the routing policy refused, as the native transports refuse it. */
 function forbidden(reason: string): CommandFailure {
@@ -206,11 +197,10 @@ export class GuestTmuxAdapter implements TransportDriver {
     if ('blocked' in route) throw forbidden(route.blocked);
     const wire = route.routed;
     // Keystrokes are the hot path over the guest's slow serial line: a list
-    // that types keys is sent without a reply to wait for, the one kind the
-    // core reports no failure of either (`reports_failure`, tmuxy-core
-    // monitor_core/replies.rs). Any other list is awaited, so a refusal
-    // rejects as a TmuxError and the store rolls its prediction back.
-    if (typesKeys(wire)) {
+    // the core reports no failure of (one that types keys) is sent without a
+    // reply to wait for. Any other list is awaited, so a refusal rejects as a
+    // TmuxError and the store rolls its prediction back.
+    if (!this.engine.reportsFailure(wire)) {
       this.engine.run(wire);
       return;
     }

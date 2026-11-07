@@ -42,6 +42,7 @@ export interface WasmModule {
   WasmTmux: new (session: string) => WasmCore;
   routeCommand(command: string, session: string, cols?: number, rows?: number): Routed;
   routeQuery(command: string): Routed;
+  reportsFailure(command: string): boolean;
 }
 
 export const EMPTY_STATE: ServerStateEncoded = {
