@@ -223,7 +223,7 @@ pub(in crate::mcp) struct TabArgs {
 /// A tab into the session by name, without selecting it, from the anchor's
 /// directory.
 pub(in crate::mcp) fn tab_command(session: &str, anchor: &PaneId, args: &TabArgs) -> String {
-    let into = format!("={session}");
+    let into = tmuxy_core::session::exact_session_target(session);
     NewTab {
         from: Some(anchor.as_str()),
         into: Some(&into),

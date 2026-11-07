@@ -336,10 +336,19 @@ impl std::ops::Deref for SessionName {
     }
 }
 
-/// Whether tmux has a session called `name`, from a read-only `has-session`.
+/// `name` as a `-t` target that matches that session alone. A bare name also
+/// matches a session it is a unique prefix of (tmux's `cmd-find.c`), so
+/// `work` with only `workbench` running would find `workbench`; `=` asks for
+/// the exact name.
+pub fn exact_session_target(name: &str) -> String {
+    format!("={name}")
+}
+
+/// Whether tmux has a session called exactly `name`, from a read-only
+/// `has-session`.
 pub fn session_exists(name: &SessionName) -> Result<bool> {
     let output = tmux_command()
-        .args(["has-session", "-t", name.as_str()])
+        .args(["has-session", "-t", &exact_session_target(name)])
         .output()?;
     tracing::debug!(session = %name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())

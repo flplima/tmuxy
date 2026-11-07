@@ -147,7 +147,7 @@ pub async fn run(args: SessionArgs) {
                 tmux(vec![
                     "kill-session".to_string(),
                     "-t".to_string(),
-                    name.clone(),
+                    tmuxy_core::session::exact_session_target(&name),
                 ])
                 .await
                 .unwrap_or_else(|e| fail(answer, &e.to_string()));
