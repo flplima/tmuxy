@@ -118,14 +118,14 @@ settle() {
 }
 
 watch_file() {
-  if [ -z "$THEME" ]; then echo "__NO_THEME__"; fi
-  echo "__FILE__:${NAME}"
+  if [ -z "$THEME" ]; then echo "$PREVIEW_NO_THEME"; fi
+  echo "${PREVIEW_FILE}${NAME}"
   local last="" now
   while :; do
     now="$(fingerprint)"
     if [ "$now" != "$last" ]; then
       last="$now"
-      printf '\r\033[K__REV__:%s' "$now"
+      printf '\r\033[K%s%s' "$PREVIEW_REV" "$now"
     fi
     settle
   done

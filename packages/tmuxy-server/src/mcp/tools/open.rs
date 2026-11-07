@@ -1,6 +1,9 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
+use tmuxy_core::argv::{control_list, shell_line};
+use tmuxy_core::float::{self, Drawer, Float};
+use tmuxy_core::paths::Layout;
 use tmuxy_core::tmux_command::NewTab;
 use tmuxy_core::{tmux_quote, CommandError, PaneId};
 
@@ -123,95 +126,110 @@ pub(in crate::mcp) struct FloatArgs {
     pub background: Option<Backdrop>,
 }
 
-pub(in crate::mcp) fn float_create_args(args: &FloatArgs, program: &[String]) -> Vec<String> {
-    let mut out = vec!["--detach".to_string()];
-    match args.position {
-        FloatPosition::Center => {}
-        FloatPosition::Left => out.push("--left".into()),
-        FloatPosition::Right => out.push("--right".into()),
-        FloatPosition::Top => out.push("--top".into()),
-        FloatPosition::Bottom => out.push("--bottom".into()),
+impl FloatArgs {
+    fn drawer(&self) -> Option<Drawer> {
+        match self.position {
+            FloatPosition::Center => None,
+            FloatPosition::Left => Some(Drawer::Left),
+            FloatPosition::Right => Some(Drawer::Right),
+            FloatPosition::Top => Some(Drawer::Top),
+            FloatPosition::Bottom => Some(Drawer::Bottom),
+        }
     }
-    if let Some(width) = args.width {
-        out.extend(["--width".into(), width.to_string()]);
+
+    fn backdrop(&self) -> Option<float::Backdrop> {
+        self.background.map(|bg| match bg {
+            Backdrop::Dim => float::Backdrop::Dim,
+            Backdrop::Blur => float::Backdrop::Blur,
+            Backdrop::None => float::Backdrop::None,
+        })
     }
-    if let Some(height) = args.height {
-        out.extend(["--height".into(), height.to_string()]);
-    }
-    if let Some(bg) = args.background {
-        let bg = match bg {
-            Backdrop::Dim => "dim",
-            Backdrop::Blur => "blur",
-            Backdrop::None => "none",
-        };
-        out.extend(["--bg".into(), bg.into()]);
-    }
-    if !program.is_empty() {
-        out.push("--".into());
-        out.extend(program.iter().cloned());
-    }
-    out
 }
 
-fn sh_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
+/// Where a float from the anchor goes: the anchor's tab and session, and
+/// what `list-windows` says is free there.
+pub(in crate::mcp) struct FloatSpot {
+    pub window: String,
+    pub session_id: String,
+    pub rows: u32,
+    pub free_index: u32,
 }
 
-/// run-shell expands formats in its command first, so every `#` is doubled
-/// to reach the shell as it was written.
+/// The float's command list (`tmuxy_core::float`, as `tmuxy pane float`
+/// makes it) as one control-mode line, running `program` (a shell line; a
+/// shell when absent).
 pub(in crate::mcp) fn float_command(
-    script: &str,
     anchor: &PaneId,
-    script_args: &[String],
-) -> String {
-    let mut line = format!("TMUX_PANE={anchor} bash {}", sh_quote(script));
-    for arg in script_args {
-        line.push(' ');
-        line.push_str(&sh_quote(arg));
-    }
-    format!(
-        "run-shell {}",
-        tmux_quote(&tmuxy_core::argv::format_literal(&line))
-    )
-}
-
-fn script_path(name: &str) -> String {
-    tmuxy_core::session::bin_dir()
-        .join("tmuxy")
-        .join(name)
-        .display()
-        .to_string()
-}
-
-/// Open a float from the focused pane running `program` (a shell when
-/// empty), and its pane id.
-async fn open_float(
-    tmux: &Tmux,
+    spot: &FloatSpot,
     args: &FloatArgs,
-    program: &[String],
-) -> Result<String, CommandError> {
-    let anchor = tmux.anchor().await?;
-    let output = tmux
-        .mutate(&float_command(
-            &script_path("float-create"),
-            &anchor.id,
-            &float_create_args(args, program),
-        ))
-        .await?;
-    printed_id(&output, '%')
-        .ok_or_else(|| CommandError::tmux(format!("the float did not open: {}", output.trim())))
+    program: Option<String>,
+) -> String {
+    let drawer = args.drawer();
+    let (width, height) = float::default_size(args.width, args.height, drawer, spot.rows);
+    let float = Float {
+        from_pane: Some(anchor.to_string()),
+        cwd: None,
+        command: program,
+        at: format!("{}:{}", spot.session_id, spot.free_index),
+        parent_window: Some(spot.window.clone()),
+        width,
+        height,
+        drawer,
+        backdrop: args.backdrop(),
+        no_header: false,
+    };
+    control_list(&float.argv())
 }
 
+/// The agent's command runs under bash, whatever the user's default shell.
 pub(in crate::mcp) async fn pane_float(
     tmux: &Tmux,
     args: FloatArgs,
 ) -> Result<Value, CommandError> {
-    let program: Vec<String> = match args.command.as_deref().filter(|c| !c.trim().is_empty()) {
-        Some(command) => vec!["bash".into(), "-c".into(), command.to_string()],
-        None => Vec::new(),
-    };
-    let id = open_float(tmux, &args, &program).await?;
+    let program = args
+        .command
+        .as_deref()
+        .filter(|c| !c.trim().is_empty())
+        .map(|c| shell_line(&["bash", "-c", c]));
+    let id = open_float(tmux, &args, program).await?;
     Ok(json!({ "paneId": id }))
+}
+
+/// Open a float from the anchor pane, and its pane id.
+async fn open_float(
+    tmux: &Tmux,
+    args: &FloatArgs,
+    program: Option<String>,
+) -> Result<String, CommandError> {
+    let anchor = tmux.anchor().await?;
+    let facts = tmux
+        .read(&format!(
+            "display-message -p -t {} {}",
+            anchor.id,
+            tmux_quote("#{session_id} #{window_height}")
+        ))
+        .await?;
+    let mut facts = facts.split_whitespace();
+    let session_id = facts.next().unwrap_or_default().to_string();
+    let rows = facts.next().and_then(|r| r.parse().ok()).unwrap_or(0);
+    let windows = tmux
+        .read(&format!(
+            "list-windows -t {} -F {}",
+            tmux_quote(&session_id),
+            tmux_quote("#{window_index}")
+        ))
+        .await?;
+    let spot = FloatSpot {
+        window: anchor.tab.clone(),
+        session_id,
+        rows,
+        free_index: float::free_index(&windows),
+    };
+    let output = tmux
+        .mutate(&float_command(&anchor.id, &spot, args, program))
+        .await?;
+    printed_id(&output, '%')
+        .ok_or_else(|| CommandError::tmux(format!("the float did not open: {}", output.trim())))
 }
 
 #[derive(Deserialize)]
@@ -223,7 +241,7 @@ pub(in crate::mcp) struct TabArgs {
 /// A tab into the session by name, without selecting it, from the anchor's
 /// directory.
 pub(in crate::mcp) fn tab_command(session: &str, anchor: &PaneId, args: &TabArgs) -> String {
-    let into = format!("={session}");
+    let into = tmuxy_core::session::exact_session_target(session);
     NewTab {
         from: Some(anchor.as_str()),
         into: Some(&into),
@@ -301,13 +319,14 @@ pub(in crate::mcp) async fn open_preview(
         height: args.height,
         ..FloatArgs::default()
     };
-    let program = vec![
-        "bash".to_string(),
-        script_path("tmuxy-widget-preview"),
-        "--".to_string(),
-        path.display().to_string(),
-    ];
-    let id = open_float(tmux, &float, &program).await?;
+    let script = Layout::current().scripts().join("tmuxy-widget-preview");
+    let program = shell_line(&[
+        "bash",
+        &script.display().to_string(),
+        "--",
+        &path.display().to_string(),
+    ]);
+    let id = open_float(tmux, &float, Some(program)).await?;
     Ok(json!({ "paneId": id }))
 }
 

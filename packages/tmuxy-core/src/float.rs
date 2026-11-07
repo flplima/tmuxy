@@ -2,8 +2,9 @@
 //! that moves the new pane into a window of its own, every `@tmuxy-float-*`
 //! tag, the size, the select-pane that gives the caller's pane back, and the
 //! read of what was made. A plugin's float or popup surface
-//! (`plugins::invoke::surface_argv`) and `tmuxy pane float` (the server
-//! binary's `float` verb, behind `bin/tmuxy/float-create`) both build it here.
+//! (`plugins::invoke::surface_argv`), `tmuxy pane float` (the server binary's
+//! `float` verb, behind `bin/tmuxy/float-create`) and the MCP endpoint's
+//! `pane_float` all build it here.
 //!
 //! One list is one command queue, so a client sees the split and the break in
 //! the same batch of control-mode notifications and never renders the
@@ -15,6 +16,12 @@
 //! whose id is not known yet.
 
 use crate::constants::tmux_options;
+
+/// A float's size when the caller names none, in terminal cells (never a
+/// percentage: tmux sizes panes in cells, and so does the UI that draws the
+/// float over them).
+pub const DEFAULT_WIDTH: u32 = 60;
+pub const DEFAULT_HEIGHT: u32 = 15;
 
 /// The edge a drawer float slides in from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +177,30 @@ pub fn free_index(listing: &str) -> u32 {
     i
 }
 
+/// The default height is never taller than the tab (`rows`, 0 when unknown):
+/// a float with more rows than the window has nowhere to put them. An explicit
+/// height is the caller's call.
+pub fn default_size(
+    width: Option<u32>,
+    height: Option<u32>,
+    drawer: Option<Drawer>,
+    rows: u32,
+) -> (Option<u32>, Option<u32>) {
+    let default_height = if rows > 0 && rows < DEFAULT_HEIGHT {
+        rows
+    } else {
+        DEFAULT_HEIGHT
+    };
+    match (width, height, drawer) {
+        (None, None, None) => (Some(DEFAULT_WIDTH), Some(default_height)),
+        (None, None, Some(d)) if d.docks_by_width() => (Some(DEFAULT_WIDTH), None),
+        (None, None, Some(_)) => (None, Some(default_height)),
+        (None, Some(h), Some(d)) if d.docks_by_width() => (Some(DEFAULT_WIDTH), Some(h)),
+        (Some(w), None, Some(d)) if !d.docks_by_width() => (Some(w), Some(default_height)),
+        (w, h, _) => (w, h),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +237,31 @@ mod tests {
         assert_eq!(free_index("1\n2\n4\n"), 3);
         assert_eq!(free_index("0\n"), 1);
         assert_eq!(free_index(""), 0);
+    }
+
+    #[test]
+    fn a_float_takes_the_default_size_its_shape_docks_by() {
+        assert_eq!(default_size(None, None, None, 40), (Some(60), Some(15)));
+        // Never taller than the tab.
+        assert_eq!(default_size(None, None, None, 10), (Some(60), Some(10)));
+        assert_eq!(
+            default_size(None, None, Some(Drawer::Left), 40),
+            (Some(60), None)
+        );
+        assert_eq!(
+            default_size(None, None, Some(Drawer::Top), 40),
+            (None, Some(15))
+        );
+        assert_eq!(
+            default_size(None, Some(30), Some(Drawer::Right), 40),
+            (Some(60), Some(30))
+        );
+        assert_eq!(
+            default_size(Some(90), None, Some(Drawer::Bottom), 8),
+            (Some(90), Some(8))
+        );
+        // A size named for a centred float is the caller's, even half of one.
+        assert_eq!(default_size(Some(90), None, None, 40), (Some(90), None));
+        assert_eq!(default_size(None, Some(99), None, 40), (None, Some(99)));
     }
 }

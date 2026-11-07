@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
@@ -122,7 +121,7 @@ pub fn tmux_socket_dirs() -> Vec<PathBuf> {
 }
 
 fn socket_mtime(socket: &str) -> Option<SystemTime> {
-    if socket.contains('/') {
+    if crate::session::is_socket_path(socket) {
         return std::fs::metadata(socket).ok()?.modified().ok();
     }
     for dir in tmux_socket_dirs() {
@@ -154,9 +153,8 @@ pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
             }
         }
     }
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    let out = Command::new("tmux")
-        .args([flag, socket, "list-sessions", "-F", "#{session_name}"])
+    let out = crate::session::local_tmux_on(socket)
+        .args(["list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()?;
     if !out.status.success() {

@@ -76,7 +76,7 @@ fn resolve_password_from(flag: Option<String>, env_password: Option<String>) -> 
         .or_else(|| env_password.filter(|s| !s.is_empty()))
 }
 
-const DEFAULT_PORT: u16 = 9000;
+const DEFAULT_PORT: u16 = tmuxy_core::constants::DEFAULT_SERVER_PORT;
 
 fn with_optional_auth(
     app: axum::Router,

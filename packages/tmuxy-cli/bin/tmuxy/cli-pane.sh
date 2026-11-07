@@ -61,7 +61,7 @@ cmd_pane() {
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
-            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread|clear> [target]"
+            echo "Usage: tmuxy pane state <$PANE_STATE_WORDS|clear> [target]"
             return
             ;;
           *) if [ -z "$value" ]; then value="$arg"; else target="$arg"; fi ;;
@@ -253,7 +253,7 @@ Options:
 FEOF
           return ;;
       esac
-      exec bash "$SCRIPTS_DIR/float-create" "$@"
+      JSON_OUT=$JSON_OUT exec bash "$SCRIPTS_DIR/float-create" "$@"
       ;;
 
     group)
@@ -272,41 +272,23 @@ FEOF
 
 # --- Pane group subcommands ---
 
-# The verbs and their arguments are the `group` verb's
-# (`packages/tmuxy-verbs/src/group_cli.rs`).
+# The verbs, their arguments, their defaults and their help are the `group`
+# verb's (`packages/tmuxy-verbs/src/group_cli.rs`): this forwards them to the
+# pane-group script inside run-shell, and the verb answers.
 cmd_pane_group() {
-  local sub="${1:-}"
-  shift 2>/dev/null || true
-  case "$sub" in
-    --help|-h|"") usage_pane_group; return ;;
-    add|close|switch|next|prev|move|join|leave|all|ungroup) ;;
-    *) _die_usage "Unknown group command: $sub" usage_pane_group ;;
-  esac
-  case "${1:-}" in
-    --help|-h)
-      echo "Usage: tmuxy pane group $sub"
-      usage_pane_group | awk -v verb="$sub" '$1 == verb'
-      return
-      ;;
-  esac
-  # A pane named on the command line is quoted; a default is a bare format,
-  # since `shquote` doubles its `#` and would hand the script the text.
-  local words=() arg
-  for arg in "$@"; do words+=("$(shquote "$arg")"); done
-  case "$sub:$#" in
-    add:0) words=('#{pane_id}' '#{pane_width}' '#{pane_height}') ;;
-    close:0 | next:0 | prev:0 | all:0 | ungroup:0) words=('#{pane_id}') ;;
-    switch:0) _die_usage "Usage: tmuxy pane group switch <pane_id>" ;;
-    move:[01]) _die_usage "Usage: tmuxy pane group move <%id> <index>" ;;
-    join:[01]) _die_usage "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]" ;;
-    leave:*)
-      local pane_id="${TMUX_PANE:-}"
-      case "${1:-}" in %*) pane_id="$1"; shift ;; esac
-      [ -n "$pane_id" ] || _die_usage "no pane to take out of its group (pass %id or run inside a pane)"
-      words=("$(shquote "$pane_id")" "$(shquote "${1:---tab}")")
-      [ $# -lt 2 ] || words+=("$(shquote "$2")" "$(shquote "${3:-right}")")
-      ;;
-  esac
-  _run_shell "bash $(shquote "$SCRIPTS_DIR/pane-group") $sub ${words[*]}"
-  _done
+  local arg words=()
+  for arg in "$@"; do
+    case "$arg" in
+      --help | -h)
+        find_server_cmd || exit 1
+        exec "${SERVER_CMD[@]}" group "$@"
+        ;;
+    esac
+    words+=("$(shquote "$arg")")
+  done
+  if [ $# -eq 0 ]; then
+    find_server_cmd || exit 1
+    exec "${SERVER_CMD[@]}" group --help
+  fi
+  _run_as_caller "bash $(shquote "$SCRIPTS_DIR/pane-group") ${words[*]}$(_json_flag)"
 }

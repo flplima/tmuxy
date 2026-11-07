@@ -8,7 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{error, warn};
 
-pub const VITE_PORT: u16 = 9001;
+pub const VITE_PORT: u16 = tmuxy_core::constants::DEV_VITE_PORT;
 
 pub struct ViteChild {
     pgid: i32,

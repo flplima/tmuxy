@@ -42,7 +42,7 @@ describe('CLI help output', () => {
     expect(PATHS).toEqual(
       expect.arrayContaining([
         ['pane', 'list'],
-        ['pane', 'group', 'ungroup'],
+        ['pane', 'group'],
         ['session', 'restore'],
         ['plugin', 'install'],
         ['gui'],

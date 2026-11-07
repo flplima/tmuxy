@@ -35,6 +35,15 @@ pub fn control_line<S: AsRef<str>>(argv: &[S]) -> String {
         .join(" ")
 }
 
+/// A command list as argv, `;` a word of its own between two commands, as
+/// one line tmux's command parser reads back as the same list.
+pub fn control_list<S: AsRef<str>>(argv: &[S]) -> String {
+    argv.split(|w| w.as_ref() == ";")
+        .map(control_line)
+        .collect::<Vec<_>>()
+        .join(" ; ")
+}
+
 pub fn shell_word(word: &str) -> String {
     if plain(word) {
         return word.to_string();

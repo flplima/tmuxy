@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pid, wid } from '../../test/wire';
+import { PANE_STATES } from '../tmuxyConstants.gen';
 import {
-  PANE_STATES,
   PANE_STATE_TIER,
   aggregatePaneState,
   circledNumber,

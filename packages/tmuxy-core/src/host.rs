@@ -196,7 +196,7 @@ mod tests {
         super::create_session_via(&tx, &config).await.unwrap();
         assert_eq!(
             asked.await.unwrap(),
-            "new-session -d -x 200 -y 50 -c /home/u -s work -t base"
+            "new-session -d -x 200 -y 50 -c /home/u -s work -t =base"
         );
     }
 }

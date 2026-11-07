@@ -37,7 +37,7 @@ fn panes_in_last_full(recorder: &common::Recorder) -> Option<usize> {
 
 #[tokio::test]
 async fn replies_come_back_from_a_live_control_mode_connection() {
-    let server = common::ScratchServer::new("reply-test");
+    let server = common::ScratchServer::process_wide("reply-test");
     let monitor = server.attach("app", true).await;
 
     // A second session with more panes than ours: the rows a `list-panes -a`

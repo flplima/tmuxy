@@ -19,10 +19,6 @@ use std::fmt;
 use crate::constants::{tmux_options, STASH_SESSION};
 use crate::{GroupId, PaneId, WindowId};
 
-/// The exit status of `next`/`prev --no-wrap` with no member that way:
-/// `nav` then moves to the neighbouring split instead.
-pub const NOTHING_TO_STEP_TO: i32 = 3;
-
 /// `session_name` is last because it is the one free-text field: it may hold
 /// the separator. The separator is a space, not a tab: tmux 3.4 prints a
 /// control character in a format as `_`.
@@ -259,8 +255,13 @@ pub fn gc(panes: &Panes) -> Vec<Invocation> {
         .collect()
 }
 
+/// [`Context::close_command`] for the `pane-group` script at `script`.
+pub fn close_command(script: &std::path::Path) -> String {
+    format!("{} close", quote_script_path(script))
+}
+
 /// Format a filesystem path as one POSIX shell word for `Context::close_command`.
-pub fn quote_script_path(path: &std::path::Path) -> String {
+fn quote_script_path(path: &std::path::Path) -> String {
     let s = path.to_string_lossy();
     if !s.is_empty()
         && s.bytes().all(|b| {

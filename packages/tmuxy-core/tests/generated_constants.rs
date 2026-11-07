@@ -1,6 +1,6 @@
-//! The values the UI, the CLI scripts, the browser guests and their build scripts
-//! share with tmuxy-core, written out of tmuxy-core into files each of them
-//! reads, so no copy is kept by hand.
+//! The values the UI, the CLI scripts, the browser guests, CI and their build
+//! scripts share with tmuxy-core and the workspace, written out into files
+//! each of them reads, so no copy is kept by hand.
 //!
 //! The files are committed; this test fails when one is stale. Rewrite them
 //! with `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants`.
@@ -14,8 +14,12 @@ use tmuxy_core::constants::{SIDEBAR_WINDOW_PREFIX, STASH_SESSION};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
-use tmuxy_core::WindowType;
+use tmuxy_core::{PaneStateName, WindowType};
 
+#[path = "generated/crate_graph.rs"]
+mod crate_graph;
+#[path = "generated/dev_loop.rs"]
+mod dev_loop;
 #[path = "generated/guest_keys.rs"]
 mod guest_keys;
 
@@ -83,6 +87,7 @@ fn typescript() -> String {
         let _ = writeln!(out, "// {line}");
     }
     script_effect_tags(&mut out);
+    dev_loop::typescript(&mut out);
     let _ = writeln!(
         out,
         "\n/** The session parked pane-group members live in (`STASH_SESSION`). */\n\
@@ -106,6 +111,14 @@ fn typescript() -> String {
         ]
         .map(|t| quoted(t.as_str()))
         .join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */\n\
+         export const PANE_STATES = [{}] as const;",
+        PaneStateName::ALL
+            .map(|s| quoted(s.as_str()))
+            .join(", ")
     );
     let _ = writeln!(
         out,
@@ -371,6 +384,7 @@ fn shell() -> String {
     shell_cli_contract(&mut out);
     shell_tmux_names(&mut out);
     shell_ui_shared(&mut out);
+    dev_loop::shell(&mut out);
     out
 }
 
@@ -378,6 +392,12 @@ fn shell() -> String {
 /// write (`constants::tmux_options`, `WindowType`, `session`).
 fn shell_tmux_names(out: &mut String) {
     use tmuxy_core::constants::tmux_options as o;
+    let _ = writeln!(
+        out,
+        "\n# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`), for a usage line.\n\
+         PANE_STATE_WORDS={}",
+        quoted(&PaneStateName::ALL.map(PaneStateName::as_str).join("|"))
+    );
     out.push_str("\n# The tmuxy options the scripts read and write (`constants::tmux_options`).\n");
     for (name, value) in [
         ("WINDOW_TYPE", o::WINDOW_TYPE),
@@ -415,8 +435,7 @@ fn shell_tmux_names(out: &mut String) {
     );
 }
 
-/// The CLI's contract (`cli_contract`) and the exit statuses its scripts
-/// read from the verbs.
+/// The CLI's contract (`cli_contract`).
 fn shell_cli_contract(out: &mut String) {
     use tmuxy_core::cli_contract as c;
     let _ = writeln!(
@@ -428,12 +447,6 @@ fn shell_cli_contract(out: &mut String) {
         c::EXIT_TARGET,
         c::EXIT_NO_SERVER,
         quoted(c::JSON_FAILURE_FORMAT)
-    );
-    let _ = writeln!(
-        out,
-        "\n# What `pane-group next|prev --no-wrap` exits with when there is no member\n\
-         # that way (`groups::NOTHING_TO_STEP_TO`).\nGROUP_NOTHING_TO_STEP_TO={}",
-        tmuxy_core::groups::NOTHING_TO_STEP_TO
     );
 }
 
@@ -520,5 +533,13 @@ fn the_guest_key_bindings_are_the_shipped_confs() {
     check(
         packages().join("tmuxy-ui/src/infra/transport/drivers/guest/defaultKeybindings.gen.json"),
         guest_keys::guest_keybindings(),
+    );
+}
+
+#[test]
+fn the_crate_graph_is_cargos() {
+    check(
+        packages().join("../bin/ci/crate-graph.json"),
+        crate_graph::crate_graph_json(),
     );
 }

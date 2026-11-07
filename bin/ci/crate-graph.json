@@ -1,0 +1,38 @@
+{
+  "_generated": [
+    "Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.",
+    "Rewrite with UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants"
+  ],
+  "crates": {
+    "tmuxy-core": [
+      "packages/tmuxy-core",
+      "packages/vt100"
+    ],
+    "tmuxy-pty": [
+      "packages/tmuxy-pty"
+    ],
+    "tmuxy-server": [
+      "packages/tmuxy-core",
+      "packages/tmuxy-server",
+      "packages/tmuxy-verbs",
+      "packages/vt100"
+    ],
+    "tmuxy-tauri-app": [
+      "packages/tmuxy-core",
+      "packages/tmuxy-server",
+      "packages/tmuxy-tauri-app",
+      "packages/tmuxy-verbs",
+      "packages/vt100"
+    ],
+    "tmuxy-verbs": [
+      "packages/tmuxy-core",
+      "packages/tmuxy-verbs",
+      "packages/vt100"
+    ],
+    "tmuxy-wasm": [
+      "packages/tmuxy-core",
+      "packages/tmuxy-wasm",
+      "packages/vt100"
+    ]
+  }
+}

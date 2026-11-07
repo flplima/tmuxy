@@ -103,17 +103,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # node_modules by its own `npm ci` below, after the Linux packages.
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          targets: ${{ matrix.rust-targets }}
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+          rust-targets: ${{ matrix.rust-targets }}
+          install-npm: 'false'
 
       # With their recommended packages, as every release so far was built.
       - name: Install Linux dependencies
@@ -537,9 +531,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
+          rust: none
+          install-npm: 'false'
 
       # The AppImage is the desktop app, and it links the GUI stack even when
       # all it is asked to do is `server` — without these it dies with

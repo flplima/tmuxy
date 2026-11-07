@@ -2,7 +2,11 @@
 # Based on the official Claude Code devcontainer pattern with project-specific tools:
 # the pinned tmux, Rust, agent-browser
 
-FROM node:22
+# The Node release is bin/toolchain's (`node-version`); bin/devcontainer passes
+# it, and the default is held to it by bin/ci/toolchain.test.mjs for the hosts
+# that build from devcontainer.json alone.
+ARG NODE_VERSION=22
+FROM node:${NODE_VERSION}
 
 ARG TZ
 ENV TZ="$TZ"

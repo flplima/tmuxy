@@ -96,16 +96,20 @@ impl Corrector {
             self.dialogs.remove(&row.pane_id);
             return None;
         }
-        match (row.state.as_str(), dialog) {
-            ("working" | "idle", true) => {
+        use crate::PaneStateName::{Idle, NeedsInput, Working};
+        match (crate::PaneStateName::parse(&row.state), dialog) {
+            (Some(Working | Idle), true) => {
                 self.dialogs.insert(row.pane_id.clone());
-                Some("needs-input")
+                Some(NeedsInput.as_str())
             }
-            ("needs-input", true) => {
+            (Some(NeedsInput), true) => {
                 self.dialogs.insert(row.pane_id.clone());
                 None
             }
-            ("needs-input", false) => self.dialogs.remove(&row.pane_id).then_some("working"),
+            (Some(NeedsInput), false) => self
+                .dialogs
+                .remove(&row.pane_id)
+                .then_some(Working.as_str()),
             _ => {
                 self.dialogs.remove(&row.pane_id);
                 None

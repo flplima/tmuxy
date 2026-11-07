@@ -45,7 +45,7 @@ fn screen_text(pane: &TmuxPane) -> String {
 
 #[tokio::test]
 async fn a_pane_printing_tmuxys_markers_cannot_stall_or_end_the_monitor() {
-    let server = common::ScratchServer::new("spoof-test");
+    let server = common::ScratchServer::process_wide("spoof-test");
 
     // Scaffolding before any control-mode client exists: one pane per spoof,
     // each printing its lines and then holding them on screen.

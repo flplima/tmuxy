@@ -294,7 +294,10 @@ pub async fn restore_named(name: &str, tx: &MonitorCommandSender) -> Result<(), 
 async fn session_running(tx: &MonitorCommandSender, name: &str) -> Result<bool, CommandError> {
     match query(
         tx,
-        &format!("has-session -t {}", tmux_quote(&format!("={name}"))),
+        &format!(
+            "has-session -t {}",
+            tmux_quote(&crate::session::exact_session_target(name))
+        ),
     )
     .await
     {

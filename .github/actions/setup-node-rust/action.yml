@@ -1,16 +1,17 @@
 name: Setup Node + Rust
 description: Node with the npm dependencies, and a stable Rust toolchain with its build cache.
+# The Node release is `bin/toolchain node-version`.
 inputs:
-  node-version:
-    description: The Node release.
-    required: false
-    default: '22'
   # `none` for a job that compiles nothing; `guest` adds the targets the wasm
   # engine and the guest binaries are built for (`bin/toolchain rust-targets`).
   rust:
     description: "'host', 'guest' (with the guest targets) or 'none'"
     required: false
     default: host
+  rust-targets:
+    description: Rust targets past the host's, comma-separated (a release's cross builds)
+    required: false
+    default: ''
   install-npm:
     description: "'false' to skip restoring or installing node_modules"
     required: false
@@ -18,9 +19,14 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Name the Node release
+      id: node
+      shell: bash
+      run: echo "version=$("$GITHUB_WORKSPACE/bin/toolchain" node-version)" >> "$GITHUB_OUTPUT"
+
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version: ${{ steps.node.outputs.version }}
         cache: npm
 
     - name: Name the rust targets
@@ -33,7 +39,7 @@ runs:
       if: inputs.rust != 'none'
       with:
         toolchain: stable
-        targets: ${{ steps.targets.outputs.list }}
+        targets: ${{ steps.targets.outputs.list || inputs.rust-targets }}
 
     - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       if: inputs.rust != 'none'

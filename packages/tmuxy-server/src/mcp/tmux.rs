@@ -77,9 +77,8 @@ impl Tmux {
         tmuxy_core::host::run_with_output(&self.tx, command, &self.session, size).await
     }
 
-    /// The session as a `-t` target: `=` so a prefix never matches another.
     pub(super) fn session_target(&self) -> String {
-        tmux_quote(&format!("={}", self.session))
+        tmux_quote(&tmuxy_core::session::exact_session_target(&self.session))
     }
 
     /// Every pane of the session, tabs, floats and sidebars alike.
