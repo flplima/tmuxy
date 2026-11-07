@@ -165,6 +165,30 @@ function terminalText(page) {
 }
 
 /**
+ * Click a terminal where its cursor is (its bottom-left corner without one),
+ * the way a user clicks to type: anywhere else can be a hyperlink, which a
+ * click opens.
+ */
+async function clickTerminal(terminal) {
+  const position = await terminal.evaluate(
+    (log) => {
+      const box = log.getBoundingClientRect();
+      const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
+      if (cursor && cursor.width > 0) {
+        return {
+          x: cursor.left - box.left + cursor.width / 2,
+          y: cursor.top - box.top + cursor.height / 2,
+        };
+      }
+      return { x: 4, y: Math.max(1, box.height - 4) };
+    },
+    undefined,
+    { timeout: 5000 },
+  );
+  await terminal.click({ position, timeout: 5000 });
+}
+
+/**
  * Click into a terminal (the page, without one) and wait for the app to hold
  * the keyboard. On a touchscreen a click does not hand it over (a tap on the
  * pane does, which is what the touch suites test), so it is not waited for.
@@ -173,7 +197,7 @@ async function focusPage(page, { touch = false } = {}) {
   // A locator, not an element handle, so a re-render between finding the
   // terminal and clicking it does not detach the target.
   try {
-    await page.locator('[role="log"]').first().click({ timeout: 5000 });
+    await clickTerminal(page.locator('[role="log"]').first());
   } catch {
     await page.click('body', { timeout: 5000 });
   }
@@ -309,6 +333,7 @@ module.exports = {
   instrumentPage,
   waitForServer,
   terminalText,
+  clickTerminal,
   focusPage,
   waitForKeyboardFocus,
   waitForWindowCount,

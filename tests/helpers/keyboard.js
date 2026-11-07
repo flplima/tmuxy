@@ -4,7 +4,7 @@
  * Focus, key combos, tmux prefix, typing, and tmux command line.
  */
 
-const { delay, waitForCondition, waitForKeyboardFocus } = require('./browser');
+const { delay, waitForCondition, waitForKeyboardFocus, clickTerminal } = require('./browser');
 
 // ==================== Focus Helper ====================
 
@@ -16,9 +16,8 @@ const { delay, waitForCondition, waitForKeyboardFocus } = require('./browser');
  */
 async function focusTerminal(page) {
   // Prefer the active pane's terminal to avoid changing the active pane
-  const activeSelector = '.pane-active [role="log"]';
   try {
-    await page.click(activeSelector, { timeout: 2000 });
+    await clickTerminal(page.locator('.pane-active [role="log"]').first());
   } catch {
     // Active pane terminal may not exist yet; try any terminal (the click
     // waits for one to appear).
@@ -186,7 +185,7 @@ async function typeInTerminal(page, text, { target } = {}) {
     (await page.$('.pane-active [role="log"]')) ||
     (await page.$('[role="log"]'));
   if (terminal) {
-    await terminal.click();
+    await clickTerminal(terminal);
   } else {
     await page.click('body');
   }
