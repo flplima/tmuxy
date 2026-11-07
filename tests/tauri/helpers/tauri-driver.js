@@ -5,7 +5,7 @@
  */
 
 const { spawn } = require('child_process');
-const { tmuxSocket } = require('../../helpers/tmux-socket');
+const { tmuxEnv } = require('../../helpers/tmux-socket');
 
 const DRIVER_PORT = 4444;
 
@@ -31,9 +31,7 @@ async function startTauriDriver(port = DRIVER_PORT) {
 
   const driverProcess = spawn('tauri-driver', ['--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    // The driver hands its environment to the app it launches, which has to
-    // drive the suite's tmux socket, not its own `tmuxy` default.
-    env: { ...process.env, TMUX_SOCKET: tmuxSocket() },
+    env: driverEnv(),
   });
   driverProcesses.set(port, driverProcess);
 
@@ -58,6 +56,17 @@ async function startTauriDriver(port = DRIVER_PORT) {
   }
 
   throw new Error(`tauri-driver did not start on port ${port} within 10 seconds`);
+}
+
+/**
+ * The driver hands its environment to the app it launches, so this is the
+ * app's: the suite's tmux socket, `$HOME` and tmuxy dirs (`tmuxEnv`), never the
+ * developer's. At start the app mirrors this branch's config, themes and
+ * scripts into its config and data dirs, which would otherwise be the
+ * installed app's. `DISPLAY` rides along from the process (Xvfb sets it).
+ */
+function driverEnv() {
+  return tmuxEnv();
 }
 
 /** Whether something is already answering WebDriver `/status` on `port`. */
@@ -87,4 +96,4 @@ function stopTauriDriver(port = DRIVER_PORT) {
   driverProcesses.delete(port);
 }
 
-module.exports = { startTauriDriver, stopTauriDriver, DRIVER_PORT };
+module.exports = { startTauriDriver, stopTauriDriver, driverEnv, DRIVER_PORT };
