@@ -51,11 +51,14 @@ export const SKIPPABLE = {
 };
 
 export const TRIGGERED = {
-  // `cargo test` on a Mac: only the code with a macOS branch.
+  // `cargo test` on a Mac: the desktop app, the CLI its tests drive, the pty
+  // spawn of `tmux -CC` (macOS's launchd reaps a server left with no client,
+  // with no cfg to show it), and any other file with a macOS branch
+  // (`macosBranches`).
   'macos-rust': [
     /^packages\/tmuxy-tauri-app\//,
-    /^packages\/tmuxy-core\/src\/control_mode\/connection\.rs$/,
     /^packages\/tmuxy-cli\//,
+    /^packages\/tmuxy-core\/src\/control_mode\/connection(\.rs$|\/)/,
     /^Cargo\.(toml|lock)$/,
     /^\.github\/workflows\/lint-and-tests\.yml$/,
   ],
@@ -78,13 +81,26 @@ export const TRIGGERED = {
 
 const SELF = 'bin/ci/ci-changes.mjs';
 
+function git(...args) {
+  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+}
+
+/** The Rust files with a `cfg(target_os = "macos")` branch, as the checkout has them. */
+export function macosBranches() {
+  try {
+    return new Set(git('grep', '-l', '-F', 'target_os = "macos"', '--', '*.rs').split('\n'));
+  } catch {
+    return new Set();
+  }
+}
+
 /**
  * The decision for each job: `true` to run it. `files` is the changed
  * paths, or null when they cannot be known — then everything runs, and so it
  * does when this file itself changed, since a rule is proven by the jobs it
  * would have skipped.
  */
-export function decide(files) {
+export function decide(files, macos = macosBranches()) {
   const all = files === null || files.includes(SELF);
   const matches = (patterns, file) => patterns.some((p) => p.test(file));
   const out = {};
@@ -94,11 +110,8 @@ export function decide(files) {
   for (const [job, covered] of Object.entries(TRIGGERED)) {
     out[job] = all || files.some((f) => matches(covered, f));
   }
+  out['macos-rust'] ||= files.some((f) => macos.has(f));
   return out;
-}
-
-function git(...args) {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 }
 
 /** The changed files between `base` and HEAD, or null when `base` cannot be had. */

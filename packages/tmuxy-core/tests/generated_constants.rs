@@ -1,6 +1,6 @@
-//! The values the UI, the CLI scripts, the browser guests and their build scripts
-//! share with tmuxy-core, written out of tmuxy-core into files each of them
-//! reads, so no copy is kept by hand.
+//! The values the UI, the CLI scripts, the browser guests, CI and their build
+//! scripts share with tmuxy-core and the workspace, written out into files
+//! each of them reads, so no copy is kept by hand.
 //!
 //! The files are committed; this test fails when one is stale. Rewrite them
 //! with `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants`.
@@ -16,6 +16,8 @@ use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
 use tmuxy_core::WindowType;
 
+#[path = "generated/crate_graph.rs"]
+mod crate_graph;
 #[path = "generated/guest_keys.rs"]
 mod guest_keys;
 
@@ -513,5 +515,13 @@ fn the_guest_key_bindings_are_the_shipped_confs() {
     check(
         packages().join("tmuxy-ui/src/infra/transport/drivers/guest/defaultKeybindings.gen.json"),
         guest_keys::guest_keybindings(),
+    );
+}
+
+#[test]
+fn the_crate_graph_is_cargos() {
+    check(
+        packages().join("../bin/ci/crate-graph.json"),
+        crate_graph::crate_graph_json(),
     );
 }

@@ -109,9 +109,10 @@ jobs:
   #
   # The CLI suite runs on every push: it is cheap and the shell is where the
   # platform shows. The Rust suite runs only when the push touches the code
-  # that has a macOS branch — the desktop app, the pty spawn in
-  # `control_mode/connection.rs`, the CLI scripts, the Cargo manifests — and
-  # always on a tag build. A Mac minute costs ten Linux ones, and the ~500
+  # that has a macOS branch — the desktop app, the pty spawn of `tmux -CC`,
+  # the CLI scripts, any Rust file with a `target_os = "macos"`, the Cargo
+  # manifests (`macos-rust` in bin/ci/ci-changes.mjs) — and always on a tag
+  # build. A Mac minute costs ten Linux ones, and the ~500
   # platform-neutral tests are run on Linux per commit already; build-app.yml
   # runs the whole suite on a Mac daily as the net.
   macos-tests:

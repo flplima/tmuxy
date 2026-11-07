@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decide } from './ci-changes.mjs';
+import { decide, macosBranches } from './ci-changes.mjs';
 
 const EVERYTHING = {
   desktop: true,
@@ -109,11 +109,23 @@ describe('which CI jobs a push can skip', () => {
   it('a lockfile triggers the audit; the macOS cargo test follows its own list', () => {
     expect(decide(['package-lock.json'])).toMatchObject({ audit: true, 'macos-rust': false });
     expect(decide(['Cargo.lock'])).toMatchObject({ audit: true, 'macos-rust': true });
-    expect(decide(['packages/tmuxy-core/src/control_mode/connection.rs'])).toMatchObject({
+    expect(decide(['packages/tmuxy-core/src/lib.rs'])).toMatchObject({ 'macos-rust': false });
+    expect(decide(['packages/tmuxy-core/src/control_mode/connection/spawn.rs'])).toMatchObject({
+      'macos-rust': true,
+    });
+  });
+
+  // Not a list of files kept by hand: whichever has a macOS branch now.
+  it('a file with a macOS branch triggers the macOS cargo test', () => {
+    const macos = new Set(['packages/tmuxy-core/src/plugins.rs']);
+    expect(decide(['packages/tmuxy-core/src/plugins.rs'], macos)).toMatchObject({
       'macos-rust': true,
       audit: false,
     });
-    expect(decide(['packages/tmuxy-core/src/lib.rs'])).toMatchObject({ 'macos-rust': false });
+    expect(decide(['packages/tmuxy-core/src/lib.rs'], macos)).toMatchObject({
+      'macos-rust': false,
+    });
+    expect(macosBranches()).toContain('packages/tmuxy-core/src/host/prepare.rs');
   });
 
   it('this workflow and its actions run everything; another workflow runs nothing', () => {
