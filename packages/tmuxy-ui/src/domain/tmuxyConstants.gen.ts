@@ -7,6 +7,13 @@ export const SCRIPT_EFFECT_TAGS = {
   'relist-windows': 'TMUXY_EFFECT=relist-windows',
 } as const;
 
+/** The lines `tmuxy-widget-preview` prints (`constants::preview_lines`). */
+export const PREVIEW_LINES = {
+  noTheme: '__NO_THEME__',
+  file: '__FILE__:',
+  rev: '__REV__:',
+} as const;
+
 /** The session parked pane-group members live in (`STASH_SESSION`). */
 export const STASH_SESSION = '__tmuxy_stash';
 

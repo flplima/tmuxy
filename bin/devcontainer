@@ -34,6 +34,8 @@
 set -e
 
 cd "$(dirname "$0")/.."
+# The server's and Vite's ports (DEFAULT_PORT, VITE_PORT), as tmuxy-core has them.
+source packages/tmuxy-cli/bin/tmuxy/_options
 
 IMAGE_NAME="tmuxy-dev"
 DOCKERFILE=".devcontainer/Dockerfile"
@@ -77,8 +79,8 @@ ensure_image() {
 
 info() {
     echo "==> Container:  $CONTAINER_NAME"
-    echo "==> Port map:   localhost:$HOST_PORT     -> container:9000 (server)"
-    echo "==>             localhost:$((HOST_PORT + 1)) -> container:9001 (vite)"
+    echo "==> Port map:   localhost:$HOST_PORT     -> container:$DEFAULT_PORT (server)"
+    echo "==>             localhost:$((HOST_PORT + 1)) -> container:$VITE_PORT (vite)"
     echo "==>             localhost:$((HOST_PORT + 2)) -> container:9003 (demo, npm run dev -w tmuxy-demo)"
     echo "==>             localhost:$((HOST_PORT + 3)) -> container:6006 (storybook)"
     echo ""
@@ -143,12 +145,12 @@ prepare() {
         # Loopback only. A bare `-p PORT:...` publishes on every host
         # interface, past the host firewall, and the dev server inside runs
         # with --no-auth — the whole network would get a shell.
-        -p "127.0.0.1:$HOST_PORT:9000"
-        -p "127.0.0.1:$((HOST_PORT + 1)):9001"
+        -p "127.0.0.1:$HOST_PORT:$DEFAULT_PORT"
+        -p "127.0.0.1:$((HOST_PORT + 1)):$VITE_PORT"
         -p "127.0.0.1:$((HOST_PORT + 2)):9003"
         -p "127.0.0.1:$((HOST_PORT + 3)):6006"
         "${MOUNTS[@]}"
-        -e PORT=9000
+        -e PORT="$DEFAULT_PORT"
         -e HOST_PORT="$HOST_PORT"
         -e CONTAINER_NAME="$CONTAINER_NAME"
         -e CHROME_CDP_URL=http://host.docker.internal:9222
@@ -180,7 +182,7 @@ prepare() {
         fi
     "
 
-    # The dev server owns 9000 (the port mapped to the host); 9001 is vite's
+    # The dev server owns DEFAULT_PORT (the port mapped to the host); VITE_PORT is vite's
     # hard-coded port, which tmuxy-server refuses to bind. bin/dev-server picks the
     # `tmuxy-dev` socket itself, so no TMUX_SOCKET is set here.
     SERVER_SCRIPT="

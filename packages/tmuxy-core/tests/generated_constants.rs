@@ -18,6 +18,8 @@ use tmuxy_core::{PaneStateName, WindowType};
 
 #[path = "generated/crate_graph.rs"]
 mod crate_graph;
+#[path = "generated/dev_loop.rs"]
+mod dev_loop;
 #[path = "generated/guest_keys.rs"]
 mod guest_keys;
 
@@ -85,6 +87,7 @@ fn typescript() -> String {
         let _ = writeln!(out, "// {line}");
     }
     script_effect_tags(&mut out);
+    dev_loop::typescript(&mut out);
     let _ = writeln!(
         out,
         "\n/** The session parked pane-group members live in (`STASH_SESSION`). */\n\
@@ -381,6 +384,7 @@ fn shell() -> String {
     shell_cli_contract(&mut out);
     shell_tmux_names(&mut out);
     shell_ui_shared(&mut out);
+    dev_loop::shell(&mut out);
     out
 }
 

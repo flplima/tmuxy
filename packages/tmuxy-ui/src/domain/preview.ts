@@ -12,6 +12,7 @@
  */
 
 import { Schema } from 'effect';
+import { PREVIEW_LINES } from './tmuxyConstants.gen';
 
 export const PreviewKind = Schema.Literal('html', 'markdown');
 export type PreviewKind = Schema.Schema.Type<typeof PreviewKind>;
@@ -122,13 +123,13 @@ export function parsePreviewLines(lines: string[]): PreviewLines {
   let rev = '';
   let themed = true;
   for (const line of lines) {
-    if (line === '__NO_THEME__') themed = false;
-    else if (line.startsWith('__FILE__:')) file = line.slice('__FILE__:'.length);
+    if (line === PREVIEW_LINES.noTheme) themed = false;
+    else if (line.startsWith(PREVIEW_LINES.file)) file = line.slice(PREVIEW_LINES.file.length);
     else {
       // The rev line is rewritten in place with `\r`, so a line can carry an
       // earlier rev's leftovers before the current one.
-      const at = line.lastIndexOf('__REV__:');
-      if (at >= 0) rev = line.slice(at + '__REV__:'.length).trim();
+      const at = line.lastIndexOf(PREVIEW_LINES.rev);
+      if (at >= 0) rev = line.slice(at + PREVIEW_LINES.rev.length).trim();
     }
   }
   return { file, rev, themed };

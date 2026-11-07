@@ -48,3 +48,16 @@ DEFAULT_SESSION='tmuxy'
 
 # What tmuxy-widget prints before a widget's name, for the client to draw it.
 WIDGET_MARKER='__TMUXY_WIDGET__:'
+
+# `tmuxy server`'s default port, and Vite's behind it in the dev loop.
+DEFAULT_PORT=9000
+VITE_PORT=9001
+
+# The size a fresh control-mode connection starts a session at.
+INITIAL_PTY_COLS=200
+INITIAL_PTY_ROWS=50
+
+# The lines tmuxy-widget-preview prints for the client's preview.
+PREVIEW_NO_THEME='__NO_THEME__'
+PREVIEW_FILE='__FILE__:'
+PREVIEW_REV='__REV__:'
