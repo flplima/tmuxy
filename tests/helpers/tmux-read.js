@@ -37,11 +37,14 @@ const WINDOW_FIELDS = {
 const NUMBERS = new Set(['width', 'height', 'left', 'top', 'index']);
 const FLAGS = new Set(['active', 'inMode', 'alternate', 'zoomed']);
 const SEP = '\u001f';
+// tmux 3.4 prints the separator back as the four characters `\037`; later
+// releases pass the byte through.
+const PRINTED_SEP = /\u001f|\\037/;
 
 const format = (fields) => Object.values(fields).join(SEP);
 
 function parse(fields, line) {
-  const out = line.split(SEP);
+  const out = line.split(PRINTED_SEP);
   const row = Object.fromEntries(
     Object.keys(fields).map((k, i) => [
       k,
