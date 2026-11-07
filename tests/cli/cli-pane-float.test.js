@@ -87,6 +87,20 @@ describe('CLI pane float', () => {
     expect(stdout).toBe("[a b][it's][$HOME][#1;id]");
   });
 
+  // Closing the float (its ×, `kill-pane`) hangs its shell up before the
+  // command returns; the caller waits on the channel and must still wake.
+  test('a float closed under its command still wakes the caller waiting on it', () => {
+    const { exitCode, tmuxCalls } = float(['sh', '-c', 'kill -HUP $PPID; sleep 0.2'], {
+      MOCK_TMUX_LIST_PANES: '4242',
+    });
+    expect(exitCode).toBe(0);
+    const waits = tmuxCalls.filter((c) => c.args[0] === 'wait-for').map((c) => c.args.join(' '));
+    expect(waits).toEqual([
+      expect.stringMatching(/^wait-for -S float-done-/),
+      expect.stringMatching(/^wait-for float-done-/),
+    ]);
+  });
+
   test('inside a float, a bare float reuses it rather than opening another', () => {
     const { exitCode, verb } = float(['true'], { MOCK_TMUX_WINDOW_TYPE: 'float' });
     expect(exitCode).toBe(0);

@@ -98,12 +98,14 @@ else
   # the command out of the tmux command list, where its quoting would have to
   # survive both the shell and tmux's parser. Each word is quoted for the shell
   # again, as `pane run`'s wrapper does: the float runs the program with the
-  # arguments it was given, none of them read as shell syntax.
+  # arguments it was given, none of them read as shell syntax. The caller is
+  # woken from the EXIT trap, which bash also runs when closing the float
+  # hangs it up mid-command.
   {
     echo '#!/bin/bash'
+    printf 'trap %q EXIT\n' "$(printf '%q %s %q wait-for -S %q' "$TMUX_BIN" "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$WAIT_CHAN")"
     printf '%q ' "$@"
     printf '> %q\n' "$TMPFILE"
-    printf '%q %s %q wait-for -S %q\n' "$TMUX_BIN" "$TMUX_SOCKET_FLAG" "$TMUX_SOCKET" "$WAIT_CHAN"
   } > "$WRAPPER"
   chmod 700 "$WRAPPER"
 
