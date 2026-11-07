@@ -163,6 +163,26 @@ pub const PLUGIN_MANIFEST_FILE: &str = "tmuxy-plugin.toml";
 
 pub const CLI_DISPATCHER: &str = "tmuxy-cli";
 
+/// The helper scripts' directory inside [`BIN`] ([`Layout::scripts`]).
+const SCRIPTS: &str = "tmuxy";
+
+/// The helper scripts' directory as tmux, or a pane's shell, names it: under
+/// the data dir tmux has in its environment (`session::DATA_DIR_ENV`), so a
+/// moved data dir moves every command that runs one. The client builds its
+/// script commands on it (generated into `tmuxyConstants.gen.ts`).
+pub fn scripts_by_env() -> String {
+    in_bin_by_env(SCRIPTS)
+}
+
+/// The CLI dispatcher, named the way [`scripts_by_env`] names the scripts.
+pub fn cli_by_env() -> String {
+    in_bin_by_env(CLI_DISPATCHER)
+}
+
+fn in_bin_by_env(name: &str) -> String {
+    format!("${}/{}{name}", crate::session::DATA_DIR_ENV, BIN.name)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Dir {
@@ -427,7 +447,7 @@ impl Layout {
     /// The CLI's helper scripts (`pane-group`, `float-create`, `nav`, …):
     /// what a hook, a restore or a verb names when it runs one.
     pub fn scripts(&self) -> PathBuf {
-        self.bin().join("tmuxy")
+        self.bin().join(SCRIPTS)
     }
 
     /// `pane-group`: its `close` is what a group member's `pane-died` hook

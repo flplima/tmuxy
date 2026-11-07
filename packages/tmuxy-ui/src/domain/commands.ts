@@ -27,9 +27,6 @@ import {
 } from './commandHelpers';
 import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
 
-/** The bundled scripts, in the data dir the config chain publishes to tmux. */
-export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
-
 /** tmuxy's config chain (the server sources its own); never `~/.tmux.conf`. */
 export const CONFIG_FILE = '$TMUXY_ENTRY_CONF';
 

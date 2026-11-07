@@ -52,8 +52,11 @@ export const SIDEBAR_WINDOW_PREFIX = '__sidebar-';
 /** What marks a key binding as a plugin key's (`plugins::keys::MARKER`). */
 export const PLUGIN_KEY_MARKER = '--trigger key';
 
-/** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */
-export const CLI_DISPATCHER = 'tmuxy-cli';
+/** The bundled scripts, in the data dir the config chain publishes to tmux (`paths::scripts_by_env`). */
+export const SCRIPTS_DIR = '$TMUXY_DATA_DIR/bin/tmuxy';
+
+/** The CLI dispatcher in the data dir's `bin/` (`paths::cli_by_env`). */
+export const CLI_PATH = '$TMUXY_DATA_DIR/bin/tmuxy-cli';
 
 /** The appearance options before a config has said (`theme::Appearance::default()`, tmuxy.defaults.conf's). */
 export const DEFAULT_APPEARANCE = {

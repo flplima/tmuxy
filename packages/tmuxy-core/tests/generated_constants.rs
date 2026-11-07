@@ -158,9 +158,15 @@ fn typescript() -> String {
     );
     let _ = writeln!(
         out,
-        "\n/** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */\n\
-         export const CLI_DISPATCHER = {};",
-        quoted(tmuxy_core::paths::CLI_DISPATCHER)
+        "\n/** The bundled scripts, in the data dir the config chain publishes to tmux (`paths::scripts_by_env`). */\n\
+         export const SCRIPTS_DIR = {};",
+        quoted(&tmuxy_core::paths::scripts_by_env())
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The CLI dispatcher in the data dir's `bin/` (`paths::cli_by_env`). */\n\
+         export const CLI_PATH = {};",
+        quoted(&tmuxy_core::paths::cli_by_env())
     );
     ui_shared(&mut out);
     out
