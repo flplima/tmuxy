@@ -1,5 +1,5 @@
 import './Cursor.css';
-import { cellsToCss } from './terminalShared';
+import { cellsToCss } from '../../infra/dom/cellMetrics';
 import { attachCursorAnchor } from './cursorAnchor';
 import { TERMINAL_CURSOR } from '../../infra/dom/terminalDom';
 

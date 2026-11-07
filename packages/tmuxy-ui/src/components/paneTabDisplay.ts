@@ -1,30 +1,7 @@
 import type { TmuxPane } from '../domain/client';
-import type { TmuxServer } from '../domain/servers';
 import { paneWidgetOf } from './widgets/registry';
 import { circledNumber } from '../domain/paneState';
 import { AGY_SVG, CLAUDE_SVG, CODEX_SVG } from './processIconSvgs';
-
-/**
- * The host of `host [session]` in the sidebar title and the status line:
- * `[user@]host` for an SSH server, else `hostname`, what the server said of
- * itself in its greeting (`localhost` until it has).
- */
-export function serverHostLabel(
-  servers: readonly TmuxServer[],
-  currentServerId: string | null,
-  isDemo?: boolean,
-  hostname: string | null = null,
-): string {
-  if (isDemo) return 'demo@localhost';
-  const current = currentServerId ? servers.find((s) => s.id === currentServerId) : undefined;
-  if (current?.kind === 'ssh') {
-    if (current.ssh?.host) {
-      return current.ssh.user ? `${current.ssh.user}@${current.ssh.host}` : current.ssh.host;
-    }
-    return current.label || hostname || 'localhost';
-  }
-  return hostname || 'localhost';
-}
 
 const PROCESS_ICONS: Record<string, string> = {
   zsh: '\ue795', //  nf-custom-terminal

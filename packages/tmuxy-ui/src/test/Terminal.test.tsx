@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pid } from './wire';
 import { render, screen } from '@testing-library/react';
 import { Terminal } from '../components/terminal/Terminal';
-import { cellsToCss } from '../components/terminal/terminalShared';
+import { cellsToCss } from '../infra/dom/cellMetrics';
 import type { PaneContent, CellLine, TerminalCell } from '../domain/wireCells';
 
 function createLine(text: string): CellLine {

@@ -23,7 +23,7 @@
  *
  * `ch` is deliberately not the grid unit any more: it is the advance of "0"
  * with NO letter-spacing, so once the advance is snapped `1ch` stops being a
- * cell. `cellsToCss` (terminalShared) still falls back to `1ch` when the
+ * cell. `cellsToCss` still falls back to `1ch` when the
  * variables are absent — component stories rendered outside the app keep
  * working, just without snapping.
  */
@@ -94,6 +94,14 @@ export function sidebarCellMetrics(
 ): CellMetrics {
   const advance = (pane.charWidth - pane.cellGap) * (sidebarFontPx / (paneFontPx || 1));
   return computeCellMetrics(advance, devicePixelRatio);
+}
+
+/**
+ * CSS length for `n` cells, in the grid `cellMetricsStyle` publishes. Component
+ * stories have no app root, so `1ch` is the grid there.
+ */
+export function cellsToCss(n: number): string {
+  return `calc(${n} * var(--cell-w, 1ch))`;
 }
 
 export function cellMetricsStyle(metrics: {

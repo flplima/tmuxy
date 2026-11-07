@@ -159,15 +159,6 @@ export function sanitizeTerminalCell(c: string): string {
 }
 
 /**
- * CSS length for `n` cells: `--cell-w` is the snapped width the app root
- * publishes (`infra/dom/cellMetrics.ts`), the one the pane rectangles use.
- * Component stories have no app root, so `1ch` is the grid there.
- */
-export function cellsToCss(n: number): string {
-  return `calc(${n} * var(--cell-w, 1ch))`;
-}
-
-/**
  * The web server serves image bytes at `/api/images/...`; the desktop app has
  * no HTTP and serves them over its `tmuxyimg:` scheme
  * (`tmuxy-tauri-app/src/gui.rs`). Tests and stories override it with
