@@ -47,8 +47,8 @@ and runs only when the user presses Enter on it or clicks it. Nothing is typed
 into the shell, so nothing reaches it before the user has read it. A program that
 was running when the snapshot was taken is not evidence that it should run
 again; `rm -rf …` was also running. The one exception is tmuxy's own chrome:
-the left sidebar comes back running its widget (`tmuxy widget tree`), and only
-that exact command, because that is tmuxy's program, not the user's; anything
+the left sidebar comes back running its widget (the bundled `tmuxy-widget-tree`
+script under the data dir), and only that exact command, because that is tmuxy's program, not the user's; anything
 else a snapshot names for a sidebar is offered like any other command. A
 restore puts back only the options capture writes (the float and sidebar
 `@tmuxy-*` window options, a pane's group id and place), never another option

@@ -48,14 +48,6 @@ pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// at once and takes the column's window with it. The pane's shell expands
 /// `$TMUXY_DATA_DIR` (`session::DATA_DIR_ENV`).
 pub const LEFT_SIDEBAR_WIDGET: &str = "$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree";
-/// What a left sidebar ran before: a bare `tmuxy widget tree`, then the
-/// bundled script under the config dir, before the scripts moved to the data
-/// dir. A snapshot saved then still says so, and restores as the sidebar all
-/// the same.
-pub const LEGACY_LEFT_SIDEBAR_WIDGETS: [&str; 2] = [
-    "tmuxy widget tree",
-    "$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree",
-];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
