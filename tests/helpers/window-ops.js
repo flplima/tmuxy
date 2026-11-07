@@ -24,7 +24,7 @@ async function pressChangingWindow(ctx, press, label) {
   await waitForCondition(
     ctx.page,
     async () => (await ctx.session.getCurrentWindowIndex()) !== startIndex,
-    10000,
+    3000,
     `${label} to change the active window`,
   );
 }
