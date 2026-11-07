@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Download Playwright's build of one browser (`chromium`, `webkit`).
+#
+# A Playwright release knows the Ubuntu releases out when it was cut, and has
+# no download for a newer one (ubuntu-26.04 runners under Playwright 1.58).
+# Then the newest Ubuntu build it has stands in: the runner image already
+# carries the libraries a browser loads, and those builds run on it. The
+# override is only taken while Playwright names no download for the host, so
+# it drops out on its own once Playwright knows the runner's release.
+set -euo pipefail
+
+browser=${1:?usage: playwright-install <browser>}
+if [ "$(uname -s)" = Linux ] &&
+  ! npx playwright install "$browser" --dry-run | grep -q 'Download url'; then
+  export PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="ubuntu24.04-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')"
+  echo "Playwright has no $browser build for this host; using the $PLAYWRIGHT_HOST_PLATFORM_OVERRIDE one"
+fi
+npx playwright install "$browser"

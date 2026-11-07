@@ -1,13 +1,13 @@
 name: Install Chromium
 description: Playwright's Chromium with its download cached, and the fonts it renders with.
-# The download is ~130MB and identical for one lockfile. The apt side of `--with-deps` is
-# only run on a miss: the GitHub runner image ships Google Chrome, so the
-# shared libraries Chromium loads are already there, and the ~15s index
-# refresh was the whole cost of this action on a hit. What the image does
-# NOT ship is the fonts `--with-deps` brings — CJK, emoji, Unifont — and
+# The download is ~130MB and identical for one lockfile. The runner image
+# ships Google Chrome, so the shared libraries Chromium loads are already
+# there and `--with-deps` is not used (it has no package list for a runner
+# release newer than Playwright, see bin/ci/playwright-install). What the
+# image does NOT ship is the fonts it would bring — CJK, emoji, Unifont — and
 # without them every wide-glyph check sees a narrow fallback, so those are
-# installed on a hit too, from the image's own index (a refresh only if
-# that index has gone stale).
+# installed on every run, from the image's own index (a refresh only if that
+# index has gone stale).
 inputs:
   # The story probes and the perf harnesses launch the full Chromium by path;
   # the E2E suites leave the variable unset and get Playwright's own headless
@@ -29,13 +29,12 @@ runs:
     - name: Install Chromium (cache miss)
       if: steps.playwright-cache.outputs.cache-hit != 'true'
       shell: bash
-      run: npx playwright install chromium --with-deps
+      run: bin/ci/playwright-install chromium
 
     # bin/chromium-fonts.txt is the list Playwright's own install-deps uses for
     # Chromium; bin/install-dev-tools installs the same one, so a container
     # and a runner measure a wide glyph the same way.
-    - name: Install the fonts Chromium renders with (cache hit)
-      if: steps.playwright-cache.outputs.cache-hit == 'true'
+    - name: Install the fonts Chromium renders with
       shell: bash
       run: |
         fonts="$(cat bin/chromium-fonts.txt)"
