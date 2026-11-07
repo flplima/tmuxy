@@ -1,11 +1,9 @@
 import { realId, type PaneId } from './ids';
-import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
+import { quote, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
-import { CLI_DISPATCHER, PASTE_BUFFER, SCRIPT_EFFECT_TAGS } from './tmuxyConstants.gen';
-
-const CLI_PATH = `$TMUXY_DATA_DIR/bin/${CLI_DISPATCHER}`;
+import { CLI_PATH, PASTE_BUFFER, SCRIPT_EFFECT_TAGS, SCRIPTS_DIR } from './tmuxyConstants.gen';
 
 const LITERAL_CHUNK_SIZE = 500;
 

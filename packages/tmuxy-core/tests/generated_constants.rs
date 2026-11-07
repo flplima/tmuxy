@@ -158,9 +158,15 @@ fn typescript() -> String {
     );
     let _ = writeln!(
         out,
-        "\n/** The CLI dispatcher in the data dir's `bin/` (`paths::CLI_DISPATCHER`). */\n\
-         export const CLI_DISPATCHER = {};",
-        quoted(tmuxy_core::paths::CLI_DISPATCHER)
+        "\n/** The bundled scripts, in the data dir the config chain publishes to tmux (`paths::scripts_by_env`). */\n\
+         export const SCRIPTS_DIR = {};",
+        quoted(&tmuxy_core::paths::scripts_by_env())
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The CLI dispatcher in the data dir's `bin/` (`paths::cli_by_env`). */\n\
+         export const CLI_PATH = {};",
+        quoted(&tmuxy_core::paths::cli_by_env())
     );
     ui_shared(&mut out);
     out
@@ -394,7 +400,7 @@ fn shell_tmux_names(out: &mut String) {
     use tmuxy_core::constants::tmux_options as o;
     let _ = writeln!(
         out,
-        "\n# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`), for a usage line.\n\
+        "\n# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`): all that\n# `tmuxy pane state` takes.\n\
          PANE_STATE_WORDS={}",
         quoted(&PaneStateName::ALL.map(PaneStateName::as_str).join("|"))
     );
@@ -447,6 +453,12 @@ fn shell_cli_contract(out: &mut String) {
         c::EXIT_TARGET,
         c::EXIT_NO_SERVER,
         quoted(c::JSON_FAILURE_FORMAT)
+    );
+    let _ = writeln!(
+        out,
+        "\n# What tmux says when there is no server on the socket (`session::NO_SERVER_SIGNS`).\n\
+         NO_SERVER_SIGNS=({})",
+        tmuxy_core::session::NO_SERVER_SIGNS.map(quoted).join(" ")
     );
 }
 

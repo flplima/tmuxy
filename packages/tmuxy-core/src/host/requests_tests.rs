@@ -195,7 +195,8 @@ fn source_file_is_seen_anywhere_tmux_would_run_it() {
 /// The client spells its Reload Config and its script paths with the two
 /// variables the chain publishes; a rename on one side would leave the
 /// server sourcing nothing it recognises, and every script command naming a
-/// directory that is not there.
+/// directory that is not there. The scripts dir reaches the client
+/// generated; the sidebar's widget, a literal a snapshot stores, must be in it.
 #[test]
 fn the_client_names_the_chain_and_the_scripts_by_the_published_variables() {
     let commands = include_str!("../../../tmuxy-ui/src/domain/commands.ts");
@@ -203,9 +204,10 @@ fn the_client_names_the_chain_and_the_scripts_by_the_published_variables() {
     assert_eq!(entry_var, format!("${}", crate::session::ENTRY_CONF_ENV));
     assert!(commands.contains(&format!("CONFIG_FILE = '{entry_var}'")));
     assert!(commands.contains("return `source-file ${CONFIG_FILE}`"));
-    let scripts = format!("${}/bin/tmuxy", crate::session::DATA_DIR_ENV);
-    assert!(commands.contains(&format!("SCRIPTS_DIR = '{scripts}'")));
-    assert!(crate::session_snapshot::LEFT_SIDEBAR_WIDGET.starts_with(&scripts));
+    assert_eq!(
+        crate::session_snapshot::LEFT_SIDEBAR_WIDGET,
+        format!("{}/tmuxy-widget-tree", crate::paths::scripts_by_env())
+    );
 }
 
 /// A client's Reload Config sources the entry file this process just

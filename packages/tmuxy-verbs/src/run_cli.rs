@@ -186,7 +186,7 @@ fn usage() -> String {
 /// The commands `tmuxy run` passes on by their full names, wrapped.
 fn verb_list() -> String {
     let mut names: Vec<&str> = run_verbs()
-        .filter(|name| name.contains('-') && !matches!(*name, "new-window" | "resize-window"))
+        .filter(|name| name.contains('-') && *name != "new-window")
         .collect();
     names.sort_unstable();
     let mut list = String::new();
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn the_help_lists_every_full_name_but_the_two_it_intercepts() {
+    fn the_help_lists_every_full_name_but_new_window_and_resize_window() {
         let list = verb_list();
         assert!(list.starts_with("  break-pane capture-pane"), "{list}");
         assert!(list.ends_with(" unlink-window"), "{list}");

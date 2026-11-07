@@ -33,6 +33,7 @@ const { startTauriDriver, stopTauriDriver, DRIVER_PORT } = require(
   resolve(WORKSPACE_ROOT, 'tests/tauri/helpers/tauri-driver.js'),
 );
 const { startXvfb, stopXvfb } = require(resolve(WORKSPACE_ROOT, 'tests/tauri/helpers/xvfb.js'));
+const { tmuxCmd, tmuxEnv } = require(resolve(WORKSPACE_ROOT, 'tests/helpers/tmux-socket.js'));
 
 const argv = process.argv.slice(2);
 const opt = (flag, fallback) => {
@@ -108,19 +109,20 @@ function displayIsLive() {
 }
 
 /**
- * Pre-created, because the app's own session creation can fail when the
- * user's tmuxy config carries settings (`window-size manual`) that crash tmux
- * on a fresh start with no attached client.
+ * A fresh `session` on the socket `TMUX_SOCKET` names, in the suite's
+ * environment, which the app gets too (`driverEnv`). Pre-created, because the
+ * app's own session creation can fail when the user's tmuxy config carries
+ * settings (`window-size manual`) that crash tmux on a fresh start with no
+ * attached client.
  */
-function prepareSession(socket, session) {
-  // A socket with a slash is a path (-S), as the server and the CLI read it.
-  const tmux = `tmux ${socket.includes('/') ? '-S' : '-L'} ${socket}`;
+function prepareSession(session) {
+  const tmux = (args) => execSync(`${tmuxCmd()} ${args}`, { stdio: 'ignore', env: tmuxEnv() });
   try {
-    execSync(`${tmux} kill-session -t ${session}`, { stdio: 'ignore' });
+    tmux(`kill-session -t ${session}`);
   } catch {
     // Not running yet.
   }
-  execSync(`${tmux} new-session -d -s ${session}`, { stdio: 'ignore' });
+  tmux(`new-session -d -s ${session}`);
 }
 
 async function main() {
@@ -136,7 +138,7 @@ async function main() {
   const socket = process.env.TMUX_SOCKET || 'tmuxy-perf';
   process.env.TMUX_SOCKET = socket;
   process.env.TMUXY_SESSION = SESSION;
-  prepareSession(socket, SESSION);
+  prepareSession(SESSION);
 
   // WebKitGTK needs a live X display. The Tauri E2E suite kills its Xvfb in
   // globalTeardown, leaving `DISPLAY` pointing at a dead server, and the app
@@ -154,8 +156,9 @@ async function main() {
       port: DRIVER,
       capabilities: {
         // No `env`: tauri-driver does not forward `tauri:options.env`; the
-        // binary inherits the driver's environment, which is why `DISPLAY` and
-        // `TMUX_SOCKET` are set on this process before startTauriDriver().
+        // binary inherits the driver's environment (`driverEnv`), which is why
+        // `DISPLAY` and `TMUX_SOCKET` are set on this process before
+        // startTauriDriver().
         'tauri:options': { application: BINARY },
       },
       logLevel: 'warn',

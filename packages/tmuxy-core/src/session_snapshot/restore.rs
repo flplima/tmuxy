@@ -9,11 +9,9 @@ mod run;
 pub use offer::*;
 pub use run::*;
 
-/// The script whose `park` verb parks a restored group member (`packages/tmuxy-cli/bin/tmuxy/pane-group`).
 pub(super) fn group_script() -> String {
     crate::paths::Layout::current()
-        .scripts()
-        .join("pane-group")
+        .pane_group_script()
         .to_string_lossy()
         .into_owned()
 }

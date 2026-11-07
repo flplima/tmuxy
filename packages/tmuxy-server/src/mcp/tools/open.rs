@@ -1,8 +1,8 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::time::Duration;
-use tmuxy_core::argv::{control_list, shell_line};
-use tmuxy_core::float::{self, Drawer, Float};
+use tmuxy_core::argv::{control_line, control_list, shell_line};
+use tmuxy_core::float::{self, Drawer, Float, Spot};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::tmux_command::NewTab;
 use tmuxy_core::{tmux_quote, CommandError, PaneId};
@@ -146,21 +146,12 @@ impl FloatArgs {
     }
 }
 
-/// Where a float from the anchor goes: the anchor's tab and session, and
-/// what `list-windows` says is free there.
-pub(in crate::mcp) struct FloatSpot {
-    pub window: String,
-    pub session_id: String,
-    pub rows: u32,
-    pub free_index: u32,
-}
-
 /// The float's command list (`tmuxy_core::float`, as `tmuxy pane float`
 /// makes it) as one control-mode line, running `program` (a shell line; a
 /// shell when absent).
 pub(in crate::mcp) fn float_command(
     anchor: &PaneId,
-    spot: &FloatSpot,
+    spot: &Spot,
     args: &FloatArgs,
     program: Option<String>,
 ) -> String {
@@ -170,7 +161,7 @@ pub(in crate::mcp) fn float_command(
         from_pane: Some(anchor.to_string()),
         cwd: None,
         command: program,
-        at: format!("{}:{}", spot.session_id, spot.free_index),
+        at: spot.at(),
         parent_window: Some(spot.window.clone()),
         width,
         height,
@@ -202,29 +193,13 @@ async fn open_float(
     program: Option<String>,
 ) -> Result<String, CommandError> {
     let anchor = tmux.anchor().await?;
-    let facts = tmux
-        .read(&format!(
-            "display-message -p -t {} {}",
-            anchor.id,
-            tmux_quote("#{session_id} #{window_height}")
-        ))
+    let pane_out = tmux
+        .read(&control_line(&Spot::pane_read(Some(anchor.id.as_str()))))
         .await?;
-    let mut facts = facts.split_whitespace();
-    let session_id = facts.next().unwrap_or_default().to_string();
-    let rows = facts.next().and_then(|r| r.parse().ok()).unwrap_or(0);
     let windows = tmux
-        .read(&format!(
-            "list-windows -t {} -F {}",
-            tmux_quote(&session_id),
-            tmux_quote("#{window_index}")
-        ))
+        .read(&control_line(&Spot::windows_read(&pane_out)))
         .await?;
-    let spot = FloatSpot {
-        window: anchor.tab.clone(),
-        session_id,
-        rows,
-        free_index: float::free_index(&windows),
-    };
+    let spot = Spot::new(&pane_out, &windows);
     let output = tmux
         .mutate(&float_command(&anchor.id, &spot, args, program))
         .await?;

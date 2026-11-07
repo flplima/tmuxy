@@ -13,7 +13,8 @@ use crate::tmux_command::{NEW_WINDOW, RESIZE_WINDOW};
 /// `display-popup`, ...), and every write to an option, hook or environment:
 /// an option can run a shell (`status-right` with `#(...)`, `command-alias`,
 /// `default-command`) or mirror a pane's keys into every other one
-/// (`synchronize-panes`).
+/// (`synchronize-panes`). `resize-window` is refused before this list is
+/// read, with the reason every client gets.
 const ARRANGE_VERBS: &[&str] = &[
     "break-pane",
     "breakp",
@@ -57,8 +58,6 @@ const ARRANGE_VERBS: &[&str] = &[
     "renamew",
     "resize-pane",
     "resizep",
-    "resize-window",
-    "resizew",
     "rotate-window",
     "rotatew",
     "select-layout",
@@ -118,13 +117,13 @@ pub fn route_cli_run(words: &[String]) -> CliRun {
         }
     }
     let verb = words.first().map(String::as_str).unwrap_or_default();
+    if RESIZE_WINDOW.named_by(verb) {
+        return CliRun::Refused(RESIZE_WINDOW_REFUSAL.to_string());
+    }
     if !run_verbs().any(|v| v == verb) {
         return refused(&format!(
             "'{verb}' is not a command `tmuxy run` passes on (`tmuxy run --help` lists them); keys go through `tmuxy pane send`"
         ));
-    }
-    if RESIZE_WINDOW.named_by(verb) {
-        return CliRun::Refused(RESIZE_WINDOW_REFUSAL.to_string());
     }
     if NEW_WINDOW.named_by(verb) {
         let name = words

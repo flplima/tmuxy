@@ -10,7 +10,8 @@ import {
   type HeaderBand,
 } from '../groupDrop';
 import type { TmuxPane } from '../../../domain/client';
-import { SCRIPTS_DIR as SCRIPTS, toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import { toTmuxCommand, type TmuxOp } from '../../../domain/commands';
+import { SCRIPTS_DIR as SCRIPTS } from '../../../domain/tmuxyConstants.gen';
 
 // A header 300px wide at the top of the container, shared by three members.
 const band = (members: PaneId[], paneId = members[0]): HeaderBand => ({

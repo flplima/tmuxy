@@ -54,9 +54,10 @@ cmd_pane() {
     state)
       # Declare what this pane is doing, for the sidebar tree to draw. Any
       # process can call it — an agent's hooks, a shell's precmd/preexec, a
-      # build script on failure — which is why the value is not validated
-      # here: the client owns the vocabulary and collapses what it doesn't
-      # know, so a writer is free to use its own names.
+      # build script on failure. The words are core's `PaneStateName`, read
+      # exactly as written by the UI, the push notification and the screen
+      # corrector alike, so a near-miss is refused here instead of reading as
+      # `idle` everywhere.
       local value="" target=""
       for arg in "$@"; do
         case "$arg" in
@@ -68,6 +69,11 @@ cmd_pane() {
         esac
       done
       [ -n "$value" ] || _die_usage "state value required"
+      local word known=false
+      for word in ${PANE_STATE_WORDS//|/ } clear; do
+        [ "$value" != "$word" ] || known=true
+      done
+      $known || _die_usage "unknown pane state '$value' (one of: ${PANE_STATE_WORDS//|/, }, clear)"
       # `set-option -p` with no target resolves against tmux's idea of the
       # current pane, which under run-shell is the ACTIVE one, not the caller.
       if [ -n "$target" ]; then

@@ -1,5 +1,6 @@
 import type { Scenario } from '../scenario';
-import { SCRIPTS_DIR, TmuxOp, toTmuxCommand } from '../../../domain/commands';
+import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
+import { SCRIPTS_DIR } from '../../../domain/tmuxyConstants.gen';
 import { PaneId } from '../../../domain/ids';
 
 /**

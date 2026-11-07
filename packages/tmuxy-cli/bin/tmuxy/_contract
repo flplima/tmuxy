@@ -81,9 +81,10 @@ _die_usage() {
 }
 
 _no_server_in() {
-  case "$1" in
-    *"no server running"* | *"error connecting to"* | *"No such file or directory"*) return 0 ;;
-  esac
+  local sign
+  for sign in "${NO_SERVER_SIGNS[@]}"; do
+    case "$1" in *"$sign"*) return 0 ;; esac
+  done
   return 1
 }
 

@@ -36,7 +36,7 @@ This creates a new pane in the current window, then immediately breaks it into i
 
 **Where it's applied:**
 
-- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `CommandList::rewrite_new_window` and `new_window_rewrite` in `tmux_command.rs` (the one tmux command-list grammar), the single place the `splitw ; breakp` string (with the optional resize) is spelled out. Both transports route every client command through it.
+- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `CommandList::rewrite_new_window` in `tmux_command.rs` (the one tmux command-list grammar). That file's `NewTab` is the single place the `splitw ; breakp` list (with the optional resize) is spelled out, for the rewrite, `tmuxy tab create` and the MCP's `tab_create` alike. Both transports route every client command through it.
 - `packages/tmuxy-cli/bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
 - `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
 
@@ -132,7 +132,7 @@ The native control-mode path has not been seen to expand typed text: a `#{pane_i
 
 On 3.7a, when a pane's application has enabled mouse reporting (`?1000h`/`?1006h`, i.e. `mouse_any_flag` is set), an SGR mouse sequence (`ESC [< b;x;y M`) delivered to that pane via `paste-buffer` is **consumed by tmux and never reaches the application** — silently, with no error. The same bytes reach a pane that has NOT enabled mouse tracking. This broke tmuxy's synthetic mouse forwarding (browser click → SGR injection), which previously piped through `load-buffer`/`paste-buffer`.
 
-The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/components/terminal/scrollUtils.ts` (`sgrMouseCommand`).
+The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/domain/commandHelpers.ts` (`mouseReport`, for the `SendMouse` op).
 
 One trap: `-H` commands must never be merged by the frontend's send-keys batcher — joining two puts a literal `-H` token mid-keys, tmux rejects it as an unknown key, and the whole combined command fails (a click's press+release land in one batch window, so a plain click would deliver nothing).
 

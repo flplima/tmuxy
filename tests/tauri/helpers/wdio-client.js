@@ -7,7 +7,7 @@ const { remote } = require('webdriverio');
 const { execSync } = require('child_process');
 const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
-const { tmuxCmd } = require('../../helpers/tmux-socket');
+const { tmuxCmd, tmuxEnv } = require('../../helpers/tmux-socket');
 const { tauriBinary } = require('../../helpers/config');
 
 // CI builds the release binary once and drives both the smoke test and this
@@ -35,10 +35,19 @@ const KEYS = {
   Meta: '\uE03D',
 };
 
+/**
+ * Run tmux on the suite's socket, in the suite's environment: a tmux server
+ * this starts is born with it, and every pane's shell inherits it. Throws when
+ * tmux fails; prints nothing.
+ */
+function tmux(args) {
+  execSync(`${tmuxCmd()} ${args}`, { stdio: 'ignore', env: tmuxEnv() });
+}
+
 /** Kill the tmux session `sessionName` on the suite's socket, if it exists. */
 function killTmuxSession(sessionName) {
   try {
-    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
+    tmux(`kill-session -t ${sessionName}`);
   } catch {
     // Not there is the state wanted.
   }
@@ -95,7 +104,7 @@ async function createSession(options = {}) {
   // that crash tmux on a fresh start without an attached client.
   killTmuxSession(sessionName);
   try {
-    execSync(`${tmuxCmd()} new-session -d -s ${sessionName}`, { stdio: 'ignore' });
+    tmux(`new-session -d -s ${sessionName}`);
   } catch {
     // Already there is fine.
   }
@@ -437,14 +446,14 @@ function createTauriTestContext() {
       const target = state.sessionName;
       const gone = () => {
         try {
-          execSync(`${tmuxCmd()} has-session -t ${target}`, { stdio: 'ignore' });
+          tmux(`has-session -t ${target}`);
           return false;
         } catch {
           return true;
         }
       };
       try {
-        execSync(`${tmuxCmd()} kill-session -t ${target}`, { stdio: 'ignore' });
+        tmux(`kill-session -t ${target}`);
       } catch {
         // Already gone.
       }

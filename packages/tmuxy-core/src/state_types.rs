@@ -139,10 +139,11 @@ impl WindowType {
 }
 
 /// What a pane says it is doing: the `@tmuxy-pane-state` values tmuxy knows,
-/// in attention order (the first wants the user most). Any process may write
-/// the option, a word of its own included; tmuxy reads one it does not know as
-/// `idle` (the UI's `domain/paneState.ts`, which takes these words from the
-/// generated `tmuxyConstants.gen.ts`).
+/// in attention order (the first wants the user most). This is the whole
+/// vocabulary: `tmuxy pane state` refuses any other word (the shell's
+/// `PANE_STATE_WORDS` is generated from it), and a word written past the CLI
+/// is no state at all here and `idle` in the UI's `domain/paneState.ts`, which
+/// takes these words from the generated `tmuxyConstants.gen.ts`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneStateName {
     NeedsInput,

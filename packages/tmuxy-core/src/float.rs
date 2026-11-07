@@ -88,7 +88,7 @@ pub struct Float {
     pub cwd: Option<String>,
     /// The new pane's command, as a shell line; a shell when absent.
     pub command: Option<String>,
-    /// `session:index`: where the float's window goes ([`free_index`]).
+    /// `session:index`: where the float's window goes ([`Spot::at`]).
     pub at: String,
     /// The tab it floats over.
     pub parent_window: Option<String>,
@@ -177,6 +177,68 @@ pub fn free_index(listing: &str) -> u32 {
     i
 }
 
+/// Where a float from a pane goes: the pane's tab, which it floats over; that
+/// tab's height in rows, which its default size fits ([`default_size`]); and
+/// the lowest free window index in the pane's session ([`free_index`]), where
+/// its window goes. Two reads make it, the second keyed by the session id the
+/// first printed (an id, never a name, which tmux would match as a prefix):
+/// [`Spot::pane_read`], then [`Spot::windows_read`] of what it printed, then
+/// [`Spot::new`] of both. `tmuxy pane float` runs them as tmux calls, the MCP
+/// endpoint over control mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Spot {
+    pub window: String,
+    pub session_id: String,
+    pub rows: u32,
+    pub free_index: u32,
+}
+
+impl Spot {
+    /// The pane's tab, session and height; the session's current pane's when
+    /// `pane` is `None`.
+    pub fn pane_read(pane: Option<&str>) -> Vec<String> {
+        let mut argv: Vec<String> = vec!["display-message".into(), "-p".into()];
+        if let Some(pane) = pane {
+            argv.extend(["-t".into(), pane.into()]);
+        }
+        argv.push("#{window_id} #{session_id} #{window_height}".into());
+        argv
+    }
+
+    /// The window indices of the session [`Spot::pane_read`] printed.
+    pub fn windows_read(pane_out: &str) -> Vec<String> {
+        let (_, session_id, _) = Self::facts(pane_out);
+        vec![
+            "list-windows".into(),
+            "-t".into(),
+            session_id.into(),
+            "-F".into(),
+            "#{window_index}".into(),
+        ]
+    }
+
+    pub fn new(pane_out: &str, windows_out: &str) -> Self {
+        let (window, session_id, rows) = Self::facts(pane_out);
+        Spot {
+            window: window.to_string(),
+            session_id: session_id.to_string(),
+            rows: rows.parse().unwrap_or(0),
+            free_index: free_index(windows_out),
+        }
+    }
+
+    /// [`Float::at`]: `session:index`.
+    pub fn at(&self) -> String {
+        format!("{}:{}", self.session_id, self.free_index)
+    }
+
+    fn facts(pane_out: &str) -> (&str, &str, &str) {
+        let mut word = pane_out.split_whitespace();
+        let mut next = || word.next().unwrap_or_default();
+        (next(), next(), next())
+    }
+}
+
 /// The default height is never taller than the tab (`rows`, 0 when unknown):
 /// a float with more rows than the window has nowhere to put them. An explicit
 /// height is the caller's call.
@@ -230,6 +292,34 @@ mod tests {
              ; select-pane -t %3 \
              ; display-message -p -t $1:7 #{pane_id} #{window_id}"
         );
+    }
+
+    #[test]
+    fn a_spot_is_keyed_by_the_session_id_the_pane_read_printed() {
+        assert_eq!(
+            Spot::pane_read(Some("%3")).join(" "),
+            "display-message -p -t %3 #{window_id} #{session_id} #{window_height}"
+        );
+        assert_eq!(
+            Spot::pane_read(None).join(" "),
+            "display-message -p #{window_id} #{session_id} #{window_height}"
+        );
+        let printed = "@2 $1 40\n";
+        assert_eq!(
+            Spot::windows_read(printed).join(" "),
+            "list-windows -t $1 -F #{window_index}"
+        );
+        let spot = Spot::new(printed, "1\n2\n4\n");
+        assert_eq!(
+            spot,
+            Spot {
+                window: "@2".into(),
+                session_id: "$1".into(),
+                rows: 40,
+                free_index: 3,
+            }
+        );
+        assert_eq!(spot.at(), "$1:3");
     }
 
     #[test]
