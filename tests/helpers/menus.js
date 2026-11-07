@@ -63,7 +63,8 @@ async function clickMenuItem(page, labels) {
 /**
  * Open the app menu down `labels` and read the items of the last level, each
  * with its key hint, then close every level. `null` when a level is not in
- * the menu (a submenu with nothing to list).
+ * the menu (a submenu with nothing to list), `undefined` when the menu
+ * re-rendered under the read (an item gone as it was clicked): not yet known.
  */
 async function menuItems(page, labels) {
   await waitForCondition(page, () => noMenuOpen(page), 5000, 'the previous menu to close');
@@ -78,7 +79,11 @@ async function menuItems(page, labels) {
         () => false,
       );
       if (!shown) return null;
-      await item.click();
+      const clicked = await item.click({ timeout: 2000 }).then(
+        () => true,
+        () => false,
+      );
+      if (!clicked) return undefined;
       opened += 1;
     }
     await waitForCondition(

@@ -134,9 +134,11 @@ const termBackground = (page) =>
   );
 
 /** The key hint the menu shows beside the plugin's action; null while the menu lists no action. */
-const pluginKeyHint = async (page) =>
-  ((await menuItems(page, ['Pane', 'Plugins'])) ?? []).find((i) => i.text.includes('E2E Record'))
-    ?.hint ?? null;
+const pluginKeyHint = async (page) => {
+  const items = await menuItems(page, ['Pane', 'Plugins']);
+  if (items === undefined) return undefined;
+  return (items ?? []).find((i) => i.text.includes('E2E Record'))?.hint ?? null;
+};
 
 /** Click the run of `text` in the active pane with `modifiers` held. */
 async function clickText(page, text, modifiers) {
