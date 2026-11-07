@@ -2,6 +2,21 @@ import js from '@eslint/js';
 import globals from 'globals';
 import jest from 'eslint-plugin-jest';
 
+// A web E2E test reads the app through `window.app.view()`
+// (packages/tmuxy-ui/src/machines/testView.ts), the screen or tmux, and drives
+// it by user input: the machine's context and events change shape freely.
+const appInternals = [
+  {
+    selector: "MemberExpression[property.name='getSnapshot']",
+    message:
+      "Read window.app.view(), the screen or tmux, not the machine's context (machines/testView.ts).",
+  },
+  {
+    selector: "MemberExpression[object.property.name='app'][property.name='send']",
+    message: 'Drive the app by user input, not by sending the machine its own events.',
+  },
+];
+
 export default [
   // The scripts CI and the hooks run — bin/, tests/perf/, the demo's — under the
   // recommended rules with Node's globals. No lint read them before, so a
@@ -43,6 +58,10 @@ export default [
       'no-console': ['error', { allow: ['error', 'warn'] }],
     },
   },
+  {
+    files: ['tests/helpers/**/*.js'],
+    rules: { 'no-restricted-syntax': ['error', ...appInternals] },
+  },
   // Ban tmux CLI calls in test helper files that handle user interactions.
   // Tests must exercise the real user path: browser keyboard → tmux → SSE → DOM.
   // tmuxExec/tmuxRun bypass the rendering pipeline and hide real bugs.
@@ -65,6 +84,7 @@ export default [
           selector: "MemberExpression[object.name='require'][property.name='call']",
           message: 'Do not dynamically require cli helpers in interaction code.',
         },
+        ...appInternals,
       ],
     },
   },
@@ -100,6 +120,7 @@ export default [
           message:
             'Do not import child_process in test files. Use tmuxExec() from helpers/tmux-socket.js.',
         },
+        ...appInternals,
       ],
     },
   },
