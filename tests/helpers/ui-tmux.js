@@ -16,6 +16,7 @@ const { tmuxExec } = require('./tmux-socket');
 const { waitForCondition } = require('./browser');
 const { inPage } = require('./story-module');
 const { GRID_PANE, onScreen } = require('./pane-ops');
+const { tmuxPanes, tmuxWindows } = require('./tmux-read');
 
 const readScreen = (page) => page.evaluate(inPage(drawnScreen, [GRID_PANE], [onScreen]));
 
@@ -48,35 +49,16 @@ function captureRows(paneId) {
 
 /** What tmux holds for `session`, and for the panes of `tab`. */
 function readTmux(session, tab, { content }) {
-  const windows = tmuxExec(
-    `list-windows -t ${session} -F '#{window_id}|#{window_active}|#{@tmuxy-window-type}|#{@tmuxy-float-parent}'`,
-  )
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [id, active, type, parent] = line.split('|');
-      // Untagged is a tab (docs/TMUX-TAGS.md).
-      return { id, active: active === '1', type: type || 'tab', parent };
-    });
-  const panes = tab
-    ? tmuxExec(
-        `list-panes -t ${tab} -F '#{pane_id}|#{pane_active}|#{pane_width}|#{pane_height}|#{alternate_on}|#{pane_in_mode}'`,
-      )
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => {
-          const [id, active, width, height, alternate, inMode] = line.split('|');
-          return {
-            id,
-            active: active === '1',
-            width: Number(width),
-            height: Number(height),
-            plain: alternate !== '1' && inMode !== '1',
-            rows: content ? captureRows(id) : null,
-          };
-        })
-    : [];
-  return { windows, panes };
+  return {
+    windows: tmuxWindows(session),
+    panes: tab
+      ? tmuxPanes(tab).map((pane) => ({
+          ...pane,
+          plain: !pane.alternate && !pane.inMode,
+          rows: content ? captureRows(pane.id) : null,
+        }))
+      : [],
+  };
 }
 
 /** The differences between the screen and tmux; none when they agree. */

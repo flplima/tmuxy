@@ -28,16 +28,12 @@ const {
   shownPanes,
   GRID_PANE,
 } = require('./helpers/layout-helpers');
-const { tmuxPanes, tmuxWindow } = require('./helpers/tmux-read');
+const { tmuxPanes, tmuxWindow, tmuxWindows } = require('./helpers/tmux-read');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** The session's dock window (`sidebar-right`), as tmux has it; null when it has none. */
 function dockWindow(session) {
-  const id = tmuxExec(`list-windows -t ${session} -F '#{window_id} #{@tmuxy-window-type}'`)
-    .split('\n')
-    .find((line) => line.endsWith(' sidebar-right'))
-    ?.split(' ')[0];
-  return id ? tmuxWindow(id) : null;
+  return tmuxWindows(session).find((w) => w.type === 'sidebar-right') ?? null;
 }
 
 describeE2E('Scenario 6e: Pinned Terminal Dock (right sidebar)', {}, (ctx) => {

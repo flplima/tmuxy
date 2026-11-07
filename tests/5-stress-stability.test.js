@@ -136,7 +136,7 @@ describeE2E('Scenario 18: Rapid Operations', {}, (ctx) => {
     await swapPaneKeyboard(ctx.page, 'down');
     const panesAfterSwap = await ctx.session.getPaneInfo();
     expect(
-      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,
+      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].top !== panesBefore[0].top,
     ).toBe(true);
   }, 240000);
 });
