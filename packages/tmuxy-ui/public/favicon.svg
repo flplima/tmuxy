@@ -1,7 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#000000"></rect>
-  <rect x="72" y="72" width="172" height="296" rx="14" fill="#2d2d2d"></rect>
-  <rect x="268" y="72" width="172" height="136" rx="14" fill="#2d2d2d"></rect>
-  <rect x="268" y="232" width="172" height="136" rx="14" fill="#2d2d2d"></rect>
-  <rect x="72" y="392" width="368" height="48" rx="12" fill="#00cd00"></rect>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="green" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1fd11f"/>
+      <stop offset="1" stop-color="#009e00"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2a2c"/>
+      <stop offset="1" stop-color="#141415"/>
+    </linearGradient>
+    <linearGradient id="pane" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a4a4d"/>
+      <stop offset="1" stop-color="#3a3a3d"/>
+    </linearGradient>
+    <clipPath id="clip"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#body)"/>
+  </g>
+  <g clip-path="url(#clip)">
+    <rect x="100" y="712" width="824" height="212" fill="url(#green)"/>
+    <rect x="100" y="100" width="396" height="580" fill="url(#pane)"/>
+    <rect x="528" y="100" width="396" height="274" fill="url(#pane)"/>
+    <rect x="528" y="406" width="396" height="274" fill="url(#pane)"/>
+  </g>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#fff" stroke-opacity="0.10" stroke-width="2"/>
 </svg>
