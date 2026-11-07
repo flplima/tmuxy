@@ -167,15 +167,18 @@ export const FOCUS_SUPERSEDE_GRACE_MS = 800;
  * a group's focus, a sidebar's hidden flag); `previous` is the value when the
  * op was predicted, `server` the one the server now reports.
  */
+/** A confirmed op, held until `CONFIRM_LINGER_MS` so a snapshot from before it cannot undo it. */
+export function confirmedVerdict(ageMs: number): ReconcileVerdict {
+  return ageMs >= CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+}
+
 export function lingerVerdict<Id>(
   target: Id,
   previous: Id | null | undefined,
   server: Id | null,
   ageMs: number,
 ): ReconcileVerdict {
-  if (server === target) {
-    return ageMs >= CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
-  }
+  if (server === target) return confirmedVerdict(ageMs);
   if (server === previous && ageMs < CONFIRM_LINGER_MS) return { _tag: 'pending' };
   if (ageMs < FOCUS_SUPERSEDE_GRACE_MS) return { _tag: 'pending' };
   return { _tag: 'matched' };
