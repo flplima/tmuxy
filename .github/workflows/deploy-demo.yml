@@ -7,8 +7,10 @@ on:
       - 'packages/tmuxy-demo/**'
       - 'packages/tmuxy-ui/src/**'
       # The demo runs real tmux in a v86 guest: the engine compiled to wasm,
-      # and what the guest's snapshot is built from, ship with it.
+      # and what the guest's snapshot is built from, ship with it. The crates
+      # are cargo's graph (bin/ci/crate-graph.test.mjs).
       - 'packages/tmuxy-core/**'
+      - 'packages/vt100/**'
       - 'packages/tmuxy-wasm/**'
       - 'packages/tmuxy-ui/scripts/build-v86-snapshot.mjs'
       - 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs'
@@ -67,7 +69,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: packages/tmuxy-ui/cheerpx-assets/tmuxy.ext2
-          key: ${{ runner.os }}-cheerpx-image-${{ hashFiles('packages/tmuxy-ui/scripts/build-cheerpx-image.mjs', 'packages/tmuxy-ui/scripts/lib/guest.mjs', 'packages/tmuxy-ui/scripts/lib/guest.gen.json', 'packages/tmuxy-ui/cheerpx/**', 'packages/tmuxy-pty/**', 'packages/tmuxy-verbs/**', 'packages/tmuxy-core/**', 'Cargo.toml', 'Cargo.lock', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**') }}
+          key: ${{ runner.os }}-cheerpx-image-${{ hashFiles('packages/tmuxy-ui/scripts/build-cheerpx-image.mjs', 'packages/tmuxy-ui/scripts/lib/guest.mjs', 'packages/tmuxy-ui/scripts/lib/guest.gen.json', 'packages/tmuxy-ui/cheerpx/**', 'packages/tmuxy-pty/**', 'packages/tmuxy-verbs/**', 'packages/tmuxy-core/**', 'packages/vt100/**', 'Cargo.toml', 'Cargo.lock', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**') }}
 
       - name: Build the CheerpX guest image (cache miss)
         if: steps.cheerpx-image-cache.outputs.cache-hit != 'true'

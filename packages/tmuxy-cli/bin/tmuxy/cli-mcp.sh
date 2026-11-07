@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 
 usage_mcp() {
-  cat <<'MEOF'
+  cat <<MEOF
 Usage: tmuxy mcp [--port N] [--host H] [--session NAME] [--read-only] [--json]
 
-Print the MCP endpoint of a running `tmuxy server`, and how to add it to an
+Print the MCP endpoint of a running \`tmuxy server\`, and how to add it to an
 MCP client. Any MCP client (Claude Code, Cursor, Zed, ...) can then see and
 drive the tmux session tmuxy shows: list, read, split, float and close panes,
 open tabs and previews, and type into a pane once you allow it there.
 
 Options:
-  --port N        The server's port (default 9000)
+  --port N        The server's port (default $DEFAULT_PORT)
   --host H        The server's address (default 127.0.0.1)
   --session NAME  The session to drive (default: the one this pane is in)
   --read-only     Only the tools that change nothing: eyes, no hands
 
-The endpoint is served by `tmuxy server`, behind its password when it has one.
+The endpoint is served by \`tmuxy server\`, behind its password when it has one.
 MEOF
 }
 
 cmd_mcp() {
-  local port=9000 host=127.0.0.1 session="" read_only=false
+  local port=$DEFAULT_PORT host=127.0.0.1 session="" read_only=false
   while [ $# -gt 0 ]; do
     case "$1" in
       --help | -h) usage_mcp; return ;;

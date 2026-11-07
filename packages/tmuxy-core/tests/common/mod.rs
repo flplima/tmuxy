@@ -39,22 +39,10 @@ where
     }
 }
 
-/// A tmux server of the test's own. The whole crate resolves its socket from
-/// `TMUX_SOCKET`, so each test binary holds one test that uses this: there is
-/// nothing to race. The server is killed on drop, a failed assert included,
-/// so a red run leaves no tmux behind.
-pub struct ScratchServer;
+mod scratch;
+pub use scratch::ScratchServer;
 
 impl ScratchServer {
-    /// Point the crate at `tmuxy-<name>-<pid>`, a socket no real session uses.
-    pub fn new(name: &str) -> Self {
-        std::env::set_var(
-            "TMUX_SOCKET",
-            format!("tmuxy-{name}-{}", std::process::id()),
-        );
-        Self
-    }
-
     /// A control-mode monitor attached to `session`, which it creates when
     /// `create` is set.
     pub async fn attach(&self, session: &str, create: bool) -> Monitor {
@@ -76,12 +64,6 @@ impl ScratchServer {
             recorder,
             runner,
         }
-    }
-}
-
-impl Drop for ScratchServer {
-    fn drop(&mut self) {
-        let _ = tmux(&["kill-server"]);
     }
 }
 

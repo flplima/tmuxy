@@ -190,28 +190,10 @@ Commands:
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
-  group         Pane group operations (add, close, switch, next, prev, move, join, leave)
+  group         Pane group operations (see 'tmuxy pane group --help')
 
 A target is a pane id (%3) or a label (see 'tmuxy --help'); the default is
 the pane this runs in. Run 'tmuxy pane <command> --help' for details.
-EOF
-}
-
-usage_pane_group() {
-  cat <<'EOF'
-Usage: tmuxy pane group <command> [args...]
-
-Commands:
-  add           Add current pane to a group
-  close         Close pane from group [%id]
-  switch        Switch to pane in group <%id>
-  next          Next pane in group
-  prev          Previous pane in group
-  move          Move a member to another place in its group <%id> <index>
-  join          Make a pane a member of another pane's group <%id> <%member> [index]
-  leave         Take a member out of its group [%id] [--tab | --beside <%id> <dir>]
-  all           Every pane in the tab joins one group, %id's (the current pane's) [%id]
-  ungroup       A group's members come back as splits in the tab, and the group is gone [%id]
 EOF
 }
 

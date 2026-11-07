@@ -265,7 +265,9 @@ pub fn watch_for_close(window: &WebviewWindow) {
                         &main.monitor,
                         &format!(
                             "kill-session -t {}",
-                            tmuxy_core::tmux_quote(&format!("={session}"))
+                            tmuxy_core::tmux_quote(&tmuxy_core::session::exact_session_target(
+                                &session
+                            ))
                         ),
                     )
                     .await;

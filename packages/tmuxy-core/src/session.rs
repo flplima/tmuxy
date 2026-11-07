@@ -110,13 +110,30 @@ pub fn tmux_socket() -> String {
     }
 }
 
-/// `["-L", <name>]`, or `["-S", <path>]` when the socket contains `/`.
+/// Whether `socket` is a socket's path (tmux `-S`) rather than a name in
+/// tmux's socket directory (`-L`): it contains a `/`.
+pub fn is_socket_path(socket: &str) -> bool {
+    socket.contains('/')
+}
+
+/// `["-L", <name>]`, or `["-S", <path>]` for a [`is_socket_path`].
 /// Passing the flag always also overrides an inherited `$TMUX`, so tmuxy
 /// launched from inside a tmux pane never talks to that pane's server.
+pub fn socket_args(socket: &str) -> [&str; 2] {
+    [if is_socket_path(socket) { "-S" } else { "-L" }, socket]
+}
+
+/// [`socket_args`] for the [`tmux_socket`].
 pub fn tmux_socket_args() -> [String; 2] {
-    let socket = tmux_socket();
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    [flag.to_string(), socket]
+    socket_args(&tmux_socket()).map(String::from)
+}
+
+/// The local tmux on `socket`, whatever the [`connect_target`] says: for a
+/// look at a server other than the one tmuxy is attached to.
+pub fn local_tmux_on(socket: &str) -> Command {
+    let mut command = Command::new(tmux_path());
+    command.args(socket_args(socket));
+    command
 }
 
 /// The SSH tunnel tmuxy runs tmux through: the [`connect_target`]'s, else
@@ -263,7 +280,7 @@ pub fn is_safe_socket(socket: &str) -> bool {
     !socket.is_empty()
         && !socket.starts_with('-')
         && !socket.contains("..")
-        && (!socket.contains('/') || socket.starts_with('/'))
+        && (!is_socket_path(socket) || socket.starts_with('/'))
         && socket.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
         })
@@ -319,10 +336,19 @@ impl std::ops::Deref for SessionName {
     }
 }
 
-/// Whether tmux has a session called `name`, from a read-only `has-session`.
+/// `name` as a `-t` target that matches that session alone. A bare name also
+/// matches a session it is a unique prefix of (tmux's `cmd-find.c`), so
+/// `work` with only `workbench` running would find `workbench`; `=` asks for
+/// the exact name.
+pub fn exact_session_target(name: &str) -> String {
+    format!("={name}")
+}
+
+/// Whether tmux has a session called exactly `name`, from a read-only
+/// `has-session`.
 pub fn session_exists(name: &SessionName) -> Result<bool> {
     let output = tmux_command()
-        .args(["has-session", "-t", name.as_str()])
+        .args(["has-session", "-t", &exact_session_target(name)])
         .output()?;
     tracing::debug!(session = %name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())

@@ -3,8 +3,7 @@
  *
  * The script is a name for the server binary's `group` verb; what it owes
  * its callers is the hand-off itself — the verb, the arguments untouched,
- * the scripts directory for the pane-died hook, and the binary's own output
- * and exit status. The stub prints what it was handed and exits with
+ * and the binary's own output and exit status. The stub prints what it was handed and exits with
  * `STUB_EXIT`.
  */
 
@@ -29,7 +28,7 @@ function runGroupScript(verb, args, env = {}) {
     fs.mkdirSync(bin);
     fs.writeFileSync(
       path.join(bin, 'tmuxy-server'),
-      '#!/bin/bash\necho "server $* [scripts=$TMUXY_SCRIPTS_DIR]"\nexit "${STUB_EXIT:-0}"\n',
+      '#!/bin/bash\necho "server $*"\nexit "${STUB_EXIT:-0}"\n',
       { mode: 0o755 },
     );
     const base = scriptEnv(dir);

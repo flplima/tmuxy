@@ -12,7 +12,7 @@ mod common;
 
 #[tokio::test]
 async fn a_session_tmux_refuses_to_create_is_no_connection() {
-    let _server = common::ScratchServer::new("refused-test");
+    let _server = common::ScratchServer::process_wide("refused-test");
 
     // tmux names no session "": `new-session` answers in the opening
     // block with `%error`, then the client exits.

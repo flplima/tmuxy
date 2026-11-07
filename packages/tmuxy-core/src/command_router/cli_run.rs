@@ -3,31 +3,26 @@
 use super::RESIZE_WINDOW_REFUSAL;
 use crate::tmux_command::{NEW_WINDOW, RESIZE_WINDOW};
 
-/// The commands `tmuxy run` passes on, by their names and aliases. They read
-/// the server, move panes and windows about, or close them. Left out is every
-/// command that types into a pane (`send-keys`, `paste-buffer`, `pipe-pane`:
-/// keys go through `tmuxy pane send`, which asks the user before typing into
-/// another pane), runs a shell or keeps a command for later (`run-shell`,
-/// `if-shell`, `split-window <cmd>`, `new-session <cmd>`, `bind-key`,
-/// `command-prompt`, `display-popup`, ...), and every write to an option,
-/// hook or environment: an option can run a shell (`status-right` with
-/// `#(...)`, `command-alias`, `default-command`) or mirror a pane's keys into
-/// every other one (`synchronize-panes`).
-pub const RUN_VERBS: &[&str] = &[
+/// The commands `tmuxy run` passes on, by their names and aliases: every
+/// read a client's query may run ([`super::READ_VERBS`]), and these, which
+/// move panes and windows about or close them. Left out is every command
+/// that types into a pane (`send-keys`, `paste-buffer`, `pipe-pane`: keys go
+/// through `tmuxy pane send`, which asks the user before typing into another
+/// pane), runs a shell or keeps a command for later (`run-shell`, `if-shell`,
+/// `split-window <cmd>`, `new-session <cmd>`, `bind-key`, `command-prompt`,
+/// `display-popup`, ...), and every write to an option, hook or environment:
+/// an option can run a shell (`status-right` with `#(...)`, `command-alias`,
+/// `default-command`) or mirror a pane's keys into every other one
+/// (`synchronize-panes`).
+const ARRANGE_VERBS: &[&str] = &[
     "break-pane",
     "breakp",
-    "capture-pane",
-    "capturep",
     "clear-history",
     "clearhist",
     "clock-mode",
     "copy-mode",
     "delete-buffer",
     "deleteb",
-    "display-message",
-    "display",
-    "has-session",
-    "has",
     "join-pane",
     "joinp",
     "kill-pane",
@@ -42,20 +37,6 @@ pub const RUN_VERBS: &[&str] = &[
     "last",
     "link-window",
     "linkw",
-    "list-buffers",
-    "lsb",
-    "list-clients",
-    "lsc",
-    "list-commands",
-    "lscm",
-    "list-keys",
-    "lsk",
-    "list-panes",
-    "lsp",
-    "list-sessions",
-    "ls",
-    "list-windows",
-    "lsw",
     "move-pane",
     "movep",
     "move-window",
@@ -86,15 +67,6 @@ pub const RUN_VERBS: &[&str] = &[
     "selectp",
     "select-window",
     "selectw",
-    "show-buffer",
-    "showb",
-    "show-hooks",
-    "show-messages",
-    "showmsgs",
-    "show-options",
-    "show",
-    "show-window-options",
-    "showw",
     "swap-pane",
     "swapp",
     "swap-window",
@@ -102,6 +74,10 @@ pub const RUN_VERBS: &[&str] = &[
     "unlink-window",
     "unlinkw",
 ];
+
+pub fn run_verbs() -> impl Iterator<Item = &'static str> {
+    super::READ_VERBS.iter().chain(ARRANGE_VERBS).copied()
+}
 
 /// What `tmuxy run` does with the command it was given, as words.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,7 +118,7 @@ pub fn route_cli_run(words: &[String]) -> CliRun {
         }
     }
     let verb = words.first().map(String::as_str).unwrap_or_default();
-    if !RUN_VERBS.contains(&verb) {
+    if !run_verbs().any(|v| v == verb) {
         return refused(&format!(
             "'{verb}' is not a command `tmuxy run` passes on (`tmuxy run --help` lists them); keys go through `tmuxy pane send`"
         ));

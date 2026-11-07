@@ -7,7 +7,8 @@ export default defineConfig({
   server: {
     port: 9001,
     strictPort: true,
-    // When accessed through the Rust proxy (port 9000), HMR connects directly to Vite
+    // When accessed through the Rust proxy (`tmuxy-server --dev`), HMR connects
+    // directly to Vite. The port is tmuxy-core's DEV_VITE_PORT (tests/dev_ports.rs).
     hmr: {
       port: 9001,
       clientPort: 9001,

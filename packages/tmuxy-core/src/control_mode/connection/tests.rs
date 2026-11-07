@@ -26,7 +26,7 @@ fn a_grouped_session_names_the_session_it_shares_windows_with() {
     let args = build_tmux_args("tmuxy~2", true, Some("tmuxy"), None);
     assert_eq!(
         tail(&args, 7),
-        vec!["-CC", "new-session", "-A", "-s", "tmuxy~2", "-t", "tmuxy"]
+        vec!["-CC", "new-session", "-A", "-s", "tmuxy~2", "-t", "=tmuxy"]
     );
 }
 
@@ -35,7 +35,10 @@ fn attaching_never_creates_a_session() {
     // The monitor reconnect path must not resurrect a session the user
     // killed — it would come back empty and look like lost work.
     let args = build_tmux_args("tmuxy", false, None, None);
-    assert_eq!(tail(&args, 4), vec!["-CC", "attach-session", "-t", "tmuxy"]);
+    assert_eq!(
+        tail(&args, 4),
+        vec!["-CC", "attach-session", "-t", "=tmuxy"]
+    );
     assert!(!args.iter().any(|a| a == "new-session"));
 }
 

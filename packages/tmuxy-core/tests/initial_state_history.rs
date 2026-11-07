@@ -21,7 +21,7 @@ mod common;
 
 #[tokio::test]
 async fn the_initial_state_reports_the_scrollback_a_pane_already_has() {
-    let server = common::ScratchServer::new("initial-history");
+    let server = common::ScratchServer::process_wide("initial-history");
 
     // Far more lines than any window is tall, so tmux has real history to
     // report, and the pane stays alive afterwards.

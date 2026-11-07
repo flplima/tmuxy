@@ -222,6 +222,23 @@ pub mod tmux_options {
 /// [`tmux_options::PANE_WIDGET`] agrees). Generated into the UI and the CLI.
 pub const WIDGET_MARKER: &str = "__TMUXY_WIDGET__:";
 
+/// The lines `tmuxy-widget-preview` prints for the client's preview (the
+/// UI's `domain/preview.ts`): the page keeps its own colours, the file's
+/// name, and a value that changes with the file. Generated into the UI and
+/// the CLI.
+pub mod preview_lines {
+    pub const NO_THEME: &str = "__NO_THEME__";
+    pub const FILE: &str = "__FILE__:";
+    pub const REV: &str = "__REV__:";
+}
+
+/// The port `tmuxy server` listens on when given none, and the one the dev
+/// loop's Vite serves on behind it (`tmuxy-server --dev`, the desktop app's
+/// `devUrl`). Generated into the CLI; the configs that name them are held to
+/// them by `tests/dev_ports.rs`.
+pub const DEFAULT_SERVER_PORT: u16 = 9000;
+pub const DEV_VITE_PORT: u16 = 9001;
+
 /// Geometry of the two docked sidebars (`WindowType::SidebarLeft` /
 /// `SidebarRight`).
 ///

@@ -1,18 +1,13 @@
-//! Runs inside `run-shell`, behind `bin/tmuxy/float-create` (`tmuxy pane
-//! float`, the `tmuxy-float` alias, the MCP endpoint's `pane_float`), which
-//! keeps what a shell does: reusing a float it already runs in, and waiting on
-//! a command.
+//! The `float` verb, behind `bin/tmuxy/float-create` (`tmuxy pane float`,
+//! the `tmuxy-float` alias), which keeps what a shell does: reusing a float
+//! it already runs in, and waiting on a command. Its tmux command list goes
+//! through `run-shell`. It answers `<pane> <window>`, or under `--json`
+//! `paneId` and `windowId`.
 
-use tmuxy_core::float::{free_index, Backdrop, Drawer, Float};
+use tmuxy_core::float::{default_size, free_index, Backdrop, Drawer, Float};
 use tmuxy_core::PaneId;
 
-use crate::cli_json::{Answer, EXIT_FAILED};
-
-/// A float's size when the caller names none, in terminal cells (never a
-/// percentage: tmux sizes panes in cells, and so does the UI that draws the
-/// float over them).
-const DEFAULT_WIDTH: u32 = 60;
-const DEFAULT_HEIGHT: u32 = 15;
+use crate::cli_json::{self, Answer, EXIT_FAILED};
 
 #[derive(clap::Args, Debug)]
 pub struct FloatArgs {
@@ -38,12 +33,19 @@ pub struct FloatArgs {
     /// The new pane's command, as one shell line; a shell when absent.
     #[arg(long)]
     command: Option<String>,
+    /// Answer in JSON.
+    #[arg(long)]
+    json: bool,
 }
 
 pub fn run(args: FloatArgs) {
-    let answer = Answer::new(false);
+    let answer = Answer::new(args.json);
     match make(args) {
-        Ok(ids) => answer.done(&[], &ids),
+        Ok(ids) => {
+            let mut id = ids.split_whitespace().map(cli_json::string);
+            let (pane, window) = (id.next().unwrap_or_default(), id.next().unwrap_or_default());
+            answer.done(&[("paneId", pane), ("windowId", window)], &ids)
+        }
         Err(message) => answer.exit(EXIT_FAILED, &message),
     }
 }
@@ -102,30 +104,6 @@ fn make(args: FloatArgs) -> Result<String, String> {
         .ok_or_else(|| "failed to create float pane".to_string())
 }
 
-/// The default height is never taller than the tab (`rows`, 0 when unknown):
-/// a float with more rows than the window has nowhere to put them. An explicit
-/// height is the caller's call.
-fn default_size(
-    width: Option<u32>,
-    height: Option<u32>,
-    drawer: Option<Drawer>,
-    rows: u32,
-) -> (Option<u32>, Option<u32>) {
-    let default_height = if rows > 0 && rows < DEFAULT_HEIGHT {
-        rows
-    } else {
-        DEFAULT_HEIGHT
-    };
-    match (width, height, drawer) {
-        (None, None, None) => (Some(DEFAULT_WIDTH), Some(default_height)),
-        (None, None, Some(d)) if d.docks_by_width() => (Some(DEFAULT_WIDTH), None),
-        (None, None, Some(_)) => (None, Some(default_height)),
-        (None, Some(h), Some(d)) if d.docks_by_width() => (Some(DEFAULT_WIDTH), Some(h)),
-        (Some(w), None, Some(d)) if !d.docks_by_width() => (Some(w), Some(default_height)),
-        (w, h, _) => (w, h),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,31 +136,5 @@ mod tests {
             );
         }
         assert!(Cli::try_parse_from(["float", "--width", "50", "--bg", "blur"]).is_ok());
-    }
-
-    #[test]
-    fn a_float_takes_the_default_size_its_shape_docks_by() {
-        assert_eq!(default_size(None, None, None, 40), (Some(60), Some(15)));
-        // Never taller than the tab.
-        assert_eq!(default_size(None, None, None, 10), (Some(60), Some(10)));
-        assert_eq!(
-            default_size(None, None, Some(Drawer::Left), 40),
-            (Some(60), None)
-        );
-        assert_eq!(
-            default_size(None, None, Some(Drawer::Top), 40),
-            (None, Some(15))
-        );
-        assert_eq!(
-            default_size(None, Some(30), Some(Drawer::Right), 40),
-            (Some(60), Some(30))
-        );
-        assert_eq!(
-            default_size(Some(90), None, Some(Drawer::Bottom), 8),
-            (Some(90), Some(8))
-        );
-        // A size named for a centred float is the caller's, even half of one.
-        assert_eq!(default_size(Some(90), None, None, 40), (Some(90), None));
-        assert_eq!(default_size(None, Some(99), None, 40), (None, Some(99)));
     }
 }

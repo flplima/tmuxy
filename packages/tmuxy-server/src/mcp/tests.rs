@@ -1,7 +1,7 @@
 use super::tmux::{parse_panes, parse_tabs, resolve_pane, PaneKind};
 use super::tools::{
-    find_on_screen, float_command, float_create_args, preview_path, screen_pattern, split_command,
-    tab_command, trim_screen, FloatArgs, FloatPosition, SplitDirection, TabArgs,
+    find_on_screen, float_command, preview_path, screen_pattern, split_command, tab_command,
+    trim_screen, FloatArgs, FloatPosition, FloatSpot, SplitDirection, TabArgs,
 };
 use crate::request_guard::HostPolicy;
 use crate::state::{api_routes, AppState};
@@ -259,40 +259,48 @@ fn a_split_or_a_tab_leaves_the_users_focus_where_it_is() {
     assert!(!tab.contains("new-window") && !tab.contains("neww"));
 }
 
-/// run-shell expands formats before its shell sees the line: a `#` in the
-/// command reaches the float as typed, and a quote cannot end the argument.
+/// The float is `tmuxy_core::float`'s one list, sent over control mode:
+/// split from the anchor, broken out at the free index, sized by its drawer's
+/// default, and the command reaching bash as one word, a `#` and a quote in
+/// it as typed.
 #[test]
-fn a_float_command_reaches_its_shell_as_written() {
+fn a_float_is_the_cores_one_list_with_the_command_as_one_word() {
     let pane = PaneId::parse("%2").unwrap();
-    let args = float_create_args(
+    let spot = FloatSpot {
+        window: "@4".into(),
+        session_id: "$1".into(),
+        rows: 40,
+        free_index: 7,
+    };
+    let line = float_command(
+        &pane,
+        &spot,
         &FloatArgs {
             position: FloatPosition::Right,
-            width: Some(70),
             ..FloatArgs::default()
         },
-        &[
-            "bash".into(),
-            "-c".into(),
-            "echo '#{pane_id}' # it's".into(),
-        ],
-    );
-    assert_eq!(
-        args,
-        [
-            "--detach",
-            "--right",
-            "--width",
-            "70",
-            "--",
+        Some(tmuxy_core::argv::shell_line(&[
             "bash",
             "-c",
             "echo '#{pane_id}' # it's",
-        ]
+        ])),
     );
-    let line = float_command("/data/bin/tmuxy/float-create", &pane, &args);
-    assert!(line.starts_with("run-shell 'TMUX_PANE=%2 bash "), "{line}");
-    assert!(line.contains("##{pane_id}"), "{line}");
-    assert!(!line.contains("'#{pane_id}'"), "{line}");
+    assert!(
+        line.starts_with(
+            r##"split-window -t %2 -P -F "#{pane_id}" "bash -c 'echo '\\''#{pane_id}'\\'' # it'\\''s'" ; break-pane -d -n float -t "\$1:7""##
+        ),
+        "{line}"
+    );
+    assert!(line.contains(r##"@tmuxy-float-drawer right"##), "{line}");
+    assert!(line.contains(r##"@tmuxy-float-width 60"##), "{line}");
+    assert!(!line.contains("@tmuxy-float-height"), "{line}");
+    assert!(
+        line.ends_with(
+            r##"; select-pane -t %2 ; display-message -p -t "\$1:7" "#{pane_id} #{window_id}""##
+        ),
+        "{line}"
+    );
+    assert!(!line.contains("run-shell"), "{line}");
 }
 
 #[test]

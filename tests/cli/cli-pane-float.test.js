@@ -92,4 +92,22 @@ describe('CLI pane float', () => {
     expect(exitCode).toBe(0);
     expect(verb).toBe('');
   });
+
+  // Under --json the answer is one object: the verb's for a float nothing
+  // waits on, and with the command's output for one that is waited on.
+  test('under --json a float answers its ids, and a waited-for command its output too', () => {
+    const made = float(['--json']);
+    expect(made.exitCode).toBe(0);
+    expect(made.verb).toBe('float --pane %5 --json');
+    expect(JSON.parse(made.stdout)).toEqual({ ok: true, paneId: '%99', windowId: '@98' });
+
+    const waited = float(['--json', 'printf', 'hi'], { MOCK_TMUX_LIST_PANES: '4242' });
+    expect(waited.exitCode).toBe(0);
+    expect(JSON.parse(waited.stdout)).toEqual({
+      ok: true,
+      paneId: '%99',
+      windowId: '@98',
+      stdout: 'hi',
+    });
+  });
 });

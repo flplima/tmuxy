@@ -18,9 +18,8 @@ EXIT_TARGET=3
 EXIT_NO_SERVER=4
 JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
 
-# What `pane-group next|prev --no-wrap` exits with when there is no member
-# that way (`groups::NOTHING_TO_STEP_TO`).
-GROUP_NOTHING_TO_STEP_TO=3
+# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`), for a usage line.
+PANE_STATE_WORDS='needs-input|error|unread|working|idle'
 
 # The tmuxy options the scripts read and write (`constants::tmux_options`).
 OPT_WINDOW_TYPE='@tmuxy-window-type'
@@ -49,3 +48,16 @@ DEFAULT_SESSION='tmuxy'
 
 # What tmuxy-widget prints before a widget's name, for the client to draw it.
 WIDGET_MARKER='__TMUXY_WIDGET__:'
+
+# `tmuxy server`'s default port, and Vite's behind it in the dev loop.
+DEFAULT_PORT=9000
+VITE_PORT=9001
+
+# The size a fresh control-mode connection starts a session at.
+INITIAL_PTY_COLS=200
+INITIAL_PTY_ROWS=50
+
+# The lines tmuxy-widget-preview prints for the client's preview.
+PREVIEW_NO_THEME='__NO_THEME__'
+PREVIEW_FILE='__FILE__:'
+PREVIEW_REV='__REV__:'

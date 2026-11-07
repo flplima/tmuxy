@@ -158,7 +158,7 @@ pub fn ensure_bin_scripts() -> PathBuf {
 
 pub(super) fn ensure_bin_scripts_in(layout: &Layout) -> PathBuf {
     let bin = layout.bin();
-    if let Err(e) = std::fs::create_dir_all(bin.join("tmuxy")) {
+    if let Err(e) = std::fs::create_dir_all(layout.scripts()) {
         warn!(dir = ?bin, error = %e, "could not create bin/tmuxy dir");
         return bin;
     }

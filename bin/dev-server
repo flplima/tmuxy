@@ -18,7 +18,7 @@
 #                    a slash (default: `tmuxy-dev` — never the user's default
 #                    tmux server, and never the `tmuxy` socket a released build
 #                    serves, so a dev server cannot disturb an installed one)
-#   DEV_PORT       — port to listen on (default: 9000)
+#   DEV_PORT       — port to listen on (default: the server's, DEFAULT_PORT in _options)
 #   DEV_START_TIMEOUT — seconds `start` waits for the port to answer (default: 120)
 #   TMUXY_DEV_HOST — address to bind (default: see `cmd_run`)
 #   TMUXY_START_DIR — where the sessions the server creates start (default:
@@ -83,17 +83,17 @@ running_pid() {
 
 cmd_run() {
   cd "$REPO_ROOT"
-  local port="${DEV_PORT:-9000}" host
+  local port="${DEV_PORT:-$DEFAULT_PORT}" host
   # Sessions the server creates (and their new tabs) start in the checkout.
   export TMUXY_START_DIR="${TMUXY_START_DIR:-$REPO_ROOT}"
-  # Everything the server binary is built from: its crates, the confs and
-  # assets tmuxy-core include_str!s, and the CLI scripts and themes its build
-  # script embeds (packages/tmuxy-core/build.rs) and writes to the data dir.
-  local watched=(
-    packages/tmuxy-core/src packages/tmuxy-core/assets packages/tmuxy-core/build.rs
-    packages/tmuxy-server/src packages/tmuxy-verbs/src
-    packages/tmuxy-cli/bin packages/tmuxy-ui/public/themes
-  ) dir watch_args=()
+  # Everything the server binary is built from: its crates (bin/ci/crate-graph.json,
+  # from cargo metadata), the workspace manifest, and the CLI scripts and themes
+  # tmuxy-core's build script embeds (packages/tmuxy-core/build.rs) and writes to
+  # the data dir.
+  local watched=() dir watch_args=()
+  while IFS= read -r dir; do watched+=("$dir"); done \
+    < <(node -p 'require("./bin/ci/crate-graph.json").crates["tmuxy-server"].join("\n")')
+  watched+=(Cargo.toml Cargo.lock packages/tmuxy-cli/bin packages/tmuxy-ui/public/themes)
   for dir in "${watched[@]}"; do watch_args+=(-w "$dir"); done
 
   echo "[dev] Starting development server with hot reload..."
@@ -104,8 +104,8 @@ cmd_run() {
   bin/trim-target
 
   # Ensure the tmux server has a session so it stays alive between test cycles.
-  _tmux has-session -t tmuxy 2>/dev/null ||
-    _tmux new-session -d -s tmuxy -x 200 -y 50
+  _tmux has-session -t "=$DEFAULT_SESSION" 2>/dev/null ||
+    _tmux new-session -d -s "$DEFAULT_SESSION" -x "$INITIAL_PTY_COLS" -y "$INITIAL_PTY_ROWS"
 
   # Where to listen. In a CONTAINER the published port reaches the server on the
   # container's own interface rather than its loopback, so it has to bind
@@ -177,7 +177,7 @@ cmd_start() {
   # Wait for the port to answer, or the server to die, whichever comes first.
   # The deadline only bounds a cold build (cargo watch compiles before it
   # serves); a server still building at the deadline is left to finish.
-  local port="${DEV_PORT:-9000}" deadline=$((SECONDS + ${DEV_START_TIMEOUT:-120}))
+  local port="${DEV_PORT:-$DEFAULT_PORT}" deadline=$((SECONDS + ${DEV_START_TIMEOUT:-120}))
   while ((SECONDS < deadline)); do
     if [[ -z "$(running_pid)" ]]; then
       echo "dev server failed to start — last lines of $LOG_FILE:" >&2

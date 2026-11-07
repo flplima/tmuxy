@@ -10,12 +10,13 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-mod tmux_common;
+#[path = "../../tmuxy-core/tests/common/scratch.rs"]
+mod scratch;
 
-struct Server(tmux_common::ScratchTmux);
+struct Server(scratch::ScratchServer);
 
 impl std::ops::Deref for Server {
-    type Target = tmux_common::ScratchTmux;
+    type Target = scratch::ScratchServer;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -23,7 +24,7 @@ impl std::ops::Deref for Server {
 
 impl Server {
     fn start(name: &str) -> Self {
-        Self(tmux_common::ScratchTmux::start(
+        Self(scratch::ScratchServer::with_session(
             &format!("cli-verbs-{name}"),
             100,
             30,
@@ -335,6 +336,36 @@ fn connect_requests_the_first_session_of_the_socket_or_tmuxy() {
     let none = s.verb(&["connect", "--json", "--socket", "tmuxy-cli-verbs-nobody"]);
     let answer: serde_json::Value = serde_json::from_str(&stdout(&none)).unwrap();
     assert_eq!(answer["session"], "tmuxy");
+
+    // A socket tmux answers about with an error other than "no server" is a
+    // failure, never a request for a `tmuxy` session that may not be there.
+    let tmux = s.home.join("mismatched-tmux");
+    std::fs::write(
+        &tmux,
+        format!(
+            "#!/bin/sh\ncase \"$*\" in *{}*) echo 'protocol version mismatch (client 8, server 7)' >&2; exit 1 ;; esac\nexec {} \"$@\"\n",
+            other.socket,
+            tmuxy_core::session::tmux_path()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&tmux, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tmuxy-server"));
+    let mismatched = command
+        .args(["connect", "--json", "--socket", &other.socket])
+        .env("TMUX_BIN", &tmux)
+        .env("TMUX_SOCKET", &s.socket)
+        .env("HOME", &s.home)
+        .env("TMUXY_STATE_DIR", s.home.join("state"))
+        .env_remove("TMUX")
+        .output()
+        .unwrap();
+    assert_eq!(mismatched.status.code(), Some(1), "{}", stdout(&mismatched));
+    let answer: serde_json::Value = serde_json::from_str(&stdout(&mismatched)).unwrap();
+    assert_eq!(
+        answer["error"],
+        "listing sessions: protocol version mismatch (client 8, server 7)"
+    );
 
     let bad = s.verb(&["connect", "--socket", "../x"]);
     assert_eq!(bad.status.code(), Some(2));

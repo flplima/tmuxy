@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use tmuxy_core::host::socket_watch::PaneRow;
 
-const NOTIFY_STATES: [&str; 2] = ["needs-input", "error"];
+use tmuxy_core::PaneStateName;
+
+const NOTIFY_STATES: [PaneStateName; 2] = [PaneStateName::NeedsInput, PaneStateName::Error];
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,7 +87,9 @@ impl Watch {
         };
         rows.iter()
             .filter(|row| row.notify != "off")
-            .filter(|row| NOTIFY_STATES.contains(&row.state.as_str()))
+            .filter(|row| {
+                PaneStateName::parse(&row.state).is_some_and(|s| NOTIFY_STATES.contains(&s))
+            })
             .filter(|row| previous.get(&row.pane_id) != Some(&row.state))
             .map(|row| Notice::for_row(row, host))
             .collect()

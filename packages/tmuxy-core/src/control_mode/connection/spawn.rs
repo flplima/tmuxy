@@ -17,7 +17,7 @@ pub fn new_session_flags(
 ) -> Vec<String> {
     let mut flags = vec!["-s".to_string(), session.to_string()];
     if let Some(base) = group_target {
-        flags.extend(["-t".to_string(), base.to_string()]);
+        flags.extend(["-t".to_string(), crate::session::exact_session_target(base)]);
     }
     if let Some((name, cwd)) = first_window {
         flags.extend([
@@ -57,7 +57,7 @@ pub(super) fn build_tmux_args(
             "-CC".to_string(),
             "attach-session".to_string(),
             "-t".to_string(),
-            session_name.to_string(),
+            crate::session::exact_session_target(session_name),
         ]);
     }
     tmux_args
@@ -237,10 +237,11 @@ impl ControlModeConnection {
     ) -> Result<(), TmuxError> {
         let tmux_path = crate::session::tmux_path();
         tracing::debug!(session = session_name, "connect(): checking session");
-        let has_session_cmd = format!("{} has-session -t {}", tmux_path, session_name);
+        let target = crate::session::exact_session_target(session_name);
+        let has_session_cmd = format!("{} has-session -t {}", tmux_path, target);
         log_to(log, LogKind::Command, has_session_cmd.clone());
         let check = crate::session::tmux_command()
-            .args(["has-session", "-t", session_name])
+            .args(["has-session", "-t", &target])
             .output()
             .map_err(|e| {
                 let msg = format!(

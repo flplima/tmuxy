@@ -424,6 +424,12 @@ impl Layout {
         self.bin().join(CLI_DISPATCHER)
     }
 
+    /// The CLI's helper scripts (`pane-group`, `float-create`, `nav`, …):
+    /// what a hook, a restore or a verb names when it runs one.
+    pub fn scripts(&self) -> PathBuf {
+        self.bin().join("tmuxy")
+    }
+
     pub fn lockfile(&self) -> PathBuf {
         self.path(&LOCKFILE)
     }

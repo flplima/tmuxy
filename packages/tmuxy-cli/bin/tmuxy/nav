@@ -56,11 +56,10 @@ EOF
   if [ -n "$gid" ]; then
     local step=next rc=0
     [ "$edge_dir" = "left" ] && step=prev
-    find_server_cmd || exit 1
-    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${SERVER_CMD[@]}" group "$step" --no-wrap "$PANE_ID" || rc=$?
+    group_verb "$step" --no-wrap "$PANE_ID" || rc=$?
     case "$rc" in
       0) return ;;
-      "$GROUP_NOTHING_TO_STEP_TO") ;;
+      "$EXIT_TARGET") ;;
       *) exit "$rc" ;;
     esac
   fi

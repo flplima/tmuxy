@@ -39,9 +39,10 @@ jobs:
           mkdir -p packages/tmuxy-ui/dist
           cargo build --release -p tmuxy-server
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
+          rust: none
+          install-npm: 'false'
 
       - name: Build the index
         env:
