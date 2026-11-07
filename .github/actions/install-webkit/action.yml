@@ -19,4 +19,4 @@ runs:
     - name: Install WebKit (cache miss)
       if: steps.webkit-cache.outputs.cache-hit != 'true'
       shell: bash
-      run: bin/ci/playwright-install webkit
+      run: npx playwright install webkit
