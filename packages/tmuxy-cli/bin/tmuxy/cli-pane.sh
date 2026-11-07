@@ -61,7 +61,7 @@ cmd_pane() {
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
-            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread|clear> [target]"
+            echo "Usage: tmuxy pane state <$PANE_STATE_WORDS|clear> [target]"
             return
             ;;
           *) if [ -z "$value" ]; then value="$arg"; else target="$arg"; fi ;;

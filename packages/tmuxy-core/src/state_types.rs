@@ -138,6 +138,45 @@ impl WindowType {
     }
 }
 
+/// What a pane says it is doing: the `@tmuxy-pane-state` values tmuxy knows,
+/// in attention order (the first wants the user most). Any process may write
+/// the option, a word of its own included; tmuxy reads one it does not know as
+/// `idle` (the UI's `domain/paneState.ts`, which takes these words from the
+/// generated `tmuxyConstants.gen.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneStateName {
+    NeedsInput,
+    Error,
+    Unread,
+    Working,
+    Idle,
+}
+
+impl PaneStateName {
+    pub const ALL: [PaneStateName; 5] = [
+        PaneStateName::NeedsInput,
+        PaneStateName::Error,
+        PaneStateName::Unread,
+        PaneStateName::Working,
+        PaneStateName::Idle,
+    ];
+
+    /// The state [`PaneStateName::as_str`] names.
+    pub fn parse(word: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.as_str() == word)
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            PaneStateName::NeedsInput => "needs-input",
+            PaneStateName::Error => "error",
+            PaneStateName::Unread => "unread",
+            PaneStateName::Working => "working",
+            PaneStateName::Idle => "idle",
+        }
+    }
+}
+
 /// A single tmux window: a tab, a float or a sidebar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TmuxWindow {

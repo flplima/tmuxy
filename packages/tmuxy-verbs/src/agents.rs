@@ -128,40 +128,42 @@ impl Hook {
 /// `idle` covers "finished": whether the user has seen the result is the
 /// UI's to judge, since only it knows which pane is in front of them.
 pub fn state(agent: Agent, event: &str, payload: &Value) -> Option<&'static str> {
+    use tmuxy_core::PaneStateName::{Error, Idle, NeedsInput, Working};
     let field = |key: &str| payload.get(key).and_then(Value::as_str).unwrap_or("");
-    Some(match (agent, event) {
-        (_, "SessionStart") => "idle",
-        (_, "UserPromptSubmit" | "PostToolUse" | "PreInvocation") => "working",
-        (_, "PermissionRequest") => "needs-input",
+    let state = match (agent, event) {
+        (_, "SessionStart") => Idle,
+        (_, "UserPromptSubmit" | "PostToolUse" | "PreInvocation") => Working,
+        (_, "PermissionRequest") => NeedsInput,
         (Agent::Claude, "Notification") => {
             let kind = field("notification_type");
             if !CLAUDE_NEEDS_INPUT.split('|').any(|k| k == kind) {
                 return None;
             }
-            "needs-input"
+            NeedsInput
         }
         (Agent::Codex, "PostModelRequest") => {
             let failed = payload
                 .get("error")
                 .is_some_and(|e| !e.is_null() && e.as_str() != Some(""));
             if failed {
-                "error"
+                Error
             } else {
-                "working"
+                Working
             }
         }
         (Agent::Agy, "Stop") => {
             if !field("error").is_empty() || field("terminationReason") == "error" {
-                "error"
+                Error
             } else {
-                "idle"
+                Idle
             }
         }
-        (_, "Stop" | "Interrupt") => "idle",
-        (_, "StopFailure") => "error",
-        (_, "SessionEnd") => "clear",
+        (_, "Stop" | "Interrupt") => Idle,
+        (_, "StopFailure") => Error,
+        (_, "SessionEnd") => return Some("clear"),
         _ => return None,
-    })
+    };
+    Some(state.as_str())
 }
 
 #[derive(clap::Args, Debug)]

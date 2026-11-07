@@ -55,7 +55,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// taking it for abandoned (a killed sender's) and asking over it.
 const PENDING_LIMIT: Duration = Duration::from_secs(60);
 
-const NEEDS_INPUT: &str = "needs-input";
+const NEEDS_INPUT: &str = crate::PaneStateName::NeedsInput.as_str();
 
 /// How long a send may take, from the moment it starts waiting its turn.
 #[derive(Debug, Clone, Copy)]

@@ -16,6 +16,9 @@ export const APP_PANE_TITLE = '#{?#{==:#{pane_title},#{host}},,#{pane_title}}';
 /** The window types tmuxy's chrome is tagged with (`WindowType`); an untagged window is a tab. */
 export const CHROME_WINDOW_TYPES = ['float', 'sidebar-left', 'sidebar-right'] as const;
 
+/** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */
+export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
+
 /** Sidebar column widths and drag bounds, in cells (`sidebar_dock`). */
 export const SIDEBAR_DOCK = {
   leftCols: 30,

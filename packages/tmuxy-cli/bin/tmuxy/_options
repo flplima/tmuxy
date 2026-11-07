@@ -18,6 +18,9 @@ EXIT_TARGET=3
 EXIT_NO_SERVER=4
 JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
 
+# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`), for a usage line.
+PANE_STATE_WORDS='needs-input|error|unread|working|idle'
+
 # The tmuxy options the scripts read and write (`constants::tmux_options`).
 OPT_WINDOW_TYPE='@tmuxy-window-type'
 OPT_SIDEBAR_HIDDEN='@tmuxy-sidebar-hidden'

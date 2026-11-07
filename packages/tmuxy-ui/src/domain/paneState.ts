@@ -16,8 +16,7 @@
 import type { TmuxPane } from './client';
 import { isPlaceholderId, type WindowId } from './ids';
 import { paneSendFor } from './paneAsk';
-
-export const PANE_STATES = ['needs-input', 'error', 'unread', 'working', 'idle'] as const;
+import { PANE_STATES } from './tmuxyConstants.gen';
 
 export type PaneStateName = (typeof PANE_STATES)[number];
 

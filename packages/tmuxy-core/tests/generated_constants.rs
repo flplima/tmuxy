@@ -14,7 +14,7 @@ use tmuxy_core::constants::{SIDEBAR_WINDOW_PREFIX, STASH_SESSION};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::session::ManagedOption;
 use tmuxy_core::session_snapshot::LEFT_SIDEBAR_WIDGET;
-use tmuxy_core::WindowType;
+use tmuxy_core::{PaneStateName, WindowType};
 
 #[path = "generated/crate_graph.rs"]
 mod crate_graph;
@@ -108,6 +108,14 @@ fn typescript() -> String {
         ]
         .map(|t| quoted(t.as_str()))
         .join(", ")
+    );
+    let _ = writeln!(
+        out,
+        "\n/** The `@tmuxy-pane-state` words tmuxy knows, in attention order (`PaneStateName`). */\n\
+         export const PANE_STATES = [{}] as const;",
+        PaneStateName::ALL
+            .map(|s| quoted(s.as_str()))
+            .join(", ")
     );
     let _ = writeln!(
         out,
@@ -380,6 +388,12 @@ fn shell() -> String {
 /// write (`constants::tmux_options`, `WindowType`, `session`).
 fn shell_tmux_names(out: &mut String) {
     use tmuxy_core::constants::tmux_options as o;
+    let _ = writeln!(
+        out,
+        "\n# The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`), for a usage line.\n\
+         PANE_STATE_WORDS={}",
+        quoted(&PaneStateName::ALL.map(PaneStateName::as_str).join("|"))
+    );
     out.push_str("\n# The tmuxy options the scripts read and write (`constants::tmux_options`).\n");
     for (name, value) in [
         ("WINDOW_TYPE", o::WINDOW_TYPE),
