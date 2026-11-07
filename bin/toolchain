@@ -7,6 +7,7 @@
 # here.
 #
 # Usage:
+#   bin/toolchain node-version          the Node release CI and the image run
 #   bin/toolchain tmux-version          the tmux CI, the image and docs/TMUX.md target
 #   bin/toolchain rust-targets          the rustup targets past the host's: wasm32 for
 #                                       tmuxy-wasm, i686-musl for the guests' tmuxy-verbs
@@ -22,6 +23,7 @@
 #                                       tmux-build` (`tmux-build-head` for HEAD)
 set -euo pipefail
 
+NODE_VERSION=22
 TMUX_VERSION=3.7a
 RUST_TARGETS=(wasm32-unknown-unknown i686-unknown-linux-musl)
 TAURI_DRIVER_VERSION=2.0.6
@@ -72,13 +74,14 @@ build_tmux() {
 }
 
 case "${1:-}" in
+  node-version) echo "$NODE_VERSION" ;;
   tmux-version) echo "$TMUX_VERSION" ;;
   rust-targets) echo "${RUST_TARGETS[*]}" ;;
   tauri-driver-version) echo "$TAURI_DRIVER_VERSION" ;;
   packages) packages "${2:-}" ;;
   build-tmux) build_tmux "${2:-}" ;;
   *)
-    echo "usage: bin/toolchain tmux-version | rust-targets | tauri-driver-version | packages <set> | build-tmux [<version>|HEAD]" >&2
+    echo "usage: bin/toolchain node-version | tmux-version | rust-targets | tauri-driver-version | packages <set> | build-tmux [<version>|HEAD]" >&2
     exit 2
     ;;
 esac
