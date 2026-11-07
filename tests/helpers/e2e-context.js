@@ -42,7 +42,7 @@ const { waitForMonitorGone, waitForMonitorAttached } = require('./monitor');
 const { assertScreenMatchesTmux } = require('./ui-tmux');
 const { splitPaneKeyboard, waitForShellPrompt } = require('./pane-ops');
 const { tmuxSideOfSession } = require('./tmux-side');
-const { tmuxCmd } = require('./tmux-socket');
+const { tmuxCmd, tmuxEnv } = require('./tmux-socket');
 
 const HOOK_TIMEOUT = 60000;
 
@@ -97,13 +97,17 @@ async function openSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
  */
 function ensureTmuxServer() {
   const { execSync } = require('child_process');
+  // The suite's environment, not this process's: the server born here keeps
+  // it as its global environment, which every pane and run-shell inherits (a
+  // plugin's action would otherwise write into the developer's state dir).
+  const env = tmuxEnv();
   try {
-    execSync(`${tmuxCmd()} has-session 2>/dev/null`, { timeout: 5000 });
+    execSync(`${tmuxCmd()} has-session 2>/dev/null`, { timeout: 5000, env });
   } catch {
     execSync(
       `${tmuxCmd()} new-session -d -s _warmup 'tail -f /dev/null' && ` +
         `${tmuxCmd()} kill-session -t _warmup`,
-      { timeout: 10000, encoding: 'utf-8' },
+      { timeout: 10000, encoding: 'utf-8', env },
     );
   }
 }
