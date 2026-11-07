@@ -78,6 +78,19 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     expect(stdout).toContain('name: tmuxy');
   });
 
+  test('pane capture --format html renders the colours as spans', () => {
+    const { stdout, stderr, exitCode } = guest(['pane', 'capture', '--format', 'html'], {
+      MOCK_TMUX_CAPTURE: '\x1b[1;31mFAIL\x1b[0m <a> \x1b[38;5;208mx\x1b[39m',
+    });
+    expect(stderr).toBe('');
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe(
+      '<pre class="tmuxy-capture">\n' +
+        '<span class="bold fg-1">FAIL</span> &lt;a&gt; <span class="fg-208">x</span>\n' +
+        '</pre>\n',
+    );
+  });
+
   // `pane group` runs the pane-group script inside run-shell, which the mock
   // does not play; the script is run here as run-shell would run it.
   test('the pane-group script runs the group verb', () => {

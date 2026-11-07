@@ -329,15 +329,24 @@ describe('pane capture', () => {
     expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-J', '-e', '-t', '%2']);
   });
 
-  test('--format html turns colours into spans and escapes the text', () => {
-    const { stdout, exitCode } = runCLI(['pane', 'capture', '--format', 'html'], {
-      env: { MOCK_TMUX_CAPTURE: '\x1b[1;31mFAIL\x1b[0m <a> \x1b[38;5;208mx\x1b[39m' },
+  // The HTML itself is tmuxy-core's (capture_html, with its tests); the guest
+  // suite runs it for real (cli-guest-verbs.test.js).
+  test('--format html hands the colour capture to the server binary and prints its answer', () => {
+    const capture = '\x1b[1;31mFAIL\x1b[0m <a>';
+    const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'capture', '--format', 'html'], {
+      env: { MOCK_TMUX_CAPTURE: capture },
     });
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('<pre class="tmuxy-capture">');
-    expect(stdout).toContain('<span class="bold fg-1">FAIL</span> &lt;a&gt; ');
-    expect(stdout).toContain('<span class="fg-208">x</span>');
-    expect(stdout).toContain('</pre>');
+    expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-e']);
+    expect(stdout).toBe(`html-of[${capture}\n]\n`);
+    const json = runCLI(['pane', 'capture', '--format', 'html', '--json'], {
+      env: { MOCK_TMUX_CAPTURE: capture },
+    });
+    expect(JSON.parse(json.stdout)).toEqual({
+      content: `html-of[${capture}\n]`,
+      format: 'html',
+      paneId: '',
+    });
   });
 
   test('--json carries the format', () => {

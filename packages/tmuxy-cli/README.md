@@ -21,8 +21,8 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
 - **The server binary's verbs answer what a script would only copy.** Every
   command whose work is tmuxy-core's — `run` and `tab create`, `session
   connect` and `connect`, `config`, `pane send`/`paste`, `pane float`, the
-  pane groups, `agent`, `session save|restore|…`, `plugin`, `trace`, `skill`
-  — is a `tmuxy-verbs` verb (`tmuxy-server <verb>`, the desktop app's `tmuxy
+  pane groups, `agent`, `session save|restore|…`, `plugin`, `trace`, `skill`,
+  `pane capture --format html` — is a `tmuxy-verbs` verb (`tmuxy-server <verb>`, the desktop app's `tmuxy
   server <verb>`); the script resolves its target and caller and forwards.
   `--json` is handed on, and the verb answers through the contract below
   (`tmuxy_core::cli_contract`). `find_server_cmd` in `bin/tmuxy/_lib` is
