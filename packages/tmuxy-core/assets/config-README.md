@@ -41,7 +41,7 @@ machine (`--json` for a script).
 | `trace.ndjson`          | state  | tmuxy | no           | no              | The action trace, written only while tracing is on (`tmuxy trace` reads it).                             |
 | `tmuxy.log`             | state  | tmuxy | no           | no              | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File).                              |
 | `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                                     |
-| `tmuxy.pid`             | state  | tmuxy | no           | no              | The running web server's pid (`tmuxy-<port>.pid` on another port).                                       |
+| `tmuxy-<port>.pid`      | state  | tmuxy | no           | no              | The pid of the web server on that port.                                                                  |
 | `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.                          |
 | `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.                       |
 | `sessions/`             | state  | tmuxy | no           | no              | Session snapshots, one directory per tmux socket; a restart restores the latest.                         |

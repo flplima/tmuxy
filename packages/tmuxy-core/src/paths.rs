@@ -327,9 +327,9 @@ pub const LAUNCHER: File = File::state(
     "The desktop app the ~/.local/bin/tmuxy shorthand runs.",
 );
 pub const PID: File = File::state(
-    "tmuxy.pid",
+    "tmuxy-<port>.pid",
     false,
-    "The running web server's pid (tmuxy-<port>.pid on another port).",
+    "The pid of the web server on <port>.",
 );
 pub const RELOAD_MARKER: File =
     File::state("config-reload", false, "Touched by `tmuxy config reload`.");
@@ -454,6 +454,13 @@ impl Layout {
     /// runs, and its `park` what parks a restored member.
     pub fn pane_group_script(&self) -> PathBuf {
         self.scripts().join("pane-group")
+    }
+
+    /// One pid file per port, so a second server beside the first neither
+    /// overwrites its pid nor gets stopped in its place.
+    pub fn pid_file(&self, port: u16) -> PathBuf {
+        self.state
+            .join(PID.name.replace("<port>", &port.to_string()))
     }
 
     pub fn lockfile(&self) -> PathBuf {

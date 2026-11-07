@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
-use super::DEFAULT_PORT;
 use crate::dev;
 use crate::state::{build_response, AppState};
 
@@ -141,18 +140,8 @@ fn embedded_file(path: &str) -> Response {
     }
 }
 
-/// One pid file per port, so a second server beside the first neither
-/// overwrites its pid nor gets stopped in its place.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
-    pid_file_in(&tmuxy_core::paths::state_dir(), port)
-}
-
-fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
-    if port == DEFAULT_PORT {
-        dir.join(tmuxy_core::paths::PID.name)
-    } else {
-        dir.join(format!("tmuxy-{port}.pid"))
-    }
+    tmuxy_core::paths::Layout::current().pid_file(port)
 }
 
 /// A server whose pid file could not be written still serves, but
