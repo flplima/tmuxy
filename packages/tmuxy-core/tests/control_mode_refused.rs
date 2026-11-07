@@ -14,13 +14,24 @@ mod common;
 async fn a_session_tmux_refuses_to_create_is_no_connection() {
     let _server = common::ScratchServer::process_wide("refused-test");
 
-    // tmux names no session "": `new-session` answers in the opening
-    // block with `%error`, then the client exits.
-    let outcome = ControlModeConnection::connect("", None, None, true, None, None).await;
+    // A session grouped with another AND given a first window: tmux (2.x
+    // through 3.7) refuses `new-session -t` with `-n` in the opening block,
+    // then the client exits.
+    let first_window = ("w".to_string(), "/".to_string());
+    let outcome = ControlModeConnection::connect(
+        "refused",
+        None,
+        None,
+        true,
+        Some("base"),
+        Some(&first_window),
+    )
+    .await;
 
     let message = outcome.err().expect("no connection").to_string();
     assert!(
-        message.contains("tmux refused control mode") && message.contains("invalid session"),
+        message.contains("tmux refused control mode")
+            && message.contains("command or window name given with target"),
         "{message}"
     );
     // tmux's words are the opening block's body, not its raw transcript:

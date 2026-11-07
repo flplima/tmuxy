@@ -45,11 +45,14 @@ impl ScratchServer {
     }
 
     /// [`Self::new`], and tmuxy-core in this process pointed at it through
-    /// `TMUX_SOCKET`. The variable is process-wide, so a test binary holds
-    /// one test that does this: there is nothing to race.
+    /// `TMUX_SOCKET`, with its state dir (where a connect writes the entry
+    /// file tmux starts from) in the server's home, never the developer's.
+    /// The variables are process-wide, so a test binary holds one test that
+    /// does this: there is nothing to race.
     pub fn process_wide(name: &str) -> Self {
         let server = Self::new(name);
         std::env::set_var("TMUX_SOCKET", &server.socket);
+        std::env::set_var("TMUXY_STATE_DIR", server.home.join("state"));
         server
     }
 
