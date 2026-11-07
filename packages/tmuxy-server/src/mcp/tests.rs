@@ -1,7 +1,7 @@
 use super::tmux::{parse_panes, parse_tabs, resolve_pane, PaneKind};
 use super::tools::{
     find_on_screen, float_command, preview_path, screen_pattern, split_command, tab_command,
-    trim_screen, FloatArgs, FloatPosition, FloatSpot, SplitDirection, TabArgs,
+    trim_screen, FloatArgs, FloatPosition, SplitDirection, TabArgs,
 };
 use crate::request_guard::HostPolicy;
 use crate::state::{api_routes, AppState};
@@ -266,7 +266,7 @@ fn a_split_or_a_tab_leaves_the_users_focus_where_it_is() {
 #[test]
 fn a_float_is_the_cores_one_list_with_the_command_as_one_word() {
     let pane = PaneId::parse("%2").unwrap();
-    let spot = FloatSpot {
+    let spot = tmuxy_core::float::Spot {
         window: "@4".into(),
         session_id: "$1".into(),
         rows: 40,

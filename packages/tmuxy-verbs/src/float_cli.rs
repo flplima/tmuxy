@@ -4,7 +4,7 @@
 //! through `run-shell`. It answers `<pane> <window>`, or under `--json`
 //! `paneId` and `windowId`.
 
-use tmuxy_core::float::{default_size, free_index, Backdrop, Drawer, Float};
+use tmuxy_core::float::{default_size, Backdrop, Drawer, Float, Spot};
 use tmuxy_core::PaneId;
 
 use crate::cli_json::{self, Answer, EXIT_FAILED};
@@ -50,9 +50,8 @@ pub fn run(args: FloatArgs) {
     }
 }
 
-fn read(argv: &[&str]) -> Result<String, String> {
-    let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
-    tmuxy_core::session::tmux_output(&argv)
+fn read(argv: &[String]) -> Result<String, String> {
+    tmuxy_core::session::tmux_output(argv)
         .map(|out| out.trim().to_string())
         .map_err(|e| format!("failed to create float pane: {e}"))
 }
@@ -63,31 +62,17 @@ fn read(argv: &[&str]) -> Result<String, String> {
 /// split from (and broken out into) the wrong one.
 fn make(args: FloatArgs) -> Result<String, String> {
     let pane = args.pane;
-    let display = |format: &str| match &pane {
-        Some(pane) => read(&["display-message", "-p", "-t", pane, format]),
-        None => read(&["display-message", "-p", format]),
-    };
-    // No pane, no session: `:<index>` is the current session's.
-    let session = match pane {
-        Some(_) => display("#{session_name}")?,
-        None => String::new(),
-    };
-    let window = display("#{window_id}")?;
-    let rows = display("#{window_height}")?.parse().unwrap_or(0);
-    let mut list = vec!["list-windows", "-F", "#{window_index}"];
-    if !session.is_empty() {
-        list.extend(["-t", &session]);
-    }
-    let at = format!("{session}:{}", free_index(&read(&list)?));
+    let pane_out = read(&Spot::pane_read(pane.as_deref()))?;
+    let spot = Spot::new(&pane_out, &read(&Spot::windows_read(&pane_out))?);
 
     let drawer = args.drawer;
-    let (width, height) = default_size(args.width, args.height, drawer, rows);
+    let (width, height) = default_size(args.width, args.height, drawer, spot.rows);
     let float = Float {
         from_pane: pane,
         cwd: None,
         command: args.command,
-        at,
-        parent_window: Some(window).filter(|w| !w.is_empty()),
+        at: spot.at(),
+        parent_window: Some(spot.window).filter(|w| !w.is_empty()),
         width,
         height,
         drawer,
