@@ -169,8 +169,8 @@ fn a_wrapper_reading_another_launcher_or_a_users_symlink_is_left_alone() {
     refresh_launcher_if_installed_in(&layout, &exe);
     assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), users);
 
-    // An older build's wrapper derived the state dir in the shell: the
-    // default one, which this layout's is not.
+    // A wrapper that derives the state dir in the shell names no launcher
+    // file of its own, so it is not this build's to rewrite.
     let unbaked = "#!/bin/sh\nLAUNCHER_FILE=\"$STATE_DIR/launcher\"\n";
     std::fs::write(&wrapper, unbaked).unwrap();
     refresh_launcher_if_installed_in(&layout, &exe);
