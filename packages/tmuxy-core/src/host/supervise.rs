@@ -33,8 +33,6 @@ pub const MIN_HEALTHY_RUN: Duration = Duration::from_secs(2);
 
 pub enum Attempt {
     Connect(MonitorConfig),
-    /// Not now: look again after this long. Not a failure, nothing was tried.
-    Wait(Duration),
     Stop,
 }
 
@@ -48,7 +46,6 @@ pub enum Ended {
     /// until there is a reason to connect again (a detach). Commands are
     /// refused meanwhile rather than kept waiting.
     Parked,
-    Stop,
 }
 
 pub enum GaveUp {
@@ -63,10 +60,6 @@ pub type Task = Pin<Box<dyn Future<Output = ()> + Send>>;
 pub trait Host: Send {
     /// `ever_ran`: whether a connection has ever lived [`MIN_HEALTHY_RUN`].
     fn before_attempt(&mut self, ever_ran: bool) -> impl Future<Output = Attempt> + Send;
-
-    fn session_exists(&self, session: &str) -> impl Future<Output = bool> + Send {
-        super::session_exists(session)
-    }
 
     /// A session that does not exist is about to be created, with the first
     /// window the restore plan asked for in `config`. A host that would rather
@@ -212,17 +205,13 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
     loop {
         let mut config = match host.before_attempt(ever_ran).await {
             Attempt::Connect(config) => config,
-            Attempt::Wait(pause) => {
-                host.sleep(pause).await;
-                continue;
-            }
             Attempt::Stop => return,
         };
         runtime.set_connecting();
         let session = config.session.clone();
 
         let mut restore = None;
-        if config.create_session && !host.session_exists(&session).await {
+        if config.create_session && !super::session_exists(&session).await {
             if runtime.restores() {
                 restore = restore_plan(&snapshot_dir, &mut config);
             }
@@ -268,7 +257,6 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
                 runtime.disconnected();
 
                 match host.ended().await {
-                    Ended::Stop => return,
                     Ended::Deliberate => Outcome::Again,
                     Ended::Parked => {
                         runtime.set_down();
