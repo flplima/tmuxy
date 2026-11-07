@@ -16,6 +16,7 @@ import {
   createV86Emulator,
   encodeUtf8SerialBytes,
   fetchGuestSnapshot,
+  restoreSnapshot,
   type V86Emulator,
 } from './v86Guest';
 
@@ -79,13 +80,12 @@ export class V86Engine extends GuestEngine {
     this.booted = true;
 
     // Wait for the machine to finish initializing, then restore the snapshot and
-    // start the CPU from it (restore_state consumes the buffer, so hand it a
-    // fresh copy and keep the cache for reset()). The restore itself is quick
+    // start the CPU from it (the bytes stay cached for reset()). The restore itself is quick
     // (~2s), but the guest resumes a few seconds shy of ready — the snapshot is
     // captured mid-init, so on resume it finishes bringing tmux up — so this
     // still uses the patient (cold) budget, not the warm one.
     await loaded;
-    await emu.restore_state((await snapshotBytes).slice(0));
+    await restoreSnapshot(emu, await snapshotBytes);
     await emu.run();
     await this.putFiles(files);
     await this.start(initCommands, ATTACH, COLD);
@@ -113,9 +113,7 @@ export class V86Engine extends GuestEngine {
     this.attached = false;
     this.byteBuf = '';
     this.failInFlight('engine reset');
-    const bytes = await this.fetchSnapshot();
-    // restore_state consumes the buffer; hand it a fresh copy each reset.
-    await this.emu.restore_state(bytes.slice(0));
+    await restoreSnapshot(this.emu, await this.fetchSnapshot());
     await this.freshCore();
     await this.putFiles(files);
     await this.start(initCommands, ATTACH, WARM);

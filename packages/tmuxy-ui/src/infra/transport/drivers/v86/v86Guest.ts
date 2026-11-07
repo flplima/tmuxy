@@ -24,6 +24,32 @@ export interface V86Emulator {
   destroy?: () => Promise<void>;
   /** v86's ScreenAdapter — present once a `screen_container` was supplied. */
   screen_adapter?: { pause(): void; continue(): void };
+  /** The emulator's internals; `restoreSnapshot` sets the guest's TSC through them. */
+  v86: { cpu: V86Cpu };
+}
+
+interface V86Cpu {
+  /** The guest's TSC, as [low, high] words, once `store_current_tsc` wrote it. */
+  current_tsc: Uint32Array;
+  store_current_tsc(): void;
+  set_tsc(low: number, high: number): void;
+}
+
+/**
+ * Rewind the machine to `snapshot`, its clock included. v86's `set_tsc` takes
+ * the new offset from a TSC reading the old offset is already subtracted
+ * from, so only a machine whose offset is zero lands on the TSC it is given:
+ * a second restore on one emulator put the guest's TSC 99s behind the time
+ * its restored kernel had read last, and the guest's clock stood still until
+ * it caught up (a `sleep 1` slept for a minute and a half). Setting the TSC
+ * to its own current value first brings the offset back to zero.
+ */
+export async function restoreSnapshot(emu: V86Emulator, snapshot: ArrayBuffer): Promise<void> {
+  const { cpu } = emu.v86;
+  cpu.store_current_tsc();
+  cpu.set_tsc(cpu.current_tsc[0], cpu.current_tsc[1]);
+  // restore_state consumes the buffer; hand it a copy.
+  await emu.restore_state(snapshot.slice(0));
 }
 
 export function createDetachedScreen(): HTMLElement {
