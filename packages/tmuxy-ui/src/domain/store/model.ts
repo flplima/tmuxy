@@ -9,6 +9,7 @@ import {
 } from './types';
 import type { TmuxOp } from '../commands';
 import { reconcile as opReconcile } from './ops';
+import { supersedesPin } from '../opTraits';
 import type { PaneId, WindowId } from '../ids';
 
 let opIdCounter = 0;
@@ -179,27 +180,7 @@ export function makePendingOp(args: {
  * flap back to the pre-split pane for up to a second.
  */
 export function dropSupersededFocusOps(model: TmuxClientModel, newOp: TmuxOp): TmuxClientModel {
-  const paneFocusChanging =
-    newOp._tag === 'Split' ||
-    newOp._tag === 'NewWindow' ||
-    newOp._tag === 'SelectPane' ||
-    newOp._tag === 'Navigate' ||
-    newOp._tag === 'KillPane' ||
-    newOp._tag === 'KillWindow' ||
-    newOp._tag === 'SelectWindow' ||
-    newOp._tag === 'LastWindow' ||
-    newOp._tag === 'GroupSwitch';
-  if (!paneFocusChanging) return model;
-  const windowFocusChanging =
-    newOp._tag === 'SelectWindow' ||
-    newOp._tag === 'LastWindow' ||
-    newOp._tag === 'NewWindow' ||
-    newOp._tag === 'KillWindow';
-  const ops = model.ops.filter((o) => {
-    if (o.op._tag === 'SelectPane' || o.op._tag === 'Navigate') return false;
-    if (windowFocusChanging && o.op._tag === 'SelectWindow') return false;
-    return true;
-  });
+  const ops = model.ops.filter((o) => !supersedesPin(newOp, o.op));
   if (ops.length === model.ops.length) return model;
   return recomputeDerived({ ...model, ops });
 }

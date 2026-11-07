@@ -7,6 +7,7 @@
 import type { TmuxSnapshot, Patch, ReconcileVerdict, PendingOp } from './types';
 import { groupMembers, type TmuxPane } from '../client';
 import type { TmuxOp, TmuxOpOf } from '../commands';
+import type { PredictedTag } from '../opTraits';
 import type { GroupId, PaneId, WindowId } from '../ids';
 import {
   predictKillPane,
@@ -54,106 +55,105 @@ export interface PredictResult {
   readonly meta: Readonly<Record<string, unknown>>;
 }
 
+type Meta = Readonly<Record<string, unknown>>;
+type Claimed = { panes: ReadonlySet<PaneId>; windows: ReadonlySet<WindowId> };
+
+interface Predictor<O extends TmuxOp> {
+  predict(op: O, snapshot: TmuxSnapshot, ctx: PredictContext, opId: string): PredictResult | null;
+  /** Whether the server has caught up; `ageMs` is the op's age. */
+  reconcile(meta: Meta, committed: TmuxSnapshot, claimed: Claimed, ageMs: number): ReconcileVerdict;
+}
+
+const reconcileFocusOf: Predictor<TmuxOp>['reconcile'] = (meta, s, _claimed, ageMs) =>
+  reconcileFocus(meta, s.activePaneId, ageMs, s.panes);
+
+/**
+ * One predictor per op `OP_TRAITS` says predicts something (its
+ * `PredictedTag`), and none for the rest: every other op changes what the
+ * client cannot know ahead of tmux (a script's choices, a new session) or
+ * what it never draws.
+ */
+const PREDICTORS: { readonly [T in PredictedTag]: Predictor<TmuxOpOf<T>> } = {
+  Split: {
+    predict: predictSplit,
+    reconcile: (meta, s, claimed) => reconcileSplit(meta, s, claimed.panes),
+  },
+  Navigate: { predict: predictNavigate, reconcile: reconcileFocusOf },
+  SelectPane: { predict: predictSelectPane, reconcile: reconcileFocusOf },
+  Swap: { predict: predictSwap, reconcile: (meta, s) => reconcileSwap(meta, s.panes) },
+  NewWindow: {
+    predict: (_op, s, ctx, opId) => predictNewWindow(s, ctx, opId),
+    reconcile: (meta, s, claimed) => reconcileNewWindow(meta, s.windows, s.panes, claimed.windows),
+  },
+  SelectWindow: {
+    predict: predictSelectWindow,
+    reconcile: (meta, s, _claimed, ageMs) =>
+      reconcileSelectWindow(meta, s.activeWindowId, ageMs, s.windows),
+  },
+  KillPane: {
+    predict: predictKillPane,
+    reconcile: (meta, s, _claimed, ageMs) => reconcileKillPane(meta, s.panes, ageMs),
+  },
+  KillWindow: {
+    predict: predictKillWindow,
+    reconcile: (meta, s) => reconcileKillWindow(meta, s.windows),
+  },
+  JoinPane: {
+    predict: predictJoinPane,
+    reconcile: (meta, s, _claimed, ageMs) => reconcileJoinPane(meta, s.panes, ageMs),
+  },
+  RenameWindow: {
+    predict: predictRenameWindow,
+    reconcile: (meta, s) => reconcileRenameWindow(meta, s.windows),
+  },
+  MoveWindow: {
+    predict: predictMoveWindow,
+    reconcile: (meta, s) => reconcileMoveWindow(meta, s.windows),
+  },
+  ZoomToggle: {
+    predict: predictZoomToggle,
+    reconcile: (meta, s, _claimed, ageMs) => reconcileZoomToggle(meta, s.panes, ageMs),
+  },
+  GroupSwitch: {
+    predict: predictGroupSwitch,
+    reconcile: (meta, s, _claimed, ageMs) =>
+      reconcileGroupSwitch(meta, s.panes, s.activePaneId, ageMs),
+  },
+  GroupMove: {
+    predict: predictGroupMove,
+    reconcile: (meta, s) => reconcileGroupMove(meta, s.panes),
+  },
+  SetWindowTag: {
+    predict: predictWindowTag,
+    reconcile: (meta, s, _claimed, ageMs) => reconcileWindowTag(meta, s.windows, ageMs),
+  },
+};
+
+function predictorOf(op: TmuxOp): Predictor<TmuxOp> | undefined {
+  return (PREDICTORS as Partial<Record<TmuxOp['_tag'], Predictor<TmuxOp>>>)[op._tag];
+}
+
+/** The op's predicted patch, or null when it is fire-and-forget. */
 export function predict(
   op: TmuxOp,
   snapshot: TmuxSnapshot,
   ctx: PredictContext,
   opId: string,
 ): PredictResult | null {
-  switch (op._tag) {
-    case 'Split':
-      return predictSplit(op, snapshot, ctx, opId);
-    case 'Navigate':
-      return predictNavigate(op, snapshot, ctx);
-    case 'SelectPane':
-      return predictSelectPane(op, snapshot);
-    case 'Swap':
-      return predictSwap(op, snapshot);
-    case 'NewWindow':
-      return predictNewWindow(snapshot, ctx, opId);
-    case 'SelectWindow':
-      return predictSelectWindow(op, snapshot);
-    case 'KillPane':
-      return predictKillPane(op, snapshot, ctx);
-    case 'KillWindow':
-      return predictKillWindow(op, snapshot, ctx);
-    case 'JoinPane':
-      return predictJoinPane(op, snapshot);
-    case 'RenameWindow':
-      return predictRenameWindow(op, snapshot);
-    case 'MoveWindow':
-      return predictMoveWindow(op, snapshot);
-    case 'ZoomToggle':
-      return predictZoomToggle(op, snapshot);
-    case 'GroupSwitch':
-      return predictGroupSwitch(op, snapshot);
-    case 'GroupMove':
-      return predictGroupMove(op, snapshot);
-    case 'SetWindowTag':
-      return predictWindowTag(op, snapshot);
-    default:
-      // Everything else changes what the client cannot know ahead of tmux
-      // (a script's choices, a new session) or what it never draws.
-      return null;
-  }
+  return predictorOf(op)?.predict(op, snapshot, ctx, opId) ?? null;
 }
 
 export function reconcile(
   pending: PendingOp,
   committed: TmuxSnapshot,
   /** Ids claimed by EARLIER ops of this pass, so two in-flight Splits never match one pane. */
-  claimed: { panes: ReadonlySet<PaneId>; windows: ReadonlySet<WindowId> } = {
-    panes: new Set(),
-    windows: new Set(),
-  },
+  claimed: Claimed = { panes: new Set(), windows: new Set() },
   now: number = Date.now(),
 ): ReconcileVerdict {
-  const { op, meta } = pending;
-  switch (op._tag) {
-    case 'Split':
-      return reconcileSplit(meta, committed, claimed.panes);
-    case 'Navigate':
-      return reconcileFocus(meta, committed.activePaneId, now - pending.createdAt, committed.panes);
-    case 'SelectPane':
-      return reconcileFocus(meta, committed.activePaneId, now - pending.createdAt, committed.panes);
-    case 'Swap':
-      return reconcileSwap(meta, committed.panes);
-    case 'NewWindow':
-      return reconcileNewWindow(meta, committed.windows, committed.panes, claimed.windows);
-    case 'SelectWindow':
-      return reconcileSelectWindow(
-        meta,
-        committed.activeWindowId,
-        now - pending.createdAt,
-        committed.windows,
-      );
-    case 'KillPane':
-      return reconcileKillPane(meta, committed.panes, now - pending.createdAt);
-    case 'KillWindow':
-      return reconcileKillWindow(meta, committed.windows);
-    case 'JoinPane':
-      return reconcileJoinPane(meta, committed.panes, now - pending.createdAt);
-    case 'RenameWindow':
-      return reconcileRenameWindow(meta, committed.windows);
-    case 'MoveWindow':
-      return reconcileMoveWindow(meta, committed.windows);
-    case 'ZoomToggle':
-      return reconcileZoomToggle(meta, committed.panes, now - pending.createdAt);
-    case 'GroupSwitch':
-      return reconcileGroupSwitch(
-        meta,
-        committed.panes,
-        committed.activePaneId,
-        now - pending.createdAt,
-      );
-    case 'GroupMove':
-      return reconcileGroupMove(meta, committed.panes);
-    case 'SetWindowTag':
-      return reconcileWindowTag(meta, committed.windows, now - pending.createdAt);
-    default:
-      // No prediction, so there's nothing to wait for.
-      return { _tag: 'matched' };
-  }
+  const predictor = predictorOf(pending.op);
+  // No prediction, so there's nothing to wait for.
+  if (!predictor) return { _tag: 'matched' };
+  return predictor.reconcile(pending.meta, committed, claimed, now - pending.createdAt);
 }
 
 /**
@@ -181,10 +181,7 @@ function predictGroupMove(op: TmuxOpOf<'GroupMove'>, snapshot: TmuxSnapshot): Pr
   return { patch, meta: { groupId, order } };
 }
 
-function reconcileGroupMove(
-  meta: Readonly<Record<string, unknown>>,
-  panes: ReadonlyArray<TmuxPane>,
-): ReconcileVerdict {
+function reconcileGroupMove(meta: Meta, panes: ReadonlyArray<TmuxPane>): ReconcileVerdict {
   const order = meta.order as PaneId[];
   const members = groupMembers(panes, meta.groupId as GroupId);
   // A member gone (closed, left) means the order we predicted no longer
