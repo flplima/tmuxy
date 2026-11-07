@@ -137,12 +137,16 @@ async function activeWindow(page) {
     return { id: v.activeTabId, tabs: v.windows.filter((w) => w.kind === 'tab').length };
   });
   if (!/^@\d+$/.test(id ?? '')) return { id, zoomed: false, panes: [], tabs };
-  return {
-    id,
-    zoomed: tmuxWindow(id).zoomed,
-    panes: tmuxPanes(id).map((p) => p.id),
-    tabs,
-  };
+  try {
+    return { id, zoomed: tmuxWindow(id).zoomed, panes: tmuxPanes(id).map((p) => p.id), tabs };
+  } catch (err) {
+    // The page follows tmux a round trip later: right after a kill it can
+    // still show a window tmux no longer has, which is "not there yet".
+    if (/can't find window/.test(String(err.stderr ?? err.message))) {
+      return { id, zoomed: false, panes: [], tabs };
+    }
+    throw err;
+  }
 }
 
 /** The float on screen holding `text`, and whether it has a header. */
