@@ -187,7 +187,7 @@ fn the_stamp_is_a_sortable_utc_date() {
     assert!(stamp(1_759_622_400) < stamp(1_759_622_401));
 }
 
-pub(super) fn fixture() -> Snapshot {
+pub(crate) fn fixture() -> Snapshot {
     let mut float_opts = BTreeMap::new();
     float_opts.insert("@tmuxy-float-width".to_string(), "100".to_string());
     let mut group = BTreeMap::new();

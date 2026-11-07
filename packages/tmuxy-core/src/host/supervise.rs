@@ -104,7 +104,13 @@ pub trait Host: Send {
 /// being its first window is the one the snapshot wants; the rebuild runs
 /// onto it after attach ([`restore_after_attach`]), over control mode, never
 /// with a clientless server.
+///
+/// A session made into a group has none: its windows are the group's, and
+/// tmux refuses `new-session -t` with a first window's `-n`.
 fn restore_plan(dir: &Path, config: &mut MonitorConfig) -> Option<Snapshot> {
+    if config.group_target.is_some() {
+        return None;
+    }
     let found = snapshot::restorable(dir, &config.session)?;
     config.first_window = found.first_window_hint(&snapshot::fallback_cwd());
     Some(found)
@@ -308,5 +314,27 @@ async fn run_loop<H: Host>(mut host: H, runtime: &Arc<SessionRuntime>) {
         }
         host.sleep(failures.backoff).await;
         failures.backoff = std::cmp::min(failures.backoff * 2, MAX_BACKOFF);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_made_into_a_group_comes_back_from_no_snapshot() {
+        let dir = std::env::temp_dir().join(format!("tmuxy-grouped-{}", std::process::id()));
+        let saved = crate::session_snapshot::tests_capture::fixture();
+        snapshot::write(&dir, &saved).unwrap();
+        let mut grouped = MonitorConfig {
+            session: saved.session.clone(),
+            create_session: true,
+            group_target: Some("base".to_string()),
+            ..MonitorConfig::default()
+        };
+        let plan = restore_plan(&dir, &mut grouped);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(plan.is_none());
+        assert_eq!(grouped.first_window, None);
     }
 }

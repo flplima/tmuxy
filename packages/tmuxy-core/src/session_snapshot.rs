@@ -423,7 +423,7 @@ pub fn named_restore(
 }
 
 #[cfg(test)]
-mod tests_capture;
+pub(crate) mod tests_capture;
 #[cfg(test)]
 mod tests_restore;
 #[cfg(test)]
