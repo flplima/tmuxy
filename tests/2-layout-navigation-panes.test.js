@@ -290,7 +290,7 @@ describeE2E('Scenario 4b: Split right after a tab switch', {}, (ctx) => {
 
     // The two tabs' tmux indices, for the ctrl+<digit> root bindings.
     const indices = (await ctx.session.getWindowInfo())
-      .filter((w) => w.windowType === 'tab')
+      .filter((w) => w.type === 'tab')
       .map((w) => w.index);
     const ctrlDigit = async (digit) => {
       await ctx.page.keyboard.down('Control');

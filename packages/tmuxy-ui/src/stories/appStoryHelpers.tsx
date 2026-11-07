@@ -2,6 +2,9 @@
 import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { ResizeGlitchRecorder } from './resizeGlitch';
 import { inputPause, tmuxCaughtUp, transitionsDone } from './tmuxBarrier';
+import { appContext, storyApp } from './storyApp';
+import { stripTabs } from '../domain/windows';
+import type { PaneId } from '../domain/ids';
 
 /**
  * Enter a command line by pasting it, then run it with Enter. A paste reads
@@ -22,16 +25,10 @@ export function pasteLine(text: string): void {
   target.dispatchEvent(new KeyboardEvent('keyup', enter));
 }
 
-export const activePaneId = () =>
-  (
-    window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
-  ).app.getSnapshot().context.activePaneId;
+export const activePaneId = () => storyApp().view().activePaneId;
 
 /** Measured terminal cell width in px (set by the sizeActor after font load). */
-export const charWidthPx = () =>
-  (
-    window as unknown as { app: { getSnapshot(): { context: { charWidth: number } } } }
-  ).app.getSnapshot().context.charWidth;
+export const charWidthPx = () => appContext().charWidth;
 
 export type Canvas = ReturnType<typeof within>;
 export const paneGroups = (canvas: Canvas) => canvas.getAllByRole('group', { name: /^Pane %/i });
@@ -89,20 +86,7 @@ export async function focusFirstPane(
   // phantom kill/split size jumps.
   await waitFor(
     () => {
-      const c = (
-        window as unknown as {
-          app: {
-            getSnapshot(): {
-              context: {
-                targetCols: number;
-                targetRows: number;
-                totalWidth: number;
-                totalHeight: number;
-              };
-            };
-          };
-        }
-      ).app.getSnapshot().context;
+      const c = appContext();
       expect(c.targetCols).toBeGreaterThan(0);
       expect(c.totalWidth).toBe(c.targetCols);
       expect(c.totalHeight).toBe(c.targetRows);
@@ -114,32 +98,10 @@ export async function focusFirstPane(
   await waitFor(() => expect(activePaneId()).toBe(paneId), { timeout: 15000, interval: 200 });
 }
 
-export type ReconstructedWindow = {
-  id: string;
-  name: string;
-  index: number;
-  active: boolean;
-  windowType: string | null;
-  floatDrawer: string | null;
-};
-export const windows = (): ReconstructedWindow[] =>
-  (
-    window as unknown as { app: { getSnapshot(): { context: { windows: ReconstructedWindow[] } } } }
-  ).app.getSnapshot().context.windows;
+export const windows = () => appContext().windows;
 
 /** Pane groups keyed by group id (`@tmuxy-group-id`). */
-export const paneGroupsState = (): Array<{ id: string; paneIds: string[] }> =>
-  Object.values(
-    (
-      window as unknown as {
-        app: {
-          getSnapshot(): {
-            context: { paneGroups: Record<string, { id: string; paneIds: string[] }> };
-          };
-        };
-      }
-    ).app.getSnapshot().context.paneGroups ?? {},
-  );
+export const paneGroupsState = () => Object.values(appContext().paneGroups);
 
 /** Bounding rect of a pane by tmux id (throws if absent — assert presence first). */
 export function paneRect(canvas: Canvas, id: string): DOMRect {
@@ -217,59 +179,27 @@ export async function dragDivider(
 }
 
 export function sendTmux(command: string): void {
-  (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
-    type: 'SEND_TMUX_COMMAND',
-    command,
-  });
+  storyApp().send({ type: 'SEND_TMUX_COMMAND', command });
 }
 
-export const activeWindow = (): ReconstructedWindow | undefined => windows().find((w) => w.active);
-export const tabWindows = (): ReconstructedWindow[] =>
-  windows().filter((w) => w.windowType === 'tab');
+export const activeWindow = () => windows().find((w) => w.active);
+export const tabWindows = () => stripTabs(windows());
 // Optimistic placeholder windows carry non-@ ids until reconciled and must not
 // satisfy a "window created" assertion.
-export const realTabWindows = (): ReconstructedWindow[] =>
-  tabWindows().filter((w) => /^@\d+$/.test(w.id));
+export const realTabWindows = () => tabWindows().filter((w) => /^@\d+$/.test(w.id));
 // Pane-header tabs are role=tab too; the window tabs are named "Tab N: name".
 export const windowTabEls = (canvas: Canvas) => canvas.getAllByRole('tab', { name: /^Tab \d+:/ });
 
-export const paneHistory = (id: string): number =>
-  (
-    window as unknown as {
-      app: { getSnapshot(): { context: { panes: { tmuxId: string; historySize: number }[] } } };
-    }
-  ).app
-    .getSnapshot()
-    .context.panes.find((p) => p.tmuxId === id)?.historySize ?? 0;
+const paneOf = (id: string | null) => appContext().panes.find((p) => p.tmuxId === id);
+
+export const paneHistory = (id: string | null): number => paneOf(id)?.historySize ?? 0;
 
 /** inMode comes from tmux's %pane-mode-changed. */
-export const paneMode = (id: string): boolean =>
-  (
-    window as unknown as {
-      app: { getSnapshot(): { context: { panes: { tmuxId: string; inMode: boolean }[] } } };
-    }
-  ).app
-    .getSnapshot()
-    .context.panes.find((p) => p.tmuxId === id)?.inMode === true;
+export const paneMode = (id: string | null): boolean => paneOf(id)?.inMode === true;
 
 /** Undefined when the pane is following live output (docs/COPY-MODE.md). */
-export type PaneScrollbackState = {
-  mode: 'scroll' | 'copy';
-  scrollTop: number;
-  selectionMode: 'char' | 'line' | null;
-  totalLines: number;
-};
-
-export const paneCopyState = (id: string): PaneScrollbackState | undefined =>
-  (
-    window as unknown as {
-      app: {
-        getSnapshot(): {
-          context: { copyModeStates: Record<string, PaneScrollbackState> };
-        };
-      };
-    }
-  ).app.getSnapshot().context.copyModeStates[id];
+export const paneCopyState = (id: string | null) =>
+  id === null ? undefined : appContext().copyModeStates[id as PaneId];
 
 export const MENU_ITEM_ROLES = '[role=menuitem], [role=menuitemcheckbox], [role=menuitemradio]';
 
@@ -309,12 +239,7 @@ export async function openAppMenu(
 }
 
 /** The rejection reaches the user as a snackbar entry. */
-export const appError = (): string | null =>
-  (
-    window as unknown as {
-      app: { getSnapshot(): { context: { notifications: { text: string }[] } } };
-    }
-  ).app.getSnapshot().context.notifications[0]?.text ?? null;
+export const appError = (): string | null => appContext().notifications[0]?.text ?? null;
 
 export const realPaneIdsSorted = (canvas: Canvas): string[] =>
   paneIds(canvas)

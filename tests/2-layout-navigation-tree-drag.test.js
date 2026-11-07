@@ -18,6 +18,8 @@ const {
   createWindowKeyboard,
   waitForShellPrompt,
   waitForCondition,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 11b: Rename field keeps its paste ====================
@@ -84,22 +86,21 @@ describeE2E('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys vie
     );
 
     // A column, and the grid of the tab in view.
-    const column = (side) =>
-      page.evaluate((s) => {
-        const el = document.querySelector(`.sidebar-column-${s}`);
-        if (!el) return null;
-        const box = el.getBoundingClientRect();
-        const grid = [...document.querySelectorAll('.pane-layout-item')]
-          .filter((p) => !p.classList.contains('pane-window-hidden'))
-          .map((p) => p.getBoundingClientRect());
-        return {
-          left: box.left,
-          right: box.right,
-          width: box.width,
-          gridLeft: Math.min(...grid.map((g) => g.left)),
-          gridRight: Math.max(...grid.map((g) => g.right)),
-        };
-      }, side);
+    const column = async (side) => {
+      const box = await page.evaluate(
+        (s) => document.querySelector(`.sidebar-column-${s}`)?.getBoundingClientRect().toJSON(),
+        side,
+      );
+      if (!box) return null;
+      const grid = (await shownPanes(page, GRID_PANE)).map((p) => p.box);
+      return {
+        left: box.left,
+        right: box.right,
+        width: box.width,
+        gridLeft: Math.min(...grid.map((g) => g.left)),
+        gridRight: Math.max(...grid.map((g) => g.right)),
+      };
+    };
 
     // prefix s: the tree opens docked, the grid starting where it ends.
     await openSidebarKeyboard(page, 'left');

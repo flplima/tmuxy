@@ -8,7 +8,8 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { V86AppHarness } from './StoryHarness';
 import { withTmuxView } from './tmuxView';
-import { app, tabPanes } from './sidebarStoryHelpers';
+import { tabPanes } from './sidebarStoryHelpers';
+import { appContext } from './storyApp';
 import { tmuxCaughtUp } from './tmuxBarrier';
 
 const meta: Meta<typeof V86AppHarness> = {
@@ -149,7 +150,7 @@ export const DragResizesTheColumn: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const gridCols = () => Math.max(0, ...tabPanes().map((p) => p.width));
-    const treeWindow = () => app().context.windows.find((w) => w.windowType === 'sidebar-left');
+    const treeWindow = () => appContext().windows.find((w) => w.windowType === 'sidebar-left');
     const toggle = await canvas.findByRole(
       'button',
       { name: /toggle tree sidebar/i },
@@ -214,7 +215,7 @@ export const DragResizesTheColumn: Story = {
     await waitFor(
       () =>
         expect(treeWindow()!.sidebarCols).toBe(
-          Math.round(column.getBoundingClientRect().width / app().context.charWidth),
+          Math.round(column.getBoundingClientRect().width / appContext().charWidth),
         ),
       { timeout: 30000, interval: 200 },
     );

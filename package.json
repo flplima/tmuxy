@@ -65,6 +65,11 @@
   },
   "knip": {
     "ignoreExportsUsedInFile": true,
+    "ignoreIssues": {
+      "tests/helpers/{config,browser,keyboard,pane-ops,window-ops,pane-groups,copy-mode-ui,e2e-context,glitch-detector,cli,ui-tmux,layout,copy-mode,cell-grid,mouse-capture,selection-drag,menus,layout-helpers}.js": [
+        "exports"
+      ]
+    },
     "ignoreDependencies": [
       "v86"
     ],
@@ -78,7 +83,9 @@
           "bin/**/*.mjs",
           "tests/perf/*.mjs",
           "eslint.config.mjs",
-          "tests/**/*.js"
+          "tests/**/*.test.js",
+          "tests/**/jest.*.js",
+          "tests/smoke/*.js"
         ],
         "project": [
           "bin/**/*.mjs",

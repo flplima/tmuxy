@@ -5,6 +5,8 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { appContext, storyApp } from '../stories/storyApp';
+import { stripTabs } from '../domain/windows';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
@@ -20,20 +22,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-interface AppSnap {
-  context: {
-    activeWindowId: string | null;
-    tabOverviewOpen: boolean;
-    windows: Array<{ id: string; index: number; name: string; windowType: string | null }>;
-  };
-}
-const actor = () =>
-  (window as unknown as { app: { getSnapshot(): AppSnap; send(event: unknown): void } }).app;
-const app = () => actor().getSnapshot();
-const tabs = () =>
-  app()
-    .context.windows.filter((w) => w.windowType === 'tab')
-    .sort((a, b) => a.index - b.index);
+const tabs = () => stripTabs(appContext().windows).sort((a, b) => a.index - b.index);
 
 async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
   return waitFor(
@@ -118,7 +107,7 @@ export const ColumnsFromConfigAndScrolling: Story = {
     await followsCard();
 
     for (const cols of [5, 2]) {
-      actor().send({
+      storyApp().send({
         type: 'THEME_SETTINGS_RECEIVED',
         theme: 'default',
         mode: 'dark',
@@ -158,7 +147,7 @@ export const OpensOutOfTheSlotYouClicked: Story = {
     const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
 
     // Let the zoom-out settle, so the grid is parked in the CURRENT tab's card.
-    const current = app().context.activeWindowId;
+    const current = appContext().activeWindowId;
     const currentCard = overview.querySelector(
       `[data-testid="tab-overview-slot-${current}"] .tab-overview-frame`,
     ) as HTMLElement;
@@ -187,7 +176,7 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       overview.querySelector(`[data-testid="tab-overview-slot-${other.id}"]`) as HTMLElement,
     );
     await waitForOverview(false);
-    await waitFor(() => expect(app().context.activeWindowId).toBe(other.id));
+    await waitFor(() => expect(appContext().activeWindowId).toBe(other.id));
     await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
     sampling = false;
 

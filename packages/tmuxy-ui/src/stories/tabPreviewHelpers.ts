@@ -1,11 +1,5 @@
 import { expect, waitFor } from 'storybook/test';
 
-export interface Snap {
-  context: {
-    activeWindowId: string | null;
-  };
-}
-
 export function tabButton(canvasElement: HTMLElement, name: string): HTMLElement {
   const el = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
     (t) => t.textContent?.includes(name),

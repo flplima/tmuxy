@@ -43,7 +43,7 @@ describeE2E('Scenario 4e: Tab Overview and ctrl+N by position', {}, (ctx) => {
     // chrome windows (a sidebar column) the app holds beside them.
     const state = async () => {
       const tabs = (await ctx.session.getWindowInfo())
-        .filter((w) => w.windowType === 'tab')
+        .filter((w) => w.type === 'tab')
         .sort((a, b) => a.index - b.index)
         .map((w) => ({ id: w.id, index: w.index }));
       const { active, chrome } = await page.evaluate(() => {

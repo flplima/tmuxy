@@ -23,7 +23,7 @@ import {
 import { selectGridDimensions } from '../machines/selectors/layout';
 import { gridPixelSize } from '../domain/paneGeometry';
 import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
-import { serverHostLabel } from './paneTabDisplay';
+import { serverHostLabel } from '../domain/servers';
 import { SessionMenu } from './SessionMenu';
 import './TmuxStatusBar.css';
 

@@ -11,6 +11,8 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import manyTabs from './fixtures/gen/many-tabs.json';
 import tabs from './fixtures/gen/tabs.json';
+import { storyApp } from './storyApp';
+import type { WindowId } from '../domain/ids';
 
 /** Twelve long-named tabs, more than the strip shows, the last current. */
 const MANY_TABS = {
@@ -93,10 +95,7 @@ export const PagesAScreenfulAtATime: Story = {
     // The strip keeps the current (newest) tab in view, so it opens at the far
     // end; bring it home first, since paging is what is under test.
     const firstId = list.querySelector<HTMLElement>('.tab-name[data-window-id]')!.dataset.windowId;
-    (window as unknown as { app: { send(e: unknown): void } }).app.send({
-      type: 'SELECT_TAB',
-      windowId: firstId,
-    });
+    storyApp().send({ type: 'SELECT_TAB', windowId: firstId as WindowId });
     await waitFor(() => expect(list.scrollLeft).toBeLessThan(8), { timeout: 6000 });
     await new Promise((r) => setTimeout(r, 800));
 
@@ -197,7 +196,7 @@ export const SwitchingScrollsTheTabIntoView: Story = {
       return box.left >= frame.left - 1 && box.right <= frame.right + 1;
     };
     const byId = (id: string) => tabs().find((t) => t.dataset.windowId === id)!;
-    const app = (window as unknown as { app: { send(e: unknown): void } }).app;
+    const app = storyApp();
 
     const last = tabs()[tabs().length - 1];
     const lastId = last.dataset.windowId as string;
@@ -209,7 +208,7 @@ export const SwitchingScrollsTheTabIntoView: Story = {
     // Without touching the strip, the way ctrl+1 or prefix p does it.
     const firstId = tabs()[0].dataset.windowId as string;
     expect(onScreen(byId(firstId))).toBe(false);
-    app.send({ type: 'SELECT_TAB', windowId: firstId });
+    app.send({ type: 'SELECT_TAB', windowId: firstId as WindowId });
     await waitFor(
       () => {
         const now = byId(firstId);
@@ -221,7 +220,7 @@ export const SwitchingScrollsTheTabIntoView: Story = {
     // By the least amount that does it: back at its start, nothing centred.
     expect(list.scrollLeft).toBeLessThan(20);
 
-    app.send({ type: 'SELECT_TAB', windowId: lastId });
+    app.send({ type: 'SELECT_TAB', windowId: lastId as WindowId });
     await waitFor(
       () => {
         const now = byId(lastId);

@@ -14,7 +14,8 @@ import twoPanes from './fixtures/gen/content-two-panes.json';
 import threePanes from './fixtures/gen/content-three-panes.json';
 import { ContentStabilityRecorder } from './contentStability';
 import { ContentMutationRecorder } from './contentMutation';
-import { getApp, getPaneLayout, waitForPaneCount } from './animationStoryHelpers';
+import { getPaneLayout, waitForPaneCount } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 import { wait } from './animationObservers';
 
 const meta: Meta<typeof FixtureApp> = {
@@ -35,7 +36,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-const cmd = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
+const cmd = (command: string) => storyApp().send({ type: 'SEND_TMUX_COMMAND', command });
 
 async function waitForMarkers(
   canvasElement: HTMLElement,

@@ -5,6 +5,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { appContext, storyApp } from '../stories/storyApp';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
 import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
@@ -60,10 +61,7 @@ async function findChevron(canvasElement: HTMLElement, user: User): Promise<HTML
   return canvas.findByRole('button', { name: /switch session/i }, { timeout: 8000 });
 }
 
-const currentSession = () =>
-  (
-    window as unknown as { app: { getSnapshot(): { context: { sessionName: string } } } }
-  ).app.getSnapshot().context.sessionName;
+const currentSession = () => appContext().sessionName;
 
 export const TheSwitcherIsADropdown: Story = {
   parameters: {
@@ -207,9 +205,9 @@ export const ConnectingOverSshIsDesktopOnly: Story = {
     tauriWindow.__TAURI_INTERNALS__ = {};
     try {
       const raised: string[] = [];
-      const app = (window as unknown as { app: { send(e: { type: string }): void } }).app;
+      const app = storyApp();
       const realSend = app.send.bind(app);
-      app.send = (event: { type: string }) => {
+      app.send = (event) => {
         raised.push(event.type);
         realSend(event);
       };

@@ -21,6 +21,8 @@ const {
   assertLayoutInvariants,
   waitForSettled,
   waitForLayoutSettled,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 
 // ==================== Scenario 17: Large Output Perf ====================
@@ -134,7 +136,7 @@ describeE2E('Scenario 18: Rapid Operations', {}, (ctx) => {
     await swapPaneKeyboard(ctx.page, 'down');
     const panesAfterSwap = await ctx.session.getPaneInfo();
     expect(
-      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,
+      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].top !== panesBefore[0].top,
     ).toBe(true);
   }, 240000);
 });
@@ -193,18 +195,12 @@ describeE2E('Scenario 20: Glitch Detection', {}, (ctx) => {
 
     // Step 4: Click focus with glitch detection
     await ctx.startGlitchDetection({ scope: '.pane-container' });
-    const paneInfo = await ctx.page.evaluate(() => {
-      const panes = document.querySelectorAll('.pane-layout-item');
-      return Array.from(panes).map((p) => {
-        const r = p.getBoundingClientRect();
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      });
-    });
-    if (paneInfo.length >= 2) {
-      await ctx.page.mouse.click(paneInfo[1].x, paneInfo[1].y);
-      await waitForSettled(ctx.page);
-      await waitForLayoutSettled(ctx.page);
-    }
+    const panes = await shownPanes(ctx.page, GRID_PANE);
+    expect(panes).toHaveLength(2);
+    const { box } = panes[1];
+    await ctx.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await waitForSettled(ctx.page);
+    await waitForLayoutSettled(ctx.page);
     // Click focus triggers CSS layout transitions, causing size jumps
     const clickResult = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
   }, 180000);

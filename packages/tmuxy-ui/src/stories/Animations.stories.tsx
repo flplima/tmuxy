@@ -11,12 +11,12 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 import { LayoutMutationRecorder, wait } from './animationObservers';
 import {
-  getApp,
   paneNodes,
   getPaneLayout,
   waitForPaneCount,
   waitForAnimationsEnabled,
 } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 
 /** A split answered with the two panes tmux drew; a kill with the one left. */
 const SPLIT = [{ match: /^split-window\b/, to: 'side-by-side' }];
@@ -90,7 +90,7 @@ export const SplitPane: Story = {
 
     const recorder = new LayoutMutationRecorder(layout);
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
       await waitForPaneCount(canvas, 2);
       await waitFor(
@@ -151,7 +151,7 @@ export const SlowSplitOptimistic: Story = {
 
     const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
       await waitFor(
         () => {
@@ -194,7 +194,7 @@ export const SplitRejectedRollback: Story = {
 
     const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
       await waitFor(
         () => {
@@ -238,7 +238,7 @@ export const ClosePane: Story = {
     const layout = getPaneLayout(canvasElement);
     await waitForAnimationsEnabled(layout);
 
-    const activeId = getApp().getSnapshot().context.activePaneId;
+    const activeId = storyApp().view().activePaneId;
     expect(activeId).toBeTruthy();
     const survivorId = paneNodes(canvasElement)
       .map((n) => n.dataset.paneId as string)
@@ -274,7 +274,7 @@ export const ClosePane: Story = {
 
     const recorder = new LayoutMutationRecorder(layout);
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
       requestAnimationFrame(sampleFrame);
 
       await waitForPaneCount(canvas, 1);

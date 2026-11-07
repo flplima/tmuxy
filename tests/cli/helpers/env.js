@@ -1,38 +1,16 @@
 /**
- * The environment a CLI script runs under in these tests.
- *
- * The suite is run from a shell inside tmux, and often inside tmuxy, whose
- * environment points at the developer's own tmux server (`TMUX`, `TMUX_PANE`,
- * `TMUX_SOCKET`), at the binary the running build published
- * (`TMUXY_SERVER_BIN`, `TMUXY_SERVER_SUBCOMMAND`) and at its config chain and
- * dirs (`TMUXY_DATA_DIR`, `TMUXY_STATE_DIR`, `TMUXY_ENTRY_CONF`, `XDG_*`).
- * A script that inherits any of them acts on the developer's session or
- * finds the installed app. None is inherited; `HOME` is a scratch directory,
- * so tmuxy's dirs resolve inside it; a test names whatever it needs.
+ * The environment a CLI script runs under in these tests: nothing of the
+ * developer's shell that would aim a script at their own session or the
+ * installed app (`scrubbedEnv`), `HOME` a scratch directory so tmuxy's dirs
+ * resolve inside it, and whatever the test names.
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { scrubbedEnv } = require('../../helpers/tmux-socket');
 
 const MOCKS_DIR = path.resolve(__dirname, '../mocks');
-
-const LEAKED = [
-  'TMUX',
-  'TMUX_PANE',
-  'TMUX_SOCKET',
-  'TMUXY_SERVER_BIN',
-  'TMUXY_SERVER_SUBCOMMAND',
-  'TMUXY_DATA_DIR',
-  'TMUXY_STATE_DIR',
-  'TMUXY_ENTRY_CONF',
-  'TMUXY_CALLER_PANE',
-  'TMUXY_SCRIPTS_DIR',
-  'TMUXY_PASSWORD',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'XDG_STATE_HOME',
-];
 
 /**
  * @param {string} home - The scratch directory the script takes as `HOME`
@@ -40,9 +18,7 @@ const LEAKED = [
  * @returns {Record<string, string>} The mocks first on PATH, nothing leaked
  */
 function scriptEnv(home, env = {}) {
-  const base = { ...process.env };
-  for (const name of LEAKED) delete base[name];
-  return { ...base, HOME: home, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...env };
+  return { ...scrubbedEnv(), HOME: home, PATH: `${MOCKS_DIR}:${process.env.PATH}`, ...env };
 }
 
 /**

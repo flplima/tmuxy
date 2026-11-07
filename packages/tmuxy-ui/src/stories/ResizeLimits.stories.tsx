@@ -13,6 +13,7 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import dividerAtMinimum from './fixtures/gen/divider-at-minimum.json';
 import { waitForPaneCount } from './animationStoryHelpers';
+import { appContext } from './storyApp';
 
 const RESIZE = [{ match: /^resize-pane\b/, to: 'right-at-minimum' }];
 
@@ -32,21 +33,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-interface Snap {
-  context: {
-    activeWindowId: string | null;
-    charWidth: number;
-    charHeight: number;
-    panes: Array<{ tmuxId: string; windowId: string; width: number; height: number }>;
-  };
-}
-
-function app(): Snap {
-  const a = (window as unknown as { app?: { getSnapshot(): Snap } }).app;
-  if (!a) throw new Error('window.app actor is not available — FixtureApp not mounted?');
-  return a.getSnapshot();
-}
 
 function paneBoxes(canvasElement: HTMLElement): DOMRect[] {
   return [...canvasElement.querySelectorAll<HTMLElement>('.pane-layout-item[data-pane-id]')]
@@ -116,7 +102,7 @@ export const DragStopsAtTheMinimum: Story = {
       expect(left.right).toBeLessThanOrEqual(right.left + 2);
     });
 
-    const cols = app().context.panes.map((p) => p.width);
+    const cols = appContext().panes.map((p) => p.width);
     expect(Math.min(...cols)).toBeGreaterThanOrEqual(1);
 
     fireAt('mouseUp', wall + 600, start.y);
@@ -125,6 +111,6 @@ export const DragStopsAtTheMinimum: Story = {
     const [left, right] = paneBoxes(canvasElement).sort((a, b) => a.left - b.left);
     expect(overlapArea(left, right)).toBe(0);
     expect(right.width).toBeGreaterThan(0);
-    expect(Math.min(...app().context.panes.map((p) => p.width))).toBeGreaterThanOrEqual(1);
+    expect(Math.min(...appContext().panes.map((p) => p.width))).toBeGreaterThanOrEqual(1);
   },
 };

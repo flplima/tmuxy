@@ -4,6 +4,7 @@ import { pid, wid, wirePane, wireSession, wireWindow } from '../../../test/wire'
 import { dispatchRaw } from '../../../test/store';
 import { fakeTransport, type FakeTransport } from '../../../test/transport';
 import { TmuxError } from '../../transport/AdapterError';
+import { TmuxOp } from '../../../domain/commands';
 
 /** What reached tmux, each as `cmd|args-json`. */
 const sent = (fake: FakeTransport) =>
@@ -170,5 +171,78 @@ describe('TmuxStore — last-window after a tab switch', () => {
     await fake.runtime.runPromise(dispatchRaw(store, 'last-window'));
     store.reconcile(on('@3'));
     expect(store.getModel().derived.activeWindowId).toBe(wid('@3'));
+  });
+});
+
+describe('TmuxStore — an op that moves focus releases the pin it moves away from', () => {
+  const panes = (active: '%1' | '%2') =>
+    wireSession({
+      panes: [
+        wirePane({ tmux_id: pid('%1'), x: 0, width: 39, active: active === '%1' }),
+        wirePane({ tmux_id: pid('%2'), x: 40, width: 40, active: active === '%2' }),
+      ],
+      active_pane_id: pid(active),
+    });
+
+  // tmux lands back on %2 — the pane the select left, which a stale snapshot
+  // would also name — because the op moved focus there.
+  it.each([
+    ['last-pane', TmuxOp.LastPane()],
+    ['the next pane', TmuxOp.CyclePane({ windowId: null })],
+    ['join-pane of the marked pane', TmuxOp.JoinMarked()],
+    ['a pane-group step', TmuxOp.GroupStep({ direction: 'next', paneId: null })],
+    ['a pane-group add', TmuxOp.GroupAdd({ pane: null })],
+    ['a pane-group close', TmuxOp.GroupClose({ paneId: pid('%1') })],
+  ])('%s shows the pane tmux focused at once', async (_name, op) => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    store.reconcile(panes('%2'));
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(dispatchRaw(store, 'select-pane -t %1'));
+    store.reconcile(panes('%1'));
+    expect(store.getModel().derived.activePaneId).toBe(pid('%1'));
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(store.dispatch(op));
+    store.reconcile(panes('%2'));
+    expect(store.getModel().derived.activePaneId).toBe(pid('%2'));
+  });
+
+  const tabs = (active: '@1' | '@3' | '@5') =>
+    wireSession({
+      panes: [
+        wirePane({ tmux_id: pid('%1'), window_id: wid('@1'), active: active === '@1' }),
+        wirePane({ tmux_id: pid('%3'), window_id: wid('@3'), active: active === '@3' }),
+        wirePane({ tmux_id: pid('%5'), window_id: wid('@5'), active: active === '@5' }),
+      ],
+      windows: [
+        wireWindow({ id: wid('@1'), index: 1, active: active === '@1' }),
+        wireWindow({ id: wid('@3'), index: 3, active: active === '@3' }),
+        wireWindow({ id: wid('@5'), index: 5, active: active === '@5' }),
+      ],
+      active_window_id: wid(active),
+      active_pane_id: pid(`%${active.slice(1)}`),
+    });
+
+  it.each([
+    // break-pane selects the tab it makes.
+    ['break-pane', TmuxOp.BreakPane({ paneId: null }), '@5' as const],
+    // join-pane selects the tab the pane joins: here the one the switch left.
+    ['join-pane', TmuxOp.JoinPane({ paneId: pid('%5'), windowId: wid('@3') }), '@3' as const],
+  ])('%s shows the tab tmux selected at once', async (_name, op, landed) => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    store.reconcile(tabs('@3'));
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(dispatchRaw(store, 'select-window -t @1'));
+    store.reconcile(tabs('@1'));
+    expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(store.dispatch(op));
+    store.reconcile(tabs(landed));
+    expect(store.getModel().derived.activeWindowId).toBe(wid(landed));
   });
 });

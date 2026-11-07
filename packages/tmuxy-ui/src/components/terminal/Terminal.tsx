@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { TerminalLine } from './TerminalLine';
 import { Cursor, type CursorMode } from './Cursor';
-import { cellsToCss, resolveImageSrc } from './terminalShared';
+import { resolveImageSrc } from './terminalShared';
+import { cellsToCss } from '../../infra/dom/cellMetrics';
 import { cursorShapeToMode } from './cursorShape';
 import { isWrappedRow, selectionColumns } from '../../domain/copyMode';
 import { detectUrlsAcrossRows } from './urlDetect';

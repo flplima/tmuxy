@@ -84,7 +84,7 @@ function withoutRunShellWrap(tmuxCalls) {
  * @param {string} [opts.path] - PATH in place of the mocks' directory and the inherited one
  * @returns {{ stdout: string, stderr: string, exitCode: number, tmuxCalls: Array<{args: string[]}>, paneResolution: {args: string[]} | null }}
  */
-function runCLIFull(args, opts = {}) {
+function runCLI(args, opts = {}) {
   return withScratchDir('tmuxy-cli-', (home) => {
     const logFile = path.join(home, 'mock-tmux.log');
     const env = scriptEnv(home, {
@@ -122,4 +122,4 @@ function runCLIFull(args, opts = {}) {
   });
 }
 
-module.exports = { runCLI: runCLIFull };
+module.exports = { runCLI };

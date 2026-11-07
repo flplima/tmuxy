@@ -167,7 +167,7 @@ const GUEST_INSTALL = [
   `ln -sf /tmp/tb/bin/tmuxy ${GUEST_DATA_DIR}/bin/tmuxy`,
   // The CLI where the chain's @tmuxy-cli names it, as the app mirrors it.
   `ln -sf /tmp/tb/bin/tmuxy-cli ${GUEST_DATA_DIR}/bin/tmuxy-cli`,
-  `cp /tmp/tb/tmuxy.defaults.conf /tmp/tb/tmuxy.essentials.conf ${GUEST_DATA_DIR}/`,
+  `cp ${GUEST_CONF_ASSETS.map((conf) => `/tmp/tb/${conf}`).join(' ')} ${GUEST_DATA_DIR}/`,
   `cp /tmp/tb/tmuxy.entry.conf ${GUEST_STATE_DIR}/`,
   `cp /tmp/tb/tmuxy.conf ${GUEST_CONFIG_DIR}/`,
   'cp /tmp/tb/bashrc /root/.bashrc',

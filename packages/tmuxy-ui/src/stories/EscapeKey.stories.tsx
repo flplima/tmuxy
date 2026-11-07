@@ -9,6 +9,7 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture, adapterHolder } from './fixtures/FixtureAdapter';
 import escapeFloat from './fixtures/gen/escape-float.json';
 import { activePaneId, paneGroups, windows } from './appStoryHelpers';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Escape Key',
@@ -31,12 +32,7 @@ export const EscapeSemanticsMatrix: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     const doc = canvasElement.ownerDocument;
-    const focusedFloat = () =>
-      (
-        window as unknown as {
-          app: { getSnapshot(): { context: { keyboardOwner: { kind: string; paneId?: string } } } };
-        }
-      ).app.getSnapshot().context.keyboardOwner.paneId ?? null;
+    const focusedFloat = () => storyApp().view().keyboardTarget.paneId;
 
     await waitFor(
       () => {

@@ -36,7 +36,7 @@ describeE2E(
     let stopServer = () => {};
 
     afterEach(async () => {
-      stopServer();
+      await stopServer();
       stopServer = () => {};
       unsetConfigVariable();
     }, ctx.hookTimeout);

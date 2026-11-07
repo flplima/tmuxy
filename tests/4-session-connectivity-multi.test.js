@@ -19,6 +19,8 @@ const {
   DELAYS,
   TMUXY_URL,
   TMUXY_PORT,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 const { waitForMonitorGone } = require('./helpers/monitor');
@@ -135,7 +137,7 @@ describeE2E('Scenario 22c: Published under another name by a reverse proxy', {},
   afterAll(async () => {
     refused?.stop();
     allowed?.stop();
-    stopAllowedServer();
+    await stopAllowedServer();
   });
 
   test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works [nightly]', async () => {
@@ -396,16 +398,13 @@ describeE2E('Scenario 24: Session Switcher (web)', {}, (ctx) => {
     // Two panes, so the session the switch comes back to is recognisably this one.
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 2, 15000);
-    const shownPanes = () =>
-      ctx.page.evaluate(() =>
-        [...document.querySelectorAll('.pane-layout-item[data-pane-id]')]
-          .filter((el) => el.getBoundingClientRect().width > 0)
-          .map((el) => el.dataset.paneId)
-          .sort()
-          .join(','),
-      );
+    const shownPaneIds = async () =>
+      (await shownPanes(ctx.page, GRID_PANE))
+        .map((p) => p.id)
+        .sort()
+        .join(',');
     const sessionName = () => pageSession(ctx.page);
-    const primaryPanes = await shownPanes();
+    const primaryPanes = await shownPaneIds();
 
     let created = null;
     try {
@@ -434,7 +433,7 @@ describeE2E('Scenario 24: Session Switcher (web)', {}, (ctx) => {
       await waitForCondition(
         ctx.page,
         async () => {
-          const panes = await shownPanes();
+          const panes = await shownPaneIds();
           return panes !== '' && !panes.includes(',') && panes !== primaryPanes;
         },
         15000,
@@ -446,7 +445,8 @@ describeE2E('Scenario 24: Session Switcher (web)', {}, (ctx) => {
       await openSession(ctx.page, primaryName);
       await waitForCondition(
         ctx.page,
-        async () => (await sessionName()) === primaryName && (await shownPanes()) === primaryPanes,
+        async () =>
+          (await sessionName()) === primaryName && (await shownPaneIds()) === primaryPanes,
         20000,
         'the first session and its two panes to come back',
       );

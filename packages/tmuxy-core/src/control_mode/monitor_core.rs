@@ -33,6 +33,7 @@ use tracing::debug;
 
 pub use attach::AttachConfig;
 pub use reads::ReadPacing;
+pub use replies::command_reports_failure;
 
 /// How often the client polls a pane in copy mode: its cursor needs
 /// sub-100ms updates, and tmux announces none of them.

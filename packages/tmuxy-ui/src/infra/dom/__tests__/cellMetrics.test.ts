@@ -4,8 +4,8 @@ import {
   computeCellMetrics,
   cellMetricsStyle,
   sidebarCellMetrics,
+  cellsToCss,
 } from '../cellMetrics';
-import { cellsToCss } from '../../../components/terminal/terminalShared';
 
 describe('snapCellWidth', () => {
   it('rounds a fractional advance to a whole CSS pixel at DPR 1', () => {

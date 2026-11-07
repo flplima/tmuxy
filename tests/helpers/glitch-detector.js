@@ -13,24 +13,15 @@
  *   expect(result.summary.nodeFlickers).toBe(0);
  */
 
-const { resolve } = require('node:path');
+const { storyModule } = require('./story-module');
 
-// Jest's own `require` cannot load an ES module and the E2E suite has no
-// transform, so the shared source is loaded through Node's loader instead:
-// `process.getBuiltinModule` hands back the real `module` builtin (Jest wraps
-// the one `require('node:module')` returns), and Node ≥ 22.18 strips the types
-// itself. The file keeps to erasable syntax for exactly this reason.
-const { createRequire } = process.getBuiltinModule('module');
 const {
   GLITCH_DEFAULTS,
-  OPERATION_THRESHOLDS,
   analyzeGlitches,
   describeGlitches,
   glitchThresholds,
   startGlitchCollector,
-} = createRequire(__filename)(
-  resolve(__dirname, '../../packages/tmuxy-ui/src/stories/glitchRecorder.ts'),
-);
+} = storyModule('glitchRecorder.ts');
 
 /**
  * Default configuration for glitch detection. Rects are polled on a timer
@@ -108,4 +99,4 @@ class GlitchDetector {
   }
 }
 
-module.exports = { GlitchDetector, OPERATION_THRESHOLDS };
+module.exports = { GlitchDetector };

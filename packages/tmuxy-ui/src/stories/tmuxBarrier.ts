@@ -11,6 +11,7 @@
  */
 
 import { wait } from './animationObservers';
+import { storyApp } from './storyApp';
 
 /**
  * tmux has done everything sent so far, its notifications are in the app's
@@ -19,7 +20,7 @@ import { wait } from './animationObservers';
  * flip caused by tmux's answer has happened by then, or never will.
  */
 export function tmuxCaughtUp(): Promise<void> {
-  return (window as unknown as { app: { caughtUp(): Promise<void> } }).app.caughtUp();
+  return storyApp().caughtUp();
 }
 
 /** Every CSS transition under `root` has run to its end (a swap's slide, a resize). */

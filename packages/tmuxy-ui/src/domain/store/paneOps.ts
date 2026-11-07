@@ -2,7 +2,7 @@ import {
   type TmuxSnapshot,
   type Patch,
   type ReconcileVerdict,
-  CONFIRM_LINGER_MS,
+  confirmedVerdict,
   FOCUS_SUPERSEDE_GRACE_MS,
   lingerVerdict,
 } from './types';
@@ -471,7 +471,7 @@ export function reconcileKillPane(
     // flap the absorber back to half-size the moment this op's patch is
     // gone. The patch is idempotent over confirmed layouts, so holding it
     // costs nothing.
-    return ageMs >= CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+    return confirmedVerdict(ageMs);
   }
   return { _tag: 'pending' };
 }

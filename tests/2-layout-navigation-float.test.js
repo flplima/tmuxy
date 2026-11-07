@@ -301,11 +301,7 @@ describeE2E('Scenario 22: Float fzf Workflow', { snapshot: true }, (ctx) => {
     await verifyFloatVisible(ctx.page);
 
     // Get the float pane ID for capture-pane verification
-    const floatPaneId = await ctx.page.evaluate(() =>
-      window.app?.view().keyboardTarget.kind === 'float'
-        ? window.app?.view().keyboardTarget.paneId
-        : null,
-    );
+    const floatPaneId = await focusedFloatPaneId(ctx.page);
     expect(floatPaneId).toBeTruthy();
 
     // Synchronise on the float's own prompt, using the shared predicate rather

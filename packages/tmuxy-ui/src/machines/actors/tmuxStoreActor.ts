@@ -21,16 +21,20 @@ import type { AppRuntime } from '../../infra/runtime';
 
 /** An op's ids and direction for the trace: never a name or any free text. */
 function traceOp(op: TmuxOp): void {
-  const o = op as Record<string, unknown>;
-  const pane = (o.paneId ?? o.sourcePaneId ?? o.clickedPaneId) as string | null | undefined;
-  const window = o.windowId as string | null | undefined;
-  const kind = typeof o.direction === 'string' ? o.direction : undefined;
+  const pane =
+    'paneId' in op
+      ? op.paneId
+      : 'sourcePaneId' in op
+        ? op.sourcePaneId
+        : 'clickedPaneId' in op
+          ? op.clickedPaneId
+          : null;
   tracer.event({
     layer: 'store',
     name: op._tag,
     pane: pane ?? undefined,
-    window: window ?? undefined,
-    kind,
+    window: ('windowId' in op ? op.windowId : null) ?? undefined,
+    kind: 'direction' in op ? op.direction : undefined,
   });
 }
 

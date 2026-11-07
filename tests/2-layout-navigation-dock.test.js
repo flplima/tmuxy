@@ -25,17 +25,15 @@ const {
   glidePositions,
   sampleSidebarToggle,
   jumpProblem,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers/layout-helpers');
-const { tmuxPanes, tmuxWindow } = require('./helpers/tmux-read');
+const { tmuxPanes, tmuxWindow, tmuxWindows } = require('./helpers/tmux-read');
 const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** The session's dock window (`sidebar-right`), as tmux has it; null when it has none. */
 function dockWindow(session) {
-  const id = tmuxExec(`list-windows -t ${session} -F '#{window_id} #{@tmuxy-window-type}'`)
-    .split('\n')
-    .find((line) => line.endsWith(' sidebar-right'))
-    ?.split(' ')[0];
-  return id ? tmuxWindow(id) : null;
+  return tmuxWindows(session).find((w) => w.type === 'sidebar-right') ?? null;
 }
 
 describeE2E('Scenario 6e: Pinned Terminal Dock (right sidebar)', {}, (ctx) => {
@@ -352,27 +350,23 @@ describeE2E('Scenario 6l: The tree lists panes in grid order', {}, (ctx) => {
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // What the grid shows, left to right, and what the tree lists.
-    const order = () =>
-      ctx.page.evaluate(() => {
+    const order = async () => {
+      // The grid's panes as drawn, top to bottom, left to right.
+      const grid = (await shownPanes(ctx.page, GRID_PANE))
+        .sort((a, b) => Math.round(a.box.top - b.box.top) || a.box.left - b.box.left)
+        .map(({ id }) => id);
+      const tree = await ctx.page.evaluate((drawn) => {
         const activeWindowId = window.app.view().activeTabId;
-        // The grid's panes as drawn, top to bottom, left to right.
-        const grid = [
-          ...document.querySelectorAll('.pane-container .pane-layout-item[data-pane-id]'),
-        ]
-          .filter((el) => !el.closest('.pane-window-hidden'))
-          .map((el) => ({ id: el.dataset.paneId, r: el.getBoundingClientRect() }))
-          .filter(({ r }) => r.width > 0 && r.height > 0)
-          .sort((a, b) => Math.round(a.r.top - b.r.top) || a.r.left - b.r.left)
-          .map(({ id }) => id);
-        const tree = [
+        return [
           ...document.querySelectorAll(
             `[data-testid="tree-tab-${activeWindowId}"] + .sidebar-tree-children .sidebar-tree-pane`,
           ),
         ]
           .map((el) => el.getAttribute('data-pane-id'))
-          .filter((id) => grid.includes(id));
-        return { grid, tree };
-      });
+          .filter((id) => drawn.includes(id));
+      }, grid);
+      return { grid, tree };
+    };
     const waitForTreeInGridOrder = (what) =>
       waitForCondition(
         ctx.page,

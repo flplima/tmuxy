@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { CellLine, CellStyle } from '../../domain/wireCells';
-import { cellColorToCss, cellsToCss, isWideChar, sanitizeTerminalCell } from './terminalShared';
+import { cellColorToCss, isWideChar, sanitizeTerminalCell } from './terminalShared';
+import { cellsToCss } from '../../infra/dom/cellMetrics';
 import { glyphFit } from './glyphFit';
 import { isBlockGlyph, blockGlyphStyle } from './blockGlyphs';
 import { detectUrls, type DetectedUrl } from './urlDetect';

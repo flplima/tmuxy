@@ -11,7 +11,8 @@ import { Cursor } from './Cursor';
 import { useAppSelector } from '../../machines/appHooks';
 import { selectCharSize } from '../../machines/selectors/layout';
 import { renderLineToDOM } from './terminalRendering';
-import { cellsToCss, resolveImageSrc, sameCellStyle } from './terminalShared';
+import { resolveImageSrc, sameCellStyle } from './terminalShared';
+import { cellsToCss } from '../../infra/dom/cellMetrics';
 import {
   isRowLoaded,
   isWrappedRow,

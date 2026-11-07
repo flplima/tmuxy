@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { tmuxRun, tmuxRunAsOperator } = require('./cli');
 const { tmuxCmd, tmuxExec, stateDir } = require('./tmux-socket');
+const { tmuxPanes, tmuxWindows } = require('./tmux-read');
 const { waitForCondition, waitForSettled } = require('./browser');
 const { reapPids } = require('./reap');
 
@@ -154,29 +155,12 @@ class TmuxTestSession {
 
   /** How many tabs the session has (its chrome windows not counted). */
   async getWindowCount() {
-    return (await this.getWindowInfo()).filter((w) => w.windowType === 'tab').length;
+    return (await this.getWindowInfo()).filter((w) => w.type === 'tab').length;
   }
 
-  /** The panes of the tab the app shows, as tmux has them. */
+  /** The panes of the tab the app shows, as tmux has them (`tmuxPanes`). */
   async getPaneInfo() {
-    const result = tmuxExec(
-      `list-panes -t ${await this.activeTab()} -F "#{pane_id}|#{pane_index}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_top}|#{pane_left}"`,
-    );
-    return result
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((line) => {
-        const [id, index, width, height, active, top, left] = line.split('|');
-        return {
-          id,
-          index: parseInt(index, 10),
-          width: parseInt(width, 10),
-          height: parseInt(height, 10),
-          active: active === '1',
-          y: parseInt(top, 10),
-          x: parseInt(left, 10),
-        };
-      });
+    return tmuxPanes(await this.activeTab());
   }
 
   /** The pane the app holds active. */
@@ -240,26 +224,9 @@ class TmuxTestSession {
     return tmuxExec(`display-message -t ${await this.activeTab()} -p "#{window_index}"`);
   }
 
-  /** The session's windows, floats left out, as tmux has them. */
+  /** The session's windows, floats left out, as tmux has them (`tmuxWindows`). */
   async getWindowInfo() {
-    const result = tmuxExec(
-      `list-windows -t ${this.name} -F "#{window_id}|#{window_index}|#{window_active}|#{@tmuxy-window-type}|#{window_name}"`,
-    );
-    return result
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((line) => {
-        const [id, index, active, windowType, ...name] = line.split('|');
-        return {
-          id,
-          index: parseInt(index, 10),
-          name: name.join('|'),
-          active: active === '1',
-          // Untagged is a tab (docs/TMUX-TAGS.md).
-          windowType: windowType || 'tab',
-        };
-      })
-      .filter((w) => w.windowType !== 'float');
+    return tmuxWindows(this.name).filter((w) => w.type !== 'float');
   }
 }
 

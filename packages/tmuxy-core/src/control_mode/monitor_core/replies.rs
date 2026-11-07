@@ -27,6 +27,13 @@ pub(super) fn reports_failure(list: &CommandList) -> bool {
     !list.top_level().any(|command| command.runs(&SEND_KEYS))
 }
 
+/// [`reports_failure`] for a routed command line: what a host that sends
+/// keystrokes without waiting on a reply (the browser guest) asks, so the rule
+/// has one home.
+pub fn command_reports_failure(command: &str) -> bool {
+    reports_failure(&tmux_command::parse(command))
+}
+
 impl<W> MonitorCore<W> {
     /// A command a client sent — routed already (`command_router`) — as the
     /// lines that run it, with `waiter` (the caller, when one wants the

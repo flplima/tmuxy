@@ -153,7 +153,6 @@ async function ensureMouseCaptureStopped(ctx) {
 
 module.exports = {
   startMouseCapture,
-  mouseEvents,
   readMouseEvents,
   stopMouseCapture,
   ensureMouseCaptureStopped,

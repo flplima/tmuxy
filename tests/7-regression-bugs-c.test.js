@@ -93,7 +93,7 @@ describeE2E('Scenario: an unpinned command lands in the tab on screen', {}, (ctx
 
     const before = await panesByWindow();
     const firstTab = (await ctx.session.getWindowInfo())
-      .filter((w) => w.windowType === 'tab')
+      .filter((w) => w.type === 'tab')
       .sort((a, b) => a.index - b.index)[0]?.id;
 
     // 1. The split belongs to the tab on screen.

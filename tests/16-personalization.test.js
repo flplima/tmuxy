@@ -63,7 +63,7 @@ describeE2E('Scenario 31: Personalizing tmuxy from its config dir', {}, (ctx) =>
   let stopServer = () => {};
 
   afterEach(async () => {
-    stopServer();
+    await stopServer();
     stopServer = () => {};
     unsetConfigVariable();
   }, ctx.hookTimeout);

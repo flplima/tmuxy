@@ -14,7 +14,9 @@ import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import twoTabs from '../stories/fixtures/gen/sidebar-two-tabs.json';
 import bothColumns from '../stories/fixtures/gen/sidebar-both-columns.json';
 import treeColumn from '../stories/fixtures/gen/tree.json';
-import { app, tabPanes, waitForTree, rightClick, menuLabels } from '../stories/sidebarStoryHelpers';
+import { tabPanes, waitForTree, rightClick, menuLabels } from '../stories/sidebarStoryHelpers';
+import { appContext } from '../stories/storyApp';
+import { stripTabs } from '../domain/windows';
 
 const OPEN_TREE = /^split-window\b.*@tmuxy-window-type sidebar-left$/;
 const OPEN_DOCK = /^split-window\b.*@tmuxy-window-type sidebar-right$/;
@@ -54,7 +56,7 @@ export const ClickTabAndPaneActivate: Story = {
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
     await waitFor(() => {
-      for (const w of app().context.windows.filter((win) => win.windowType === 'tab')) {
+      for (const w of stripTabs(appContext().windows)) {
         expect(tree.querySelector(`[data-testid="tree-tab-${w.id}"]`)).not.toBeNull();
       }
       for (const p of tabPanes()) {
@@ -71,13 +73,13 @@ export const ClickTabAndPaneActivate: Story = {
     });
 
     await userEvent.click(tree.querySelector('[data-testid="tree-tab-@0"]') as HTMLElement);
-    await waitFor(() => expect(app().context.activeWindowId).toBe('@0'), { timeout: 5000 });
+    await waitFor(() => expect(appContext().activeWindowId).toBe('@0'), { timeout: 5000 });
     // A click picks a target; the keyboard goes to the tab, not into the tree.
     expect(tree.getAttribute('data-focused')).toBe('false');
 
     // %1 is the tab's active pane.
     await userEvent.click(tree.querySelector('[data-testid="tree-pane-%0"]') as HTMLElement);
-    await waitFor(() => expect(app().context.activePaneId).toBe('%0'), { timeout: 5000 });
+    await waitFor(() => expect(appContext().activePaneId).toBe('%0'), { timeout: 5000 });
     expect(tree.getAttribute('data-focused')).toBe('false');
 
     // `j` and `k` are tree keys, so a tree still holding the keyboard would eat them.

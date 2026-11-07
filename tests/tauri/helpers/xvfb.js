@@ -60,4 +60,4 @@ function stopXvfb() {
   }
 }
 
-module.exports = { startXvfb, stopXvfb, DISPLAY };
+module.exports = { startXvfb, stopXvfb };

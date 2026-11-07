@@ -119,6 +119,14 @@ pub fn route_query(command: &str) -> Result<JsValue, JsValue> {
     to_js(&Routed::from(command_router::route_query(command)))
 }
 
+/// Whether the core reports tmux's refusal of `command`, a routed line
+/// (`control_mode::command_reports_failure`): keystrokes are the one kind it
+/// does not, so the host sends them without waiting on a reply.
+#[wasm_bindgen(js_name = reportsFailure)]
+pub fn reports_failure(command: &str) -> bool {
+    tmuxy_core::control_mode::command_reports_failure(command)
+}
+
 struct Session {
     parser: Parser,
     core: MonitorCore<u32>,

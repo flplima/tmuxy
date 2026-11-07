@@ -1,15 +1,5 @@
-interface Snap {
-  context: {
-    targetCols: number;
-    targetRows: number;
-    charWidth: number;
-    charHeight: number;
-    phoneLayout: boolean;
-    phoneLandscape: boolean;
-  };
-}
-export const ctx = () =>
-  (window as unknown as { app: { getSnapshot(): Snap } }).app.getSnapshot().context;
+import { appContext } from './storyApp';
+export const ctx = appContext;
 
 export const box = (el: Element | null) => {
   if (!el) throw new Error('missing element');
