@@ -1,9 +1,14 @@
 /**
- * What a test outside the app may read of it (`window.app.view()`): the E2E
- * suites and the stories. Everything else a test checks is on the screen or in
- * tmux, so the machine's context can change shape without breaking one.
+ * What a test may read of the app (`window.app`, set by `AppContext.tsx`).
+ *
+ * The E2E suites are JavaScript outside the app's types: they read only
+ * `view()`, and everything else they check is on the screen or in tmux, so the
+ * machine's context can change shape without breaking one. The stories run in
+ * the app's own TypeScript and reach the machine through this typed handle
+ * (`stories/storyApp.ts`), so a renamed field breaks them at compile time.
  */
 
+import type { AppMachineActor } from './app/appMachine';
 import type { AppMachineContext } from './types/context';
 import type { CopyModeState } from '../domain/copyMode';
 import type { WindowType } from '../domain/wire';
@@ -49,6 +54,21 @@ export interface AppTestView {
   pluginActions: string[];
   /** Every window the client holds, and what it is (`@tmuxy-window-type`; null for a foreign one). */
   windows: { id: WindowId; kind: WindowType | null }[];
+}
+
+/** `window.app`: the app's actor, and what a test asks of it. */
+export type AppHandle = AppMachineActor & {
+  /** Nothing queued, in flight or awaiting tmux's verdict. */
+  settled: () => boolean;
+  /** tmux has done everything sent so far, and the screen shows it. */
+  caughtUp: () => Promise<void>;
+  view: () => AppTestView;
+};
+
+declare global {
+  interface Window {
+    app?: AppHandle;
+  }
 }
 
 export function selectTestView(context: AppMachineContext): AppTestView {

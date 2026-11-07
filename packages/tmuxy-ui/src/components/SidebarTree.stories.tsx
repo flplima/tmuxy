@@ -6,7 +6,10 @@ import tabReorder from '../stories/fixtures/gen/sidebar-tab-reorder.json';
 import twoTabs from '../stories/fixtures/gen/sidebar-two-tabs.json';
 import treeColumn from '../stories/fixtures/gen/tree.json';
 import paneState from '../stories/fixtures/gen/sidebar-pane-state.json';
-import { app, tabPanes, waitForTree } from '../stories/sidebarStoryHelpers';
+import { tabPanes, waitForTree } from '../stories/sidebarStoryHelpers';
+import { appContext, storyApp } from '../stories/storyApp';
+
+import { stripTabs } from '../domain/windows';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Sidebar Tree',
@@ -28,7 +31,7 @@ export const DragTabRowToReorder: Story = {
   play: async () => {
     const tree = await waitForTree();
 
-    const tabs = () => app().context.windows.filter((w) => w.windowType === 'tab');
+    const tabs = () => stripTabs(appContext().windows);
     const firstRow = tree.querySelector('[data-testid="tree-tab-@0"]') as HTMLElement;
     const secondRow = tree.querySelector('[data-testid="tree-tab-@1"]') as HTMLElement;
     expect(firstRow).not.toBeNull();
@@ -61,7 +64,7 @@ export const DragTabRowToReorder: Story = {
       expect(rows()).toEqual(['@1', '@0']);
     });
     expect(tree.querySelector('.is-dragging, .is-drop-before, .is-drop-after')).toBeNull();
-    expect(app().context.activeWindowId).toBe('@1');
+    expect(appContext().activeWindowId).toBe('@1');
 
     // tmux's answer settles without a flip back.
     await waitFor(() => expect(tabs().find((w) => w.id === '@1')?.index).toBe(1), {
@@ -123,8 +126,8 @@ export const PaneNodesShowHeaderTitle: Story = {
       expect(row.querySelector('.sidebar-tree-branch')).not.toBeNull();
     }
 
-    const treeWindow = app().context.windows.find((w) => w.windowType === 'sidebar-left')!;
-    const treePane = app().context.panes.find((p) => p.windowId === treeWindow.id)!;
+    const treeWindow = appContext().windows.find((w) => w.windowType === 'sidebar-left')!;
+    const treePane = appContext().panes.find((p) => p.windowId === treeWindow.id)!;
     expect(treePane.tmuxId).toBe('%2');
     expect(tree.querySelector('[data-testid="tree-pane-%2"]')).toBeNull();
   },
@@ -155,9 +158,8 @@ export const PaneStateIsWhatThePaneDeclares: Story = {
     const [busy, blocked] = ['%0', '%1'];
 
     // What `tmuxy pane state` runs, through the same command path.
-    const win = window as unknown as { app: { send(e: unknown): void } };
     const declare = (paneId: string, state: string) =>
-      win.app.send({
+      storyApp().send({
         type: 'SEND_TMUX_COMMAND',
         command: `set-option -p -t ${paneId} @tmuxy-pane-state ${state}`,
       });

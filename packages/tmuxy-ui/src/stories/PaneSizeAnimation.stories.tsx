@@ -16,12 +16,13 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import moves from './fixtures/gen/side-by-side-moves.json';
 import stack from './fixtures/gen/stack-rows.json';
 import {
-  getApp,
   getPaneLayout,
   paneNodes,
   waitForAnimationsEnabled,
   waitForPaneCount,
 } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
+
 import { cursorPolygon } from './cursorShape';
 
 const SIDE_BY_SIDE = {
@@ -57,7 +58,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-const run = (command: string) => getApp().send({ type: 'SEND_TMUX_COMMAND', command });
+const run = (command: string) => storyApp().send({ type: 'SEND_TMUX_COMMAND', command });
 
 const waitForPanes = (count: number, canvasElement: HTMLElement) =>
   waitForPaneCount(within(canvasElement), count);
@@ -206,13 +207,10 @@ export const PressingAHeaderTakesThePane: Story = {
     await waitForPanes(2, canvasElement);
     await waitForAnimationsEnabled(getPaneLayout(canvasElement));
 
-    const app = (
-      window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
-    ).app;
     const panes = paneNodes(canvasElement);
     const other = panes
       .map((n) => n.dataset.paneId as string)
-      .find((id) => id !== app.getSnapshot().context.activePaneId)!;
+      .find((id) => id !== storyApp().view().activePaneId)!;
 
     const header = canvasElement.querySelector<HTMLElement>(
       `.pane-layout-item[data-pane-id="${other}"] .pane-header`,
@@ -226,7 +224,7 @@ export const PressingAHeaderTakesThePane: Story = {
       bubbles: true,
     });
 
-    await waitFor(() => expect(app.getSnapshot().context.activePaneId).toBe(other), {
+    await waitFor(() => expect(storyApp().view().activePaneId).toBe(other), {
       timeout: 6000,
     });
     await waitFor(() =>

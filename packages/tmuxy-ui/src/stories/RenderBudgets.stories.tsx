@@ -21,6 +21,7 @@ import {
   renderCountsById,
 } from '../components/renderLogStore';
 import { wait } from './animationObservers';
+import { storyApp } from './storyApp';
 
 const enterShows = (state: string) => [{ match: /^send-keys -t %0 Enter$/, to: state }];
 
@@ -73,9 +74,7 @@ export const TypingIsolation: Story = {
 
     const panes = canvas.getAllByRole('group', { name: /^Pane /i });
     await user.click(panes.find((p) => p.getAttribute('data-pane-id') === '%0')!);
-    const activeId = (
-      window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
-    ).app.getSnapshot().context.activePaneId;
+    const activeId = storyApp().view().activePaneId;
     const otherIds = panes
       .map((p) => p.getAttribute('data-pane-id'))
       .filter((id): id is string => id !== null && id !== activeId);

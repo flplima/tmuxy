@@ -11,6 +11,7 @@ import {
   paneRect,
   paneIds,
 } from './appStoryHelpers';
+import { appContext } from './storyApp';
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application Blink & Edge Cases',
@@ -40,24 +41,7 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
       paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
 
     const anchor = (id: string): { h: number; deepest: number; cY: number } => {
-      const pane = (
-        window as unknown as {
-          app: {
-            getSnapshot(): {
-              context: {
-                panes: Array<{
-                  tmuxId: string;
-                  height: number;
-                  cursorY: number;
-                  content: Array<Array<{ c?: string }>>;
-                }>;
-              };
-            };
-          };
-        }
-      ).app
-        .getSnapshot()
-        .context.panes.find((p) => p.tmuxId === id)!;
+      const pane = appContext().panes.find((p) => p.tmuxId === id)!;
       let deepest = -1;
       pane.content.forEach((line, i) => {
         if (line.some((cell) => (cell.c ?? '').trim().length > 0)) deepest = i;

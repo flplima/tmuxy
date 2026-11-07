@@ -15,6 +15,7 @@ import {
   paneRect,
   paneIds,
 } from './appStoryHelpers';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application Swap & Stability',
@@ -222,11 +223,7 @@ export const SwapKeepsContentInCorrectLines: Story = {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
     await focusFirstPane(canvas, user);
-    const cmd = (c: string) =>
-      (window as unknown as { app: { send: (e: unknown) => void } }).app.send({
-        type: 'SEND_TMUX_COMMAND',
-        command: c,
-      });
+    const cmd = (c: string) => storyApp().send({ type: 'SEND_TMUX_COMMAND', command: c });
     const byTop = () =>
       paneIds(canvas)
         .map((id) => ({ id, top: paneRect(canvas, id).top }))

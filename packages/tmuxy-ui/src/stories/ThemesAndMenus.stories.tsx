@@ -12,6 +12,7 @@ import {
   settleGeometry,
   rectSignature,
 } from './appStoryHelpers';
+import { appContext, storyApp } from './storyApp';
 
 /**
  * The app menu's theme and pane items, and the status bar's gestures, over
@@ -28,26 +29,17 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-type ThemeApp = {
-  send(e: { type: string; name?: string; mode?: string }): void;
-  getSnapshot(): { context: { availableThemes: unknown[] } };
-};
-const app = () => (window as unknown as { app: ThemeApp }).app;
-
 async function waitForThemeList() {
-  await waitFor(
-    () => expect(app().getSnapshot().context.availableThemes.length).toBeGreaterThan(0),
-    {
-      timeout: 10000,
-      interval: 200,
-    },
-  );
+  await waitFor(() => expect(appContext().availableThemes.length).toBeGreaterThan(0), {
+    timeout: 10000,
+    interval: 200,
+  });
 }
 
 /** Back to the default theme in dark mode, which the next story expects. */
 function restoreDefaultTheme() {
-  app().send({ type: 'SET_THEME', name: 'default' });
-  app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
+  storyApp().send({ type: 'SET_THEME', name: 'default' });
+  storyApp().send({ type: 'SET_THEME_MODE', mode: 'dark' });
 }
 
 /**

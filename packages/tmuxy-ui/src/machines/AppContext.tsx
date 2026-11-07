@@ -72,9 +72,8 @@ export function AppProvider({
     }),
   );
 
-  // Expose the XState actor for E2E tests and stories, and tap `send` so the
-  // action tracer sees every dispatched event. A test reads `view()`
-  // (machines/testView.ts), never the context.
+  // Expose the XState actor for E2E tests and stories (machines/testView.ts),
+  // and tap `send` so the action tracer sees every dispatched event.
   useMemo(() => {
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
@@ -124,15 +123,7 @@ export function AppProvider({
       await nextFrame();
     };
     const view = (): AppTestView => selectTestView(actorRef.getSnapshot().context);
-    (
-      window as unknown as {
-        app: typeof actorRef & {
-          settled: () => boolean;
-          caughtUp: () => Promise<void>;
-          view: () => AppTestView;
-        };
-      }
-    ).app = Object.assign(actorRef, { settled, caughtUp, view });
+    window.app = Object.assign(actorRef, { settled, caughtUp, view });
   }, [actorRef, runtime, store]);
 
   return (

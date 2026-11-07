@@ -12,6 +12,7 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import themeFaceSplit from './fixtures/gen/theme-face-split.json';
 import { channels } from './colorChannels';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Theme Faces',
@@ -41,9 +42,6 @@ type Theme =
   | 'tokyonight';
 type Mode = 'dark' | 'light';
 
-const app = () =>
-  (window as unknown as { app: { send(event: { type: string; [k: string]: unknown }): void } }).app;
-
 /**
  * Read off the root rather than a probe element: `waitFor` re-runs on every
  * DOM mutation, and adding a probe inside it would re-trigger it forever.
@@ -68,8 +66,8 @@ function face(theme: Theme, mode: Mode): Story {
       // The old face's sheet stays in force until the new one loads, in a link
       // of its own that takes the `tmuxy-theme` id only once it has
       // (themeManager): that id on the new href says the face is in.
-      app().send({ type: 'SET_THEME', name: theme });
-      app().send({ type: 'SET_THEME_MODE', mode });
+      storyApp().send({ type: 'SET_THEME', name: theme });
+      storyApp().send({ type: 'SET_THEME_MODE', mode });
       await waitFor(
         () =>
           expect(document.getElementById('tmuxy-theme')?.getAttribute('href')).toBe(

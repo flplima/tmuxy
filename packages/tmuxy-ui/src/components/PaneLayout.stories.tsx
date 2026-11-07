@@ -5,6 +5,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { storyApp } from '../stories/storyApp';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
@@ -18,12 +19,6 @@ const meta: Meta<typeof FixtureApp> = {
 };
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
-
-interface AppActor {
-  send(event: { type: string; name?: string; mode?: string }): void;
-  getSnapshot(): { context: { activePaneId: string | null } };
-}
-const app = () => (window as unknown as { app: AppActor }).app;
 
 const activeOutline = () => {
   const el = document.querySelector<HTMLElement>('.pane-layout-item.pane-active');
@@ -43,7 +38,7 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
     const canvas = within(canvasElement);
     await canvas.findByRole('group', { name: /Pane %1/i }, { timeout: 8000 });
 
-    app().send({ type: 'SET_THEME', name: 'default' });
+    storyApp().send({ type: 'SET_THEME', name: 'default' });
     await waitFor(() => expect(activeOutline()).toBe('rgb(0, 205, 0)'), { timeout: 8000 });
     const inactivePane = () =>
       document.querySelector<HTMLElement>('.pane-layout-item.pane-inactive')!;
@@ -51,9 +46,9 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
 
     // Looked up at click time: the theme change above re-renders the layout,
     // and a node captured before it can be a replaced element.
-    const before = app().getSnapshot().context.activePaneId;
+    const before = storyApp().view().activePaneId;
     await userEvent.click(inactivePane().querySelector('[role="group"]')!);
-    await waitFor(() => expect(app().getSnapshot().context.activePaneId).not.toBe(before), {
+    await waitFor(() => expect(storyApp().view().activePaneId).not.toBe(before), {
       timeout: 8000,
     });
     await waitFor(() => {
@@ -64,7 +59,7 @@ export const ActivePaneOutlineDefaultAndGruvbox: Story = {
 
     // Gruvbox: its yellow accent (#d79921) rather than a green — the active
     // header's text shares it.
-    app().send({ type: 'SET_THEME', name: 'gruvbox' });
+    storyApp().send({ type: 'SET_THEME', name: 'gruvbox' });
     await waitFor(() => expect(activeOutline()).toBe('rgb(215, 153, 33)'), { timeout: 8000 });
 
     // While the tree holds the keyboard (prefix s) no pane is green.
@@ -142,12 +137,12 @@ export const PaneHeaderGrayAndGruvboxAccent: Story = {
       return title!;
     };
 
-    app().send({ type: 'SET_THEME', name: 'default' });
-    app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
+    storyApp().send({ type: 'SET_THEME', name: 'default' });
+    storyApp().send({ type: 'SET_THEME_MODE', mode: 'dark' });
     await waitFor(() => expectBars(resolve('var(--border-medium)')), { timeout: 8000 });
 
     // Gruvbox's bg1.
-    app().send({ type: 'SET_THEME', name: 'gruvbox' });
+    storyApp().send({ type: 'SET_THEME', name: 'gruvbox' });
     await waitFor(
       () => {
         const title = expectBars([0x3c, 0x38, 0x36]);
@@ -158,7 +153,7 @@ export const PaneHeaderGrayAndGruvboxAccent: Story = {
 
     // Gruvbox, light: its light gray, and the accent — a darker yellow, so it
     // reads at 4.5:1 on the cream.
-    app().send({ type: 'SET_THEME_MODE', mode: 'light' });
+    storyApp().send({ type: 'SET_THEME_MODE', mode: 'light' });
     await waitFor(
       () => {
         const title = expectBars([0xd5, 0xc4, 0xa1]);
@@ -166,6 +161,6 @@ export const PaneHeaderGrayAndGruvboxAccent: Story = {
       },
       { timeout: 8000 },
     );
-    app().send({ type: 'SET_THEME_MODE', mode: 'dark' });
+    storyApp().send({ type: 'SET_THEME_MODE', mode: 'dark' });
   },
 };

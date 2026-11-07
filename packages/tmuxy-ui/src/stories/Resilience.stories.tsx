@@ -8,8 +8,8 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture, type FixtureAdapter } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 import oneTabThenTwo from './fixtures/gen/one-tab-then-two.json';
-import { PaneId } from '../domain/ids';
 import { wait } from './animationObservers';
+import { appContext, storyApp } from './storyApp';
 
 const NEW_TAB = [{ match: /^new-window\b/, to: 'two-tabs' }];
 const KILL = [{ match: /^kill-pane\b/, to: 'one' }];
@@ -138,11 +138,10 @@ export const SlowKillPane: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const win = window as unknown as { app?: { send: (e: unknown) => void } };
     const paneCount = () => canvas.getAllByRole('group', { name: /^Pane /i }).length;
 
     await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
-    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+    storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
     await waitFor(() => expect(paneCount()).toBe(1), { timeout: 600 });
 
@@ -172,20 +171,14 @@ export const KillPaneRejected: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const win = window as unknown as {
-      app?: {
-        send: (e: unknown) => void;
-        getSnapshot(): { context: { notifications: { text: string }[] } };
-      };
-    };
     const paneCount = () => canvas.getAllByRole('group', { name: /^Pane /i }).length;
 
     await waitFor(() => expect(paneCount()).toBe(2), { timeout: 8000 });
-    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
+    storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'kill-pane' });
 
     // Keeps sampling until the rejection has surfaced rather than for a fixed
     // stretch: on a loaded machine the round trip outlived a fixed window.
-    const rejected = () => win.app!.getSnapshot().context.notifications.length > 0;
+    const rejected = () => appContext().notifications.length > 0;
     for (let i = 0; i < 120 && !rejected(); i++) {
       expect(paneCount(), 'the pane disappeared before the rejection landed').toBe(2);
       await wait(70);
@@ -220,14 +213,11 @@ export const SlowAckKeepsPlaceholder: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const win = window as unknown as {
-      app?: { send: (e: unknown) => void; getSnapshot(): { context: { activePaneId: PaneId } } };
-      __staleAdapter?: FixtureAdapter;
-    };
+    const win = window as unknown as { __staleAdapter?: FixtureAdapter };
     await canvas.findByRole('group', { name: /Pane %0/i }, { timeout: 8000 });
     expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(1);
 
-    win.app?.send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+    storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
     await waitFor(() => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(2), {
       timeout: 200,
     });
@@ -244,7 +234,7 @@ export const SlowAckKeepsPlaceholder: Story = {
         const groups = canvas.getAllByRole('group', { name: /^Pane /i });
         expect(groups.length).toBe(2);
         expect(groups.every((p) => /^%\d+$/.test(p.getAttribute('data-pane-id') ?? ''))).toBe(true);
-        expect(win.app!.getSnapshot().context.activePaneId).toMatch(/^%\d+$/);
+        expect(storyApp().view().activePaneId).toMatch(/^%\d+$/);
       },
       { timeout: 5000 },
     );

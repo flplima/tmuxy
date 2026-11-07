@@ -13,7 +13,8 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
-import { APPEARANCE, getApp } from './animationStoryHelpers';
+import { APPEARANCE } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Cursor Blink',
@@ -66,7 +67,7 @@ async function sampleOpacity(el: HTMLElement, ms = 1300): Promise<number[]> {
 }
 
 const pushAppearance = (blink: boolean) =>
-  getApp().send({
+  storyApp().send({
     type: 'THEME_SETTINGS_RECEIVED',
     theme: 'default',
     mode: 'dark',

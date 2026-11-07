@@ -14,7 +14,6 @@ import {
   waitForCssAnimation,
 } from './animationObservers';
 import {
-  getApp,
   paneNodes,
   getPaneLayout,
   waitForPaneCount,
@@ -26,6 +25,7 @@ import {
   assertGatesDeclareFocusCue,
   stepFocusCueOnElement,
 } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Animations Tabs & Groups',
@@ -259,8 +259,8 @@ export const SwapPanes: Story = {
     const recorder = new LayoutMutationRecorder(layout);
     try {
       const frames = await sampleFrames(canvasElement, () => {
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${rightPane.id}` });
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${rightPane.id}` });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
       });
 
       await waitFor(
@@ -305,7 +305,7 @@ export const SwapPanes: Story = {
 };
 
 const pushAnimations = (animations: boolean) =>
-  getApp().send({
+  storyApp().send({
     type: 'THEME_SETTINGS_RECEIVED',
     theme: 'default',
     mode: 'dark',
@@ -346,7 +346,7 @@ export const ConfigAnimationsOff: Story = {
     layout.addEventListener('transitionstart', onTransitionStart);
     const lifecycle = watchLifecycleClasses(layout);
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
       await waitForPaneCount(canvas, 2);
       await wait(400);
       lifecycle.stop();
@@ -367,8 +367,8 @@ export const ConfigAnimationsOff: Story = {
       expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1);
 
       const frames = await sampleFrames(canvasElement, () => {
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t %0' });
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -t %0 -R 8' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t %0' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -t %0 -R 8' });
       });
       expect(frames.filter((shot) => !shot.has('%0')).length, '%0 went undrawn').toBe(0);
       const widths = frames.map((shot) => Math.round(shot.get('%0')!.width));

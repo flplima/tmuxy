@@ -1,23 +1,6 @@
 import { expect, within, waitFor } from 'storybook/test';
 import { DEFAULT_APPEARANCE } from '../domain/tmuxyConstants.gen';
 
-export interface AppActor {
-  send: (event: unknown) => void;
-  getSnapshot: () => {
-    context: {
-      activePaneId: string | null;
-      enableAnimations: boolean;
-      floatPanes: Record<string, { paneId: string }>;
-    };
-  };
-}
-
-export function getApp(): AppActor {
-  const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — is the app mounted?');
-  return app;
-}
-
 export type Canvas = ReturnType<typeof within>;
 
 export function paneNodes(canvasElement: HTMLElement): HTMLElement[] {

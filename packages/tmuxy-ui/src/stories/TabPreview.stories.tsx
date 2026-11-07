@@ -16,12 +16,12 @@ import {
   animationNames,
   preview,
   runningAnimation,
-  type Snap,
   tabButton,
   waitForCardLeaving,
   waitForPreview,
   waitForPreviewInserted,
 } from './tabPreviewHelpers';
+import { storyApp } from './storyApp';
 
 /** Switching to `alpha`, and closing `bravo`, answered as tmux answered them. */
 const TRANSITIONS = [
@@ -255,8 +255,7 @@ export const ClickingTheCardOpensThatTab: Story = {
       expect(canvasElement.querySelectorAll('.tab-name[data-window-id]').length).toBe(3),
     );
 
-    const app = (window as unknown as { app: { getSnapshot(): Snap } }).app;
-    const current = app.getSnapshot().context.activeWindowId;
+    const current = storyApp().view().activeTabId;
     const target = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')]
       .map((t) => t.dataset.windowId as string)
       .find((id) => id !== current)!;
@@ -266,7 +265,7 @@ export const ClickingTheCardOpensThatTab: Story = {
     const card = await waitForPreview(target);
 
     await userEvent.click(card);
-    await waitFor(() => expect(app.getSnapshot().context.activeWindowId).toBe(target));
+    await waitFor(() => expect(storyApp().view().activeTabId).toBe(target));
     await waitFor(() => expect(preview()).toBeNull(), { timeout: 3000 });
   },
 };
