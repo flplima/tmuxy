@@ -14,8 +14,8 @@ mod schemas;
 
 #[cfg(test)]
 pub(super) use open::{
-    float_command, float_create_args, preview_path, split_command, tab_command, FloatArgs,
-    FloatPosition, SplitDirection, TabArgs,
+    float_command, preview_path, split_command, tab_command, FloatArgs, FloatPosition, FloatSpot,
+    SplitDirection, TabArgs,
 };
 use open::{open_preview, pane_float, pane_kill, pane_send_keys, pane_split, tab_create};
 #[cfg(test)]

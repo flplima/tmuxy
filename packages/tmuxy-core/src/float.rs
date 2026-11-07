@@ -2,8 +2,9 @@
 //! that moves the new pane into a window of its own, every `@tmuxy-float-*`
 //! tag, the size, the select-pane that gives the caller's pane back, and the
 //! read of what was made. A plugin's float or popup surface
-//! (`plugins::invoke::surface_argv`) and `tmuxy pane float` (the server
-//! binary's `float` verb, behind `bin/tmuxy/float-create`) both build it here.
+//! (`plugins::invoke::surface_argv`), `tmuxy pane float` (the server binary's
+//! `float` verb, behind `bin/tmuxy/float-create`) and the MCP endpoint's
+//! `pane_float` all build it here.
 //!
 //! One list is one command queue, so a client sees the split and the break in
 //! the same batch of control-mode notifications and never renders the
