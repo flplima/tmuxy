@@ -70,6 +70,7 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
 
     const header = findPane(a).querySelector('.pane-header') as HTMLElement;
     const hRect = header.getBoundingClientRect();
+    const srcRect = paneRect(canvas, a);
     const dstRect = paneRect(canvas, b);
     const sX = hRect.left + hRect.width / 2;
     const sY = hRect.top + hRect.height / 2;
@@ -90,10 +91,15 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
       await inputPause(100);
     }
     dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
-    await waitFor(() => expect(paneIds(canvas)[0]).toBe(b), {
-      timeout: 30000,
-      interval: 400,
-    }).catch(() => {});
+    // The swap put b where a was: the drag did something.
+    await waitFor(
+      () => {
+        const moved = paneRect(canvas, b);
+        expect(Math.round(moved.left)).toBe(Math.round(srcRect.left));
+        expect(Math.round(moved.top)).toBe(Math.round(srcRect.top));
+      },
+      { timeout: 30000, interval: 400 },
+    );
     await tmuxCaughtUp();
 
     for (const id of paneIds(canvas)) {
