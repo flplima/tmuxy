@@ -6,36 +6,38 @@ import {
   aggregatePaneState,
   circledNumber,
   tabPaneStates,
-  normalizePaneState,
+  readPaneState,
   paneStateFor,
   type PaneStateName,
 } from '../paneState';
 
-describe('normalizePaneState', () => {
+describe('readPaneState', () => {
   it('takes every state in the vocabulary', () => {
     for (const state of PANE_STATES) {
-      expect(normalizePaneState(state)).toBe(state);
+      expect(readPaneState(state)).toBe(state);
     }
   });
 
-  it('collapses an unknown value to idle rather than erroring', () => {
-    // The hook contract is deliberately loose: an agent may write a status
-    // tmuxy has never heard of, and that must not break the tree.
-    expect(normalizePaneState('queued-sandbox-creation')).toBe('idle');
-    expect(normalizePaneState('WAITING_FOR_THE_MOON')).toBe('idle');
+  it('reads a word core does not know as idle, near-misses included', () => {
+    // Core's `PaneStateName::parse` takes the exact word, and the push
+    // notification and the screen corrector go by it: a tab that read
+    // `needs_input` as a question would be the only one to.
+    for (const word of [
+      'queued-sandbox-creation',
+      'needs_input',
+      'needs input',
+      'needsinput',
+      'Needs-Input',
+      ' working ',
+    ]) {
+      expect(readPaneState(word)).toBe('idle');
+    }
   });
 
   it('treats an unset or blank option as idle', () => {
-    expect(normalizePaneState(undefined)).toBe('idle');
-    expect(normalizePaneState(null)).toBe('idle');
-    expect(normalizePaneState('   ')).toBe('idle');
-  });
-
-  it('forgives the spellings a shell writer reaches for', () => {
-    expect(normalizePaneState('  WORKING \n')).toBe('working');
-    expect(normalizePaneState('needs_input')).toBe('needs-input');
-    expect(normalizePaneState('needs input')).toBe('needs-input');
-    expect(normalizePaneState('needsinput')).toBe('needs-input');
+    expect(readPaneState(undefined)).toBe('idle');
+    expect(readPaneState(null)).toBe('idle');
+    expect(readPaneState('')).toBe('idle');
   });
 });
 

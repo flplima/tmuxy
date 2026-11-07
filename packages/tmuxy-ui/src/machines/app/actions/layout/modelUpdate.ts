@@ -22,7 +22,7 @@ import {
 import { gridExtent } from '../../../../domain/paneGeometry';
 import { buildScrollbackState, fetchHistory, reconcilePaneMode } from '../copyMode/scrollback';
 import { pruneAskSelections } from '../ask';
-import { normalizePaneState } from '../../../../domain/paneState';
+import { readPaneState } from '../../../../domain/paneState';
 import { TmuxOp } from '../../../../domain/commands';
 import { reconcileFloats } from '../groupsAndFloats';
 import { reconcileSidebars } from '../sidebars';
@@ -271,10 +271,9 @@ export const layoutModelUpdateActions = {
     const wasInFront = context.panes.find((p) => p.tmuxId === effectiveActivePaneId);
     if (
       inFront &&
-      normalizePaneState(inFront.paneState) === 'unread' &&
+      readPaneState(inFront.paneState) === 'unread' &&
       !(
-        context.activePaneId === inFront.tmuxId &&
-        normalizePaneState(wasInFront?.paneState) === 'unread'
+        context.activePaneId === inFront.tmuxId && readPaneState(wasInFront?.paneState) === 'unread'
       )
     ) {
       enqueue(

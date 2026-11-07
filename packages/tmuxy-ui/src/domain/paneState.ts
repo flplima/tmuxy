@@ -7,10 +7,11 @@
  * produces those continuously, so activity cannot distinguish working from
  * waiting.
  *
- * The vocabulary is deliberately small and the parser deliberately lenient: a
- * writer may send anything, and a value tmuxy does not know collapses to
- * `idle` rather than erroring. That keeps the hook contract loose, so a new
- * agent can write its own status names without waiting for a tmuxy release.
+ * The vocabulary is core's `PaneStateName`, generated into
+ * `tmuxyConstants.gen.ts`, and it is read exactly as core reads it: the word
+ * as written, or `idle`. `tmuxy pane state` refuses any other word, so a
+ * near-miss reaches tmux only through a raw `set-option`, and then the tab,
+ * the push notification and the screen corrector all read it the same way.
  */
 
 import type { TmuxPane } from './client';
@@ -59,18 +60,8 @@ export const PANE_STATE_LABEL: Record<PaneStateName, string> = {
 
 const KNOWN = new Set<string>(PANE_STATES);
 
-/**
- * Accepts `needs_input` and `needsinput` as spellings of `needs-input`: a shell
- * writer reaching for an underscore should not silently get `idle`.
- */
-export function normalizePaneState(raw: string | null | undefined): PaneStateName {
-  if (!raw) return 'idle';
-  const value = raw.trim().toLowerCase();
-  if (!value) return 'idle';
-  const dashed = value.replace(/[\s_]+/g, '-');
-  if (KNOWN.has(dashed)) return dashed as PaneStateName;
-  if (dashed === 'needsinput') return 'needs-input';
-  return 'idle';
+export function readPaneState(raw: string | null | undefined): PaneStateName {
+  return raw && KNOWN.has(raw) ? (raw as PaneStateName) : 'idle';
 }
 
 /**
@@ -89,7 +80,7 @@ export function normalizePaneState(raw: string | null | undefined): PaneStateNam
  */
 export function paneStateFor(pane: Pick<TmuxPane, 'paneState' | 'paneAsk'>): PaneStateName {
   if (paneSendFor(pane)) return 'needs-input';
-  return normalizePaneState(pane.paneState);
+  return readPaneState(pane.paneState);
 }
 
 type StatePane = Pick<TmuxPane, 'tmuxId' | 'paneState' | 'paneAsk'>;
