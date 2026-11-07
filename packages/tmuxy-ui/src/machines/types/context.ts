@@ -115,11 +115,16 @@ export interface AppMachineContext {
   dockSizeSent: { windowId: WindowId; cols: number | null; rows: number } | null;
 
   /**
-   * The phone's browser-side zoom (the `phone` slice): the terminal drawn at
-   * twice its size and panned with a finger, around the point tapped (client
-   * px; null for the middle). Null when not zoomed.
+   * The phone's browser-side zoom (the `phone` slice, domain/phoneSplit.ts):
+   * the terminal's scale, 1 at its own size. Set by the bar between the
+   * terminal and the bottom view, a double tap or the zoom key; panned with a
+   * finger when it is past 1. Kept per device.
    */
-  phoneZoom: { x: number | null; y: number | null } | null;
+  phoneZoom: number;
+  /** Where the last double tap zoomed in (client px; null for the middle, or none). */
+  phoneZoomAt: { x: number | null; y: number | null } | null;
+  /** Upright, the terminal and the keys folded away under a dragged-up bar. Kept per device. */
+  phoneCollapsed: boolean;
   /** What the phone shows under the keys: the menu, the tree, or the pinned terminal (the dock). */
   phoneBottomView: BottomView;
   /**

@@ -7,7 +7,7 @@ import {
   DEFAULT_CHAR_WIDTH,
   DEFAULT_CHAR_HEIGHT,
 } from '../constants';
-import { loadFontSizePref, loadThemePref } from '../../infra/prefs';
+import { loadFontSizePref, loadPhoneSplitPref, loadThemePref } from '../../infra/prefs';
 import { DEFAULT_SIZE_POLICY } from '../../domain/gridFit';
 import { appearancePrefs } from './appearance';
 
@@ -107,6 +107,8 @@ export const FIELD_OWNERS = {
   renamingTab: 'tabOverview',
 
   phoneZoom: 'phone',
+  phoneZoomAt: 'phone',
+  phoneCollapsed: 'phone',
   phoneBottomView: 'phone',
   phoneDockView: 'phone',
 
@@ -150,6 +152,7 @@ export const FIELD_OWNERS = {
  * localStorage in between.
  */
 export function createInitialContext(): AppMachineContext {
+  const split = loadPhoneSplitPref();
   return {
     connected: false,
     error: null,
@@ -204,7 +207,9 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     renamingTab: null,
-    phoneZoom: null,
+    phoneZoom: split.zoom,
+    phoneZoomAt: null,
+    phoneCollapsed: split.collapsed,
     phoneBottomView: 'tree',
     phoneDockView: null,
     enableAnimations: false,

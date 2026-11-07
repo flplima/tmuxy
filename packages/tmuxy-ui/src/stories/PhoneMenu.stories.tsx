@@ -1,6 +1,6 @@
 /**
- * The phone's key row, its bottom view's tab bar and the app menu, at a
- * 390 × 844 phone's width.
+ * The phone's key row, the tab bar along the top of its bottom view and the
+ * app menu, at a 390 × 844 phone's width.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -35,7 +35,7 @@ export const AppMenuFromTheMenuTab: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The key row is six by two, edge to edge with no gap between the keys, and holds no menu: the app menu is the first of the three tabs along the bottom — Menu, Tree, Side pane — the tree in front to begin with. The Menu tab lists the menu as a phone app does; a submenu is a page of its own, with the way back at the top.',
+          'The key row is six by two, edge to edge with no gap between the keys, and holds no menu: the app menu is the first of the three tabs along the top of the bottom view — Menu, Tree, Side pane, an icon beside each name — the tree in front to begin with and underlined. The Menu tab lists the menu as a phone app does; a submenu is a page of its own, with the way back at the top.',
       },
     },
   },
@@ -70,13 +70,18 @@ export const AppMenuFromTheMenuTab: Story = {
     const tabs = [...canvasElement.querySelectorAll<HTMLElement>('.phone-tabs [role="tab"]')];
     expect(tabs.map((t) => t.textContent)).toEqual(['Menu', 'Tree', 'Side pane']);
     expect(tabs.map((t) => t.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
+    expect(box(tabs[0]).top).toBeCloseTo(box(canvasElement.querySelector('.phone-lower')).top, 0);
     for (const t of tabs) {
       const icon = box(t.querySelector('svg'));
       const name = box(t.querySelector('.phone-tab-label'));
       expect(icon.width).toBeGreaterThan(0);
-      expect(name.top).toBeGreaterThanOrEqual(icon.bottom - 1);
+      expect(name.left).toBeGreaterThanOrEqual(icon.right - 1);
+      expect(Math.abs(name.top + name.height / 2 - (icon.top + icon.height / 2))).toBeLessThan(3);
     }
     expect(box(tabs[0]).right).toBeLessThanOrEqual(box(tabs[1]).left + 1);
+    const underline = (t: HTMLElement) => getComputedStyle(t, '::after').content;
+    expect(underline(tabs[1])).not.toBe('none');
+    expect(underline(tabs[0])).toBe('none');
 
     await userEvent.click(tabs[0]);
     const pageRows = () => [

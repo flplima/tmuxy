@@ -2,8 +2,9 @@
  * The phone's zoom, finger only, with the keyboard up and down.
  *
  * Zoomed by the key row's magnifier, the terminal is drawn at twice its size.
- * Upright, the bottom view gives way so every row is on screen and the view
- * scrolls sideways only, with the key row under it. Held sideways, the
+ * Upright, the bar under the keys moves down to match and the bottom view
+ * gives up the room, so every row is on screen and the view scrolls sideways
+ * only, with the key row under it. Held sideways, the
  * doubled grid is taller than the screen and scrolls both ways. Either way a
  * keyboard coming up cuts the terminal short, and it scrolls to keep the
  * cursor's row in view above the keyboard (components/phone/usePhoneViewport.ts).
@@ -76,10 +77,11 @@ describeE2E(
   'Phone upright (390x844): the zoom shows every row, and the keyboard keeps the cursor in view',
   { context: phoneContext(PHONE) },
   (ctx) => {
-    test('zoom → the bottom view gives way, every row on screen at twice its size, sideways scroll only → keyboard up → the cursor row stays above it → zoom off', async () => {
+    test('zoom → the bar moves down and the bottom view gives the room, every row on screen at twice its size, sideways scroll only → keyboard up → the cursor row stays above it → zoom off', async () => {
       await ctx.setupPage();
       await waitForPhoneGrid(ctx.page);
       const before = await boxOf(ctx.page, '.phone-pty .pane-container');
+      const barBefore = await boxOf(ctx.page, '[data-testid="phone-divider"]');
 
       await toggleZoom(ctx.page, true);
       const zoomed = await ctx.page.evaluate(() => {
@@ -88,7 +90,7 @@ describeE2E(
         const term = document.querySelector('.phone-pty');
         const lines = [...document.querySelectorAll('.phone-pty .pane-active .terminal-line')];
         return {
-          bottomView: !!document.querySelector('[data-testid="phone-bottom"]'),
+          bar: box(document.querySelector('[data-testid="phone-divider"]')),
           lines: lines.length,
           first: box(lines[0]),
           last: box(lines[lines.length - 1]),
@@ -99,7 +101,9 @@ describeE2E(
           termUpright: term.scrollHeight - term.clientHeight,
         };
       });
-      expect(zoomed.bottomView).toBe(false);
+      // The bar follows the zoom: down by the room the terminal took.
+      expect(zoomed.bar.top).toBeGreaterThan(barBefore.top + before.height * 0.9);
+      expect(zoomed.bar.top).toBeGreaterThanOrEqual(zoomed.keys.bottom - 0.5);
       expect(zoomed.lines).toBeGreaterThanOrEqual(23);
       expect(zoomed.first.height).toBeGreaterThan(before.height / 24 + 2);
       expect(zoomed.last.bottom).toBeLessThanOrEqual(zoomed.viewport.bottom + 0.5);
@@ -126,7 +130,10 @@ describeE2E(
 
       await hideKeyboard(ctx.page);
       await toggleZoom(ctx.page, false);
-      expect(await boxOf(ctx.page, '[data-testid="phone-bottom"]')).not.toBeNull();
+      expect((await boxOf(ctx.page, '[data-testid="phone-divider"]')).top).toBeCloseTo(
+        barBefore.top,
+        0,
+      );
     }, 120000);
   },
 );
@@ -135,7 +142,7 @@ describeE2E(
   'Phone sideways (844x390): zoomed, the keyboard keeps the cursor in view',
   { context: phoneContext(SIDEWAYS) },
   (ctx) => {
-    test('zoom → the doubled grid scrolls both ways beside the column → keyboard up → the cursor row stays above it', async () => {
+    test('zoom → the doubled grid scrolls both ways between the tree and the side pane → keyboard up → the cursor row stays above it', async () => {
       await ctx.setupPage();
       await waitForPhoneGrid(ctx.page);
 
@@ -146,12 +153,15 @@ describeE2E(
         return {
           sideways: viewport.scrollWidth - viewport.clientWidth,
           upright: term.scrollHeight - term.clientHeight,
-          bottomView: !!document.querySelector('.phone-side [data-testid="phone-bottom"]'),
+          tree: document.querySelector('.phone-side-left .phone-tree')?.getBoundingClientRect()
+            .width,
+          side: document.querySelector('.phone-side-right')?.getBoundingClientRect().width,
         };
       });
       expect(zoomed.sideways).toBeGreaterThan(10);
       expect(zoomed.upright).toBeGreaterThan(10);
-      expect(zoomed.bottomView).toBe(true);
+      expect(zoomed.tree).toBeGreaterThan(0);
+      expect(zoomed.side).toBeGreaterThan(0);
 
       await keyboardUp(ctx.page, 170);
       await typeOnVirtualKeyboard(ctx.page, 'echo SIDEWAYS_ZOOM_OK\n');

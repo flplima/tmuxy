@@ -37,6 +37,7 @@
     { "name": "20-push", "path": "tests/20-push.test.js" },
     { "name": "21-agent-states", "path": "tests/21-agent-states.test.js" },
     { "name": "22-process-icons", "path": "tests/22-process-icons.test.js" },
+    { "name": "23-kindle", "path": "tests/23-kindle.test.js" },
     { "name": "14-widget-authorisation", "path": "tests/14-widget-authorisation.test.js" },
     { "name": "14-widget-preview", "path": "tests/14-widget-preview.test.js" },
     {

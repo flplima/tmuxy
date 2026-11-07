@@ -4,10 +4,9 @@ import { EventHub } from '../../eventHub';
 import { TransportEvent, type DriverEvent } from '../events';
 import { StateSequencer } from '../stateSequencer';
 import { Effect, Fiber, Schedule } from 'effect';
+import { buildEndpointUrl, getSessionFromUrl } from '../endpoint';
 import {
-  buildEndpointUrl,
   ConnectionDropped,
-  getSessionFromUrl,
   installNetworkHints,
   openSseConnection,
   postCommandJson,

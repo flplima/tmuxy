@@ -104,11 +104,16 @@ export function selectSidebarHidden(context: AppMachineContext, side: SidebarSid
 }
 
 /**
- * Whether the tree is on screen: its docked column, a peek of it, or the
- * phone's bottom view showing it. The sessions it lists are polled only then.
+ * Whether the tree is on screen: its docked column, a peek of it, the
+ * phone's bottom view showing it or, held sideways, the phone's left column
+ * unless the menu has its place. The sessions it lists are polled only then.
  */
 export function selectTreeVisible(context: AppMachineContext): boolean {
-  if (context.phoneLayout) return context.phoneBottomView === 'tree';
+  if (context.phoneLayout) {
+    return context.phoneLandscape
+      ? context.phoneBottomView !== 'menu'
+      : context.phoneBottomView === 'tree';
+  }
   return context.sidebars.left.open || context.sidebarPeek === 'left';
 }
 

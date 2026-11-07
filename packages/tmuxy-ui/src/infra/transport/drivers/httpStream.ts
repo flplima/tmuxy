@@ -2,6 +2,7 @@ import { EventHub } from '../../eventHub';
 import { type DriverEvent } from '../events';
 import { CommandFailure, ConnectionInfo } from '../../../domain/wire';
 import { HOST_EVENT_NAMES, receiveHostEvent, type HostEventHooks } from '../hostEvents';
+import { buildEndpointUrl } from '../endpoint';
 import { Effect, Schedule, Schema } from 'effect';
 
 /**
@@ -38,18 +39,6 @@ export function parseFrame(type: string, event: MessageEvent): unknown {
     console.error(`Failed to parse ${type} frame:`, e);
     return undefined;
   }
-}
-
-export function getSessionFromUrl(): string {
-  if (typeof window === 'undefined') return 'tmuxy';
-  const params = new URLSearchParams(window.location.search);
-  return params.get('session') || 'tmuxy';
-}
-
-export function buildEndpointUrl(path: string, session?: string): string {
-  const { protocol, host } = window.location;
-  const query = session !== undefined ? `?session=${encodeURIComponent(session)}` : '';
-  return `${protocol}//${host}${path}${query}`;
 }
 
 /** The browser's own hints that a retry is worth making now rather than at the next backoff tick. */

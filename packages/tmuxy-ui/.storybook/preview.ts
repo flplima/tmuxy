@@ -1,6 +1,7 @@
 import type { Preview } from '@storybook/react-vite';
 import '../src/styles.css';
 import '../src/fonts/nerd-font.css';
+import { forgetPhoneSplitPref } from '../src/infra/prefs';
 
 const preview: Preview = {
   // Toolbar: show the raw tmux TUI (the v86 guest's VGA console, drawn by tmux
@@ -24,6 +25,14 @@ const preview: Preview = {
   // Default the v86 (Scenarios/Application) stories to side-by-side: tmuxy on
   // the left, the raw tmux VGA console on the right.
   initialGlobals: { tmuxView: 'side' },
+  // Every story starts from the phone's default split: a zoom or a fold one
+  // story left in this browser's storage is not the next one's.
+  loaders: [
+    () => {
+      forgetPhoneSplitPref();
+      return {};
+    },
+  ],
   parameters: {
     controls: {
       matchers: {

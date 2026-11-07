@@ -8,6 +8,7 @@
 
 export const phoneGlobalEvents = {
   TOGGLE_PHONE_ZOOM: { actions: 'phone_toggleZoom' },
+  SET_PHONE_SPLIT: { actions: 'phone_setSplit' },
   SET_PHONE_BOTTOM_VIEW: { actions: 'phone_setBottomView' },
   SET_PHONE_DOCK_SIZE: { actions: 'phone_setDockSize' },
 } as const;

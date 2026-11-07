@@ -1,8 +1,9 @@
 /**
- * The zoom: a double tap on the terminal (or the key row's zoom key) scales
- * the terminal up in the browser — the grid, not tmux's zoom — and the
- * finger pans around it; the same again puts it back. App.tsx draws it and
- * scrolls to the point that was tapped.
+ * The zoom: the terminal's scale in the browser — the grid, not tmux's zoom
+ * — set by the bar under the keys (PhoneDivider), which also folds the
+ * terminal away, or by a double tap or the zoom key, which jump to twice the
+ * size and back (domain/phoneSplit.ts). App.tsx draws it, scrolled to the
+ * point a double tap hit. The split is kept per device.
  *
  * The bottom view: under the keys a phone shows the app menu, the tabs/panes
  * tree or the dock — the pinned terminal the desktop keeps in its right
@@ -17,15 +18,28 @@ import { assign } from 'xstate';
 import { act } from '../actionTypes';
 import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { releaseKeyboard } from '../helpers';
+import { toggleZoom } from '../../../domain/phoneSplit';
+import { savePhoneSplitPref } from '../../../infra/prefs';
 
 export const phoneActions = {
   phone_toggleZoom: act(({ context, event, enqueue }) => {
     if (event.type !== 'TOGGLE_PHONE_ZOOM') return;
+    const split = toggleZoom({ zoom: context.phoneZoom, collapsed: context.phoneCollapsed });
+    savePhoneSplitPref(split);
     enqueue(
       assign({
-        phoneZoom: context.phoneZoom ? null : { x: event.x ?? null, y: event.y ?? null },
+        phoneZoom: split.zoom,
+        phoneCollapsed: split.collapsed,
+        phoneZoomAt: split.zoom > 1 ? { x: event.x ?? null, y: event.y ?? null } : null,
       }),
     );
+  }),
+
+  phone_setSplit: act(({ event, enqueue }) => {
+    if (event.type !== 'SET_PHONE_SPLIT') return;
+    const split = { zoom: Math.max(1, event.zoom), collapsed: event.collapsed };
+    savePhoneSplitPref(split);
+    enqueue(assign({ phoneZoom: split.zoom, phoneCollapsed: split.collapsed, phoneZoomAt: null }));
   }),
 
   phone_setBottomView: act(({ context, event, enqueue }) => {

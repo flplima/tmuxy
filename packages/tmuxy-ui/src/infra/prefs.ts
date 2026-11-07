@@ -1,18 +1,20 @@
 /**
  * What this client remembers between visits, in localStorage: the theme and
- * mode picked from the menu and the font size — every key, its default, and
- * the one guarded read and write.
+ * mode picked from the menu, the font size and the phone's split — every
+ * key, its default, and the one guarded read and write.
  */
 
 import { parseThemeMode, type ThemeInfo, type ThemeMode } from '../domain/wireSettings';
 import type { BackendCall } from '../domain/backendCalls';
 import { BUNDLED_THEMES } from '../domain/tmuxyConstants.gen';
+import { parsePhoneSplit, type PhoneSplit } from '../domain/phoneSplit';
 import { DEFAULT_FONT_SIZE, isFontSize } from './fontSizeManager';
 
 const KEYS = {
   themeName: 'tmuxy-theme-name',
   themeMode: 'tmuxy-theme-mode',
   fontSize: 'tmuxy-font-size',
+  phoneSplit: 'tmuxy-phone-split',
 } as const;
 
 type PrefKey = (typeof KEYS)[keyof typeof KEYS];
@@ -31,6 +33,14 @@ function read(key: PrefKey): string | null {
 function write(key: PrefKey, value: string): void {
   try {
     localStorage.setItem(key, value);
+  } catch {
+    return;
+  }
+}
+
+function forget(key: PrefKey): void {
+  try {
+    localStorage.removeItem(key);
   } catch {
     return;
   }
@@ -98,4 +108,17 @@ export function loadFontSizePref(): number {
 
 export function saveFontSizePref(size: number): void {
   write(KEYS.fontSize, String(size));
+}
+
+export function loadPhoneSplitPref(): PhoneSplit {
+  return parsePhoneSplit(read(KEYS.phoneSplit));
+}
+
+export function savePhoneSplitPref(split: PhoneSplit): void {
+  write(KEYS.phoneSplit, JSON.stringify(split));
+}
+
+/** The next load starts from the default split (a story's clean slate). */
+export function forgetPhoneSplitPref(): void {
+  forget(KEYS.phoneSplit);
 }

@@ -17,7 +17,7 @@ import {
 import {
   selectCharSize,
   selectPhoneLayout,
-  selectPhoneZoom,
+  selectPhoneZoomed,
 } from '../../machines/selectors/layout';
 import { selectPaneHoldsKeyboard } from '../../machines/selectors/keyboard';
 import { usePaneMouse } from './usePaneMouse';
@@ -128,7 +128,7 @@ export function TerminalPane({ paneId, chrome = 'header', isActive, cellSize }: 
   // none) is drawn by the phone too, but a slide on it is not a slide between
   // tabs, and a tap on it brings the keyboard up for it.
   const phoneLayout = useAppSelector(selectPhoneLayout);
-  const phoneZoomed = useAppSelector(selectPhoneZoom) !== null;
+  const phoneZoomed = useAppSelector(selectPhoneZoomed);
   const phoneGestures = phoneLayout && chrome === 'header';
   const { handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel } = usePaneTouch({
     paneId,

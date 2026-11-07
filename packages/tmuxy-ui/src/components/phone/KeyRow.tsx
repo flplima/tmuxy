@@ -24,7 +24,7 @@ import {
 import { createKeyRepeat } from './keyRepeat';
 import { toggleMobileKeyboard } from '../../infra/dom/mobileKeyboard';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
-import { selectPhoneZoom } from '../../machines/selectors/layout';
+import { selectPhoneZoomed } from '../../machines/selectors/layout';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
 import { keyEventInitOf } from '../../machines/actors/keyboard/keyFormatting';
 import './KeyRow.css';
@@ -82,7 +82,7 @@ export const KeyRow = memo(function KeyRow() {
   const latches = useSyncExternalStore(subscribeLatches, getLatches);
   const send = useAppSend();
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
-  const zoomed = useAppSelector(selectPhoneZoom) !== null;
+  const zoomed = useAppSelector(selectPhoneZoomed);
   const prefixActive = useAppSelector(selectPrefixActive);
   const prefixKey = useAppSelector(selectKeyBindings)?.prefix_key ?? DEFAULT_PREFIX;
   const repeat = useMemo(() => createKeyRepeat(pressKey), []);

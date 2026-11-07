@@ -1,7 +1,7 @@
 /**
- * The phone's menu: under the keys, three views side by side — the app menu,
- * the tree, the side pane — picked by the tab bar along the bottom or by a
- * sideways swipe, the tree in front to begin with. The menu is the app menu
+ * The phone's menu: under the keys and the bar, three views side by side —
+ * the app menu, the tree, the side pane — picked by the tab bar along their
+ * top or by a sideways swipe, the tree in front to begin with. The menu is the app menu
  * as a phone list: a submenu is a page of its own, with the way back at the
  * top, and an item does what it does on a desktop.
  */
@@ -69,7 +69,7 @@ describeE2E(
           () => `${what} (last: ${JSON.stringify(state)})`,
         );
 
-      // 1. The tree is in front, its tab lit in the bar along the bottom.
+      // 1. The tree is in front, its tab lit in the bar along the top.
       await until((s) => s.view === 'tree' && s.selected === 'tree' && s.tabs >= 1, 'the tree');
       const tabsBefore = state.tabs;
       expectOnScreen(await boxOf(page, '.phone-tabs'), 'the tab bar');
@@ -84,7 +84,7 @@ describeE2E(
       for (const row of ['Pane', 'Tab', 'Session', 'View']) expect(state.rows).toContain(row);
       const menu = await boxOf(page, '.phone-menu');
       expectOnScreen(menu, 'the menu');
-      expect(menu.bottom).toBeLessThanOrEqual((await boxOf(page, '.phone-tabs')).top + 1);
+      expect(menu.top).toBeGreaterThanOrEqual((await boxOf(page, '.phone-tabs')).bottom - 1);
 
       // 3. Tab: a page of its own, titled for it, with the way back to the menu.
       await tapText(page, '.phone-menu-row', 'Tab');

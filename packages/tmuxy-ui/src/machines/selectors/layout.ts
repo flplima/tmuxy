@@ -209,9 +209,14 @@ export const selectPhoneDockCellMetrics = createMemoizedSelector(
   },
 );
 
-/** The phone's browser-side zoom, if on (the `phone` slice). */
-export function selectPhoneZoom(context: AppMachineContext): AppMachineContext['phoneZoom'] {
+/** The phone's browser-side zoom: the terminal's scale, 1 at its own size (the `phone` slice). */
+export function selectPhoneZoom(context: AppMachineContext): number {
   return context.phoneZoom;
+}
+
+/** Whether the phone's terminal is zoomed past its own size, and so panned by a finger. */
+export function selectPhoneZoomed(context: AppMachineContext): boolean {
+  return context.phoneZoom > 1;
 }
 
 /** What the phone shows under the keys: the menu, the tree or the dock. */

@@ -1,32 +1,137 @@
-/* The bottom view takes what the terminal and the key row leave, and is the
-   first to give when the phone's keyboard comes up; then the terminal is cut
-   short and scrolled to keep the cursor's row in view
-   (components/phone/usePhoneViewport.ts). */
+/* Upright, two cards on a black gutter: the terminal and the key row on top,
+   rounded below; the bar a finger drags (PhoneDivider); the bottom view,
+   rounded above. The bottom view takes what is left and is the first to give
+   when the phone's keyboard comes up; then the terminal is cut short and
+   scrolled to keep the cursor's row in view
+   (components/phone/usePhoneViewport.ts). The rounding is the phone's alone:
+   every other corner of the app is square. App.tsx sets the grid's geometry
+   (`--phone-rows`, `--phone-container-padding`, `--phone-status-row`,
+   `--phone-landscape-keys`) on the app body. */
 .app-body-phone {
+  --phone-card-radius: 16px;
   flex-direction: column;
+  background-color: var(--term-black);
 }
 
-/* Held sideways: App.tsx sets the terminal's width to its 80 columns. */
+.phone-top {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0 0 var(--phone-card-radius) var(--phone-card-radius);
+  background-color: var(--bg-dark);
+}
+
+/* Folded away under a dragged-up bar: the bottom view takes the height. */
+.app-body-phone.is-collapsed .phone-top {
+  flex: 0 0 0;
+}
+
+.phone-divider {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.phone-divider-handle {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background-color: var(--border-medium);
+}
+
+.phone-divider[data-dragging] .phone-divider-handle {
+  background-color: var(--theme-accent);
+}
+
+.phone-lower {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--phone-card-radius) var(--phone-card-radius) 0 0;
+  background-color: rgb(var(--window-bg-rgb));
+}
+
+/* Held sideways, flat on the window's background as a desktop is: the tree
+   (or the menu) on the left, the terminal in the middle at its 80 columns'
+   width (App.tsx sets it), the side pane on the right, and the keys in one
+   row along the bottom. */
 .app-body-phone.is-landscape {
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  background-color: transparent;
 }
 
 .phone-side {
   display: flex;
-  flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
+  overflow: hidden;
 }
 
-/* The terminal at the phone's cell (App.tsx scopes the type to it): 24 rows
-   of grid, then tmux's status line under them. The 80 columns are cut from
-   the screen's width less 4px of padding each side — the grid's outer
-   borders are drawn half a cell outside the panes, and with no padding they
-   were off the screen (the same 4px below). */
+.phone-side-left {
+  grid-area: 1 / 1;
+  border-right: 1px solid var(--border-medium);
+}
+
+.phone-side-right {
+  grid-area: 1 / 3;
+  border-left: 1px solid var(--border-medium);
+}
+
+.app-body-phone.is-landscape .phone-pty {
+  grid-area: 1 / 2;
+}
+
+.app-body-phone.is-landscape .key-row {
+  grid-area: 2 / 1 / 3 / 4;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+/* The row's top hairline and its keys make `--phone-landscape-keys`. */
+.app-body-phone.is-landscape .key-row-key {
+  height: calc(var(--phone-landscape-keys) - 1px);
+  border-width: 0 1px 0 0;
+  font-size: 12px;
+}
+
+.app-body-phone.is-landscape .key-row-key:last-child {
+  border-right-width: 0;
+}
+
+/* The menu's button over the tree, where the desktop keeps it. */
+.phone-side-strip {
+  display: flex;
+  flex: 0 0 26px;
+  align-items: center;
+  padding: 0 var(--spacing-lg);
+}
+
+.phone-menu-toggle.is-open {
+  color: var(--theme-accent);
+}
+
+/* The terminal at the phone's cell (App.tsx scopes the type to it): one
+   picture of 24 rows of grid and tmux's status line under them. The 80
+   columns are cut from the screen's width less 4px of padding each side —
+   the grid's outer borders are drawn half a cell outside the panes, and with
+   no padding they were off the screen (the same 4px below). The status line
+   is its own row, or 24px while its prompt is typed into. */
 .phone-pty {
-  --phone-zoom: 2;
+  --phone-grid-height: calc(
+    var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding)
+  );
+  --phone-status-height: var(--phone-status-row);
+  --phone-picture-height: calc(var(--phone-grid-height) + var(--phone-status-height));
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
@@ -34,33 +139,44 @@
   overflow: hidden;
 }
 
-.app-body-phone.is-landscape .phone-pty {
-  flex: none;
+.phone-pty:has(.tmux-command-mode) {
+  --phone-status-height: 24px;
 }
 
+/* The box the picture scrolls in when zoomed: the picture's scaled height. */
 .phone-zoom-viewport {
   flex: none;
-  height: calc(var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding));
+  height: calc(var(--phone-zoom, 1) * var(--phone-picture-height));
   overflow: hidden;
+}
+
+.phone-picture {
+  display: flex;
+  flex-direction: column;
+  transform-origin: 0 0;
 }
 
 .app-body-phone .phone-pty .pane-container {
   flex: none;
-  height: calc(var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding));
+  height: var(--phone-grid-height);
   --pane-container-padding-x: var(--phone-container-padding);
   --pane-container-padding-bottom: var(--phone-container-padding);
   padding: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
   box-sizing: border-box;
-  transform-origin: 0 0;
 }
 
 .app-body-phone .phone-pty .pane-layout {
   inset: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
-/* Zoomed: a transform, so the container measures the same and tmux is told
-   nothing. The finger pans it: usePaneTouch.ts leaves the touch to the
-   browser while zoomed. */
+/* Zoomed (the bar, a double tap, or the key row's zoom key): the picture
+   drawn at `--phone-zoom` times its size — a transform, so the container
+   still measures the same and tmux is told nothing. The viewport is the
+   scaled picture's full height, so every row is there, and scrolls
+   sideways. When the height does not fit — a keyboard up, the zoom key past
+   the room the bottom view gives, or held sideways — the terminal box scrolls
+   up and down, kept on the cursor's row (components/phone/usePhoneViewport.ts).
+   The finger pans both: usePaneTouch.ts leaves it to the browser while zoomed. */
 .phone-pty.is-zoomed {
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -69,10 +185,6 @@
 }
 
 .phone-pty.is-zoomed .phone-zoom-viewport {
-  height: calc(
-    var(--phone-zoom) *
-      (var(--phone-rows) * var(--line-height-terminal) + var(--phone-container-padding))
-  );
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
@@ -80,7 +192,7 @@
   scrollbar-width: none;
 }
 
-.phone-pty.is-zoomed .pane-container {
+.phone-pty.is-zoomed .phone-picture {
   transform: scale(var(--phone-zoom));
 }
 
@@ -104,20 +216,17 @@
    too wide for them. */
 .phone-pty .statusline-hints {
   display: inline;
-  line-height: var(--phone-status-height);
+  line-height: var(--phone-status-row);
 }
 
 .phone-pty .statusline-host,
 .phone-pty .statusline-session {
   padding: 0 var(--spacing-md);
-  line-height: var(--phone-status-height);
+  line-height: var(--phone-status-row);
   border-radius: 0;
 }
 
-.phone-pty .tmux-command-mode {
-  height: 24px;
-}
-
+/* The prompt is typed into, so it keeps a size a thumb can read. */
 .phone-pty .tmux-command-prompt,
 .phone-pty .tmux-command-input {
   font-size: 12px;
@@ -130,7 +239,6 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
 }
 
 .phone-bottom-stage {
@@ -150,27 +258,29 @@
   touch-action: pan-y;
 }
 
+/* As an Android app draws one: the view in front underlined. */
 .phone-tabs {
-  display: grid;
+  display: flex;
   flex: none;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid color-mix(in srgb, var(--border-medium) 35%, transparent);
-  background-color: rgb(var(--window-bg-rgb));
+  height: 32px;
+  border-bottom: 1px solid var(--border-medium);
 }
 
 .phone-tab {
+  position: relative;
   display: flex;
-  flex-direction: column;
+  flex: 1 1 0;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  height: 48px;
+  gap: var(--spacing-lg);
+  min-width: 0;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
   transition: color var(--transition-fast);
@@ -180,23 +290,27 @@
   color: var(--theme-accent);
 }
 
+.phone-tab.is-active::after {
+  position: absolute;
+  right: 18%;
+  bottom: -1px;
+  left: 18%;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background-color: var(--theme-accent);
+  content: '';
+}
+
 .phone-tab-icon {
   display: block;
+  flex: none;
 }
 
 /* The phone's keyboard up (components/phone/usePhoneViewport.ts marks the
-   root): the tab bar makes way, and while the side pane has the keyboard the
-   terminal above gives up its room first. */
-html.tmuxy-keyboard-up .app-body-phone .phone-tabs {
-  display: none;
-}
-
+   root) while the side pane has it: the terminal above folds away and the
+   keys stay, so the side pane gets the room above the keyboard. */
 html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-pty {
-  flex: 1 1 0;
-}
-
-html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-bottom {
-  flex: 2 1 0;
+  flex: 0 0 0;
 }
 
 .phone-bottom-track {
@@ -236,6 +350,9 @@ html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-
   overflow: hidden;
 }
 
+/* Upright the side pane is a terminal of its own on the terminal's
+   background; held sideways it is the desktop's right column, on the
+   window's. */
 .phone-dock {
   position: relative;
   flex: 1 1 0;
@@ -243,6 +360,16 @@ html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-
   overflow: hidden;
   padding: 0 4px;
   background-color: var(--term-background);
+}
+
+.phone-side-right .phone-dock {
+  padding: var(--spacing-lg);
+  background-color: transparent;
+}
+
+/* On the window's ground the placeholder's subtle ink is too faint to read. */
+.phone-side-right .sidebar-placeholder {
+  color: var(--text-secondary);
 }
 
 .phone-dock .pane-wrapper {

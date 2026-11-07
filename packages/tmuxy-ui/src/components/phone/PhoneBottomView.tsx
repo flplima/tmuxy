@@ -1,30 +1,21 @@
 /**
- * PhoneBottomView — under the key row, three views side by side: the app menu
- * (PhoneMenu), the tabs/panes tree, and the side pane, the pinned terminal the
- * desktop keeps in its right column (`sidebar-right`, see Sidebar.tsx), the
- * same window, created the same way on first use. The tab bar picks one, and a
- * sideways swipe slides to the view beside as a swipe between tabs does
+/**
+ * PhoneBottomView — under the bar below the key row (PhoneDivider), three
+ * views side by side: the app menu (PhoneMenu), the tabs/panes tree, and the
+ * side pane (PhoneDock). The tab bar along the top picks one, and a sideways
+ * swipe slides to the view beside as a swipe between tabs does
  * (components/phone/bottomSlide.ts). The track moves on an inline transform
  * while the finger has it; React only mounts and unmounts the view riding
- * beside.
- *
- * The side pane is drawn in the chrome's small type and sized to this view:
- * the cell count the measured box holds is written to the pane's window
- * (SET_PHONE_DOCK_SIZE), which is what the backend sizes the pane from — the
- * desktop's drag writes the same tags.
+ * beside. While the phone's keyboard is up it is the part that gives.
  */
 
-import { memo, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { SidebarTree } from '../SidebarTree';
-import { TerminalPane } from '../terminal/TerminalPane';
 import { PhoneMenu } from './PhoneMenu';
+import { PhoneDock } from './PhoneDock';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
-import { selectPhoneBottomView, selectPhoneDockCellMetrics } from '../../machines/selectors/layout';
-import { selectRightSidebarPane } from '../../machines/selectors/panesAndSidebars';
-import { selectSidebarHoldsKeyboard } from '../../machines/selectors/keyboard';
-import { SIDEBAR_MAX_COLS, SIDEBAR_MIN_COLS } from '../../machines/constants';
+import { selectPhoneBottomView } from '../../machines/selectors/layout';
 import type { BottomView } from '../../machines/types/domain';
-import { cellMetricsStyle } from '../../infra/dom/cellMetrics';
 import { SWIPE_EASING } from '../../machines/gestures/gestures';
 import {
   BOTTOM_VIEWS,
@@ -160,6 +151,10 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchEnd}
     >
+      <PhoneTabs
+        view={view}
+        onPick={(picked) => send({ type: 'SET_PHONE_BOTTOM_VIEW', view: picked })}
+      />
       <div className="phone-bottom-stage">
         <div ref={trackRef} className="phone-bottom-track">
           <div className="phone-bottom-panel">{panel(view)}</div>
@@ -170,10 +165,6 @@ export const PhoneBottomView = memo(function PhoneBottomView() {
           )}
         </div>
       </div>
-      <PhoneTabs
-        view={view}
-        onPick={(picked) => send({ type: 'SET_PHONE_BOTTOM_VIEW', view: picked })}
-      />
     </div>
   );
 });
@@ -184,8 +175,8 @@ function TabIcon({ view }: { view: BottomView }) {
   return (
     <svg
       className="phone-tab-icon"
-      width="20"
-      height="20"
+      width="15"
+      height="15"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
@@ -213,6 +204,7 @@ function TabIcon({ view }: { view: BottomView }) {
   );
 }
 
+/** The tab bar over the views: an icon beside a name for each, the one in front underlined. */
 function PhoneTabs({ view, onPick }: { view: BottomView; onPick: (view: BottomView) => void }) {
   return (
     <div className="phone-tabs" role="tablist" aria-label="Views">
@@ -230,58 +222,6 @@ function PhoneTabs({ view, onPick }: { view: BottomView; onPick: (view: BottomVi
           <span className="phone-tab-label">{TAB_LABELS[v]}</span>
         </button>
       ))}
-    </div>
-  );
-}
-
-function PhoneDock() {
-  const send = useAppSend();
-  const pane = useAppSelector(selectRightSidebarPane);
-  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, 'right'));
-  const startFailed = useAppSelector((ctx) => ctx.sidebars.right.startFailed);
-  const cell = useAppSelector(selectPhoneDockCellMetrics);
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  const paneId = pane?.tmuxId ?? null;
-  useEffect(() => {
-    const box = boxRef.current;
-    if (!box || !paneId) return;
-    const observer = new ResizeObserver((entries) => {
-      const rect = entries[0]?.contentRect;
-      if (!rect) return;
-      const cols = Math.max(
-        SIDEBAR_MIN_COLS,
-        Math.min(SIDEBAR_MAX_COLS, Math.floor(rect.width / cell.cellWidth)),
-      );
-      const rows = Math.max(1, Math.floor(rect.height / cell.lineHeight));
-      send({ type: 'SET_PHONE_DOCK_SIZE', cols, rows });
-    });
-    observer.observe(box);
-    return () => observer.disconnect();
-  }, [send, paneId, cell.cellWidth, cell.lineHeight]);
-
-  const style = {
-    '--tmuxy-font-size': `${cell.fontSize}px`,
-    '--line-height-terminal': `${cell.lineHeight}px`,
-    ...cellMetricsStyle(cell),
-  } as CSSProperties;
-
-  return (
-    <div ref={boxRef} className="phone-dock" style={style} data-testid="phone-dock">
-      {pane ? (
-        <TerminalPane
-          paneId={pane.tmuxId}
-          chrome="none"
-          isActive={focused}
-          cellSize={{ width: cell.cellWidth, height: cell.lineHeight }}
-        />
-      ) : startFailed ? (
-        <div className="sidebar-start-failed" role="alert">
-          <p className="sidebar-start-failed-title">The terminal pane did not start.</p>
-        </div>
-      ) : (
-        <div className="sidebar-placeholder">starting…</div>
-      )}
     </div>
   );
 }

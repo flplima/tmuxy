@@ -104,6 +104,8 @@ export type AppMachineEvent =
   | { type: 'REFIT_GRID' }
   /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
+  /** The bar between the phone's terminal and its bottom view, released. */
+  | { type: 'SET_PHONE_SPLIT'; zoom: number; collapsed: boolean }
   | { type: 'SET_PHONE_BOTTOM_VIEW'; view: BottomView }
   /** The phone's bottom view was measured, in the dock's cells. */
   | { type: 'SET_PHONE_DOCK_SIZE'; cols: number; rows: number }

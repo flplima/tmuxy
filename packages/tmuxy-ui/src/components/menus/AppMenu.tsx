@@ -12,6 +12,17 @@ import { useMenuEnv } from './menuEnv';
 import { useAppMenuSurface } from './useAppMenuSurface';
 import './AppMenu.css';
 
+/** The hamburger's three bars: also the phone's menu button, held sideways (PhoneLeftSide). */
+export function MenuGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
+      <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
+      <rect x="2" y="11.5" width="12" height="1.5" rx="0.5" />
+    </svg>
+  );
+}
+
 export function AppMenu() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -30,11 +41,7 @@ export function AppMenu() {
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((open) => !open)}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-          <rect x="2" y="3" width="12" height="1.5" rx="0.5" />
-          <rect x="2" y="7.25" width="12" height="1.5" rx="0.5" />
-          <rect x="2" y="11.5" width="12" height="1.5" rx="0.5" />
-        </svg>
+        <MenuGlyph />
       </button>
       {menuOpen && (
         <FloatingMenu

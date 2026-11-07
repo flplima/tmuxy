@@ -96,6 +96,7 @@
       "packages/tmuxy-ui": {
         "entry": [
           "src/main.tsx",
+          "src/kindle/main.ts",
           "src/lib.ts",
           "src/**/*.stories.tsx",
           "src/**/*.test.{ts,tsx}",

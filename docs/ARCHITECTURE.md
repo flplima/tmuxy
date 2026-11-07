@@ -97,6 +97,12 @@ A report is taken no smaller than a floor (`MIN_CLIENT_COLS` × `MIN_CLIENT_ROWS
 
 The desktop app has one client per window, so only a fixed size changes anything there.
 
+## The e-ink page (`/?kindle`)
+
+A minimal client for browsers too old for the app: the Kindle Scribe's Silk (Chrome 80) stops at the bundle's first unknown syntax and leaves a black page. `?kindle` on any app URL goes to `kindle.html` before the bundle runs (`tmuxy-ui/public/kindle-redirect.js`, loaded first by `index.html`), keeping the query.
+
+The page (`tmuxy-ui/src/kindle/`) is built on its own for `chrome80` (`vite.kindle.config.ts`, run by the UI's `build`) into the same `dist/`. It reuses the wire decoding, the client model and `toTmuxCommand`, none of the machines or React. It keeps no model and applies no delta: each `state-update` is answered by a `get_initial_state`, drawn at most every 700 ms, and only changed rows reach the screen (every repaint is an e-ink refresh). The active tab is one black-on-white character grid with box-drawing dividers and an inverted cursor; colour is dropped, bold, underline, inverse and faint kept. A text box with Send, key buttons, a tap on a pane and tab buttons drive it. It reports its size like any client (`set_client_size`), from the cells its font (A−/A+) holds; a larger session scrolls.
+
 ## Key Design Decisions
 
 1. **One monitor per session** — Avoids duplicate control mode connections and ensures resize commands work reliably.

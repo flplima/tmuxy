@@ -4,8 +4,9 @@
  * The smallest viewport any other test opens is 800x600 and no other browser
  * context in the suite has `hasTouch` set — so on a real phone these run
  * nowhere else: the phone layout (infra/dom/phoneLayout.ts — the whole 80 × 25
- * terminal, the key row and the tree under it), the hidden input that IS the
- * virtual keyboard (infra/dom/mobileKeyboard.ts, whose `focusMobileInput`
+ * terminal, the key row, and under a bar the tree with its tab bar on top),
+ * the hidden input that IS the virtual keyboard (infra/dom/mobileKeyboard.ts,
+ * whose `focusMobileInput`
  * returns immediately unless `navigator.maxTouchPoints > 0`), the key row's
  * latching ctrl, the swipe that opens the scroll view, and the tree standing
  * in for the tab strip.
@@ -62,6 +63,7 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
           container: box(container),
           status: box(document.querySelector('.phone-pty .tmux-status-bar')),
           keys: box(document.querySelector('.key-row')),
+          bar: box(document.querySelector('[data-testid="phone-divider"]')),
           tree: box(document.querySelector('.phone-tree')),
           tabs: box(document.querySelector('.phone-tabs')),
           tabNames: [...document.querySelectorAll('.phone-tabs [role="tab"]')].map(
@@ -126,8 +128,8 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
     expect(layout.grid.containerWidth).toBeCloseTo(PHONE.width - 8, 0);
     expect(layout.pane.left).toBeGreaterThanOrEqual(1);
     // Top to bottom: the grid, tmux's line as its 25th row, the keys, the
-    // tree, and the tab bar under it down to the screen's bottom: the menu,
-    // the tree in front, the side pane.
+    // bar, then the tab bar — the menu, the tree in front, the side pane —
+    // and the tree under it down to the screen's bottom.
     expectOnScreen(layout.status, 'the status line');
     expect(layout.status.left).toBeCloseTo(0, 0);
     expect(layout.status.width).toBeCloseTo(PHONE.width, 0);
@@ -137,11 +139,13 @@ describeE2E('Phone width (390px) with a touchscreen', { context: phoneContext(PH
       layout.container.top + layout.container.height - 1,
     );
     expect(layout.keys.top).toBeGreaterThanOrEqual(layout.status.top + layout.status.height - 1);
-    expect(layout.tree.top).toBeGreaterThanOrEqual(layout.keys.top + layout.keys.height - 1);
+    expectOnScreen(layout.bar, 'the bar');
+    expect(layout.bar.top).toBeCloseTo(layout.keys.top + layout.keys.height, 0);
     expectOnScreen(layout.tabs, 'the tab bar');
     expect(layout.tabNames).toEqual(['Menu', 'Tree*', 'Side pane']);
-    expect(layout.tabs.top).toBeGreaterThanOrEqual(layout.tree.top + layout.tree.height - 1);
-    expect(layout.tabs.top + layout.tabs.height).toBeCloseTo(PHONE.height, 0);
+    expect(layout.tabs.top).toBeCloseTo(layout.bar.top + layout.bar.height, 0);
+    expect(layout.tree.top).toBeGreaterThanOrEqual(layout.tabs.top + layout.tabs.height - 1);
+    expect(layout.tree.top + layout.tree.height).toBeCloseTo(PHONE.height, 0);
     // A terminal squeezed to nothing is "on screen" too; it has to be usable.
     expect(layout.pane.height).toBeGreaterThan(200);
 
