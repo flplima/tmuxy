@@ -10,8 +10,8 @@
 //! [`FILES`] is the one list of what is in them; [`Layout`] resolves an entry
 //! to a path, and everything that reads or writes one of them goes through it,
 //! so a test can point all three at a scratch dir without touching the
-//! environment, and `tmuxy config paths`, the config README and the migration
-//! are all checked against the same table.
+//! environment, and `tmuxy config paths` and the config README are both
+//! checked against the same table.
 //!
 //! One resolution for every host and every verb, so a `tmuxy trace --mark`
 //! stamps the file the server is writing and a test's `TMUXY_STATE_DIR` /
@@ -295,11 +295,6 @@ pub const ENTRY_CONF: File = File::state(
     false,
     "The chain tmux starts with, built from your files and this machine's choices.",
 );
-pub const COMPAT_CONF: File = File::state(
-    "tmuxy.compat.conf",
-    false,
-    "Only while your tmuxy.conf still sources the old defaults: a copy without that line.",
-);
 pub const STATE_FILE: File = File::state(
     "tmuxy.state.json",
     false,
@@ -366,7 +361,6 @@ pub const FILES: &[File] = &[
     BIN,
     README,
     ENTRY_CONF,
-    COMPAT_CONF,
     STATE_FILE,
     SERVERS,
     TRACE_PREFS,
