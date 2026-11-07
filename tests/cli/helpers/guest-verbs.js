@@ -53,7 +53,9 @@ function guestMachine() {
   fs.copyFileSync(buildGuestVerbs(), path.join(bin, 'tmuxy-verbs'));
   fs.chmodSync(path.join(bin, 'tmuxy-verbs'), 0o755);
   fs.symlinkSync(path.join(MOCKS_DIR, 'tmux'), path.join(bin, 'tmux'));
-  const home = path.join(root, 'home');
+  // A space in it, as macOS's ~/Library/Application Support has in every
+  // state path the CLI writes run-shell's output under.
+  const home = path.join(root, 'the home');
   fs.mkdirSync(home);
   const machinePath = `${bin}:/usr/bin:/bin`;
   const runScript = (name, args, env = {}) => {
