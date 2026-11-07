@@ -71,11 +71,13 @@ pub fn run(args: ConnectArgs) {
     let answer = Answer::new(args.json);
     let mut request = request_or_exit(&answer, &args.socket, args.session.as_deref(), None);
     if request.session.is_none() {
-        let listed = Server::local(&request.socket).sessions();
+        let listed = Server::local(&request.socket)
+            .sessions()
+            .unwrap_or_else(|why| {
+                answer.exit(EXIT_FAILED, &format!("listing sessions: {}", why.trim()))
+            });
         request.session = Some(
-            listed
-                .ok()
-                .and_then(|names| first_safe_session(&names))
+            first_safe_session(&listed)
                 .unwrap_or_else(|| tmuxy_core::DEFAULT_SESSION_NAME.to_string()),
         );
     }
