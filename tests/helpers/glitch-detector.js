@@ -1,5 +1,5 @@
 /**
- * Glitch Detector — the Playwright/Jest face of the glitch detector in
+ * The Playwright/Jest face of the glitch detector in
  * `packages/tmuxy-ui/src/stories/glitchRecorder.ts`. The collector runs in the
  * page (Playwright serialises its source), the classifier runs here, and both
  * are the very code the Storybook play functions use, so the two harnesses
@@ -51,8 +51,8 @@ class GlitchDetector {
   }
 
   /**
-   * Start observing DOM mutations
-   * @param {Object} options - Configuration options
+   * Start recording the scope's mutations and boxes.
+   * @param {Object} options - overrides of DEFAULT_OPTIONS
    */
   async start(options = {}) {
     if (this.isRunning) {
@@ -60,7 +60,6 @@ class GlitchDetector {
     }
     const { scope, ...config } = { ...DEFAULT_OPTIONS, ...options };
     this.config = config;
-    this.isRunning = true;
 
     const started = await this.page.evaluate(
       `(() => {
@@ -69,13 +68,13 @@ class GlitchDetector {
         return collector !== null;
       })()`,
     );
-    if (!started) {
-      console.warn(`[GlitchDetector] Scope element not found: ${scope}`);
-    }
+    // Nothing to watch would analyse an empty recording, and pass.
+    if (!started) throw new Error(`GlitchDetector: no element matches the scope ${scope}`);
+    this.isRunning = true;
   }
 
   /**
-   * Stop observing and collect results
+   * Stop recording and classify what was recorded.
    * @returns {Object} The glitch report: flickers, churn, jumps and a summary
    */
   async stop() {
@@ -96,10 +95,9 @@ class GlitchDetector {
   }
 
   /**
-   * Assert no glitches detected
+   * Stop, and throw when the glitches exceed the thresholds.
    * @param {Object} options - `operation` names the threshold row; any other
    *   key overrides one threshold (nodeFlickers, attrChurnEvents, sizeJumps)
-   * @throws {Error} If glitches exceed thresholds
    */
   async assertNoGlitches(options = {}) {
     const { operation = 'default', ...overrides } = options;

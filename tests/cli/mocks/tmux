@@ -2,9 +2,7 @@
 # Mock tmux binary for CLI tests
 # Logs every invocation and returns canned responses
 
-# Log the call as JSON to the temp file
 if [ -n "$MOCK_TMUX_LOG" ]; then
-  # Build args array as JSON
   args_json="["
   first=true
   for arg in "$@"; do
@@ -21,7 +19,6 @@ if [ -n "$MOCK_TMUX_LOG" ]; then
   echo "{\"args\":$args_json}" >> "$MOCK_TMUX_LOG"
 fi
 
-# Return configured exit code if set
 exit_code="${MOCK_TMUX_EXIT_CODE:-0}"
 
 # Skip the socket flag pair (-L <name> / -S <path>) for response dispatch.
@@ -46,7 +43,6 @@ if [ "${1:-}" = "load-buffer" ] && [ "${!#}" = "-" ]; then
   exit "$exit_code"
 fi
 
-# Return canned responses based on subcommand
 case "${1:-}" in
   list-panes)
     # The CLI's first call from outside a pane asks which pane it should act
@@ -102,9 +98,7 @@ case "${1:-}" in
     fi
     ;;
   display-message)
-    # Keyed on the format so one mock can answer both questions a script asks
-    # of the caller's pane. Unset by default: every test that does not set them
-    # sees the same empty answer this case replaced.
+    # Keyed on the format: each question a script asks of the caller's pane.
     case "$*" in
       *'#{session_name}'*$'\\t'*'#{pane_id}'*|*'#{session_name}'*$'\t'*'#{pane_id}'*)
         if [ -n "${MOCK_TMUX_INFO:-}" ]; then

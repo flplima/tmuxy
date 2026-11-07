@@ -5,7 +5,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -19,15 +19,8 @@ const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Scenario 16: Unicode Rendering ====================
 
-describe('Scenario 16: Unicode Rendering', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 16: Unicode Rendering', {}, (ctx) => {
   test('Box drawing → CJK → alignment → emoji single/multi → tree output', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Box drawing characters
@@ -91,7 +84,6 @@ describe('Scenario 16: Unicode Rendering', () => {
   }, 180000);
 
   test('Wide glyphs stay on the tmux cell grid: CJK → emoji → ZWJ → skin tone → flag', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The browser grid is a whole number of device pixels per cell, published
@@ -218,7 +210,6 @@ describe('Scenario 16: Unicode Rendering', () => {
   }, 180000);
 
   test('A wide glyph on a coloured row keeps the row colour and is drawn above the next cell', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // An editor's cursor line is a coloured row. Two things went wrong on it:
@@ -270,20 +261,13 @@ describe('Scenario 16: Unicode Rendering', () => {
 
 // ==================== Scenario 16b: SGR 2 (faint/dim) ====================
 
-describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 16b: SGR 2 faint/dim attribute', {}, (ctx) => {
   // Claude Code's TUI uses SGR 2 (faint) for its autosuggestion text. The
   // vt100 0.15 crate dropped SGR 2 on the floor, so dim text rendered as
   // normal-intensity white. After bumping to vt100 0.16 + threading
   // `cell.dim()` through CellStyle, the frontend renders dim cells at
   // reduced opacity.
   test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Emit DIM_TEXT in faint, BRIGHT_TEXT in normal intensity.

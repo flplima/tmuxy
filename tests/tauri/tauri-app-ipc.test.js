@@ -1,8 +1,7 @@
 /**
- * Tauri Desktop App IPC Commands E2E Tests
- *
- * Tests the Tauri IPC integration seam (`run_tmux_command`, `query_tmux`,
- * `get_initial_state`, `get_scrollback_cells`, snackbar error reporting).
+ * The desktop app's IPC commands: `run_tmux_command`, `query_tmux`,
+ * `get_initial_state`, `get_scrollback_cells`, and a rejected command reaching
+ * the snackbar.
  */
 
 const {
@@ -82,12 +81,10 @@ describe('IPC Commands', () => {
     expect(nothing == null || nothing === '').toBe(true);
   });
 
-  // The bug this transport used to have: the frontend pins every command to
-  // the tab the user is looking at (`select-window ; select-pane ; <cmd>`),
-  // and the desktop rewrote the pinned command with a session target that
-  // tmux resolves late — against whatever window the session was on when
-  // the command ran. A split on tab B landed on tab A. Every command now
-  // reaches tmux byte-identical over the control-mode connection.
+  // The frontend pins every command to the tab the user is looking at
+  // (`select-window ; select-pane ; <cmd>`). A transport that adds a session
+  // target to it (this one once did) has tmux resolve it late, against the
+  // window the session is on when it runs: a split on tab B lands on tab A.
   test("a split pinned to a tab that is not tmux's current window lands on that tab", async () => {
     await setupApp();
     await waitForRawWindowCount(driver, 1);
@@ -147,12 +144,6 @@ describe('IPC Commands', () => {
     expect(await panesIn(first[0])).toBe(1);
   });
 
-  // Regression for the "+ New Tab" button: the frontend dispatches
-  // SEND_TMUX_COMMAND with `new-window`, which routes through
-  // adapter.invoke('run_tmux_command'). On tmux 3.5a a bare external
-  // `tmux new-window` while control mode is attached crashes the server,
-  // so run_tmux_command must intercept and rewrite to `splitw ; breakp` —
-  // exactly like the SSE server does.
   // A mutation resolves to nothing, so tmux's `%error` is the only word the
   // user gets when a command did nothing. The monitor attributes it to the
   // command and the app shows it in the snackbar.
@@ -191,13 +182,14 @@ describe('IPC Commands', () => {
     expect(texts.some((t) => t.includes(message))).toBe(false);
   });
 
+  // The "+ New Tab" button sends `new-window` through run_tmux_command; a bare
+  // `new-window` while control mode is attached crashes tmux 3.5a, so it is
+  // rewritten to `splitw ; breakp`, as the web server does.
   test('new-window over IPC is rewritten to splitw+breakp: tmux survives and the window appears', async () => {
     await setupApp();
 
-    // Assert on the raw window count (ctx.windows), which the monitor reports
-    // as soon as the window exists. The @tmuxy-window-type=tab classification
-    // is stamped asynchronously and, under CI's tmux 3.4, can lag indefinitely,
-    // so gating on it made this flaky. Window creation is classification-independent.
+    // The raw window count: the `@tmuxy-window-type` classification can lag
+    // indefinitely under tmux 3.4 (see getRawWindowCount).
     await waitForRawWindowCount(driver, 1);
 
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
@@ -213,10 +205,9 @@ describe('IPC Commands', () => {
 
   // The monitor starts with the app, before the webview can listen, so its
   // one Full broadcast is gone by the time the frontend asks for a baseline.
-  // That baseline used to be a subprocess poll that did not know the modes a
-  // program had set before the app started — so a pane running a full-screen
-  // mouse-tracking program (Claude Code) stayed "plain" on the client and
-  // every wheel over it was dropped. The initial state is the monitor's own now.
+  // The baseline has to carry the modes a program set before the app started:
+  // without them a pane running a full-screen mouse-tracking program (Claude
+  // Code) stays "plain" on the client and every wheel over it is dropped.
   test('get_initial_state reports the modes of a program that was already running', async () => {
     await setupApp();
     await invokeCommand(driver, 'run_tmux_command', {
@@ -240,20 +231,12 @@ describe('IPC Commands', () => {
     expect(pane.mouse_any_flag).toBe(true);
   });
 
-  // Regression for copy mode scrollback: without get_scrollback_cells the
-  // frontend's FETCH_SCROLLBACK_CELLS path errors silently, leaving the
-  // user staring at empty rows when scrolling up past the live viewport.
-  // Pre-fix, calling this command threw "Unknown command get_scrollback_cells"
-  // — the bug was the missing IPC binding, not the underlying parsing.
+  // Without get_scrollback_cells the frontend's FETCH_SCROLLBACK_CELLS path
+  // errors silently and scrolling up past the live viewport shows empty rows.
   test('get_scrollback_cells is exposed and returns the expected shape', async () => {
     await setupApp();
 
-    // `panes[0].id` — `getAppState` projects each pane as `{ id, windowId, … }`,
-    // so the `panes[0]?.tmuxId` this used to read was ALWAYS undefined and the
-    // `?? '%0'` fallback always fired. The test then asked tmux about a pane
-    // that does not exist and read the honest "tmux pane '%0' does not exist"
-    // as the IPC binding being broken. No fallback now: wait for the pane, and
-    // say so if it never arrives.
+    // `getAppState` projects each pane as `{ id, windowId, … }`.
     let paneId;
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline && !paneId) {
@@ -272,8 +255,7 @@ describe('IPC Commands', () => {
     // throws and the scrollback stays empty.
     expect(result).toBeDefined();
     // The error first: a failed command resolves as `{ __error }` (see
-    // invokeCommand), and asserting a missing `cells` before it reported
-    // "Received: undefined" while the reason sat unread in the same object.
+    // invokeCommand), and its reason says more than a missing `cells`.
     expect(result.__error).toBeUndefined();
     expect(result.cells).toBeDefined();
     expect(Array.isArray(result.cells)).toBe(true);
@@ -281,8 +263,5 @@ describe('IPC Commands', () => {
     expect(typeof result.start).toBe('number');
     expect(typeof result.end).toBe('number');
     expect(typeof result.width).toBe('number');
-    // The bug-3 invocation surface (an unknown command name) returns
-    // `{ __error: ... }` from invokeCommand's wrapper; assert no error.
-    expect(result.__error).toBeUndefined();
   });
 });

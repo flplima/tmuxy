@@ -10,6 +10,7 @@ import { expect, waitFor } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
+import { cursorPolygon } from './cursorShape';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Cursor On A Moving Page',
@@ -32,9 +33,9 @@ function overlayCorner(canvasElement: HTMLElement): { x: number; y: number } {
   const shape = canvasElement.ownerDocument.querySelector<HTMLElement>('.smooth-cursor-shape');
   const root = shape?.closest<HTMLElement>('.smooth-cursor');
   if (!shape || root?.style.opacity !== '1') throw new Error('the cursor overlay is not showing');
-  const m = shape.style.clipPath.match(/polygon\(([-\d.]+)px ([-\d.]+)px/);
-  if (!m) throw new Error(`no polygon in ${shape.style.clipPath}`);
-  return { x: Number(m[1]), y: Number(m[2]) };
+  const [corner] = cursorPolygon(shape.style.clipPath);
+  if (!corner) throw new Error(`no polygon in ${shape.style.clipPath}`);
+  return { x: corner[0], y: corner[1] };
 }
 
 function onACursorCell(canvasElement: HTMLElement): boolean {

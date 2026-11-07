@@ -1,8 +1,5 @@
 /**
- * Xvfb (X Virtual Framebuffer) lifecycle management
- *
- * Starts a virtual display for running GUI apps headlessly.
- * Required for Tauri/WebKitGTK which needs an X11 display.
+ * Xvfb: the X11 display WebKitGTK needs to run the Tauri app headlessly.
  */
 
 const { spawn, execSync } = require('child_process');
@@ -12,17 +9,14 @@ const RESOLUTION = '1280x720x24';
 
 let xvfbProcess = null;
 
-/**
- * Start Xvfb on the configured display
- */
 function startXvfb() {
   if (xvfbProcess) return;
 
-  // Kill any existing Xvfb on this display
+  // A display left over from an earlier run holds the lock.
   try {
     execSync(`kill $(cat /tmp/.X99-lock 2>/dev/null) 2>/dev/null`, { stdio: 'ignore' });
   } catch {
-    // No existing process
+    // None running.
   }
 
   xvfbProcess = spawn('Xvfb', [DISPLAY, '-screen', '0', RESOLUTION, '-ac', '-nolisten', 'tcp'], {
@@ -32,31 +26,23 @@ function startXvfb() {
 
   xvfbProcess.unref();
 
-  // Set DISPLAY for child processes
   process.env.DISPLAY = DISPLAY;
 
-  // Wait for Xvfb to be ready. Bumped from 5s to 30s because cold CI
-  // runners (especially during the first test invocation, when xdpyinfo
-  // itself may take ~1s to spawn) intermittently miss the original
-  // window. 30s leaves headroom without slowing the happy path.
+  // A cold CI runner can take seconds, xdpyinfo itself ~1s to spawn on the
+  // first call; 5s was missed intermittently.
   const timeoutMs = 30000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
       execSync(`xdpyinfo -display ${DISPLAY}`, { stdio: 'ignore', timeout: 1000 });
       return;
-    } catch {
-      // Not ready yet
-    }
+    } catch {}
     execSync('sleep 0.1');
   }
 
   throw new Error(`Xvfb did not start within ${timeoutMs / 1000} seconds`);
 }
 
-/**
- * Stop Xvfb
- */
 function stopXvfb() {
   if (xvfbProcess) {
     try {
@@ -67,11 +53,10 @@ function stopXvfb() {
     xvfbProcess = null;
   }
 
-  // Clean up lock file
   try {
     execSync('rm -f /tmp/.X99-lock', { stdio: 'ignore' });
   } catch {
-    // Ignore
+    // Already gone.
   }
 }
 

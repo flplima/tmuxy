@@ -4,7 +4,7 @@
 
 const {
   afterFrames,
-  createTestContext,
+  describeE2E,
   delay,
   focusPage,
   getTerminalText,
@@ -60,19 +60,12 @@ async function dispatchTouchScroll(page, startX, startY, endY, steps = 10) {
 
 // ==================== Scenario 8a: typed text reaches the shell verbatim ====================
 
-describe('Scenario 8a: typed text reaches the shell verbatim', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 8a: typed text reaches the shell verbatim', {}, (ctx) => {
   // Typed text travels as a `send-keys -l` literal. A tmux that format-expanded
   // it would hand the shell `%0` for `#{pane_id}`; the v86 guest's console did
   // that once, and this holds the native path to the letter on every tmux CI
   // runs (docs/TMUX-VERSION-BUGS.md).
   test('a #{format} typed at the prompt is not expanded by tmux', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await runCommand(ctx.page, "printf '%s\\n' 'LIT#{pane_id}END'", 'LIT#{pane_id}END');
     // The typed line and its output, both verbatim.
@@ -88,21 +81,14 @@ describe('Scenario 8a: typed text reaches the shell verbatim', () => {
 
 // ==================== Scenario 8: Resize from the prompt & SGR ====================
 
-describe('Scenario 8: Resize from the prompt & SGR', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
+describeE2E('Scenario 8: Resize from the prompt & SGR', {}, (ctx) => {
   afterEach(async () => {
     await ensureMouseCaptureStopped(ctx);
-    await ctx.afterEach();
   }, ctx.hookTimeout);
 
   // The mouse drag of a divider is covered in 2-layout-navigation (the 2×2
   // grid test); this one resizes from the command prompt.
   test('resize-pane -D / -R at the prompt → SGR click → SGR wheel → SGR right-click', async () => {
-    if (ctx.skipIfNotReady()) return;
-
     // Step 1: resize-pane -D on a stacked pair
     await ctx.setupTwoPanes('horizontal');
     await waitForPaneCount(ctx.page, 2);
@@ -233,15 +219,8 @@ describe('Scenario 8: Resize from the prompt & SGR', () => {
 
 // ==================== Scenario 21: Touch Scrolling ====================
 
-describe('Scenario 21: Touch Scrolling', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 21: Touch Scrolling', {}, (ctx) => {
   test('Touch scroll: CSS prevention → normal shell → alternate screen → multi-pane isolation [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 21 setup');
 

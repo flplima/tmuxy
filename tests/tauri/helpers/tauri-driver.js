@@ -1,13 +1,11 @@
 /**
- * tauri-driver lifecycle management
- *
- * tauri-driver is a W3C WebDriver proxy that:
- * 1. Listens on a port (default 4444)
- * 2. Launches the Tauri app binary when a session is created
- * 3. Bridges WebDriver commands to WebKitWebDriver (the WebKitGTK webview driver)
+ * tauri-driver: a W3C WebDriver proxy that launches the app binary when a
+ * session is created and bridges the commands to WebKitWebDriver (the
+ * WebKitGTK webview's driver).
  */
 
 const { spawn } = require('child_process');
+const { tmuxSocket } = require('../../helpers/tmux-socket');
 
 const DRIVER_PORT = 4444;
 
@@ -33,11 +31,12 @@ async function startTauriDriver(port = DRIVER_PORT) {
 
   const driverProcess = spawn('tauri-driver', ['--port', String(port)], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
+    // The driver hands its environment to the app it launches, which has to
+    // drive the suite's tmux socket, not its own `tmuxy` default.
+    env: { ...process.env, TMUX_SOCKET: tmuxSocket() },
   });
   driverProcesses.set(port, driverProcess);
 
-  // Log driver output for debugging
   driverProcess.stdout.on('data', (data) => {
     const msg = data.toString().trim();
     if (msg) console.warn(`[tauri-driver] ${msg}`);
@@ -52,7 +51,6 @@ async function startTauriDriver(port = DRIVER_PORT) {
     driverProcesses.delete(port);
   });
 
-  // Wait for tauri-driver to be ready
   const start = Date.now();
   while (Date.now() - start < 10000) {
     if (await driverResponds(port)) return { started: true, port };

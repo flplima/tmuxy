@@ -4,7 +4,7 @@
 
 const {
   afterFrames,
-  createTestContext,
+  describeE2E,
   focusPage,
   waitForTerminalText,
   waitForShellPrompt,
@@ -26,6 +26,7 @@ const {
   menuItemHint,
   closeMenu,
 } = require('./helpers');
+const { tmuxPane } = require('./helpers/tmux-read');
 
 // ==================== Mouse Cell Helpers ====================
 
@@ -74,15 +75,8 @@ async function clickCell(page, grid, col, row, frac = 0.5) {
 
 // ==================== Scenario 7: Mouse Click & Scroll ====================
 
-describe('Scenario 7: Mouse Click & Scroll', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 7: Mouse Click & Scroll', {}, (ctx) => {
   test('Click focus → wheel opens the scroll view (no copy mode) → text selects natively → typing closes it → prefix [ still gives copy mode', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 7 setup');
 
@@ -109,7 +103,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     const rowAlignment = async () =>
       ctx.page.evaluate(() => {
         const el = document.querySelector('.pane-scroll-container');
-        const rowHeight = window.app.getSnapshot().context.charHeight;
+        const rowHeight = el.querySelector('.terminal-line').getBoundingClientRect().height;
         return { scrollTop: el.scrollTop, rowHeight, offset: el.scrollTop % rowHeight };
       });
     let aligned = await rowAlignment();
@@ -160,17 +154,17 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
 
     // tmux is untouched: the pane never entered copy mode, so the application
     // in it carries on and no mode is advertised to the user.
-    const duringScroll = await ctx.page.evaluate(() => {
+    const shown = await ctx.page.evaluate(() => {
       const el = document.querySelector('[data-scroll-mode="true"]');
-      const pane = window.app.getSnapshot().context.panes[0];
       return {
         rendered: !!el && el.getBoundingClientRect().height > 0,
         userSelect: el ? getComputedStyle(el).userSelect : null,
         copyCursor: !!document.querySelector('.terminal-cursor-copy'),
-        inMode: pane.inMode,
+        paneId: window.app.view().activePaneId,
         statusSaysCopyMode: document.body.innerText.includes('[COPY MODE]'),
       };
     });
+    const duringScroll = { ...shown, inMode: tmuxPane(shown.paneId).inMode };
     expect(duringScroll.rendered).toBe(true);
     expect(duringScroll.userSelect).toBe('text');
     expect(duringScroll.copyCursor).toBe(false);
@@ -307,7 +301,7 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
     await afterFrames(ctx.page);
     const afterDblClick = await ctx.page.evaluate(() => ({
       selection: window.getSelection()?.toString() ?? '',
-      copyState: window.app.getSnapshot().context.copyModeStates['%0'] ?? null,
+      copyState: window.app.view().copyMode,
     }));
     expect(afterDblClick.copyState).toBeNull();
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
@@ -339,15 +333,8 @@ describe('Scenario 7: Mouse Click & Scroll', () => {
 
 // ==================== Scenario 7b: Right-click with nothing selected ====================
 
-describe('Scenario 7b: Right-click with nothing selected', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 7b: Right-click with nothing selected', {}, (ctx) => {
   test("opens the pane's own menu, the header's, and its Rename opens the header's field", async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await runCommand(ctx.page, 'echo RIGHT_CLICK_TARGET', 'RIGHT_CLICK_TARGET');
     await ctx.page.evaluate(() => window.getSelection().removeAllRanges());
@@ -392,18 +379,12 @@ describe('Scenario 7b: Right-click with nothing selected', () => {
 
 // ==================== Scenario 7c: Mouse lands on the clicked cell ====================
 
-describe('Scenario 7c: Mouse lands on the clicked cell', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
+describeE2E('Scenario 7c: Mouse lands on the clicked cell', {}, (ctx) => {
   afterEach(async () => {
     await ensureMouseCaptureStopped(ctx);
-    await ctx.afterEach();
   }, ctx.hookTimeout);
 
   test('a click reaches tmux at the cell under the pointer, in a pane and in the dock', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 
@@ -436,9 +417,7 @@ describe('Scenario 7c: Mouse lands on the clicked cell', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(
-          () => (window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'right') === true,
-        ),
+        ctx.page.evaluate(() => (window.app?.view().keyboardTarget.kind === 'right') === true),
       10000,
       'the dock to take the keyboard',
     );

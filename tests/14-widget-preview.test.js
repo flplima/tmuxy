@@ -13,19 +13,20 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const {
-  createTestContext,
+  sidebarShown,
+  waitForSettled,
+  TMUXY_CLI,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForShellPrompt,
   waitForCondition,
   waitForTerminalText,
   getPrefixKey,
-  waitForKeybindings,
   waitForPrefixActive,
   waitForPrefixConsumed,
 } = require('./helpers');
-
-const TMUXY_CLI = path.resolve(__dirname, '..', 'packages/tmuxy-cli/bin/tmuxy-cli');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from(
@@ -38,7 +39,7 @@ const lines = (n) => Array.from({ length: n }, (_, i) => `Line ${i + 1}`).join('
 /** The active pane's preview, as the user sees it. */
 function activePreview(page) {
   return page.evaluate(() => {
-    const { activePaneId } = window.app.getSnapshot().context;
+    const { activePaneId } = window.app.view();
     const pane = document.querySelector(`.pane-wrapper[data-pane-id="${activePaneId}"]`);
     const md = pane?.querySelector('.preview-markdown');
     const h1 = md?.querySelector('h1');
@@ -80,9 +81,8 @@ function previewFrame(page) {
  * first and so would take the keyboard off the preview.
  */
 async function pressPrefixed(page, key) {
-  await waitForKeybindings(page);
   const prefix = await getPrefixKey(page);
-  await page.keyboard.press(`${prefix.modifier}+${prefix.key}`);
+  await page.keyboard.press(prefix.modifier ? `${prefix.modifier}+${prefix.key}` : prefix.key);
   await waitForPrefixActive(page);
   await page.keyboard.press(key);
   await waitForPrefixConsumed(page);
@@ -104,12 +104,9 @@ function treeRow(page, paneId) {
   }, paneId);
 }
 
-/** The panes in the active tab. */
-function tabPaneCount(page) {
-  return page.evaluate(() => {
-    const c = window.app.getSnapshot().context;
-    return c.panes.filter((p) => p.windowId === c.activeWindowId).length;
-  });
+/** The panes tmux holds in the tab on screen. */
+async function tabPaneCount(page) {
+  return tmuxPanes(await page.evaluate(() => window.app.view().activeTabId)).length;
 }
 
 /**
@@ -145,13 +142,7 @@ async function openPreview(ctx, file) {
   await pressEnter(ctx.page);
 }
 
-describe('Scenario: tmuxy open previews a local file', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
   let dir;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-preview-'));
@@ -159,7 +150,6 @@ describe('Scenario: tmuxy open previews a local file', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   test('a markdown document: drawn with its diagram and image, followed as it changes, and its read gone with it', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 
@@ -217,10 +207,17 @@ describe('Scenario: tmuxy open previews a local file', () => {
     // A preview has no copy mode: `prefix [` leaves it as it is, still drawn
     // and still scrolled where the reader left it.
     await pressPrefixed(ctx.page, '[');
-    const afterCopyKey = await ctx.page.evaluate((paneId) => {
-      const c = window.app.getSnapshot().context;
-      return { copy: !!c.copyModeStates[paneId] };
-    }, shown.paneId);
+    // Whatever the key set off has come back once the app has caught up.
+    await waitForSettled(ctx.page);
+    const afterCopyKey = await ctx.page.evaluate(
+      (paneId) => ({
+        copy:
+          document.querySelector(
+            `[data-pane-id="${paneId}"] :is([data-copy-mode="true"], [data-scroll-mode="true"])`,
+          ) !== null,
+      }),
+      shown.paneId,
+    );
     expect(afterCopyKey.copy).toBe(false);
     const stillShown = await activePreview(ctx.page);
     expect(stillShown.heading).toBe('Doc Two');
@@ -229,7 +226,7 @@ describe('Scenario: tmuxy open previews a local file', () => {
 
     // The tree names the pane by what it shows, as its header does: the
     // preview, its document icon and the file — not the shell under it.
-    if (!(await ctx.page.evaluate(() => window.app.getSnapshot().context.sidebars.left.open))) {
+    if (!(await sidebarShown(ctx.page, 'left'))) {
       await pressPrefixed(ctx.page, 's');
     }
     let row = null;
@@ -286,7 +283,6 @@ describe('Scenario: tmuxy open previews a local file', () => {
    * them because it looks its SVG up in the app's document.
    */
   test('a diagram is drawn away from the app: what its labels hold reaches neither the page nor the network', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 
@@ -354,7 +350,6 @@ describe('Scenario: tmuxy open previews a local file', () => {
   }, 120000);
 
   test('a page: framed offline with only its own files, kept in place as it changes, and Ctrl+C from inside it', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 

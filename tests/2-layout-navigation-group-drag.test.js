@@ -3,7 +3,8 @@
  */
 
 const {
-  createTestContext,
+  afterFrames,
+  describeE2E,
   focusPage,
   runCommand,
   waitForPaneCount,
@@ -20,16 +21,11 @@ const {
   waitForCondition,
   pasteText,
 } = require('./helpers/layout-helpers');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 // ==================== Scenario 5b: Reorder a group, drag panes in and out ====================
 
-describe('Scenario 5b: Pane group order and membership by drag', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 5b: Pane group order and membership by drag', {}, (ctx) => {
   /** The group header's tabs as the user reads them: left to right, on screen. */
   const groupTabs = () =>
     ctx.page.evaluate(() =>
@@ -47,21 +43,11 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
     }, selector);
 
   /** The panes laid out in the tab on screen. */
-  const visiblePanes = () =>
-    ctx.page.evaluate(() => {
-      const c = window.app.getSnapshot().context;
-      return c.panes.filter((p) => p.windowId === c.activeWindowId).map((p) => p.tmuxId);
-    });
+  const visiblePanes = () => ctx.page.evaluate(() => window.app.view().visiblePaneIds);
 
-  /** What the header reads, what the client holds and what tmux holds. */
+  /** What the header reads and what tmux holds. */
   const orderReport = async () =>
-    `it reads ${await groupTabs()}\nclient: ${await ctx.page.evaluate(() =>
-      JSON.stringify(
-        window.app
-          .getSnapshot()
-          .context.panes.map((p) => [p.tmuxId, p.windowId, p.groupId, p.groupPos]),
-      ),
-    )}\ntmux: ${ctx.session.runCommand(
+    `it reads ${await groupTabs()}\ntmux: ${ctx.session.runCommand(
       "list-panes -a -F '#{pane_id} #{window_id} #{@tmuxy-group-id} #{@tmuxy-group-pos}'",
     )}`;
 
@@ -74,53 +60,47 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
    * through on its way to the next, as a hand does.
    */
   const dragThrough = async (from, points) => {
-    /** The drag has seen the pointer at (x, y), or has started when no point is given. */
-    const dragAt = (x, y) =>
-      waitForCondition(
-        ctx.page,
-        () =>
-          ctx.page.evaluate(
-            ([px, py]) => {
-              const d = window.app.getSnapshot().context.drag;
-              if (!d) return false;
-              return (
-                px === null || (Math.abs(d.currentX - px) < 1 && Math.abs(d.currentY - py) < 1)
-              );
-            },
-            [x, y],
-          ),
-        5000,
-        x === null ? 'the drag to start' : `the drag to reach (${x}, ${y})`,
-      );
     await ctx.page.mouse.move(from.x, from.y);
     await ctx.page.mouse.down();
+    // The press is taken in its handler and the drag listens from the frame
+    // after; a move sent sooner is one the drag never sees.
+    await afterFrames(ctx.page, 2);
     await ctx.page.mouse.move(from.x + 12, from.y + 1);
-    await dragAt(null, null);
+    // The dragged pane, or the dragged member's tab, is drawn as dragging.
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate(
+          () =>
+            document.querySelector('.pane-dragging, .pane-tab-dragging, .pane-drag-ghost') !== null,
+        ),
+      5000,
+      async () =>
+        `the drag to start (the header's tabs: ${await ctx.page.evaluate(() =>
+          [...document.querySelectorAll('.pane-tab')].map((t) => t.className).join(' | '),
+        )})`,
+    );
     for (const p of points) {
       await ctx.page.mouse.move(p.x, p.y);
-      if (!p.passing) await dragAt(p.x, p.y);
+      // The move is handled in its event and drawn on the next frame.
+      if (!p.passing) await afterFrames(ctx.page, 2);
     }
   };
 
   test('drag a member along the header to reorder it, drop a pane on the header to join, drag a parked member out [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
     // Two panes, one above the other; the top one becomes a group of three.
     await splitPaneKeyboard(page, 'vertical');
     await waitForPaneCount(page, 2);
-    const [top, other] = await page.evaluate(() => {
-      const c = window.app.getSnapshot().context;
-      return c.panes
-        .filter((p) => p.windowId === c.activeWindowId)
-        .sort((a, b) => a.y - b.y)
-        .map((p) => p.tmuxId);
-    });
+    const [top, other] = tmuxPanes(await page.evaluate(() => window.app.view().activeTabId))
+      .sort((a, b) => a.top - b.top)
+      .map((p) => p.id);
     await page.click(`.pane-layout-item[data-pane-id="${top}"] .pane-header`);
     await waitForCondition(
       page,
-      () => page.evaluate((id) => window.app.getSnapshot().context.activePaneId === id, top),
+      () => page.evaluate((id) => window.app?.view().activePaneId === id, top),
       5000,
       `${top} to be the active pane`,
     );
@@ -187,7 +167,15 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
           reordered[0],
         ),
       5000,
-      'the gap before the first member to be marked',
+      async () =>
+        `the gap before the first member to be marked (at the pointer: ${await page.evaluate(
+          ({ x, y }) => document.elementFromPoint(x, y)?.className,
+          { x: firstShare.r.left + 4, y: firstShare.y },
+        )}; tabs: ${await page.evaluate(() =>
+          [...document.querySelectorAll('.pane-tab')].map((t) => t.className).join(' | '),
+        )}; first share was ${JSON.stringify(firstShare.r)}, is ${JSON.stringify(
+          (await centre(`.pane-tab[data-pane-tab="${reordered[0]}"]`)).r,
+        )})`,
     );
     await page.mouse.up();
     await waitForCondition(
@@ -240,15 +228,8 @@ describe('Scenario 5b: Pane group order and membership by drag', () => {
 
 // ==================== Scenario 11: Status Bar ====================
 
-describe('Scenario 11: Status Bar', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 11: Status Bar', {}, (ctx) => {
   test('Bar visible → tab → session name → 2 windows → active distinct → click tab → rename → close via context menu', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Status bar visible
@@ -358,17 +339,10 @@ describe('Scenario 11: Status Bar', () => {
   }, 180000);
 });
 
-describe('Scenario 11b: Pasting into a tab rename field', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 11b: Pasting into a tab rename field', {}, (ctx) => {
   // The clipboard went to the pane: the window-level paste listener took
   // every paste, the rename field included, and the shell got the new name.
   test('right-click → Rename Tab → paste stays in the field, the pane receives nothing', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The strip draws its tab from the first state; on a slow runner that

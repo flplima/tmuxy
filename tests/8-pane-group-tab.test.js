@@ -5,7 +5,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   splitPaneKeyboard,
@@ -21,15 +21,8 @@ const { TMUXY_CLI } = require('./helpers/cli');
 /** The session a group's hidden members are parked in (tmuxy-core `STASH_SESSION`). */
 const STASH_SESSION = '__tmuxy_stash';
 
-describe('Pane groups: a whole tab in and out of one group', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Pane groups: a whole tab in and out of one group', {}, (ctx) => {
   test('three splits → group all → one pane with three group tabs → ungroup → three splits again, none grouped', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -123,7 +116,6 @@ describe('Pane groups: a whole tab in and out of one group', () => {
    * and from the strip (right-click → "Close Tab").
    */
   test('closing a grouped tab takes its parked member with it, from the CLI and from the strip', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 

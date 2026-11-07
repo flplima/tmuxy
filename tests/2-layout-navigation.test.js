@@ -3,8 +3,7 @@
  */
 
 const {
-  createTestContext,
-  delay,
+  describeE2E,
   focusPage,
   runCommand,
   waitForPaneCount,
@@ -19,21 +18,15 @@ const {
   waitForCondition,
   waitForSettled,
 } = require('./helpers/layout-helpers');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 // ==================== Scenario 4e: Tab Overview and ctrl+N by position ====================
 
-describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4e: Tab Overview and ctrl+N by position', {}, (ctx) => {
   // The strip itself reorders by drag, like the overview's cards: a press that
   // travels lifts the tab, the tab it would precede shows the drop bar, and
   // the drop is a move — not a click — so the active tab does not change.
   test('a tab dragged along the strip lands where it was dropped, in the client and in tmux', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
     await createWindowKeyboard(page);
@@ -115,21 +108,12 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
 
 // ==================== Scenario 23: Window Tab Input Routing ====================
 
-describe('Scenario 23: Window Tab Input Routing', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 23: Window Tab Input Routing', {}, (ctx) => {
   test('Keyboard input targets the correct pane after clicking a window tab', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Record window 1 pane ID
-    const win1PaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    const win1PaneId = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(win1PaneId).toBeTruthy();
 
     // Step 2: Create second window (we're now in window 2)
@@ -143,9 +127,7 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     }
 
     // Step 3: Record window 2 pane ID
-    const win2PaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    const win2PaneId = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(win2PaneId).toBeTruthy();
     expect(win2PaneId).not.toBe(win1PaneId);
 
@@ -169,10 +151,12 @@ describe('Scenario 23: Window Tab Input Routing', () => {
     await inactiveTab.click();
 
     // Step 6: Verify we switched — active pane must become win1PaneId.
-    // (The old version stringified a closure over win1PaneId, saw undefined
-    // in the page, and swallowed the resulting failure with .catch — the
-    // "verification" could not fail.)
-    await ctx.session.waitForState((c, id) => c.activePaneId === id, win1PaneId, 5000);
+    await waitForCondition(
+      ctx.page,
+      () => ctx.page.evaluate((id) => window.app.view().activePaneId === id, win1PaneId),
+      5000,
+      `the app to show ${win1PaneId} active`,
+    );
 
     // Step 7: Type a marker in window 1
     const MARKER_W1 = `W1_MARKER_${Date.now()}`;
@@ -214,15 +198,8 @@ describe('Scenario 23: Window Tab Input Routing', () => {
 
 // ==================== Scenario 24: Tab Switch No Blink ====================
 
-describe('Scenario 24: Tab Switch No Blink', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 24: Tab Switch No Blink', {}, (ctx) => {
   test('Clicking an inactive tab transitions the active highlight exactly once (no A→B→A→B blink) [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Create a second window so we have two tabs to switch between
@@ -282,9 +259,9 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     expect(inactiveTab).not.toBeNull();
     await inactiveTab.click();
 
-    // Wait well past the SELECT_TAB grace window (600ms) so any stale
-    // snapshot that would cause a bounce has time to arrive and be applied.
-    await delay(2000);
+    // Every snapshot the click set off, a stale one that would bounce the
+    // highlight back included, has reached the store once the app has caught up.
+    await waitForSettled(ctx.page);
 
     // Read the observed sequence of active-tab ids
     const seq = await ctx.page.evaluate(() => {
@@ -325,13 +302,12 @@ describe('Scenario 24: Tab Switch No Blink', () => {
   }, 60000);
 
   test('Switching to a tab whose active pane is not its first lands on that pane at once (no first-pane hop) [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
     const state = () =>
       page.evaluate(() => {
-        const c = window.app?.getSnapshot()?.context;
-        return { window: c?.activeWindowId, pane: c?.activePaneId, panes: c?.panes?.length };
+        const v = window.app?.view();
+        return { window: v?.activeTabId, pane: v?.activePaneId, tabs: v?.windows.length };
       });
     const ctrl = async (key) => {
       await page.keyboard.down('Control');
@@ -352,15 +328,9 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     const rightPane = (await state()).pane;
     // Tab 2's panes by geometry: the split put the new, active pane on the
     // right; the left one is where a wrong guess would land.
-    const secondTabPanes = await page.evaluate(
-      (id) =>
-        window.app
-          ?.getSnapshot()
-          ?.context?.panes.filter((p) => p.windowId === id)
-          .sort((a, b) => a.x - b.x)
-          .map((p) => p.tmuxId),
-      secondTab,
-    );
+    const secondTabPanes = tmuxPanes(secondTab)
+      .sort((a, b) => a.left - b.left)
+      .map((p) => p.id);
     expect(secondTabPanes).toHaveLength(2);
     expect(secondTabPanes[1]).toBe(rightPane);
     await ctrl('1');
@@ -377,20 +347,26 @@ describe('Scenario 24: Tab Switch No Blink', () => {
       page,
       async () => {
         const s = await state();
-        return s.window === firstTab && (s.panes ?? 0) >= 3;
+        return s.window === firstTab && (s.tabs ?? 0) >= 2;
       },
       20000,
-      'the reloaded client to connect on the first tab with every pane known',
+      'the reloaded client to connect on the first tab with both tabs known',
     );
 
-    // Record every active pane the client passes through during the switch.
+    // Record every pane drawn active, frame by frame, through the switch.
     await page.evaluate(() => {
-      const seq = [window.app.getSnapshot().context.activePaneId];
+      const drawn = () =>
+        [...document.querySelectorAll('.pane-active[data-pane-id]')].find(
+          (el) => !el.closest('.pane-window-hidden'),
+        )?.dataset.paneId ?? null;
+      const seq = [drawn()];
       window.__paneSeq = seq;
-      window.__paneSub = window.app.subscribe((snap) => {
-        const id = snap.context.activePaneId;
-        if (id !== seq[seq.length - 1]) seq.push(id);
-      });
+      const sample = () => {
+        const id = drawn();
+        if (id !== null && id !== seq[seq.length - 1]) seq.push(id);
+        window.__paneFrame = requestAnimationFrame(sample);
+      };
+      window.__paneFrame = requestAnimationFrame(sample);
     });
     await ctrl('2');
     await waitForCondition(
@@ -402,18 +378,13 @@ describe('Scenario 24: Tab Switch No Blink', () => {
     // Any late state the switch could still bring has landed once settled.
     await waitForSettled(page);
     const seq = await page.evaluate(() => {
-      window.__paneSub?.unsubscribe();
+      cancelAnimationFrame(window.__paneFrame);
       return window.__paneSeq;
     });
     // Straight from the first tab's pane to tab 2's right pane: no visit to
     // its first pane on the way.
-    const known = await page.evaluate(() =>
-      window.app.getSnapshot().context.windows.map((w) => [w.id, w.activePaneId]),
-    );
-    expect({ seq, known, rightPane, leftPaneOfTab2: secondTabPanes[0] }).toEqual({
+    expect({ seq, leftPaneOfTab2: secondTabPanes[0] }).toEqual({
       seq: [seq[0], rightPane],
-      known,
-      rightPane,
       leftPaneOfTab2: secondTabPanes[0],
     });
   }, 60000);

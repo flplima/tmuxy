@@ -1,6 +1,7 @@
 import { expect, within, waitFor } from 'storybook/test';
 import type { NativeSlidePhase } from '../machines/gestures/gestureActor';
 import { wait } from './animationObservers';
+import { cursorPolygon } from './cursorShape';
 
 export interface AppActor {
   getSnapshot(): {
@@ -112,8 +113,8 @@ export function webkitGesture(el: Element, type: string, scale: number): Event {
  */
 export function cursorLeft(): number {
   const shape = document.querySelector<HTMLElement>('.smooth-cursor-shape');
-  const m = shape?.style.clipPath.match(/polygon\(\s*(-?[\d.]+)px/);
-  return m ? parseFloat(m[1]) : NaN;
+  const [corner] = cursorPolygon(shape?.style.clipPath ?? '');
+  return corner ? corner[0] : NaN;
 }
 
 /** `read()` once a frame until `done()` holds and the value has stopped changing (2s cap). */

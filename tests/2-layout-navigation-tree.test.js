@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const {
-  createTestContext,
+  describeE2E,
   runCommand,
   waitForWindowCount,
   openSidebarKeyboard,
@@ -14,29 +14,19 @@ const {
   waitForKeyboardTarget,
   renameWindowKeyboard,
 } = require('./helpers/layout-helpers');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 // ==================== Scenario 6d: Sidebar Tree View ====================
 
-describe('Scenario 6d: Sidebar Tree View', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6d: Sidebar Tree View', {}, (ctx) => {
   test('prefix t opens fixed sidebar → tree shows tabs/panes → focus + Enter activates a tab and hands it the keyboard → l blurs → q closes', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The first window — we'll switch back to it via the tree later. Captured
     // before creating a second window, so it's the lowest-index tab (row 0).
-    const firstWindowId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId,
-    );
+    const firstWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
     expect(firstWindowId).toMatch(/^@\d+$/);
-    const firstPaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
+    const firstPaneId = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(firstPaneId).toMatch(/^%\d+$/);
 
     // A pane sitting inside a git checkout: the tree decorates its row with
@@ -75,9 +65,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const active = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.activeWindowId,
-        );
+        const active = await ctx.page.evaluate(() => window.app?.view().activeTabId);
         return active && active !== firstWindowId;
       },
       8000,
@@ -168,10 +156,8 @@ describe('Scenario 6d: Sidebar Tree View', () => {
                 Math.round(el.getBoundingClientRect().height),
               ]),
             ),
-        )}\npanes: ${await ctx.page.evaluate(() =>
-          JSON.stringify(
-            window.app.getSnapshot().context.panes.map((p) => [p.tmuxId, p.title, p.command]),
-          ),
+        )}\npanes: ${JSON.stringify(
+          tmuxPanes(ctx.session.name, { session: true }).map((p) => [p.id, p.title, p.command]),
         )}`,
     );
 
@@ -215,7 +201,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     // client to another session mid-test. The title focuses the column and
     // does nothing else.
     const sidebarFocused = () =>
-      ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'left');
+      ctx.page.evaluate(() => window.app?.view().keyboardTarget.kind === 'left');
     const focusTree = async (label) => {
       await ctx.page.click('[data-testid="sidebar-title-left"] .sidebar-title-text');
       await waitForCondition(ctx.page, async () => (await sidebarFocused()) === true, 5000, label);
@@ -252,12 +238,9 @@ describe('Scenario 6d: Sidebar Tree View', () => {
       15000,
       async () => {
         const s = await ctx.page.evaluate(() => {
-          const c = window.app?.getSnapshot()?.context;
           return {
             url: location.href,
-            sessionName: c?.sessionName,
-            sessions: (c?.sessions || []).map((x) => x.sessionName),
-            windows: (c?.windows || []).map((w) => w.id),
+            windows: (window.app?.view().windows ?? []).map((w) => w.id),
             rows: Array.from(document.querySelectorAll('.sidebar-tree [role="treeitem"]')).map(
               (r) => r.getAttribute('data-testid'),
             ),
@@ -296,9 +279,7 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const active = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.activeWindowId,
-        );
+        const active = await ctx.page.evaluate(() => window.app?.view().activeTabId);
         return active === firstWindowId;
       },
       10000,
@@ -359,22 +340,19 @@ describe('Scenario 6d: Sidebar Tree View', () => {
     await runCommand(ctx.page, 'echo AFTER_NAV_LEFT', 'AFTER_NAV_LEFT');
     const afterNav = await ctx.page.evaluate(() => ({
       column: !!document.querySelector('.sidebar-column-left'),
-      open: window.app.getSnapshot().context.sidebars.left.open,
-      focused: window.app.getSnapshot().context.keyboardOwner.kind === 'left',
+      focused: window.app?.view().keyboardTarget.kind === 'left',
     }));
-    expect(afterNav).toEqual({ column: false, open: false, focused: false });
+    expect(afterNav).toEqual({ column: false, focused: false });
   }, 180000);
 
   test('a tab named with a leading emoji shows the whole glyph as its tree row icon, not a top or bottom cut off', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // A plain pictograph, a variation-selector one and a ZWJ sequence: colour
     // emoji paint taller than their em box, which a clip sized to the name's
     // own line cut off.
     const names = ['📺 tmuxy', '🏛️ agora', '🧑‍💻 dev'];
-    const tabNames = () =>
-      ctx.page.evaluate(() => window.app.getSnapshot().context.windows.map((w) => w.name));
+    const tabNames = async () => (await ctx.session.getWindowInfo()).map((w) => w.name);
     for (const [i, name] of names.entries()) {
       if (i > 0) await createWindowKeyboard(ctx.page);
       await renameWindowKeyboard(ctx.page, name);

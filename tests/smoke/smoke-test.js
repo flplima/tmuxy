@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * Post-build smoke test for the Tauri desktop app.
- *
- * Full GUI test on both Linux and macOS: launches the app via WebdriverIO,
- * types a command in the terminal, and verifies the output appears in the UI.
+ * Post-build smoke test of the desktop app, on Linux and macOS: launch it
+ * through WebDriver, type a command, see its output, then read the app's log
+ * for a healthy connection.
  *
  * Linux:  tauri-driver (WebKitGTK WebDriver) + Xvfb
  * macOS:  tauri-webdriver (embeds WebDriver in app via tauri-plugin-webdriver)
@@ -43,7 +42,7 @@ if (!BINARY) {
 }
 
 const BINARY_PATH = path.resolve(BINARY);
-const SESSION_NAME = 'tmuxy'; // default session name
+const SESSION_NAME = 'tmuxy'; // the app's default session
 const APP_READY_TIMEOUT = 60000;
 const COMMAND_TIMEOUT = 30000;
 // The app's log file lives in its state dir (`tmuxy-core/src/paths.rs`):
@@ -61,10 +60,7 @@ function stateDir() {
 }
 const DEBUG_LOG = path.join(stateDir(), 'tmuxy.log');
 
-// --- Helpers ---
-
 function truncateDebugLog() {
-  // Start with an empty log so post-run assertions only see this run's output.
   try {
     fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
     fs.writeFileSync(DEBUG_LOG, '');
@@ -74,15 +70,12 @@ function truncateDebugLog() {
 }
 
 /**
- * Validate the debug log shows a healthy single connection lifecycle.
- *
- * Catches subtle bugs where the smoke test's marker-typing happens to succeed
- * but the app reconnected silently in the background (e.g. tmux crashed and
- * was reattached, masking control-mode regressions). Specifically guards:
- *   - The FATAL retry-cap (proves we never gave up)
- *   - Repeated "control mode connected successfully" lines (proves we didn't
- *     reconnect-loop). One is normal; >2 means the connection died and came
- *     back, which is the exact pattern the macOS Finder-launch bug produced.
+ * The app's log shows one healthy connection: the typed marker can come back
+ * while the app reconnected silently behind it (tmux crashed and was
+ * reattached). No `FATAL:` (the bounded retry gave up; tauri `monitor.rs`
+ * writes it) and at most two `control mode connected successfully` lines
+ * (`CONNECTED_LINE` in `tmuxy-core` `control_mode/connection/spawn.rs`): more is a reconnect loop, the pattern
+ * a macOS Finder launch once produced.
  */
 function assertHealthyDebugLog() {
   let contents;
@@ -110,8 +103,6 @@ function assertHealthyDebugLog() {
   console.warn(`Debug log healthy: ${connectCount} connect event(s), no FATAL`);
 }
 
-// --- Full GUI smoke test (WebdriverIO — both platforms) ---
-
 async function smokeTest() {
   let driver;
   const launchedAt = Date.now();
@@ -137,20 +128,17 @@ async function smokeTest() {
       try {
         await driver.deleteSession();
       } catch {
-        // Session may already be gone
+        // Already gone.
       }
     }
   }
 }
 
-// --- Main ---
-
 async function main() {
   console.warn(`Binary: ${BINARY_PATH}`);
   console.warn(`Platform: ${process.platform}`);
 
-  // Clean up any leftover session and clear the debug log so the
-  // post-run assertions only inspect this run's output.
+  // The log assertions read this run's output only.
   killTmuxSession(SESSION_NAME);
   truncateDebugLog();
 

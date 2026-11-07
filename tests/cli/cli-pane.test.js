@@ -126,7 +126,6 @@ describe('CLI pane subcommands', () => {
       expect(tmuxCalls).toHaveLength(0);
     });
 
-    // A word is a label: with no pane labeled or titled so, nothing happens.
     test('a label naming no pane is exit 3, and selects nothing', () => {
       const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'select', 'badarg']);
       expect(exitCode).toBe(3);

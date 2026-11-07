@@ -3,7 +3,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   focusPage,
   runCommand,
   assertContentMatch,
@@ -35,15 +35,8 @@ async function copyStateWhere(page, pred, desc) {
 
 // ==================== Scenario 9: Copy Mode Navigate ====================
 
-describe('Scenario 9: Copy Mode Navigate', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 9: Copy Mode Navigate', {}, (ctx) => {
   test('Scroll enter → hjkl cursor → 0/$ line edges → Ctrl+u/d half-page → persists → exit q → re-enter scroll → exit Escape → v selection', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Generate scrollback content
@@ -276,11 +269,12 @@ describe('Scenario 9: Copy Mode Navigate', () => {
  */
 function scrollbackOnScreen(page) {
   return page.evaluate(() => {
-    const { activePaneId, charHeight } = window.app.getSnapshot().context;
+    const { activePaneId } = window.app.view();
     const el = document.querySelector(
       `.pane-wrapper[data-pane-id="${activePaneId}"] .pane-scroll-container`,
     );
     if (!el) return null;
+    const charHeight = el.querySelector('.terminal-line').getBoundingClientRect().height;
     const r = el.getBoundingClientRect();
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return {
@@ -291,15 +285,8 @@ function scrollbackOnScreen(page) {
   });
 }
 
-describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 9b: Copy Mode Across a Tab Switch', {}, (ctx) => {
   test('a pane in copy mode comes back from another tab drawn where it was, and the wheel moves on from there', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // A second tab to go to, then back to the first with history behind it.
@@ -383,7 +370,6 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
   }, 120000);
 
   test('a wheel scroll view left open on a tab is closed by leaving it, and the tab comes back live', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     const first = await activeWindowId(ctx.page);
@@ -403,7 +389,7 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
 
     // The wheel opens the client's scroll view over the history.
     const pane = await ctx.page.evaluate(() => {
-      const { activePaneId } = window.app.getSnapshot().context;
+      const { activePaneId } = window.app.view();
       const r = document
         .querySelector(`.pane-wrapper[data-pane-id="${activePaneId}"] .pane-scroll-container`)
         .getBoundingClientRect();
@@ -422,13 +408,13 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
       ctx.page,
       async () => {
         live = await ctx.page.evaluate(() => {
-          const { activePaneId, copyModeStates } = window.app.getSnapshot().context;
+          const { activePaneId, copyMode } = window.app.view();
           const log = document.querySelector(
             `.pane-wrapper[data-pane-id="${activePaneId}"] [role="log"]`,
           );
           const r = log?.getBoundingClientRect();
           return {
-            view: copyModeStates[activePaneId]?.mode ?? null,
+            view: copyMode?.mode ?? null,
             height: r?.height ?? 0,
             text: log?.textContent ?? '',
           };
@@ -449,15 +435,8 @@ describe('Scenario 9b: Copy Mode Across a Tab Switch', () => {
 
 // ==================== Scenario 10: Copy Mode Select & Yank ====================
 
-describe('Scenario 10: Copy Mode Select & Yank', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 10: Copy Mode Select & Yank', {}, (ctx) => {
   test('Selection with v → yank with y → exit → terminal functional', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Generate scrollback content with identifiable lines

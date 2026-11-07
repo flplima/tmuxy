@@ -8,13 +8,7 @@
  * the focus, so what is typed lands at once.
  */
 
-const {
-  createTestContext,
-  navigateToSession,
-  waitForSessionReady,
-  waitForTerminalText,
-  waitForCondition,
-} = require('./helpers');
+const { describeE2E, openSession, waitForTerminalText, waitForCondition } = require('./helpers');
 
 const typeLine = async (page, text) => {
   await page.keyboard.type(text, { delay: 10 });
@@ -43,75 +37,79 @@ const expectTyped = async (page, marker) => {
 const holdsKeyboard = (page) =>
   page.evaluate(() => document.activeElement?.dataset?.keyboardTarget !== undefined);
 
-describe('Scenario: typing reaches the active pane as soon as the page has the focus', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+describeE2E(
+  'Scenario: typing reaches the active pane as soon as the page has the focus',
+  {},
+  (ctx) => {
+    test('a fresh load, a tab switch with the focus left on a chrome control, and a focus restored to the body: no click, the text lands', async () => {
+      await ctx.setupPage();
+      const page = ctx.page;
 
-  test('a fresh load, a tab switch with the focus left on a chrome control, and a focus restored to the body: no click, the text lands', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    const page = ctx.page;
+      // 1. Loaded again, never clicked.
+      await openSession(page, ctx.session.name);
+      await waitForCondition(
+        page,
+        () => holdsKeyboard(page),
+        10000,
+        'the app to hold the keyboard',
+      );
+      await typeLine(page, 'echo FOCUS_LOAD_OK');
+      await expectTyped(page, 'FOCUS_LOAD_OK');
 
-    // 1. Loaded again, never clicked.
-    await navigateToSession(page, ctx.session.name);
-    await waitForSessionReady(page, ctx.session.name);
-    await waitForCondition(page, () => holdsKeyboard(page), 10000, 'the app to hold the keyboard');
-    await typeLine(page, 'echo FOCUS_LOAD_OK');
-    await expectTyped(page, 'FOCUS_LOAD_OK');
+      // 2. The focus on a chrome control (as a restore may leave it), then the
+      //    page focused again, as a switch back to its tab does. A headless
+      //    Chrome keeps every tab visible and focused, so the window event is
+      //    dispatched as the browser would on a real switch.
+      await page.evaluate(() => {
+        document.querySelector('.app-menu-button').focus();
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitForCondition(
+        page,
+        () => holdsKeyboard(page),
+        10000,
+        'the keyboard back after a tab switch',
+      );
+      await typeLine(page, 'echo FOCUS_TAB_OK');
+      await expectTyped(page, 'FOCUS_TAB_OK');
 
-    // 2. The focus on a chrome control (as a restore may leave it), then the
-    //    page focused again, as a switch back to its tab does. A headless
-    //    Chrome keeps every tab visible and focused, so the window event is
-    //    dispatched as the browser would on a real switch.
-    await page.evaluate(() => {
-      document.querySelector('.app-menu-button').focus();
-      window.dispatchEvent(new Event('focus'));
-    });
-    await waitForCondition(
-      page,
-      () => holdsKeyboard(page),
-      10000,
-      'the keyboard back after a tab switch',
-    );
-    await typeLine(page, 'echo FOCUS_TAB_OK');
-    await expectTyped(page, 'FOCUS_TAB_OK');
+      // 3. The focus dropped to the body, then the page focused again.
+      await page.evaluate(() => {
+        document.activeElement?.blur();
+        window.dispatchEvent(new Event('focus'));
+      });
+      await waitForCondition(
+        page,
+        () => holdsKeyboard(page),
+        10000,
+        'the keyboard back from the body',
+      );
+      await typeLine(page, 'echo FOCUS_BODY_OK');
+      await expectTyped(page, 'FOCUS_BODY_OK');
+    }, 120000);
 
-    // 3. The focus dropped to the body, then the page focused again.
-    await page.evaluate(() => {
-      document.activeElement?.blur();
-      window.dispatchEvent(new Event('focus'));
-    });
-    await waitForCondition(
-      page,
-      () => holdsKeyboard(page),
-      10000,
-      'the keyboard back from the body',
-    );
-    await typeLine(page, 'echo FOCUS_BODY_OK');
-    await expectTyped(page, 'FOCUS_BODY_OK');
-  }, 120000);
+    test('a desktop whose screen also takes touch: a fresh load, no click, the text lands', async () => {
+      await ctx.setupPage();
+      const page = ctx.page;
 
-  test('a desktop whose screen also takes touch: a fresh load, no click, the text lands', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    const page = ctx.page;
-
-    // A touchscreen laptop, or a desktop with a touch display or a pen: the
-    // browser reports touch points, but the mouse is the primary pointer and
-    // the page is laid out for it. Only a phone or tablet keeps the keyboard
-    // down until a tap asks for it.
-    await page.addInitScript(() => {
-      Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 10 });
-    });
-    await navigateToSession(page, ctx.session.name);
-    await waitForSessionReady(page, ctx.session.name);
-    expect(await page.evaluate(() => navigator.maxTouchPoints)).toBe(10);
-    expect(await page.evaluate(() => matchMedia('(pointer: fine)').matches)).toBe(true);
-    await waitForCondition(page, () => holdsKeyboard(page), 10000, 'the app to hold the keyboard');
-    await typeLine(page, 'echo FOCUS_TOUCH_DESKTOP_OK');
-    await expectTyped(page, 'FOCUS_TOUCH_DESKTOP_OK');
-  }, 120000);
-});
+      // A touchscreen laptop, or a desktop with a touch display or a pen: the
+      // browser reports touch points, but the mouse is the primary pointer and
+      // the page is laid out for it. Only a phone or tablet keeps the keyboard
+      // down until a tap asks for it.
+      await page.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, 'maxTouchPoints', { get: () => 10 });
+      });
+      await openSession(page, ctx.session.name);
+      expect(await page.evaluate(() => navigator.maxTouchPoints)).toBe(10);
+      expect(await page.evaluate(() => matchMedia('(pointer: fine)').matches)).toBe(true);
+      await waitForCondition(
+        page,
+        () => holdsKeyboard(page),
+        10000,
+        'the app to hold the keyboard',
+      );
+      await typeLine(page, 'echo FOCUS_TOUCH_DESKTOP_OK');
+      await expectTyped(page, 'FOCUS_TOUCH_DESKTOP_OK');
+    }, 120000);
+  },
+);

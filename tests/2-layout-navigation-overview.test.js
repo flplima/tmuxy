@@ -3,7 +3,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
@@ -14,7 +14,7 @@ const {
   navigatePaneKeyboard,
   openSidebarKeyboard,
   createWindowKeyboard,
-  pressUntilWindowChanged,
+  pressChangingWindow,
   nextWindowKeyboard,
   prevWindowKeyboard,
   selectWindowKeyboard,
@@ -29,32 +29,32 @@ const {
 
 // ==================== Scenario 4e: Tab Overview and ctrl+N by position ====================
 
-describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4e: Tab Overview and ctrl+N by position', {}, (ctx) => {
   // ctrl+0 zooms the current tab out into a grid of every tab (Safari's tab
   // overview): click a slot to switch, "+" creates, ✕ closes, drag reorders,
   // Escape restores. ctrl+1…9 pick a tab by its POSITION in the strip — a
   // sidebar window occupying a tmux index must never shift which tab a digit
   // lands on.
   test('ctrl+0 shows every tab; click, +, ✕ and drag act on the strip; ctrl+3 picks the third visible tab', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
-    const state = () =>
-      page.evaluate(() => {
-        const c = window.app?.getSnapshot()?.context;
-        const tabs = (c?.windows || [])
-          .filter((w) => w.windowType === 'tab')
-          .sort((a, b) => a.index - b.index)
-          .map((w) => ({ id: w.id, index: w.index }));
-        return { tabs, active: c?.activeWindowId, chrome: (c?.windows || []).length - tabs.length };
+    // The tabs as tmux numbers them, the one the app shows, and how many
+    // chrome windows (a sidebar column) the app holds beside them.
+    const state = async () => {
+      const tabs = (await ctx.session.getWindowInfo())
+        .filter((w) => w.windowType === 'tab')
+        .sort((a, b) => a.index - b.index)
+        .map((w) => ({ id: w.id, index: w.index }));
+      const { active, chrome } = await page.evaluate(() => {
+        const v = window.app?.view();
+        return {
+          active: v?.activeTabId,
+          chrome: (v?.windows ?? []).filter((w) => w.kind !== 'tab').length,
+        };
       });
+      return { tabs, active, chrome };
+    };
     const overview = () =>
       page.evaluate(() => {
         const o = document.querySelector('[data-testid="tab-overview"]');
@@ -116,9 +116,7 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
     await typeInTerminal(page, `echo ${marker}`);
     await pressEnter(page);
     await waitForTerminalText(page, marker, 10000);
-    const markedPane = await page.evaluate(
-      () => window.app?.getSnapshot()?.context?.panes.find((p) => p.active)?.tmuxId,
-    );
+    const markedPane = await page.evaluate(() => window.app?.view().activePaneId);
     expect(markedPane).toMatch(/^%\d+$/);
 
     // A chrome window (the right sidebar) takes tmux index 2 BEFORE the tabs
@@ -176,15 +174,11 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
       () =>
         page.evaluate(
           ({ id, text }) =>
-            window.app
-              ?.getSnapshot()
-              ?.context?.panes.find((p) => p.tmuxId === id)
-              ?.content.some((line) =>
-                line
-                  .map((c) => c.c)
-                  .join('')
-                  .includes(text),
+            [
+              ...document.querySelectorAll(
+                `.pane-layout-item[data-pane-id="${id}"] [role="log"] .terminal-line`,
               ),
+            ].some((line) => line.textContent.includes(text)),
           { id: markedPane, text: later },
         ),
       10000,
@@ -340,15 +334,8 @@ describe('Scenario 4e: Tab Overview and ctrl+N by position', () => {
 
 // ==================== Scenario 4: Window Lifecycle ====================
 
-describe('Scenario 4: Window Lifecycle', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4: Window Lifecycle', {}, (ctx) => {
   test('New window → tabs → next/prev → by-number → last → rename → close → layout', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Create new window
@@ -368,10 +355,10 @@ describe('Scenario 4: Window Lifecycle', () => {
     expect(windowInfo.length).toBe(2);
 
     // Step 3: Next window (keyboard only — no adapter fallback)
-    await pressUntilWindowChanged(ctx, nextWindowKeyboard, 'next-window keyboard');
+    await pressChangingWindow(ctx, nextWindowKeyboard, 'next-window keyboard');
 
     // Step 4: Previous window (keyboard only)
-    await pressUntilWindowChanged(ctx, prevWindowKeyboard, 'prev-window keyboard');
+    await pressChangingWindow(ctx, prevWindowKeyboard, 'prev-window keyboard');
 
     // Step 5: Create 3rd window and select by number
     await createWindowKeyboard(ctx.page);
@@ -388,7 +375,7 @@ describe('Scenario 4: Window Lifecycle', () => {
     );
 
     // Step 6: Last window toggle (keyboard only)
-    await pressUntilWindowChanged(ctx, lastWindowKeyboard, 'last-window keyboard');
+    await pressChangingWindow(ctx, lastWindowKeyboard, 'last-window keyboard');
 
     // Step 7: Rename window
     await renameWindowKeyboard(ctx.page, 'MyRenamedWindow');

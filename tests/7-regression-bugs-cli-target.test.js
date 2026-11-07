@@ -13,7 +13,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForPaneCount,
@@ -23,15 +23,8 @@ const {
 } = require('./helpers');
 const { TMUXY_CLI } = require('./helpers/cli');
 
-describe('Scenario: a CLI split from a background tab lands in that tab', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: a CLI split from a background tab lands in that tab', {}, (ctx) => {
   test('tab create, then pane split from the pane left behind: two panes in its tab, one in the new one', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -43,8 +36,7 @@ describe('Scenario: a CLI split from a background tab lands in that tab', () => 
       }
       return counts;
     };
-    const visibleWindow = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const visibleWindow = () => page.evaluate(() => window.app?.view().activeTabId);
     const visiblePaneRects = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('.pane-layout-item[data-pane-id]')]
@@ -100,12 +92,10 @@ describe('Scenario: a CLI split from a background tab lands in that tab', () => 
   }, 90000);
 
   test('tab create, then pane group add from the pane left behind: the group forms in its tab', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
-    const visibleWindow = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const visibleWindow = () => page.evaluate(() => window.app?.view().activeTabId);
     const visibleGroupTabRects = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('.pane-tabs .pane-tab')]

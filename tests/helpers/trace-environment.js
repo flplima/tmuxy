@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const NodeEnvironment = require('jest-environment-node').TestEnvironment;
-const { serverBinary } = require('./server-binary');
+const { serverBinary } = require('./config');
 
 /** A test's name as the marker carries it: file › describe › test. */
 function testLabel(testPath, test) {

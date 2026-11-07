@@ -53,7 +53,6 @@ function withoutPaneResolution(tmuxCalls) {
  * redirects that bring its output and exit status back through files. The
  * wrapping is the same on every call and carries a temp path, so it is
  * stripped once here; the tests assert on the command itself.
- * `cli-run.test.js` asserts the wrapping is there.
  */
 const RUN_SHELL_WRAP = /^\{ (.*) ; \} >'[^']*\/out' 2>'[^']*\/err'; echo \$\? >'[^']*\/status'$/s;
 
@@ -100,6 +99,14 @@ function runCLIFull(args, opts = {}) {
       timeout: 10000,
       input: opts.input,
     });
+    // A CLI that hangs (killed at the timeout) or never started is no exit
+    // status at all: reported as one, it would pass every "exits 1" test.
+    if (result.error || result.status === null) {
+      throw new Error(
+        `tmuxy ${args.join(' ')} did not exit: ${result.error?.message ?? `killed by ${result.signal}`}` +
+          `\nstderr: ${result.stderr || ''}`,
+      );
+    }
 
     const log = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8').trim() : '';
     const recorded = log ? log.split('\n').map((line) => JSON.parse(line)) : [];
@@ -107,7 +114,7 @@ function runCLIFull(args, opts = {}) {
     return {
       stdout: result.stdout || '',
       stderr: result.stderr || '',
-      exitCode: result.status ?? 1,
+      exitCode: result.status,
       tmuxCalls: withoutRunShellWrap(withoutPaneResolution(allCalls)),
       rawRunShells: allCalls.filter((call) => call.args[0] === 'run-shell'),
       paneResolution: allCalls.find(isPaneResolution) ?? null,

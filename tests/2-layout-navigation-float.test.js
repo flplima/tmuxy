@@ -3,7 +3,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   runCommand,
   waitForPaneCount,
@@ -26,15 +26,8 @@ const {
 
 // ==================== Scenario 6: Float Pane Lifecycle ====================
 
-describe('Scenario 6: Float Pane Lifecycle', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6: Float Pane Lifecycle', { snapshot: true }, (ctx) => {
   test('CLI float → visually visible → centred in the container, again after a resize → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape, backdrop and exit close too', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The float is opened from the right half of a split, so a float anchored
@@ -196,10 +189,12 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     // activePaneId — a harness artifact, not a product bug. What IS stable
     // and meaningful: typing must not steal focus away from the float.
     const focusAfterTyping = await ctx.page.evaluate(() => {
-      const c = window.app?.getSnapshot()?.context;
+      const keys = window.app?.view().keyboardTarget;
       return {
-        focusedFloat: c?.keyboardOwner?.kind === 'float' ? c.keyboardOwner.paneId : null,
-        floatIds: Object.keys(c?.floatPanes ?? {}),
+        focusedFloat: keys?.kind === 'float' ? keys.paneId : null,
+        floatIds: [...document.querySelectorAll('.float-container[data-pane-id]')]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .map((el) => el.dataset.paneId),
       };
     });
     expect(focusAfterTyping.focusedFloat).not.toBeNull();
@@ -290,15 +285,8 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
 
 // ==================== Scenario 22: Float fzf Workflow ====================
 
-describe('Scenario 22: Float fzf Workflow', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 22: Float fzf Workflow', { snapshot: true }, (ctx) => {
   test('Float opens fzf → user selects item → result returned to shell [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Background pane is operational
@@ -314,8 +302,8 @@ describe('Scenario 22: Float fzf Workflow', () => {
 
     // Get the float pane ID for capture-pane verification
     const floatPaneId = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.keyboardOwner?.kind === 'float'
-        ? window.app.getSnapshot().context.keyboardOwner.paneId
+      window.app?.view().keyboardTarget.kind === 'float'
+        ? window.app?.view().keyboardTarget.paneId
         : null,
     );
     expect(floatPaneId).toBeTruthy();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
-import { pid, wirePane, wireSession } from '../../../test/wire';
+import { pid, wid, wirePane, wireSession, wireWindow } from '../../../test/wire';
 import { dispatchRaw } from '../../../test/store';
 import { fakeTransport, type FakeTransport } from '../../../test/transport';
 import { TmuxError } from '../../transport/AdapterError';
@@ -137,5 +137,38 @@ describe('TmuxStore — toTmuxCommand fallback for in-code ops', () => {
     // command string — the store should send `select-window -t N`.
     await fake.runtime.runPromise(store.dispatch({ _tag: 'SelectWindow', target: 3 }));
     expect(sent(fake)[0]).toContain('select-window -t 3');
+  });
+});
+
+describe('TmuxStore — last-window after a tab switch', () => {
+  it('follows tmux at once: the switch it supersedes stops pinning its tab', async () => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    const on = (active: '@1' | '@3') =>
+      wireSession({
+        panes: [
+          wirePane({ tmux_id: pid('%1'), window_id: wid('@1'), active: active === '@1' }),
+          wirePane({ tmux_id: pid('%3'), window_id: wid('@3'), active: active === '@3' }),
+        ],
+        windows: [
+          wireWindow({ id: wid('@1'), index: 1, active: active === '@1' }),
+          wireWindow({ id: wid('@3'), index: 3, active: active === '@3' }),
+        ],
+        active_window_id: wid(active),
+        active_pane_id: pid(active === '@1' ? '%1' : '%3'),
+      });
+    store.reconcile(on('@3'));
+
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(dispatchRaw(store, 'select-window -t @1'));
+    store.reconcile(on('@1'));
+    expect(store.getModel().derived.activeWindowId).toBe(wid('@1'));
+
+    // tmux goes back to @3 — the window the switch left, which a stale
+    // snapshot would also name — because the user asked it to.
+    fake.setNextResult({ kind: 'ok', value: undefined });
+    await fake.runtime.runPromise(dispatchRaw(store, 'last-window'));
+    store.reconcile(on('@3'));
+    expect(store.getModel().derived.activeWindowId).toBe(wid('@3'));
   });
 });

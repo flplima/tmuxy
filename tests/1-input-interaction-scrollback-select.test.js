@@ -9,49 +9,27 @@
 // ==================== Scenario 7e: Selecting the whole scrollback ====================
 
 const {
-  createTestContext,
-  delay,
-  afterFrames,
+  describeE2E,
   focusPage,
-  getTerminalText,
-  waitForTerminalText,
   runCommand,
-  typeInTerminal,
-  pressEnter,
-  DELAYS,
   assertContentMatch,
   getCopyModeState,
   waitForCondition,
   waitForCopyMode,
-  enterCopyModeAndWait,
 } = require('./helpers');
-const { tmuxExec } = require('./helpers/tmux-socket');
-const {
-  runRect,
-  shownRunRect,
-  dragSelect,
-  selectedText,
-  recordCopies,
-  copiedText,
-} = require('./helpers/selection-drag');
+
+const { recordCopies, copiedText } = require('./helpers/selection-drag');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-describe('Scenario 7e: Selecting the whole scrollback', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 7e: Selecting the whole scrollback', {}, (ctx) => {
   test.each([
     { keys: 'Cmd', mod: 'Meta' },
     { keys: 'Ctrl+Shift', mod: 'Control+Shift' },
   ])(
     '$keys+A selects every row of scrollback, on screen and off, and $keys+C copies all of it',
     async ({ mod }) => {
-      if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
       await focusPage(ctx.page);
 

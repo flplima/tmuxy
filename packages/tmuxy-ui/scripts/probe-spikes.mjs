@@ -9,18 +9,24 @@
  * Usage: node scripts/probe-spikes.mjs [port] [storyIdSubstring...]
  *
  * Expects a Storybook dev or static server already running on the given port
- * (default 6006). Optional substrings filter which v86 stories run. Exits
- * non-zero if any story fails to render or its play function throws.
+ * (default 6006). Optional substrings filter which v86 stories run, and
+ * PROBE_TIER=gate takes only the stories tagged `gate` (the blocking per-push
+ * set; lib/probe-common.mjs). Exits non-zero if any story fails to render or
+ * its play function throws.
  *
  * A failing story's screenshot and error text land in PROBE_ARTIFACT_DIR
  * (default `probe-artifacts/` beside package.json), for CI to upload.
  *
- * Every failure turns the run red: this sweep has no quarantine list. A story
- * that cannot pass against the guest's real tmux is deleted, not shielded.
+ * Every failure turns the run red: this sweep has no quarantine list and no
+ * retry. A story that cannot pass against the guest's real tmux is deleted,
+ * not shielded; telling a flake from a defect is the nightly's job, which runs
+ * a failed story again on a fresh runner (lib/nightly-ledger.mjs). The story
+ * after a failure starts on a cold-booted engine, so one failure's leftover
+ * guest state cannot fail the next story too.
  *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
- * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
- * secs}], totals }). This turns the v86 sweep's wall-clock into an Axis-A
+ * timings report ({ generatedAt, storybookPort, stories: [{id, ok, secs}],
+ * totals }). This turns the v86 sweep's wall-clock into an Axis-A
  * regression signal (see docs/PERFORMANCE.md) — the numbers are relative
  * (shared-engine, runner-load-sensitive), useful for trend, not absolutes.
  */
@@ -42,7 +48,12 @@ const {
 } = parseProbeArgs(process.argv.slice(2));
 const PER_STORY_TIMEOUT_MS = 240000;
 
-const ids = await fetchStoryIds({ storybookUrl: STORYBOOK_URL, filters: FILTERS, v86: true });
+const ids = await fetchStoryIds({
+  storybookUrl: STORYBOOK_URL,
+  filters: FILTERS,
+  v86: true,
+  tier: process.env.PROBE_TIER || 'all',
+});
 if (ids.length === 0) {
   console.error('no v86 stories matched');
   process.exit(1);
@@ -126,8 +137,8 @@ async function awaitOutcome(id) {
 }
 
 // channel.emit only sends OUTBOUND (to a manager that doesn't exist on
-// iframe.html) — drive the preview's own selection handler directly. A page
-// a retry just reloaded may not have its preview yet: wait for it.
+// iframe.html) — drive the preview's own selection handler directly, once
+// the page has one.
 const selectStory = async (storyId) => {
   await page.waitForFunction(() => window.__STORYBOOK_PREVIEW__?.onSetCurrentStory, null, {
     timeout: 60000,
@@ -148,10 +159,10 @@ const loadStory = (storyId) =>
   });
 
 /**
- * One story: selected on the shared page (or loaded fresh after `fresh`),
- * retried once on a cold-booted engine. A probe call that fails because the
- * page went away under it fails only this story; the next starts on a fresh
- * page instead of the run ending with every later story unprobed.
+ * One story: selected on the shared page, or loaded fresh (a cold-booted
+ * engine) after `fresh`. A probe call that fails because the page went away
+ * under it fails only this story; the next starts on a fresh page instead of
+ * the run ending with every later story unprobed.
  */
 async function probeStory(id, i, fresh) {
   if (fresh) {
@@ -175,17 +186,7 @@ async function probeStory(id, i, fresh) {
     else await loadStory(id);
   }
   const started = Date.now();
-  let result = await awaitOutcome(id);
-  let retried = false;
-  if (!result.ok) {
-    // Retry on a fresh cold-booted engine: a page reload clears accumulated
-    // drift (JS timers, serial backlog, wasm/guest state), and a genuine
-    // defect still reproduces on the clean engine.
-    await loadStory(id);
-    result = await awaitOutcome(id);
-    retried = true;
-  }
-  return { result, retried, started };
+  return { result: await awaitOutcome(id), started };
 }
 
 const results = [];
@@ -194,15 +195,13 @@ for (let i = 0; i < ids.length; i++) {
   const id = ids[i];
   currentStoryId = id;
   let result;
-  let retried = false;
   let started = Date.now();
   try {
-    ({ result, retried, started } = await probeStory(id, i, fresh));
-    fresh = false;
+    ({ result, started } = await probeStory(id, i, fresh));
   } catch (err) {
     result = { id, ok: false, reason: 'probe-error', message: err.message.split('\n')[0] };
-    fresh = true;
   }
+  fresh = !result.ok;
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   if (!result.ok) {
     result.pageErrors = [...pageErrors];
@@ -210,11 +209,11 @@ for (let i = 0; i < ids.length; i++) {
     result.artifact = await writeArtifacts(page, `v86-${id}`, result).catch(() => undefined);
   }
   console.log(
-    `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
+    `${result.ok ? 'PASS' : 'FAIL'}  ${id} (${secs}s)${
       result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message}` : ''}`
     }`,
   );
-  results.push({ ...result, retried, secs });
+  results.push({ ...result, secs });
 }
 
 await browser.close();
@@ -248,7 +247,6 @@ if (timingsPath) {
     stories: results.map((r) => ({
       id: r.id,
       ok: r.ok,
-      retried: r.retried,
       secs: r.secs,
     })),
     totals: {

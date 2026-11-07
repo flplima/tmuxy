@@ -37,6 +37,7 @@ type Story = StoryObj<typeof V86AppHarness>;
  * preview before the final resize lands).
  */
 export const ResizePaneDragVertical: Story = {
+  tags: ['gate'],
   args: { initCommands: ['split-window -v'] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -85,6 +86,7 @@ export const ResizePaneDragVertical: Story = {
  * renders as that content jumping a row for a frame.
  */
 export const ResizePaneDragGrid: Story = {
+  tags: ['gate'],
   args: {
     initCommands: ['split-window -v', 'split-window -h', 'select-layout tiled'],
   },

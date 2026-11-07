@@ -111,6 +111,7 @@ export const Live: Story = {
  * accepted the resize (a pure client-side ghost passes a during-drag check).
  */
 export const ResizePaneDrag: Story = {
+  tags: ['gate'],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await focusFirstPane(canvas, userEvent.setup());
@@ -142,6 +143,7 @@ export const ResizePaneDrag: Story = {
  * users see.
  */
 export const SplitOptimisticTimeline: Story = {
+  tags: ['gate'],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();
@@ -186,6 +188,7 @@ export const SplitOptimisticTimeline: Story = {
  * surfaces tmux's error.
  */
 export const SplitRejectedRollback: Story = {
+  tags: ['gate'],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const user = userEvent.setup();

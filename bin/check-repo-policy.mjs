@@ -284,7 +284,7 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 0,
   // Test bodies. Each one affects a single test.
-  tests: 11,
+  tests: 3,
   // Stories over real tmux wait on it instead (src/stories/tmuxBarrier.ts).
   'v86 stories': 0,
   stories: 14,

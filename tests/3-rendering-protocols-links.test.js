@@ -5,25 +5,17 @@
  * the terminal's wrap or the program's — and a link repainted over.
  */
 
-const { afterFrames, createTestContext, runCommand, waitForCondition } = require('./helpers');
+const { afterFrames, describeE2E, runCommand, waitForCondition } = require('./helpers');
+const { tmuxPane } = require('./helpers/tmux-read');
 
 // ==================== Detailed OSC Protocol Tests ====================
 
-describe('Category 11: OSC Protocols (Detailed)', () => {
-  const ctx = createTestContext({ snapshot: true });
-
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) => {
   // ====================
   // 11.1 Hyperlinks (OSC 8)
   // ====================
   describe('11.1 Hyperlinks (OSC 8)', () => {
     test('clicking an OSC 8 link opens it; an auto-detected URL opens only with the modifier', async () => {
-      if (ctx.skipIfNotReady()) return;
-
       await ctx.setupPage();
 
       // Links open through openExternalUrl (window.open on the web, the
@@ -171,10 +163,7 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       // break a long line themselves, short of the pane's edge, and indent
       // the rest — so neither row fills the pane. Its first row ends two
       // columns from the edge here, and both rows are still one link.
-      const width = await ctx.page.evaluate(() => {
-        const { panes, activePaneId } = window.app.getSnapshot().context;
-        return panes.find((p) => p.tmuxId === activePaneId).width;
-      });
+      const { width } = tmuxPane(await ctx.page.evaluate(() => window.app.view().activePaneId));
       const head = 'see https://example.com/hard/';
       const bs = width - head.length - 2;
       const hard = `https://example.com/hard/${'b'.repeat(bs)}${'c'.repeat(20)}?y=2`;
@@ -215,8 +204,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
     // label, carriage-return back over it, repaint. Nothing about the pane
     // moves, which is exactly the case that used to slip through.
     test('a link repainted over does not leave its highlight on the new text', async () => {
-      if (ctx.skipIfNotReady()) return;
-
       await ctx.setupPage();
 
       // A link on its own is an anchor — the control the rest of this test needs.

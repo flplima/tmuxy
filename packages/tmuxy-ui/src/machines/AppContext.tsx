@@ -22,6 +22,7 @@ import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../infra/store/TmuxStore';
 import { measureCellMetrics } from '../infra/dom/cellMetrics';
 import { isTauri } from '../infra/platform';
+import { selectTestView, type AppTestView } from './testView';
 import {
   AppActorContext,
   AppConfigContext,
@@ -71,8 +72,9 @@ export function AppProvider({
     }),
   );
 
-  // Expose the XState actor for E2E tests, and tap `send` so the action
-  // tracer sees every dispatched event.
+  // Expose the XState actor for E2E tests and stories, and tap `send` so the
+  // action tracer sees every dispatched event. A test reads `view()`
+  // (machines/testView.ts), never the context.
   useMemo(() => {
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
@@ -121,11 +123,16 @@ export function AppProvider({
       await nextFrame();
       await nextFrame();
     };
+    const view = (): AppTestView => selectTestView(actorRef.getSnapshot().context);
     (
       window as unknown as {
-        app: typeof actorRef & { settled: () => boolean; caughtUp: () => Promise<void> };
+        app: typeof actorRef & {
+          settled: () => boolean;
+          caughtUp: () => Promise<void>;
+          view: () => AppTestView;
+        };
       }
-    ).app = Object.assign(actorRef, { settled, caughtUp });
+    ).app = Object.assign(actorRef, { settled, caughtUp, view });
   }, [actorRef, runtime, store]);
 
   return (

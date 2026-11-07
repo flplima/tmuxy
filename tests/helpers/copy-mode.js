@@ -7,38 +7,24 @@
 
 const { waitForCondition } = require('./browser');
 const { enterCopyModeKeyboard } = require('./copy-mode-ui');
+const { tmuxExec } = require('./tmux-socket');
 
 /**
- * Get copy mode state from the XState machine context.
- * Returns null if copy mode is not active for the current pane.
+ * The active pane's scrollback record as the app holds it (`view().copyMode`),
+ * with `active: true`; null when the pane has none.
  */
 async function getCopyModeState(page) {
   return page.evaluate(() => {
-    const snap = window.app?.getSnapshot();
-    if (!snap?.context) return null;
-    const paneId = snap.context.activePaneId;
-    if (!paneId) return null;
-    const cs = snap.context.copyModeStates[paneId];
-    if (!cs) return null;
-    return {
-      active: true,
-      // 'scroll' (the native-like wheel view) or 'copy' (tmux copy mode) —
-      // the two share this record; see ScrollbackMode.
-      mode: cs.mode,
-      cursorRow: cs.cursorRow,
-      cursorCol: cs.cursorCol,
-      scrollTop: cs.scrollTop,
-      totalLines: cs.totalLines,
-      height: cs.height,
-      width: cs.width,
-      selectionMode: cs.selectionMode,
-      selectionAnchor: cs.selectionAnchor,
-      // Which rows have actually been fetched: a selection can cover history
-      // that is still on its way, and only these rows have text to copy.
-      loading: cs.loading,
-      loadedRanges: cs.loadedRanges,
-    };
+    const record = window.app?.view().copyMode;
+    return record ? { active: true, ...record } : null;
   });
+}
+
+/** Whether tmux has the app's active pane in a mode (copy mode); null before there is one. */
+async function tmuxInMode(page) {
+  const paneId = await page.evaluate(() => window.app?.view().activePaneId ?? null);
+  if (!paneId) return null;
+  return tmuxExec(`display-message -p -t ${paneId} '#{pane_in_mode}'`) === '1';
 }
 
 /**
@@ -62,49 +48,30 @@ async function waitForCopyMode(page, active, timeout = 15000) {
 }
 
 /**
- * Enter copy mode via keyboard (prefix + [) and wait until it can be DRIVEN.
- *
- * `waitForCopyMode` resolves as soon as the pane has a copy-mode record, which
- * is earlier than the point a motion key does anything: the client fetches the
- * scrollback it is about to navigate, and until those rows land the cursor has
- * nothing to move through — `k` is accepted and changes nothing.
- *
- * So this also waits for the fetch to settle. Previously the gap was covered
- * by `sendPrefixCommand` sleeping 500ms after every prefix key, which happened
- * to be long enough on the machines anyone looked at; a test that pressed `k`
- * three times and asserted the cursor had risen was reading that sleep, not
- * this state.
+ * Enter copy mode via keyboard (prefix + [) and wait until it can be DRIVEN:
+ * the client has fetched the scrollback it navigates (until those rows land,
+ * `k` is accepted and moves nothing) and tmux has the pane in copy mode.
  */
 async function enterCopyModeAndWait(page, timeout = 15000) {
   await enterCopyModeKeyboard(page);
-  const entered = await waitForCopyMode(page, true, timeout);
-
-  try {
-    await waitForCondition(
-      page,
-      async () => {
-        const cs = await getCopyModeState(page);
-        if (!cs?.active) return true; // left copy mode — the caller will say so
-        const inMode = await page.evaluate(() => {
-          const ctx = window.app?.getSnapshot?.()?.context;
-          const pane = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
-          return !!pane?.inMode;
-        });
-        return (
-          inMode &&
-          !cs.loading &&
-          (cs.loadedRanges?.length ?? 0) > 0 &&
-          typeof cs.cursorRow === 'number'
-        );
-      },
-      timeout,
-      'copy mode to finish loading the scrollback and tmux to confirm in_mode',
-    );
-  } catch {
-    // Not fatal: a pane with no history to load never reports rows, and the
-    // caller's own assertions are a better error than one from here.
-  }
-  return (await getCopyModeState(page)) ?? entered;
+  return waitForCondition(
+    page,
+    async () => {
+      const cs = await getCopyModeState(page);
+      const ready =
+        cs?.mode === 'copy' &&
+        !cs.loading &&
+        cs.loadedRanges.length > 0 &&
+        typeof cs.cursorRow === 'number' &&
+        (await tmuxInMode(page));
+      return ready ? cs : null;
+    },
+    timeout,
+    async () =>
+      `copy mode to load the scrollback with tmux in the mode (client: ${JSON.stringify(
+        await getCopyModeState(page),
+      )}, tmux in mode: ${await tmuxInMode(page)})`,
+  );
 }
 
 /**
@@ -114,18 +81,12 @@ async function enterCopyModeAndWait(page, timeout = 15000) {
  * the instant the user leaves and only then asks tmux to cancel. A test that
  * re-enters on the client's word alone is racing that cancel: the snapshot
  * reporting it can land after the next entry, and a loaded runner is where it
- * does. This is the condition the old fixed "reentry cooldown" sleeps were
- * standing in for, named.
+ * does.
  */
 async function waitForTmuxOutOfMode(page, timeout = 15000) {
   await waitForCondition(
     page,
-    () =>
-      page.evaluate(() => {
-        const ctx = window.app?.getSnapshot?.()?.context;
-        const pane = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
-        return !!pane && !pane.inMode;
-      }),
+    async () => (await tmuxInMode(page)) === false,
     timeout,
     'tmux to report the pane out of copy mode',
   );

@@ -3,7 +3,9 @@
  */
 
 const {
-  createTestContext,
+  waitForLayoutSettled,
+  getCellSize,
+  describeE2E,
   delay,
   waitForPaneCount,
   waitForWindowCount,
@@ -15,15 +17,12 @@ const {
   assertLayoutInvariants,
   waitForCondition,
 } = require('./helpers/layout-helpers');
+const { tmuxPane, tmuxPanes, tmuxWindow } = require('./helpers/tmux-read');
 
 // ==================== Scenario 4c: Zoom in a 2×2 grid ====================
 
-describe('Scenario 4c: Zoom in a 2×2 grid', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+describeE2E('Scenario 4c: Zoom in a 2×2 grid', {}, (ctx) => {
+  const activeTab = () => ctx.page.evaluate(() => window.app.view().activeTabId);
 
   // The zoomed pane used to be identified as "the first pane whose far corner
   // touches the grid's far corner" — which the bottom-right pane of any grid
@@ -31,7 +30,6 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
   // pane sitting in its quarter slot. The zoomed pane must be the one that
   // spans the whole grid, whichever pane it is.
   test('zooming the top-left pane shows that pane full size and hides the others; unzoom restores all four [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // 2×2: split right, then split each column down.
@@ -43,33 +41,27 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 4);
 
-    const visiblePanes = () =>
-      ctx.page.evaluate(() => {
-        const ctxState = window.app?.getSnapshot()?.context;
-        return (ctxState?.panes || [])
-          .filter((p) => p.windowId === ctxState.activeWindowId)
-          .map((p) => {
-            const el = document.querySelector(`.pane-container [data-pane-id="${p.tmuxId}"]`);
+    // The tab's panes as tmux has them, each as drawn.
+    const visiblePanes = async () =>
+      ctx.page.evaluate(
+        (ids) =>
+          ids.map((id) => {
+            const el = document.querySelector(`.pane-container [data-pane-id="${id}"]`);
             const r = el?.getBoundingClientRect();
             return {
-              id: p.tmuxId,
+              id,
               w: Math.round(r?.width ?? 0),
               h: Math.round(r?.height ?? 0),
               opacity: el ? Number(getComputedStyle(el).opacity) : 0,
             };
-          });
-      });
+          }),
+        tmuxPanes(await activeTab()).map((p) => p.id),
+      );
 
     // Zoom the TOP-LEFT pane (x=0, y=top). Navigate there first.
     await navigatePaneKeyboard(ctx.page, 'up');
-    const zoomTarget = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activePaneId,
-    );
-    const targetGeometry = await ctx.page.evaluate(
-      (id) => window.app?.getSnapshot()?.context?.panes?.find((p) => p.tmuxId === id),
-      zoomTarget,
-    );
-    expect(targetGeometry.x).toBe(0);
+    const zoomTarget = await ctx.page.evaluate(() => window.app?.view().activePaneId);
+    expect(tmuxPane(zoomTarget).left).toBe(0);
 
     const before = await visiblePanes();
     const quarterW = Math.max(...before.map((p) => p.w));
@@ -78,8 +70,7 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     await sendPrefixCommand(ctx.page, 'z');
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.windows?.some((w) => w.zoomed)),
+      async () => tmuxWindow(await activeTab()).zoomed,
       8000,
       'tmux to report the window zoomed',
     );
@@ -101,10 +92,7 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     await sendPrefixCommand(ctx.page, 'z');
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(
-          () => !window.app?.getSnapshot()?.context?.windows?.some((w) => w.zoomed),
-        ),
+      async () => !tmuxWindow(await activeTab()).zoomed,
       8000,
       'tmux to report the window un-zoomed',
     );
@@ -124,7 +112,6 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
   // to draw the right column moving too — a layout tmux never produced, so the
   // preview hung on until its fallback timer gave up.
   test('in a grid split into columns, dragging one column’s row divider moves that column only', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     await splitPaneKeyboard(ctx.page, 'vertical');
@@ -134,33 +121,46 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     await navigatePaneKeyboard(ctx.page, 'left');
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 4);
+    // The split structure is what draws a divider per column.
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const c = window.app?.getSnapshot()?.context;
-          return Boolean(c?.windows?.find((w) => w.id === c.activeWindowId)?.paneTree);
-        }),
+      () =>
+        ctx.page.evaluate(
+          () =>
+            [...document.querySelectorAll('.resize-divider')].filter(
+              (d) => d.style.cursor === 'ns-resize',
+            ).length === 2,
+        ),
       8000,
-      'the window to report its split structure',
+      'a row divider drawn in each column',
     );
 
     // Where each pane is drawn, keyed by which quarter of the grid it sits in.
-    const quarters = () =>
-      ctx.page.evaluate(() => {
-        const c = window.app.getSnapshot().context;
-        const panes = c.panes.filter((p) => p.windowId === c.activeWindowId);
-        const midX = Math.max(...panes.map((p) => p.x)) / 2;
-        const midY = Math.max(...panes.map((p) => p.y)) / 2;
-        const out = {};
-        for (const p of panes) {
-          const el = document.querySelector(`.pane-container [data-pane-id="${p.tmuxId}"]`);
-          const r = el.getBoundingClientRect();
-          const key = `${p.y < midY ? 'top' : 'bottom'}-${p.x < midX ? 'left' : 'right'}`;
-          out[key] = { top: Math.round(r.top), height: Math.round(r.height) };
-        }
-        return out;
+    // tmux's panes place each in a quarter; the box is the one drawn.
+    const quarters = async () => {
+      const panes = tmuxPanes(await activeTab());
+      const midX = Math.max(...panes.map((p) => p.left)) / 2;
+      const midY = Math.max(...panes.map((p) => p.top)) / 2;
+      const drawn = await ctx.page.evaluate(
+        (ids) =>
+          ids.map((id) => {
+            const r = document
+              .querySelector(`.pane-container [data-pane-id="${id}"]`)
+              .getBoundingClientRect();
+            return { top: Math.round(r.top), height: Math.round(r.height) };
+          }),
+        panes.map((p) => p.id),
+      );
+      const out = {};
+      panes.forEach((p, i) => {
+        out[`${p.top < midY ? 'top' : 'bottom'}-${p.left < midX ? 'left' : 'right'}`] = {
+          ...drawn[i],
+          rows: p.height,
+        };
       });
+      return out;
+    };
+    const topLeftRows = async () => (await quarters())['top-left'].rows;
 
     // Each column has its own row divider: two ns-resize handles, side by side.
     const rowDividers = await ctx.page.evaluate(() =>
@@ -176,7 +176,8 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     const [leftDivider] = rowDividers;
 
     const before = await quarters();
-    const rowPx = await ctx.page.evaluate(() => window.app.getSnapshot().context.charHeight);
+    const rowsBefore = await topLeftRows();
+    const rowPx = (await getCellSize(ctx.page)).charHeight;
 
     await ctx.page.mouse.move(leftDivider.x, leftDivider.y);
     await ctx.page.mouse.down();
@@ -195,13 +196,14 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
     expect(during['bottom-right']).toEqual(before['bottom-right']);
     await ctx.page.mouse.up();
 
-    // And tmux agrees: the preview lets go once its layout has landed.
+    // And tmux agrees: its layout lands, and the grid drawn from it settles.
     await waitForCondition(
       ctx.page,
-      async () => ctx.page.evaluate(() => window.app.getSnapshot().context.resize === null),
+      async () => (await topLeftRows()) > rowsBefore,
       8000,
-      'the resize preview to settle',
+      'tmux to grow the top-left pane',
     );
+    await waitForLayoutSettled(ctx.page);
     const after = await quarters();
     expect(after['top-left'].height).toBeGreaterThan(before['top-left'].height);
     expect(after['top-right']).toEqual(before['top-right']);
@@ -212,13 +214,7 @@ describe('Scenario 4c: Zoom in a 2×2 grid', () => {
 
 // ==================== Scenario 4g: Drag a pane onto the tab strip ====================
 
-describe('Scenario 4g: Drag a pane onto the tab strip', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 4g: Drag a pane onto the tab strip', {}, (ctx) => {
   /** How many panes each window holds, keyed by tmux window id. */
   const panesByWindow = async () => {
     const counts = {};
@@ -238,10 +234,7 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
    */
   const secondPaneHeaderBox = (page) =>
     page.evaluate(() => {
-      const ctx = window.app.getSnapshot().context;
-      const here = new Set(
-        ctx.panes.filter((p) => p.windowId === ctx.activeWindowId).map((p) => p.tmuxId),
-      );
+      const here = new Set(window.app.view().visiblePaneIds);
       const items = [...document.querySelectorAll('.pane-layout-item')].filter((item) =>
         here.has(item.querySelector('[data-pane-id]')?.dataset.paneId),
       );
@@ -255,7 +248,7 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
     });
 
   /**
-   * Press on the header and travel to (x, y) in steps, so the 5px threshold
+   * Press on the header and travel to (x, y) in steps, so the drag threshold
    * that turns a press into a drag is crossed the way a hand crosses it.
    */
   const dragHeaderTo = async (page, from, x, y) => {
@@ -271,7 +264,6 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
   // that tab. While the pointer is over it the button says so, because a drop
   // that silently rearranges two tabs is not something to find out afterwards.
   test('drag a pane onto another tab: the tab highlights, and the drop moves the pane there', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -283,13 +275,12 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
     await waitForPaneCount(page, 2);
 
     const windowIds = await page.evaluate(() =>
-      (window.app?.getSnapshot()?.context?.windows || [])
-        .filter((w) => w.windowType === 'tab')
+      window.app
+        .view()
+        .windows.filter((w) => w.kind === 'tab')
         .map((w) => w.id),
     );
-    const sourceWindow = await page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId,
-    );
+    const sourceWindow = await page.evaluate(() => window.app?.view().activeTabId);
     const targetWindow = windowIds.find((id) => id !== sourceWindow);
     const before = await panesByWindow();
     expect(before[sourceWindow]).toBe(2);
@@ -350,7 +341,6 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
   // space has nothing to highlight, so a dashed placeholder stands in for the
   // tab that would be created.
   test('drag a pane to the empty strip: a dashed "New Tab" appears, and the drop breaks the pane out', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -363,9 +353,7 @@ describe('Scenario 4g: Drag a pane onto the tab strip', () => {
     // reports as a TypeError about `getBoundingClientRect` rather than as
     // "the tab strip was not ready".
     await waitForWindowCount(page, 1);
-    const sourceWindow = await page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId,
-    );
+    const sourceWindow = await page.evaluate(() => window.app?.view().activeTabId);
     expect((await panesByWindow())[sourceWindow]).toBe(2);
 
     const header = await secondPaneHeaderBox(page);

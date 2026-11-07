@@ -5,9 +5,7 @@
  */
 
 const { chromium } = require('playwright');
-const { CDP_PORT, TMUXY_URL, DELAYS, WAIT_SCALE, waitBudget } = require('./config');
-const { tmuxExec } = require('./tmux-socket');
-const { tmuxSideOfSession } = require('./tmux-side');
+const { CDP_PORT, TMUXY_URL, WAIT_SCALE, waitBudget } = require('./config');
 
 /**
  * Sleep. The number is restated for this machine the way every wait budget
@@ -60,14 +58,19 @@ async function getBrowser() {
       page.once('close', () => {
         context.close().catch(() => {});
       });
-      await throttleCpu(page);
-      surfacePageProblems(page);
+      await instrumentPage(page);
       return page;
     },
     async close() {
       // No-op — shared browser persists across suites (see disconnectBrowser).
     },
   };
+}
+
+/** Slow the page down when asked to and print its own problems into the test output. */
+async function instrumentPage(page) {
+  await throttleCpu(page);
+  surfacePageProblems(page);
 }
 
 /**
@@ -120,10 +123,9 @@ async function throttleCpu(page) {
 /**
  * Let go of the shared browser at the end of a run.
  *
- * It is deliberately kept alive across suites, which leaves one open handle
- * when the last suite ends — the handle `--forceExit` used to paper over. A
- * CDP connection is only disconnected (the browser is the user's, or CI's);
- * a browser this process launched is closed.
+ * It is kept alive across suites, so it is the one open handle left when the
+ * last suite ends. A CDP connection is only disconnected (the browser is the
+ * user's, or CI's); a browser this process launched is closed.
  */
 async function disconnectBrowser() {
   if (!sharedBrowser) return;
@@ -138,131 +140,18 @@ async function disconnectBrowser() {
   }
 }
 
-/**
- * Wait for tmuxy server to be ready
- */
+/** Wait until the server at `url` answers. */
 async function waitForServer(url = TMUXY_URL, timeout = 30000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) return true;
-    } catch {
-      // Server not ready yet
-    }
-    await delay(500);
-  }
-  throw new Error(`Server at ${url} not ready after ${timeout}ms`);
-}
-
-/**
- * Navigate to tmuxy with session parameter.
- * Includes retry logic for SSE connection race conditions and a verified
- * round-trip readiness gate: sends a unique marker command through tmux
- * and waits for it to appear in the DOM before returning.
- */
-async function navigateToSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
-  const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
-  const maxRetries = 3;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      // A drawn pane — a terminal, or a widget where the pane shows one.
-      // Attached, not visible: the check below reads the text.
-      await page.waitForSelector('.pane-layout-item[data-pane-id]', {
-        state: 'attached',
-        timeout: 10000,
-      });
-    } catch (error) {
-      if (attempt < maxRetries) {
-        // no pane drawn yet, retry
-        await delay(2000);
-        continue;
-      }
-      // The page never drew a pane at all. Carrying on from here used to
-      // hand the caller a page with nothing on it, which then failed much
-      // later on a wait that only said "no prompt".
-      throw new Error(
-        `navigateToSession: no pane on the page for '${sessionName}' after ` +
-          `${maxRetries} attempts (${error.message.split('\n')[0]})\n` +
-          (await tmuxSideOfSession(page, sessionName)),
-      );
-    }
-
-    // A shell prompt, when the session has a terminal to show one; a session
-    // whose panes all show widgets is drawn once they are.
-    try {
-      await page.waitForFunction(
-        () => {
-          const logs = document.querySelectorAll('[role="log"]');
-          if (logs.length === 0) {
-            return [...document.querySelectorAll('.pane-layout-item[data-pane-id]')].every(
-              (pane) => pane.querySelector('[class*="widget"]') !== null,
-            );
-          }
-          const content = Array.from(logs)
-            .map((l) => l.textContent || '')
-            .join('\n');
-          return content.length > 5 && /[$#%>❯]/.test(content);
-        },
-        { timeout: 5000, polling: 50 },
-      );
-      await delay(DELAYS.SHORT);
-      return url;
-    } catch {
-      if (attempt < maxRetries) {
-        // Terminal content not ready, retrying
-        await delay(500);
-      }
-    }
-  }
-
-  // All retries exhausted with no rendered prompt: fail here, where the
-  // cause is clear, instead of returning the URL and letting the caller die
-  // later on an unrelated-looking assertion.
-  throw new Error(
-    `navigateToSession: terminal content never rendered for '${sessionName}' after ` +
-      `${maxRetries} attempts\nthe page shows: ${JSON.stringify(await terminalText(page))}\n` +
-      (await tmuxSideOfSession(page, sessionName)),
+  await waitForCondition(
+    null,
+    () =>
+      fetch(url, { signal: AbortSignal.timeout(2000) }).then(
+        (response) => response.ok,
+        () => false,
+      ),
+    timeout,
+    `the server at ${url} to answer`,
   );
-}
-
-/**
- * Verified round-trip readiness gate.
- * Sends a unique marker through the full pipeline (CLI → tmux → SSE → DOM)
- * and waits for it to appear. This ensures the entire data path is working
- * before the test proceeds.
- */
-async function verifyRoundTrip(page, sessionName, timeout = 30000) {
-  // The SSE pipeline is delivering tmux pane content to the DOM: a shell
-  // prompt is visible and the XState machine is connected. Not ready yet is
-  // "keep waiting" up to the budget; past it, the setup fails here, saying
-  // what it saw, rather than letting the test die later on a bare "no prompt".
-  try {
-    await page.waitForFunction(
-      () => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs)
-          .map((l) => l.textContent || '')
-          .join('\n');
-        const hasPrompt = content.length > 5 && /[$#%>❯]/.test(content);
-        const snap = window.app?.getSnapshot?.();
-        const connected = snap?.context?.connected;
-        return hasPrompt && connected;
-      },
-      { timeout: waitBudget(timeout), polling: 200 },
-    );
-  } catch {
-    const connected = await page
-      .evaluate(() => window.app?.getSnapshot?.()?.context?.connected ?? null)
-      .catch(() => null);
-    throw new Error(
-      `verifyRoundTrip: no prompt from a connected client for '${sessionName}' ` +
-        `(connected: ${connected})\nthe page shows: ${JSON.stringify(await terminalText(page))}\n` +
-        (await tmuxSideOfSession(page, sessionName)),
-    );
-  }
 }
 
 /** What the page's terminals show, joined; empty when it cannot be read. */
@@ -276,105 +165,65 @@ function terminalText(page) {
 }
 
 /**
- * Focus the page for keyboard input
+ * Click a terminal where its cursor is (its bottom-left corner without one),
+ * the way a user clicks to type: anywhere else can be a hyperlink, which a
+ * click opens.
  */
-async function focusPage(page) {
-  // Use locator instead of element handle to avoid DOM detachment on re-render
+async function clickTerminal(terminal) {
+  const position = await terminal.evaluate(
+    (log) => {
+      const box = log.getBoundingClientRect();
+      const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
+      if (cursor && cursor.width > 0) {
+        return {
+          x: cursor.left - box.left + cursor.width / 2,
+          y: cursor.top - box.top + cursor.height / 2,
+        };
+      }
+      return { x: 4, y: Math.max(1, box.height - 4) };
+    },
+    undefined,
+    { timeout: 5000 },
+  );
+  await terminal.click({ position, timeout: 5000 });
+}
+
+/**
+ * Click into a terminal (the page, without one) and wait for the app to hold
+ * the keyboard. On a touchscreen a click does not hand it over (a tap on the
+ * pane does, which is what the touch suites test), so it is not waited for.
+ */
+async function focusPage(page, { touch = false } = {}) {
+  // A locator, not an element handle, so a re-render between finding the
+  // terminal and clicking it does not detach the target.
   try {
-    await page.locator('[role="log"]').first().click({ timeout: 5000 });
+    await clickTerminal(page.locator('[role="log"]').first());
   } catch {
     await page.click('body', { timeout: 5000 });
   }
-  await waitForKeyboardFocus(page);
+  if (!touch) await waitForKeyboardFocus(page);
 }
 
 /**
- * Resolve once the app is really holding the keyboard.
- *
- * The app keeps a hidden 1px `<input>` focused on every device
- * (infra/dom/mobileKeyboard.ts) and routes what lands in it to a pane, so that
- * input BEING the active element is the signal that a keystroke will arrive.
- * Anything looser — "the clicked terminal is the active element" — is true
- * the instant the click lands, before the app has taken focus, and the first
- * characters of a long command are then typed into nothing.
- *
- * Falls through after `timeout`: a few surfaces (the tree widget) never hand
- * the input focus at all, and keys sent there go where the surface sends them.
+ * Wait until the app is really holding the keyboard: the hidden 1px `<input>`
+ * it keeps focused on every device (infra/dom/mobileKeyboard.ts) is the active
+ * element, so a keystroke reaches a pane. "The clicked terminal is the active
+ * element" is true the instant the click lands, before the app has taken focus,
+ * and the first characters of a long command were then typed into nothing.
  */
 async function waitForKeyboardFocus(page, timeout = 3000) {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    const ready = await page.evaluate(() => {
-      const el = document.activeElement;
-      return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
-    });
-    if (ready) return;
-    await delay(40);
-  }
-}
-
-/**
- * Wait for the SSE connection to be established and session to be ready
- * This ensures keyboard events will be sent to the correct session.
- *
- * Uses exponential backoff for the control mode connection check to handle
- * cold-start latency gracefully.
- */
-async function waitForSessionReady(page, sessionName, timeout = 5000) {
-  // Phase 1: Wait for terminal content (shell prompt visible)
-  try {
-    await page.waitForFunction(
-      () => {
-        const logs = document.querySelectorAll('[role="log"]');
-        const content = Array.from(logs)
-          .map((l) => l.textContent || '')
-          .join('');
-        return content.length > 5 && /[$#%>❯]/.test(content);
-      },
-      { timeout, polling: 50 },
-    );
-  } catch {
-    // Shell prompt not detected within timeout
-  }
-
-  // Phase 2: Wait for window.app to be available (XState machine loaded)
-  try {
-    await page.waitForFunction(() => !!window.app?.getSnapshot, { timeout: 5000, polling: 100 });
-  } catch {
-    throw new Error(`window.app not available after 5s for session '${sessionName}'`);
-  }
-
-  // Phase 3: Wait for tmux session to exist and be responsive via CLI.
-  // The server creates the session when the browser navigates to the URL,
-  // but it may take a moment for control mode to attach.
-  const monitorTimeout = 30000;
-  const monitorStart = Date.now();
-  let backoff = 200;
-  const maxBackoff = 2000;
-
-  while (Date.now() - monitorStart < monitorTimeout) {
-    try {
-      tmuxExec(`display-message -t ${sessionName} ""`);
-      break;
-    } catch {
-      // Session not ready yet
-    }
-    await delay(backoff);
-    backoff = Math.min(backoff * 1.5, maxBackoff);
-  }
-
-  // The keyboard actor routes a key to the session and pane the app holds, so
-  // the session is ready for keystrokes once the app names it and has a pane
-  // to aim at — not a fixed beat after tmux answered.
   await waitForCondition(
     page,
     () =>
-      page.evaluate((name) => {
-        const c = window.app?.getSnapshot()?.context;
-        return !!c && c.sessionName === name && c.panes.length > 0 && !!c.activePaneId;
-      }, sessionName),
-    5000,
-    `the app to hold session '${sessionName}' and an active pane`,
+      page.evaluate(() => {
+        const el = document.activeElement;
+        return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+      }),
+    timeout,
+    async () =>
+      `the app to hold the keyboard (the focus is on ${await page
+        .evaluate(() => document.activeElement?.outerHTML.slice(0, 120) ?? 'nothing')
+        .catch(() => 'a page that cannot be read')})`,
   );
 }
 
@@ -396,15 +245,11 @@ async function waitForWindowCount(page, expectedCount, timeout = 10000) {
       const tabInfo = Array.from(tabs).map((t) =>
         t.querySelector('button')?.getAttribute('aria-label'),
       );
-      const snap = window.app?.getSnapshot();
-      const windows = snap?.context?.windows?.map(
-        (w) =>
-          `${w.id}:${w.index}:${w.name}:a=${w.active}:pg=${w.windowType === 'group'}:fl=${w.windowType === 'float'}`,
-      );
+      const windows = window.app?.view().windows.map((w) => `${w.id}:${w.kind}`);
       return { count: tabs.length, tabInfo, windows };
     });
     throw new Error(
-      `Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${budget}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  XState windows: ${JSON.stringify(diag.windows)}`,
+      `Expected ${expectedCount} window tabs, found ${diag.count} (timeout ${budget}ms)\n  DOM tabs: ${JSON.stringify(diag.tabInfo)}\n  client windows: ${JSON.stringify(diag.windows)}`,
     );
   }
 }
@@ -451,28 +296,32 @@ async function waitForCondition(page, fn, timeout = 10000, description = 'condit
 }
 
 /**
- * Wait until the app has nothing outstanding, then two painted frames.
- *
- * `window.app.settled()` is the app's own answer (AppProvider): no command
- * queued or in flight to the backend, no keystroke batched and unsent, no
- * optimistic op awaiting tmux's verdict — the idle re-reconcile that drops a
- * mispredicted one included — and the store holding the state at the
- * stream's last sequence number. It is the question `delay(DELAYS.SYNC)` was
- * guessing at: this returns the moment the round trip is over rather than
- * 1500 ms after it began, and a round trip that takes longer than that on a
- * loaded runner is waited for instead of assumed done.
+ * Wait until the app has caught up with everything sent so far: tmux has done
+ * it, its notifications have reached the store and the screen has painted them
+ * (`window.app.caughtUp()`, AppProvider). It is the question a
+ * `delay(DELAYS.SYNC)` after a click or a prefix key was guessing at, answered
+ * the moment the round trip is over, and waited for when it takes longer.
  *
  * It says nothing about a PROGRAM in a pane, whose output arrives whenever it
  * does; that is `waitForTerminalText`'s question.
  */
 async function waitForSettled(page, timeout = 10000) {
-  await waitForCondition(
-    page,
-    () => page.evaluate(() => window.app?.settled?.() === true),
-    timeout,
-    'the app to settle (a command in flight, a pending op or an unapplied state kept it busy)',
-  );
-  await afterFrames(page, 2);
+  const budget = waitBudget(timeout);
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), budget);
+  });
+  const caughtUp = page.evaluate(() => window.app.caughtUp().then(() => true));
+  try {
+    if (!(await Promise.race([caughtUp, deadline]))) {
+      throw new Error(
+        `Timed out waiting for the app to catch up (${budget}ms): a command in flight, a ` +
+          'pending op or an unapplied state kept it busy',
+      );
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 module.exports = {
@@ -481,12 +330,12 @@ module.exports = {
   disconnectBrowser,
   delay,
   getBrowser,
+  instrumentPage,
   waitForServer,
-  navigateToSession,
-  verifyRoundTrip,
+  terminalText,
+  clickTerminal,
   focusPage,
   waitForKeyboardFocus,
-  waitForSessionReady,
   waitForWindowCount,
   waitForCondition,
 };
