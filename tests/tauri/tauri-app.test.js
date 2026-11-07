@@ -21,6 +21,7 @@ const {
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
+const { waitForCondition } = require('../helpers/browser');
 
 const ctx = createTauriTestContext();
 let driver = null;
@@ -70,13 +71,13 @@ describe('App Lifecycle', () => {
     // The window lays out over the first frames after launch: a terminal can
     // still be sized but parked below the viewport when the app has just
     // opened. Wait for one to be on screen rather than sampling once.
-    let rect = await measure();
-    const deadline = Date.now() + 10000;
-    while (Date.now() < deadline && !(rect && rect.area > 0)) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      rect = await measure();
-    }
-    expect(rect).not.toBeNull();
+    let rect = null;
+    await waitForCondition(
+      null,
+      async () => (rect = await measure())?.area > 0,
+      10000,
+      async () => `a terminal on screen (the largest: ${JSON.stringify(rect)})`,
+    );
     expect(rect.width).toBeGreaterThan(200);
     expect(rect.height).toBeGreaterThan(100);
     expect(rect.visibleWidth).toBeGreaterThan(200);
@@ -136,13 +137,13 @@ describe('State Sync', () => {
     // The path the toggle button and `prefix t` both take.
     await driver.execute(() => window.app.send({ type: 'TOGGLE_SIDEBAR', side: 'left' }));
 
-    let names = '';
-    for (let i = 0; i < 60; i++) {
-      names = tmuxExec(`list-windows -t ${sessionName} -F '#{window_name}'`);
-      if (names.includes('__sidebar-left')) break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    expect(names).toContain('__sidebar-left');
+    const names = () => tmuxExec(`list-windows -t ${sessionName} -F '#{window_name}'`);
+    await waitForCondition(
+      null,
+      () => names().includes('__sidebar-left'),
+      30000,
+      () => `the sidebar window (tmux has: ${names()})`,
+    );
 
     // The tab the user was looking at is untouched: the tree went into the
     // sidebar window, it did not stay behind as a pane here.
@@ -174,14 +175,16 @@ describe('State Sync', () => {
       // Picked the way the Theme menu picks it; the page resolves the file's
       // own value once the scheme has served it.
       await driver.execute(() => window.app.send({ type: 'SET_THEME', name: 'e2e-tauri' }));
-      let resolved = '';
-      for (let i = 0; i < 40 && resolved !== '#123456'; i++) {
-        resolved = await driver.execute(() =>
+      const resolved = () =>
+        driver.execute(() =>
           getComputedStyle(document.documentElement).getPropertyValue('--term-background').trim(),
         );
-        if (resolved !== '#123456') await driver.pause(250);
-      }
-      expect(resolved).toBe('#123456');
+      await waitForCondition(
+        null,
+        async () => (await resolved()) === '#123456',
+        10000,
+        async () => `the theme's background (it resolves to '${await resolved()}')`,
+      );
       const href = await driver.execute(
         () => document.getElementById('tmuxy-theme')?.getAttribute('href') ?? null,
       );
@@ -221,22 +224,27 @@ describe('GUI windows', () => {
 
     // The registry knows both windows, and the digit that focuses each.
     let listed = [];
-    for (let i = 0; i < 60; i++) {
-      listed = await invokeWindowCommand(driver, 'list_gui_windows');
-      if (listed.length === 2) break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
+    await waitForCondition(
+      null,
+      async () => (listed = await invokeWindowCommand(driver, 'list_gui_windows')).length === 2,
+      30000,
+      () => `the registry to list two windows (it lists ${JSON.stringify(listed)})`,
+    );
     expect(listed.map((w) => w.index)).toEqual([1, 2]);
 
     // tmux's side of it: a second session, grouped with the first, so the
     // windows are shared rather than copied.
     const grouped = `${sessionName}+2`;
     let sessions = '';
-    for (let i = 0; i < 60; i++) {
-      sessions = tmuxExec("list-sessions -F '#{session_name} #{session_group} #{session_windows}'");
-      if (sessions.includes(grouped)) break;
-      await new Promise((r) => setTimeout(r, 500));
-    }
+    await waitForCondition(
+      null,
+      () =>
+        (sessions = tmuxExec(
+          "list-sessions -F '#{session_name} #{session_group} #{session_windows}'",
+        )).includes(grouped),
+      30000,
+      () => `the grouped session ${grouped} (tmux has: ${sessions})`,
+    );
     const rows = sessions.split('\n').filter((r) => r.trim().length > 0);
     const base = rows.find((r) => r.startsWith(`${sessionName} `));
     const second = rows.find((r) => r.startsWith(`${grouped} `));
@@ -264,13 +272,12 @@ describe('GUI windows', () => {
       command: `select-window -t ${sessionName}:${target}`,
     });
 
-    let mine = otherBefore;
-    for (let i = 0; i < 60; i++) {
-      mine = currentOf(sessionName);
-      if (mine === target) break;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    expect(mine).toBe(target);
+    await waitForCondition(
+      null,
+      () => currentOf(sessionName) === target,
+      15000,
+      () => `this window's client on ${target} (it is on ${currentOf(sessionName)})`,
+    );
     // The second window did not follow.
     expect(currentOf(grouped)).toBe(otherBefore);
 
@@ -309,10 +316,12 @@ describe('GUI windows', () => {
     const before = await chrome();
     const settled = async (style) => {
       // Full screen enters and leaves with an animation; the style lands after it.
-      for (let i = 0; i < 40; i++) {
-        if ((await invokeWindowCommand(driver, 'get_window_style')) === style) break;
-        await driver.pause(250);
-      }
+      await waitForCondition(
+        null,
+        async () => (await invokeWindowCommand(driver, 'get_window_style')) === style,
+        10000,
+        `the window style ${style}`,
+      );
       await driver.pause(style === 'full-screen' ? 2000 : 500);
       expect(await invokeWindowCommand(driver, 'get_window_style')).toBe(style);
     };
@@ -354,10 +363,12 @@ describe('GUI windows', () => {
     await setupApp();
 
     let ids = [];
-    for (let i = 0; i < 40 && ids.length === 0; i++) {
-      ids = await driver.execute(() => window.tmuxyMenus?.barIds() ?? []);
-      if (ids.length === 0) await driver.pause(250);
-    }
+    await waitForCondition(
+      null,
+      async () => (ids = await driver.execute(() => window.tmuxyMenus?.barIds() ?? [])).length > 0,
+      10000,
+      'the menu bar spec',
+    );
     expect(ids).toEqual(
       expect.arrayContaining([
         'menu-app',

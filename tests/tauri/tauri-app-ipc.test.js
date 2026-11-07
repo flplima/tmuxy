@@ -15,6 +15,7 @@ const {
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxExec } = require('../helpers/tmux-socket');
+const { waitForCondition } = require('../helpers/browser');
 
 const ctx = createTauriTestContext();
 let driver = null;
@@ -102,25 +103,26 @@ describe('IPC Commands', () => {
         .trim()
         .split('\n')
         .map((line) => line.split(' '));
-    let windows = await listWindows();
-    for (let i = 0; i < 50 && windows.length < 2; i++) {
-      await new Promise((r) => setTimeout(r, 200));
-      windows = await listWindows();
-    }
-    if (windows.length !== 2) {
-      // What tmux has, and what it said: a rejected new-window is a snackbar
-      // entry now, so the reason is on the page.
-      const all = await invokeCommand(driver, 'query_tmux', {
-        command:
-          "list-windows -a -F '#{session_name} #{window_id} #{window_width}x#{window_height}'",
-      });
-      const notes = await driver.execute(() =>
-        (window.app?.getSnapshot()?.context?.notifications || []).map((n) => n.text),
-      );
-      throw new Error(
-        `expected 2 windows in the session, tmux lists: ${JSON.stringify(all)}; notifications: ${JSON.stringify(notes)}`,
-      );
-    }
+    let windows = [];
+    await waitForCondition(
+      null,
+      async () => (windows = await listWindows()).length === 2,
+      10000,
+      async () => {
+        // What tmux has, and what it said: a rejected new-window is a
+        // snackbar entry now, so the reason is on the page.
+        const all = await invokeCommand(driver, 'query_tmux', {
+          command:
+            "list-windows -a -F '#{session_name} #{window_id} #{window_width}x#{window_height}'",
+        });
+        const notes = await driver.execute(() =>
+          [...document.querySelectorAll('[data-testid="snackbar-item"]')].map(
+            (el) => el.textContent,
+          ),
+        );
+        return `2 windows in the session (tmux lists: ${JSON.stringify(all)}; snackbar: ${JSON.stringify(notes)})`;
+      },
+    );
     const [first, second] = windows;
     await invokeCommand(driver, 'run_tmux_command', { command: `select-window -t ${first[0]}` });
 
@@ -136,11 +138,12 @@ describe('IPC Commands', () => {
     });
 
     // The split is on the pinned window — and NOT on the one tmux was on.
-    const start = Date.now();
-    while ((await panesIn(second[0])) < 2 && Date.now() - start < 10000) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    expect(await panesIn(second[0])).toBe(2);
+    await waitForCondition(
+      null,
+      async () => (await panesIn(second[0])) === 2,
+      10000,
+      'the split on the pinned window',
+    );
     expect(await panesIn(first[0])).toBe(1);
   });
 
@@ -158,13 +161,8 @@ describe('IPC Commands', () => {
           (el) => el.textContent,
         ),
       );
-    const start = Date.now();
-    let texts = [];
-    while (!texts.some((t) => t.includes(message)) && Date.now() - start < 10000) {
-      await new Promise((r) => setTimeout(r, 200));
-      texts = await snackbarTexts();
-    }
-    expect(texts.some((t) => t.includes(message))).toBe(true);
+    const shown = async () => (await snackbarTexts()).some((t) => t.includes(message));
+    await waitForCondition(null, shown, 10000, `the snackbar to say "${message}"`);
 
     // Its close button takes it away.
     await driver.execute((needle) => {
@@ -173,13 +171,7 @@ describe('IPC Commands', () => {
       );
       item.querySelector('button[aria-label="Dismiss notification"]').click();
     }, message);
-    const dismissed = Date.now();
-    texts = await snackbarTexts();
-    while (texts.some((t) => t.includes(message)) && Date.now() - dismissed < 5000) {
-      await new Promise((r) => setTimeout(r, 100));
-      texts = await snackbarTexts();
-    }
-    expect(texts.some((t) => t.includes(message))).toBe(false);
+    await waitForCondition(null, async () => !(await shown()), 5000, 'the snackbar entry to go');
   });
 
   // The "+ New Tab" button sends `new-window` through run_tmux_command; a bare
@@ -215,15 +207,14 @@ describe('IPC Commands', () => {
         'send-keys -l \'printf "\\033[?1049h\\033[?1000h\\033[?1006h"; sleep 60\' \\; send-keys Enter',
     });
     // tmux has the modes once the program printed them.
-    let flags = '';
-    for (let i = 0; i < 50; i++) {
-      flags = tmuxExec(
-        `display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`,
-      ).trim();
-      if (flags === '1 1') break;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    expect(flags).toBe('1 1');
+    const flags = () =>
+      tmuxExec(`display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`).trim();
+    await waitForCondition(
+      null,
+      () => flags() === '1 1',
+      10000,
+      async () => `tmux to hold the alternate screen and mouse mode (it has '${flags()}')`,
+    );
 
     const state = await invokeCommand(driver, 'get_initial_state', { cols: 120, rows: 40 });
     const pane = state.panes.find((p) => p.active) || state.panes[0];
