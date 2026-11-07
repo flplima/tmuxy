@@ -2,7 +2,7 @@
 //! inside `run-shell` under the one routing policy
 //! (`tmuxy_core::command_router::route_cli_run`), and a new tab.
 
-use tmuxy_core::command_router::{route_cli_run, CliRun, RUN_VERBS};
+use tmuxy_core::command_router::{route_cli_run, run_verbs, CliRun};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::run_shell::{self, Ran, RunShellError};
 use tmuxy_core::tmux_command::NewTab;
@@ -185,11 +185,10 @@ fn usage() -> String {
 
 /// The commands `tmuxy run` passes on by their full names, wrapped.
 fn verb_list() -> String {
-    let names: Vec<&str> = RUN_VERBS
-        .iter()
-        .copied()
+    let mut names: Vec<&str> = run_verbs()
         .filter(|name| name.contains('-') && !matches!(*name, "new-window" | "resize-window"))
         .collect();
+    names.sort_unstable();
     let mut list = String::new();
     let mut row = String::from(" ");
     for name in names {

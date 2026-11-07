@@ -43,7 +43,7 @@ use crate::control_mode::control_mode_lines;
 use crate::tmux_command::{self, RESIZE_WINDOW};
 
 mod cli_run;
-pub use cli_run::{route_cli_run, CliRun, RUN_VERBS};
+pub use cli_run::{route_cli_run, run_verbs, CliRun};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
