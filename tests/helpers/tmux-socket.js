@@ -149,13 +149,10 @@ function homeDir() {
  * `tmuxy-test` server the previous run's tabs — every test that expects an
  * empty first tab then starts on someone else's layout. One scratch dir per
  * socket, under the OS temp dir; `jest.setup.js` wipes it before it starts a
- * server.
+ * server. A `TMUXY_STATE_DIR` the shell exports is the developer's too.
  */
 function stateDir() {
-  return (
-    process.env.TMUXY_STATE_DIR ||
-    path.join(os.tmpdir(), `tmuxy-e2e-state-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`)
-  );
+  return path.join(os.tmpdir(), `tmuxy-e2e-state-${tmuxSocket().replace(/[^A-Za-z0-9_-]/g, '_')}`);
 }
 
 /** The suite's own `$XDG_CONFIG_HOME`, beside its state dir. */

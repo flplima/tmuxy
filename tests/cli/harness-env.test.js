@@ -41,6 +41,13 @@ describe('the environment a test hands its children', () => {
     }
   });
 
+  // The server under test snapshots its sessions into its state dir and
+  // restores from it at start: the developer's would hand a run their tabs.
+  test("an E2E server's state dir is the suite's, whatever the shell exports", () => {
+    process.env.TMUXY_STATE_DIR = '/home/dev/.local/state/tmuxy';
+    expect(tmuxEnv().TMUXY_STATE_DIR.startsWith(os.tmpdir())).toBe(true);
+  });
+
   // The desktop app mirrors this branch's config and scripts into the dirs it
   // is handed at start: a local Tauri run must not hand it the installed app's.
   test("the Tauri app's home and tmuxy dirs are the suite's", () => {
@@ -48,10 +55,11 @@ describe('the environment a test hands its children', () => {
       HOME: '/home/dev',
       XDG_CONFIG_HOME: '/home/dev/.config',
       TMUXY_DATA_DIR: '/home/dev/.local/share/tmuxy',
+      TMUXY_STATE_DIR: '/home/dev/.local/state/tmuxy',
       DISPLAY: ':99',
     });
     const env = driverEnv();
-    for (const name of ['HOME', 'XDG_CONFIG_HOME', 'TMUXY_DATA_DIR']) {
+    for (const name of ['HOME', 'XDG_CONFIG_HOME', 'TMUXY_DATA_DIR', 'TMUXY_STATE_DIR']) {
       expect(env[name].startsWith(os.tmpdir())).toBe(true);
     }
     expect(env.DISPLAY).toBe(':99');
