@@ -34,6 +34,48 @@ function tmuxSocket() {
 }
 
 /**
+ * What a developer's shell carries that no child of the suite may inherit.
+ * The suite runs from a shell inside tmux, often inside tmuxy, so these point
+ * at the developer's own tmux server (`TMUX`, `TMUX_PANE`, `TMUX_SOCKET`), at
+ * the binary the running build published (`TMUXY_SERVER_BIN`,
+ * `TMUXY_SERVER_SUBCOMMAND`: handed to a tmux server at birth, every script it
+ * runs would call that build's verbs), at its config chain and dirs, and at
+ * its login (`TMUXY_PASSWORD`: a server under test that reads it answers every
+ * request 401). An AppImage's runtime exports `APPIMAGE`, `APPDIR`, `ARGV0`
+ * and `OWD` into the tmux server it starts, so every pane of an installed
+ * tmuxy has them; a server that inherits `APPIMAGE` takes itself for that
+ * install (`invoked_exe`) and publishes ITS binary to the suite's tmux.
+ */
+const DEVELOPER_ENV = [
+  'TMUX',
+  'TMUX_PANE',
+  'TMUX_SOCKET',
+  'TMUXY_SERVER_BIN',
+  'TMUXY_SERVER_SUBCOMMAND',
+  'TMUXY_DATA_DIR',
+  'TMUXY_STATE_DIR',
+  'TMUXY_ENTRY_CONF',
+  'TMUXY_CALLER_PANE',
+  'TMUXY_SCRIPTS_DIR',
+  'TMUXY_PASSWORD',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
+  'APPIMAGE',
+  'APPDIR',
+  'ARGV0',
+  'OWD',
+];
+
+/** `process.env` without {@link DEVELOPER_ENV}. */
+function scrubbedEnv() {
+  const env = { ...process.env };
+  for (const name of DEVELOPER_ENV) delete env[name];
+  return env;
+}
+
+/**
  * Environment for any tmux, tmuxy-CLI or tmuxy-server child process: the
  * suite's own socket and dirs unless the caller names others (a server of a
  * test's own, `snapshots` when it is there to save and restore sessions).
@@ -54,7 +96,7 @@ function tmuxEnv({
   snapshots = false,
 } = {}) {
   const env = {
-    ...process.env,
+    ...scrubbedEnv(),
     TMUX_SOCKET: socket,
     TMUXY_STATE_DIR: state,
     // The developer's own ~/.config/tmuxy and ~/.local/share/tmuxy, never:
@@ -75,18 +117,6 @@ function tmuxEnv({
   } else {
     Object.assign(env, { TMUXY_NO_SNAPSHOT: '1', TMUXY_NO_RESTORE: '1' });
   }
-  delete env.TMUX;
-  delete env.TMUX_PANE;
-  // A shell inside tmuxy carries the binary ITS server published; handed to
-  // the suite's tmux server at birth, every script it runs would call that
-  // build's verbs instead of the one under test until something replaced it.
-  delete env.TMUXY_SERVER_BIN;
-  delete env.TMUXY_SERVER_SUBCOMMAND;
-  // An AppImage's runtime exports these into the tmux server it starts, so
-  // every pane of an installed tmuxy has them; a server under test that
-  // inherits `APPIMAGE` takes itself for that install (`invoked_exe`) and
-  // publishes ITS binary to the suite's tmux.
-  for (const name of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD']) delete env[name];
   return isolateHome(env, home);
 }
 
@@ -103,7 +133,6 @@ function isolateHome(env, home) {
     const file = path.join(home, rc);
     if (!fs.existsSync(file)) fs.writeFileSync(file, '');
   }
-  for (const name of ['XDG_STATE_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME']) delete env[name];
   return Object.assign(env, { HOME: home });
 }
 
@@ -179,6 +208,7 @@ module.exports = {
   tmuxBin,
   tmuxCmd,
   tmuxEnv,
+  scrubbedEnv,
   tmuxExec,
   stateDir,
 };
