@@ -1,5 +1,5 @@
 name: Setup Node + Rust
-description: Node with the npm dependencies, and a stable Rust toolchain with its build cache.
+description: Node with the npm dependencies, and a stable Rust toolchain with its build cache, each optional.
 # The Node release is `bin/toolchain node-version`.
 inputs:
   # `none` for a job that compiles nothing; `guest` adds the targets the wasm
@@ -16,15 +16,23 @@ inputs:
     description: "'false' to skip restoring or installing node_modules"
     required: false
     default: 'true'
+  # `false` for a job that runs no Node at all (it then installs no npm
+  # dependencies either): the server build.
+  node:
+    description: "'false' to set up Rust alone"
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
     - name: Name the Node release
       id: node
+      if: inputs.node != 'false'
       shell: bash
       run: echo "version=$("$GITHUB_WORKSPACE/bin/toolchain" node-version)" >> "$GITHUB_OUTPUT"
 
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      if: inputs.node != 'false'
       with:
         node-version: ${{ steps.node.outputs.version }}
         cache: npm
@@ -45,4 +53,4 @@ runs:
       if: inputs.rust != 'none'
 
     - uses: ./.github/actions/install-node-modules
-      if: inputs.install-npm == 'true'
+      if: inputs.node != 'false' && inputs.install-npm == 'true'
