@@ -218,18 +218,6 @@ async function pressKey(driver, key) {
 }
 
 /**
- * Send a key combination (e.g., Ctrl+A).
- *
- * @param {WebdriverIO.Browser} driver
- * @param {string[]} keys - Array of key names, e.g. ['Control', 'a']
- */
-async function sendKeyCombo(driver, ...keys) {
-  const codes = keys.map((k) => KEYS[k] || k);
-  await driver.keys(codes);
-  await driver.pause(100);
-}
-
-/**
  * The parts of the app's machine context the Tauri suites check.
  *
  * @param {WebdriverIO.Browser} driver
@@ -481,22 +469,18 @@ function createTauriTestContext() {
 }
 
 module.exports = {
-  createSession,
   createTauriTestContext,
   killTmuxSession,
   launchApp,
   waitForAppReady,
-  waitForXState,
   getTerminalText,
   waitForTerminalText,
   typeKeys,
   pressKey,
-  sendKeyCombo,
   getAppState,
   getPaneCount,
   invokeCommand,
   invokeWindowCommand,
   waitForPaneCount,
   waitForRawWindowCount,
-  TAURI_BINARY,
 };

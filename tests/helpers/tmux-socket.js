@@ -203,9 +203,7 @@ function tmuxExec(args, { timeout = 10000, trim = true } = {}) {
 }
 
 module.exports = {
-  DEFAULT_SOCKET,
   tmuxSocket,
-  tmuxBin,
   tmuxCmd,
   tmuxEnv,
   scrubbedEnv,

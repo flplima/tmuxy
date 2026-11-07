@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
-const MOCKS_DIR = path.resolve(__dirname, '../mocks');
+const { MOCKS_DIR } = require('./env');
 
 /** Build the guest's `tmuxy-verbs` and return where cargo put it. */
 function buildGuestVerbs() {
