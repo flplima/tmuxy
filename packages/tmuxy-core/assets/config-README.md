@@ -34,14 +34,13 @@ machine (`--json` for a script).
 | `bin/`                  | data   | tmuxy | no           | no              | The `tmuxy` CLI and its helper scripts.                                                                  |
 | `README.md`             | data   | tmuxy | no           | no              | This file.                                                                                               |
 | `tmuxy.entry.conf`      | state  | tmuxy | no           | no              | The chain tmux starts with, built from your files and this machine's choices.                            |
-| `tmuxy.compat.conf`     | state  | tmuxy | no           | no              | Only while your `tmuxy.conf` still sources the old defaults: a copy without that line.                   |
 | `tmuxy.state.json`      | state  | tmuxy | no           | no              | Choices made in the app's menus (theme, mode, cursor blink, `use-tmux-conf`).                            |
 | `servers.json`          | state  | tmuxy | yes          | no              | The servers `tmuxy session connect` saved; ssh hosts as this machine reaches them.                       |
 | `trace.json`            | state  | tmuxy | yes          | no              | The Debug menu's trace switch.                                                                           |
 | `trace.ndjson`          | state  | tmuxy | no           | no              | The action trace, written only while tracing is on (`tmuxy trace` reads it).                             |
 | `tmuxy.log`             | state  | tmuxy | no           | no              | The desktop app's log: what a bug report attaches (Help ▸ Reveal Log File).                              |
 | `launcher`              | state  | tmuxy | no           | no              | The path of the desktop app the `~/.local/bin/tmuxy` shorthand runs.                                     |
-| `tmuxy.pid`             | state  | tmuxy | no           | no              | The running web server's pid (`tmuxy-<port>.pid` on another port).                                       |
+| `tmuxy-<port>.pid`      | state  | tmuxy | no           | no              | The pid of the web server on that port.                                                                  |
 | `config-reload`         | state  | tmuxy | no           | no              | Touched by `tmuxy config reload`; the app re-sources the chain when it changes.                          |
 | `plugins/`              | state  | tmuxy | no           | no              | Plugin checkouts (`<name>@<commit>/`), each plugin's log and state, launch tokens.                       |
 | `sessions/`             | state  | tmuxy | no           | no              | Session snapshots, one directory per tmux socket; a restart restores the latest.                         |
@@ -206,15 +205,3 @@ tmuxy connects to its tmux server.
 there is none (it never overwrites one). tmuxy itself writes it only on the
 very first run, so a `tmuxy.conf` you deleted stays deleted and tmuxy runs on
 its defaults.
-
-## Upgrading from a build that kept everything in `~/.config/tmuxy`
-
-The first launch of a build with this layout moves the state files to the
-state dir, removes the files it used to mirror into the config dir (the data
-dir has them now), and drops from `tmuxy.conf` the blocks older builds wrote
-there: the old header, the `source-file …/tmuxy.defaults.conf` line, the
-commented examples, the Ctrl+Tab lines "added by tmuxy upgrade" and a
-Ctrl+hjkl restore the defaults now ship. The original is kept beside it as
-`tmuxy.conf.bak`. Nothing is written or deleted through a symlink: a linked
-`tmuxy.conf` is left as it is, and one that still sources the old defaults
-keeps working.

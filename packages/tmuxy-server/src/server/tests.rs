@@ -93,9 +93,11 @@ fn each_port_owns_its_own_pid_file() {
     assert_ne!(other, pid_file_path(9999));
     // Stable, or a server cannot find the file it wrote itself.
     assert_eq!(default, pid_file_path(DEFAULT_PORT));
-    // The default port keeps the historical name, which `stop` and every
-    // existing install already look for.
-    assert_eq!(default.file_name().unwrap(), "tmuxy.pid");
+    // One name for every port, the default one included.
+    assert_eq!(
+        default.file_name().unwrap(),
+        format!("tmuxy-{DEFAULT_PORT}.pid").as_str()
+    );
     assert_eq!(
         other.file_name().unwrap(),
         format!("tmuxy-{}.pid", DEFAULT_PORT + 1).as_str()

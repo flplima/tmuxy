@@ -258,9 +258,6 @@ _lock_nap() { sleep 0.05 2>/dev/null || sleep 1; }
 
 _lock_acquire() {
   local lock="$1/.lock" owner tries=0
-  # A `.lock` left as a FILE is from the flock era, when the lock was an fd
-  # onto a file of that name; it would block mkdir forever.
-  [ -f "$lock" ] && rm -f "$lock"
   while :; do
     if mkdir "$lock" 2>/dev/null; then
       # Between this mkdir and the pid landing, a waiter that watched the

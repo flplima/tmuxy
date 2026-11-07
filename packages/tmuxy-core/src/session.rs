@@ -6,7 +6,6 @@ use crate::error::TmuxError;
 mod assets;
 mod config;
 mod launcher;
-mod migrate;
 mod state;
 
 pub use assets::*;
@@ -395,6 +394,3 @@ mod tests;
 mod tests_layout;
 #[cfg(test)]
 mod tests_state;
-
-#[cfg(test)]
-mod tests_migrate;

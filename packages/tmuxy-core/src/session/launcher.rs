@@ -134,18 +134,16 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// The launcher file a wrapper reads: the one baked into it, or — for one
-/// an older build wrote, which derived the state dir in the shell — the
-/// default state dir's. `None` for a file that is no wrapper of tmuxy's.
+/// The launcher file baked into a wrapper [`launcher_wrapper`] wrote. `None`
+/// for a file that is no such wrapper.
 fn wrapper_launcher(wrapper: &str) -> Option<PathBuf> {
     let line = wrapper
         .lines()
         .find(|line| line.starts_with(LAUNCHER_LINE))?;
-    let value = &line[LAUNCHER_LINE.len()..];
-    match value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
-        Some(quoted) => Some(PathBuf::from(quoted.replace("'\\''", "'"))),
-        None => Some(crate::paths::default_state_dir().join(crate::paths::LAUNCHER.name)),
-    }
+    let quoted = line[LAUNCHER_LINE.len()..]
+        .strip_prefix('\'')?
+        .strip_suffix('\'')?;
+    Some(PathBuf::from(quoted.replace("'\\''", "'")))
 }
 
 /// Point the `tmuxy` shell shorthand at the running executable, best effort

@@ -99,9 +99,9 @@ function tmuxEnv({
     TMUX_SOCKET: socket,
     TMUXY_STATE_DIR: state,
     // The developer's own ~/.config/tmuxy and ~/.local/share/tmuxy, never:
-    // the suite runs this branch's build, which would migrate the one (and
-    // write its starter) and re-mirror the other's scripts and confs under the
-    // installed app's feet, and a test would see whatever the developer put
+    // the suite runs this branch's build, which would write its starter into
+    // the one and re-mirror the other's scripts and confs under the installed
+    // app's feet, and a test would see whatever the developer put
     // there. The UI names the scripts by the data dir the chain publishes to
     // tmux, so the server under test runs the ones it mirrored here.
     XDG_CONFIG_HOME: config,

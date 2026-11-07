@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
-use super::DEFAULT_PORT;
 use crate::dev;
 use crate::state::{build_response, AppState};
 
@@ -141,24 +140,8 @@ fn embedded_file(path: &str) -> Response {
     }
 }
 
-/// One pid file per port, so a second server beside the first neither
-/// overwrites its pid nor gets stopped in its place.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
-    pid_file_in(&tmuxy_core::paths::state_dir(), port)
-}
-
-/// Where a build before the state dir held its pid files, `~/.tmuxy`. Read so
-/// `stop` and `status` still find a server that build started; never written.
-fn legacy_pid_file_path(port: u16) -> std::path::PathBuf {
-    pid_file_in(&tmuxy_core::paths::resolved_home_dir().join(".tmuxy"), port)
-}
-
-fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
-    if port == DEFAULT_PORT {
-        dir.join(tmuxy_core::paths::PID.name)
-    } else {
-        dir.join(format!("tmuxy-{port}.pid"))
-    }
+    tmuxy_core::paths::Layout::current().pid_file(port)
 }
 
 /// A server whose pid file could not be written still serves, but
@@ -184,7 +167,6 @@ pub(super) fn write_pid_file(port: u16) {
 /// the new server's file, and `stop` then reported a running server as gone.
 pub(super) fn remove_pid_file(port: u16, pid: u32) {
     remove_pid_file_at(&pid_file_path(port), pid);
-    remove_pid_file_at(&legacy_pid_file_path(port), pid);
 }
 
 pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
@@ -198,13 +180,9 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
 }
 
 fn read_pid_file(port: u16) -> Option<u32> {
-    [pid_file_path(port), legacy_pid_file_path(port)]
-        .into_iter()
-        .find_map(|path| {
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|s| parse_pid(&s))
-        })
+    std::fs::read_to_string(pid_file_path(port))
+        .ok()
+        .and_then(|s| parse_pid(&s))
 }
 
 /// The pid a pid file names, if it names one other process. To kill(2), `0`

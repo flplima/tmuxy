@@ -91,8 +91,6 @@ The entry file is rebuilt right before every use — the `-f` of a new server, t
 
 Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
 
-A `tmuxy.conf` written by an older build sources `~/.config/tmuxy/tmuxy.defaults.conf` itself. The first launch of this build drops that line (see [the config directory](ARCHITECTURE.md#the-users-config-directory)); when the file is a symlink the app may not rewrite, the chain sources a generated copy with the line commented out (`tmuxy.compat.conf` in the state dir) instead, until the user removes it.
-
 ### Menu choices, and the options `tmuxy.conf` pins
 
 The menus change five options — `@tmuxy-theme`, `@tmuxy-theme-mode`, `@tmuxy-transparency`, `@tmuxy-cursor-blink`, `@tmuxy-send-ask` — and remember each choice in `tmuxy.state.json` in the state dir, which the monitor puts back after the chain on every connect, every reload and after a client's own `source-file` (a sourced defaults file would reset them).
