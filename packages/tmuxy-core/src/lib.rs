@@ -1,6 +1,7 @@
 pub mod argv;
 #[cfg(feature = "cli")]
 pub mod ask;
+pub mod capture_html;
 pub mod cli_contract;
 pub mod client_size;
 pub mod command_error;
@@ -113,6 +114,17 @@ pub enum CellColor {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
+impl CellColor {
+    /// A vt100 colour, `None` for the terminal's default.
+    fn of(color: vt100::Color) -> Option<Self> {
+        match color {
+            vt100::Color::Default => None,
+            vt100::Color::Idx(idx) => Some(Self::Indexed(idx)),
+            vt100::Color::Rgb(r, g, b) => Some(Self::Rgb { r, g, b }),
+        }
+    }
+}
+
 /// Line/character size multiplier (`ESC # 3..6` DEC line sizes or `OSC 66` text sizing).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CellSize {
@@ -163,6 +175,22 @@ impl CellStyle {
     /// counts the moment it exists.
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
+    }
+
+    /// What SGR set on a vt100 cell: its colours and attributes, with no
+    /// hyperlink or size, which the screen and its rows hold.
+    pub(crate) fn of_sgr(cell: &vt100::Cell) -> Self {
+        Self {
+            fg: CellColor::of(cell.fgcolor()),
+            bg: CellColor::of(cell.bgcolor()),
+            bold: cell.bold(),
+            dim: cell.dim(),
+            italic: cell.italic(),
+            underline: cell.underline(),
+            inverse: cell.inverse(),
+            url: None,
+            size: None,
+        }
     }
 }
 
@@ -225,18 +253,6 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
             };
             let mut char_content = screen_cell_char(screen, row, col);
 
-            let fg = match cell.fgcolor() {
-                vt100::Color::Default => None,
-                vt100::Color::Idx(idx) => Some(CellColor::Indexed(idx)),
-                vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
-            };
-
-            let bg = match cell.bgcolor() {
-                vt100::Color::Default => None,
-                vt100::Color::Idx(idx) => Some(CellColor::Indexed(idx)),
-                vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
-            };
-
             // An `OSC 66 ; s=2` character covers the cell below its own too:
             // that cell shows the character's bottom half while it holds
             // nothing else.
@@ -264,15 +280,9 @@ pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
             };
 
             let style = CellStyle {
-                fg,
-                bg,
-                bold: cell.bold(),
-                dim: cell.dim(),
-                italic: cell.italic(),
-                underline: cell.underline(),
-                inverse: cell.inverse(),
                 url: screen.hyperlink(cell).map(str::to_string),
                 size,
+                ..CellStyle::of_sgr(cell)
             };
 
             line.push(TerminalCell::with_style(char_content, style));

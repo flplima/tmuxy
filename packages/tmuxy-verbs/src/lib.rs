@@ -1,15 +1,16 @@
 //! The `tmuxy server <verb>` tools that serve nothing: plugins, session
 //! snapshots, coding agents, pane groups, floats, tabs, sends, the config
-//! files and trace files. The CLI scripts call them; every binary
-//! (`tmuxy-server`, the desktop app's `tmuxy server …`, and `tmuxy-verbs`
-//! where neither is installed) runs them through [`Verb`] without the web
-//! server being involved.
+//! files, trace files and a pane capture as HTML. The CLI scripts call them;
+//! every binary (`tmuxy-server`, the desktop app's `tmuxy server …`, and
+//! `tmuxy-verbs` where neither is installed) runs them through [`Verb`]
+//! without the web server being involved.
 //!
 //! Built without the `native` feature (the in-browser guests' `tmuxy-verbs`)
 //! the verbs on tmuxy-core's async transport are left out, and each answers
 //! as not available here, under the CLI's contract.
 
 mod agents;
+mod capture_cli;
 mod cli_json;
 mod config_cli;
 #[cfg(feature = "native")]
@@ -81,6 +82,10 @@ pub enum Verb {
     /// Backs `float-create` (`tmuxy pane float`).
     #[command(hide = true)]
     Float(float_cli::FloatArgs),
+    /// A `capture-pane -e` screen, on stdin, as HTML. Backs
+    /// `tmuxy pane capture --format html`.
+    #[command(hide = true)]
+    CaptureHtml,
     /// A verb this build leaves out (see the crate's doc), as the CLI handed
     /// it over: its name, then its arguments.
     #[cfg(not(feature = "native"))]
@@ -109,6 +114,7 @@ pub async fn run(verb: Verb) {
         Verb::Float(args) => float_cli::run(args),
         Verb::Run(args) => run_cli::run(args),
         Verb::NewTab(args) => run_cli::tab_create(args),
+        Verb::CaptureHtml => capture_cli::html(),
         #[cfg(not(feature = "native"))]
         Verb::NotHere(argv) => not_here(&argv),
     }

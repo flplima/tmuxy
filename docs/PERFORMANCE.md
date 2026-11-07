@@ -275,7 +275,7 @@ See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measu
   never ratchet a baseline to whatever the runner did last — and it had never
   happened because the review used to mean downloading an artifact and copying
   a file over by hand. The core bench baseline is seeded from the report
-  `rust-tests` uploads on every commit (see Axis A above).
+  the nightly `core-bench` job uploads (see Axis A above).
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.

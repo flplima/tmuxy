@@ -234,7 +234,8 @@ EOF
     content=$(printf '%s\n' "$content" | awk '{ sub(/[ \t]+$/, ""); line[NR] = $0; if ($0 != "") last = NR } END { for (i = 1; i <= last; i++) print line[i] }')
   fi
   if [ "$format" = html ]; then
-    content=$(printf '%s\n' "$content" | awk -f "$SCRIPTS_DIR/capture-html")
+    find_server_cmd || exit 1
+    content=$(printf '%s\n' "$content" | "${SERVER_CMD[@]}" capture-html) || exit $?
   fi
   if [ "$JSON_OUT" = true ]; then
     printf '{"content":%s,"format":"%s","paneId":%s}\n' "$(json_string "$content")" "$format" "$(json_string "$PANE_ID")"

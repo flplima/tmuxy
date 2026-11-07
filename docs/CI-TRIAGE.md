@@ -18,8 +18,8 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | --- | --- | --- |
 | `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
 | `changes` | `node bin/ci/ci-changes.mjs <base-sha>` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip; the rules and their tests are `bin/ci/ci-changes.mjs` and `bin/ci/ci-changes.test.mjs`. A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
-| `node-checks / unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
-| `node-checks / cli-tests` | `npm run test:cli` | CLI dispatcher behavior, and the guests' `tmuxy-verbs` binary (`cli-guest-verbs.test.js` builds it with cargo) |
+| `unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
+| `cli-tests` | `npm run test:cli` | CLI dispatcher behavior, and the guests' `tmuxy-verbs` binary (`cli-guest-verbs.test.js` builds it with cargo) |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
 | `e2e (...)` | `npm run test:e2e` | Browser + tmux integration; `e2e (tmux-3.4)` is the snapshot and alternate-screen suites against tmux 3.4 (`tests/e2e-suites.json`, the `tmux` field) |
 | `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
@@ -27,7 +27,7 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | nightly `v86 / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |
 | `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit`; runs only when a lockfile or `.cargo/audit.toml` changed (`changes`), the Sunday sweep covers the days between | Dependency security alerts |
 | `build-frontend` / `build-server` | `npm run build -w tmuxy-ui` / `cargo build --profile ci -p tmuxy-server` | The frontend bundle and the `ci`-profile server every later job downloads; a failure here fails everything after it |
-| `node-checks / demo-build` | `npm run build --ignore-scripts -w tmuxy-demo` | The demo site compiles (without staging its v86 assets; a full `npm run build -w tmuxy-demo` needs `npm run build:wasm`, `fetch:v86-image` and `build:v86-snapshot` first) |
+| `demo-build` | `npm run build --ignore-scripts -w tmuxy-demo` | The demo site compiles (without staging its v86 assets; a full `npm run build -w tmuxy-demo` needs `npm run build:wasm`, `fetch:v86-image` and `build:v86-snapshot` first) |
 | `macos-tests` | `npm run test:cli` every push; `cargo test --workspace` (on a Mac, with Homebrew tmux) when the push touches the desktop app, the CLI, the pty spawn of `tmux -CC`, a Rust file with a macOS branch or the Cargo manifests (the `macos-rust` rule in `bin/ci/ci-changes.mjs`), and on every tag (which `build-app.yml` calls) — `build-app.yml` also runs it on a Mac daily | macOS-only shell, path and tmux behaviour |
 | nightly `tmux matrix / suites` | `npx jest tests/snapshots/` and `npx jest tests/8-tui-alternate-screen.test.js`, against the tmux version the job names | A tmux version the default CI tmux does not exercise |
 | nightly `v86 / sweep` | `npm run test-storybook:v86 -w tmuxy-ui` | The full v86 story sweep; a failure opens an issue |

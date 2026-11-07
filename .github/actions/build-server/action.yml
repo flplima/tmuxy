@@ -11,11 +11,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+    - uses: ./.github/actions/setup-node-rust
       with:
-        toolchain: stable
-
-    - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        node: 'false'
 
     - name: Download frontend dist
       if: hashFiles('packages/tmuxy-ui/dist/index.html') == ''
