@@ -4,9 +4,13 @@ Feature-to-files retrieval map for agents.
 
 | Feature | Key files |
 | --- | --- |
-| tmux control-mode command routing | `packages/tmuxy-core/src/command_router.rs`<br>`packages/tmuxy-ui/src/infra/transport/drivers/TauriAdapter.ts` |
+| tmux control-mode command routing | `packages/tmuxy-core/src/command_router.rs`<br>`packages/tmuxy-core/src/command_router/cli_run.rs` (what `tmuxy run` passes on)<br>`packages/tmuxy-ui/src/infra/transport/drivers/TauriAdapter.ts` |
+| A CLI verb's mutation, inside `run-shell` as the caller's pane | `packages/tmuxy-core/src/run_shell.rs`<br>`packages/tmuxy-cli/bin/tmuxy/_lib` (`_run_shell`, `_run_as_caller`) |
+| The CLI's contract: exit codes, `--json` answers | `packages/tmuxy-core/src/cli_contract.rs`<br>`packages/tmuxy-verbs/src/cli_json.rs`<br>`packages/tmuxy-cli/bin/tmuxy/_contract` |
+| Values the UI, the CLI scripts, the guests and CI share with tmuxy-core and the workspace (generated files) | `packages/tmuxy-core/tests/generated_constants.rs`<br>`bin/ci/crate-graph.json` (the crate graph, from `cargo metadata`) |
+| Unguessable tokens (marker, plugin, ask, MCP, trace salt) | `packages/tmuxy-core/src/random.rs` |
 | What tmux leaves unannounced (the re-lists behind a command), and the map of version workarounds | `packages/tmuxy-core/src/tmux_compat.rs` |
-| The monitor loop (connect, back off, give up, restore before create, autosave) and what each host does around it | `packages/tmuxy-core/src/host/supervise.rs`<br>`packages/tmuxy-server/src/sse/monitor.rs`<br>`packages/tmuxy-tauri-app/src/monitor.rs` |
+| The monitor loop (connect, back off, give up, restore before create, autosave) and what each host does around it | `packages/tmuxy-core/src/host/supervise.rs`<br>`packages/tmuxy-core/src/host/start.rs` (start-up and shut-down beside the sessions)<br>`packages/tmuxy-core/src/host/requests.rs` (what a host answers a client's requests with)<br>`packages/tmuxy-server/src/sse/monitor.rs`<br>`packages/tmuxy-tauri-app/src/monitor.rs` |
 | The tmux config tmuxy ships (the defaults, the essentials, the user template), the code that mirrors it and builds the chain, the pins, and the migration of an older config dir | `packages/tmuxy-core/assets/*.conf`<br>`packages/tmuxy-core/src/session/config.rs`<br>`packages/tmuxy-core/src/session/migrate.rs`<br>`packages/tmuxy-core/src/paths.rs` (every file and directory) |
 | Pane groups: membership, order and every group operation | `packages/tmuxy-core/src/groups.rs` (the rules)<br>`packages/tmuxy-verbs/src/group_cli.rs` (the `group` verb)<br>`packages/tmuxy-cli/bin/tmuxy/pane-group` (wrapper) |
 | Typed ids (pane, window, group) | `packages/tmuxy-core/src/ids.rs`<br>`packages/tmuxy-ui/src/domain/ids.ts` |

@@ -12,8 +12,8 @@ description = "Core tmux interaction library for tmuxy"
 # the Tmux*/Delta types), the command-list grammar and the routing policy
 # (tmux_command, command_router, tmux_compat) are sans-IO and compile to
 # wasm32. Running tmux as a subprocess and the user's config directory
-# (session) is the `cli` feature, and the async/pty transport
-# (monitor/connection/transport) on top of it is the default `native`
+# (session) is the `cli` feature, and the async/pty transport (monitor,
+# connection, and the hosts' loop in host) on top of it is the default `native`
 # feature, so the pure core can build with
 # --no-default-features for the WASM (tmuxy-wasm) crate, and the in-browser
 # guests' tmuxy-verbs binary can take `cli` without the pty transport.
