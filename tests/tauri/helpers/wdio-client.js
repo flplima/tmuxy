@@ -4,7 +4,7 @@
  */
 
 const { remote } = require('webdriverio');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
 const { tmuxCmd, tmuxEnv } = require('../../helpers/tmux-socket');
@@ -462,15 +462,13 @@ function createTauriTestContext() {
     }
 
     // The next test launches the app again; one still exiting holds its
-    // window and its control-mode client.
-    const appRunning = () => {
-      try {
-        execSync(`pgrep -f -- ${JSON.stringify(TAURI_BINARY)}`, { stdio: 'ignore' });
-        return true;
-      } catch {
-        return false;
-      }
-    };
+    // window and its control-mode client. A process running the binary, by
+    // its program word: `pgrep -f` through a shell also matched that shell,
+    // whose command line names the binary, so the app never read as gone.
+    const appRunning = () =>
+      execFileSync('ps', ['-eo', 'args='], { encoding: 'utf8' })
+        .split('\n')
+        .some((args) => args.trim().split(' ')[0] === TAURI_BINARY);
     await waitUntil(() => !appRunning(), 10000, `the app (${TAURI_BINARY}) to exit`);
   }
 
