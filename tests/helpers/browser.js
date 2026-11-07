@@ -165,22 +165,31 @@ function terminalText(page) {
 }
 
 /**
- * Click a terminal where its cursor is (its bottom-left corner without one),
- * the way a user clicks to type: anywhere else can be a hyperlink, which a
- * click opens.
+ * Click a terminal where its cursor is (on its bottom row without one), the
+ * way a user clicks to type: anywhere else can be a hyperlink, which a click
+ * opens. A spot something else covers (the dock's resize handle lies over
+ * its terminal's left edge) is skipped for the next one along the row.
  */
 async function clickTerminal(terminal) {
   const position = await terminal.evaluate(
     (log) => {
       const box = log.getBoundingClientRect();
       const cursor = log.querySelector('.terminal-cursor')?.getBoundingClientRect();
-      if (cursor && cursor.width > 0) {
-        return {
-          x: cursor.left - box.left + cursor.width / 2,
-          y: cursor.top - box.top + cursor.height / 2,
-        };
-      }
-      return { x: 4, y: Math.max(1, box.height - 4) };
+      const bottom = Math.max(1, box.height - 4);
+      const spots = [
+        ...(cursor && cursor.width > 0
+          ? [
+              {
+                x: cursor.left - box.left + cursor.width / 2,
+                y: cursor.top - box.top + cursor.height / 2,
+              },
+            ]
+          : []),
+        ...[4, 16, box.width / 4, box.width / 2].map((x) => ({ x, y: bottom })),
+      ];
+      const reaches = ({ x, y }) =>
+        log.contains(document.elementFromPoint(box.left + x, box.top + y));
+      return spots.find(reaches) ?? spots[0];
     },
     undefined,
     { timeout: 5000 },
