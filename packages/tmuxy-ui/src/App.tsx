@@ -2,7 +2,9 @@
  * App - Main application component
  *
  * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, the whole 80 × 25 terminal, the key row and the tree under it.
+ * phone, the whole 80 × 25 terminal and the key row over a bar and the bottom
+ * view (the menu, the tree, the side pane); held sideways, the tree, the
+ * terminal and the side pane side by side over the keys.
  * All state is accessed via hooks - no prop drilling.
  */
 
@@ -31,6 +33,7 @@ import {
   selectPhoneLandscape,
   selectGridType,
   selectPhoneZoom,
+  selectPhoneZoomed,
 } from './machines/selectors/layout';
 import {
   selectError,
@@ -51,6 +54,9 @@ import { useCursorInView, usePhoneZoomScroll, useVisualViewport } from './hooks/
 import { PHONE_COLS } from './utils/phoneLayout';
 import { PHONE_CONTAINER_PADDING } from './constants/layout';
 import { PhoneBottomView } from './components/PhoneBottomView';
+import { PhoneDivider } from './components/PhoneDivider';
+import { PhoneDock } from './components/PhoneDock';
+import { PhoneLeftSide } from './components/PhoneLeftSide';
 
 export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
 
@@ -90,15 +96,19 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   });
   const ptyRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef<HTMLDivElement>(null);
+  const lowerRef = useRef<HTMLDivElement>(null);
   const phoneZoom = useAppSelector(selectPhoneZoom);
+  const phoneZoomed = useAppSelector(selectPhoneZoomed);
+  const phoneZoomAt = useAppSelector((ctx) => ctx.phoneZoomAt);
+  const phoneCollapsed = useAppSelector((ctx) => ctx.phoneCollapsed);
   // The side pane holds the keyboard: with the phone's keyboard up the
-  // terminal above gives up its room first (styles/tab-overview-and-phone.css).
+  // terminal above folds away, the keys staying (styles/phone.css).
   const dockTyping = useAppSelector(
     (ctx) => ctx.phoneBottomView === 'dock' && ctx.rightSidebarFocused,
   );
   useVisualViewport(phone);
-  useCursorInView(ptyRef, phone, cursorKey, phoneZoom ? zoomRef : null);
-  usePhoneZoomScroll(zoomRef, ptyRef, phoneZoom);
+  useCursorInView(ptyRef, phone, cursorKey, phoneZoomed ? zoomRef : null);
+  usePhoneZoomScroll(zoomRef, ptyRef, phoneZoom, phoneZoomAt);
   const send = useAppSend();
   const { requireFocus } = useAppConfig();
   useSelectionRows();
@@ -202,51 +212,59 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </div>
   );
 
-  // The phone layout: the terminal, the key row and the bottom view, top to
-  // bottom — or, held sideways, the terminal on the right and the rest
-  // stacked in the column left of it. No tab strip: the tree lists the tabs
-  // and a slide on the terminal switches them, and the strip's height goes
-  // to the bottom view.
+  // The phone layout, upright: the terminal and the key row on top, the bar
+  // and the bottom view under them — the app menu, every tab and pane, or the
+  // side pane, picked by the tab bar along its top or a sideways swipe
+  // (PhoneBottomView). The bar zooms the terminal or folds it and the keys
+  // away (PhoneDivider). Held sideways, the tree (or the menu) on the left,
+  // the terminal in the middle, the side pane on the right, the keys along
+  // the bottom. No tab strip: the tree lists the tabs and a slide on the
+  // terminal switches them.
   const phoneKeys = showLayout && <KeyRow />;
-  // The app menu, every tab and pane, or the dock, picked by the tab bar
-  // under them or a sideways swipe (PhoneBottomView). Zoomed and upright, it
-  // makes way: the doubled grid takes its place, every row in view.
-  const phoneTree = showLayout && !(phoneZoom && !landscape) && <PhoneBottomView />;
   // The terminal at the phone's cell: the grid, then tmux's status line
-  // under it. Sideways, it is as wide as its 80 columns and the chrome takes
-  // the column beside it. A double tap or the zoom key zooms the grid in the
-  // browser (`phoneZoom`): the viewport around it is the grid's doubled
-  // height and scrolls sideways, the terminal box scrolls up and down when the
-  // doubled grid does not fit (a keyboard up, or held sideways), and both are
-  // scrolled to the point tapped, then to the cursor as it moves.
+  // under it, one picture. Sideways, it is as wide as its 80 columns. Zoomed
+  // (`phoneZoom` past 1: the bar, a double tap or the zoom key) the picture
+  // is scaled in the browser: the viewport around it is the scaled height and
+  // scrolls sideways, the terminal box scrolls up and down when that does not
+  // fit (a keyboard up, or held sideways), and both are scrolled to the point
+  // a double tap hit, then to the cursor as it moves.
   const phonePty = (
     <div
       ref={ptyRef}
-      className={`phone-pty${phoneZoom ? ' is-zoomed' : ''}`}
-      style={{
-        ...gridTypeStyle(gridType),
-        ...(landscape ? { width: PHONE_COLS * charWidth + 2 * PHONE_CONTAINER_PADDING } : {}),
-      }}
+      className={`phone-pty${phoneZoomed ? ' is-zoomed' : ''}`}
+      style={
+        {
+          ...gridTypeStyle(gridType),
+          '--phone-zoom': phoneZoom,
+          ...(landscape ? { width: PHONE_COLS * charWidth + 2 * PHONE_CONTAINER_PADDING } : {}),
+        } as CSSProperties
+      }
     >
       <div ref={zoomRef} className="phone-zoom-viewport" data-testid="phone-zoom-viewport">
-        {paneContainer}
+        <div className="phone-picture">
+          {paneContainer}
+          {showLayout && <TmuxStatusBar />}
+        </div>
       </div>
-      {showLayout && <TmuxStatusBar />}
     </div>
   );
   const phoneBody = landscape ? (
     <>
-      <div className="phone-side">
-        {phoneKeys}
-        {phoneTree}
-      </div>
+      <div className="phone-side phone-side-left">{showLayout && <PhoneLeftSide />}</div>
       {phonePty}
+      <div className="phone-side phone-side-right">{showLayout && <PhoneDock autoStart />}</div>
+      {phoneKeys}
     </>
   ) : (
     <>
-      {phonePty}
-      {phoneKeys}
-      {phoneTree}
+      <div className="phone-top" data-testid="phone-top">
+        {phonePty}
+        {phoneKeys}
+      </div>
+      <PhoneDivider ptyRef={ptyRef} lowerRef={lowerRef} />
+      <div ref={lowerRef} className="phone-lower">
+        {showLayout && <PhoneBottomView />}
+      </div>
     </>
   );
 
@@ -265,7 +283,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
       {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
       <div
-        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}`}
+        className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}${phoneCollapsed && !landscape ? ' is-collapsed' : ''}`}
       >
         {/* Sidebars: fixed-width, full-height columns when open, each holding
             one real tmux pane. As flex siblings they shrink the pane container,

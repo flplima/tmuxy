@@ -1,10 +1,12 @@
 /**
  * Action implementations for the phone state slice.
  *
- * The zoom: a double tap on the terminal (or the key row's zoom key) scales
- * the terminal up in the browser — the grid, not tmux's zoom — and the
- * finger pans around it; the same again puts it back. App.tsx draws it and
- * scrolls to the point that was tapped.
+ * The zoom: the terminal's scale in the browser — the grid, not tmux's zoom
+ * — set by the bar under the keys (PhoneDivider), which also folds the
+ * terminal away, or by a double tap on it or the zoom key, which jump to
+ * twice the size and back (utils/phoneSplit.ts). Past its own size the
+ * finger pans it. App.tsx draws it, scrolled to the point a double tap hit.
+ * The split is kept per device.
  *
  * The bottom view: under the keys a phone shows the app menu, the tabs/panes
  * tree or the dock — the pinned terminal the desktop keeps in its right
@@ -19,15 +21,27 @@ import { act } from '../actionTypes';
 import { TmuxOp } from '../../../domain/commands';
 import { selectRightSidebarPane } from '../../selectors/panesAndSidebars';
 import { releaseKeyboard } from '../helpers';
+import { saveSplit, toggleZoom } from '../../../utils/phoneSplit';
 
 export const phoneActions = {
   phone_toggleZoom: act(({ context, event, enqueue }) => {
     if (event.type !== 'TOGGLE_PHONE_ZOOM') return;
+    const split = toggleZoom({ zoom: context.phoneZoom, collapsed: context.phoneCollapsed });
+    saveSplit(split);
     enqueue(
       assign({
-        phoneZoom: context.phoneZoom ? null : { x: event.x ?? null, y: event.y ?? null },
+        phoneZoom: split.zoom,
+        phoneCollapsed: split.collapsed,
+        phoneZoomAt: split.zoom > 1 ? { x: event.x ?? null, y: event.y ?? null } : null,
       }),
     );
+  }),
+
+  phone_setSplit: act(({ event, enqueue }) => {
+    if (event.type !== 'SET_PHONE_SPLIT') return;
+    const split = { zoom: Math.max(1, event.zoom), collapsed: event.collapsed };
+    saveSplit(split);
+    enqueue(assign({ phoneZoom: split.zoom, phoneCollapsed: split.collapsed, phoneZoomAt: null }));
   }),
 
   phone_setBottomView: act(({ context, event, enqueue }) => {

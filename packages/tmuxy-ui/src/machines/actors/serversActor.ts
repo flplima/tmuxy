@@ -160,18 +160,23 @@ export function parseSessions(windowsOut: string, panesOut: string): SessionTree
 interface TreeGateContext {
   leftSidebarOpen?: boolean;
   phoneLayout?: boolean;
+  phoneLandscape?: boolean;
   phoneBottomView?: string;
 }
 
 /**
  * Whether a tree is on screen to show what the poll reads: the desktop's
- * column, or the phone's bottom view with the tree in front.
+ * column, the phone's bottom view with the tree in front, or, held
+ * sideways, the phone's left column unless the menu has its place (the side
+ * pane has a column of its own there).
  */
 export function treeOnScreen(ctx: TreeGateContext | undefined): boolean {
   if (!ctx) return false;
-  return (
-    ctx.leftSidebarOpen === true || (ctx.phoneLayout === true && ctx.phoneBottomView === 'tree')
-  );
+  if (ctx.leftSidebarOpen === true) return true;
+  if (ctx.phoneLayout !== true) return false;
+  return ctx.phoneLandscape === true
+    ? ctx.phoneBottomView !== 'menu'
+    : ctx.phoneBottomView === 'tree';
 }
 
 /** How long until the next look: the steady cadence once a listing came back. */

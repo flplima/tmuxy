@@ -100,6 +100,10 @@ describe('the poll’s gate and cadence', () => {
     expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'tree' })).toBe(true);
     expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'dock' })).toBe(false);
     expect(treeOnScreen({ phoneLayout: false, phoneBottomView: 'tree' })).toBe(false);
+    // Held sideways the tree is the left column, unless the menu has its place.
+    const sideways = { phoneLayout: true, phoneLandscape: true };
+    expect(treeOnScreen({ ...sideways, phoneBottomView: 'dock' })).toBe(true);
+    expect(treeOnScreen({ ...sideways, phoneBottomView: 'menu' })).toBe(false);
     expect(treeOnScreen(undefined)).toBe(false);
   });
 

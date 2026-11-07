@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createActor, type AnyActorRef } from 'xstate';
 import { createSizeActor } from '../sizeActor';
+import { PHONE_LANDSCAPE_KEYS, PHONE_STATUS_HEIGHT } from '../../../utils/phoneLayout';
 
 class RecordingObserver {
   static live = new Set<RecordingObserver>();
@@ -116,8 +117,11 @@ describe('sizeActor', () => {
     containerObserver.report(470, 383);
     expect(layout()).toEqual({ type: 'SET_PHONE_LAYOUT', phone: true, landscape: true });
     const sideways = cell();
-    expect((sideways.charHeight as number) * 25 + 4).toBeLessThanOrEqual(390);
-    expect((sideways.charHeight as number) * 25 + 4).toBeGreaterThan(390 - 25);
+    // 24 rows, the status line, the padding and the keys' row under them.
+    const sidewaysHeight =
+      (sideways.charHeight as number) * 24 + PHONE_STATUS_HEIGHT + 4 + PHONE_LANDSCAPE_KEYS;
+    expect(sidewaysHeight).toBeLessThanOrEqual(390);
+    expect(sidewaysHeight).toBeGreaterThan(390 - 25);
 
     // The keyboard: shorter, the same width.
     bodyObserver.report(844, 190);

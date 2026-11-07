@@ -3,8 +3,9 @@
  * tree slides it to the side pane — the pinned terminal the desktop keeps in
  * its right column, sized to the view — the pane riding in beside the tree
  * under the finger as a tab slide shows both tabs, and back; a tap on the
- * side pane brings the keyboard up for it, and with the keyboard up the side
- * pane stays above it, what is typed in view; the page links a manifest that
+ * side pane brings the keyboard up for it, and with the keyboard up the
+ * terminal above folds away, the keys staying, and the side pane stays above
+ * the keyboard, what is typed in view; the page links a manifest that
  * installs it on a home screen. The layout itself is tests/12-touch.test.js,
  * the menu and the tab bar tests/12-touch-menu.test.js.
  *
@@ -41,6 +42,8 @@ const dockOverKeyboard = (page, marker) =>
       dock: box(dock),
       keyboard: box(document.querySelector('[data-testid="mock-keyboard"]')),
       tabs: box(document.querySelector('.phone-tabs')),
+      pty: box(document.querySelector('.phone-pty')),
+      keys: box(document.querySelector('.key-row')),
       // The output line, not the command that printed it.
       typed: box(lines.find((l) => l.textContent.trim() === m)),
       cursor: box(dock?.querySelector('.terminal-cursor')),
@@ -159,9 +162,9 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       'the tap to raise the keyboard',
     );
 
-    // With the keyboard up the tab bar makes way and the side pane stays
-    // above the keyboard, sized to what is left: what is typed shows there,
-    // in view, the cursor under it.
+    // With the keyboard up the terminal above folds away, the keys and the tab
+    // bar staying, and the side pane stays above the keyboard, sized to what
+    // is left: what is typed shows there, in view, the cursor under it.
     await showKeyboard(ctx.page, 320);
     await typeOnVirtualKeyboard(ctx.page, 'echo DOCK_$((6*7))_TYPED');
     await ctx.page.keyboard.press('Enter');
@@ -174,7 +177,10 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       'the typed line in the side pane, sized to its box',
       'DOCK_42_TYPED',
     );
-    expect(over.tabs.height).toBe(0);
+    expect(over.pty.height).toBe(0);
+    expect(over.keys.height).toBeGreaterThan(0);
+    expect(over.tabs.height).toBeGreaterThan(0);
+    expect(over.tabs.top).toBeGreaterThanOrEqual(over.keys.bottom);
     expect(over.dock.height).toBeGreaterThan(over.lineHeight * 5);
     expect(over.dock.bottom).toBeLessThanOrEqual(over.keyboard.top + 1);
     for (const [what, b] of [
@@ -186,10 +192,10 @@ describe('Phone width (390px) with a touchscreen: the bottom view and the app', 
       }
     }
 
-    // A tap on it again puts the keyboard away, and the tab bar is back.
+    // A tap on it again puts the keyboard away, and the terminal is back.
     await tapDock();
     await hideKeyboard(ctx.page);
-    await untilOver((o) => !o.inputFocused && o.tabs.height > 0, 'the keyboard away');
+    await untilOver((o) => !o.inputFocused && o.pty.height > 200, 'the keyboard away');
 
     // Back to the tree, and the terminal holds the keyboard again.
     await swipeSideways(ctx.page, y, 60, 330);

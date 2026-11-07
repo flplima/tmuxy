@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PHONE_COLS,
+  PHONE_LANDSCAPE_KEYS,
   PHONE_SIDE_MIN,
   PHONE_STATUS_HEIGHT,
   phoneCell,
@@ -8,8 +9,8 @@ import {
 } from '../phoneLayout';
 import { PHONE_CONTAINER_PADDING } from '../../constants/layout';
 
-/** Under the grid sideways: the status line and the container's padding. */
-const CHROME = PHONE_STATUS_HEIGHT + PHONE_CONTAINER_PADDING;
+/** Under the grid sideways: the status line, the container's padding and the keys' row. */
+const CHROME = PHONE_STATUS_HEIGHT + PHONE_CONTAINER_PADDING + PHONE_LANDSCAPE_KEYS;
 
 describe('phoneCell', () => {
   it('fits 80 columns across a 390px phone, edge to edge', () => {
@@ -44,22 +45,22 @@ describe('phoneCell', () => {
 });
 
 describe('phoneLandscapeCell', () => {
-  it('fits 24 rows and the status line into the height of a phone held sideways', () => {
+  it('fits 24 rows, the status line and the keys into the height of a phone held sideways', () => {
     const cell = phoneLandscapeCell(844, 390, 0.6);
     expect(cell.rowHeight * 24 + CHROME).toBeLessThanOrEqual(390);
     expect(cell.rowHeight * 24 + CHROME).toBeGreaterThan(390 - 25);
     expect(cell.cellWidth).toBeCloseTo(cell.fontSize * 0.6, 10);
     expect(cell.cellGap).toBe(0);
-    // The column beside the terminal keeps room for the keys and the tree.
+    // The columns either side keep room for the tree and the side pane.
     expect(844 - cell.cellWidth * PHONE_COLS - 2 * PHONE_CONTAINER_PADDING).toBeGreaterThanOrEqual(
-      PHONE_SIDE_MIN,
+      2 * PHONE_SIDE_MIN,
     );
   });
 
-  it('cuts to the width instead when the height would leave the side too narrow', () => {
+  it('cuts to the width instead when the height would leave the sides too narrow', () => {
     const cell = phoneLandscapeCell(640, 390, 0.6);
     expect(cell.cellWidth * PHONE_COLS).toBeCloseTo(
-      640 - PHONE_SIDE_MIN - 2 * PHONE_CONTAINER_PADDING,
+      640 - 2 * PHONE_SIDE_MIN - 2 * PHONE_CONTAINER_PADDING,
       6,
     );
     expect(cell.rowHeight * 24 + CHROME).toBeLessThanOrEqual(390);

@@ -165,36 +165,37 @@ export function useCursorInView(
   }, [ref, enabled, cursorKey, xRef]);
 }
 
-/** How much the phone's zoom enlarges the terminal (styles mirror it as `--phone-zoom`). */
-export const PHONE_ZOOM = 2;
-
 /**
- * The phone's zoom: `xRef` is the viewport the zoomed grid scrolls sideways
- * in, `yRef` the terminal box that scrolls up and down when the doubled grid
- * is taller than it. When the zoom comes on, scroll both so the point that
- * was tapped (client px, or the middle when none) sits in the middle of the
- * view; when it goes off, back to the corner. The scaling itself is the
- * stylesheet's (`.phone-pty.is-zoomed`).
+ * The phone's zoom: `xRef` is the viewport the zoomed picture scrolls
+ * sideways in, `yRef` the terminal box that scrolls up and down when the
+ * picture is taller than it. A double tap zooms in around `at` (client px,
+ * or the middle when none): both are scrolled so that point sits in the
+ * middle of the view. The bar's zoom has no point and grows the picture from
+ * its top-left corner, where the scroll already is. Back at its own size,
+ * both go back to the corner. The scaling itself is the stylesheet's
+ * (`.phone-pty.is-zoomed`).
  */
 export function usePhoneZoomScroll(
   xRef: RefObject<HTMLElement | null>,
   yRef: RefObject<HTMLElement | null>,
-  zoom: { x: number | null; y: number | null } | null,
+  zoom: number,
+  at: { x: number | null; y: number | null } | null,
 ): void {
   useLayoutEffect(() => {
     const sideways = xRef.current;
     const upright = yRef.current;
     if (!sideways || !upright) return;
-    if (!zoom) {
+    if (zoom <= 1) {
       sideways.scrollTo(0, 0);
       upright.scrollTo(0, 0);
       return;
     }
+    if (!at) return;
     const frame = sideways.getBoundingClientRect();
     const box = upright.getBoundingClientRect();
-    const x = zoom.x ?? frame.left + frame.width / 2;
-    const y = zoom.y ?? box.top + box.height / 2;
-    sideways.scrollTo({ left: (x - frame.left) * PHONE_ZOOM - frame.width / 2 });
-    upright.scrollTo({ top: (y - frame.top) * PHONE_ZOOM - box.height / 2 });
-  }, [xRef, yRef, zoom]);
+    const x = at.x ?? frame.left + frame.width / 2;
+    const y = at.y ?? box.top + box.height / 2;
+    sideways.scrollTo({ left: (x - frame.left) * zoom - frame.width / 2 });
+    upright.scrollTo({ top: (y - frame.top) * zoom - box.height / 2 });
+  }, [xRef, yRef, zoom, at]);
 }

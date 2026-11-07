@@ -1,7 +1,8 @@
-/* KeyRow — the phone's extra keys, between the terminal and the tree, in two
-   rows of six, edge to edge: no gap between the keys, a hairline between
-   neighbours (each key draws its right and bottom edge, the row the top and
-   left), so the screen's width all goes to the keys. The chrome's own size,
+/* KeyRow — the phone's extra keys under the terminal, in two rows of six
+   (held sideways, one row of twelve: styles/phone.css), edge to edge: no gap
+   between the keys, a hairline between neighbours (each key draws its right
+   and bottom edge, the row the top and left), so the screen's width all goes
+   to the keys. Flat on the terminal card's own ground. The chrome's own size,
    whatever the terminal's cell shrank to. */
 
 .key-row {
@@ -10,20 +11,19 @@
   flex: 0 0 auto;
   gap: 0;
   padding: 0;
-  border-top: 1px solid var(--border-light);
-  border-left: 1px solid var(--border-light);
+  border-top: 1px solid var(--border-medium);
   font-family: var(--font-mono);
   font-size: 14px;
 }
 
 .key-row-key {
   min-width: 0;
-  height: 40px;
+  height: 41px;
   padding: 0;
-  border: solid var(--border-light);
+  border: solid var(--border-medium);
   border-width: 0 1px 1px 0;
   border-radius: 0;
-  background-color: var(--bg-medium);
+  background-color: var(--bg-dark);
   color: var(--text-primary);
   font: inherit;
   cursor: pointer;
@@ -55,4 +55,14 @@
 .key-row-magnifier {
   display: block;
   margin: 0 auto;
+}
+
+/* The row's outer edges are the card's: no hairline down the right end or
+   under the last row. */
+.key-row-key:nth-child(6n) {
+  border-right-width: 0;
+}
+
+.key-row-key:nth-last-child(-n + 6) {
+  border-bottom-width: 0;
 }

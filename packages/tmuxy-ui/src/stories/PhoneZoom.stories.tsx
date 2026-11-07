@@ -2,9 +2,9 @@
  * The phone's zoom with the keyboard up and down, upright and sideways.
  *
  * Zoomed (the key row's magnifier, or a double tap), the terminal is drawn at
- * twice its size: upright, the bottom view gives way so every one of its rows
- * is on screen, and the view scrolls sideways only; the key row stays under
- * it. A keyboard coming up cuts the terminal short, and it scrolls so the
+ * twice its size: upright, the bar under the keys moves down to match and the
+ * bottom view gives up the room, so every one of its rows is on screen, and
+ * the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short, and it scrolls so the
  * cursor's row stays in view. No headless browser draws a keyboard, so the
  * stories bring up a mock one (keyboardMock.ts): the screen loses its height
  * and a keyboard is drawn there.
@@ -18,6 +18,7 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx } from './phoneStoryHelpers';
 import { mockKeyboard } from './keyboardMock';
+import { PHONE_STATUS_HEIGHT } from '../utils/phoneLayout';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Zoom',
@@ -68,7 +69,7 @@ export const ZoomShowsEveryRow: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The magnifier zooms the terminal to twice its size. The bottom view gives way, so every row is on screen at once and the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short and it scrolls to keep the cursor’s row in view above the keyboard.',
+          'The magnifier zooms the terminal to twice its size, its status line with it, and the bar under the keys moves down to match: the bottom view gives up the room, so every row is on screen at once and the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short and it scrolls to keep the cursor’s row in view above the keyboard.',
       },
     },
   },
@@ -81,12 +82,21 @@ export const ZoomShowsEveryRow: Story = {
       { timeout: 8000 },
     );
     const before = box(canvasElement.querySelector('.phone-pty .pane-container'));
+    const barBefore = box(canvasElement.querySelector('[data-testid="phone-divider"]'));
     await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
 
-    // Every row on screen, twice its size; the bottom view gone, the keys under it.
+    // Every row on screen, twice its size; the bar moved down by the room the
+    // terminal took from the bottom view, the keys under it.
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull();
-      expect(canvasElement.querySelector('[data-testid="phone-bottom"]')).toBeNull();
+      expect(ctx().phoneZoom).toBe(2);
+    });
+    await waitFor(() => {
+      const bar = box(canvasElement.querySelector('[data-testid="phone-divider"]'));
+      expect(bar.top).toBeGreaterThan(barBefore.top + before.height * 0.9);
+      // The status line is part of the picture: twice its size too.
+      const line = box(canvasElement.querySelector('.phone-pty .tmux-status-bar'));
+      expect(line.height).toBeCloseTo(2 * PHONE_STATUS_HEIGHT, 0);
     });
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
     const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
@@ -123,11 +133,14 @@ export const ZoomShowsEveryRow: Story = {
       putAway();
     }
 
-    // The magnifier again: back to the grid's own size, the bottom view back.
+    // The magnifier again: back to the grid's own size, and the bar with it.
     await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).toBeNull();
-      expect(canvasElement.querySelector('[data-testid="phone-bottom"]')).not.toBeNull();
+      expect(box(canvasElement.querySelector('[data-testid="phone-divider"]')).top).toBeCloseTo(
+        barBefore.top,
+        0,
+      );
     });
   },
 };
@@ -143,7 +156,7 @@ export const ZoomSidewaysWithTheKeyboard: Story = {
       story: { inline: false, iframeHeight: 390 },
       description: {
         story:
-          'Held sideways and zoomed, the doubled terminal is taller than the screen, so it scrolls up and down as well as sideways; the column beside it keeps the strip, the keys and the bottom view. A keyboard coming up cuts it shorter still, and it scrolls to keep the cursor’s row in view.',
+          'Held sideways and zoomed, the doubled terminal is taller than the screen, so it scrolls up and down as well as sideways; the tree and the side pane keep their columns beside it and the keys their row. A keyboard coming up cuts it shorter still, and it scrolls to keep the cursor’s row in view.',
       },
     },
   },
@@ -163,8 +176,11 @@ export const ZoomSidewaysWithTheKeyboard: Story = {
       expect(term.scrollHeight).toBeGreaterThan(term.clientHeight + 10);
       expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth + 10);
     });
-    // Sideways the bottom view keeps its place in the column.
-    expect(canvasElement.querySelector('.phone-side [data-testid="phone-bottom"]')).not.toBeNull();
+    // Sideways the tree and the side pane keep their columns.
+    expect(box(canvasElement.querySelector('.phone-side-left .phone-tree')).width).toBeGreaterThan(
+      0,
+    );
+    expect(box(canvasElement.querySelector('.phone-side-right')).width).toBeGreaterThan(0);
 
     const putAway = mockKeyboard(canvasElement.querySelector('.app-container')!, KEYBOARD_SIDEWAYS);
     try {

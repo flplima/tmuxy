@@ -12,6 +12,8 @@ interface Snap {
     charHeight: number;
     phoneLayout: boolean;
     phoneLandscape: boolean;
+    phoneZoom: number;
+    phoneCollapsed: boolean;
   };
 }
 export const ctx = () =>

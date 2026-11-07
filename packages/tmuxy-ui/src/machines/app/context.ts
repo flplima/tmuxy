@@ -18,6 +18,7 @@ import {
 import { loadFontSizeFromStorage } from '../../utils/fontSizeManager';
 import { loadThemeFromStorage } from '../../utils/themeManager';
 import { DEFAULT_SIZE_POLICY } from '../../utils/gridFit';
+import { loadSplit } from '../../utils/phoneSplit';
 
 /**
  * The name of each state slice (a root-level `on` block under ./states/)
@@ -132,6 +133,8 @@ export const FIELD_OWNERS = {
 
   // ---- phone ----
   phoneZoom: 'phone',
+  phoneZoomAt: 'phone',
+  phoneCollapsed: 'phone',
   phoneBottomView: 'phone',
   phoneDockSizeSent: 'phone',
 
@@ -182,6 +185,7 @@ export const FIELD_OWNERS = {
  * not module load — which matters for tests that stub localStorage.
  */
 export function createInitialContext(): AppMachineContext {
+  const split = loadSplit();
   return {
     connected: false,
     error: null,
@@ -240,7 +244,9 @@ export function createInitialContext(): AppMachineContext {
     tabOverviewOpen: false,
     tabOverviewSelected: 0,
     renamingTabId: null,
-    phoneZoom: null,
+    phoneZoom: split.zoom,
+    phoneZoomAt: null,
+    phoneCollapsed: split.collapsed,
     phoneBottomView: 'tree',
     phoneDockSizeSent: null,
     enableAnimations: false,

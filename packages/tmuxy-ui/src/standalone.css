@@ -62,10 +62,13 @@ html.tmuxy-phone #root {
 
 /* Installed on a phone's home screen (the manifest's standalone display),
    the page runs under the status bar and the home indicator: the phone's
-   layout keeps clear of both, and an opaque band fills each (below). */
+   layout keeps clear of both, and an opaque band fills each (below). Held
+   sideways, it keeps clear of the notch on either side too. */
 html.tmuxy-phone #root {
   padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
 }
 
 /* The keyboard covers the home indicator: while it is up
