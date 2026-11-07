@@ -137,7 +137,7 @@ describeE2E('Scenario 22c: Published under another name by a reverse proxy', {},
   afterAll(async () => {
     refused?.stop();
     allowed?.stop();
-    stopAllowedServer();
+    await stopAllowedServer();
   });
 
   test('a name the server was not told about → the page says why instead of "Connecting…" forever → with --allowed-host the same name works [nightly]', async () => {

@@ -17,9 +17,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execFileSync } = require('child_process');
-const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary, waitBudget } = require('./config');
-const { waitForServer } = require('./browser');
+const { execFileSync } = require('child_process');
+const { TMUXY_CLI } = require('./config');
+const { startExtraServer } = require('./extra-server');
 const { tmuxRunAsOperator } = require('./cli');
 const { tmuxEnv } = require('./tmux-socket');
 
@@ -52,7 +52,7 @@ function isolatedEnv({ socket, stateDir }) {
 function isolatedServer({ port, socket, stateDir }) {
   const env = isolatedEnv({ socket, stateDir });
   const url = `http://localhost:${port}`;
-  let child = null;
+  let stopServer = null;
 
   const cli = (args, opts = {}) => {
     try {
@@ -76,30 +76,18 @@ function isolatedServer({ port, socket, stateDir }) {
     cli,
     async start(extraArgs = []) {
       fs.mkdirSync(stateDir, { recursive: true });
-      const stderr = fs.openSync(path.join(stateDir, `server-${Date.now()}.stderr.log`), 'w');
-      child = spawn(serverBinary(), ['--port', String(port), '--no-auth', ...extraArgs], {
-        cwd: WORKSPACE_ROOT,
-        stdio: ['ignore', 'ignore', stderr],
+      stopServer = await startExtraServer(
+        port,
+        ['--no-auth', ...extraArgs],
         env,
-      });
-      // The child holds its own copy; keeping ours open is an open handle
-      // that stops jest from exiting.
-      fs.closeSync(stderr);
-      await waitForServer(url, 60000);
+        path.join(stateDir, `server-${Date.now()}.stderr.log`),
+      );
     },
     async stop() {
-      if (!child) return;
-      const stopping = child;
-      const exited = new Promise((resolve) => stopping.once('exit', () => resolve(true)));
-      stopping.kill('SIGTERM');
-      let timer;
-      const late = new Promise((resolve) => {
-        timer = setTimeout(() => resolve(false), waitBudget(10000));
-      });
-      const done = await Promise.race([exited, late]);
-      clearTimeout(timer);
-      child = null;
-      if (!done)
+      if (!stopServer) return;
+      const stopping = stopServer;
+      stopServer = null;
+      if (!(await stopping()))
         throw new Error(`the server on ${url} did not exit on SIGTERM\n${this.serverLog()}`);
     },
     /**
