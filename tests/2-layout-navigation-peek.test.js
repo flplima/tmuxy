@@ -15,19 +15,18 @@ const {
   waitForTerminalText,
   afterFrames,
 } = require('./helpers');
+const { tmuxPane } = require('./helpers/tmux-read');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** Where things are on screen, as the user sees them. */
-const geometry = (page) =>
-  page.evaluate(() => {
+const geometry = async (page) => {
+  const drawn = await page.evaluate(() => {
     const rect = (sel) => {
       const el = document.querySelector(sel);
       if (!el) return null;
       const r = el.getBoundingClientRect();
       return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
     };
-    const ctx = window.app?.getSnapshot()?.context;
-    const tree = ctx?.windows?.find((w) => w.windowType === 'sidebar-left');
-    const active = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
     const backdrop = document.querySelector('.sidebar-peek-backdrop');
     return {
       toggle: rect('.sidebar-toggle-left'),
@@ -38,11 +37,24 @@ const geometry = (page) =>
       container: rect('.pane-container'),
       pane: rect('.pane-layout-item'),
       treeRow: rect('.sidebar-column-left.is-peek .sidebar-tree-tab'),
-      treeHidden: tree ? Boolean(tree.sidebarHidden) : null,
-      paneCols: active?.width ?? null,
-      open: ctx?.sidebars?.left?.open,
+      activePaneId: window.app.view().activePaneId,
     };
   });
+  // What tmux holds: the tree's window hidden from every client, and the
+  // active pane's width in cells.
+  const session = new URL(page.url()).searchParams.get('session');
+  const tree = tmuxExec(
+    `list-windows -t ${session} -F '#{@tmuxy-window-type} #{@tmuxy-sidebar-hidden}'`,
+  )
+    .split('\n')
+    .find((line) => line.startsWith('sidebar-left'));
+  const { activePaneId, ...rest } = drawn;
+  return {
+    ...rest,
+    treeHidden: tree ? tree.split(' ')[1] === '1' : null,
+    paneCols: activePaneId ? tmuxPane(activePaneId).width : null,
+  };
+};
 
 const centre = (r) => ({ x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 });
 
@@ -107,7 +119,7 @@ describeE2E('Scenario 6g: a closed sidebar peeks over the panes on hover', {}, (
     expect(peeking.container).toEqual(before.container);
     expect(peeking.pane).toEqual(before.pane);
     expect(peeking.paneCols).toBe(before.paneCols);
-    expect(peeking.open).toBe(false);
+    expect(peeking.docked).toBeNull();
     // The tree's window arrives hidden: no other client sees it open.
     await waitForCondition(
       page,
@@ -179,7 +191,7 @@ describeE2E('Scenario 6g: a closed sidebar peeks over the panes on hover', {}, (
         return shut.docked === null && shut.peek === null;
       },
       () =>
-        `the tree staying shut under the pointer (docked: ${JSON.stringify(shut.docked)}, peek: ${JSON.stringify(shut.peek)}, open: ${shut.open})`,
+        `the tree staying shut under the pointer (docked: ${JSON.stringify(shut.docked)}, peek: ${JSON.stringify(shut.peek)})`,
     );
   }, 120000);
 });
