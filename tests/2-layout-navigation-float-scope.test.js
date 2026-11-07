@@ -22,6 +22,7 @@ const {
   waitForFloatModal,
   sampleCursorGlide,
   glidePositions,
+  focusedFloatPaneId,
 } = require('./helpers/layout-helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 const { tmuxPanes } = require('./helpers/tmux-read');
@@ -79,11 +80,7 @@ describeE2E('Scenario 6f: Float Tab Scope', { snapshot: true }, (ctx) => {
       'the new float to take focus',
     );
 
-    const floatPaneId = await ctx.page.evaluate(() =>
-      window.app?.view().keyboardTarget.kind === 'float'
-        ? window.app?.view().keyboardTarget.paneId
-        : null,
-    );
+    const floatPaneId = await focusedFloatPaneId(ctx.page);
     expect(floatPaneId).toMatch(/^%\d+$/);
 
     // Step 2: the float is tagged with the tab it was opened over, and the
@@ -187,13 +184,7 @@ describeE2E('Scenario 6f: Float Tab Scope', { snapshot: true }, (ctx) => {
       timeout: 10000,
       polling: 100,
     });
-    expect(
-      await ctx.page.evaluate(() =>
-        window.app?.view().keyboardTarget.kind === 'float'
-          ? window.app?.view().keyboardTarget.paneId
-          : null,
-      ),
-    ).toBeNull();
+    expect(await focusedFloatPaneId(ctx.page)).toBeNull();
     // And that tab's own pane takes input, rather than the hidden float.
     const TOKEN = 'OTHER_TAB_' + Date.now();
     await runCommand(ctx.page, `echo ${TOKEN}`, TOKEN);

@@ -13,32 +13,20 @@ import fc from 'fast-check';
 
 import { applyDelta } from '../deltaProtocol';
 import type { ServerDelta, ServerState, WirePaneEncoded, WireWindowEncoded } from '../wire';
-import { wireDelta, wireState } from '../../test/wire';
+import { wireDelta, wirePane, wireState } from '../../test/wire';
 
 const PANE_IDS = ['%1', '%2', '%3', '%4'];
 const WINDOW_IDS = ['@1', '@2', '@3'];
 
-function pane(tmuxId: string, windowId: string): WirePaneEncoded {
-  return {
+const pane = (tmuxId: string, windowId: string): WirePaneEncoded =>
+  wirePane({
     id: Number(tmuxId.slice(1)),
     tmux_id: tmuxId,
     window_id: windowId,
     content: [[{ c: 'a' }]],
-    cursor_x: 0,
-    cursor_y: 0,
-    width: 80,
-    height: 24,
-    x: 0,
-    y: 0,
     active: false,
     command: 'zsh',
-    title: '',
-    border_title: '',
-    in_mode: false,
-    copy_cursor_x: 0,
-    copy_cursor_y: 0,
-  };
-}
+  });
 
 function window(id: string): WireWindowEncoded {
   return { id, index: Number(id.slice(1)), name: id, active: false };
