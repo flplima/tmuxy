@@ -430,6 +430,12 @@ impl Layout {
         self.bin().join("tmuxy")
     }
 
+    /// `pane-group`: its `close` is what a group member's `pane-died` hook
+    /// runs, and its `park` what parks a restored member.
+    pub fn pane_group_script(&self) -> PathBuf {
+        self.scripts().join("pane-group")
+    }
+
     pub fn lockfile(&self) -> PathBuf {
         self.path(&LOCKFILE)
     }

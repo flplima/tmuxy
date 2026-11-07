@@ -355,15 +355,11 @@ fn signed(value: &str) -> Result<i64, Outcome> {
         .map_err(|_| Outcome::Fail(format!("index must be a number: {value:?}")))
 }
 
-/// `close_command` is what a member's `pane-died` hook runs: the
-/// `pane-group` a restored member's hook names too.
 fn context() -> Context {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let script = tmuxy_core::paths::Layout::current()
-        .scripts()
-        .join("pane-group");
+    let script = tmuxy_core::paths::Layout::current().pane_group_script();
     Context {
         close_command: groups::close_command(&script),
         rev_token: format!(
