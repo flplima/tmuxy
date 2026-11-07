@@ -108,7 +108,7 @@ attached goes through the aggregator's in-band path.
 
 Shell scripts in `packages/tmuxy-cli/bin/tmuxy/` are executed via tmux's `run-shell` command (sent through control mode). Since `run-shell` executes within the tmux server process itself (not as an external subprocess), scripts can safely call tmux CLI commands internally — except `new-window` (see below).
 
-A `run-shell` the CLI sends from a pane carries that pane as its `-t` target (`_run_shell` in `packages/tmuxy-cli/bin/tmuxy/_lib`), and every pane- or window-scoped command the CLI builds names the caller's pane explicitly. Both are needed: the CLI's own `tmux` client is unattached, and for an unattached client tmux resolves a target-less command — and the formats `run-shell` expands, such as `#{pane_id}` — to the session's current window and active pane, not to the pane in `TMUX_PANE`. Without them a `pane split` or `pane group add` typed in a background tab acted on the tab in front.
+A `run-shell` the CLI sends from a pane carries that pane as its `-t` target, and the pane rides along as the inner command's `TMUX_PANE`: the shell half's `_run_as_caller` in `packages/tmuxy-cli/bin/tmuxy/_lib`, the verbs' `run_shell::tmux_as` (`tmuxy-core/src/run_shell.rs`). Every pane- or window-scoped command the CLI builds also names the caller's pane explicitly. All of it is needed: the CLI's own `tmux` client is unattached, and for an unattached client tmux resolves a target-less command — and the formats `run-shell` expands, such as `#{pane_id}` — to the session's current window and active pane, not to the pane in `TMUX_PANE`. Without them a `pane split` or `pane group add` typed in a background tab acted on the tab in front.
 
 ## Targeting: Use Stable IDs, Not Indices
 

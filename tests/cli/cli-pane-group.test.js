@@ -4,43 +4,61 @@ const { runGroupScript, runGroupScriptInBareTree } = require('./helpers/run-grou
 
 const SCRIPTS_DIR = path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy');
 const MOCKS_DIR = path.resolve(__dirname, 'mocks');
+const PANE_GROUP = `bash '${SCRIPTS_DIR}/pane-group'`;
 
+/**
+ * `tmuxy pane group <verb>` forwards to the pane-group script inside
+ * run-shell: the verbs, their arguments, their defaults and their help are
+ * the `group` verb's (packages/tmuxy-verbs/src/group_cli.rs; against a real
+ * tmux in packages/tmuxy-server/tests/pane_groups.rs).
+ */
 describe('CLI pane group subcommands', () => {
-  describe('pane group add', () => {
-    test('execs run-shell with pane-group add', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'add']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' add");
-      expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
-    });
+  test.each([
+    [['add'], "'add'"],
+    [['close', '%5'], "'close' '%5'"],
+    [['move', '%4', '0'], "'move' '%4' '0'"],
+    [['leave', '%5', '--beside', '%2', 'down'], "'leave' '%5' '--beside' '%2' 'down'"],
+    [['badcmd'], "'badcmd'"],
+  ])('pane group %j hands the verb its words, quoted', (args, words) => {
+    const { tmuxCalls } = runCLI(['pane', 'group', ...args]);
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0].args[0]).toBe('run-shell');
+    expect(tmuxCalls[0].args[1]).toBe(`${PANE_GROUP} ${words}`);
   });
 
-  // The verbs that leave `#{pane_id}` for run-shell to expand: run-shell
-  // expands it against ITS target, and with none tmux takes the session's
-  // current window — the tab in front, not the caller's — because the CLI's
-  // client is unattached. The caller's pane is therefore run-shell's target,
-  // from the environment or from the dispatcher's own resolution.
-  describe('the pane a format expands to', () => {
-    test.each(['add', 'close', 'next', 'prev'])(
-      'pane group %s names the caller pane as the run-shell target',
-      (verb) => {
-        const { tmuxCalls } = runCLI(['pane', 'group', verb], {
-          env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
-        });
-        expect(tmuxCalls).toHaveLength(1);
-        expect(tmuxCalls[0].target).toBe('%7');
-        expect(tmuxCalls[0].args[1]).toContain('#{pane_id}');
-      },
-    );
+  // run-shell hands its string to a shell, so an argument with a quote in it
+  // must reach the script as one word, never as more of the command.
+  test('a pane with a quote in it stays one word', () => {
+    const { tmuxCalls } = runCLI(['pane', 'group', 'close', "%1'; id; '"]);
+    expect(tmuxCalls[0].args[1]).toBe(`${PANE_GROUP} 'close' '%1'\\''; id; '\\'''`);
+  });
 
-    test('from outside a pane, the resolved pane is the target', () => {
+  test('--json reaches the verb, which answers', () => {
+    const { tmuxCalls } = runCLI(['pane', 'group', 'next', '--json']);
+    expect(tmuxCalls[0].args[1]).toBe(`${PANE_GROUP} 'next' --json`);
+  });
+
+  // A verb left without a pane takes the caller's: run-shell's target, and
+  // the TMUX_PANE the verb reads, from the environment or from the
+  // dispatcher's own resolution.
+  describe("the caller's pane", () => {
+    test('rides along from the environment', () => {
+      const { tmuxCalls } = runCLI(['pane', 'group', 'ungroup'], {
+        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
+      });
+      expect(tmuxCalls).toHaveLength(1);
+      expect(tmuxCalls[0].target).toBe('%7');
+      expect(tmuxCalls[0].args[1]).toBe(`TMUX_PANE=%7 ${PANE_GROUP} 'ungroup'`);
+    });
+
+    test('from outside a pane, is the resolved one', () => {
       const { tmuxCalls, paneResolution } = runCLI(['pane', 'group', 'add'], {
         env: { MOCK_TMUX_CALLER_PANES: '0\\tidle\\t%3\\n1\\tmain\\t%0' },
       });
       expect(paneResolution).not.toBeNull();
       expect(tmuxCalls).toHaveLength(1);
       expect(tmuxCalls[0].target).toBe('%0');
+      expect(tmuxCalls[0].args[1]).toBe(`TMUX_PANE=%0 ${PANE_GROUP} 'add'`);
     });
 
     test('with no pane known, run-shell goes target-less', () => {
@@ -49,120 +67,27 @@ describe('CLI pane group subcommands', () => {
     });
   });
 
-  describe('pane group close', () => {
-    test('execs run-shell with pane-group close (no arg)', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'close']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      // A bare format, for run-shell to expand to the current pane.
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close #\{pane_id\}$/);
-    });
-
-    test('execs run-shell with pane-group close (specific pane)', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'close', '%5']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' close '%5'$/);
-    });
-  });
-
-  // run-shell hands its string to a shell, so an argument with a quote in it
-  // must reach the script as one word, never as more of the command.
-  test.each(['close', 'switch'])('pane group %s quotes the pane it is given', (verb) => {
-    const { tmuxCalls } = runCLI(['pane', 'group', verb, "%1'; id; '"]);
-    expect(tmuxCalls).toHaveLength(1);
-    expect(tmuxCalls[0].args[1]).toMatch(
-      new RegExp(`pane-group' ${verb} '%1'\\\\''; id; '\\\\'''$`),
-    );
-  });
-
-  describe('pane group switch', () => {
-    test('execs run-shell with pane-group switch', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'switch', '%3']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' switch '%3'$/);
-    });
-
-    test('errors with no pane id', () => {
-      const { stderr, exitCode } = runCLI(['pane', 'group', 'switch']);
-      expect(exitCode).not.toBe(0);
-    });
-  });
-
-  describe('pane group next', () => {
-    test('execs run-shell with pane-group next', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'next']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' next");
-    });
-  });
-
-  describe('pane group prev', () => {
-    test('execs run-shell with pane-group prev', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'prev']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' prev");
-    });
-  });
-
-  describe('pane group move', () => {
-    test('execs run-shell with pane-group move, the pane and its new place', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'move', '%4', '0']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[0]).toBe('run-shell');
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' move '%4' '0'$/);
-    });
-
-    test('errors without a place', () => {
-      const { exitCode } = runCLI(['pane', 'group', 'move', '%4']);
-      expect(exitCode).not.toBe(0);
-    });
-  });
-
-  describe('pane group join', () => {
-    test('execs run-shell with pane-group join, the pane, the member and the place', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'join', '%9', '%4', '1']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' join '%9' '%4' '1'$/);
-    });
-
-    test('errors without a group to join', () => {
-      const { exitCode } = runCLI(['pane', 'group', 'join', '%9']);
-      expect(exitCode).not.toBe(0);
-    });
-  });
-
-  describe('pane group leave', () => {
-    test('becomes a tab of its own by default', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5']);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' leave '%5' '--tab'");
-    });
-
-    test('splits in beside a pane on the side named', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'leave', '%5', '--beside', '%2', 'down']);
-      expect(tmuxCalls[0].args[1]).toMatch(/pane-group' leave '%5' '--beside' '%2' 'down'$/);
-    });
-  });
+  test.each([[['--help']], [[]], [['leave', '--help']]])(
+    'pane group %j asks the verb for its help, and runs nothing',
+    (args) => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'group', ...args]);
+      expect(exitCode).toBe(0);
+      expect(tmuxCalls).toEqual([]);
+      expect(stdout.trim()).toBe(`mock-server-started group ${args.join(' ') || '--help'}`);
+    },
+  );
 
   describe('the pane-group script', () => {
     test.each([
       ['add', ['%1', '80', '24'], 'group add %1 80 24'],
       ['close', ['%5'], 'group close %5'],
-      ['switch', ['%3'], 'group switch %3'],
-      ['next', ['%1'], 'group next %1'],
-      ['prev', ['%1'], 'group prev %1'],
-      ['move', ['%4', '0'], 'group move %4 0'],
-      ['join', ['%9', '%4', ''], 'group join %9 %4 '],
+      ['join', ['%9', '%4', '1'], 'group join %9 %4 1'],
       ['leave', ['%5', '--beside', '%2', 'up'], 'group leave %5 --beside %2 up'],
       ['park', ['work:0.0', 'g1', '/tmp', '2'], 'group park work:0.0 g1 /tmp 2'],
     ])('%s hands its arguments to the server binary', (verb, args, expected) => {
       const { stdout, exitCode } = runGroupScript(verb, args);
       expect(exitCode).toBe(0);
-      expect(stdout).toBe(`server ${expected} [scripts=${SCRIPTS_DIR}]`);
+      expect(stdout).toBe(`server ${expected}`);
     });
 
     test("keeps the binary's output and exit status", () => {
@@ -188,36 +113,6 @@ describe('CLI pane group subcommands', () => {
       expect(stderr).toBe('');
       expect(exitCode).toBe(0);
       expect(stdout).toBe('dev build group next %1');
-    });
-  });
-
-  // A tab's worth of group work: the `group` verb's `all` and `ungroup`
-  // (packages/tmuxy-verbs/src/group_cli.rs; against a real tmux in
-  // packages/tmuxy-server/tests/pane_groups.rs).
-  describe('pane group all / ungroup', () => {
-    test.each(['all', 'ungroup'])('%s runs pane-group on the caller pane', (verb) => {
-      const { tmuxCalls } = runCLI(['pane', 'group', verb], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
-      });
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].target).toBe('%7');
-      expect(tmuxCalls[0].args[1]).toContain(`pane-group' ${verb} #{pane_id}`);
-    });
-
-    test('a pane named on the command line is the anchor', () => {
-      const { tmuxCalls } = runCLI(['pane', 'group', 'all', '%4'], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%7' },
-      });
-      expect(tmuxCalls[0].args[1]).toContain("pane-group' all '%4'");
-    });
-  });
-
-  describe('pane group unknown', () => {
-    test('errors on unknown group subcommand', () => {
-      const { stderr, exitCode } = runCLI(['pane', 'group', 'badcmd']);
-      expect(exitCode).toBe(2);
-      expect(stderr).toContain('Unknown group command: badcmd');
-      expect(stderr).toContain('Usage: tmuxy pane group <command>');
     });
   });
 });

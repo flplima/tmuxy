@@ -37,9 +37,9 @@ pub enum Verb {
     /// `tmuxy session save|restore|snapshots|forget`.
     #[cfg(feature = "native")]
     Session(session_cli::SessionArgs),
-    /// Pane-group operations. Backs the `packages/tmuxy-cli/bin/tmuxy/pane-group` script,
-    /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
-    /// the user's way in.
+    /// Pane-group operations, run inside `tmux run-shell` (`tmuxy pane
+    /// group`, the `pane-group` script).
+    // Hidden: `tmuxy pane group` is the user's way in.
     #[command(hide = true)]
     Group(group_cli::GroupArgs),
     /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks

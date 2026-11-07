@@ -11,20 +11,15 @@ pub use run::*;
 
 /// The script whose `park` verb parks a restored group member (`packages/tmuxy-cli/bin/tmuxy/pane-group`).
 pub(super) fn group_script() -> String {
-    crate::session::bin_dir()
-        .join("tmuxy")
+    crate::paths::Layout::current()
+        .scripts()
         .join("pane-group")
         .to_string_lossy()
         .into_owned()
 }
 
-/// The `pane-group close` command a restored member's `pane-died` hook runs
-/// (`groups::arm`): the same script `park` is asked of.
 fn group_close_command() -> String {
-    format!(
-        "{} close",
-        crate::groups::quote_script_path(Path::new(&group_script()))
-    )
+    crate::groups::close_command(Path::new(&group_script()))
 }
 
 /// The server option a restore's shell step leaves its answer in. Named for

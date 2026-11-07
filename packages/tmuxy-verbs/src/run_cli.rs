@@ -2,12 +2,10 @@
 //! inside `run-shell` under the one routing policy
 //! (`tmuxy_core::command_router::route_cli_run`), and a new tab.
 
-use tmuxy_core::argv::run_shell_line;
 use tmuxy_core::command_router::{route_cli_run, CliRun, RUN_VERBS};
 use tmuxy_core::paths::Layout;
 use tmuxy_core::run_shell::{self, Ran, RunShellError};
 use tmuxy_core::tmux_command::NewTab;
-use tmuxy_core::PaneId;
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_NO_SERVER, EXIT_USAGE};
 
@@ -67,40 +65,12 @@ pub fn tab_create(args: NewTabArgs) {
     new_tab(&Answer::new(args.json), args.name.as_deref());
 }
 
-/// The pane the caller runs in, as tmuxy-cli resolved it: what a target-less
-/// command means, since the client inside `run-shell` is attached to nothing.
-fn caller_pane() -> Option<String> {
-    std::env::var("TMUX_PANE")
-        .ok()
-        .filter(|pane| PaneId::parse(pane).is_ok())
-}
-
 fn run_words(answer: &Answer, words: &[String]) {
-    let caller = caller_pane();
-    let line = run_line(
-        caller.as_deref(),
-        &tmuxy_core::session::tmux_argv(false),
-        words,
-    );
-    match run_shell::shell(&Layout::current(), &line, caller.as_deref()) {
+    let caller = run_shell::caller_pane();
+    match run_shell::tmux_as(&Layout::current(), caller.as_deref(), words) {
         Ok(ran) => relay(answer, &ran),
         Err(e) => fail_to_run(answer, e),
     }
-}
-
-/// The shell line `run-shell` runs: tmux on tmuxy's socket and the words,
-/// each quoted so neither `run-shell`'s format expansion nor its shell reads
-/// anything in them. The inner client is attached to nothing, so the caller's
-/// pane rides along as its TMUX_PANE, which tmux reads for an unattached
-/// client the way it does for a shell in a pane.
-fn run_line(caller: Option<&str>, tmux: &[String], words: &[String]) -> String {
-    let mut line = caller
-        .map(|pane| format!("TMUX_PANE={pane} "))
-        .unwrap_or_default();
-    line.push_str(&run_shell_line(tmux));
-    line.push(' ');
-    line.push_str(&run_shell_line(words));
-    line
 }
 
 /// What the command printed, as if it had run here, and its exit status.
@@ -137,7 +107,7 @@ fn fail_to_run(answer: &Answer, e: RunShellError) -> ! {
 
 /// A new tab beside the caller's pane, in the caller's session.
 fn new_tab(answer: &Answer, name: Option<&str>) {
-    let caller = caller_pane();
+    let caller = run_shell::caller_pane();
     let mut read = vec!["display-message".to_string(), "-p".to_string()];
     if let Some(pane) = &caller {
         read.extend(["-t".to_string(), pane.clone()]);
@@ -286,27 +256,6 @@ mod tests {
         assert_eq!(
             split("rename-window 'it''s' a\\ tab"),
             ["rename-window", "its", "a tab"]
-        );
-    }
-
-    #[test]
-    fn every_word_reaches_tmux_as_written() {
-        let words = |w: &[&str]| w.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            run_line(
-                Some("%1"),
-                &words(&["tmux", "-S", "/tmp/my sockets/tmuxy"]),
-                &words(&["list-panes", "-F", "#{a:59}id", "it's"]),
-            ),
-            "TMUX_PANE=%1 tmux -S '/tmp/my sockets/tmuxy' list-panes -F '##{a:59}id' 'it'\\''s'"
-        );
-        assert_eq!(
-            run_line(
-                None,
-                &words(&["tmux", "-L", "tmuxy"]),
-                &words(&["kill-server"])
-            ),
-            "tmux -L tmuxy kill-server"
         );
     }
 

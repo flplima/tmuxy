@@ -41,7 +41,22 @@ impl Server {
         // then run `tmuxy-server server group close`, no command at all.
         server.tmux(&["set-environment", "-g", "TMUXY_SERVER_BIN", bin()]);
         server.tmux(&["set-environment", "-g", "-u", "TMUXY_SERVER_SUBCOMMAND"]);
+        // The scripts a hook names are the data dir's (`Layout::scripts`):
+        // this checkout's, for the verb and for the hooks tmux runs.
+        let data = server.home.join("data");
+        std::fs::create_dir_all(data.join("bin")).unwrap();
+        std::os::unix::fs::symlink(scripts_dir(), data.join("bin/tmuxy")).unwrap();
+        server.tmux(&[
+            "set-environment",
+            "-g",
+            "TMUXY_DATA_DIR",
+            data.to_str().unwrap(),
+        ]);
         server
+    }
+
+    fn data_dir(&self) -> PathBuf {
+        self.home.join("data")
     }
 
     fn group(&self, args: &[&str]) -> Output {
@@ -49,7 +64,7 @@ impl Server {
             .arg("group")
             .args(args)
             .env("TMUX_SOCKET", &self.socket)
-            .env("TMUXY_SCRIPTS_DIR", scripts_dir())
+            .env("TMUXY_DATA_DIR", self.data_dir())
             .env_remove("TMUX")
             .output()
             .expect("tmuxy-server runs")
@@ -114,7 +129,11 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     for pane in [&p1, &p2] {
         assert_eq!(s.option(pane, "remain-on-exit"), "on");
         let hooks = s.tmux(&["show-hooks", "-p", "-t", pane]);
-        assert!(hooks.contains("pane-group close"), "{hooks}");
+        let script = s.data_dir().join("bin/tmuxy/pane-group");
+        assert!(
+            hooks.contains(&format!("{} close", script.display())),
+            "{hooks}"
+        );
     }
 
     s.ok(&["add", &p2, "120", "40"]);
@@ -186,6 +205,7 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
         .arg(scripts_dir().join("pane-group"))
         .args(["join", &pane, &pane])
         .env("TMUX_SOCKET", &s.socket)
+        .env("TMUXY_DATA_DIR", s.data_dir())
         .env("TMUXY_SERVER_BIN", bin())
         .env_remove("TMUXY_SERVER_SUBCOMMAND")
         .env_remove("TMUX")
@@ -194,21 +214,52 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group join: a pane cannot join itself"
+        "Error: pane-group join: a pane cannot join itself"
     );
 
     let out = s.group(&["move", &pane, "0"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        format!("pane-group move: {pane} is not in a group")
+        format!("Error: pane-group move: {pane} is not in a group")
     );
 
     let out = s.group(&["close", "not-a-pane"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group close: not a pane id: \"not-a-pane\""
+        "Error: pane-group close: not a pane id: \"not-a-pane\""
+    );
+
+    // Under --json every answer is one object on stdout, a refusal included,
+    // and nothing to step to is the contract's "no target" status.
+    let json = |args: &[&str]| {
+        let out = s.group(args);
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        )
+    };
+    assert_eq!(
+        json(&["--json", "move", &pane, "0"]),
+        (
+            Some(1),
+            format!(
+                r#"{{"ok":false,"error":"pane-group move: {pane} is not in a group","code":1}}"#
+            )
+        )
+    );
+    assert_eq!(
+        json(&["next", &pane, "--no-wrap", "--json"]),
+        (
+            Some(3),
+            r#"{"ok":false,"error":"pane-group next: no member that way","code":3}"#.to_string()
+        )
+    );
+    assert_eq!(s.group(&["next", &pane, "--no-wrap"]).stderr, b"");
+    assert_eq!(
+        json(&["--json", "gc"]),
+        (Some(0), r#"{"ok":true}"#.to_string())
     );
 }
 

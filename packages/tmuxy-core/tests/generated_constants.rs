@@ -415,8 +415,7 @@ fn shell_tmux_names(out: &mut String) {
     );
 }
 
-/// The CLI's contract (`cli_contract`) and the exit statuses its scripts
-/// read from the verbs.
+/// The CLI's contract (`cli_contract`).
 fn shell_cli_contract(out: &mut String) {
     use tmuxy_core::cli_contract as c;
     let _ = writeln!(
@@ -428,12 +427,6 @@ fn shell_cli_contract(out: &mut String) {
         c::EXIT_TARGET,
         c::EXIT_NO_SERVER,
         quoted(c::JSON_FAILURE_FORMAT)
-    );
-    let _ = writeln!(
-        out,
-        "\n# What `pane-group next|prev --no-wrap` exits with when there is no member\n\
-         # that way (`groups::NOTHING_TO_STEP_TO`).\nGROUP_NOTHING_TO_STEP_TO={}",
-        tmuxy_core::groups::NOTHING_TO_STEP_TO
     );
 }
 

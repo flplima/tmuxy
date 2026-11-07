@@ -156,16 +156,20 @@ _run_shell() {
 # tmux server on 3.5a — run-shell executes them in the server's own context.
 # Takes ONE pre-built tmux command string; interpolate user-supplied values
 # with `shquote` so spaces, quotes and `#` survive the trip.
-#
-# The inner tmux is a client of its own, and run-shell hands it no pane: a
-# target-less `send-keys` or `breakp` in there resolves to whichever session
-# tmux touched last, not the caller's. So the caller's pane rides along as the
-# inner client's TMUX_PANE, which tmux reads for an unattached client the way
-# it reads it for a shell in a pane.
 _run_safe() {
   local socket="$TMUX_SOCKET"
   [[ "$socket" =~ ^[A-Za-z0-9._/@+-]+$ ]] || socket="$(shquote "$socket")"
-  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
+  _run_as_caller "$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
+}
+
+# `_run_shell` a command line for the caller's pane. A tmux client in there
+# is one of its own, and run-shell hands it no pane: a target-less
+# `send-keys` or `breakp` resolves to whichever session tmux touched last,
+# not the caller's. So the caller's pane rides along as TMUX_PANE, which tmux
+# reads for an unattached client the way it reads it for a shell in a pane
+# (the verbs' `run_shell::tmux_as` does the same).
+_run_as_caller() {
+  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$1"
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each
@@ -238,11 +242,9 @@ find_desktop_cmd() {
   fi
 }
 
-# A pane-group verb. TMUXY_SCRIPTS_DIR names the directory whose
-# `pane-group close` a member's pane-died hook runs (read by the `group` verb).
 group_verb() {
   find_server_cmd || exit 1
-  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${SERVER_CMD[@]}" group "$@"
+  "${SERVER_CMD[@]}" group "$@"
 }
 
 # --- Cross-process mutex ---------------------------------------------------

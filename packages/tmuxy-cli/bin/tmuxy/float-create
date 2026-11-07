@@ -1,8 +1,9 @@
 #!/bin/bash
 # With a command, the float runs it, closes when it exits and prints its
 # stdout: `FILE=$(tmuxy pane float fzf) && nvim "$FILE"`. With --detach the
-# pane id prints at once instead (an MCP client's `pane_float`). Called from
-# inside a float, the command (or a new shell) runs in that same float.
+# pane id prints at once instead. Called from inside a float, the command (or
+# a new shell) runs in that same float. Under --json the answer is the float
+# verb's (`paneId`, `windowId`), and a waited-for command's adds `stdout`.
 
 set -euo pipefail
 source "${0%/*}/_lib"
@@ -42,11 +43,32 @@ FLOAT_ARGS=(float ${TMUX_PANE:+--pane "$TMUX_PANE"})
 [ -n "$BG" ] && FLOAT_ARGS+=(--bg "$BG")
 [ -n "$HIDE_HEADER" ] && FLOAT_ARGS+=(--hide-header)
 
+# The float verb's answer in FLOAT_ANSWER, and the ids it names; a failure is
+# the verb's answer, as the CLI's.
 create_float() {
-  local ids
+  local status=0
   find_server_cmd || exit 1
-  ids=$("${SERVER_CMD[@]}" "${FLOAT_ARGS[@]}" ${1:+--command "$1"}) || exit $?
-  read -r NEW_PANE_ID NEW_WIN_ID <<<"$ids"
+  FLOAT_ANSWER=$("${SERVER_CMD[@]}" "${FLOAT_ARGS[@]}" $(_json_flag) ${1:+--command "$1"}) || status=$?
+  if [ "$status" -ne 0 ]; then
+    [ -z "$FLOAT_ANSWER" ] || printf '%s\n' "$FLOAT_ANSWER"
+    exit "$status"
+  fi
+  if [ "$JSON_OUT" != true ]; then
+    read -r NEW_PANE_ID NEW_WIN_ID <<<"$FLOAT_ANSWER"
+  elif [[ $FLOAT_ANSWER =~ \"paneId\":\"(%[0-9]+)\",\"windowId\":\"(@[0-9]+)\" ]]; then
+    NEW_PANE_ID=${BASH_REMATCH[1]} NEW_WIN_ID=${BASH_REMATCH[2]}
+  else
+    _fail "$EXIT_FAILED" "failed to create float pane"
+  fi
+}
+
+# The answer when the float is made and nothing waits on it.
+answer_made() {
+  if [ "$JSON_OUT" = true ]; then
+    printf '%s\n' "$FLOAT_ANSWER"
+  else
+    echo "$NEW_PANE_ID"
+  fi
 }
 
 if [ "$CURRENT_TYPE" = "$WINDOW_TYPE_FLOAT" ]; then
@@ -60,11 +82,11 @@ fi
 
 if [ $# -eq 0 ]; then
   create_float
-  echo "$NEW_PANE_ID"
+  answer_made
 elif [ -n "$DETACH" ]; then
   # Each word quoted for the shell tmux runs the program with.
   create_float "$(printf '%q ' "$@")"
-  echo "$NEW_PANE_ID"
+  answer_made
 else
   TMPFILE=$(umask 077 && mktemp /tmp/tmuxy-float-out.XXXXXX)
   WRAPPER=$(umask 077 && mktemp /tmp/tmuxy-float-cmd.XXXXXX)
@@ -101,5 +123,10 @@ else
     reap_pids "$FLOAT_PANE_PIDS"
   fi
 
-  cat "$TMPFILE"
+  if [ "$JSON_OUT" = true ]; then
+    _done paneId="$(json_string "$NEW_PANE_ID")" windowId="$(json_string "$NEW_WIN_ID")" \
+      stdout="$(json_string "$(cat "$TMPFILE")")"
+  else
+    cat "$TMPFILE"
+  fi
 fi
