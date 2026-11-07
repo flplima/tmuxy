@@ -30,7 +30,7 @@ async fn option(monitor: &common::Monitor, name: &str) -> String {
 
 #[tokio::test]
 async fn connecting_enforces_the_settings_the_layout_depends_on() {
-    let server = common::ScratchServer::new("enforced-settings");
+    let server = common::ScratchServer::process_wide("enforced-settings");
 
     common::tmux(&["new-session", "-d", "-s", "app", "sleep", "60"]).unwrap();
 

@@ -110,13 +110,30 @@ pub fn tmux_socket() -> String {
     }
 }
 
-/// `["-L", <name>]`, or `["-S", <path>]` when the socket contains `/`.
+/// Whether `socket` is a socket's path (tmux `-S`) rather than a name in
+/// tmux's socket directory (`-L`): it contains a `/`.
+pub fn is_socket_path(socket: &str) -> bool {
+    socket.contains('/')
+}
+
+/// `["-L", <name>]`, or `["-S", <path>]` for a [`is_socket_path`].
 /// Passing the flag always also overrides an inherited `$TMUX`, so tmuxy
 /// launched from inside a tmux pane never talks to that pane's server.
+pub fn socket_args(socket: &str) -> [&str; 2] {
+    [if is_socket_path(socket) { "-S" } else { "-L" }, socket]
+}
+
+/// [`socket_args`] for the [`tmux_socket`].
 pub fn tmux_socket_args() -> [String; 2] {
-    let socket = tmux_socket();
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    [flag.to_string(), socket]
+    socket_args(&tmux_socket()).map(String::from)
+}
+
+/// The local tmux on `socket`, whatever the [`connect_target`] says: for a
+/// look at a server other than the one tmuxy is attached to.
+pub fn local_tmux_on(socket: &str) -> Command {
+    let mut command = Command::new(tmux_path());
+    command.args(socket_args(socket));
+    command
 }
 
 /// The SSH tunnel tmuxy runs tmux through: the [`connect_target`]'s, else
@@ -263,7 +280,7 @@ pub fn is_safe_socket(socket: &str) -> bool {
     !socket.is_empty()
         && !socket.starts_with('-')
         && !socket.contains("..")
-        && (!socket.contains('/') || socket.starts_with('/'))
+        && (!is_socket_path(socket) || socket.starts_with('/'))
         && socket.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
         })

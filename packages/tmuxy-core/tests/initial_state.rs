@@ -21,7 +21,7 @@ mod common;
 
 #[tokio::test]
 async fn the_initial_state_knows_the_modes_a_program_set_before_the_client_attached() {
-    let server = common::ScratchServer::new("initial-state");
+    let server = common::ScratchServer::process_wide("initial-state");
 
     // A full-screen, mouse-tracking program is already running when the
     // monitor attaches — the way Claude Code is when the desktop app restarts.

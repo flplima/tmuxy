@@ -15,12 +15,13 @@ use std::time::{Duration, Instant};
 
 const STASH: &str = "__tmuxy_stash";
 
-mod tmux_common;
+#[path = "../../tmuxy-core/tests/common/scratch.rs"]
+mod scratch;
 
-struct Server(tmux_common::ScratchTmux);
+struct Server(scratch::ScratchServer);
 
 impl std::ops::Deref for Server {
-    type Target = tmux_common::ScratchTmux;
+    type Target = scratch::ScratchServer;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -28,7 +29,7 @@ impl std::ops::Deref for Server {
 
 impl Server {
     fn start(name: &str) -> Self {
-        let server = Self(tmux_common::ScratchTmux::start(
+        let server = Self(scratch::ScratchServer::with_session(
             &format!("pane-groups-{name}"),
             120,
             40,

@@ -12,7 +12,9 @@ use std::process::{Command, Output};
 use tmuxy_core::argv::shell_line;
 use tmuxy_core::constants::STASH_SESSION;
 use tmuxy_core::servers::connect::{remember, ConnectRequest, CONNECT_REQUEST};
-use tmuxy_core::session::{is_no_server, is_safe_session_name, tmux_path, tmux_socket};
+use tmuxy_core::session::{
+    is_no_server, is_safe_session_name, local_tmux_on, socket_args, tmux_path, tmux_socket,
+};
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_USAGE};
 
@@ -279,16 +281,9 @@ impl Server {
     }
 
     fn tmux(&self, args: &[&str]) -> Result<String, String> {
-        let flag = if self.socket.contains('/') {
-            "-S"
-        } else {
-            "-L"
-        };
-        let mut argv = vec![flag, self.socket.as_str()];
-        argv.extend(args);
         match &self.ssh {
-            Some(_) => self.ssh(&[&["tmux"], argv.as_slice()].concat()),
-            None => finished(Command::new(tmux_path()).args(argv).output()),
+            Some(_) => self.ssh(&[&["tmux"], &socket_args(&self.socket)[..], args].concat()),
+            None => finished(local_tmux_on(&self.socket).args(args).output()),
         }
     }
 

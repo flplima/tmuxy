@@ -10,12 +10,13 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-mod tmux_common;
+#[path = "../../tmuxy-core/tests/common/scratch.rs"]
+mod scratch;
 
-struct Server(tmux_common::ScratchTmux);
+struct Server(scratch::ScratchServer);
 
 impl std::ops::Deref for Server {
-    type Target = tmux_common::ScratchTmux;
+    type Target = scratch::ScratchServer;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -23,7 +24,7 @@ impl std::ops::Deref for Server {
 
 impl Server {
     fn start(name: &str) -> Self {
-        Self(tmux_common::ScratchTmux::start(
+        Self(scratch::ScratchServer::with_session(
             &format!("cli-verbs-{name}"),
             100,
             30,

@@ -35,7 +35,7 @@ async fn panes_in(monitor: &common::Monitor, window: &str) -> usize {
 
 #[tokio::test]
 async fn a_pinned_split_survives_a_concurrent_select_window() {
-    let server = common::ScratchServer::new("pin-race");
+    let server = common::ScratchServer::process_wide("pin-race");
     let monitor = server.attach("app", true).await;
 
     // Two windows. tmux's current window is the first; the pin names the second.
