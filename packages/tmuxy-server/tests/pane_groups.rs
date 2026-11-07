@@ -174,12 +174,13 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     s.ok(&["close", &p3]);
     assert_eq!(s.visible(), p1);
 
-    // A member that exits by itself goes through the same close, by its hook.
-    s.tmux(&["respawn-pane", "-k", "-t", &p1, "true"]);
-    s.eventually("the hook to promote p2", || s.visible() == p2);
-
+    // A member that exits by itself goes through the same close, by its hook,
+    // which promotes p2 before it dissolves the group: wait for the end of it.
     // Down to one member: no group any more.
-    assert_eq!(s.option(&p2, "@tmuxy-group-id"), "");
+    s.tmux(&["respawn-pane", "-k", "-t", &p1, "true"]);
+    s.eventually("the hook to promote p2 and dissolve the group", || {
+        s.visible() == p2 && s.option(&p2, "@tmuxy-group-id").is_empty()
+    });
     assert_eq!(s.option(&p2, "remain-on-exit"), "");
 }
 
