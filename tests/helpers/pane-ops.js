@@ -7,6 +7,7 @@
 const { waitForCondition, waitForSettled } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
 const { waitBudget } = require('./config');
+const { inPage } = require('./story-module');
 const {
   sendKeyCombo,
   sendPrefixCommand,
@@ -24,35 +25,52 @@ const {
  */
 const DRAWN_PANE = '[data-pane-id]:not(.sidebar-tree-pane)';
 
+/** A pane of the grid: one element per pane, its wrapper. */
+const GRID_PANE = '.pane-container .pane-layout-item[data-pane-id]';
+
 /**
- * The distinct pane ids on screen (runs in the page). A background tab and a
- * parked group member keep their panes mounted, hidden, so the rules
- * `visibleTerminals` applies decide what the user can see.
+ * Whether the user can see `el` (runs in the page, rebuilt there from its
+ * text, so it stays self-contained). A background tab and a parked group
+ * member keep their panes mounted, hidden; a box of no size or outside the
+ * viewport is in the DOM and not on screen.
  */
-const drawnPaneIds = (selector) => {
-  const shown = (el) => {
-    if (el.closest('.pane-window-hidden') || getComputedStyle(el).visibility === 'hidden')
-      return false;
-    const box = el.getBoundingClientRect();
-    return (
-      box.width >= 1 &&
-      box.height >= 1 &&
-      box.right > 0 &&
-      box.bottom > 0 &&
-      box.left < window.innerWidth &&
-      box.top < window.innerHeight
-    );
-  };
-  return [
-    ...new Set(
-      [...document.querySelectorAll(selector)].filter(shown).map((el) => el.dataset.paneId),
-    ),
-  ];
+const onScreen = (el) => {
+  if (el.closest('.pane-window-hidden') || getComputedStyle(el).visibility === 'hidden') {
+    return false;
+  }
+  const box = el.getBoundingClientRect();
+  return (
+    box.width >= 1 &&
+    box.height >= 1 &&
+    box.right > 0 &&
+    box.bottom > 0 &&
+    box.left < window.innerWidth &&
+    box.top < window.innerHeight
+  );
 };
+
+/** The distinct panes `selector` finds on screen, each with its first element's box (runs in the page). */
+const shownPaneBoxes = (selector, isShown) => {
+  const seen = new Map();
+  for (const el of document.querySelectorAll(selector)) {
+    if (!seen.has(el.dataset.paneId) && isShown(el)) {
+      seen.set(el.dataset.paneId, el.getBoundingClientRect().toJSON());
+    }
+  }
+  return [...seen].map(([id, box]) => ({ id, box }));
+};
+
+/**
+ * The panes the user can see, as `{ id, box }` in document order: every
+ * element that draws one (`DRAWN_PANE`), or only the grid's (`GRID_PANE`).
+ */
+function shownPanes(page, selector = DRAWN_PANE) {
+  return page.evaluate(inPage(shownPaneBoxes, [selector], [onScreen]));
+}
 
 /** How many distinct panes the page shows. */
 async function getUIPaneCount(page) {
-  return (await page.evaluate(drawnPaneIds, DRAWN_PANE)).length;
+  return (await shownPanes(page)).length;
 }
 
 /**
@@ -65,7 +83,7 @@ async function waitForPaneCount(page, expectedCount, timeout = 10000) {
   await waitForCondition(
     page,
     async () => {
-      seen = await page.evaluate(drawnPaneIds, DRAWN_PANE).catch((err) => err);
+      seen = await shownPanes(page).catch((err) => err);
       return Array.isArray(seen) && seen.length === expectedCount;
     },
     timeout,
@@ -73,7 +91,9 @@ async function waitForPaneCount(page, expectedCount, timeout = 10000) {
       const client = await page
         .evaluate(() => window.app?.view().visiblePaneIds)
         .catch((err) => err.message);
-      const dom = Array.isArray(seen) ? JSON.stringify(seen) : `unreadable: ${seen?.message}`;
+      const dom = Array.isArray(seen)
+        ? JSON.stringify(seen.map((p) => p.id))
+        : `unreadable: ${seen?.message}`;
       return `${expectedCount} panes on screen\n  DOM panes: ${dom}\n  client's visible panes: ${JSON.stringify(client)}`;
     },
   );
@@ -92,18 +112,12 @@ async function waitForPaneCount(page, expectedCount, timeout = 10000) {
  * `[data-pane-id="%3"]`); omitted, it takes every visible terminal.
  */
 async function visibleTerminals(page, scope) {
-  return await page.evaluate((sel) => {
+  const read = (sel, isShown) => {
     const logs = [...document.querySelectorAll('[role="log"]')];
     const wanted = sel ? new Set([...document.querySelectorAll(sel + ' [role="log"]')]) : null;
     const out = [];
     logs.forEach((log, index) => {
-      if (wanted && !wanted.has(log)) return;
-      if (log.closest('.pane-window-hidden')) return;
-      if (getComputedStyle(log).visibility === 'hidden') return;
-      const box = log.getBoundingClientRect();
-      if (box.width < 1 || box.height < 1) return;
-      if (box.right <= 0 || box.bottom <= 0) return;
-      if (box.left >= window.innerWidth || box.top >= window.innerHeight) return;
+      if ((wanted && !wanted.has(log)) || !isShown(log)) return;
       // Row by row, with a newline between rows. The log's own textContent
       // fused consecutive rows (`TOUCH_KBD_OKTOUCH_KBD_OK`) and lost the
       // space a wrapped line carried at its wrap column, so a long command
@@ -112,11 +126,12 @@ async function visibleTerminals(page, scope) {
       out.push({
         index,
         text: rows.length > 0 ? rows.join('\n') : log.textContent || '',
-        box: box.toJSON(),
+        box: log.getBoundingClientRect().toJSON(),
       });
     });
     return out;
-  }, scope ?? null);
+  };
+  return await page.evaluate(inPage(read, [scope ?? null], [onScreen]));
 }
 
 /**
@@ -461,9 +476,11 @@ async function resizePaneKeyboard(page, direction, amount = 5) {
 
 module.exports = {
   // Pane info
+  GRID_PANE,
+  onScreen,
+  shownPanes,
   getUIPaneCount,
   waitForPaneCount,
-  visibleTerminals,
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,

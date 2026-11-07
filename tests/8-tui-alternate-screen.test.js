@@ -74,7 +74,7 @@ describeE2E(
         // Compare every visible row of the alt-screen against tmux's own
         // capture-pane output. Spot-checks distinctive markers to guard
         // against the degenerate "both buffers happen to be empty" case.
-        await assertAltScreenMatch(ctx.page, ctx.session.name, {
+        await assertAltScreenMatch(ctx.page, {
           maxDiffs: 0,
           requireMarkers: ['TUI BENCH', 'STATUS:', 'tmuxy-test', 'RED-ON-BLUE', 'TUI_READY'],
         });

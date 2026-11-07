@@ -12,6 +12,8 @@ const {
   waitForShellPrompt,
   runCommand,
   getUIPaneCount,
+  shownPanes,
+  GRID_PANE,
   typeInTerminal,
   typeComposedChar,
   typeComposedText,
@@ -66,23 +68,17 @@ describeE2E('Scenario 1: General Layout', {}, (ctx) => {
     const { charWidth } = await getCellSize(ctx.page);
 
     // Step 5: Read DOM bounding rects and verify pane layout structure
-    const actualRects = await ctx.page.evaluate(() => {
-      const items = document.querySelectorAll('.pane-layout-item[data-pane-id]');
-      const container = document.querySelector('.pane-container');
-      if (!container) return null;
-      const cRect = container.getBoundingClientRect();
-      return Array.from(items).map((el) => {
-        const r = el.getBoundingClientRect();
-        return {
-          id: el.getAttribute('data-pane-id'),
-          left: r.left - cRect.left,
-          top: r.top - cRect.top,
-          width: r.width,
-          height: r.height,
-        };
-      });
-    });
-    expect(actualRects).not.toBeNull();
+    const container = await ctx.page.evaluate(
+      () => document.querySelector('.pane-container')?.getBoundingClientRect().toJSON() ?? null,
+    );
+    expect(container).not.toBeNull();
+    const actualRects = (await shownPanes(ctx.page, GRID_PANE)).map(({ id, box }) => ({
+      id,
+      left: box.left - container.left,
+      top: box.top - container.top,
+      width: box.width,
+      height: box.height,
+    }));
     expect(actualRects.length).toBe(3);
 
     // Step 6: Verify pane layout structure

@@ -20,6 +20,8 @@ const {
   waitForWindowCount,
   waitForCondition,
   getGroupTabCount,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 const { TMUXY_CLI } = require('./helpers/cli');
 
@@ -37,17 +39,12 @@ describeE2E('Scenario: a CLI split from a background tab lands in that tab', {},
       return counts;
     };
     const visibleWindow = () => page.evaluate(() => window.app?.view().activeTabId);
-    const visiblePaneRects = () =>
-      page.evaluate(() =>
-        [...document.querySelectorAll('.pane-layout-item[data-pane-id]')]
-          .map((el) => el.getBoundingClientRect())
-          .filter((r) => r.width > 0 && r.height > 0)
-          .map((r) => ({
-            left: Math.round(r.left),
-            top: Math.round(r.top),
-            width: Math.round(r.width),
-          })),
-      );
+    const visiblePaneRects = async () =>
+      (await shownPanes(page, GRID_PANE)).map(({ box }) => ({
+        left: Math.round(box.left),
+        top: Math.round(box.top),
+        width: Math.round(box.width),
+      }));
 
     const [firstWindow] = Object.keys(await panesByWindow());
     expect(await visibleWindow()).toBe(firstWindow);

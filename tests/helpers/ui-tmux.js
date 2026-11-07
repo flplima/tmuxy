@@ -14,33 +14,30 @@
 
 const { tmuxExec } = require('./tmux-socket');
 const { waitForCondition } = require('./browser');
+const { inPage } = require('./story-module');
+const { GRID_PANE, onScreen } = require('./pane-ops');
+
+const readScreen = (page) => page.evaluate(inPage(drawnScreen, [GRID_PANE], [onScreen]));
 
 /** What the screen draws (runs in the page). */
-const readScreen = () => {
+const drawnScreen = (gridPane, shown) => {
   const root = document.querySelector('.app-container');
   const cellW = root ? parseFloat(getComputedStyle(root).getPropertyValue('--cell-w')) : NaN;
-  const shown = (el) => {
-    if (el.closest('.pane-window-hidden')) return false;
-    const r = el.getBoundingClientRect();
-    return r.width >= 1 && r.height >= 1;
-  };
   const tabs = [...document.querySelectorAll('.tab-name[data-window-id]')].map((el) => ({
     id: el.dataset.windowId,
     active: el.classList.contains('tab-name-active'),
   }));
-  const panes = [...document.querySelectorAll('.pane-container .pane-layout-item[data-pane-id]')]
-    .filter(shown)
-    .map((el) => {
-      const content = el.querySelector('.terminal-content');
-      const lines = content ? [...content.querySelectorAll('.terminal-line')] : [];
-      return {
-        id: el.dataset.paneId,
-        active: el.matches('.pane-active') || el.querySelector('.pane-active') !== null,
-        terminal: content !== null,
-        cols: content ? Math.round(content.getBoundingClientRect().width / cellW) : null,
-        rows: lines.map((line) => line.textContent || ''),
-      };
-    });
+  const panes = [...document.querySelectorAll(gridPane)].filter(shown).map((el) => {
+    const content = el.querySelector('.terminal-content');
+    const lines = content ? [...content.querySelectorAll('.terminal-line')] : [];
+    return {
+      id: el.dataset.paneId,
+      active: el.matches('.pane-active') || el.querySelector('.pane-active') !== null,
+      terminal: content !== null,
+      cols: content ? Math.round(content.getBoundingClientRect().width / cellW) : null,
+      rows: lines.map((line) => line.textContent || ''),
+    };
+  });
   return { tabs, panes };
 };
 
@@ -152,7 +149,7 @@ async function assertScreenMatchesTmux(
   await waitForCondition(
     page,
     async () => {
-      const screen = await page.evaluate(readScreen);
+      const screen = await readScreen(page);
       const tab = screen.tabs.find((t) => t.active)?.id;
       last = differences(screen, readTmux(session, tab, { content }), { content, label });
       return last.length === 0;
@@ -172,7 +169,7 @@ async function assertContentMatch(page, label) {
  * alternate screen, for a TUI's own rendering. `maxDiffs` rows may differ;
  * every `requireMarkers` string must be in both.
  */
-async function assertAltScreenMatch(page, sessionName, { maxDiffs = 0, requireMarkers = [] } = {}) {
+async function assertAltScreenMatch(page, { maxDiffs = 0, requireMarkers = [] } = {}) {
   const paneId = await page.evaluate(() => window.app.view().activePaneId);
   const [width, alternate] = tmuxExec(
     `display-message -p -t ${paneId} '#{pane_width}|#{alternate_on}'`,
@@ -180,7 +177,7 @@ async function assertAltScreenMatch(page, sessionName, { maxDiffs = 0, requireMa
   if (alternate !== '1') {
     throw new Error(`assertAltScreenMatch: ${paneId} is not on the alternate screen`);
   }
-  const uiLines = (await page.evaluate(readScreen)).panes.find((p) => p.id === paneId)?.rows;
+  const uiLines = (await readScreen(page)).panes.find((p) => p.id === paneId)?.rows;
   if (!uiLines) throw new Error(`assertAltScreenMatch: ${paneId} is not drawn in the grid`);
   const tmuxLines = captureRows(paneId);
   const compared = Math.min(tmuxLines.length, uiLines.length);

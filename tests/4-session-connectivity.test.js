@@ -149,7 +149,6 @@ describeE2E('Scenario 12b: Connection overlay and the reconnect notice', {}, (ct
       const notice = document.querySelector('[data-testid="reconnect-notice"]');
       const container = document.querySelector('.pane-container');
       return {
-        panes: document.querySelectorAll('.pane-layout-item').length,
         notice: notice.getBoundingClientRect().toJSON(),
         container: container.getBoundingClientRect().toJSON(),
         text: notice.textContent,
@@ -173,7 +172,7 @@ describeE2E('Scenario 12b: Connection overlay and the reconnect notice', {}, (ct
             ?.closest('.pane-layout-item') !== null,
       };
     });
-    expect(shown.panes).toBe(2);
+    expect(await getUIPaneCount(page)).toBe(2);
     expect(shown.text).toContain('Reconnecting');
     expect(shown.text).toContain('Retry now');
     expect(shown.role).toBe('status');
@@ -300,9 +299,7 @@ describeE2E('Scenario 13: Multi-Client', {}, (ctx) => {
     // Step 2: Open second page
     const page2 = await ctx.browser.newPage();
     await openSession(page2, ctx.session.name);
-    // Wait for the second page to fully load and render terminals
-    // (Step 4 then waits for its three panes, which is what "loaded" means.)
-    await page2.waitForSelector('[role="log"]', { timeout: 15000 }).catch(() => {});
+    await page2.waitForSelector('[role="log"]', { timeout: 15000 });
 
     // Step 3: Both see terminal
     const p1Terminal = await ctx.page.$('[role="log"]');
@@ -313,20 +310,7 @@ describeE2E('Scenario 13: Multi-Client', {}, (ctx) => {
     // Step 4: Second page must see the SAME 3-pane layout, not merely "a
     // terminal" (the old >= 1 assertion passed with the layout entirely
     // unsynced).
-    const uniquePaneCount = () => {
-      const ids = new Set();
-      for (const el of document.querySelectorAll('[data-pane-id]')) {
-        ids.add(el.getAttribute('data-pane-id'));
-      }
-      return ids.size;
-    };
-    await page2
-      .waitForFunction(`(${uniquePaneCount.toString()})() >= 3`, { timeout: 15000 })
-      .catch(() => {});
-    // Unique ids: each pane emits data-pane-id on both its wrapper and its
-    // inner TerminalPane, so raw element counts are 2x the pane count.
-    const p2PaneCount = await page2.evaluate(`(${uniquePaneCount.toString()})()`);
-    expect(p2PaneCount).toBe(3);
+    await waitForPaneCount(page2, 3, 15000);
 
     // Step 5: Content typed on page 1 must propagate to page 2 — the actual
     // multi-client promise. Opening page2 blurred page 1 (APP_BLUR disables
