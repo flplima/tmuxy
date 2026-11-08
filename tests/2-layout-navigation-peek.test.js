@@ -14,6 +14,7 @@ const {
   waitForCondition,
   waitForTerminalText,
   afterFrames,
+  waitForLayoutSettled,
 } = require('./helpers');
 const { tmuxPane } = require('./helpers/tmux-read');
 const { tmuxExec } = require('./helpers/tmux-socket');
@@ -85,6 +86,9 @@ describeE2E('Scenario 6g: a closed sidebar peeks over the panes on hover', {}, (
     await ctx.setupPage();
     const page = ctx.page;
     await openSession(page, ctx.session.name);
+    // The grid at rest: a page that just attached can still be growing its
+    // pane into the client's size, which read as the peek moving it.
+    await waitForLayoutSettled(page);
 
     const before = await geometry(page);
     expect(before.peek).toBeNull();
