@@ -282,7 +282,7 @@ describe('GUI windows', () => {
     expect(second.split(' ')[1]).toBe(base.split(' ')[1]);
     expect(second.split(' ')[2]).toBe(base.split(' ')[2]);
     // The Window menu names the second window by its session.
-    const titles = (await invokeCommand(driver, 'list_gui_windows')).map((w) => w.title);
+    const titles = (await invokeWindowCommand(driver, 'list_gui_windows')).map((w) => w.title);
     expect(titles[1]).toBe(`tmuxy — ${grouped}`);
 
     // Each client has its own current window: moving THIS window's client
