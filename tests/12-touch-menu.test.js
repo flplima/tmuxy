@@ -129,8 +129,13 @@ describe('Phone width (390px) with a touchscreen: the menu', () => {
     await swipeSideways(page, y, 60, 330);
     await until((s) => s.view === 'menu' && !s.sliding, 'the menu to stay at the left end');
 
-    // 7. The Tree tab brings the tree back in front.
-    await tapText(page, '.phone-tab', 'Tree');
-    await until((s) => s.view === 'tree' && s.selected === 'tree', 'the Tree tab');
+    // 7. The Tree tab brings the tree back in front. The slide before it was
+    //    let go at speed, and a tap while the browser still flings it only
+    //    stops the fling, with no click, as on any phone: tap until it lands.
+    await until(async (s) => {
+      if (s.view === 'tree' && s.selected === 'tree') return true;
+      await tapText(page, '.phone-tab', 'Tree');
+      return false;
+    }, 'the Tree tab');
   }, 120000);
 });
