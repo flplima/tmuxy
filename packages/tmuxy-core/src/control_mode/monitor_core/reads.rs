@@ -38,12 +38,13 @@ pub(super) struct ReadGate {
 
 impl ReadGate {
     pub(super) fn want(&mut self, markers: &Markers, commands: Vec<String>) {
+        let windows = markers.list_command(TmuxList::Windows);
+        let panes = markers.list_command(TmuxList::Panes);
+        let stash = markers.list_command(TmuxList::Stash);
         for command in commands {
-            if command == markers.list_command(TmuxList::Windows) {
+            if command == windows {
                 self.windows = true;
-            } else if command == markers.list_command(TmuxList::Panes)
-                || command == markers.list_command(TmuxList::Stash)
-            {
+            } else if command == panes || command == stash {
                 self.panes = true;
             } else if !self.captures.contains(&command) {
                 self.captures.push(command);
