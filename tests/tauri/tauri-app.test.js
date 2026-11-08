@@ -9,7 +9,6 @@
 
 const { execSync } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const {
   createTauriTestContext,
@@ -20,7 +19,7 @@ const {
   invokeWindowCommand,
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
-const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
+const { tmuxCmd, tmuxEnv, tmuxExec } = require('../helpers/tmux-socket');
 const { waitForCondition } = require('../helpers/browser');
 
 const ctx = createTauriTestContext();
@@ -154,11 +153,8 @@ describe('State Sync', () => {
   // dir reaches the webview through the `tmuxycss:` scheme, or not at all —
   // the bundled frontend only carries the built-in themes.
   test('a theme copied into the config dir is listed with its modes and served to the webview', async () => {
-    const themes = path.join(
-      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
-      'tmuxy',
-      'themes',
-    );
+    // The config dir the app is started with (`driverEnv`), the suite's own.
+    const themes = path.join(tmuxEnv().XDG_CONFIG_HOME, 'tmuxy', 'themes');
     fs.mkdirSync(themes, { recursive: true });
     const mine = path.join(themes, 'e2e-tauri.css');
     fs.writeFileSync(mine, ':root.theme-dark {\n  --term-background: #123456;\n}\n');
