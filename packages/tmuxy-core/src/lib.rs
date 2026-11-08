@@ -41,6 +41,7 @@ pub mod servers;
 pub mod session;
 #[cfg(feature = "native")]
 pub mod session_snapshot;
+pub mod stamp;
 #[cfg(feature = "native")]
 pub mod theme;
 #[cfg(feature = "native")]

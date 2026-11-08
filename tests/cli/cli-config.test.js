@@ -29,7 +29,7 @@ describe('CLI config commands', () => {
   test('config --help lists every verb', () => {
     const { stdout, exitCode } = runCLI(['config', '--help']);
     expect(exitCode).toBe(0);
-    for (const verb of ['reload', 'use-tmux-conf', 'init', 'paths']) {
+    for (const verb of ['reload', 'use-tmux-conf', 'init', 'paths', 'doctor']) {
       expect(stdout).toContain(verb);
     }
   });
@@ -50,10 +50,19 @@ describe('CLI config commands', () => {
     [['config', 'paths', '--json'], 'config paths --json'],
     [['config', 'init'], 'config init'],
     [['config', 'init', '--json'], 'config init --json'],
+    [['config', 'doctor'], 'config doctor'],
+    [['config', 'doctor', '--fix', '--json'], 'config doctor --fix --json'],
   ])('%j is the config verb %p, and sends tmux nothing', (args, verb) => {
     const { stdout, exitCode, tmuxCalls } = runCLI(args, { env });
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe(`mock-server-started ${verb}`);
+    expect(tmuxCalls).toEqual([]);
+  });
+
+  test('config doctor takes --fix, and nothing else', () => {
+    const { stderr, exitCode, tmuxCalls } = runCLI(['config', 'doctor', '--all'], { env });
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("invalid argument '--all'");
     expect(tmuxCalls).toEqual([]);
   });
 

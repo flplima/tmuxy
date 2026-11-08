@@ -131,7 +131,7 @@ Commands:
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
-  config      Re-apply tmuxy.conf (reload) or change a setting (use-tmux-conf)
+  config      Re-apply tmuxy.conf (reload), check it (doctor) or change a setting
   plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
 

@@ -29,6 +29,14 @@ enum ConfigVerb {
         #[arg(value_parser = ["on", "off"])]
         value: Option<String>,
     },
+    /// The `source-file` lines of tmuxy.conf whose file is not there: list
+    /// them (exit 1 when there are any), or comment them out in place.
+    Doctor {
+        /// Comment each dead line out, keeping a timestamped backup beside
+        /// the file.
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 pub fn run(args: ConfigArgs) {
@@ -73,6 +81,7 @@ pub fn run(args: ConfigArgs) {
                 },
             );
         }
+        ConfigVerb::Doctor { fix } => std::process::exit(doctor(&layout, &answer, fix)),
         ConfigVerb::UseTmuxConf { value: Some(value) } => {
             let on = value == "on";
             let changes = tmuxy_core::session::ManagedState {
@@ -95,6 +104,91 @@ pub fn run(args: ConfigArgs) {
             );
         }
     }
+}
+
+/// `tmuxy config doctor [--fix]`, and its exit code: 0 for a clean file (or
+/// one just made clean), 1 while a dead `source-file` line is in it.
+fn doctor(layout: &Layout, answer: &Answer, fix: bool) -> i32 {
+    use tmuxy_core::session::{dead_sources, DeadSource, DOCTOR_HINT};
+    let file = layout.user_conf().display().to_string();
+    let json_list = |dead: &[DeadSource]| {
+        let items: Vec<String> = dead
+            .iter()
+            .map(|d| {
+                format!(
+                    r#"{{"file":{},"line":{},"written":{},"target":{}}}"#,
+                    cli_json::string(&d.file.display().to_string()),
+                    d.line,
+                    cli_json::string(&d.written),
+                    cli_json::string(&d.target.display().to_string())
+                )
+            })
+            .collect();
+        format!("[{}]", items.join(","))
+    };
+    let listed = |dead: &[DeadSource]| {
+        dead.iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    if fix {
+        return match tmuxy_core::session::fix(layout) {
+            Ok(fixed) if fixed.fixed.is_empty() => {
+                answer.done(
+                    &[
+                        ("file", cli_json::string(&file)),
+                        ("fixed", "[]".to_string()),
+                    ],
+                    &format!("{file}: nothing to fix"),
+                );
+                0
+            }
+            Ok(fixed) => {
+                let backup = fixed.backup.map(|b| b.display().to_string());
+                answer.done(
+                    &[
+                        ("file", cli_json::string(&file)),
+                        (
+                            "backup",
+                            backup
+                                .as_deref()
+                                .map_or("null".to_string(), cli_json::string),
+                        ),
+                        ("fixed", json_list(&fixed.fixed)),
+                    ],
+                    &format!(
+                        "Commented out {} line(s) in {file}:\n{}\nThe file as it was: {}",
+                        fixed.fixed.len(),
+                        listed(&fixed.fixed),
+                        backup.as_deref().unwrap_or("(no backup)")
+                    ),
+                );
+                0
+            }
+            Err(e) => answer.fail(EXIT_FAILED, &format!("config doctor: {file}: {e}")),
+        };
+    }
+    let dead = dead_sources(layout);
+    if dead.is_empty() {
+        answer.done(
+            &[
+                ("file", cli_json::string(&file)),
+                ("dead", "[]".to_string()),
+            ],
+            &format!("{file}: every source-file target exists"),
+        );
+        return 0;
+    }
+    answer.fail_with(
+        EXIT_FAILED,
+        &format!("{} dead source-file line(s) in {file}", dead.len()),
+        &[("dead", json_list(&dead))],
+    );
+    if !answer.is_json() {
+        eprintln!("{}\n{DOCTOR_HINT}", listed(&dead));
+    }
+    EXIT_FAILED
 }
 
 fn paths_text(layout: &Layout) -> String {

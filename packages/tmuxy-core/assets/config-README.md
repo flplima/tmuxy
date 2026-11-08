@@ -82,6 +82,13 @@ tmux starts with `tmuxy.entry.conf`, which sources, in order:
 4. your `tmuxy.conf` — your overrides; no `source-file` line needed.
 5. `tmuxy.essentials.conf` again — so no config can take the app apart.
 
+A `source-file` line in your `tmuxy.conf` whose file is not there stops tmux
+reading the config at that line, so everything after it is lost. tmuxy warns
+about each such line (file, line and target) as it starts; `tmuxy config
+doctor` lists them and exits 1 while there are any, and `tmuxy config doctor
+--fix` comments each one out in place behind a `# tmuxy config doctor:`
+mark, keeping the file as it was beside it as `tmuxy.conf.bak-<date>`.
+
 ## Config beats menu state
 
 A menu choice (the Theme menu, Blinking Cursor, Ask Before Sending Keys,

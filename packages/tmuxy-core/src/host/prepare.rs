@@ -12,6 +12,11 @@ pub struct Prepared {
     pub themes: PathBuf,
     pub bin: PathBuf,
     pub tmux_version: String,
+    /// What the user's `tmuxy.conf` would fail on, one line each, and how
+    /// to fix it (`session::config_warnings`): a `source-file` of a file
+    /// that is not there stops tmux reading the chain. Logged here; the
+    /// host that has a terminal prints them too.
+    pub config_warnings: Vec<String>,
 }
 
 /// Get the process ready to serve tmux.
@@ -36,6 +41,10 @@ pub fn prepare() -> Result<Prepared, TmuxCheckError> {
     let config = crate::session::ensure_config();
     let themes = crate::session::ensure_themes();
     let bin = crate::session::ensure_bin_scripts();
+    let config_warnings = crate::session::config_warnings(&crate::paths::Layout::current());
+    for warning in &config_warnings {
+        tracing::warn!("config: {warning}");
+    }
     crate::plugins::gc::on_start();
     tracing::info!(
         config = %config.display(),
@@ -48,6 +57,7 @@ pub fn prepare() -> Result<Prepared, TmuxCheckError> {
         themes,
         bin,
         tmux_version,
+        config_warnings,
     })
 }
 

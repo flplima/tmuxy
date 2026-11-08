@@ -51,7 +51,7 @@ pub enum Verb {
     #[cfg(feature = "native")]
     Plugin(plugin_cli::PluginArgs),
     /// The config files tmuxy-core owns: `paths`, `reload`, `init`,
-    /// `use-tmux-conf`. Backs `tmuxy config`.
+    /// `use-tmux-conf`, `doctor`. Backs `tmuxy config`.
     Config(config_cli::ConfigArgs),
     /// Type keys, or paste text, into a pane, asking the user there first
     /// when it is not the caller's own. Backs `tmuxy pane send` and

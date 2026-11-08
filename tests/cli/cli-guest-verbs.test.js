@@ -1,3 +1,5 @@
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { runCLI } = require('./helpers/run-cli');
 const { guestMachine } = require('./helpers/guest-verbs');
@@ -70,6 +72,59 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     const { stdout, exitCode } = guest(['config', 'paths', '--json']);
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout).dirs.config).toBe(path.join(machine.home, '.config', 'tmuxy'));
+  });
+
+  /**
+   * The doctor against the real verb: a `tmuxy.conf` in a scratch config
+   * dir sources a file that is not there. The first run names the line and
+   * exits 1; `--fix` comments it out behind a backup; the next run is clean.
+   */
+  test('config doctor reports a dead source-file by line, and --fix comments it out', () => {
+    const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-doctor-'));
+    const configDir = path.join(configHome, 'tmuxy');
+    fs.mkdirSync(configDir);
+    const conf = path.join(configDir, 'tmuxy.conf');
+    fs.writeFileSync(
+      conf,
+      'set -g prefix C-a\nsource-file ~/.config/tmuxy/tmuxy.defaults.conf\nset -g mouse on\n',
+    );
+    const env = { XDG_CONFIG_HOME: configHome };
+    try {
+      const dead = guest(['config', 'doctor'], env);
+      expect(dead.exitCode).toBe(1);
+      expect(dead.stderr).toContain(`${conf}:2: source-file ~/.config/tmuxy/tmuxy.defaults.conf`);
+      expect(dead.stderr).toContain('run: tmuxy config doctor --fix');
+      expect(dead.tmuxCalls).toEqual([]);
+
+      const asJson = guest(['config', 'doctor', '--json'], env);
+      expect(asJson.exitCode).toBe(1);
+      expect(JSON.parse(asJson.stdout)).toMatchObject({
+        ok: false,
+        code: 1,
+        dead: [{ file: conf, line: 2, written: '~/.config/tmuxy/tmuxy.defaults.conf' }],
+      });
+
+      const fixed = guest(['config', 'doctor', '--fix'], env);
+      expect(fixed.exitCode).toBe(0);
+      expect(fixed.stdout).toContain('Commented out 1 line(s)');
+      const lines = fs.readFileSync(conf, 'utf8').split('\n');
+      expect(lines[0]).toBe('set -g prefix C-a');
+      expect(lines[1]).toMatch(
+        /^# tmuxy config doctor: .* does not exist: source-file ~\/.config\/tmuxy\/tmuxy.defaults.conf$/,
+      );
+      expect(lines[2]).toBe('set -g mouse on');
+      const backups = fs.readdirSync(configDir).filter((f) => f.startsWith('tmuxy.conf.bak-'));
+      expect(backups).toHaveLength(1);
+      expect(fs.readFileSync(path.join(configDir, backups[0]), 'utf8')).toContain(
+        '\nsource-file ~/.config/tmuxy/tmuxy.defaults.conf\n',
+      );
+
+      const clean = guest(['config', 'doctor'], env);
+      expect(clean.exitCode).toBe(0);
+      expect(clean.stdout).toContain('every source-file target exists');
+    } finally {
+      fs.rmSync(configHome, { recursive: true, force: true });
+    }
   });
 
   test('skill prints the agent guide', () => {

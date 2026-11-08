@@ -31,6 +31,10 @@ cmd_config() {
       shift
       cmd_config_paths "$@"
       ;;
+    doctor)
+      shift
+      cmd_config_doctor "$@"
+      ;;
     ""|--help|-h)
       cat <<'EOF'
 Usage: tmuxy config <setting> [value]
@@ -45,6 +49,11 @@ Settings:
                            Refuses to overwrite one that exists.
   paths [--json]           Every file tmuxy reads or writes: its owner, where
                            it is, and whether it is safe to edit and to symlink.
+  doctor [--fix] [--json]  The source-file lines of your tmuxy.conf whose file
+                           is not there (tmux stops reading the config at the
+                           first one): list them and exit 1, or with --fix
+                           comment each out in place, keeping a timestamped
+                           backup beside the file.
 
 Your files live in the config dir (~/.config/tmuxy), which tmuxy never writes
 after the first run, so it is safe to symlink from a dotfiles repo. tmuxy's own
@@ -99,4 +108,21 @@ cmd_config_paths() {
     esac
   done
   config_verb paths
+}
+
+cmd_config_doctor() {
+  local fix=()
+  for arg in "$@"; do
+    case "$arg" in
+      --help|-h)
+        echo "Usage: tmuxy config doctor [--fix] [--json]"
+        echo "List the source-file lines of tmuxy.conf whose file is not there (exit 1 if any);"
+        echo "--fix comments each out in place, with a tmuxy.conf.bak-<date> backup beside it."
+        return 0
+        ;;
+      --fix) fix=(--fix) ;;
+      *) _die_usage "invalid argument '$arg'" ;;
+    esac
+  done
+  config_verb doctor ${fix[@]+"${fix[@]}"}
 }

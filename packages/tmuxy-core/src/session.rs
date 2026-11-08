@@ -5,11 +5,13 @@ use crate::error::TmuxError;
 
 mod assets;
 mod config;
+mod doctor;
 mod launcher;
 mod state;
 
 pub use assets::*;
 pub use config::*;
+pub use doctor::*;
 pub use launcher::*;
 pub use state::*;
 
@@ -401,6 +403,8 @@ pub fn on_users_own_server() -> bool {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_doctor;
 #[cfg(test)]
 mod tests_layout;
 #[cfg(test)]
