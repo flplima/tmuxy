@@ -71,8 +71,12 @@ describeE2E(
       //    type, its pane sized to the view it is drawn in.
       const bottom = await boxOf(ctx.page, '[data-testid="phone-bottom"]');
       expectOnScreen(bottom, 'the bottom view');
-      expect(await boxOf(ctx.page, '.phone-tree')).not.toBeNull();
-      const y = bottom.top + 40;
+      // The finger goes down in the middle of the tree, measured now: a start
+      // on the tab bar along the view's top is a tab pick, never a slide, and
+      // the view moves down a little when the status row above it grows.
+      const tree0 = await boxOf(ctx.page, '.phone-tree');
+      expectOnScreen(tree0, 'the tree');
+      const y = tree0.top + tree0.height / 2;
       // Half way, finger down: the tree has moved left with it and the side
       // pane is drawn at the tree's right edge, the width of the view, while
       // the tree is still the view in front.
