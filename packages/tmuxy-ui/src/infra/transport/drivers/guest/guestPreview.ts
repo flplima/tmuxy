@@ -13,7 +13,7 @@
  * reading forever.
  */
 import type { CommandFailure } from '../../../../domain/wire';
-import { quote } from '../../../../domain/commands';
+import { runShell } from '../../../../domain/commandHelpers';
 import {
   previewKind,
   previewResourcePath,
@@ -51,11 +51,6 @@ function refused(error: string): CommandFailure {
 /** POSIX `sh -c` single-quoting, distinct from tmux command-line quoting. */
 function shSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-/** A shell command as one run-shell argument; run-shell expands `#` first. */
-function runShell(command: string): string {
-  return `run-shell ${quote(command.replace(/#/g, '##'))}`;
 }
 
 /**

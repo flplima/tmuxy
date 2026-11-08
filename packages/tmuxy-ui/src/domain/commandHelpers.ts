@@ -33,6 +33,11 @@ export function scriptWith(
   return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/** A shell command line as one `run-shell` argument; run-shell expands `#` first. */
+export function runShell(command: string): string {
+  return `run-shell ${quote(command.replace(/#/g, '##'))}`;
+}
+
 export function list(commands: ReadonlyArray<string>): string {
   return commands.join(' \\; ');
 }
