@@ -223,7 +223,7 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneKeys = showLayout && <KeyRow />;
   // The terminal at the phone's cell: the grid, then tmux's status line
   // under it, one picture. Sideways, it is as wide as its 80 columns. Zoomed
-  // (`phoneZoom` past 1: the bar, a double tap or the zoom key) the picture
+  // (`phoneZoom` past 1: the bar or a double tap) the picture
   // is scaled in the browser: the viewport around it is the scaled height and
   // scrolls sideways, the terminal box scrolls up and down when that does not
   // fit (a keyboard up, or held sideways), and both are scrolled to the point

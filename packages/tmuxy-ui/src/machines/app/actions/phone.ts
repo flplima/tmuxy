@@ -3,7 +3,7 @@
  *
  * The zoom: the terminal's scale in the browser — the grid, not tmux's zoom
  * — set by the bar under the keys (PhoneDivider), which also folds the
- * terminal away, or by a double tap on it or the zoom key, which jump to
+ * terminal away, or by a double tap on it, which jumps to
  * twice the size and back (utils/phoneSplit.ts). Past its own size the
  * finger pans it. App.tsx draws it, scrolled to the point a double tap hit.
  * The split is kept per device.

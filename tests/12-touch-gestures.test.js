@@ -15,6 +15,7 @@ const {
   swipeSideways,
   hold,
   keyRowCentre,
+  doubleTapTerminal,
   boxOf,
   waitForPhoneGrid,
 } = require('./helpers/phone');
@@ -93,8 +94,8 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
       5000,
       'the finger to pan the zoomed grid',
     );
-    // The zoom key puts it back — once the pan has come to rest: a tap while
-    // the view still flings only stops it, as on any phone.
+    // A second double tap puts it back — once the pan has come to rest: a tap
+    // while the view still flings only stops it, as on any phone.
     let settled = null;
     await waitForCondition(
       ctx.page,
@@ -107,13 +108,12 @@ describe('Phone width (390px) with a touchscreen: zoom, hold and swipe', () => {
       10000,
       'the panned view to come to rest',
     );
-    const zoomKey = await keyRowCentre(ctx.page, 'zoom');
-    await ctx.page.touchscreen.tap(zoomKey.x, zoomKey.y);
+    await doubleTapTerminal(ctx.page);
     await waitForCondition(
       ctx.page,
       async () => !(await measureZoom()).zoomed,
       5000,
-      'the zoom key to unzoom',
+      'the second double tap to unzoom',
     );
     expect((await boxOf(ctx.page, '.phone-pty .pane-container')).width).toBeCloseTo(
       gridBefore.width,

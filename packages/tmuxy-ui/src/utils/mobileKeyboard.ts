@@ -208,6 +208,15 @@ export function raiseMobileKeyboard(paneId: PaneId): void {
 }
 
 /**
+ * Text from somewhere other than a keyboard — the mic key's dictation — typed
+ * as the phone keyboard types it: into the pane the keyboard is for, or the
+ * pane keys go to when it is down, through the latched ctrl and alt.
+ */
+export function typeText(text: string): void {
+  onText?.(text, activePaneId);
+}
+
+/**
  * Called by usePaneTouch on a tap on another pane: the keyboard, if it is
  * up, follows the pane; if it is down it stays down.
  */

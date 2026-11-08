@@ -37,9 +37,8 @@
 }
 
 /* A latched modifier is inverse video in the theme's accent, like the prefix
-   chip; a locked one keeps it with a heavier edge. The zoom key is lit the
-   same way while the terminal is zoomed, and the prefix key while the prefix
-   is armed. */
+   chip; a locked one keeps it with a heavier edge. The mic is lit the same
+   way while it listens, and the prefix key while the prefix is armed. */
 .key-row-key.is-latched {
   border-color: var(--theme-accent);
   background-color: var(--theme-accent);
@@ -51,8 +50,8 @@
   box-shadow: inset 0 -3px 0 var(--term-black);
 }
 
-/* The magnifier sits on the text baseline's centre, the glyphs' height. */
-.key-row-magnifier {
+/* The mic sits on the text baseline's centre, the glyphs' height. */
+.key-row-icon {
   display: block;
   margin: 0 auto;
 }

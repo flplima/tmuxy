@@ -54,7 +54,7 @@ export const AppMenuFromTheMenuTab: Story = {
     const keys = [...canvasElement.querySelectorAll<HTMLElement>('.key-row > button')];
     expect(keys.map((k) => k.dataset.keyRow)).toEqual([
       ...['esc', 'tab', 'ctrl', 'alt', 'prefix', '⌨'],
-      ...['←', '↑', '↓', '→', '⏎', 'zoom'],
+      ...['←', '↑', '↓', '→', '⏎', 'mic'],
     ]);
     expect(canvasElement.querySelector('.key-row .app-menu-button')).toBeNull();
     const boxes = keys.map(box);

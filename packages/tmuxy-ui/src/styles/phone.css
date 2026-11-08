@@ -166,11 +166,11 @@
   inset: 0 4px 4px;
 }
 
-/* Zoomed (the bar, a double tap, or the key row's zoom key): the picture
+/* Zoomed (the bar, or a double tap): the picture
    drawn at `--phone-zoom` times its size — a transform, so the container
    still measures the same and tmux is told nothing. The viewport is the
    scaled picture's full height, so every row is there, and scrolls
-   sideways. When the height does not fit — a keyboard up, the zoom key past
+   sideways. When the height does not fit — a keyboard up, a double tap past
    the room the bottom view gives, or held sideways — the terminal box scrolls
    up and down, kept on the cursor's row (hooks/usePhoneViewport.ts). The
    finger pans both: usePaneTouch.ts leaves it to the browser while zoomed. */

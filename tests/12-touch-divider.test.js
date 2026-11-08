@@ -33,7 +33,6 @@ const splitState = (page) =>
       keys: box('.key-row'),
       lower: box('.phone-lower'),
       tabs: box('.phone-tabs'),
-      zoomKey: document.querySelector('[data-key-row="zoom"]')?.getAttribute('aria-pressed'),
     };
   });
 
@@ -67,7 +66,7 @@ describe('Phone width (390px) with a touchscreen: the bar under the keys', () =>
 
     // 1. Down 150px: the picture grows by the height dragged, from its
     //    top-left corner, tmux's line at the grid's scale; the keys under it,
-    //    the bottom view 150px shorter, the zoom key lit.
+    //    the bottom view 150px shorter.
     await dragBar(150);
     await until((s) => s.zoom > 1.3 && s.bar.top > rest.bar.top + 140, 'the drag to zoom');
     const zoom = state.zoom;
@@ -77,7 +76,6 @@ describe('Phone width (390px) with a touchscreen: the bar under the keys', () =>
     expect(state.line.height).toBeCloseTo(rest.line.height * zoom, 0);
     expect(state.keys.top).toBeGreaterThanOrEqual(state.line.bottom - 1);
     expect(state.lower.height).toBeCloseTo(rest.lower.height - (state.bar.top - rest.bar.top), 0);
-    expect(state.zoomKey).toBe('true');
 
     // 2. Kept for the next load: the same zoom, the bar where it was left.
     const barTop = state.bar.top;

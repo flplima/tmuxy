@@ -105,7 +105,7 @@ export type AppMachineEvent =
     }
   | { type: 'SET_PHONE_LAYOUT'; phone: boolean; landscape: boolean }
   | { type: 'REFIT_GRID' }
-  /** A double tap on the phone's terminal, or its zoom key: at the point tapped. */
+  /** A double tap on the phone's terminal: at the point tapped. */
   | { type: 'TOGGLE_PHONE_ZOOM'; x?: number; y?: number }
   /** The bar between the phone's terminal and its bottom view, released. */
   | { type: 'SET_PHONE_SPLIT'; zoom: number; collapsed: boolean }

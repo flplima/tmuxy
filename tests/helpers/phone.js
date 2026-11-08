@@ -135,6 +135,24 @@ async function keyRowCentre(page, label) {
   }, label);
 }
 
+/**
+ * Two taps on the terminal, close together in time and place: the phone's
+ * zoom, on or off. The taps land in the middle of the part of the terminal
+ * on screen, whatever the zoom has scrolled.
+ */
+async function doubleTapTerminal(page) {
+  const at = await page.evaluate(() => {
+    const r = document.querySelector('.phone-pty').getBoundingClientRect();
+    const top = Math.max(r.top, 0);
+    const bottom = Math.min(r.bottom, window.innerHeight);
+    const left = Math.max(r.left, 0);
+    const right = Math.min(r.right, window.innerWidth);
+    return { x: (left + right) / 2, y: (top + bottom) / 2 };
+  });
+  await page.touchscreen.tap(at.x, at.y);
+  await page.touchscreen.tap(at.x + 2, at.y + 2);
+}
+
 /** A box on screen, or null. */
 const boxOf = (page, selector) =>
   page.evaluate((s) => {
@@ -189,6 +207,7 @@ module.exports = {
   swipeSidewaysPausing,
   hold,
   keyRowCentre,
+  doubleTapTerminal,
   boxOf,
   waitForPhoneGrid,
 };

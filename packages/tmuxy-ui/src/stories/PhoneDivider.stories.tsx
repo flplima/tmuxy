@@ -104,9 +104,6 @@ export const DragTheBarToZoomOrFold: Story = {
           q('.phone-pty .tmux-status-bar').bottom - 1,
         );
         expect(q('.phone-lower').height).toBeCloseTo(lower.height - 150, -1);
-        expect(
-          canvasElement.querySelector('[data-key-row="zoom"]')!.getAttribute('aria-pressed'),
-        ).toBe('true');
       });
       expect(JSON.parse(localStorage.getItem('tmuxy-phone-split')!)).toEqual({
         zoom,
