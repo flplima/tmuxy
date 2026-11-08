@@ -96,9 +96,7 @@ pub(super) fn server_command_env_for(exe: &Path, subcommand: Option<&str>) -> Ve
 
 /// The first line after the shebang of every wrapper tmuxy writes: how a
 /// file at `~/.local/bin/tmuxy` is known to be one.
-const WRAPPER_MARK: &str = "# tmuxy — auto-generated shorthand for the desktop app.";
-
-const LAUNCHER_LINE: &str = "LAUNCHER_FILE=";
+pub(super) const WRAPPER_MARK: &str = "# tmuxy — auto-generated shorthand for the desktop app.";
 
 /// The `tmuxy` shell wrapper [`refresh_launcher`] writes: it execs the binary
 /// named in `launcher_file` (baked in, so the shell never re-derives the dir
@@ -114,7 +112,7 @@ pub(super) fn launcher_wrapper(launcher_file: &Path) -> String {
 # tmuxy-core/src/session/launcher.rs). DO NOT EDIT — your changes will be
 # replaced the next time you open the app.
 set -eu
-{LAUNCHER_LINE}{launcher}
+LAUNCHER_FILE={launcher}
 if [ ! -f \"$LAUNCHER_FILE\" ]; then
   echo 'tmuxy: no launcher recorded yet — open the app once via Finder/GUI.' >&2
   exit 1
@@ -134,16 +132,10 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// The launcher file baked into a wrapper [`launcher_wrapper`] wrote. `None`
-/// for a file that is no such wrapper.
-fn wrapper_launcher(wrapper: &str) -> Option<PathBuf> {
-    let line = wrapper
-        .lines()
-        .find(|line| line.starts_with(LAUNCHER_LINE))?;
-    let quoted = line[LAUNCHER_LINE.len()..]
-        .strip_prefix('\'')?
-        .strip_suffix('\'')?;
-    Some(PathBuf::from(quoted.replace("'\\''", "'")))
+/// Whether tmuxy wrote `wrapper`: its header carries [`WRAPPER_MARK`], the
+/// same line in every wrapper tmuxy has ever written.
+fn is_tmuxys_wrapper(wrapper: &str) -> bool {
+    wrapper.lines().any(|line| line == WRAPPER_MARK)
 }
 
 /// Point the `tmuxy` shell shorthand at the running executable, best effort
@@ -157,28 +149,36 @@ pub fn refresh_launcher(exe_path: &Path) {
 }
 
 /// Heal `~/.local/bin/tmuxy` and the state dir's `launcher` when the wrapper
-/// is installed, reads this process's launcher file, and has drifted from
-/// [`launcher_wrapper`] or records a target gone from disk (an unmounted
-/// `/tmp/.mount_tmuxy*`, an upgraded `Cellar/<old-version>`). A healthy
-/// `launcher` is left alone, so a `target/debug/tmuxy` test binary never
-/// clobbers the installed one, and a headless host that never had a wrapper
-/// does not get one.
+/// is one tmuxy wrote ([`is_tmuxys_wrapper`]) and differs from what
+/// [`launcher_wrapper`] writes now, or records a target gone from disk (an
+/// unmounted `/tmp/.mount_tmuxy*`, an upgraded `Cellar/<old-version>`). A
+/// wrapper that is current and points at a binary is left alone, so a
+/// `target/debug/tmuxy` test binary never clobbers the installed one, and a
+/// headless host that never had a wrapper does not get one.
 pub fn refresh_launcher_if_installed(exe_path: &Path) {
     refresh_launcher_if_installed_in(&Layout::current(), exe_path);
 }
 
 pub(super) fn refresh_launcher_if_installed_in(layout: &Layout, exe_path: &Path) {
+    // Only a tmuxy that keeps its state where the user's own does may touch
+    // their shorthand: a test's server, or a build run with another state
+    // dir, would otherwise point it at its own launcher.
+    let owns_the_shorthand = layout.state == crate::paths::default_state_dir();
+    heal_wrapper_in(layout, exe_path, owns_the_shorthand);
+}
+
+pub(super) fn heal_wrapper_in(layout: &Layout, exe_path: &Path, owns_the_shorthand: bool) {
     let wrapper_path = layout.home.join(".local/bin/tmuxy");
     let Ok(meta) = std::fs::symlink_metadata(&wrapper_path) else {
         return;
     };
-    let launcher_file = layout.path(&crate::paths::LAUNCHER);
+    if !owns_the_shorthand {
+        return;
+    }
     // A valid symlink put there by hand (e.g. pointing to a checkout's
-    // `bin/tmuxy-cli`) is the user's; only a dangling symlink is healed, and
-    // only by a tmuxy that keeps its state where the user's own does.
+    // `bin/tmuxy-cli`) is the user's; only a dangling symlink is healed.
     if meta.file_type().is_symlink() {
-        let dangling = std::fs::metadata(&wrapper_path).is_err();
-        if dangling && layout.state == crate::paths::default_state_dir() {
+        if std::fs::metadata(&wrapper_path).is_err() {
             refresh_launcher_in(layout, exe_path);
         }
         return;
@@ -186,12 +186,10 @@ pub(super) fn refresh_launcher_if_installed_in(layout: &Layout, exe_path: &Path)
     let Ok(wrapper) = std::fs::read_to_string(&wrapper_path) else {
         return;
     };
-    // Only the wrapper that reads THIS process's launcher is its to heal: a
-    // test's server, or a build run with another state dir, must never point
-    // the user's shorthand at its own.
-    if wrapper_launcher(&wrapper).as_deref() != Some(launcher_file.as_path()) {
+    if !is_tmuxys_wrapper(&wrapper) {
         return;
     }
+    let launcher_file = layout.path(&crate::paths::LAUNCHER);
     let wrapper_stale = wrapper != launcher_wrapper(&launcher_file);
     let target_missing = match std::fs::read_to_string(&launcher_file) {
         Ok(recorded) => {

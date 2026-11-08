@@ -75,21 +75,21 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     std::fs::write(&debug_exe, "").unwrap();
 
     // On a host that never ran the GUI, no wrapper exists and none is created.
-    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    heal_wrapper_in(&layout, &installed_exe, true);
     assert!(!wrapper.exists());
     assert!(!launcher.exists());
 
-    // Once installed by an older build (a stale template that reads this
-    // layout's launcher), refresh_launcher_if_installed updates both the
-    // wrapper and the state dir's launcher.
+    // Once installed by an older build — the mark in its header, a body
+    // that derives the state dir in the shell — a CLI start updates both
+    // the wrapper and the state dir's launcher.
     std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
     std::fs::write(
         &wrapper,
-        format!("#!/bin/sh\nLAUNCHER_FILE='{}'\n", launcher.display()),
+        format!("#!/bin/sh\n{WRAPPER_MARK}\nLAUNCHER_FILE=\"$HOME/.config/tmuxy/launcher\"\n"),
     )
     .unwrap();
 
-    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    heal_wrapper_in(&layout, &installed_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", installed_exe.display())
@@ -103,14 +103,14 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     // another binary (such as `target/debug/tmuxy` in a test) leaves the
     // installed launcher alone; only a missing target or a full GUI launch
     // (`refresh_launcher_in`) replaces it.
-    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    heal_wrapper_in(&layout, &debug_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", installed_exe.display())
     );
 
     std::fs::remove_file(&installed_exe).unwrap();
-    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    heal_wrapper_in(&layout, &debug_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", debug_exe.display())
@@ -146,10 +146,10 @@ fn the_wrapper_execs_the_recorded_binary() {
 }
 
 /// A tmuxy run with another state dir — a test's server, a build pointed
-/// elsewhere — never points the user's shorthand at its own launcher, nor
-/// replaces a symlink the user made.
+/// elsewhere — never points the user's shorthand at its own launcher; a file
+/// without tmuxy's mark, or a symlink the user made, is never replaced.
 #[test]
-fn a_wrapper_reading_another_launcher_or_a_users_symlink_is_left_alone() {
+fn a_file_without_the_mark_or_from_another_state_dir_is_left_alone() {
     let root = std::env::temp_dir().join(format!("tmuxy-launcher-other-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let home = root.join("home");
@@ -164,17 +164,28 @@ fn a_wrapper_reading_another_launcher_or_a_users_symlink_is_left_alone() {
     let exe = root.join("tmuxy");
     std::fs::write(&exe, "").unwrap();
 
-    let users = launcher_wrapper(&root.join("users-state/launcher"));
-    std::fs::write(&wrapper, &users).unwrap();
+    // Marked, stale, and not this process's to heal: its state dir is not
+    // the one the user's shorthand belongs to.
+    let stale = launcher_wrapper(&root.join("users-state/launcher"));
+    std::fs::write(&wrapper, &stale).unwrap();
     refresh_launcher_if_installed_in(&layout, &exe);
-    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), users);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), stale);
 
-    // A wrapper that derives the state dir in the shell names no launcher
-    // file of its own, so it is not this build's to rewrite.
-    let unbaked = "#!/bin/sh\nLAUNCHER_FILE=\"$STATE_DIR/launcher\"\n";
-    std::fs::write(&wrapper, unbaked).unwrap();
-    refresh_launcher_if_installed_in(&layout, &exe);
-    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), unbaked);
+    // The user's own script under that name carries no mark of tmuxy's and
+    // is never touched, whatever it says.
+    let users_own = "#!/bin/sh\nLAUNCHER_FILE=\"$STATE_DIR/launcher\"\nexec /opt/my-tmuxy \"$@\"\n";
+    std::fs::write(&wrapper, users_own).unwrap();
+    heal_wrapper_in(&layout, &exe, true);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), users_own);
+    assert!(!layout.state.join("launcher").exists());
+
+    // Marked and stale, under the state dir the shorthand belongs to: rewritten.
+    std::fs::write(&wrapper, &stale).unwrap();
+    heal_wrapper_in(&layout, &exe, true);
+    assert_eq!(
+        std::fs::read_to_string(&wrapper).unwrap(),
+        launcher_wrapper(&layout.state.join("launcher"))
+    );
 
     // A checkout's CLI, linked by hand, survives even a GUI launch.
     std::fs::remove_file(&wrapper).unwrap();
