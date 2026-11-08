@@ -48,9 +48,11 @@ const HOOK_TIMEOUT = 60000;
 
 /**
  * Open `sessionName` in `page` and wait until it can be typed into: the app
- * names an active pane, the server's monitor is attached to the session, and a
- * shell prompt is the last thing in a terminal (unless every pane shows a
- * widget). Throws with what the page and tmux show.
+ * names an active pane and its fonts are loaded (the cell size is measured
+ * again when they are, and a pane measured before that moves by a row), the
+ * server's monitor is attached to the session, and a shell prompt is the last
+ * thing in a terminal (unless every pane shows a widget). Throws with what
+ * the page and tmux show.
  */
 async function openSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
   const url = `${tmuxyUrl}?session=${encodeURIComponent(sessionName)}`;
@@ -65,11 +67,12 @@ async function openSession(page, sessionName, tmuxyUrl = TMUXY_URL) {
         .evaluate(
           () =>
             Boolean(window.app?.view?.().activePaneId) &&
-            document.querySelector('.pane-layout-item[data-pane-id]') !== null,
+            document.querySelector('.pane-layout-item[data-pane-id]') !== null &&
+            document.fonts.status === 'loaded',
         )
         .catch(() => false),
     30000,
-    why('openSession: the app to draw a pane'),
+    why('openSession: the app to draw a pane with its fonts loaded'),
   );
   await waitForMonitorAttached(sessionName);
   const widgetsOnly = await page.evaluate(
