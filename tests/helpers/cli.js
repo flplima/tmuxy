@@ -10,6 +10,15 @@ const { WORKSPACE_ROOT, TMUXY_CLI, serverBinary } = require('./config');
 const { tmuxEnv } = require('./tmux-socket');
 
 /**
+ * The environment for a CLI call: the suite's own socket and dirs, and the
+ * server binary under test named outright. Left to find one, the CLI takes
+ * `tmuxy-server` from PATH, then `target/debug`, then `target/release`, so a
+ * stale debug build beside the release one the suite runs answered every
+ * `tmuxy run` with an older build's verbs.
+ */
+const cliEnv = () => ({ ...tmuxEnv(), TMUXY_SERVER_BIN: serverBinary() });
+
+/**
  * Run a tmux command safely through the tmuxy CLI (`tmuxy run <command>`).
  * The command runs inside the server via `tmux run-shell`: the same command
  * sent from an external client while control mode is attached crashes tmux
@@ -26,7 +35,7 @@ function tmuxRun(command) {
       encoding: 'utf-8',
       timeout: 30000,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: tmuxEnv(),
+      env: cliEnv(),
     }).trim();
   } catch (error) {
     // execSync's message is only "Command failed: <cmd>"; tmux's reason is in stderr.
@@ -85,7 +94,7 @@ function tmuxyCli(args) {
     stdio: ['ignore', 'pipe', 'pipe'],
     // The build under test, as a pane's shell gets it from the server's
     // published environment: a `tmuxy-server` on PATH is some other build.
-    env: { ...tmuxEnv(), TMUXY_SERVER_BIN: serverBinary() },
+    env: cliEnv(),
   });
 }
 
