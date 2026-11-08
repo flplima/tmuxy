@@ -95,7 +95,7 @@ cmd_pane_run() {
   # status — tmux's own `pane_dead_status` needs remain-on-exit set before
   # the program can exit, which a fast one does before any second command.
   local dir
-  dir=$(mktemp -d /tmp/tmuxy-run.XXXXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmuxy-run.XXXXXX")
   {
     echo '#!/bin/bash'
     # Each word quoted for the shell again: `sh -c "echo a; sleep 1"` is one

@@ -88,8 +88,8 @@ elif [ -n "$DETACH" ]; then
   create_float "$(printf '%q ' "$@")"
   answer_made
 else
-  TMPFILE=$(umask 077 && mktemp /tmp/tmuxy-float-out.XXXXXX)
-  WRAPPER=$(umask 077 && mktemp /tmp/tmuxy-float-cmd.XXXXXX)
+  TMPFILE=$(umask 077 && mktemp "${TMPDIR:-/tmp}/tmuxy-float-out.XXXXXX")
+  WRAPPER=$(umask 077 && mktemp "${TMPDIR:-/tmp}/tmuxy-float-cmd.XXXXXX")
   trap 'rm -f "$TMPFILE" "$WRAPPER"' EXIT
   WAIT_CHAN="float-done-$$"
 
