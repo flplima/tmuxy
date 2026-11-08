@@ -347,21 +347,21 @@ html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-
 }
 
 /* The side pane in the chrome's small type (PhoneDock sets the cell): the
-   box it is sized to, and the pane kept to the rows it has. Upright it is a
-   terminal of its own on the terminal's background; held sideways it is the
-   desktop's right column, on the window's. */
+   box it is sized to, and the pane kept to the rows it has. It is chrome, as
+   the desktop's right column is, so it paints no ground of its own: upright
+   it shows the bottom view's, the tree's grey, and held sideways the
+   window's. */
 .phone-dock {
   position: relative;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   padding: 0 4px;
-  background-color: var(--term-background);
+  background-color: transparent;
 }
 
 .phone-side-right .phone-dock {
   padding: var(--spacing-lg);
-  background-color: transparent;
 }
 
 /* On the window's ground the placeholder's subtle ink is too faint to read. */

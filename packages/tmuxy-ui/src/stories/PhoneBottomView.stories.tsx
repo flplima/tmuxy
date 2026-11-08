@@ -90,6 +90,13 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(dock.height).toBeGreaterThan(100);
       expect(canvasElement.querySelector('.phone-dock')!.textContent).toContain('starting');
     }, SETTLE);
+    // On the bottom view's grey, as the tree is, not the black gutter's.
+    const ground = getComputedStyle(canvasElement.querySelector('.phone-lower')!).backgroundColor;
+    expect(getComputedStyle(canvasElement.querySelector('.phone-dock')!).backgroundColor).toBe(
+      'rgba(0, 0, 0, 0)',
+    );
+    const black = getComputedStyle(canvasElement.querySelector('.app-body-phone')!).backgroundColor;
+    expect(ground).not.toBe(black);
     expect(canvasElement.querySelector('.phone-tree')).toBeNull();
 
     // A short, slow pull lets go short of the mark: it settles back where it
