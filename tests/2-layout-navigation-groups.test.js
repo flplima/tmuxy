@@ -193,11 +193,27 @@ describeE2E('Scenario 5: Pane Groups', {}, (ctx) => {
     const afterSwitch2Id = await activePane();
     expect(afterSwitch2Id).toBe(betaPaneId);
 
-    // Step 8: Verify tab highlight matches active pane
-    const tabsAfterSwitch = await getGroupTabInfo(ctx.page);
-    const selectedTab = tabsAfterSwitch.find((t) => t.active);
-    expect(selectedTab).toBeDefined();
-    expect(selectedTab.index).toBe(otherIdx);
+    // Step 8: Verify tab highlight matches active pane: the one tab lit is
+    // BETA's, by the pane it names rather than by its place in the strip,
+    // and waited for, since the header draws a render after the model.
+    let lit = null;
+    await waitForCondition(
+      ctx.page,
+      async () => {
+        lit = await ctx.page.evaluate(() =>
+          [...document.querySelectorAll('.pane-tabs .pane-tab')]
+            .filter(
+              (t) =>
+                t.classList.contains('pane-tab-active') ||
+                t.classList.contains('pane-tab-selected'),
+            )
+            .map((t) => t.dataset.paneTab),
+        );
+        return lit.length === 1 && lit[0] === betaPaneId;
+      },
+      10000,
+      () => `the switched-to tab, ${betaPaneId}, to be the one lit (lit: ${JSON.stringify(lit)})`,
+    );
 
     // Step 9: Add 3rd tab
     await clickPaneGroupAdd(ctx.page);
