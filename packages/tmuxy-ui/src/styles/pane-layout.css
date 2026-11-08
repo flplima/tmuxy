@@ -133,9 +133,11 @@
    (.pane-layout-no-animations / .pane-layout-resizing) because the gates fire
    on the very commits that create and destroy panes (suppressLayoutTransition
    is set whenever surviving geometry changes), and these are the commits to
-   animate. A shifting pane (the split source shrinking, the kill survivor
-   growing) rides the entering pane's clock, or the converging edges don't
-   track. */
+   animate. The entering pane starts transparent over the pane it splits from
+   and fades in as it slides; the cursor overlay waits for it to land
+   (components/terminal/SmoothCursor.tsx). A shifting pane (the split source
+   shrinking, the kill survivor growing) rides the entering pane's clock, or
+   the converging edges don't track. */
 .pane-layout-item.pane-entering,
 .pane-layout-no-animations .pane-layout-item.pane-entering,
 .pane-layout-resizing .pane-layout-item.pane-entering {

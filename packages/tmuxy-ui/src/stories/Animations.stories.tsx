@@ -46,7 +46,7 @@ export const SplitPane: Story = {
       story: { inline: false, iframeHeight: 600 },
       description: {
         story:
-          'Splitting runs the enter morph: the new pane mounts with `.pane-entering`, is FLIP-rewound to the source pane’s pre-split box at reduced opacity, and transitions into its final half-width box while fading in; the source pane gets `.pane-shifting` and converges on the same clock. Asserted via `transitionstart` events, a paint-aligned rAF rect/opacity sampler on the entering pane (starts materially larger and translucent, converges smaller), and the settled end state (two panes, no lifecycle classes, no overlap).',
+          'Splitting runs the enter morph: the new pane mounts with `.pane-entering`, is FLIP-rewound to the source pane’s pre-split box, transparent, and transitions into its final half-width box while fading in; the cursor is drawn once it has landed, not along its slide; the source pane gets `.pane-shifting` and converges on the same clock. Asserted via `transitionstart` events, a paint-aligned rAF rect/opacity sampler on the entering pane (starts materially larger and translucent, converges smaller), and the settled end state (two panes, no lifecycle classes, no overlap).',
       },
     },
   },
@@ -88,6 +88,19 @@ export const SplitPane: Story = {
       attributeFilter: ['class'],
     });
 
+    // The cursor overlay on every paint: drawn while the new pane is still
+    // entering? It used to ride the pane's slide and smear across the source.
+    let drawnWhileEntering = 0;
+    let sampling = true;
+    const sampleCursor = () => {
+      const overlay = document.querySelector<HTMLElement>('.smooth-cursor');
+      if (layout.querySelector('.pane-entering') && overlay?.style.opacity === '1') {
+        drawnWhileEntering++;
+      }
+      if (sampling) requestAnimationFrame(sampleCursor);
+    };
+    requestAnimationFrame(sampleCursor);
+
     const recorder = new LayoutMutationRecorder(layout);
     try {
       storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
@@ -113,20 +126,28 @@ export const SplitPane: Story = {
       );
 
       // The new pane starts at about the source pane's pre-split box,
-      // translucent, and converges to its half.
+      // transparent, and converges to its half.
       expect(enterStart, 'the entering pane was never seen').not.toBeNull();
       const settledArea = (() => {
         const r = entering!.getBoundingClientRect();
         return r.width * r.height;
       })();
       expect(enterStart!.area).toBeGreaterThan(settledArea * 1.3);
-      expect(enterStart!.opacity).toBeLessThan(1);
+      // From nothing: anything more draws its empty ground over the source
+      // pane's text on the first frame.
+      expect(enterStart!.opacity).toBeLessThan(0.05);
+      // The cursor waits for the pane to land, then is drawn in it.
+      expect(drawnWhileEntering, 'frames the cursor was drawn mid-slide').toBe(0);
+      await waitFor(() =>
+        expect(document.querySelector<HTMLElement>('.smooth-cursor')?.style.opacity).toBe('1'),
+      );
 
       const [a, b] = paneNodes(canvasElement).map((n) => n.getBoundingClientRect());
       const ovX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const ovY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
       expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1); // mosaic panes share only their 1px edge
     } finally {
+      sampling = false;
       enterObserver.disconnect();
       recorder.disconnect();
       layout.removeEventListener('transitionstart', onTransitionStart);

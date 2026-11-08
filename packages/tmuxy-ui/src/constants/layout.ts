@@ -20,7 +20,10 @@ export function containerPaddingX(phone: boolean): number {
   return phone ? PHONE_CONTAINER_PADDING : CONTAINER_PADDING_X;
 }
 
-export const PANE_ENTER_FROM_OPACITY = 0.4;
+// Opacity the entering pane starts from: none. It starts over the whole pane
+// it splits from, above it, so anything more drew its empty ground over that
+// pane's text for the first frame.
+export const PANE_ENTER_FROM_OPACITY = 0;
 
 export const STATUS_BAR_HEIGHT = 37; // 36px height + 1px border
 export const TMUX_STATUS_BAR_HEIGHT = 32; // 24px line-height + 8px padding (4px top/bottom)
