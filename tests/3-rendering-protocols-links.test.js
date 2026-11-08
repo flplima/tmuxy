@@ -254,7 +254,10 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
         .click();
       await waitForCondition(
         ctx.page,
-        () => ctx.page.evaluate(() => window.__opened.includes('https://ex.test/pull/177')),
+        () =>
+          ctx.page.evaluate(() =>
+            window.__opened.some((url) => url === 'https://ex.test/pull/177'),
+          ),
         5000,
         'the link to be opened',
       );
