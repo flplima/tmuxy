@@ -124,7 +124,10 @@ describeE2E(
       expect(flash[0].width).toBeGreaterThan(0);
       expect(flash[0].height).toBeGreaterThan(0);
       expect(Math.abs(flash[0].left - at.box.left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(flash[0].top - at.box.top)).toBeLessThanOrEqual(2);
+      // On the token's row: a text range's box is the font's, which WebKit
+      // draws a little inside the row's line box, so it is held to the row.
+      expect(flash[0].top).toBeGreaterThanOrEqual(at.box.top - 1);
+      expect(flash[0].top + flash[0].height).toBeLessThanOrEqual(at.box.bottom + 1);
       expect(await selectedText(ctx.page)).toBe('');
       await dragSelect(ctx.page, at);
       expect(await selectedText(ctx.page)).toBe(TOKEN);
