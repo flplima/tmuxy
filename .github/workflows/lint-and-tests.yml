@@ -113,7 +113,7 @@ jobs:
   # them all.
   build-frontend:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -126,7 +126,7 @@ jobs:
   # `target/release/` path its consumers expect.
   build-server:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     needs: build-frontend
 
     steps:
@@ -138,7 +138,7 @@ jobs:
 
   demo-build:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -153,7 +153,7 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -192,7 +192,7 @@ jobs:
   # runs the whole suite on a Mac daily as the net.
   macos-tests:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: changes
 
     steps:
