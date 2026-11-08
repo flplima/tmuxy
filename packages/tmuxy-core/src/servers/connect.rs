@@ -73,11 +73,11 @@ impl ConnectRequest {
     pub fn server(&self, live_socket: &str) -> Option<Server> {
         let (id, label, kind, ssh) = match &self.ssh {
             Some(dest) => {
-                let (user, host) = match dest.split_once('@') {
-                    Some((user, host)) => (Some(user.to_string()), host),
-                    None => (None, dest.as_str()),
+                let (host, port) = crate::session::split_ssh_port(dest);
+                let (user, host) = match host.split_once('@') {
+                    Some((user, host)) => (Some(user.to_string()), host.to_string()),
+                    None => (None, host.to_string()),
                 };
-                let host = host.split(':').next().unwrap_or(host).to_string();
                 (
                     format!("ssh-{}-{}", slug(dest), slug(&self.socket)),
                     dest.clone(),
@@ -85,7 +85,7 @@ impl ConnectRequest {
                     Some(SshConfig {
                         host,
                         user,
-                        port: None,
+                        port,
                         options: None,
                     }),
                 )
@@ -154,9 +154,10 @@ mod tests {
         assert_eq!(remote.kind, ServerKind::Ssh);
         let ssh = remote.ssh.unwrap();
         assert_eq!(
-            (ssh.host.as_str(), ssh.user.as_deref()),
-            ("Prod.Example", Some("felipe"))
+            (ssh.host.as_str(), ssh.user.as_deref(), ssh.port),
+            ("Prod.Example", Some("felipe"), Some(2222))
         );
+        assert_eq!(ssh.argv_tail(), ["-p", "2222", "felipe@Prod.Example"]);
         assert!(remote.last_used.is_some());
 
         let other = ConnectRequest::new("default", None, None).unwrap();

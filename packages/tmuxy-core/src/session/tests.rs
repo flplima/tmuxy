@@ -503,6 +503,19 @@ fn an_ssh_destination_is_a_user_and_host_and_nothing_else() {
     }
 }
 
+/// A port after the host is ssh's `-p`; a colon inside an IPv6 address, or
+/// one followed by no port number, is part of the destination.
+#[test]
+fn a_destinations_port_is_split_off_and_an_ipv6_address_is_left_whole() {
+    assert_eq!(
+        split_ssh_port("felipe@prod:2222"),
+        ("felipe@prod", Some(2222))
+    );
+    assert_eq!(split_ssh_port("host"), ("host", None));
+    assert_eq!(split_ssh_port("::1"), ("::1", None));
+    assert_eq!(split_ssh_port("host:x"), ("host:x", None));
+}
+
 #[test]
 fn a_socket_is_a_name_or_a_path_without_shell_syntax() {
     for ok in ["tmuxy", "tmuxy-dev", "/tmp/tmux-501/tmuxy"] {

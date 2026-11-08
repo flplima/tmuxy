@@ -13,7 +13,8 @@ use tmuxy_core::argv::shell_line;
 use tmuxy_core::constants::STASH_SESSION;
 use tmuxy_core::servers::connect::{remember, ConnectRequest, CONNECT_REQUEST};
 use tmuxy_core::session::{
-    is_no_server, is_safe_session_name, local_tmux_on, socket_args, tmux_path, tmux_socket,
+    is_no_server, is_safe_session_name, local_tmux_on, socket_args, split_ssh_port, tmux_path,
+    tmux_socket,
 };
 
 use crate::cli_json::{self, Answer, EXIT_FAILED, EXIT_USAGE};
@@ -271,14 +272,16 @@ impl Server {
     }
 
     /// `command` on the host, through ssh, which joins it into one line for
-    /// the remote shell: quoted for that shell.
+    /// the remote shell: quoted for that shell. A port the destination names
+    /// (`host:2222`) goes as `-p`, which is the only way ssh takes one.
     fn ssh(&self, command: &[&str]) -> Result<String, String> {
-        let dest = self.ssh.as_deref().unwrap_or_default();
+        let (dest, port) = split_ssh_port(self.ssh.as_deref().unwrap_or_default());
         let mut ssh = Command::new("ssh");
-        ssh.args(SSH_OPTIONS)
-            .arg("--")
-            .arg(dest)
-            .arg(shell_line(command));
+        ssh.args(SSH_OPTIONS);
+        if let Some(port) = port {
+            ssh.args(["-p", &port.to_string()]);
+        }
+        ssh.arg("--").arg(dest).arg(shell_line(command));
         finished(ssh.output())
     }
 

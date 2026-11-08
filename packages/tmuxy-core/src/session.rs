@@ -249,10 +249,11 @@ pub fn session_name() -> String {
         .unwrap_or_else(|| crate::DEFAULT_SESSION_NAME.to_string())
 }
 
-/// Whether `dest` is an ssh destination and nothing more: `[user@]host`,
-/// never an option. A connect request's host is written into the tmux server's
-/// environment by anything that can reach it, and ssh runs a
-/// `-oProxyCommand=…` as a local command.
+/// Whether `dest` is an ssh destination and nothing more: `[user@]host`, a
+/// port after a colon allowed ([`split_ssh_port`]), never an option. A
+/// connect request's host is written into the tmux server's environment by
+/// anything that reaches it, and ssh runs a `-oProxyCommand=…` as a local
+/// command.
 pub fn is_ssh_destination(dest: &str) -> bool {
     let word = |s: &str, extra: &[u8]| {
         !s.is_empty()
@@ -266,6 +267,20 @@ pub fn is_ssh_destination(dest: &str) -> bool {
     match dest.split_once('@') {
         Some((user, host)) => word(user, b"") && word(host, b":") && !host.starts_with('-'),
         None => word(dest, b":"),
+    }
+}
+
+/// `dest` without the port its last `:` names, and that port: ssh takes no
+/// port in a destination, so a `host:2222` reaches it as `-p 2222 host`. A
+/// colon that is part of the host (an IPv6 address) or followed by no port
+/// number leaves the destination whole.
+pub fn split_ssh_port(dest: &str) -> (&str, Option<u16>) {
+    match dest.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => match port.parse() {
+            Ok(port) => (host, Some(port)),
+            Err(_) => (dest, None),
+        },
+        _ => (dest, None),
     }
 }
 
