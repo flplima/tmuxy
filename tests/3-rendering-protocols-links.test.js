@@ -13,6 +13,7 @@ const {
   waitForCondition,
 } = require('./helpers');
 const { tmuxPane } = require('./helpers/tmux-read');
+const { tmuxExec } = require('./helpers/tmux-socket');
 // ==================== Detailed OSC Protocol Tests ====================
 
 describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) => {
@@ -205,8 +206,12 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
     // tmux's capture, which carries the links (`capture-pane -e`); the refill
     // read the capture without them, so the link stayed text until the program
     // happened to draw it again. A shell draws nothing again, so here it never
-    // came back.
+    // came back. Only tmux 3.4 and later write the links into a capture; an
+    // older tmux refills the pane as plain text, and the link comes back only
+    // when the program draws it again (docs/RICH-RENDERING.md).
     test('a link stays a link when its pane is resized, and opens from the pane beside', async () => {
+      const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
+      if (major === 3 && minor < 4) return;
       await ctx.setupPage();
       await ctx.page.evaluate(() => {
         window.__opened = [];
