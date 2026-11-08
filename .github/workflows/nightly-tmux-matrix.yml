@@ -1,4 +1,4 @@
-name: nightly tmux version matrix
+name: nightly tmux matrix
 
 # Every other workflow pins ONE tmux (`bin/toolchain tmux-version`), so
 # nothing else in CI executes the version-specific paths docs/TMUX.md is full

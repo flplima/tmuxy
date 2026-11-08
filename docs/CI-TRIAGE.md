@@ -31,10 +31,10 @@ A run that is green but slow is triaged from its summary page: the `timing` job 
 | `macos-tests` | `npm run test:cli` every push; `cargo test --workspace` (on a Mac, with Homebrew tmux) when the push touches the desktop app, the CLI, the pty spawn of `tmux -CC`, a Rust file with a macOS branch or the Cargo manifests (the `macos-rust` rule in `bin/ci/ci-changes.mjs`), and on every tag (which `build-app.yml` calls) — `build-app.yml` also runs it on a Mac daily | macOS-only shell, path and tmux behaviour |
 | nightly `tmux matrix / suites` | `npx jest tests/snapshots/` and `npx jest tests/8-tui-alternate-screen.test.js`, against the tmux version the job names | A tmux version the default CI tmux does not exercise |
 | nightly `v86 / sweep` | `npm run test-storybook:v86 -w tmuxy-ui` | The full v86 story sweep; a failure opens an issue |
-| nightly `perf measurements / interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Web interaction budgets (the ratio gate) |
-| nightly `perf measurements / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
-| nightly `perf measurements / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
-| `perf measurements / soak` (nightly) and `interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
+| nightly `nightly perf / interaction-latency` | `npm run perf:interactions` + `npm run perf:compare` | Web interaction budgets (the ratio gate) |
+| nightly `nightly perf / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
+| nightly `nightly perf / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
+| `nightly perf / soak` (nightly) and `interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
 | weekly `sunday sweep / sweep` | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts; add `--red-prs` for what a hand-dispatched run with `red_prs` would hand over) |
 | `dependabot actions merge / merge` | `gh pr diff <n> \| node bin/ci/actions-bump.mjs` — it merges a green Dependabot PR only when that prints nothing (a moved `actions/*` pin and no other line); anything else waits for a review |
 
@@ -44,9 +44,9 @@ A phase more than one job runs is a composite action under `.github/actions/`, s
 
 ## Artifact/log entry points
 
-- `interaction-latency-*`: `tests/perf/interaction-report.json` (nightly `perf measurements`)
-- `interaction-latency-desktop-*`: `tests/perf/interaction-report-tauri.json` (nightly `perf measurements`)
-- `core-pipeline-bench-*`: `tests/perf/core-pipeline-report.json` (nightly `perf measurements`)
+- `interaction-latency-*`: `tests/perf/interaction-report.json` (`nightly perf`)
+- `interaction-latency-desktop-*`: `tests/perf/interaction-report-tauri.json` (`nightly perf`)
+- `core-pipeline-bench-*`: `tests/perf/core-pipeline-report.json` (`nightly perf`)
 - `v86-probe-timings-*`: `tests/perf/v86-probe-timings.json`
 - `storybook-*-artifacts`: screenshots, DOM dumps, stack traces
 - `v86-storybook-log-*`: Storybook startup/runtime logs

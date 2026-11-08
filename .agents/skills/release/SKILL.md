@@ -30,7 +30,7 @@ The signing and notarization secrets, and why the DMG is notarized apart from th
 
 ## 1. Land the change on main
 
-Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. A push to main runs `lint and tests` and (when it touched the demo or UI sources) `Deploy Demo`. **`Build App` does not run on a push to main** — it triggers on tags, on a daily schedule, and on manual dispatch. The 3-platform build that matters for the release is the tag-triggered one in step 6, whose `release` job depends on `build`, `upgrade-path` and `tests` (the full suite re-run on the tag ref).
+Stage files explicitly, commit with a gitmoji prefix, push to `origin/main`. A push to main runs `lint and tests` and (when it touched the demo or UI sources) `deploy demo`. **`build app` does not run on a push to main** — it triggers on tags, on a daily schedule, and on manual dispatch. The 3-platform build that matters for the release is the tag-triggered one in step 6, whose `release` job depends on `build`, `upgrade-path` and `tests` (the full suite re-run on the tag ref).
 
 If you want a 3-platform build before tagging — a change that touched the desktop app, packaging or the macOS path — dispatch one and wait for it:
 
@@ -44,7 +44,7 @@ gh workflow run build-app.yml --ref main && gh run watch
 .agents/skills/release/scripts/wait-ci commit
 ```
 
-Polls until `lint and tests` — and `Deploy Demo`, when the commit triggered it — reach a terminal state; exits non-zero on the first failure. If `lint and tests` fails on something pre-existing (e.g. `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule in the root `AGENTS.md`, then wait again.
+Polls until `lint and tests` — and `deploy demo`, when the commit triggered it — reach a terminal state; exits non-zero on the first failure. If `lint and tests` fails on something pre-existing (e.g. `cargo fmt --check` drift in a file you didn't touch), fix it as a separate commit per the "Testing & Bug Fixes" rule in the root `AGENTS.md`, then wait again.
 
 ## 3. Bump the version
 
@@ -87,7 +87,7 @@ Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then ru
 
 ### The CI gate
 
-The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `Deploy Demo` may legitimately report "not triggered by this commit", while `lint and tests` must be `completed (success)`.
+The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `deploy demo` may legitimately report "not triggered by this commit", while `lint and tests` must be `completed (success)`.
 
 A run that is queued, in progress, or has not reported a conclusion yet **blocks** — the gate waits for it (`--ci-timeout <seconds>`, default 2700) rather than guessing.
 
@@ -97,13 +97,13 @@ tag-and-push <version> --allow-red   # override, deliberately
 
 `--allow-red` prints a loud banner and tags anyway. It exists so a human can override with their eyes open; it is never the answer to "CI is annoying". If you use it, say so in the release notes.
 
-## 6. Wait for the tag-triggered Build App run
+## 6. Wait for the tag-triggered build app run
 
 ```
 .agents/skills/release/scripts/wait-ci tag <new-version>
 ```
 
-Pushing the tag triggers a **second** `Build App` run (this one with `github.ref = refs/tags/v...`). It executes `build` → `release` → `bump-cask` → `bump-formula`:
+Pushing the tag triggers a **second** `build app` run (this one with `github.ref = refs/tags/v...`). It executes `build` → `release`; `bump-cask` and `bump-formula` are `publish brew`'s (`.github/workflows/publish-brew.yml`), run on promotion:
 
 - **`release`** downloads the build artifacts and creates a GitHub Release with both Linux architectures — `tmuxy_<version>_amd64.AppImage`, `tmuxy_<version>_aarch64.AppImage`, `tmuxy_<version>_amd64.deb`, `tmuxy_<version>_arm64.deb` — plus `tmuxy_<version>_universal.dmg`. The `build` matrix produces the two Linux arches on the `ubuntu-22.04` (amd64) and `ubuntu-22.04-arm` (arm64) runners.
 - **`bump-cask`** downloads the `.dmg`, computes sha256, and pushes an updated `Casks/tmuxy.rb` to `flplima/homebrew-tap` (macOS install).

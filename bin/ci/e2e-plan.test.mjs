@@ -10,15 +10,15 @@ const { suites } = JSON.parse(readFileSync(join(ROOT, 'tests/e2e-suites.json'), 
 describe('the E2E plan', () => {
   it('the commit tier leaves out the nightly-only files and skips [nightly] tests everywhere', () => {
     const commit = plan(suites, 'commit');
-    expect(commit.map((s) => s.name)).not.toContain('6-nvim');
+    expect(commit.map((s) => s.name)).not.toContain('nvim');
     for (const suite of commit) expect(suite.pattern).toMatch(/^\^\(\?!\.\*\\\[nightly\\\]\)/);
-    expect(commit.find((s) => s.name === '1-input').pattern).toBe('^(?!.*\\[nightly\\])');
+    expect(commit.find((s) => s.name === 'input').pattern).toBe('^(?!.*\\[nightly\\])');
   });
 
   it('the full tier takes every suite and every test', () => {
     const full = plan(suites, 'full');
     expect(full.map((s) => s.name)).toEqual(suites.map((s) => s.name));
-    expect(full.find((s) => s.name === '1-input').pattern).toBe('');
+    expect(full.find((s) => s.name === 'input').pattern).toBe('');
   });
 
   // A push that edited the suites gets the [nightly] tests too, on one more

@@ -12,7 +12,7 @@
 # v0.0.10-alpha.40 shipped from a commit whose `lint and tests` had failed
 # because nothing ever asked about that sha. A run still in progress blocks
 # too: the check waits for it (reusing wait-ci, which also knows that the
-# path-filtered Deploy Demo legitimately reports "not triggered").
+# path-filtered deploy demo legitimately reports "not triggered").
 #
 # main is pushed BEFORE the tag, so the tag's commit already exists on the
 # remote when the tag lands. Pushing the tag alone leaves the release job
@@ -116,5 +116,5 @@ git tag "$TAG" "$SHA"
 git push origin "$TAG"
 
 echo
-echo "pushed. The tag-triggered Build App run is what publishes the release:"
+echo "pushed. The tag-triggered build app run is what publishes the release:"
 echo "  .agents/skills/release/scripts/wait-ci tag $VERSION"

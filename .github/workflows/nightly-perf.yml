@@ -1,4 +1,4 @@
-name: perf measurements
+name: nightly perf
 
 # The perf measurements (docs/PERFORMANCE.md has the reasoning for each):
 #
@@ -65,7 +65,7 @@ jobs:
         with:
           profile: release
 
-  # Axis C on the platform the gate job runs on. Actions → "perf measurements"
+  # Axis C on the platform the gate job runs on. Actions → "nightly perf"
   # → Run workflow; read the numbers in the PR it opens, then merge. Uncheck
   # `open_pr` for the artifact alone.
   interaction-baseline:
@@ -151,7 +151,7 @@ jobs:
           # scalar carries the block's own indentation into the message.
           {
             printf '%s\n\n' "⚡ refresh the linux interaction baseline"
-            printf '%s\n' "Measured by the \"perf measurements\" workflow on ubuntu-26.04,"
+            printf '%s\n' "Measured by the \"nightly perf\" workflow on ubuntu-26.04,"
             printf '%s\n\n' "25 samples. Run: $RUN_URL"
             printf '%s\n' "Read the numbers before merging: a runner having a bad night produces"
             printf '%s\n' "a baseline that hides real regressions for as long as it stands."

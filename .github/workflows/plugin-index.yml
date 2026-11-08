@@ -1,4 +1,4 @@
-name: Plugin Index
+name: plugin index
 
 # The plugin index (docs/PLUGINS.md, "The index"): every public repository
 # with the topic `tmuxy-plugin` whose manifests pass `tmuxy plugin check`,
