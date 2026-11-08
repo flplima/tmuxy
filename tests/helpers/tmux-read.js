@@ -20,6 +20,7 @@ const PANE_FIELDS = {
   alternate: '#{alternate_on}',
   title: '#{pane_title}',
   command: '#{pane_current_command}',
+  cwd: '#{pane_current_path}',
 };
 
 const WINDOW_FIELDS = {

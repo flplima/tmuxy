@@ -161,9 +161,10 @@ describeE2E('Scenario 6d: Sidebar Tree View', {}, (ctx) => {
         )}`,
     );
 
-    // The pane inside the repo shows its branch, drawn inside the column, and
-    // no other row does — the other panes sit in whatever checkout the server
-    // was started from, never in this throwaway one.
+    // The pane inside the repo shows its branch, drawn inside the column. So
+    // does the tab opened from it: `c` is `new-window -c "#{pane_current_path}"`,
+    // so that pane is in the repo too. No other row does: the rest sit in
+    // whatever checkout the server was started from, never in this one.
     await waitForCondition(
       ctx.page,
       async () =>
@@ -189,7 +190,11 @@ describeE2E('Scenario 6d: Sidebar Tree View', {}, (ctx) => {
         ).length,
       branch,
     );
-    expect(rowsOnBranch).toBe(1);
+    const panesInRepo = tmuxPanes(ctx.session.name, { session: true }).filter(
+      (p) => fs.realpathSync(p.cwd) === fs.realpathSync(repoDir),
+    );
+    expect(panesInRepo).toHaveLength(2);
+    expect(rowsOnBranch).toBe(2);
     fs.rmSync(repoDir, { recursive: true, force: true });
 
     // Step 4: Focus the sidebar (click) so keys route to the tree.
