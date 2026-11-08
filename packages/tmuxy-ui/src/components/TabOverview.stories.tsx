@@ -1,17 +1,16 @@
 /**
- * Tab Overview stories, over recordings of real tmux.
- *
- * ctrl+0 zooms the current tab out into a grid of every tab; a slot click
- * zooms that tab back in, the trailing "+" creates a tab and a slot's ✕
- * closes one. Opening, clicking, "+", ✕ and dragging a slot are
+ * Opening, clicking, "+", ✕ and dragging a slot are
  * tests/2-layout-navigation-overview.test.js, end to end; these are the
  * layout of the grid and the motion out of a card.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { appContext, storyApp } from '../stories/storyApp';
+import { stripTabs } from '../domain/windows';
 import { expect, within, userEvent, waitFor } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
 import { asFixture } from '../stories/fixtures/FixtureAdapter';
+import { APPEARANCE } from '../stories/animationStoryHelpers';
 import tabsFixture from '../stories/fixtures/gen/tabs.json';
 import manyTabs from '../stories/fixtures/gen/many-tabs.json';
 
@@ -23,20 +22,7 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-interface AppSnap {
-  context: {
-    activeWindowId: string | null;
-    tabOverviewOpen: boolean;
-    windows: Array<{ id: string; index: number; name: string; windowType: string | null }>;
-  };
-}
-const actor = () =>
-  (window as unknown as { app: { getSnapshot(): AppSnap; send(event: unknown): void } }).app;
-const app = () => actor().getSnapshot();
-const tabs = () =>
-  app()
-    .context.windows.filter((w) => w.windowType === 'tab')
-    .sort((a, b) => a.index - b.index);
+const tabs = () => stripTabs(appContext().windows).sort((a, b) => a.index - b.index);
 
 async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
   return waitFor(
@@ -49,28 +35,14 @@ async function waitForOverview(open: boolean): Promise<HTMLElement | null> {
   );
 }
 
-const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-  animations: true,
-  cursorBlink: true,
-  tabOverviewCols: 3,
-};
-
 const cards = (grid: HTMLElement) => [...grid.querySelectorAll<HTMLElement>('.tab-overview-slot')];
 
-/** How many cards share the first card's row. */
 function firstRowCount(grid: HTMLElement): number {
   const all = cards(grid);
   const top = all[0].getBoundingClientRect().top;
   return all.filter((c) => Math.abs(c.getBoundingClientRect().top - top) < 2).length;
 }
 
-/** Whether a card is inside the grid's visible box (not clipped by its scroll). */
 function onScreen(card: HTMLElement, grid: HTMLElement): boolean {
   const c = card.getBoundingClientRect();
   const g = grid.getBoundingClientRect();
@@ -98,11 +70,10 @@ export const ColumnsFromConfigAndScrolling: Story = {
     const overview = (await waitForOverview(true)) as HTMLElement;
     const grid = overview.querySelector('.tab-overview-grid') as HTMLElement;
 
-    // No appearance has been pushed yet, so this is the default.
+    // No appearance has been pushed yet: the default.
     await waitFor(() => expect(firstRowCount(grid)).toBe(3));
 
-    // 13 cards (12 tabs and "+") in rows of three overflow the view,
-    // and the view opened on the current tab, which is the last one.
+    // 13 cards (12 tabs and "+") in rows of three; the current tab is the last.
     expect(getComputedStyle(grid).overflowY).toBe('auto');
     expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight + 100);
     const current = overview.querySelector('.tab-overview-slot.is-active') as HTMLElement;
@@ -114,8 +85,6 @@ export const ColumnsFromConfigAndScrolling: Story = {
     });
     expect(onScreen(first, grid)).toBe(false);
 
-    // The live pane grid is drawn over the current tab's card wherever the
-    // cards have scrolled to.
     const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
     const frame = current.querySelector('.tab-overview-frame') as HTMLElement;
     const followsCard = () =>
@@ -128,7 +97,6 @@ export const ColumnsFromConfigAndScrolling: Story = {
       });
     await followsCard();
 
-    // Walking the cursor up three rows scrolls the grid back to the top.
     await user.keyboard('{ArrowUp}{ArrowUp}{ArrowUp}');
     await waitFor(() => {
       expect(grid.scrollTop).toBeLessThan(2);
@@ -138,9 +106,8 @@ export const ColumnsFromConfigAndScrolling: Story = {
     expect(onScreen(current, grid)).toBe(false);
     await followsCard();
 
-    // More or fewer cards a row, straight from the config push.
     for (const cols of [5, 2]) {
-      actor().send({
+      storyApp().send({
         type: 'THEME_SETTINGS_RECEIVED',
         theme: 'default',
         mode: 'dark',
@@ -180,7 +147,7 @@ export const OpensOutOfTheSlotYouClicked: Story = {
     const layout = document.querySelector('.pane-container > .pane-layout') as HTMLElement;
 
     // Let the zoom-out settle, so the grid is parked in the CURRENT tab's card.
-    const current = app().context.activeWindowId;
+    const current = appContext().activeWindowId;
     const currentCard = overview.querySelector(
       `[data-testid="tab-overview-slot-${current}"] .tab-overview-frame`,
     ) as HTMLElement;
@@ -190,7 +157,6 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       expect(Math.abs(l.left - f.left)).toBeLessThan(2);
     });
 
-    // The other tab's card, which is the one being clicked.
     const other = tabs().find((w) => w.id !== current)!;
     const otherCard = overview.querySelector(
       `[data-testid="tab-overview-slot-${other.id}"] .tab-overview-frame`,
@@ -210,14 +176,12 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       overview.querySelector(`[data-testid="tab-overview-slot-${other.id}"]`) as HTMLElement,
     );
     await waitForOverview(false);
-    await waitFor(() => expect(app().context.activeWindowId).toBe(other.id));
+    await waitFor(() => expect(appContext().activeWindowId).toBe(other.id));
     await waitFor(() => expect(getComputedStyle(layout).transform).toBe('none'));
     sampling = false;
 
-    // The grow starts at the frame before the width first climbs; that frame
-    // is where it grew OUT of, and it has to be the card that was clicked
-    // rather than the one being left. Both cards are the same size, so only
-    // the position tells them apart.
+    // The frame before the width first climbs is where the grid grew out of.
+    // Both cards are the same size, so only the position tells them apart.
     const growthAt = boxes.findIndex((b) => b.width > otherBox.width + 8);
     expect(growthAt, 'the grid never grew').toBeGreaterThan(0);
     const origin = boxes[growthAt - 1];
@@ -226,7 +190,6 @@ export const OpensOutOfTheSlotYouClicked: Story = {
       `grew from x=${Math.round(origin.left)}, clicked card is at x=${Math.round(otherBox.left)}`,
     ).toBeLessThan(6);
 
-    // ...and it grew rather than jumping: drawn at sizes in between on the way.
     const full = boxes[boxes.length - 1].width;
     expect(full).toBeGreaterThan(otherBox.width * 2);
     const between = boxes.filter((b) => b.width > otherBox.width + 8 && b.width < full - 8);

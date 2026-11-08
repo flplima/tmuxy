@@ -3,41 +3,66 @@
 //! `StateAggregator::step` → `TmuxState`. Runs in native CI (no browser, no
 //! tokio) and exercises the same code the WASM binding reuses verbatim.
 
-use tmuxy_core::control_mode::{Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER};
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use tmuxy_core::constants::tmux_formats::TmuxList;
+use tmuxy_core::control_mode::{
+    Parser, StateAggregator, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, LIST_BEGIN_MARKER,
+    LIST_END_MARKER,
+};
 use tmuxy_core::TmuxState;
 
-/// Feed a whole control-mode stream line-by-line through the public push API.
-fn drive(stream: &str) -> TmuxState {
-    let mut parser = Parser::new();
-    let mut agg = StateAggregator::with_session_name("m");
+fn feed(parser: &mut Parser, agg: &mut StateAggregator, stream: &str) {
     for line in stream.split('\n') {
         if let Some(event) = parser.parse_line(line) {
             agg.step(event);
         }
     }
+}
+
+/// The aggregator's own marked list-panes, as tmux answers it: three blocks,
+/// the rows (fields in `PaneColumn` order) in the middle one.
+fn pane_list(agg: &StateAggregator, number: u32, rows: &str) -> String {
+    let begin = agg.markers().tag(LIST_BEGIN_MARKER);
+    let end = agg.markers().tag(LIST_END_MARKER);
+    let panes = TmuxList::Panes.name();
+    let (a, b, c) = (number, number + 1, number + 2);
+    format!(
+        "%begin {a} {a} 1\n{begin} {panes}\n%end {a} {a} 1\n\
+         %begin {b} {b} 1\n{rows}%end {b} {b} 1\n\
+         %begin {c} {c} 1\n{end}\n%end {c} {c} 1\n"
+    )
+}
+
+/// A real `tmux -CC` slice: session/window handshake, the list-panes answer,
+/// and the window layout — what the browser feeds the parser after `attach`
+/// + `refresh-client -C`.
+fn attach(parser: &mut Parser, agg: &mut StateAggregator) {
+    let stream = format!(
+        "%begin 1 1 0\n%end 1 1 0\n%session-changed $0 m\n%window-add @0\n{}{}",
+        pane_list(
+            agg,
+            2,
+            "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
+             %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
+        ),
+        "%window-pane-changed @0 %0\n\
+         %layout-change @0 8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} \
+         8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
+    );
+    feed(parser, agg, &stream);
+}
+
+fn drive() -> TmuxState {
+    let mut parser = Parser::new();
+    let mut agg = StateAggregator::with_session_name("m");
+    attach(&mut parser, &mut agg);
     agg.to_tmux_state()
 }
 
-// A real `tmux -CC` slice: session/window handshake, a list-panes response block
-// (fields in LIST_PANES_CMD order), and the window layout — what the browser
-// feeds the parser after `attach` + `refresh-client -C`.
-const STREAM: &str = concat!(
-    "%begin 1 1 0\n",
-    "%end 1 1 0\n",
-    "%session-changed $0 m\n",
-    "%window-add @0\n",
-    "%begin 2 2 1\n",
-    "%0,0,0,0,40,24,0,0,1,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-    "%1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-    "%end 2 2 1\n",
-    "%window-pane-changed @0 %0\n",
-    "%layout-change @0 8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} ",
-    "8205,80x24,0,0{40x24,0,0,0,39x24,41,0,1} *\n",
-);
-
 #[test]
 fn reconstructs_two_pane_state_from_control_mode() {
-    let state = drive(STREAM);
+    let state = drive();
     assert_eq!(
         state.panes.len(),
         2,
@@ -49,7 +74,6 @@ fn reconstructs_two_pane_state_from_control_mode() {
     widths.sort_unstable();
     assert_eq!(widths, vec![39, 40], "pane geometry from the layout string");
 
-    // Both panes are associated with the window from the list-panes response.
     assert!(state.panes.iter().all(|p| p.window_id == "@0"));
     let ids: Vec<&str> = state.panes.iter().map(|p| p.tmux_id.as_str()).collect();
     assert!(ids.contains(&"%0") && ids.contains(&"%1"));
@@ -59,7 +83,7 @@ fn reconstructs_two_pane_state_from_control_mode() {
 fn serializes_to_the_frontend_wire_shape() {
     // The wasm binding hands `StateUpdate`/`TmuxState` to JS via serde; make sure
     // the JSON carries the fields the tmuxy UI reads.
-    let state = drive(STREAM);
+    let state = drive();
     let json = serde_json::to_value(&state).expect("serialize TmuxState");
     assert_eq!(json["session_name"], "m");
     assert!(json["panes"].as_array().unwrap().len() == 2);
@@ -70,15 +94,11 @@ fn serializes_to_the_frontend_wire_shape() {
 /// whole push API: %pane-mode-changed, %paste-buffer-changed, then tmux's
 /// answer to the marker-wrapped show-buffer the aggregator asks for.
 fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, String)> {
-    use tmuxy_core::control_mode::SideEffect;
+    use tmuxy_core::control_mode::{Batch, Notice, SideEffect};
 
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
-    for line in STREAM.split('\n') {
-        if let Some(event) = parser.parse_line(line) {
-            agg.step(event);
-        }
-    }
+    attach(&mut parser, &mut agg);
 
     // A yank happens in copy mode: %pane-mode-changed has the aggregator
     // re-list the pane, and the row tmux answers with carries the copy-mode
@@ -88,28 +108,31 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     let event = parser.parse_line("%pane-mode-changed %0").unwrap();
     let relist = agg.step(event).effects;
     assert!(
-        relist
-            .iter()
-            .any(|e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids.len() == 1)),
+        relist.iter().any(|e| matches!(
+            e,
+            SideEffect::Send {
+                batch: Batch::PaneRefresh,
+                ..
+            }
+        )),
         "a mode change re-lists the pane: {relist:?}"
     );
-    let in_copy_mode = concat!(
-        "%begin 6 6 1\n",
-        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-        "%1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
-        "%end 6 6 1\n",
+    let in_copy_mode = pane_list(
+        &agg,
+        6,
+        "%0,0,0,0,40,24,0,0,1,zsh,,1,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n\
+         %1,1,41,0,39,24,0,0,0,zsh,,0,0,0,0,@0,,0,0,0,0,0,0,100,,,,,,,\n",
     );
-    for line in in_copy_mode.split('\n') {
-        if let Some(event) = parser.parse_line(line) {
-            agg.step(event);
-        }
-    }
+    feed(&mut parser, &mut agg, &in_copy_mode);
     let event = parser.parse_line("%paste-buffer-changed buffer0").unwrap();
     let effects = agg.step(event).effects;
     let cmd = effects
         .iter()
         .find_map(|e| match e {
-            SideEffect::SendTmuxCommand(c) => Some(c.clone()),
+            SideEffect::Send {
+                batch: Batch::Own,
+                commands,
+            } => commands.first().cloned(),
             _ => None,
         })
         .expect("show-buffer command emitted");
@@ -128,7 +151,7 @@ fn clipboard_writes_of_a_yank(buffer: &str) -> Vec<(Option<tmuxy_core::PaneId>, 
     for line in response.split('\n') {
         if let Some(event) = parser.parse_line(line) {
             for effect in agg.step(event).effects {
-                if let SideEffect::WriteClipboard { pane_id, text } = effect {
+                if let SideEffect::Notify(Notice::Clipboard { pane_id, text }) = effect {
                     clipboard.push((pane_id, text));
                 }
             }
@@ -173,14 +196,12 @@ fn a_paste_buffer_over_the_clipboard_cap_is_not_mirrored() {
 fn a_character_split_across_output_lines_reaches_the_screen_whole() {
     let mut parser = Parser::new();
     let mut agg = StateAggregator::with_session_name("m");
+    attach(&mut parser, &mut agg);
     let mut feed = |line: &[u8]| {
         if let Some(event) = parser.parse_line(line) {
             agg.step(event);
         }
     };
-    for line in STREAM.split('\n') {
-        feed(line.as_bytes());
-    }
 
     let 語 = "語".as_bytes();
     feed("%output %0 \\033[H\\033[2Kab日本".as_bytes());

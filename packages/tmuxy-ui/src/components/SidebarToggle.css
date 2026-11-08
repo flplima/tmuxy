@@ -1,4 +1,3 @@
-/* Sidebar toggle - icon button at its cluster's inner edge */
 .sidebar-toggle {
   display: flex;
   align-items: center;
@@ -23,8 +22,7 @@
   background-color: var(--bg-medium);
 }
 
-/* Open: the icon brightens. No filled background — an open sidebar is already
-   visible on screen, so a persistent pill next to it is noise. */
+/* No filled background: an open sidebar is already on screen. */
 .sidebar-toggle-active {
   color: var(--text-primary);
 }

@@ -1,5 +1,3 @@
-//! Each tool's `inputSchema`, as `tools/list` answers it.
-
 use serde_json::{json, Value};
 
 use super::open::SEND_MAX;

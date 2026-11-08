@@ -6,10 +6,10 @@
 //!
 //! 1. [`open`] (`tmuxy plugin action`, in the caller's process) writes the
 //!    token file `.run/<token>.json` (owner-only) with everything the command
-//!    should know — the target pane, its cwd, the selection — and opens the
+//!    should know (the target pane, its cwd, the selection) and opens the
 //!    action's surface running `tmuxy plugin exec <plugin> <action> <token>`,
 //!    the one tmux command list that changes anything going through
-//!    `run-shell` (`job`).
+//!    `run-shell` (`run_shell`).
 //! 2. [`exec`], the new pane's process, reads the token once (and deletes
 //!    it), puts the selection in a file, sets the plugin's environment and
 //!    runs the declared argv directly (`Command::new`, never a shell), with the
@@ -23,7 +23,7 @@ mod surface;
 mod token;
 
 pub use surface::{
-    exec_command_line, free_index, notify_failure, open, surface_argv, wait, OpenRequest, Opened,
+    exec_command_line, notify_failure, open, pane_running, surface_argv, wait, OpenRequest, Opened,
     Target,
 };
 pub use token::{is_pane_id, prepare, status_path, PaneInfo, Token, Trigger, MAX_SELECTION_BYTES};
@@ -32,10 +32,10 @@ use std::path::Path;
 
 use super::manifest::Action;
 use super::registry::{resolve_command, Installed, Registry};
-use super::{private_dir, Dirs, PluginError, Result};
+use super::{private_dir, PluginError, Result};
+use crate::paths::Layout;
 use token::selection_path;
 
-/// What a command's context is about, beside its plugin.
 #[derive(Debug, Clone, Copy)]
 pub struct Context<'a> {
     pub action: Option<&'a str>,
@@ -48,7 +48,7 @@ pub struct Context<'a> {
 
 /// `TMUXY_PLUGIN_CONTEXT_JSON`: the target pane, what started the command,
 /// the link a click matched, and the settings in force (never a secret one).
-pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String {
+pub fn context_json(dirs: &Layout, plugin: &Installed, ctx: Context<'_>) -> Result<String> {
     let info = ctx.info.cloned().unwrap_or_default();
     let mut context = serde_json::json!({
         "plugin": plugin.name,
@@ -56,7 +56,7 @@ pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String
         "pane": { "id": ctx.pane, "cwd": info.cwd, "command": info.command },
         "tab": info.tab,
         "session": info.session,
-        "settings": super::settings::context_values(dirs, plugin),
+        "settings": super::settings::context_values(dirs, plugin)?,
     });
     if let Some(action) = ctx.action {
         context["action"] = action.into();
@@ -67,12 +67,12 @@ pub fn context_json(dirs: &Dirs, plugin: &Installed, ctx: Context<'_>) -> String
     if let Some(link) = ctx.link {
         context["link"] = serde_json::to_value(link).unwrap_or_default();
     }
-    context.to_string()
+    Ok(context.to_string())
 }
 
-/// The environment every plugin command gets.
+/// The environment every plugin command gets (docs/PLUGIN-API.md).
 pub fn plugin_env(
-    dirs: &Dirs,
+    dirs: &Layout,
     plugin: &Installed,
     pane: &str,
     context: String,
@@ -110,7 +110,7 @@ fn command_for(
 /// Run an action's command as the process of the pane [`open`] made, and
 /// return its exit status. Never returns an `Err`: what went wrong is
 /// printed in the pane and logged, so the user sees it there.
-pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
+pub fn exec(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> i32 {
     let (status, waited) = match exec_inner(dirs, name, action_id, token_id) {
         Ok(ran) => ran,
         Err(e) => {
@@ -122,7 +122,13 @@ pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
         }
     };
     if waited {
-        let _ = crate::private_files::write(&status_path(dirs, token_id), status.to_string());
+        if let Err(e) =
+            crate::private_files::write(&status_path(dirs, token_id), status.to_string())
+        {
+            let message = format!("exec {name}:{action_id}: the exit status was not saved: {e}");
+            super::log::append(dirs, name, &message);
+            eprintln!("tmuxy plugin {name}: {message}");
+        }
     }
     if status != 0 && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         eprintln!("\n[{name}:{action_id} exited with status {status}; press Enter to close]");
@@ -133,7 +139,7 @@ pub fn exec(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> i32 {
 }
 
 /// The command's exit status, and whether someone waits for it.
-fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Result<(i32, bool)> {
+fn exec_inner(dirs: &Layout, name: &str, action_id: &str, token_id: &str) -> Result<(i32, bool)> {
     let token = Token::take(dirs, token_id)?;
     if token.plugin != name || token.action != action_id {
         return Err(PluginError::Invalid(
@@ -163,7 +169,7 @@ fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Resul
             selection_file: selection_file.as_deref(),
             link: token.link.as_ref(),
         },
-    );
+    )?;
     let mut cmd = command_for(plugin, action, &token.args)?;
     cmd.envs(plugin_env(dirs, plugin, &token.pane, context)?);
     if let Some(file) = &selection_file {
@@ -191,8 +197,16 @@ fn exec_inner(dirs: &Dirs, name: &str, action_id: &str, token_id: &str) -> Resul
 /// Spawn and wait, with this process ignoring the interrupt and quit keys
 /// meanwhile: they reach the whole foreground group, and the child decides
 /// what they mean. The exit is still logged after a Ctrl-C.
+///
+/// The disposition is process-wide, which is why this runs only in the
+/// short-lived `tmuxy plugin exec` process a pane runs ([`exec`]), never in
+/// a server. The child is spawned first, so it starts with the default
+/// dispositions rather than inheriting the ignore.
 fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
     let mut child = cmd.spawn()?;
+    // SAFETY: `signal` with `SIG_IGN` installs no handler code, so nothing
+    // runs in signal context; both signal numbers are valid, so neither call
+    // returns `SIG_ERR`.
     #[cfg(unix)]
     let previous = unsafe {
         (
@@ -201,6 +215,9 @@ fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
         )
     };
     let status = child.wait();
+    // SAFETY: puts back exactly the dispositions the calls above replaced
+    // (the default, or an ignore this process was started with), so nothing
+    // is installed that was not there before the wait.
     #[cfg(unix)]
     unsafe {
         libc::signal(libc::SIGINT, previous.0);
@@ -220,7 +237,7 @@ fn run_waiting(cmd: &mut std::process::Command) -> std::io::Result<i32> {
 /// The command a `[[cli]]` verb runs, with the plugin's environment, in the
 /// caller's working directory (the verb is the user's own command, run from
 /// their shell). The CLI `exec`s it.
-pub fn cli_command(dirs: &Dirs, verb: &str, args: &[String]) -> Result<std::process::Command> {
+pub fn cli_command(dirs: &Layout, verb: &str, args: &[String]) -> Result<std::process::Command> {
     let registry = Registry::load(dirs)?;
     let (plugin, cli) = registry
         .verb(verb)
@@ -241,7 +258,7 @@ pub fn cli_command(dirs: &Dirs, verb: &str, args: &[String]) -> Result<std::proc
             selection_file: None,
             link: None,
         },
-    );
+    )?;
     let mut cmd = std::process::Command::new(program);
     cmd.args(&cli.command[1..])
         .args(args)

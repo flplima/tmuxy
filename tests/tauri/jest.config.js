@@ -4,9 +4,9 @@ module.exports = {
   roots: ['<rootDir>'],
   testMatch: ['**/?(*.)test.js'],
   testPathIgnorePatterns: ['/node_modules/', '/helpers/'],
-  testTimeout: 300000, // 5 minutes per test (Tauri app startup is slow)
+  testTimeout: 300000, // Tauri app startup is slow
   verbose: true,
-  // Sequential — all tests share one Xvfb display and tauri-driver
+  // One Xvfb display and one tauri-driver for every test.
   maxWorkers: 1,
   globalSetup: '<rootDir>/jest.global-setup.js',
   globalTeardown: '<rootDir>/jest.global-teardown.js',

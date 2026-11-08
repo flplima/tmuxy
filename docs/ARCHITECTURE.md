@@ -29,11 +29,11 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 └─────────────────────────────────────────────────────────┘
 ```
 
-**tmuxy-core** — Rust library that manages tmux control mode connections. Owns the sans-IO state aggregator, the `TmuxMonitor` runtime that drives it against a live `tmux -CC` subprocess, and the tmux reads both transports share (`transport.rs`: scrollback, key bindings, theme, snapshots), all of which go over the control-mode connection. `executor` holds the command-string helpers (quoting, the `new-window` rewrite, `list-keys` parsing); the only subprocesses left are the session preflight and creation in `session.rs`, before any client is attached. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
+**tmuxy-core** — Rust library that manages tmux control mode connections. Owns the sans-IO state aggregator and the sans-IO client core around it (`control_mode::monitor_core`), which the `TmuxMonitor` runtime drives against a live `tmux -CC` subprocess and tmuxy-wasm drives in the browser guest, and the host both apps run (`host`: the session runtime, the client commands and the reads they answer — scrollback, key bindings, theme, snapshots), all of which go over the control-mode connection (`control_mode::query`/`run`). `tmux_command` is the one tmux command-list grammar (commands, words, blocks, the `new-window` rewrite) that the router, the re-lists, the run-shell relay and the wasm guest all read commands with; the only subprocesses left are the session preflight and creation in `session.rs`, before any client is attached. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for details.
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes in-browser engines, `V86TmuxAdapter` and `CheerpXTmuxAdapter` — real tmux and bash in an x86 emulator or under CheerpX's x86-to-wasm JIT, the control-mode stream parsed by tmuxy-core compiled to wasm — which the demo site and the v86 stories run. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes the in-browser guests: the `GuestTmuxAdapter` driver over a `GuestEngine` — `V86Engine`, real tmux and bash in an x86 emulator, or `CheerpXEngine`, under CheerpX's x86-to-wasm JIT — with the control-mode stream parsed by tmuxy-core compiled to wasm; the demo site and the v86 stories run them. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Each OS window is its own client with its own monitor, in a tmux session group (see "One monitor per GUI window" in [DATA-FLOW.md](DATA-FLOW.md), which also covers the Tauri data flow).
 
@@ -47,7 +47,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 4. tmux sends real-time notifications (`%output`, `%layout-change`, `%window-add`, etc.) through control mode stdout. The `StateAggregator` processes these into `StateUpdate` objects (full snapshots or incremental deltas).
 
-5. State updates are emitted via the `StateEmitter` trait — `SseEmitter` broadcasts to all SSE clients in a session, `TauriEmitter` emits Tauri events to the desktop app.
+5. State updates are emitted via the `StateEmitter` trait, which one type implements: the session's `SessionRuntime` (`tmuxy-core/src/host/runtime.rs`). It turns them into `HostEvent`s and hands them to its host's sink — the web server's per-session SSE broadcast, or the desktop window's Tauri events.
 
 6. The frontend's XState machine merges state updates into its context, and React components re-render via selector hooks. See [DATA-FLOW.md](DATA-FLOW.md) for detailed flow diagrams.
 
@@ -55,7 +55,7 @@ See [ARCHITECTURE-WIDGETS.md](ARCHITECTURE-WIDGETS.md) for this section: Widgets
 
 ## The user's config directory
 
-tmuxy's files live in three directories, split by owner so each has one rule (`Layout` in `tmuxy-core/src/session/config.rs`, the directories in `tmuxy-core/src/paths.rs`):
+tmuxy's files live in three directories, split by owner so each has one rule. `tmuxy-core/src/paths.rs` is the one map of them: it resolves the directories, lists every file in `FILES` (dir, name, whether it is safe to edit), and `Layout` turns an entry into a path, so nothing else spells a file name. `tmuxy config paths` prints that table through the server binary (`tmuxy-verbs/src/config_cli.rs`); and a test holds the config README's table to it:
 
 | Dir | Default | Owner | Rule |
 | --- | --- | --- | --- |
@@ -66,18 +66,17 @@ tmuxy's files live in three directories, split by owner so each has one rule (`L
 | File | Dir | Owner | On launch |
 | --- | --- | --- | --- |
 | `tmuxy.conf` | config | user | the starter (comments only) on the very first run — the config dir did not exist, not even as a dangling link — and never again |
-| `custom.css`, `themes/<name>.css` | config | user | left alone; a theme named like a built-in shadows it |
+| `custom.css`, `themes/<name>.css`, `icons/` | config | user | left alone; a theme named like a built-in shadows it |
 | `tmuxy.defaults.conf`, `tmuxy.essentials.conf`, `tmuxy.conf.example`, `README.md` | data | app | rewritten to this build's copy, headed as generated |
 | `themes/<built-in>.css`, `bin/` | data | app | rewritten, headed as generated; a retired built-in is removed |
-| `tmuxy.entry.conf` (and `tmuxy.compat.conf`, when needed) | state | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
-| `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them |
-| `launcher`, `tmuxy.pid`, `config-reload` | state | app | the desktop app's path for the `~/.local/bin/tmuxy` shorthand; the web server's pid; the marker `tmuxy config reload` touches |
+| `tmuxy.entry.conf` | state | app | rebuilt before every use: the config chain (see [TMUX-CONFIG.md](TMUX-CONFIG.md#the-config-chain-and-where-a-users-own-tmuxconf-fits)) |
+| `tmuxy.state.json`, `trace.json`, `servers.json` | state | app | written when the menus, the Debug menu or `tmuxy session connect` change them, each replaced whole (`private_files::replace`) |
+| `trace.ndjson`, `tmuxy.log`, `sessions/`, `push/` | state | app | the trace while tracing is on; the desktop app's log; session snapshots per socket; the web server's push key and subscriptions |
+| `launcher`, `tmuxy-<port>.pid`, `config-reload` | state | app | the desktop app's path for the `~/.local/bin/tmuxy` shorthand; the web server's pid, a shortcut only: `tmuxy server stop` and `status` identify the server by its port, and when the file is missing or names a dead or foreign process they ask the OS which tmuxy process listens on the port (`/proc/net/tcp` on Linux, `lsof` on macOS) and say "found by port"; the marker `tmuxy config reload` touches |
 
 The user never overrides what the app bundles; they copy a built-in theme into the config dir (under a new name to add one, the same name to replace it), write `custom.css`, or set options in `tmuxy.conf`. CSS applies in that order, most specific first: `custom.css` → the `@tmuxy-css-<variable>` options → the theme file. An option `tmuxy.conf` sets beats a menu choice (see [TMUX-CONFIG.md](TMUX-CONFIG.md#menu-choices-and-the-options-tmuxyconf-pins)). Every edit is live: both hosts watch the config dir and either push `css-changed` or source the chain (see [DATA-FLOW.md](DATA-FLOW.md)). The `README.md` in the data dir is the user-facing guide, and the one the bundled agent skill points at; `tmuxy config paths` lists every file with its owner and its real location.
 
 Process icons follow the same rule: `@tmuxy-icon-<process>` gives a process one or two ASCII characters or an SVG from the config dir's `icons/` (the server inlines it as a `data:` URL in `theme-settings`, `tmuxy-core/src/theme/icons.rs`), over the built-in marks for Claude Code, Antigravity and Codex. The client draws an SVG as a CSS mask over `currentColor` (`packages/tmuxy-ui/src/components/PaneIcon.tsx`): its shape in the colour of the text beside it, its transparent parts showing the background, so a theme change or an active tab recolours it with no redraw.
-
-**Migration.** The first launch of a build with this layout (`tmuxy-core/src/session/migrate.rs`) moves an older install's state files out of `~/.config/tmuxy` into the state dir, removes the files it used to mirror there (the confs, the README, `bin/`, the built-in themes it headed), and drops from `tmuxy.conf` the blocks older builds wrote: the template header (its exact lines, never a comment the user added), the `source-file …/tmuxy.defaults.conf` line, the commented examples, the Ctrl+Tab lines "added by tmuxy upgrade" and a Ctrl+hjkl restore the defaults ship again — keeping the original as `tmuxy.conf.bak`. Only comments, that line, and bindings identical to ones the defaults ship go, and a binding only when no other line binds or unbinds the same key. Nothing is written or deleted through a symlink: a linked config dir is only read (its state files are copied), and a linked `tmuxy.conf` is reported in the log rather than rewritten. A second run finds nothing to do. Pid files an older build left in `~/.tmuxy` are still read by `tmuxy server stop` and `status`.
 
 ## Multi-Client Viewport Sizing
 
@@ -90,7 +89,7 @@ Each client reports the viewport its pane container holds, in cells of the font 
 | `latest` | the viewport of the client used last: the last to send a command or report a new size | a smaller client scales down to fit |
 | `COLSxROWS` (`80x25`) | that grid, whatever the clients report | every client scales the grid to fill its container, up or down |
 
-The scaling is the client's: `fittedGridCell` (`tmuxy-ui/src/machines/app/helpers.ts`, over `utils/gridFit.ts`) fits the measured cell to the grid, the same way the phone layout fits 80 columns, and the pane container carries the fitted font. The chrome and the sidebar columns keep the measured cell. Under a fixed size a client also asks for that size, so opening a sidebar re-tiles nothing: in a browser the grid shrinks into the room left, and the desktop app instead widens the OS window by the column (`grow_window`, as far as the screen allows) and narrows it back when the column closes.
+The scaling is the client's: `fittedGridCell` (`tmuxy-ui/src/machines/app/helpers.ts`, over `domain/gridFit.ts`) fits the measured cell to the grid, the same way the phone layout fits 80 columns, and the pane container carries the fitted font. The chrome and the sidebar columns keep the measured cell. Under a fixed size a client also asks for that size, so opening a sidebar re-tiles nothing: in a browser the grid shrinks into the room left, and the desktop app instead widens the OS window by the column (`grow_window`, as far as the screen allows) and narrows it back when the column closes.
 
 A report is taken no smaller than a floor (`MIN_CLIENT_COLS` × `MIN_CLIENT_ROWS` in `client_size.rs`): a grid that measured as a sliver mid-load, or a forged size, must not shrink the session to nothing for every other client under `smallest`.
 
@@ -98,13 +97,9 @@ The desktop app has one client per window, so only a fixed size changes anything
 
 ## The e-ink page (`/?kindle`)
 
-A second, minimal client for a browser the app cannot run in: the Kindle Scribe's Silk is Chrome 80, which loads the app's bundle and stops at the first syntax it does not know, leaving a black page. `?kindle` on any app URL sends the browser to `kindle.html` before the bundle runs (`tmuxy-ui/public/kindle-redirect.js`, a classic script the app's `index.html` loads first), keeping the rest of the query, `session=` included.
+A minimal client for browsers too old for the app: the Kindle Scribe's Silk (Chrome 80) stops at the bundle's first unknown syntax and leaves a black page. `?kindle` on any app URL goes to `kindle.html` before the bundle runs (`tmuxy-ui/public/kindle-redirect.js`, loaded first by `index.html`), keeping the query.
 
-The page (`tmuxy-ui/src/kindle/`) is built on its own for that engine (`vite.kindle.config.ts`, target `chrome80`, run by the UI's `build` after the app) into the same `dist/`, so the server embeds it beside the app. It reuses the app's wire decoding, client model and `toTmuxCommand`, and nothing of its machines or React.
-
-It keeps no model of its own and never applies a delta. The event stream keeps the session's monitor alive and gives the page its connection id; each `state-update` is answered by a `get_initial_state` for the whole state, drawn again at most once every 700 ms, and only the rows that changed reach the screen, since every repaint is an e-ink refresh. The active tab is one character grid — the panes at their places, box-drawing dividers between them, the cursor inverted — in black on white: colour is dropped, bold, underline, inverse and faint are kept. Text goes in through a box and Send (Enter appended), keys through a row of buttons, a tap on a pane gives it the keyboard, and the tab buttons switch tabs.
-
-The page reports its size like any client (`set_client_size` under its connection id), from the cells its font holds, so under the default `@tmuxy-size smallest` the session follows the Kindle's screen while it is connected. A− and A+ change the font, and with it the size reported. It does not scale the grid: under a larger session size the screen scrolls.
+The page (`tmuxy-ui/src/kindle/`) is built on its own for `chrome80` (`vite.kindle.config.ts`, run by the UI's `build`) into the same `dist/`. It reuses the wire decoding, the client model and `toTmuxCommand`, none of the machines or React. It keeps no model and applies no delta: each `state-update` is answered by a `get_initial_state`, drawn at most every 700 ms, and only changed rows reach the screen (every repaint is an e-ink refresh). The active tab is one black-on-white character grid with box-drawing dividers and an inverted cursor; colour is dropped, bold, underline, inverse and faint kept. A text box with Send, key buttons, a tap on a pane and tab buttons drive it. It reports its size like any client (`set_client_size`), from the cells its font (A−/A+) holds; a larger session scrolls.
 
 ## Key Design Decisions
 
@@ -112,17 +107,17 @@ The page reports its size like any client (`set_client_size` under its connectio
 
 2. **All commands through control mode** — External tmux subprocess calls can crash the tmux server when control mode is attached. See [TMUX.md](TMUX.md).
 
-3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / reconnecting / disconnected, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/domain/store/`) with explicit committed / pending-ops / derived layers: plain state and pure functions (`src/domain/store/`), held by `src/infra/store/TmuxStore.ts`, whose only effect is sending an op through the `TmuxTransport` service. The appMachine bridges them: every intent is a `TmuxOp` dispatched to `tmuxStoreActor` (`DISPATCH_OP`), and state from the transport stream reaches it as `TMUX_STATE_UPDATE`. Components render; business logic belongs in the machines, and `useEffect` is kept to DOM and timer work that has nowhere else to live.
+3. **State machine + client model in frontend** — XState owns UI-mode finite states (connecting / idle / reconnecting / disconnected, drag, resize, copy mode, command mode). The tmux world itself lives in a dedicated `TmuxClientModel` (`src/domain/store/`) with explicit committed / pending-ops / derived layers: plain state and pure functions (`src/domain/store/`), held by `src/infra/store/TmuxStore.ts`, whose only effect is sending an op through the `TmuxTransport` service. The appMachine bridges them: every intent is a `TmuxOp` raised as `DISPATCH_OP`, routed (`machines/app/dispatch.ts`) and handed to `tmuxStoreActor` (`STORE_DISPATCH`), and state from the transport stream reaches it as `TMUX_STATE_UPDATE`. Components render; business logic belongs in the machines, and `useEffect` is kept to DOM and timer work that has nowhere else to live.
 
 4. **One transport service** — the `TmuxTransport` Effect service abstracts SSE/HTTP, Tauri IPC and the in-browser engines behind one interface and one ordered event stream, so the frontend is transport-agnostic.
 
 5. **Delta protocol** — After the initial full state snapshot, the server sends incremental deltas (changed panes, windows) to minimize bandwidth.
 
-6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (~60fps cap), and emits immediately during low-frequency interactions for responsive typing feedback. Tunables live on `MonitorConfig`.
+6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (~60fps cap), and emits immediately during low-frequency interactions for responsive typing feedback. The tunables are constants in `control_mode/monitor/event_loop.rs`; only the throttle interval is a `MonitorConfig` field.
 
 7. **Sans-IO core, runtime at the edges** — The state aggregator is pure: events in, typed `SideEffect`s out, no I/O of its own. The runtime executes those effects; the aggregator's time-based steps take an explicit instant, so tests can drive it without spinning a real tmux.
 
-8. **One cursor for the whole app** — Each pane still renders a cursor element at its cursor cell, but only as an anchor: it is not painted. The cursor the user sees is a single fixed overlay (`tmuxy-ui/src/components/SmoothCursor.tsx`) that glides to whichever anchor belongs to the pane holding the keyboard, Neovide-style — the corners facing the direction of travel arrive first, the trailing ones lag, so a jump smears and snaps back into a cell. Because the overlay is one element, the same glide covers a move within a pane, a jump between panes, and a jump into the dock or a float. It re-measures the anchor every frame while anything moves, so it also follows transitions running underneath it (a re-tile, a zoom). Only the pane holding the keyboard has an anchor at all; a pane without it draws no cursor in any mode.
+8. **One cursor for the whole app** — Each pane still renders a cursor element at its cursor cell, but only as an anchor: it is not painted. The cursor the user sees is a single fixed overlay (`tmuxy-ui/src/components/terminal/SmoothCursor.tsx`) that glides to whichever anchor belongs to the pane holding the keyboard, Neovide-style — the corners facing the direction of travel arrive first, the trailing ones lag, so a jump smears and snaps back into a cell. Because the overlay is one element, the same glide covers a move within a pane, a jump between panes, and a jump into the dock or a float. It re-measures the anchor every frame while anything moves, so it also follows transitions running underneath it (a re-tile, a zoom). Only the pane holding the keyboard has an anchor at all; a pane without it draws no cursor in any mode.
 
 ## Crate layout
 
@@ -130,12 +125,12 @@ Each crate's source tree is one `ls packages/<crate>/src` away — the durable t
 
 | Crate | Owns |
 | --- | --- |
-| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, the shared control-mode reads in `transport.rs`, typed `TmuxError`. |
-| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev); the `tmuxy server <verb>` tools. |
+| `tmuxy-core` | `tmux -CC` subprocess management, control-mode event parsing, the sans-IO state aggregator, `TmuxMonitor` runtime, the shared host (`host/`), typed `TmuxError`, and the logging every binary installs (`logging.rs`). |
+| `tmuxy-server` | Axum HTTP server, SSE streaming with `Last-Event-Id` resync, typed `ClientCommand` enum for the HTTP POST endpoint, per-session client tracking, structured shutdown, embedded frontend assets (prod) or Vite proxy (dev), the MCP endpoint, web push, and `tmuxy server stop`/`status`. Its binary runs every `tmuxy server <verb>`. |
+| `tmuxy-verbs` | The `tmuxy server <verb>` tools that serve nothing, which the CLI scripts call: plugins, session snapshots, coding agents, pane groups (over the rules in `tmuxy_core::groups`), floats, tabs, `run`, sends, the config files, trace files. The web server and the desktop app both link it; neither needs the other to run a verb. It is also a binary of its own, `tmuxy-verbs`, for the in-browser guests, which have no server: built there without its `native` feature, it leaves out the verbs on tmuxy-core's async transport (snapshots, plugins, trace files, the servers list) and answers each as not available here. |
 | `tmuxy-ui` | React frontend, XState machine, optimistic `TmuxClientModel`, Effect-based adapter facade with typed errors, and the v86 client-side adapter (real tmux in an in-browser x86 emulator). |
 | `tmuxy-wasm` | wasm-bindgen facade over tmuxy-core's sans-IO control-mode parser + state aggregator, so browsers can reconstruct tmux state with the exact code the native server runs. Build via the root `build:wasm` script. |
 | `tmuxy-tauri-app` | Tauri desktop wrapper. Uses the same `TmuxMonitor` plumbing as the server; transport is native IPC instead of SSE/HTTP. |
-| `tmuxy-group` | The pane-group operations the `pane-group` script runs (`tmuxy-server group <verb>`), over the rules in `tmuxy_core::groups` — also built as a `tmuxy-group` binary so the v86 guest, which has no server, can run them. |
 | `tmuxy-pty` | The terminal each pane of the CheerpX guest runs on: CheerpX gives every process one pty, so the guest's patched tmux runs a pane on a socket pair under this helper, which does the line discipline, and its LD_PRELOAD (`preload.c`) supplies the process-group behaviour CheerpX lacks. See `packages/tmuxy-ui/cheerpx/README.md`. |
 
 ## Related Documentation

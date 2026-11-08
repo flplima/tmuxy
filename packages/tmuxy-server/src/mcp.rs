@@ -20,10 +20,8 @@ mod tmux;
 mod tools;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_ask;
 
 use axum::{
@@ -48,10 +46,8 @@ const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The header a session id travels in, both ways.
 const SESSION_HEADER: &str = "mcp-session-id";
 
-/// The most bytes of one JSON-RPC message the endpoint reads.
 const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 
-/// What an agent is told about the server when it connects.
 const INSTRUCTIONS: &str =
     "tmuxy shows a tmux session in a browser or desktop window. These tools \
 see and drive the session the user is looking at. Panes are named by their tmux id (%3) or by \
@@ -83,13 +79,11 @@ pub struct Clients {
     names: StdMutex<VecDeque<(String, String)>>,
 }
 
-/// How many client names the server remembers.
 const MAX_CLIENTS: usize = 64;
 
 impl Clients {
-    /// Remember `name` and hand back the session id it is known by.
     fn register(&self, name: String) -> String {
-        let id = format!("{:016x}{:016x}", random_u64(), random_u64());
+        let id = tmuxy_core::random::token();
         if let Ok(mut names) = self.names.lock() {
             if names.len() == MAX_CLIENTS {
                 names.pop_front();
@@ -108,21 +102,6 @@ impl Clients {
     }
 }
 
-/// 64 bits nobody on the socket can work out in advance: std's hasher keys
-/// are seeded from the OS's randomness.
-pub(crate) fn random_u64() -> u64 {
-    use std::hash::{BuildHasher, Hasher};
-    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-    hasher.write_u128(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default(),
-    );
-    hasher.finish()
-}
-
-/// A JSON-RPC error: the code and the message.
 #[derive(Debug, PartialEq)]
 struct RpcError {
     code: i64,
@@ -155,18 +134,13 @@ fn rpc_error_response(status: StatusCode, id: Value, error: RpcError) -> Respons
         .into_response()
 }
 
-/// Who a request comes from, and what it may do.
 pub(crate) struct Caller {
-    /// The session the endpoint URL names.
     session: SessionName,
-    /// `?read-only`: only the tools that change nothing.
     read_only: bool,
-    /// The name the client introduced itself with, if it did.
     name: Option<String>,
 }
 
 impl Caller {
-    /// The name the question over a pane gives the sender.
     fn display_name(&self) -> &str {
         self.name.as_deref().unwrap_or("an MCP client")
     }

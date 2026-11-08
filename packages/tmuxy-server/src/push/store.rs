@@ -52,7 +52,6 @@ impl Subscription {
     }
 }
 
-/// The push directory and what is in it.
 pub(crate) struct Store {
     dir: PathBuf,
 }
@@ -63,7 +62,7 @@ impl Store {
     }
 
     pub(crate) fn in_state_dir() -> Self {
-        Self::new(tmuxy_core::paths::state_dir().join("push"))
+        Self::new(tmuxy_core::paths::Layout::current().path(&tmuxy_core::paths::PUSH))
     }
 
     fn key_path(&self) -> PathBuf {
@@ -75,9 +74,9 @@ impl Store {
     }
 
     /// The VAPID key, made on the first call and kept from then on: a new
-    /// key would orphan every subscription made with the old one. One that
-    /// no longer reads (an older build kept the bare scalar) is replaced,
-    /// and the devices subscribed with it are forgotten, to subscribe again.
+    /// key would orphan every subscription made with the old one. A key file
+    /// that does not read (an older build wrote the bare scalar) is replaced,
+    /// and the subscriptions made under it go with it.
     pub(crate) fn vapid_key(&self) -> std::io::Result<VapidKey> {
         if let Some(key) = std::fs::read_to_string(self.key_path())
             .ok()
@@ -86,8 +85,6 @@ impl Store {
         {
             return Ok(key);
         }
-        // A key file that does not read was another key: the devices on it
-        // are its, not the new one's.
         if self.key_path().exists() {
             match std::fs::remove_file(self.subscriptions_path()) {
                 Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
@@ -145,7 +142,6 @@ impl Store {
     }
 }
 
-/// Write `bytes` to `path` readable by the user alone, replacing it whole.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

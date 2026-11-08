@@ -1,28 +1,31 @@
-import type { BottomView } from '../../utils/bottomSlide';
-import type { PushState } from '../../utils/pushNotifications';
+import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type { TmuxPane, TmuxWindow, PaneGroup } from '../../domain/client';
 import type { KeyBindings, ProcessIcons, SizePolicy } from '../../domain/wire';
-import type { GridCell } from '../../utils/gridFit';
-import type { ThemeInfo, ThemeMode } from '../../utils/themeManager';
-import type { AskAnswer } from '../../utils/paneAsk';
+import type { GridCell } from '../../domain/gridFit';
+import type { ThemeInfo, ThemeMode, TraceSettings } from '../../domain/wireSettings';
+import type { AskAnswer } from '../../domain/paneAsk';
 import type { GroupId, PaneId, WindowId } from '../../domain/ids';
 import type {
   AppNotification,
+  BottomView,
   DragState,
   FloatPaneState,
   GestureFlags,
   GestureState,
-  GitRepository,
+  KeyboardOwner,
   LogEntry,
-  PaneGroup,
   ResizeState,
+  SidebarSide,
+  SidebarState,
+} from './domain';
+import type {
+  GitRepository,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
-  TraceSettings,
-} from './domain';
+} from '../../domain/servers';
 
 export interface AppMachineContext {
   connected: boolean;
@@ -33,7 +36,7 @@ export interface AppMachineContext {
    * will arrive on this monitor.
    */
   fatalError: string | null;
-  /** Recent commands sent and errors received (debug log shown on status screen) */
+  /** Recent commands sent and errors received: the connection overlay's Details. */
   log: LogEntry[];
   sessionName: string;
   activeWindowId: WindowId | null;
@@ -53,6 +56,11 @@ export interface AppMachineContext {
   askSelections: Record<PaneId, AskAnswer>;
   targetCols: number;
   targetRows: number;
+  /**
+   * The size actor has measured the viewport: `targetCols`/`targetRows` are
+   * this client's, not the defaults. The state is fetched at that size.
+   */
+  viewportMeasured: boolean;
   drag: DragState | null;
   resize: ResizeState | null;
   resizeActive: boolean;
@@ -62,8 +70,8 @@ export interface AppMachineContext {
   cellGap: number;
   /**
    * The pane grid's own font size in px when it differs from the chrome's —
-   * the phone layout's shrunken cell (utils/phoneLayout.ts), or a cell fitted
-   * to a grid `@tmuxy-size` sized for someone else (utils/gridFit.ts). Null
+   * the phone layout's shrunken cell (infra/dom/phoneLayout.ts), or a cell fitted
+   * to a grid `@tmuxy-size` sized for someone else (domain/gridFit.ts). Null
    * otherwise.
    */
   gridFontSize: number | null;
@@ -76,73 +84,38 @@ export interface AppMachineContext {
   measuredCell: GridCell;
   /** `@tmuxy-size`, from the config: how tmux sizes the session across clients. */
   sizePolicy: SizePolicy;
-  /** The phone layout: the whole 80 × 25 terminal, a key row and the tree below it. */
+  /** The phone layout (infra/dom/phoneLayout.ts): the terminal, a key row and the tree below it. */
   phoneLayout: boolean;
   /** The phone layout held sideways: the terminal right, the strip, keys and tree left of it. */
   phoneLandscape: boolean;
-  /** Default shell name (e.g., "bash", "zsh") from server */
-  defaultShell: string;
   /** The server machine's name, from its greeting; null until it says. */
   serverHostname: string | null;
 
-  /** Container dimensions for centering calculations */
   containerWidth: number;
   containerHeight: number;
-  /** Float pane positions and states (keyed by pane ID) */
   floatPanes: Record<PaneId, FloatPaneState>;
-  /** Pane ID of the currently focused float (keyboard routes here instead of session) */
-  focusedFloatPaneId: PaneId | null;
   /**
-   * Whether the left sidebar column (the tab/pane tree) is shown. Its pane lives
-   * in a `sidebar-left`-typed window running `tmuxy widget tree`; closing hides
-   * the column (`@tmuxy-sidebar-hidden` on its window) and keeps that pane, so
-   * the choice survives a reload and reaches every other client.
+   * Who holds the keyboard. A float or the dock takes the keystrokes typed;
+   * the tree (left) drives its widget (j/k/Enter/l/q) instead of a pane.
    */
-  leftSidebarOpen: boolean;
-  /**
-   * Whether the tree column holds keyboard focus. While true, keys drive the
-   * tree widget (j/k/Enter/l/q) instead of reaching a tab's pane.
-   */
-  leftSidebarFocused: boolean;
-  /**
-   * The tree column was asked to open but its pane never appeared (the
-   * `tmuxy widget tree` command failed on this server). The column shows why
-   * instead of "starting…" forever.
-   */
-  leftSidebarStartFailed: boolean;
-  /**
-   * This client asked tmux to create the tree column's pane and is waiting
-   * for it. Cleared when the pane appears, or by SIDEBAR_START_TIMEOUT when
-   * it never does: then the start failed rather than a user closing it.
-   */
-  leftSidebarStarting: boolean;
-  /**
-   * Whether the right sidebar column (the pinned terminal) is open. The pane
-   * behind it lives in a `sidebar-right`-typed window and survives closing —
-   * closing hides the column, it never kills the shell.
-   */
-  rightSidebarOpen: boolean;
-  /**
-   * Whether the pinned terminal dock holds keyboard focus. While true, keys are
-   * routed to its pane instead of the active tab's pane (same mechanism a
-   * focused float uses).
-   */
-  rightSidebarFocused: boolean;
-  /** The dock was asked to open but its pane never appeared. */
-  rightSidebarStartFailed: boolean;
-  /** Same as `leftSidebarStarting`, for the dock. */
-  rightSidebarStarting: boolean;
+  keyboardOwner: KeyboardOwner;
+  /** The two sidebar columns: the tree (left) and the pinned terminal (right). */
+  sidebars: Record<SidebarSide, SidebarState>;
   /**
    * A sidebar column width being previewed while its divider is dragged, in
    * columns (null = the default). Drawn immediately; the tmux option is written
    * on release and the preview is dropped once the server reports that width.
    */
-  sidebarColsPreview: { side: 'left' | 'right'; cols: number | null } | null;
-  /** Rows last written to the dock's @tmuxy-sidebar-rows, and for which window. */
-  dockRowsSent: { windowId: WindowId; rows: number } | null;
+  sidebarColsPreview: { side: SidebarSide; cols: number | null } | null;
+  /**
+   * The dock size last written to its window (`@tmuxy-sidebar-rows`, and
+   * `@tmuxy-sidebar-cols` when the phone's bottom view sized it), and for
+   * which window: the one record behind the one writer, `sidebars_syncDockSize`.
+   */
+  dockSizeSent: { windowId: WindowId; cols: number | null; rows: number } | null;
 
   /**
-   * The phone's browser-side zoom (the `phone` slice, utils/phoneSplit.ts):
+   * The phone's browser-side zoom (the `phone` slice, domain/phoneSplit.ts):
    * the terminal's scale, 1 at its own size. Set by the bar between the
    * terminal and the bottom view, or a double tap; panned with a
    * finger when it is past 1. Kept per device.
@@ -154,8 +127,11 @@ export interface AppMachineContext {
   phoneCollapsed: boolean;
   /** What the phone shows under the keys: the menu, the tree, or the pinned terminal (the dock). */
   phoneBottomView: BottomView;
-  /** The dock size last written to its window from the phone's bottom view. */
-  phoneDockSizeSent: { windowId: WindowId; cols: number; rows: number } | null;
+  /**
+   * The phone's bottom view, measured in the dock's cells: the size the dock's
+   * pane is given while a phone draws it there. Null before it is measured.
+   */
+  phoneDockView: { cols: number; rows: number } | null;
   /**
    * Width of the app body (both columns plus the pane grid), in pixels. The
    * docked/overlay decision is made from this, never from the pane container,
@@ -183,9 +159,8 @@ export interface AppMachineContext {
    */
   tabOverviewOpen: boolean;
   tabOverviewSelected: number;
-  /** The tab whose rename field is open in the strip, if any. */
-  renamingTabId: WindowId | null;
-  /** Whether browser-side animations are enabled */
+  /** The tab whose rename field is open, and where: the strip or the tree. */
+  renamingTab: { windowId: WindowId; surface: 'strip' | 'tree' } | null;
   enableAnimations: boolean;
   /**
    * The config's say (`@tmuxy-animations`): false strips every layout
@@ -208,7 +183,7 @@ export interface AppMachineContext {
   sendAsk: boolean;
   /** Whether tmuxy.conf lets the server push notifications (`@tmuxy-notify`). */
   notifyAllowed: boolean;
-  /** Whether this device gets them (utils/pushNotifications.ts). */
+  /** Whether this device gets them (infra/pushNotifications.ts). */
   pushState: PushState;
   /**
    * The config's `@tmuxy-icon-<process>` icons: ASCII text, or an SVG as a
@@ -240,12 +215,14 @@ export interface AppMachineContext {
   nativeMenus: boolean;
   /** The trackpad gesture being drawn right now, or null with the fingers off the pad. */
   gesture: GestureState | null;
-  /** Keybindings received from the server */
   keybindings: KeyBindings | null;
-  /** Client-side copy mode state per pane */
   copyModeStates: Record<PaneId, CopyModeState>;
-  /** Pane IDs ordered by most-recently-active first (for navigation tie-breaking) */
-  paneActivationOrder: PaneId[];
+  /**
+   * When this client last left copy mode on each pane: tmux can still report
+   * the mode on for a beat after, and inside COPY_MODE_REENTRY_COOLDOWN that
+   * report is not a new entry.
+   */
+  copyModeExitedAt: Record<PaneId, number>;
   /**
    * Whether the previous TMUX_MODEL_UPDATE carried no geometry delta on
    * existing panes. React can batch an optimistic (dirty) update and its
@@ -258,11 +235,11 @@ export interface AppMachineContext {
    */
   lastUpdateQuiet: boolean;
   /**
-   * Pane IDs involved in in-flight GroupSwitch store ops — mirrored from
+   * Pane IDs involved in in-flight GroupSwitch store ops, mirrored from
    * `model.ops` on every TMUX_MODEL_UPDATE so selectors can suppress CSS
    * transitions on the swapped panes while the swap is unconfirmed. The
-   * geometry/window pinning itself lives in the op's optimistic patch
-   * (see store/ops.ts predictGroupSwitch); no timers, no overrides.
+   * geometry itself is the op's optimistic patch (`predictGroupSwitch` in
+   * domain/store/windowOps.ts).
    */
   groupSwitchPaneIds: PaneId[];
   /** Command mode state (tmux command prompt) */
@@ -275,11 +252,9 @@ export interface AppMachineContext {
   statusMessage: { text: string; timestamp: number } | null;
   /** Snackbar entries on screen, oldest first (see AppNotification) */
   notifications: AppNotification[];
-  /** Current theme name */
   themeName: string;
   /** Current theme mode: a palette, or `auto` for the operating system's */
   themeMode: ThemeMode;
-  /** Available themes from server */
   availableThemes: ThemeInfo[];
   /**
    * Local action tracing as the backend last reported it, or null before the
@@ -307,8 +282,6 @@ export interface AppMachineContext {
   renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */
   baseFontSize: number;
-  /** Timestamp of last layout command (for debouncing rapid layout changes) */
-  lastLayoutCommandTime: number;
   /** Temporarily suppress layout transitions (e.g., command-based resize) */
   suppressLayoutTransition: boolean;
   /**
@@ -321,9 +294,6 @@ export interface AppMachineContext {
    *  Prevents unmount/remount flicker when optimistic placeholders are replaced
    *  by server-confirmed panes. */
   paneKeyOverrides: Record<PaneId, PaneId>;
-  /** Per-window most-recently-active pane ID, populated from server state and
-   *  used by SELECT_TAB to pick the optimistic focus when switching tabs. */
-  lastActivePaneByWindow: Record<WindowId, PaneId>;
   /**
    * All tmux sessions on the current server, for the sidebar sessions→tabs→panes
    * tree. Populated by the `serversActor` poll on web + desktop; stays `[]` on

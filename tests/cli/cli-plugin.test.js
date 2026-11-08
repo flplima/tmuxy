@@ -25,7 +25,6 @@ describe('tmuxy plugin', () => {
     expect(tmuxCalls).toHaveLength(0);
   });
 
-  /** The gate asks on the terminal, which a `run-shell` job has none of. */
   /**
    * The gate asks on the terminal, and `action --wait` waits in the caller's
    * own process, so every verb runs the binary directly; `action` puts the

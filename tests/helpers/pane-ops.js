@@ -4,9 +4,10 @@
  * Pane information, split, navigate, swap, zoom, kill, layout, and resize.
  */
 
-const { delay } = require('./browser');
+const { waitForCondition, waitForSettled } = require('./browser');
 const { tmuxSideOfSession } = require('./tmux-side');
 const { waitBudget } = require('./config');
+const { inPage } = require('./story-module');
 const {
   sendKeyCombo,
   sendPrefixCommand,
@@ -18,25 +19,86 @@ const {
 // ==================== Pane Information ====================
 
 /**
- * Get number of visible panes in UI
+ * An element that draws a pane: its layout wrapper, its terminal, a float, the
+ * dock. A pane carries its id on more than one of them, so callers count
+ * distinct ids. The tree's rows carry it too, for every tab's panes.
  */
-async function getUIPaneCount(page) {
-  return await page.evaluate(() => {
-    const panes = document.querySelectorAll('[data-pane-id]');
-    if (panes.length > 0) {
-      const uniqueIds = new Set();
-      for (const pane of panes) {
-        uniqueIds.add(pane.getAttribute('data-pane-id'));
-      }
-      return uniqueIds.size;
+const DRAWN_PANE = '[data-pane-id]:not(.sidebar-tree-pane)';
+
+/** A pane of the grid: one element per pane, its wrapper. */
+const GRID_PANE = '.pane-container .pane-layout-item[data-pane-id]';
+
+/**
+ * Whether the user can see `el` (runs in the page, rebuilt there from its
+ * text, so it stays self-contained). A background tab and a parked group
+ * member keep their panes mounted, hidden; a box of no size or outside the
+ * viewport is in the DOM and not on screen.
+ */
+const onScreen = (el) => {
+  if (el.closest('.pane-window-hidden') || getComputedStyle(el).visibility === 'hidden') {
+    return false;
+  }
+  const box = el.getBoundingClientRect();
+  return (
+    box.width >= 1 &&
+    box.height >= 1 &&
+    box.right > 0 &&
+    box.bottom > 0 &&
+    box.left < window.innerWidth &&
+    box.top < window.innerHeight
+  );
+};
+
+/** The distinct panes `selector` finds on screen, each with its first element's box (runs in the page). */
+const shownPaneBoxes = (selector, isShown) => {
+  const seen = new Map();
+  for (const el of document.querySelectorAll(selector)) {
+    if (!seen.has(el.dataset.paneId) && isShown(el)) {
+      seen.set(el.dataset.paneId, el.getBoundingClientRect().toJSON());
     }
-    return document.querySelectorAll('[role="log"]').length;
-  });
+  }
+  return [...seen].map(([id, box]) => ({ id, box }));
+};
+
+/**
+ * The panes the user can see, as `{ id, box }` in document order: every
+ * element that draws one (`DRAWN_PANE`), or only the grid's (`GRID_PANE`).
+ */
+function shownPanes(page, selector = DRAWN_PANE) {
+  return page.evaluate(inPage(shownPaneBoxes, [selector], [onScreen]));
+}
+
+/** How many distinct panes the page shows. */
+async function getUIPaneCount(page) {
+  return (await shownPanes(page)).length;
 }
 
 /**
- * Get terminal text content
+ * Wait until the page shows `expectedCount` distinct panes; throw past the
+ * budget with what the page and the client hold. A page still loading (a
+ * reload a test just made) has no answer yet, which is not a wrong one.
  */
+async function waitForPaneCount(page, expectedCount, timeout = 10000) {
+  let seen = null;
+  await waitForCondition(
+    page,
+    async () => {
+      seen = await shownPanes(page).catch((err) => err);
+      return Array.isArray(seen) && seen.length === expectedCount;
+    },
+    timeout,
+    async () => {
+      const client = await page
+        .evaluate(() => window.app?.view().visiblePaneIds)
+        .catch((err) => err.message);
+      const dom = Array.isArray(seen)
+        ? JSON.stringify(seen.map((p) => p.id))
+        : `unreadable: ${seen?.message}`;
+      return `${expectedCount} panes on screen\n  DOM panes: ${dom}\n  client's visible panes: ${JSON.stringify(client)}`;
+    },
+  );
+}
+
 /**
  * The terminals the user can actually SEE, newest layout first.
  *
@@ -50,18 +112,12 @@ async function getUIPaneCount(page) {
  * `[data-pane-id="%3"]`); omitted, it takes every visible terminal.
  */
 async function visibleTerminals(page, scope) {
-  return await page.evaluate((sel) => {
+  const read = (sel, isShown) => {
     const logs = [...document.querySelectorAll('[role="log"]')];
     const wanted = sel ? new Set([...document.querySelectorAll(sel + ' [role="log"]')]) : null;
     const out = [];
     logs.forEach((log, index) => {
-      if (wanted && !wanted.has(log)) return;
-      if (log.closest('.pane-window-hidden')) return;
-      if (getComputedStyle(log).visibility === 'hidden') return;
-      const box = log.getBoundingClientRect();
-      if (box.width < 1 || box.height < 1) return;
-      if (box.right <= 0 || box.bottom <= 0) return;
-      if (box.left >= window.innerWidth || box.top >= window.innerHeight) return;
+      if ((wanted && !wanted.has(log)) || !isShown(log)) return;
       // Row by row, with a newline between rows. The log's own textContent
       // fused consecutive rows (`TOUCH_KBD_OKTOUCH_KBD_OK`) and lost the
       // space a wrapped line carried at its wrap column, so a long command
@@ -70,11 +126,12 @@ async function visibleTerminals(page, scope) {
       out.push({
         index,
         text: rows.length > 0 ? rows.join('\n') : log.textContent || '',
-        box: box.toJSON(),
+        box: log.getBoundingClientRect().toJSON(),
       });
     });
     return out;
-  }, scope ?? null);
+  };
+  return await page.evaluate(inPage(read, [scope ?? null], [onScreen]));
 }
 
 /**
@@ -121,25 +178,28 @@ async function textIsReadable(page, index, text) {
  * (Browser-side waitForFunction can miss transient DOM states on CI.)
  */
 async function waitForTerminalText(page, text, timeout = 15000, { scope, notOnLineWith } = {}) {
-  const budget = waitBudget(timeout);
-  const start = Date.now();
   let why = 'it never appeared';
   // `notOnLineWith` skips rows that also carry it — the typed command line,
   // when what is awaited is that command's output.
   const counts = (row) => row.includes(text) && !(notOnLineWith && row.includes(notOnLineWith));
-  while (Date.now() - start < budget) {
-    for (const terminal of await visibleTerminals(page, scope)) {
-      if (!terminal.text.split('\n').some(counts)) continue;
-      const verdict = await textIsReadable(page, terminal.index, text);
-      if (verdict.ok) return await getTerminalText(page, { scope });
-      why = verdict.why;
-    }
-    await delay(100);
-  }
-  const content = await getTerminalText(page, { scope });
-  throw new Error(
-    `Timeout waiting for "${text}" to be visible in the terminal (${budget}ms, ${why}). Content (${content.length} chars): "${content.slice(0, 200)}"`,
+  await waitForCondition(
+    page,
+    async () => {
+      for (const terminal of await visibleTerminals(page, scope)) {
+        if (!terminal.text.split('\n').some(counts)) continue;
+        const verdict = await textIsReadable(page, terminal.index, text);
+        if (verdict.ok) return true;
+        why = verdict.why;
+      }
+      return false;
+    },
+    timeout,
+    async () => {
+      const content = await getTerminalText(page, { scope });
+      return `"${text}" to be visible in the terminal (${why}). Content (${content.length} chars): "${content.slice(0, 200)}"`;
+    },
   );
+  return await getTerminalText(page, { scope });
 }
 
 /**
@@ -161,18 +221,10 @@ function showsShellPrompt(text) {
 }
 
 /**
- * The hard stop for a pane that never produces a prompt.
- *
- * Deliberately WELL under jest's own per-test budget, and that is the whole
- * point of the number. It used to be 120000 — exactly the test timeout — so
- * when a pane really did stay blank, jest's timeout fired at the same moment
- * and won: the failure read `Exceeded timeout of 120000 ms` and said nothing
- * about a shell, a prompt, or what was on screen. A diagnostic that cannot be
- * reached before the harness gives up is not a diagnostic.
- *
- * 45s is far longer than any shell takes to write its first byte, including on
- * a cold loaded runner, and leaves the rest of the budget for the test to
- * report with.
+ * The hard stop for a pane that never produces a prompt: far longer than any
+ * shell takes to write its first byte on a cold loaded runner, and well under
+ * jest's per-test timeout, so a blank pane fails here with what is on screen
+ * rather than as a bare `Exceeded timeout`.
  */
 const PROMPT_CEILING = 45000;
 
@@ -181,10 +233,8 @@ const PROMPT_CEILING = 45000;
  *
  * Patience, not a stopwatch. `timeout` bounds how long the terminal may go
  * WITHOUT CHANGING, and any change resets it, so a slow runner that is still
- * drawing keeps its wait — "not ready yet" means keep waiting, never done. A
- * fixed deadline is a constant that encodes how fast the machine is: at 10s it
- * passed on a dev machine and failed on a loaded CI runner whose shell had not
- * yet written its first byte (observed content: one space).
+ * drawing keeps its wait: a loaded CI runner's shell can take longer than any
+ * fixed deadline to write its first byte.
  *
  * `ceiling` is the only bound on a pane that never stops changing, so a
  * runaway `yes` reports here rather than as an opaque jest timeout.
@@ -248,7 +298,7 @@ async function waitForPrompts(page, quantifier, timeout, ceiling) {
           (await tmuxSideOfSession(page)),
       );
     }
-    await delay(100);
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
@@ -284,13 +334,8 @@ async function splitPaneKeyboard(page, direction = 'horizontal') {
     await sendPrefixCommand(page, '5', { shift: true });
   }
   await waitForLayoutSettled(page);
-  // A split is not finished when the grid stops moving — it is finished when
-  // the new pane has a shell that can be typed into. `waitForShellPrompt`
-  // cannot answer this: it returns as soon as ANY visible terminal shows a
-  // prompt, and the pane that was split already did before the key was
-  // pressed. So a caller that split and then typed was racing the new shell's
-  // start-up, and won only because `sendPrefixCommand` used to sleep 500ms
-  // afterwards for unrelated reasons.
+  // Done once the new pane has a shell to type into: `waitForShellPrompt`
+  // would answer for the pane that was split, whose prompt was there before.
   await waitForEveryShellPrompt(page);
 }
 
@@ -306,42 +351,50 @@ async function waitForEveryShellPrompt(page, timeout = 30000, { ceiling = PROMPT
 }
 
 /**
- * Resolve once the grid has stopped moving: the same panes, the same boxes and
- * the same focus seen twice in a row.
- *
- * Every helper below used to sleep a flat 500ms after a split, a swap or a
- * zoom and hope tmux had answered. This returns as soon as it has — usually
- * well inside that — and keeps waiting when a loaded CI runner takes longer,
- * which is the half the sleep could not do.
+ * The grid as the user sees it: every pane on screen with its box, the pane
+ * drawn active and where the keyboard sends keys (runs in the page).
+ */
+const screenLayout = (selector) => {
+  const panes = [...document.querySelectorAll(selector)]
+    .filter((el) => !el.closest('.pane-window-hidden'))
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      return [
+        el.dataset.paneId,
+        Math.round(r.left),
+        Math.round(r.top),
+        Math.round(r.width),
+        Math.round(r.height),
+      ];
+    })
+    .filter(([, , , w, h]) => w > 0 && h > 0);
+  return JSON.stringify({
+    panes,
+    active: document.querySelector('.pane-active')?.getAttribute('data-pane-id') ?? null,
+    keys: document.querySelector('input[data-keyboard-target]')?.dataset.keyboardTarget ?? null,
+  });
+};
+
+/**
+ * Wait until the app has caught up with what was sent (`waitForSettled`) and
+ * the grid has stopped moving: the panes on screen, their boxes, the active
+ * pane and the keyboard's target the same in two looks in a row, so a layout
+ * transition still animating is waited out.
  */
 async function waitForLayoutSettled(page, { timeout = 10000 } = {}) {
-  const sample = () =>
-    page.evaluate(() => {
-      const c = window.app?.getSnapshot().context;
-      if (!c) return null;
-      return JSON.stringify({
-        activePane: c.activePaneId,
-        activeWindow: c.activeWindowId,
-        panes: c.panes.map((p) => [p.tmuxId, p.windowId, p.x, p.y, p.width, p.height]),
-        windows: c.windows.map((w) => [w.id, w.active, w.windowType]),
-      });
-    });
-
-  const start = Date.now();
-  // No machine on the page yet (a page still hydrating): wait for one to
-  // observe. A page that never gets one has no layout to settle.
-  let previous = await sample();
-  while (previous === null && Date.now() - start < timeout) {
-    await delay(60);
-    previous = await sample();
-  }
-  if (previous === null) return;
-  while (Date.now() - start < timeout) {
-    await delay(60);
-    const current = await sample();
-    if (current !== null && current === previous) return;
-    previous = current;
-  }
+  await waitForSettled(page, timeout);
+  let previous = null;
+  await waitForCondition(
+    page,
+    async () => {
+      const current = await page.evaluate(screenLayout, DRAWN_PANE).catch(() => null);
+      const same = current !== null && current === previous;
+      previous = current;
+      return same;
+    },
+    timeout,
+    () => `the layout to stop moving (last seen: ${previous})`,
+  );
 }
 
 // ==================== Navigation Operations ====================
@@ -364,12 +417,13 @@ async function navigatePaneKeyboard(page, direction) {
 
   const key = keyMap[direction];
   if (key) {
-    // Use Ctrl+arrow root binding (no prefix needed)
     await sendKeyCombo(page, 'Control', key);
-    await waitForLayoutSettled(page);
   } else if (direction === 'next') {
     await sendPrefixCommand(page, 'o');
+  } else {
+    throw new Error(`navigatePaneKeyboard: no key for direction '${direction}'`);
   }
+  await waitForLayoutSettled(page);
 }
 
 // ==================== Swap Operations ====================
@@ -422,12 +476,14 @@ async function resizePaneKeyboard(page, direction, amount = 5) {
 
 module.exports = {
   // Pane info
+  GRID_PANE,
+  onScreen,
+  shownPanes,
   getUIPaneCount,
-  visibleTerminals,
+  waitForPaneCount,
   getTerminalText,
   waitForTerminalText,
   waitForShellPrompt,
-  waitForEveryShellPrompt,
   showsShellPrompt,
   waitForLayoutSettled,
   runCommand,

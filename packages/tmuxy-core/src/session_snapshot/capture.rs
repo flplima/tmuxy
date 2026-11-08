@@ -1,52 +1,89 @@
 use std::collections::{BTreeMap, HashMap};
 
 use super::*;
+use crate::constants::tmux_formats::{fields_format, Field};
 
-// =============================================================================
-// Reading the tree out of tmux
-// =============================================================================
-
-/// `s/,/%2C/` keeps a comma in a path or a name from splitting the record.
-/// Everything else here is comma-free by construction (ids, flags, numbers).
-pub const QUERY_WINDOWS: &str = concat!(
-    "list-windows -t #SESSION# -F '",
-    "#{window_id},#{window_index},#{window_active},",
-    "#{@tmuxy-window-type},#{@tmuxy-float-parent},#{@tmuxy-float-width},",
-    "#{@tmuxy-float-height},#{@tmuxy-float-drawer},#{@tmuxy-float-bg},",
-    "#{@tmuxy-float-noheader},#{@tmuxy-sidebar-cols},#{@tmuxy-sidebar-hidden},",
-    "#{@tmuxy-sidebar-rows},#{@tmuxy-collapsible},",
-    "#{s/,/%2C/:window_layout},#{s/,/%2C/:window_name}'"
-);
-
-/// The `-F` format of a pane record, shared by [`QUERY_PANES`] and
-/// [`QUERY_STASH_PANES`] so the two can never parse differently. A macro
-/// because `concat!` only accepts literals.
-macro_rules! pane_record_format {
-    () => {
-        concat!(
-            "#{pane_id},#{window_id},#{pane_index},#{pane_active},#{pane_pid},",
-            "#{s/,/%2C/:pane_tty},#{s/,/%2C/:pane_current_path},",
-            "#{s/,/%2C/:@tmuxy-pane-restore},#{s/,/%2C/:@tmuxy-group-id},#{@tmuxy-group-pos},",
-            // Base64, so it holds no comma.
-            "#{@tmuxy-ask}"
-        )
-    };
+/// A record's columns, written and read by the rule every list tmuxy reads
+/// follows (`constants::tmux_formats::Field`): free text is [`Field::Text`],
+/// comma-escaped on the way out and unescaped by [`record`]; every other
+/// field is comma-free (ids, flags, numbers, base64).
+fn window_columns() -> Vec<Field> {
+    let mut columns: Vec<Field> = [
+        "window_id",
+        "window_index",
+        "window_active",
+        tmux_options::WINDOW_TYPE,
+        tmux_options::FLOAT_PARENT,
+    ]
+    .map(Field::Var)
+    .into();
+    columns.extend(WINDOW_OPTION_NAMES.map(Field::Var));
+    columns.extend([Field::Text("window_layout"), Field::Text("window_name")]);
+    columns
 }
 
-pub const QUERY_PANES: &str = concat!(
-    "list-panes -s -t #SESSION# -F '",
-    pane_record_format!(),
-    "'"
-);
+fn pane_columns() -> Vec<Field> {
+    vec![
+        Field::Var("pane_id"),
+        Field::Var("window_id"),
+        Field::Var("pane_index"),
+        Field::Var("pane_active"),
+        Field::Var("pane_pid"),
+        Field::Text("pane_tty"),
+        Field::Text("pane_current_path"),
+        Field::Text(tmux_options::PANE_RESTORE),
+        Field::Text(tmux_options::GROUP_ID),
+        Field::Var(tmux_options::GROUP_POS),
+        // Base64, so it holds no comma.
+        Field::Var(tmux_options::ASK),
+    ]
+}
 
-/// The stash session's panes, in the same record shape as `QUERY_PANES`.
-pub const QUERY_STASH_PANES: &str = concat!(
-    "list-panes -s -t ",
-    crate::constants::stash_session!(),
-    " -F '",
-    pane_record_format!(),
-    "'"
-);
+/// The name a column is looked up by in a [`record`].
+fn column_name(field: Field) -> &'static str {
+    match field {
+        Field::Var(name) | Field::Text(name) | Field::Format(name) | Field::TextFormat(name) => {
+            name
+        }
+    }
+}
+
+/// A record's fields by column name, free text unescaped, or `None` for a
+/// line that is not one record of exactly these columns.
+fn record(columns: &[Field], line: &str) -> Option<HashMap<&'static str, String>> {
+    let fields: Vec<&str> = line.split(',').collect();
+    (fields.len() == columns.len()).then(|| {
+        columns
+            .iter()
+            .zip(fields)
+            .map(|(column, printed)| (column_name(*column), column.read(printed)))
+            .collect()
+    })
+}
+
+fn list_query(verb: &str, target_flag: &str, target: &str, columns: Vec<Field>) -> Vec<String> {
+    let format = fields_format(columns);
+    [verb, target_flag, "-t", target, "-F", &format]
+        .into_iter()
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// The windows of `session`, as argv ([`parse_windows`] reads the output).
+pub fn query_windows(session: &str) -> Vec<String> {
+    list_query("list-windows", "", session, window_columns())
+}
+
+/// Every pane of `session` ([`parse_panes`] reads the output).
+pub fn query_panes(session: &str) -> Vec<String> {
+    list_query("list-panes", "-s", session, pane_columns())
+}
+
+/// The stash session's panes, in the same record shape as [`query_panes`].
+pub fn query_stash_panes() -> Vec<String> {
+    query_panes(crate::constants::STASH_SESSION)
+}
 
 /// A layout as `select-layout` on any supported tmux takes it: tmux 3.8's
 /// JSON becomes the classic string, which only 3.8 itself would not need;
@@ -97,19 +134,7 @@ pub fn hidden_members(
         .collect()
 }
 
-/// The two queries for `session`, ready to send.
-pub fn queries_for(session: &str) -> (String, String) {
-    (
-        QUERY_WINDOWS.replace("#SESSION#", session),
-        QUERY_PANES.replace("#SESSION#", session),
-    )
-}
-
-fn unescape(field: &str) -> String {
-    field.replace("%2C", ",")
-}
-
-/// A window as `QUERY_WINDOWS` prints it, before it is tied to its panes.
+/// A window as [`query_windows`] prints it, before it is tied to its panes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowRecord {
     pub id: WindowId,
@@ -122,7 +147,7 @@ pub struct WindowRecord {
     pub name: String,
 }
 
-/// A pane as `QUERY_PANES` prints it.
+/// A pane as [`query_panes`] prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneRecord {
     pub id: PaneId,
@@ -140,12 +165,12 @@ pub struct PaneRecord {
 }
 
 fn opt(field: &str) -> Option<String> {
-    let value = unescape(field.trim());
-    (!value.is_empty()).then_some(value)
+    let value = field.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }
 
-/// The window options restored verbatim, in the order `QUERY_WINDOWS` prints
-/// them after the type and parent.
+/// The window options restored verbatim, in the order [`query_windows`]
+/// prints them after the type and parent.
 pub(super) const WINDOW_OPTION_NAMES: [&str; 9] = [
     tmux_options::FLOAT_WIDTH,
     tmux_options::FLOAT_HEIGHT,
@@ -159,57 +184,48 @@ pub(super) const WINDOW_OPTION_NAMES: [&str; 9] = [
 ];
 
 pub fn parse_windows(output: &str) -> Vec<WindowRecord> {
+    let columns = window_columns();
     output
         .lines()
         .filter_map(|line| {
-            let parts: Vec<&str> = line.split(',').collect();
-            // id, index, active, type, parent, 9 options, layout, name
-            if parts.len() != 16 {
-                return None;
-            }
-            let id = WindowId::parse(parts[0]).ok()?;
-            let mut options = BTreeMap::new();
-            for (name, value) in WINDOW_OPTION_NAMES.iter().zip(&parts[5..14]) {
-                if let Some(value) = opt(value) {
-                    options.insert((*name).to_string(), value);
-                }
-            }
+            let f = record(&columns, line)?;
+            let options = WINDOW_OPTION_NAMES
+                .iter()
+                .filter_map(|name| Some(((*name).to_string(), opt(&f[name])?)))
+                .collect();
             Some(WindowRecord {
-                id,
-                index: parts[1].parse().ok()?,
-                active: parts[2] == "1",
-                window_type: opt(parts[3]),
-                float_parent_id: WindowId::parse(parts[4].trim()).ok(),
+                id: WindowId::parse(&f["window_id"]).ok()?,
+                index: f["window_index"].parse().ok()?,
+                active: f["window_active"] == "1",
+                window_type: opt(&f[tmux_options::WINDOW_TYPE]),
+                float_parent_id: WindowId::parse(f[tmux_options::FLOAT_PARENT].trim()).ok(),
                 options,
-                // Kept in the classic form every supported tmux takes back:
-                // tmux 3.8 prints JSON here, which no older one reads.
-                layout: restorable_layout(&unescape(parts[14])),
-                name: unescape(parts[15]),
+                layout: restorable_layout(&f["window_layout"]),
+                name: f["window_name"].clone(),
             })
         })
         .collect()
 }
 
 pub fn parse_panes(output: &str) -> Vec<PaneRecord> {
+    let columns = pane_columns();
     output
         .lines()
         .filter_map(|line| {
-            let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() != 11 {
-                return None;
-            }
+            let f = record(&columns, line)?;
+            let field = |column: &str| f[column].as_str();
             Some(PaneRecord {
-                id: PaneId::parse(parts[0]).ok()?,
-                window_id: WindowId::parse(parts[1]).ok()?,
-                index: parts[2].parse().ok()?,
-                active: parts[3] == "1",
-                pid: parts[4].parse().ok()?,
-                tty: unescape(parts[5]),
-                cwd: unescape(parts[6]),
-                restore_command: opt(parts[7]),
-                group_id: GroupId::parse(parts[8].trim()).ok(),
-                group_pos: parts[9].trim().parse().ok(),
-                offer: offered_by(parts[10].trim()),
+                id: PaneId::parse(field("pane_id")).ok()?,
+                window_id: WindowId::parse(field("window_id")).ok()?,
+                index: field("pane_index").parse().ok()?,
+                active: field("pane_active") == "1",
+                pid: field("pane_pid").parse().ok()?,
+                tty: field("pane_tty").to_string(),
+                cwd: field("pane_current_path").to_string(),
+                restore_command: opt(field(tmux_options::PANE_RESTORE)),
+                group_id: GroupId::parse(field(tmux_options::GROUP_ID).trim()).ok(),
+                group_pos: field(tmux_options::GROUP_POS).trim().parse().ok(),
+                offer: offered_by(field(tmux_options::ASK).trim()),
             })
         })
         .collect()
@@ -242,9 +258,12 @@ pub fn assemble(
                     // A sidebar is tmuxy's: what runs in it is the widget
                     // the client started (or, on the right, a shell), never
                     // the helper the widget happens to be sleeping in.
-                    let (command, restore_command, offer) = match w.window_type.as_deref() {
-                        Some("sidebar-left") => (None, Some(LEFT_SIDEBAR_WIDGET.to_string()), None),
-                        Some("sidebar-right") => (None, None, None),
+                    let kind = w.window_type.as_deref().and_then(WindowType::parse);
+                    let (command, restore_command, offer) = match kind {
+                        Some(WindowType::SidebarLeft) => {
+                            (None, Some(LEFT_SIDEBAR_WIDGET.to_string()), None)
+                        }
+                        Some(WindowType::SidebarRight) => (None, None, None),
                         _ => (
                             commands.get(&p.id).cloned(),
                             p.restore_command.clone(),
@@ -291,10 +310,6 @@ pub fn assemble(
         hidden: Vec::new(),
     }
 }
-
-// =============================================================================
-// What a pane is running
-// =============================================================================
 
 /// Whether argv names a shell rather than a program worth bringing back.
 pub fn is_shell(argv: &[String]) -> bool {
@@ -394,35 +409,4 @@ pub fn foreground(ps_output: &str, shell_pid: u32) -> Option<Foreground> {
         }
     }
     best.map(|(_, found)| found)
-}
-
-/// A shell line for argv, quoted so it round-trips through a prompt.
-pub fn shell_join(argv: &[String]) -> String {
-    argv.iter()
-        .map(|a| shell_quote(a))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// tmux on tmuxy's server, as a shell command line: what a job `run-shell`
-/// starts calls to reach the server that started it.
-pub fn tmux_shell_command() -> String {
-    let [flag, socket] = crate::session::tmux_socket_args();
-    format!(
-        "{} {flag} {}",
-        shell_quote(crate::session::tmux_path()),
-        shell_quote(&socket)
-    )
-}
-
-pub fn shell_quote(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./=:@%+,".contains(c));
-    if plain {
-        word.to_string()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
 }

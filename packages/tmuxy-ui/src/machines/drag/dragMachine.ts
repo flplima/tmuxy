@@ -1,9 +1,7 @@
 /**
- * Drag Machine - Handles pane drag-to-swap operations
- *
- * Sends real-time swap commands once the pointer rests on another pane.
- * The dragged pane follows the cursor while other panes swap in real-time.
- * Spawns its own pointer listener when entering the dragging state.
+ * Pane drags. The dragged pane follows the pointer, and swaps with another
+ * pane once the pointer rests on it, through a pointer listener spawned while
+ * dragging.
  *
  * Dragging up onto the tab strip means something else: the pane leaves this
  * tab. Over another tab it joins that one, over the empty space after the last
@@ -13,14 +11,10 @@
  * this one waits for the release: moving a pane between tabs is disruptive
  * enough that passing over a tab on the way somewhere else must not do it.
  *
- * Over a pane header the gesture is about pane groups (see utils/groupDrop):
+ * Over a pane header the gesture is about pane groups (see machines/drag/groupDrop):
  * a member moves along its group's order, an ungrouped pane joins the group
  * of the header it is dropped on, and a parked member dragged out by its tab
  * leaves the group. These also wait for the release.
- *
- * States:
- * - idle: No drag in progress
- * - dragging: Pane is being dragged, swaps happen on target change
  */
 
 import { setup, assign, sendParent, enqueueActions, fromCallback, raise, cancel } from 'xstate';
@@ -32,7 +26,7 @@ import type {
 } from '../types/domain';
 import { DEFAULT_CHAR_WIDTH, DEFAULT_CHAR_HEIGHT } from '../constants';
 import { findSwapTarget } from './helpers';
-import { tabStripDrop, tabDropOp, sameTabDrop } from '../../utils/tabStripDrop';
+import { tabStripDrop, tabDropOp, sameTabDrop } from './tabStripDrop';
 import {
   groupDropAt,
   groupDropOp,
@@ -41,10 +35,10 @@ import {
   leaveOp,
   sameGroupDrop,
   sideOf,
-} from '../../utils/groupDrop';
-import { paneInsetX } from '../../constants/layout';
+} from './groupDrop';
+import { centeringOffset, gridExtent, paneBox } from '../../domain/paneGeometry';
 import { TmuxOp } from '../../domain/commands';
-import { haptics } from '../../utils/haptics';
+import { haptics } from '../../infra/haptics';
 
 /** How long the pointer rests on a pane before the dragged pane swaps with it. */
 export const SWAP_DWELL_MS = 250;
@@ -106,7 +100,6 @@ export const dragMachine = setup({
     charWidth: DEFAULT_CHAR_WIDTH,
     charHeight: DEFAULT_CHAR_HEIGHT,
     containerWidth: 0,
-    containerHeight: 0,
     containerLeft: 0,
     containerTop: 0,
     tabStrip: null,
@@ -132,6 +125,10 @@ export const dragMachine = setup({
                 startY: event.startY,
                 currentX: event.startX,
                 currentY: event.startY,
+                origin: centeringOffset(
+                  event.containerWidth,
+                  gridExtent(event.panes, null, { cols: 0, rows: 0 }).cols * event.charWidth,
+                ),
                 originalX: pane?.x ?? 0,
                 originalY: pane?.y ?? 0,
                 originalWidth: pane?.width ?? 0,
@@ -156,7 +153,6 @@ export const dragMachine = setup({
                 charWidth: event.charWidth,
                 charHeight: event.charHeight,
                 containerWidth: event.containerWidth,
-                containerHeight: event.containerHeight,
                 containerLeft: event.containerLeft,
                 containerTop: event.containerTop,
               };
@@ -192,19 +188,7 @@ export const dragMachine = setup({
               enqueue('notifyStateUpdate');
             };
 
-            // Compute centering offset (must match PaneLayout's centering).
-            // .pane-layout is inset by CONTAINER_PADDING_X/BOTTOM (CSS), so positions are
-            // relative to the content-box. No padding-box arithmetic needed.
-            const totalW = Math.max(...context.panes.map((p) => p.x + p.width));
-            const totalH = Math.max(...context.panes.map((p) => p.y + p.height));
-            const centerOffsetX = Math.max(
-              0,
-              (context.containerWidth - totalW * context.charWidth) / 2,
-            );
-            const centerOffsetY = Math.max(
-              0,
-              (context.containerHeight - totalH * context.charHeight) / 2,
-            );
+            const origin = context.drag.origin;
 
             // Use cursor position (container-relative) for hit-testing.
             // This correctly handles dragging large panes onto smaller targets,
@@ -242,8 +226,7 @@ export const dragMachine = setup({
                 context.groups,
                 context.charWidth,
                 context.charHeight,
-                centerOffsetX,
-                centerOffsetY,
+                origin,
               ),
               draggedId,
               groupOf(context.groups, draggedId) !== null,
@@ -276,19 +259,12 @@ export const dragMachine = setup({
                 cursorContainerY,
                 context.charWidth,
                 context.charHeight,
-                centerOffsetX,
-                centerOffsetY,
+                origin,
               );
               const pane = context.panes.find((p) => p.tmuxId === target);
-              const insetX = paneInsetX(context.charWidth);
               const leaveSide = pane
                 ? sideOf(
-                    {
-                      left: centerOffsetX + pane.x * context.charWidth - insetX,
-                      top: centerOffsetY + pane.y * context.charHeight,
-                      right: centerOffsetX + (pane.x + pane.width) * context.charWidth + insetX,
-                      bottom: centerOffsetY + (pane.y + pane.height) * context.charHeight,
-                    },
+                    paneBox(pane, context.charWidth, context.charHeight, origin.x, origin.y),
                     cursorContainerX,
                     cursorContainerY,
                   )
@@ -316,8 +292,7 @@ export const dragMachine = setup({
               cursorContainerY,
               context.charWidth,
               context.charHeight,
-              centerOffsetX,
-              centerOffsetY,
+              origin,
             );
 
             // A pane swaps once the pointer has rested on it for a moment: one

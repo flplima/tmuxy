@@ -2,9 +2,7 @@
 # Mock tmux binary for CLI tests
 # Logs every invocation and returns canned responses
 
-# Log the call as JSON to the temp file
 if [ -n "$MOCK_TMUX_LOG" ]; then
-  # Build args array as JSON
   args_json="["
   first=true
   for arg in "$@"; do
@@ -21,7 +19,6 @@ if [ -n "$MOCK_TMUX_LOG" ]; then
   echo "{\"args\":$args_json}" >> "$MOCK_TMUX_LOG"
 fi
 
-# Return configured exit code if set
 exit_code="${MOCK_TMUX_EXIT_CODE:-0}"
 
 # Skip the socket flag pair (-L <name> / -S <path>) for response dispatch.
@@ -46,7 +43,6 @@ if [ "${1:-}" = "load-buffer" ] && [ "${!#}" = "-" ]; then
   exit "$exit_code"
 fi
 
-# Return canned responses based on subcommand
 case "${1:-}" in
   list-panes)
     # The CLI's first call from outside a pane asks which pane it should act
@@ -102,9 +98,7 @@ case "${1:-}" in
     fi
     ;;
   display-message)
-    # Keyed on the format so one mock can answer both questions a script asks
-    # of the caller's pane. Unset by default: every test that does not set them
-    # sees the same empty answer this case replaced.
+    # Keyed on the format: each question a script asks of the caller's pane.
     case "$*" in
       *'#{session_name}'*$'\\t'*'#{pane_id}'*|*'#{session_name}'*$'\t'*'#{pane_id}'*)
         if [ -n "${MOCK_TMUX_INFO:-}" ]; then
@@ -135,6 +129,8 @@ case "${1:-}" in
       *@tmuxy-send-ask) echo "${MOCK_TMUX_SEND_ASK:-}"; exit 0 ;;
       *@tmuxy-send-allow) echo "${MOCK_TMUX_SEND_ALLOW:-}"; exit 0 ;;
       *@tmuxy-send-allow-into) echo "${MOCK_TMUX_SEND_ALLOW_INTO:-}"; exit 0 ;;
+      # The caller's window's type (`window_type`, packages/tmuxy-cli/bin/tmuxy/_lib).
+      *@tmuxy-window-type) echo "${MOCK_TMUX_WINDOW_TYPE:-}"; exit 0 ;;
       # The pane's state, played from the log once the script has written
       # one (the last write wins, an unset clears it), else
       # MOCK_TMUX_PANE_STATE: a pane marked waiting reads as waiting.
@@ -188,31 +184,29 @@ case "${1:-}" in
     # argument after it either way.
     if [ "${2:-}" = "-t" ]; then set -- "$1" "${@:4}"; fi
     case "$*" in
+      # A float's list (tmuxy-core `float`) ends in a read of the pane and
+      # window it made.
+      *split-window*break-pane*display-message*) response="${MOCK_TMUX_FLOAT_IDS:-%99 @98}" ;;
       # A list that ends in a `breakp -P` prints the window it made, even
       # when a `splitw` precedes it (`tab create`).
       *breakp*'-P'*) response="${MOCK_TMUX_BREAK_WINDOW_ID:-@99}" ;;
       *splitw*'-P'*) response="${MOCK_TMUX_SPLIT_PANE_ID:-%99}" ;;
-      # A float's command list ends by naming the float's pane and window.
-      *"'##{pane_id} ##{window_id}'"*)
-        response="${MOCK_TMUX_PANE_ID:-%99} ${MOCK_TMUX_FLOAT_WINDOW_ID:-@98}"
-        ;;
       *) response="" ;;
     esac
     # `_run_shell` has the command write its output and exit status to files
     # (packages/tmuxy-cli/bin/tmuxy/_lib) rather than through run-shell. Play the command:
     # write what it would have printed, and the status, where the CLI reads
-    # them; run-shell itself succeeds.
-    dir=$(printf '%s' "$2" | sed -n "s/.*>'\([^']*\)\/out'.*/\1/p")
+    # them; run-shell itself succeeds. A verb's own run-shell (tmuxy-core
+    # `run_shell`) quotes the paths only when they need it, and a quoted one
+    # may hold a space (macOS's ~/Library/Application Support).
+    dir=$(printf '%s' "$2" | sed -n "s/.*>'\([^']*\)\/out' 2>.*/\1/p")
+    [ -n "$dir" ] || dir=$(printf '%s' "$2" | sed -n "s/.*>\([^' ]*\)\/out 2>.*/\1/p")
     # `pane run` splits off a wrapper script that records the program's exit
     # status beside itself; MOCK_TMUX_RUN_STATUS plays the program.
     run_dir=$(printf '%s' "$2" | sed -n "s/.*bash \(\/[^ ']*tmuxy-run\.[^ ']*\)\/run\.sh.*/\1/p")
     if [ -n "$run_dir" ] && [ -n "${MOCK_TMUX_RUN_STATUS:-}" ]; then
       echo "$MOCK_TMUX_RUN_STATUS" > "$run_dir/status"
     fi
-    # A float running a command splits off a wrapper that writes the
-    # command's stdout where `pane float` reads it: play the float's pane.
-    float_wrapper=$(printf '%s' "$2" | sed -n "s/.*bash \(\/[^ ']*tmuxy-float-cmd\.[^ ']*\).*/\1/p")
-    [ -z "$float_wrapper" ] || bash "$float_wrapper" </dev/null
     if [ -n "$dir" ]; then
       [ -n "$response" ] && echo "$response" > "$dir/out"
       echo "$exit_code" > "$dir/status"

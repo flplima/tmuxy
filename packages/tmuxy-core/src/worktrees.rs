@@ -3,10 +3,9 @@
 //! The paths come from tmux's own `#{pane_current_path}` listing, gathered by
 //! the host (`paths_from_pane_listing`) — never from a client, which on the web
 //! would let anyone reaching the server probe the filesystem through git.
-//! Discovery deliberately has no ambient filesystem fallback: an empty input
-//! means there is nothing to inspect. A repository that git cannot read
-//! (dubious ownership, permissions) is skipped with a warning rather than
-//! taking every other repository's result down with it.
+//! A repository that git cannot read (dubious ownership, permissions) is
+//! skipped with a warning rather than taking every other repository's result
+//! down with it.
 
 use std::collections::HashSet;
 use std::fs;
@@ -20,11 +19,9 @@ use thiserror::Error;
 /// this is comfortably above normal use while bounding filesystem/Git work.
 pub const MAX_DISCOVERY_PATHS: usize = 256;
 
-/// The tmux listing whose output feeds discovery: one pane cwd per line, for
-/// every pane on the tmux server.
 pub const LIST_PANE_PATHS_CMD: &str = "list-panes -a -F '#{pane_current_path}'";
 
-/// The distinct, non-empty paths in a `list_pane_paths_cmd` listing, in
+/// The distinct, non-empty paths in a [`LIST_PANE_PATHS_CMD`] listing, in
 /// order, capped at `MAX_DISCOVERY_PATHS` so a runaway pane count bounds the
 /// git work rather than failing it.
 pub fn paths_from_pane_listing(listing: &str) -> Vec<String> {
@@ -43,8 +40,6 @@ pub type WorktreeDiscoveryResult<T> = std::result::Result<T, WorktreeDiscoveryEr
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum WorktreeDiscoveryError {
-    #[error("worktree discovery accepts at most {max} paths (received {count})")]
-    TooManyPaths { count: usize, max: usize },
     #[error("failed to execute git {operation} in {}: {message}", path.display())]
     GitProcess {
         operation: &'static str,
@@ -99,19 +94,9 @@ struct ParsedWorktree {
     prunable: bool,
 }
 
-/// Discover the repositories containing the supplied pane paths.
-///
-/// Canonical input directories are de-duplicated before the first Git
-/// subprocess. Each repository is then inspected once, even when distinct
-/// pane directories belong to it. SSH pane paths are remote paths, so local
-/// Git discovery is skipped for an SSH-backed tmux connection.
+/// SSH pane paths are remote paths, so local Git discovery is skipped for an
+/// SSH-backed tmux connection.
 pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<GitRepository>> {
-    if paths.len() > MAX_DISCOVERY_PATHS {
-        return Err(WorktreeDiscoveryError::TooManyPaths {
-            count: paths.len(),
-            max: MAX_DISCOVERY_PATHS,
-        });
-    }
     if paths.is_empty() || crate::session::ssh_target().is_some() {
         return Ok(Vec::new());
     }
@@ -121,7 +106,6 @@ pub fn list_git_worktrees(paths: Vec<String>) -> WorktreeDiscoveryResult<Vec<Git
     let mut repositories = Vec::new();
 
     for search_path in candidates {
-        // One unreadable repository must not blank every other badge: skip it.
         let common_dir = match git_common_dir(&search_path) {
             Ok(Some(dir)) => dir,
             Ok(None) => continue,

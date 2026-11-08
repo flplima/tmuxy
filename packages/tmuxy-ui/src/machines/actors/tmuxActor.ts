@@ -1,17 +1,18 @@
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { Cause, Effect, Exit, Fiber, Stream } from 'effect';
-import { ScrollbackCells, ThemeSettings, type ServerState } from '../../domain/wire';
-import type { TraceLevel, TraceSettings } from '../types/domain';
+import { Effect, Exit, Fiber, Stream } from 'effect';
+import type { ThemeSettings } from '../../domain/wire';
 import { formatAdapterError, type AdapterError } from '../../infra/transport/AdapterError';
 import { tracer } from '../../infra/tracer';
+import { failureText } from './failureText';
 import type { PaneId } from '../../domain/ids';
 import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import type { AppRuntime } from '../../infra/runtime';
 import { TmuxTransport, type TmuxTransportService } from '../../infra/transport/TmuxTransport';
 import { TransportEvent } from '../../infra/transport/events';
-import { parseThemeMode, type ThemeInfo } from '../../utils/themeManager';
+import { parseThemeMode, type TraceLevel } from '../../domain/wireSettings';
+import type { PlainCall } from '../../domain/backendCalls';
 import { parseInventory, READ_PLUGINS_COMMAND } from '../../domain/plugins';
-import { openExternalUrl } from '../../utils/openUrl';
+import { openExternalUrl } from '../../infra/openUrl';
 
 /** An effect against the transport the runtime provides. */
 const withTransport = <A, E>(
@@ -25,8 +26,11 @@ export type TmuxActorEvent =
    * that nothing on screen waits for.
    */
   | { type: 'SEND_OP'; op: TmuxOp }
-  | { type: 'INVOKE'; cmd: string; args?: Record<string, unknown> }
+  /** A backend command whose answer nothing reads. */
+  | ({ type: 'INVOKE' } & PlainCall)
   | { type: 'FETCH_INITIAL_STATE'; cols: number; rows: number }
+  /** The grid this client shows, for the backend to size the session to. */
+  | { type: 'SET_CLIENT_SIZE'; cols: number; rows: number }
   | { type: 'FETCH_SCROLLBACK_CELLS'; paneId: PaneId; start: number; end: number }
   | { type: 'FETCH_THEME_SETTINGS' }
   | { type: 'FETCH_TRACE_SETTINGS' }
@@ -43,13 +47,11 @@ export type TmuxActorEvent =
    * Ask the server whether a plugin's link handler takes a click; launch its
    * action, else open `fallbackUrl` (if any) in the browser.
    */
-  | {
+  | ({
       type: 'OPEN_PLUGIN_LINK';
-      cmd: 'open_link' | 'open_text';
-      args: Record<string, unknown>;
       paneId: PaneId;
       fallbackUrl: string | null;
-    }
+    } & Extract<PlainCall, { readonly cmd: 'open_link' | 'open_text' }>)
   /** Run a plugin's action, preparing a token for the selection first. */
   | {
       type: 'RUN_PLUGIN_ACTION';
@@ -57,21 +59,20 @@ export type TmuxActorEvent =
       action: string;
       paneId: PaneId;
       selection: string | null;
-    }
-  | { type: 'CHECK_SESSION_SWITCH' };
+    };
+
+/** The tmux actor's event for a plain command, typed where `sendTo` is not. */
+export const invokeEvent = (call: PlainCall): TmuxActorEvent => ({ type: 'INVOKE', ...call });
 
 export interface TmuxActorInput {
   parent: AnyActorRef;
 }
 
 /**
- * Create the tmux actor over the app runtime's transport.
- *
- * Subscribes to the transport's event stream before connecting, forwards
- * each event to the parent, and runs the parent's requests as Effects. A
- * failure carries the AdapterError ADT: the actor branches on the tag (a
- * read-only refusal becomes a notice) and tunnels the rest back to the
- * parent as { type: 'TMUX_ERROR', error: <display string> }.
+ * The tmux actor over the app runtime's transport: forwards the transport's
+ * events to the parent and runs the parent's requests as Effects. A failed
+ * request reaches the parent as TMUX_ERROR with the AdapterError's display
+ * string, unless it is `silentFail`.
  */
 export function createTmuxActor(runtime: AppRuntime) {
   return fromCallback<TmuxActorEvent, TmuxActorInput>(({ input, receive }) => {
@@ -106,20 +107,10 @@ export function createTmuxActor(runtime: AppRuntime) {
             opts.onSuccess?.(exit.value);
             return;
           }
-          const failure = Cause.failureOption(exit.cause);
-          if (failure._tag !== 'Some') return;
-          const tagged = failure.value;
-
-          // Trace the failure by its typed tag (TransportError/ProtocolError/…),
-          // never the message text.
-          tracer.event({ layer: 'effect', name: 'fail', code: tagged._tag });
-          const display = formatAdapterError(tagged);
+          const display = failureText(exit.cause);
+          if (display === null) return;
           if (opts.silentFail) {
-            console.error(
-              `[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`,
-              tagged._tag,
-              display,
-            );
+            console.error(`[tmuxActor] ${opts.logPrefix ?? 'effect'} failed:`, display);
             logError(`${opts.logPrefix ?? 'effect'} -> ${display}`);
             return;
           }
@@ -135,16 +126,21 @@ export function createTmuxActor(runtime: AppRuntime) {
       runtime.runFork(reported(effect, opts));
     };
 
+    /** An op straight on the transport, logged as the command it is. */
+    const runOp = (op: TmuxOp): void => {
+      const command = toTmuxCommand(op);
+      logCommand(command);
+      run(
+        withTransport((t) => t.run(op)),
+        { logPrefix: command },
+      );
+    };
+
     /**
-     * In-flight scrollback fetches keyed by paneId. Fast-scroll sends multiple FETCH_SCROLLBACK_CELLS in quick succession; without
-     * cancellation, the responses race and stale results overwrite fresh
-     * ones (or just waste bandwidth). Interrupting the previous fiber
-     * before forking a new one keeps only the latest scroll position's
-     * fetch alive — its result is the only one that reaches the parent.
-     *
-     * Promise cancellation isn't real (fetch in flight still completes),
-     * but Fiber.interrupt stops the Effect from emitting onSuccess, so
-     * the parent never sees the stale chunk.
+     * The in-flight scrollback fetch of each pane. A new fetch interrupts the
+     * last one, so answers racing in out of order never put a stale chunk
+     * over a fresher one: the request itself still completes, but its
+     * interrupted fiber reports nothing to the parent.
      */
     const scrollbackFibers = new Map<PaneId, Fiber.RuntimeFiber<unknown>>();
 
@@ -218,22 +214,23 @@ export function createTmuxActor(runtime: AppRuntime) {
 
     receive((event) => {
       if (event.type === 'SEND_OP') {
-        const command = toTmuxCommand(event.op);
-        logCommand(command);
-        run(
-          withTransport((t) => t.invoke('run_tmux_command', { command })),
-          { logPrefix: command },
-        );
+        runOp(event.op);
       } else if (event.type === 'INVOKE') {
-        logCommand(`${event.cmd}${event.args ? ' ' + JSON.stringify(event.args) : ''}`);
+        logCommand(`${event.cmd} ${JSON.stringify(event.args)}`);
         run(
-          withTransport((t) => t.invoke(event.cmd, event.args || {})),
+          withTransport((t) => t.send(event)),
           { logPrefix: event.cmd },
+        );
+      } else if (event.type === 'SET_CLIENT_SIZE') {
+        logCommand(`set_client_size cols=${event.cols} rows=${event.rows}`);
+        run(
+          withTransport((t) => t.setClientSize({ cols: event.cols, rows: event.rows })),
+          { logPrefix: 'set_client_size' },
         );
       } else if (event.type === 'RESTORE_SESSION') {
         logCommand(`restore_session ${event.sessionName}`);
         run(
-          withTransport((t) => t.invoke('restore_session', { session: event.sessionName })),
+          withTransport((t) => t.call('restore_session', { session: event.sessionName })),
           {
             logPrefix: 'restore_session',
             // The session exists only once the rebuild has answered.
@@ -244,24 +241,20 @@ export function createTmuxActor(runtime: AppRuntime) {
       } else if (event.type === 'FETCH_INITIAL_STATE') {
         logCommand(`get_initial_state cols=${event.cols} rows=${event.rows}`);
         run(
-          // The adapter decodes the answer: wire-format drift rejects with a
+          // The transport decodes the answer: wire-format drift rejects with a
           // ProtocolError, distinguishable from network/tmux failures.
-          withTransport((t) =>
-            t.invoke<ServerState>('get_initial_state', { cols: event.cols, rows: event.rows }),
-          ),
+          withTransport((t) => t.fetchState({ cols: event.cols, rows: event.rows })),
           {
             onSuccess: (state) => parent.send({ type: 'TMUX_STATE_UPDATE', state }),
             logPrefix: 'get_initial_state',
           },
         );
       } else if (event.type === 'FETCH_SCROLLBACK_CELLS') {
-        // Interrupt any in-flight fetch for this pane so its eventual
-        // success doesn't fire onSuccess and clobber fresher data.
         const existing = scrollbackFibers.get(event.paneId);
         if (existing) runtime.runFork(Fiber.interrupt(existing));
 
         const program = withTransport((t) =>
-          t.decodingInvoke('get_scrollback_cells', ScrollbackCells, {
+          t.call('get_scrollback_cells', {
             paneId: event.paneId,
             start: event.start,
             end: event.end,
@@ -280,12 +273,9 @@ export function createTmuxActor(runtime: AppRuntime) {
               });
             }),
           ),
-          // Clear the slot whether we succeed, fail, or get interrupted.
           Effect.ensuring(
             Effect.sync(() => {
-              // Only clear if this fiber is still the registered one — a
-              // newer FETCH might have already replaced it before this
-              // finalizer ran.
+              // A newer fetch may already have replaced this fiber.
               if (scrollbackFibers.get(event.paneId) === fiber) {
                 scrollbackFibers.delete(event.paneId);
               }
@@ -318,14 +308,17 @@ export function createTmuxActor(runtime: AppRuntime) {
         // an unknown level normalises to `shape` server-side.
         const write =
           event.type === 'SET_TRACE_ENABLED'
-            ? withTransport((t) => t.invoke('set_trace_enabled', { enabled: event.enabled }))
+            ? withTransport((t) =>
+                Effect.asVoid(t.call('set_trace_enabled', { enabled: event.enabled })),
+              )
             : event.type === 'SET_TRACE_LEVEL'
-              ? withTransport((t) => t.invoke('set_trace_level', { level: event.level }))
+              ? withTransport((t) =>
+                  Effect.asVoid(t.call('set_trace_level', { level: event.level })),
+                )
               : null;
-        const read = withTransport((t) => t.invoke<TraceSettings>('get_trace_settings', {}));
+        const read = withTransport((t) => t.call('get_trace_settings', {}));
         run(write ? Effect.flatMap(write, () => read) : read, {
           onSuccess: (settings) => {
-            if (!settings) return;
             // The backend is the authority for the tracer's own switch too, so
             // the client stops/starts shipping in step with the menu.
             tracer.setServerEnabled(!!settings.enabled);
@@ -341,7 +334,7 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.query(READ_PLUGINS_COMMAND)),
           {
             onSuccess: (raw) =>
-              parent.send({ type: 'PLUGINS_RECEIVED', plugins: parseInventory(raw ?? '') }),
+              parent.send({ type: 'PLUGINS_RECEIVED', plugins: parseInventory(raw) }),
             logPrefix: 'plugins',
             silentFail: true,
           },
@@ -353,16 +346,19 @@ export function createTmuxActor(runtime: AppRuntime) {
         runtime.runFork(
           Effect.match(
             withTransport((t) =>
-              t.invoke<{ plugin: string; action: string; token: string } | null>(
-                event.cmd,
-                event.args,
-              ),
+              event.cmd === 'open_link'
+                ? t.call('open_link', event.args)
+                : t.call('open_text', event.args),
             ),
             {
-              onFailure: fallback,
+              // The link still opens, as the fallback; the log says why it was one.
+              onFailure: (e) => {
+                logError(`${event.cmd} -> ${formatAdapterError(e)}`);
+                fallback();
+              },
               onSuccess: (prepared) => {
                 if (!prepared) return fallback();
-                const command = toTmuxCommand(
+                runOp(
                   TmuxOp.PluginAction({
                     plugin: prepared.plugin,
                     action: prepared.action,
@@ -370,18 +366,13 @@ export function createTmuxActor(runtime: AppRuntime) {
                     token: prepared.token,
                   }),
                 );
-                logCommand(command);
-                run(
-                  withTransport((t) => t.invoke('run_tmux_command', { command })),
-                  { logPrefix: command },
-                );
               },
             },
           ),
         );
       } else if (event.type === 'RUN_PLUGIN_ACTION') {
-        const launch = (token: string | null) => {
-          const command = toTmuxCommand(
+        const launch = (token: string | null) =>
+          runOp(
             TmuxOp.PluginAction({
               plugin: event.plugin,
               action: event.action,
@@ -389,12 +380,6 @@ export function createTmuxActor(runtime: AppRuntime) {
               token,
             }),
           );
-          logCommand(command);
-          run(
-            withTransport((t) => t.invoke('run_tmux_command', { command })),
-            { logPrefix: command },
-          );
-        };
         if (event.selection === null) {
           launch(null);
         } else {
@@ -402,7 +387,7 @@ export function createTmuxActor(runtime: AppRuntime) {
           // invocation token; only the token's id rides the command.
           run(
             withTransport((t) =>
-              t.invoke<{ token: string } | null>('prepare_plugin_action', {
+              t.call('prepare_plugin_action', {
                 plugin: event.plugin,
                 action: event.action,
                 paneId: event.paneId,
@@ -410,21 +395,19 @@ export function createTmuxActor(runtime: AppRuntime) {
               }),
             ),
             {
-              onSuccess: (prepared) => {
-                if (prepared?.token) launch(prepared.token);
-              },
+              onSuccess: (prepared) => launch(prepared.token),
               logPrefix: 'prepare_plugin_action',
             },
           );
         }
       } else if (event.type === 'OPEN_TRACE_FILE') {
         run(
-          withTransport((t) => t.invoke('open_trace_file', {})),
+          withTransport((t) => t.call('open_trace_file', {})),
           { logPrefix: 'open_trace_file' },
         );
       } else if (event.type === 'FETCH_THEME_SETTINGS') {
         run(
-          withTransport((t) => t.decodingInvoke('get_theme_settings', ThemeSettings, {})),
+          withTransport((t) => t.call('get_theme_settings', {})),
           {
             onSuccess: themeSettingsReceived,
             logPrefix: 'get_theme_settings',
@@ -433,10 +416,9 @@ export function createTmuxActor(runtime: AppRuntime) {
         );
       } else if (event.type === 'FETCH_THEMES_LIST') {
         run(
-          withTransport((t) => t.invoke<ThemeInfo[]>('get_themes_list', {})),
+          withTransport((t) => t.call('get_themes_list', {})),
           {
-            onSuccess: (themes) =>
-              parent.send({ type: 'THEMES_LIST_RECEIVED', themes: themes || [] }),
+            onSuccess: (themes) => parent.send({ type: 'THEMES_LIST_RECEIVED', themes }),
             logPrefix: 'get_themes_list',
             silentFail: true,
           },
@@ -448,33 +430,6 @@ export function createTmuxActor(runtime: AppRuntime) {
           withTransport((t) => t.switchSession(event.sessionName)),
           {
             logPrefix: `switch-session ${event.sessionName}`,
-          },
-        );
-      } else if (event.type === 'CHECK_SESSION_SWITCH') {
-        // A read, so it must be a query: run_tmux_command resolves null on
-        // every transport, and matching on String(null) is how this check
-        // sat dead on the web for a while.
-        run(
-          withTransport((t) => t.query('show-environment -g TMUXY_SWITCH_TO')),
-          {
-            onSuccess: (result) => {
-              const str = String(result);
-              const match = str.match(/TMUXY_SWITCH_TO=(.+)/);
-              if (!match) return;
-              const sessionName = match[1].trim();
-              parent.send({ type: 'SWITCH_SESSION', sessionName });
-              // Clear the env var (fire-and-forget)
-              run(
-                withTransport((t) =>
-                  t.invoke('run_tmux_command', {
-                    command: toTmuxCommand(TmuxOp.ClearSwitchRequest()),
-                  }),
-                ),
-                { silentFail: true, logPrefix: 'clear TMUXY_SWITCH_TO' },
-              );
-            },
-            silentFail: true,
-            logPrefix: 'check session switch',
           },
         );
       }

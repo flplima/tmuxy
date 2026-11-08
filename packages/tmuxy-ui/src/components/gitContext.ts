@@ -1,14 +1,11 @@
 /**
- * Matching pane working directories to git worktrees — the pure half of the
- * sidebar tree's branch badges. The host discovers the repositories
- * (`tmuxy-core/src/worktrees.rs`, published as `repositories` by the sessions
- * poll); this decides which worktree a pane cwd sits in and what a row shows.
- * No React, no machine, no adapter.
+ * The host discovers the repositories (`tmuxy-core/src/worktrees.rs`,
+ * published as `repositories` by the sessions poll); this decides which
+ * worktree a pane cwd sits in and what a sidebar row's badge shows.
  */
 
-import type { GitRepository, GitWorktree } from '../machines/types/domain';
+import type { GitRepository, GitWorktree } from '../domain/servers';
 
-/** Git identity resolved for a single pane cwd. */
 export interface PaneGitContext {
   repository: GitRepository;
   worktree: GitWorktree;
@@ -26,11 +23,8 @@ export type GitContextSummary =
     };
 
 /**
- * Normalize a filesystem path for component-aware prefix comparison.
- *
- * This is deliberately lexical: the backend canonicalizes discovered Git
- * paths, while tmux reports an existing pane cwd. Removing `.`/`..`, duplicate
- * separators and trailing slashes prevents `/repo-copy` from matching `/repo`.
+ * Lexical, for component-aware prefix comparison: the backend canonicalizes
+ * discovered Git paths, while tmux reports the pane cwd as it is.
  */
 export function normalizeWorkspacePath(input: string): string {
   const replaced = input.trim().replace(/\\/g, '/');
@@ -56,7 +50,6 @@ export function normalizeWorkspacePath(input: string): string {
   return normalized || (absolute ? '/' : drive ? `${drive}/` : '.');
 }
 
-/** True when `path` is the worktree root or one of its descendants. */
 export function isPathInsideWorktree(path: string, worktreePath: string): boolean {
   const candidate = normalizeWorkspacePath(path);
   const root = normalizeWorkspacePath(worktreePath);
@@ -65,12 +58,7 @@ export function isPathInsideWorktree(path: string, worktreePath: string): boolea
   return root === '/' ? candidate.startsWith('/') : candidate.startsWith(`${root}/`);
 }
 
-/**
- * Resolve a pane cwd to the most specific discovered worktree.
- *
- * Matching is component-aware (`/repo-copy` never matches `/repo`) and the
- * longest matching root wins, so nested worktrees beat their parent checkout.
- */
+/** The longest matching root wins, so nested worktrees beat their parent checkout. */
 export function findPaneGitContext(
   cwd: string,
   repositories: readonly GitRepository[],
@@ -88,17 +76,13 @@ export function findPaneGitContext(
   return best?.context ?? null;
 }
 
-/** Stable identity for comparing contexts without relying on object identity. */
 function gitContextKey(context: PaneGitContext): string {
   return `${context.repository.id}:${normalizeWorkspacePath(context.worktree.path)}`;
 }
 
 /**
- * Roll pane contexts up to a window summary.
- *
- * A context is homogeneous only if every pane resolves to the same worktree.
- * A mixture of worktrees, or matched and unmatched panes, is explicitly mixed
- * so a tab badge can never imply that all of its panes share one checkout.
+ * Matched and unmatched panes together are `mixed`, so a tab badge never
+ * implies that all of its panes share one checkout.
  */
 export function summarizeGitContexts(
   paneContexts: ReadonlyArray<PaneGitContext | null>,
@@ -123,10 +107,7 @@ export function summarizeGitContexts(
   return { kind: 'mixed', contexts: [...contexts.values()], unmatchedCount };
 }
 
-/**
- * What a row's badge says for a worktree: its branch, else the short head of
- * a detached checkout, else nothing for a bare repository.
- */
+/** Empty for a bare repository. */
 export function gitBadgeText(context: PaneGitContext): string {
   const { worktree } = context;
   if (worktree.branch) return worktree.branch;

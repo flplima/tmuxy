@@ -1,6 +1,6 @@
 /**
  * The bar between the phone's terminal and its bottom view, at a 390 × 844
- * phone's width (components/PhoneDivider.tsx, utils/phoneSplit.ts): dragged
+ * phone's width (components/phone/PhoneDivider.tsx, domain/phoneSplit.ts): dragged
  * down it zooms the terminal — the panes, their headers and tmux's status
  * line as one picture — as far as the bottom view gives room; dragged up from
  * the terminal's own size it folds the terminal and the keys away, and down
@@ -14,7 +14,7 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx } from './phoneStoryHelpers';
-import { forgetSplit } from '../utils/phoneSplit';
+import { forgetPhoneSplitPref, loadPhoneSplitPref } from '../infra/prefs';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Divider',
@@ -105,7 +105,7 @@ export const DragTheBarToZoomOrFold: Story = {
         );
         expect(q('.phone-lower').height).toBeCloseTo(lower.height - 150, -1);
       });
-      expect(JSON.parse(localStorage.getItem('tmuxy-phone-split')!)).toEqual({
+      expect(loadPhoneSplitPref()).toEqual({
         zoom,
         collapsed: false,
       });
@@ -135,7 +135,7 @@ export const DragTheBarToZoomOrFold: Story = {
         expect(q('.phone-pty .pane-container').height).toBeCloseTo(grid.height, 0);
       });
     } finally {
-      forgetSplit();
+      forgetPhoneSplitPref();
     }
   },
 };

@@ -1,10 +1,4 @@
-/**
- * Key formatting, key-table classification, and text-vs-chord detection for
- * keyboardActor.
- */
-
-import { getMobileInput } from '../../../utils/mobileKeyboard';
-import { isPlaceholderId, type PaneId } from '../../../domain/ids';
+import { getMobileInput } from '../../../infra/dom/mobileKeyboard';
 
 export const KEY_MAP: Record<string, string> = {
   Enter: 'Enter',
@@ -58,24 +52,6 @@ export function bindingKeyOf(event: KeyboardEvent): string {
   if (event.shiftKey && SHIFTED[event.key]) return SHIFTED[event.key];
   return KEY_MAP[event.key] ?? event.key;
 }
-
-/**
- * Keys the client answers itself, by table: what they open has no tmux window
- * or pane behind it (a sidebar's open/fixed state, the Tab Overview, the keys
- * view), so there is no binding for tmux to run.
- */
-export type ClientKey =
-  | 'left-sidebar'
-  | 'right-sidebar'
-  | 'tab-overview'
-  | 'keys-view'
-  | 'tab-left'
-  | 'tab-right';
-
-export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
-  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
-  tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
-};
 
 /**
  * macOS Option+key produces special Unicode characters instead of altKey=true.
@@ -156,15 +132,6 @@ export function keyEventInitOf(name: string): KeyboardEventInit | null {
   const key = DOM_KEY_OF[rest] ?? rest;
   if (key.length !== 1 && !DOM_KEY_OF[rest]) return null;
   return { ...init, key };
-}
-
-/**
- * Placeholder pane ids (`__placeholder_*`) are client-side predictions from the
- * optimistic store — tmux has never heard of them. Until the placeholder
- * reconciles to a real `%N`, fall back to null.
- */
-export function realPaneId(id: PaneId | null): PaneId | null {
-  return id !== null && isPlaceholderId(id) ? null : id;
 }
 
 /**

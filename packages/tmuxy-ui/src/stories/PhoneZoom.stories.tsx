@@ -1,13 +1,8 @@
 /**
  * The phone's zoom with the keyboard up and down, upright and sideways.
- *
- * Zoomed (a double tap, or the bar under the keys), the terminal is drawn at
- * twice its size: upright, the bar under the keys moves down to match and the
- * bottom view gives up the room, so every one of its rows is on screen, and
- * the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short, and it scrolls so the
- * cursor's row stays in view. No headless browser draws a keyboard, so the
- * stories bring up a mock one (keyboardMock.ts): the screen loses its height
- * and a keyboard is drawn there.
+ * Upright, the bar under the keys moves down with the zoom. No headless
+ * browser draws a keyboard, so the stories bring up a mock one
+ * (keyboardMock.ts): the screen loses its height and a keyboard is drawn there.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -18,7 +13,7 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, doubleTapTerminal } from './phoneStoryHelpers';
 import { mockKeyboard } from './keyboardMock';
-import { PHONE_STATUS_HEIGHT } from '../utils/phoneLayout';
+import { PHONE_STATUS_HEIGHT } from '../infra/dom/phoneLayout';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Zoom',
@@ -38,16 +33,13 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-/** A keyboard of the size a phone's takes, upright and sideways. */
 const KEYBOARD_UPRIGHT = 300;
 const KEYBOARD_SIDEWAYS = 170;
 
-/** The terminal's rows on screen, in order. */
 const rows = (root: Element) => [
   ...root.querySelectorAll('.phone-pty .pane-active .terminal-line'),
 ];
 
-/** The cursor's box and the terminal's: the row being typed on must be inside. */
 async function expectCursorInView(root: Element) {
   await waitFor(
     () => {
@@ -85,8 +77,6 @@ export const ZoomShowsEveryRow: Story = {
     const barBefore = box(canvasElement.querySelector('[data-testid="phone-divider"]'));
     doubleTapTerminal(canvasElement);
 
-    // Every row on screen, twice its size; the bar moved down by the room the
-    // terminal took from the bottom view, the keys under it.
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull();
       expect(ctx().phoneZoom).toBe(2);
@@ -101,7 +91,7 @@ export const ZoomShowsEveryRow: Story = {
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
     const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
     await waitFor(() => {
-      // Every row of the pane: the window's 24, less the pane's header.
+      // The window's 24 rows, less the pane's header.
       const lines = rows(canvasElement);
       expect(lines.length).toBeGreaterThanOrEqual(23);
       const first = box(lines[0]);
@@ -119,7 +109,6 @@ export const ZoomShowsEveryRow: Story = {
       box(term).bottom - 0.5,
     );
 
-    // The keyboard comes up: the terminal is cut short and kept on the cursor.
     const putAway = mockKeyboard(canvasElement.querySelector('.app-container')!, KEYBOARD_UPRIGHT);
     try {
       await waitFor(() => expect(term.scrollHeight).toBeGreaterThan(term.clientHeight + 10), {

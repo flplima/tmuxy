@@ -1,10 +1,7 @@
 name: Set up a Storybook story probe
-# Everything a story probe needs before it runs, for the nightly sweep and for
-# its re-run of the night's failures on a fresh runner (nightly-v86.yml): node
-# and the npm dependencies, Chromium, and a Storybook dev server on :6006.
-# With `v86: 'true'`, also the guest the v86 stories boot: tmuxy-wasm (Rust,
-# with the wasm-bindgen CLI the lockfile names) and the v86 image and
-# snapshot, from cache when nothing that goes into them changed.
+description: Node and the npm dependencies, Chromium, a Storybook dev server on :6006 and, for the v86 stories, their guest.
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH is set for the steps after it: the
+# probes launch Chromium by path.
 inputs:
   v86:
     description: "'true' to build tmuxy-wasm and the v86 guest assets"
@@ -16,71 +13,28 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+    - uses: ./.github/actions/setup-node-rust
       with:
-        node-version: 22
-        cache: npm
+        rust: ${{ inputs.v86 == 'true' && 'guest' || 'none' }}
 
     - if: inputs.v86 == 'true'
-      uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-      with:
-        toolchain: stable
-        # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
-        # that build-v86-snapshot.mjs cross-compiles on a cache miss.
-        targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+      uses: ./.github/actions/v86-guest
 
-    - if: inputs.v86 == 'true'
-      uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-    # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
-    # version is read from the lockfile (bin/wasm-bindgen-version).
-    - if: inputs.v86 == 'true'
-      name: Read the wasm-bindgen version from Cargo.lock
-      id: wasm-bindgen
-      shell: bash
-      run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
-
-    - if: inputs.v86 == 'true'
-      name: Install wasm-bindgen CLI
-      uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
-      with:
-        tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
-
-    - name: Install npm dependencies
-      shell: bash
-      run: npm ci
-
-    - if: inputs.v86 == 'true'
-      name: Build tmuxy-wasm
-      shell: bash
-      run: npm run build:wasm
-
-    - if: inputs.v86 == 'true'
-      name: Cache v86 guest assets
-      id: v86-assets-cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: packages/tmuxy-ui/v86-assets
-        key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
-
-    - if: inputs.v86 == 'true' && steps.v86-assets-cache.outputs.cache-hit != 'true'
-      name: Build v86 guest assets (cache miss)
-      shell: bash
-      run: |
-        "$GITHUB_WORKSPACE/bin/ci/apt-get" update && "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends zstd
-        npm run fetch:v86-image -w tmuxy-ui
-        npm run build:v86-snapshot -w tmuxy-ui
-
-    # Storybook mounts both as static dirs and will not start without them.
+    # Storybook mounts both as static dirs and will not start without them;
+    # the deterministic stories never fetch from them.
     - if: inputs.v86 != 'true'
       name: Create placeholder v86 asset dirs
       shell: bash
       run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
 
     - uses: ./.github/actions/install-chromium
+      with:
+        export-path: 'true'
 
     - name: Start Storybook (dev server)
       shell: bash
+      env:
+        STORYBOOK_LOG: ${{ inputs.storybook-log }}
       run: |
-        npm run storybook -w tmuxy-ui -- --ci --quiet 2>"${{ inputs.storybook-log }}" &
+        npm run storybook -w tmuxy-ui -- --ci --quiet 2>"$STORYBOOK_LOG" &
         bin/ci/wait-for-server http://localhost:6006/index.json 180000

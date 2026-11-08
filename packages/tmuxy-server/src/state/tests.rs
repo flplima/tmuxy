@@ -6,21 +6,7 @@ use axum::{
 use tower::ServiceExt;
 
 fn app() -> Router {
-    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::new()))
-}
-
-/// The POST a hostile page can make without a preflight: `text/plain`,
-/// `no-cors`, the command JSON as its body.
-fn forged_command(origin: &'static str, site: &'static str) -> Request<Body> {
-    Request::post("/commands")
-        .header("host", "localhost:9000")
-        .header("origin", origin)
-        .header("sec-fetch-site", site)
-        .header("content-type", "text/plain")
-        .body(Body::from(
-            r#"{"cmd":"run_tmux_command","args":{"command":"run-shell 'touch /tmp/pwned'"}}"#,
-        ))
-        .unwrap()
+    api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(AppState::default()))
 }
 
 fn preview_page_request(site: &'static str) -> Request<Body> {
@@ -37,7 +23,7 @@ fn preview_page_request(site: &'static str) -> Request<Body> {
 /// preview was opened with `--net`, never sniffed or cached.
 #[tokio::test]
 async fn a_staged_page_is_served_sandboxed_and_offline() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     state
         .preview_pages
         .stage(
@@ -96,7 +82,7 @@ async fn a_staged_page_is_served_sandboxed_and_offline() {
 /// to ask, nothing is staged.
 #[tokio::test]
 async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
     let request = Request::post("/api/preview/3")
         .header("host", "localhost:9000")
@@ -121,22 +107,6 @@ async fn a_page_is_not_staged_for_a_pane_tmux_has_not_authorised() {
         .preview_pages
         .page(&tmuxy_core::PaneId::parse("%3").unwrap())
         .is_none());
-}
-
-#[tokio::test]
-async fn a_page_on_another_origin_cannot_post_a_command() {
-    for (origin, site) in [
-        ("https://evil.example", "cross-site"),
-        ("http://localhost:3000", "same-site"),
-        ("null", "cross-site"),
-    ] {
-        let response = app().oneshot(forged_command(origin, site)).await.unwrap();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{origin}");
-        assert!(response
-            .headers()
-            .get("access-control-allow-origin")
-            .is_none());
-    }
 }
 
 #[tokio::test]
@@ -188,7 +158,7 @@ async fn commands_and_trace_reject_non_json_content_types() {
 
 #[tokio::test]
 async fn events_route_does_not_auto_create_missing_sessions() {
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state.clone());
     let request = Request::get("/events?session=tmuxy-missing-session-unit-probe")
         .header("host", "localhost:9000")
@@ -250,43 +220,15 @@ fn cross_origin_request_for(route: &str) -> Option<Request<Body>> {
     )
 }
 
-/// The route table as `api_routes` declares it, read out of this file's own
-/// source.
-///
-/// The guard is the `.layer()` in `api_routes`, and it covers the routes
-/// declared above it. A route added anywhere else
-/// — or a whole new route nobody thought to test — is served with no
-/// origin check at all, which on this API means a remote shell. So the
-/// routes are enumerated rather than listed by hand: a new one that the
-/// coverage table below does not know about fails this test by name.
+/// Every path `api_routes` serves. The guard is the `.layer()` over the
+/// whole table, so a route is behind it by being in the table; a new one
+/// that `COVERED_ROUTES` does not know about fails these tests by name, so
+/// nobody ships a route whose guard nothing probed.
 fn declared_routes() -> Vec<String> {
-    let source = include_str!("../state.rs");
-    let start = source
-        .find("pub fn api_routes")
-        .expect("api_routes moved out of state.rs");
-    let body = &source[start..];
-    let end = body
-        .find("// Internal Handlers")
-        .expect("the route builders are no longer followed by the handlers");
-    let body = &body[..end];
-
-    // The literal is split so this scan does not find itself.
-    let needle = concat!(".", "route(");
-    let mut routes = Vec::new();
-    let mut rest = body;
-    while let Some(idx) = rest.find(needle) {
-        rest = rest[idx + needle.len()..].trim_start();
-        let rest_after_quote = rest
-            .strip_prefix('"')
-            .expect("a route's path is not a string literal");
-        let close = rest_after_quote
-            .find('"')
-            .expect("unterminated route literal");
-        routes.push(rest_after_quote[..close].to_string());
-        rest = &rest_after_quote[close..];
-    }
-    assert!(!routes.is_empty(), "found no routes in api_routes");
-    routes
+    super::api_route_table()
+        .into_iter()
+        .map(|(path, _)| path.to_string())
+        .collect()
 }
 
 #[tokio::test]
@@ -377,8 +319,10 @@ async fn the_image_route_never_reads_from_disk() {
 
 #[tokio::test]
 async fn image_route_serves_nosniff_sandbox_csp_and_same_origin_corp() {
-    let state = Arc::new(AppState::new());
-    state.image_store.write().await.insert(
+    use tmuxy_core::control_mode::StateEmitter;
+    let state = Arc::new(AppState::default());
+    let conns = crate::state::SessionConnections::new("s", &state);
+    conns.runtime.store_images(
         &tmuxy_core::PaneId::parse("%1").unwrap(),
         vec![(
             7,
@@ -388,6 +332,7 @@ async fn image_route_serves_nosniff_sandbox_csp_and_same_origin_corp() {
             },
         )],
     );
+    state.sessions.write().await.insert("s".to_string(), conns);
     let router = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(state);
     let request = Request::get("/api/images/1/7")
         .header("host", "localhost:9000")
@@ -425,35 +370,4 @@ async fn an_oversized_trace_body_is_refused_before_it_is_read() {
         .unwrap();
     let response = app().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-}
-
-mod session_start_dir {
-    use super::super::handlers::session_start_dir_from;
-    use std::path::PathBuf;
-
-    #[test]
-    fn a_checkout_wins_so_the_dev_loop_starts_in_the_repo() {
-        let dir = session_start_dir_from(
-            Some(PathBuf::from("/src/tmuxy")),
-            Some(PathBuf::from("/home/u")),
-            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
-        );
-        assert_eq!(dir, PathBuf::from("/src/tmuxy"));
-    }
-
-    #[test]
-    fn outside_a_checkout_the_home_directory_not_the_process_cwd() {
-        let dir = session_start_dir_from(
-            None,
-            Some(PathBuf::from("/home/u")),
-            Some(PathBuf::from("/tmp/.mount_tmuxyAb12/usr")),
-        );
-        assert_eq!(dir, PathBuf::from("/home/u"));
-    }
-
-    #[test]
-    fn with_no_home_the_cwd_is_what_is_left() {
-        let dir = session_start_dir_from(None, None, Some(PathBuf::from("/")));
-        assert_eq!(dir, PathBuf::from("/"));
-    }
 }

@@ -89,7 +89,7 @@ For every assertion, ask: **"What bug would make this assertion fail?"** If you 
 | `getComputedStyle(fc).borderColor === green` | Border on invisible element |
 | `log.textContent.includes(token)` | Text in DOM but clipped/hidden |
 | `floatPanes.length === 1` | Float exists in state but not rendered |
-| `focusedFloatPaneId !== null` | Focus set but keyboard not actually routing |
+| `keyboardOwner.kind === 'float'` | Focus set but keyboard not actually routing |
 
 See [TESTS-E2E.md](TESTS-E2E.md) for these sections: E2E Tests; Interaction-Latency Tests; Desktop (Tauri) Tests; Debugging.
 
@@ -107,7 +107,7 @@ See [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md) for this section: Storybook Tests.
 
 ```bash
 npm run lint                               # ESLint: tests/ and tmuxy-ui
-npm test -- --run                          # Vitest once (without --run it watches)
+npm test                                   # Vitest once: the UI, and the scripts' own tests
 cargo test --workspace                     # Rust (needs tmux on PATH)
 npm run test:cli                           # CLI suite, hermetic
 
@@ -133,9 +133,8 @@ npm run perf:compare -- --report tests/perf/interaction-report.json
 | The packaged macOS app is only tested after merge | The Linux desktop smoke test runs on PRs (`desktop` in `lint-and-tests.yml`), but `build-app.yml` — which builds the macOS app and runs the sparse-PATH test — triggers only on tags, a daily cron and manual dispatch. Dispatch it before tagging when a change touches the desktop app or packaging. |
 | macOS WKWebView gets no functional desktop suite | `tests/tauri/` is Linux-only (`tests/tauri/helpers/xvfb.js`, `tests/tauri/helpers/tauri-driver.js`); macOS only gets `tests/smoke/smoke-test.js`, post-merge. |
 | Output flood tests are light | The heaviest is `tests/5-stress-stability.test.js` Scenario 17: `yes \| head -500` and `seq 1 2000`. No sustained, multi-megabyte or backpressure test exists, and the latency gate measures no output throughput. |
-| Uncovered crates and scripts | `packages/tmuxy-demo` has no tests and `deploy-demo.yml` deploys without testing. |
+| Uncovered crates and scripts | The `packages/tmuxy-demo` site has no tests (only its agent-docs build script does) and `deploy-demo.yml` deploys without testing. |
 | `deltaProtocol.ts` is largely untested in substance | A one-off Stryker run scored it at 24.96% (285 surviving mutants, 175 lines with no coverage) despite unit and property tests existing for it; most survivors were the conditional-spread guards the property tests exercise without asserting on. |
-| Clippy is not run over test code | CI runs `cargo clippy` without `--tests`, so lints in `#[cfg(test)]` modules and `tests/` go unchecked — `packages/tmuxy-core/tests/control_mode_push_api.rs` is missing the `allow` attribute every sibling has and would fail today. |
 
 ## Related
 

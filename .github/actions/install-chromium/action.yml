@@ -1,6 +1,6 @@
 name: Install Chromium
-# Playwright's Chromium, with its browser download cached. The download is
-# ~130MB and identical for one lockfile. The apt side of `--with-deps` is
+description: Playwright's Chromium with its download cached, and the fonts it renders with.
+# The download is ~130MB and identical for one lockfile. The apt side of `--with-deps` is
 # only run on a miss: the GitHub runner image ships Google Chrome, so the
 # shared libraries Chromium loads are already there, and the ~15s index
 # refresh was the whole cost of this action on a hit. What the image does
@@ -8,6 +8,14 @@ name: Install Chromium
 # without them every wide-glyph check sees a narrow fallback, so those are
 # installed on a hit too, from the image's own index (a refresh only if
 # that index has gone stale).
+inputs:
+  # The story probes and the perf harnesses launch the full Chromium by path;
+  # the E2E suites leave the variable unset and get Playwright's own headless
+  # build, so only a job that asks has it set.
+  export-path:
+    description: "'true' to set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH for the job's later steps"
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -33,3 +41,10 @@ runs:
         fonts="$(cat bin/chromium-fonts.txt)"
         APT_ATTEMPTS=1 "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts \
           || { "$GITHUB_WORKSPACE/bin/ci/apt-get" update && "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts; }
+
+    - name: Name the Chromium executable for later steps
+      if: inputs.export-path == 'true'
+      shell: bash
+      run: |
+        path="$(node -e "console.log(require('playwright').chromium.executablePath())")"
+        echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$path" >> "$GITHUB_ENV"

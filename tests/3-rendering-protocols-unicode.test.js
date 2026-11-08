@@ -5,7 +5,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -19,15 +19,8 @@ const { tmuxExec } = require('./helpers/tmux-socket');
 
 // ==================== Scenario 16: Unicode Rendering ====================
 
-describe('Scenario 16: Unicode Rendering', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 16: Unicode Rendering', {}, (ctx) => {
   test('Box drawing → CJK → alignment → emoji single/multi → tree output', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Box drawing characters
@@ -91,11 +84,10 @@ describe('Scenario 16: Unicode Rendering', () => {
   }, 180000);
 
   test('Wide glyphs stay on the tmux cell grid: CJK → emoji → ZWJ → skin tone → flag', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The browser grid is a whole number of device pixels per cell, published
-    // as --cell-w (tmuxy-ui/src/utils/cellMetrics.ts).
+    // as --cell-w (tmuxy-ui/src/infra/dom/cellMetrics.ts).
     const cellW = await getCellWidth(ctx.page);
     expect(cellW * (await ctx.page.evaluate(() => devicePixelRatio))).toBeCloseTo(
       Math.round(cellW * (await ctx.page.evaluate(() => devicePixelRatio))),
@@ -152,14 +144,17 @@ describe('Scenario 16: Unicode Rendering', () => {
     ];
 
     // tmux before 3.4 gives ZWJ, skin-tone and VS16 sequences other widths,
-    // which tmuxy does not follow — a documented limitation (docs/TMUX.md,
-    // tmux version table). On those versions only the rules both agree on are
-    // checked.
+    // and 3.6 an emoji followed by its skin tone, which tmuxy does not follow
+    // — documented limitations (docs/TMUX-VERSION-BUGS.md, tmux version
+    // table). On those versions only the rules both agree on are checked.
     const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
     const sameRules = !major || major > 3 || (major === 3 && minor >= 4);
-    const checked = sameRules
-      ? cases
-      : cases.filter((c) => !['ZWJ sequence', 'skin tone', 'VS16'].includes(c.name));
+    const differs = !sameRules
+      ? ['ZWJ sequence', 'skin tone', 'VS16']
+      : major === 3 && minor === 6
+        ? ['skin tone']
+        : [];
+    const checked = cases.filter((c) => !differs.includes(c.name));
     for (const c of checked) {
       await typeInTerminal(
         ctx.page,
@@ -215,7 +210,6 @@ describe('Scenario 16: Unicode Rendering', () => {
   }, 180000);
 
   test('A wide glyph on a coloured row keeps the row colour and is drawn above the next cell', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // An editor's cursor line is a coloured row. Two things went wrong on it:
@@ -267,20 +261,13 @@ describe('Scenario 16: Unicode Rendering', () => {
 
 // ==================== Scenario 16b: SGR 2 (faint/dim) ====================
 
-describe('Scenario 16b: SGR 2 faint/dim attribute', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 16b: SGR 2 faint/dim attribute', {}, (ctx) => {
   // Claude Code's TUI uses SGR 2 (faint) for its autosuggestion text. The
   // vt100 0.15 crate dropped SGR 2 on the floor, so dim text rendered as
   // normal-intensity white. After bumping to vt100 0.16 + threading
   // `cell.dim()` through CellStyle, the frontend renders dim cells at
   // reduced opacity.
   test('Faint text (SGR 2) is rendered at reduced opacity', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Emit DIM_TEXT in faint, BRIGHT_TEXT in normal intensity.

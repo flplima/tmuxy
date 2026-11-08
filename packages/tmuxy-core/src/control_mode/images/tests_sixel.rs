@@ -10,9 +10,6 @@ fn sixel_decoded_to_png() {
     let result = parser.process(input);
 
     assert!(result.clean_bytes.is_empty());
-    // Unconditional: with the assertions previously guarded behind
-    // `if !placements.is_empty()`, a total sixel-decode regression (every
-    // image silently dropped) passed green.
     assert!(
         !parser.placements.is_empty(),
         "sixel input must produce a placement"

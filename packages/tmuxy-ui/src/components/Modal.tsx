@@ -1,5 +1,9 @@
 import React, { useCallback } from 'react';
 import { Tooltip } from './Tooltip';
+import './Modal.css';
+
+/** `.modal-header`'s height (Modal.css), for a caller that sizes the box around it. */
+export const MODAL_HEADER_HEIGHT = 28;
 
 interface ModalProps {
   open: boolean;
@@ -8,11 +12,10 @@ interface ModalProps {
   children: React.ReactNode;
   width?: number;
   className?: string;
-  zIndex?: number;
+  /** Its place among the floats open over the tab, lowest first: lifts it on the float rung. */
+  stack?: number;
   containerStyle?: React.CSSProperties;
-  /** Backdrop style: 'dim' (default), 'blur', or 'none' */
   backdrop?: 'dim' | 'blur' | 'none';
-  /** Hide the header bar (title + close button) */
   hideHeader?: boolean;
   /** Whether it can be dismissed at all: false drops the close button, and a click on the backdrop does nothing. */
   closable?: boolean;
@@ -25,7 +28,7 @@ export function Modal({
   children,
   width,
   className,
-  zIndex = 1000,
+  stack = 0,
   containerStyle,
   backdrop = 'dim',
   hideHeader = false,
@@ -46,13 +49,14 @@ export function Modal({
 
   const showHeader = !hideHeader && title !== undefined;
 
-  // Rendered in place, NOT portaled to the body: the overlay is absolutely
-  // positioned against its nearest positioned ancestor, and a float's ancestor
-  // is the pane container. That is what keeps the backdrop over the tab's
-  // content only — portaled to the body it resolved against the viewport and
-  // dimmed the sidebars, the tab strip and the status line with it.
+  // Rendered in place, not portaled: the overlay is positioned against the
+  // pane container, which keeps the backdrop over the tab's content only.
+  // Portaled to the body it dimmed the sidebars, tab strip and status line.
   return (
-    <div className={`modal-overlay${className ? ` ${className}` : ''}`} style={{ zIndex }}>
+    <div
+      className={`modal-overlay${className ? ` ${className}` : ''}`}
+      style={{ '--float-stack': stack } as React.CSSProperties}
+    >
       <div className={backdropClass} onClick={handleBackdropClick} />
       <div
         className="modal-container"

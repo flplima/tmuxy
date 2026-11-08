@@ -10,10 +10,10 @@
 use std::process::Command;
 
 use tauri::{AppHandle, Manager};
-use tmuxy_core::servers::{parse_session_list, RemoteSessionInfo};
+use tmuxy_core::servers::{parse_session_list, RemoteSessionInfo, LIST_SESSIONS_FORMAT};
 use tmuxy_core::session::{scoped, ConnectTarget, DEFAULT_TMUX_SOCKET};
 
-use super::{GuiWindow, GuiWindows};
+use super::{new_monitor, GuiWindow, GuiWindows};
 
 /// What a splash page chose.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,9 +59,14 @@ fn sessions_to_offer(stdout: &str) -> Vec<RemoteSessionInfo> {
 pub fn local_sessions() -> Vec<RemoteSessionInfo> {
     let socket = local_socket();
     let flag = if socket.contains('/') { "-S" } else { "-L" };
-    let format = "#{session_name}\t#{session_windows}\t#{session_attached}";
     Command::new(tmuxy_core::session::tmux_path())
-        .args([flag, socket.as_str(), "list-sessions", "-F", format])
+        .args([
+            flag,
+            socket.as_str(),
+            "list-sessions",
+            "-F",
+            LIST_SESSIONS_FORMAT,
+        ])
         .output()
         .ok()
         .filter(|out| out.status.success())
@@ -128,18 +133,17 @@ pub fn attach(app: &AppHandle, label: &str, choice: Attach) -> Result<(), String
     if let Ok(mut cell) = entry.target.write() {
         *cell = Some(target);
     }
-    registry.set_session(label, session.clone(), owns_session);
+    let monitor = new_monitor(app, label, session);
+    registry.attach(label, monitor.clone(), owns_session);
     if let Some(window) = app.get_webview_window(label) {
         // What the Window menu lists this window as.
         let _ = window.set_title(&format!("tmuxy — {shown}"));
     }
 
-    let app = app.clone();
-    let label = label.to_string();
-    let monitor = entry.monitor.clone();
-    tauri::async_runtime::spawn(scoped::with_cell(entry.target.clone(), async move {
-        crate::monitor::start_monitoring_window(app, label, monitor, session, group).await;
-    }));
+    tauri::async_runtime::spawn(scoped::with_cell(
+        entry.target.clone(),
+        crate::monitor::start_monitoring_window(monitor, group),
+    ));
     Ok(())
 }
 
@@ -193,7 +197,7 @@ mod tests {
     fn a_window_member_or_unsafe_name_is_not_offered_or_joined() {
         assert!(plan(&Attach::Local("work+2".into()), 3, "tmuxy").is_err());
         assert!(plan(&Attach::Local("a b".into()), 3, "tmuxy").is_err());
-        let listed = sessions_to_offer("work\t3\t1\nwork+2\t3\t1\nnotes\t1\t0\nc++\t1\t0\n");
+        let listed = sessions_to_offer("work|3|1\nwork+2|3|1\nnotes|1|0\nc++|1|0\n");
         let names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["work", "notes", "c++"]);
         assert_eq!((listed[0].windows, listed[0].attached), (3, true));

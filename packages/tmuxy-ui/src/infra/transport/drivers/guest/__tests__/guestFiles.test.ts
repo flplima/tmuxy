@@ -1,8 +1,3 @@
-/**
- * The files a page puts in an in-browser guest (`GuestTmuxAdapterOptions.files`):
- * text as given, a URL fetched, and one that cannot be fetched left out
- * rather than failing the start.
- */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadGuestFiles } from '../GuestTmuxAdapter';
 

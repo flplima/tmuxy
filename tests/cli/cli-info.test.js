@@ -84,24 +84,11 @@ describe('CLI info and skill commands', () => {
   });
 
   describe('tmuxy skill', () => {
-    test('outputs canonical agent skill markdown', () => {
+    // The guide is the server binary's, which embeds .agents/skills/tmuxy/SKILL.md.
+    test('prints the agent guide the server binary embeds', () => {
       const { stdout, exitCode } = runCLI(['skill']);
       expect(exitCode).toBe(0);
-      expect(stdout).toContain('# tmuxy');
-      expect(stdout).toContain('Never run a mutating raw `tmux` command');
-      expect(stdout).toContain('CLI cheat sheet');
-      expect(stdout).toContain('tmuxy pane split');
-    });
-
-    test('the repo skill file is the guide the CLI prints, verbatim', () => {
-      // `tmuxy skill` is the source: an installed CLI has no repo to read the
-      // skill file from. Regenerate with `packages/tmuxy-cli/bin/tmuxy-cli skill > .agents/skills/tmuxy/SKILL.md`.
-      const { stdout } = runCLI(['skill']);
-      const skill = fs.readFileSync(
-        path.resolve(__dirname, '../../.agents/skills/tmuxy/SKILL.md'),
-        'utf8',
-      );
-      expect(skill).toBe(stdout);
+      expect(stdout.trim()).toBe('mock-server-started skill');
     });
 
     test('skill --help prints usage', () => {
@@ -118,13 +105,12 @@ describe('CLI info and skill commands', () => {
       expect(stdout).toMatch(/^tmuxy \d+\.\d+\.\d+/);
     });
 
-    test("the version the CLI prints is package.json's", () => {
-      // bump-version (.agents/skills/release/scripts) rewrites this line with
-      // every release; a bump that missed it would ship a stale --version.
+    // A checkout's CLI reads the tree's package.json; the copy the app
+    // mirrors has the binary's version written in (tmuxy-core session tests).
+    test("a checkout's CLI prints package.json's version", () => {
       const root = path.resolve(__dirname, '../..');
       const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-      const cli = fs.readFileSync(path.join(root, 'packages/tmuxy-cli/bin/tmuxy-cli'), 'utf8');
-      expect(cli).toContain(`TMUXY_VERSION="\${TMUXY_VERSION:-${version}}"`);
+      expect(runCLI(['--version']).stdout.trim()).toBe(`tmuxy ${version}`);
     });
 
     test('top-level help includes AI agent note', () => {

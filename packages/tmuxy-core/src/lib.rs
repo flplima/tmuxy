@@ -1,3 +1,8 @@
+pub mod argv;
+#[cfg(feature = "cli")]
+pub mod ask;
+pub mod capture_html;
+pub mod cli_contract;
 pub mod client_size;
 pub mod command_error;
 pub mod constants;
@@ -6,14 +11,17 @@ pub mod error;
 pub mod groups;
 pub mod ids;
 
-// The synchronous tmux-command layer (`cli`), and the native async transport
-// on top of it (`native`, which includes `cli`). Neither builds for wasm.
-#[cfg(feature = "native")]
 pub mod command_router;
 #[cfg(feature = "cli")]
-pub mod executor;
+pub mod float;
 
+#[cfg(feature = "native")]
+pub mod host;
 pub mod layout;
+#[cfg(feature = "cli")]
+pub mod list_keys;
+#[cfg(feature = "native")]
+pub mod logging;
 pub mod mime;
 #[cfg(feature = "cli")]
 pub mod paths;
@@ -23,36 +31,34 @@ pub mod plugins;
 pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;
+pub mod program;
+pub mod random;
+#[cfg(feature = "cli")]
+pub mod run_shell;
 #[cfg(feature = "native")]
 pub mod servers;
 #[cfg(feature = "cli")]
 pub mod session;
 #[cfg(feature = "native")]
 pub mod session_snapshot;
+pub mod stamp;
 #[cfg(feature = "native")]
 pub mod theme;
 #[cfg(feature = "native")]
 pub mod tmux_check;
-#[cfg(feature = "cli")]
+pub mod tmux_command;
 pub mod tmux_compat;
 #[cfg(feature = "native")]
 pub mod trace;
 #[cfg(feature = "native")]
-pub mod transport;
-#[cfg(feature = "native")]
 pub mod worktrees;
 
 pub use command_error::{CommandError, ErrorKind};
-pub use error::{Result as TmuxResult, TmuxError};
+pub use error::TmuxError;
 pub use ids::{GroupId, IdError, PaneId, WindowId};
 
 use serde::{Deserialize, Serialize};
 
-// Re-export the key binding type
-#[cfg(feature = "native")]
-pub use transport::KeyBinding;
-
-/// Default session name for tmuxy
 pub const DEFAULT_SESSION_NAME: &str = "tmuxy";
 
 /// Single-quote a value for interpolation into a tmux command string.
@@ -102,18 +108,22 @@ pub fn tmux_double_quoted(value: &str) -> String {
     out
 }
 
-// ============================================
-// Structured Cell Types (for eliminating double ANSI parsing)
-// ============================================
-
-/// Color representation for terminal cells
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum CellColor {
-    /// Indexed color (0-255)
     Indexed(u8),
-    /// RGB color
     Rgb { r: u8, g: u8, b: u8 },
+}
+
+impl CellColor {
+    /// A vt100 colour, `None` for the terminal's default.
+    fn of(color: vt100::Color) -> Option<Self> {
+        match color {
+            vt100::Color::Default => None,
+            vt100::Color::Idx(idx) => Some(Self::Indexed(idx)),
+            vt100::Color::Rgb(r, g, b) => Some(Self::Rgb { r, g, b }),
+        }
+    }
 }
 
 /// Line/character size multiplier (`ESC # 3..6` DEC line sizes or `OSC 66` text sizing).
@@ -127,7 +137,6 @@ pub enum CellSize {
     DoubleHeightBottom,
 }
 
-/// Cell style attributes (only present if cell has non-default styling)
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct CellStyle {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -137,7 +146,7 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub bold: bool,
-    /// SGR 2: faint/dim text. Apps like Claude Code use this for autosuggestions.
+    /// SGR 2 (faint).
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub dim: bool,
@@ -150,10 +159,9 @@ pub struct CellStyle {
     #[serde(skip_serializing_if = "is_false")]
     #[serde(default)]
     pub inverse: bool,
-    /// OSC 8 hyperlink URL (if cell is part of a hyperlink)
+    /// OSC 8 hyperlink URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Double-width / double-height cell size (`dwl`, `dhl-top`, `dhl-bottom`)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub size: Option<CellSize>,
@@ -164,26 +172,34 @@ pub(crate) fn is_false(b: &bool) -> bool {
 }
 
 impl CellStyle {
+    /// No attribute set: the default style, so a field added to the struct
+    /// counts the moment it exists.
     pub fn is_empty(&self) -> bool {
-        self.fg.is_none()
-            && self.bg.is_none()
-            && !self.bold
-            && !self.dim
-            && !self.italic
-            && !self.underline
-            && !self.inverse
-            && self.url.is_none()
-            && self.size.is_none()
+        *self == Self::default()
+    }
+
+    /// What SGR set on a vt100 cell: its colours and attributes, with no
+    /// hyperlink or size, which the screen and its rows hold.
+    pub(crate) fn of_sgr(cell: &vt100::Cell) -> Self {
+        Self {
+            fg: CellColor::of(cell.fgcolor()),
+            bg: CellColor::of(cell.bgcolor()),
+            bold: cell.bold(),
+            dim: cell.dim(),
+            italic: cell.italic(),
+            underline: cell.underline(),
+            inverse: cell.inverse(),
+            url: None,
+            size: None,
+        }
     }
 }
 
-/// A single terminal cell with character and optional styling
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalCell {
-    /// The character(s) in this cell (usually single char, but can be multi-byte)
+    /// A grapheme: can be more than one char.
     #[serde(rename = "c")]
     pub char: String,
-    /// Style attributes (only present if cell has styling)
     #[serde(rename = "s", skip_serializing_if = "Option::is_none")]
     pub style: Option<CellStyle>,
 }
@@ -199,18 +215,13 @@ impl TerminalCell {
     }
 }
 
-/// A line of terminal cells
 pub type TerminalLine = Vec<TerminalCell>;
 
-/// Pane content as structured cells (pre-parsed from ANSI)
 pub type PaneContent = Vec<TerminalLine>;
 
-/// One cell's character, as everything downstream spells it.
-///
-/// vt100 gives an unwritten cell — and the continuation half of a wide one —
-/// an empty string; a space keeps the joined line on the column grid. Shared
-/// so a hyperlink mark and the extraction that validates it are comparing the
-/// same spelling of the same cell.
+/// vt100 gives an unwritten cell, and the continuation half of a wide one, an
+/// empty string; a kitty image placeholder (U+10EEEE) is no text either. A
+/// space keeps the joined line on the column grid.
 pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     let raw = screen
         .cell(row, col)
@@ -223,92 +234,61 @@ pub fn screen_cell_char(screen: &vt100::Screen, row: u16, col: u16) -> String {
     }
 }
 
-/// Extract structured cells from a vt100 screen.
-/// This is the single source of truth for cell extraction, used by both
-/// parse_ansi_to_cells (polling mode) and PaneState::get_content (control mode).
 pub fn extract_cells_from_screen(screen: &vt100::Screen) -> PaneContent {
-    extract_cells_with_urls(screen, None)
-}
-
-/// Extract structured cells from a vt100 screen with optional OSC parser for hyperlinks.
-/// When osc_parser is provided, URL information is included in cell styles.
-pub fn extract_cells_with_urls(
-    screen: &vt100::Screen,
-    osc_parser: Option<&control_mode::OscParser>,
-) -> PaneContent {
     let (rows, cols) = screen.size();
     let mut lines: Vec<TerminalLine> = Vec::with_capacity(rows as usize);
-    let mut prev_chars: Vec<String> = Vec::new();
 
     for row in 0..rows {
         let mut line: Vec<TerminalCell> = Vec::with_capacity(cols as usize);
 
-        // The row's text first, as a unit: a hyperlink is only still a
-        // hyperlink if the text it was written on is still there, and that is
-        // judged per run rather than per cell (see `OscParser::row_urls`).
-        let chars: Vec<String> = (0..cols)
-            .map(|col| screen_cell_char(screen, row, col))
-            .collect();
-        let row_urls = osc_parser.map(|p| p.row_urls(row as u32, &chars));
-        let row_sizes = osc_parser.map(|p| p.row_sizes(row as u32, &chars, &prev_chars));
         let row_line_size = match screen.row_line_size(row) {
             vt100::LineSize::Single => None,
             vt100::LineSize::DoubleWidth => Some(CellSize::DoubleWidth),
             vt100::LineSize::DoubleHeightTop => Some(CellSize::DoubleHeightTop),
             vt100::LineSize::DoubleHeightBottom => Some(CellSize::DoubleHeightBottom),
         };
-        prev_chars.clone_from(&chars);
 
-        // `chars` is consumed here, so collecting the row up front costs no
-        // allocation over building each cell's string in place.
-        for (col, mut char_content) in chars.into_iter().enumerate() {
-            let col = col as u16;
-            // `screen.cell` only returns None when row/col exceed the grid bounds,
-            // which the `0..rows` / `0..cols` loops guarantee against.
+        for col in 0..cols {
             let Some(cell) = screen.cell(row, col) else {
                 continue;
             };
+            let mut char_content = screen_cell_char(screen, row, col);
 
-            let fg = match cell.fgcolor() {
-                vt100::Color::Default => None,
-                vt100::Color::Idx(idx) => Some(CellColor::Indexed(idx)),
-                vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
-            };
-
-            let bg = match cell.bgcolor() {
-                vt100::Color::Default => None,
-                vt100::Color::Idx(idx) => Some(CellColor::Indexed(idx)),
-                vt100::Color::Rgb(r, g, b) => Some(CellColor::Rgb { r, g, b }),
-            };
-
-            let url = row_urls
-                .as_ref()
-                .and_then(|urls| urls[col as usize].map(str::to_string));
-
-            let osc_size = row_sizes.as_ref().and_then(|sizes| sizes[col as usize]);
-            if let Some((_, ch)) = osc_size {
-                if char_content == " " {
-                    char_content = ch.to_string();
+            // An `OSC 66 ; s=2` character covers the cell below its own too:
+            // that cell shows the character's bottom half while it holds
+            // nothing else.
+            let size = match cell.text_size() {
+                vt100::TextSize::DoubleHeight => Some(CellSize::DoubleHeightTop),
+                vt100::TextSize::DoubleWidth => Some(CellSize::DoubleWidth),
+                vt100::TextSize::Normal => {
+                    let above = row
+                        .checked_sub(1)
+                        .filter(|&up| {
+                            screen
+                                .cell(up, col)
+                                .is_some_and(|c| c.text_size() == vt100::TextSize::DoubleHeight)
+                        })
+                        .map(|up| screen_cell_char(screen, up, col))
+                        .filter(|top| char_content == " " || char_content == *top);
+                    match above {
+                        Some(top) => {
+                            char_content = top;
+                            Some(CellSize::DoubleHeightBottom)
+                        }
+                        None => row_line_size,
+                    }
                 }
-            }
-            let size = osc_size.map(|(sz, _)| sz).or(row_line_size);
+            };
 
             let style = CellStyle {
-                fg,
-                bg,
-                bold: cell.bold(),
-                dim: cell.dim(),
-                italic: cell.italic(),
-                underline: cell.underline(),
-                inverse: cell.inverse(),
-                url,
+                url: screen.hyperlink(cell).map(str::to_string),
                 size,
+                ..CellStyle::of_sgr(cell)
             };
 
             line.push(TerminalCell::with_style(char_content, style));
         }
 
-        // Trim trailing empty cells (ignoring line-wide `row_line_size` on blank tail cells)
         while let Some(last) = line.last() {
             let unstyled_or_line_size_only = last.style.as_ref().is_none_or(|s| {
                 s.fg.is_none()
@@ -327,9 +307,8 @@ pub fn extract_cells_with_urls(
                 break;
             }
         }
-        // The line was allocated for the full width; give back what the
-        // trimmed tail held. Kept per pane between updates, a blank row would
-        // otherwise hold a row's worth of cells (64 B each) for nothing.
+        // Kept per pane between updates, a blank row would otherwise hold a
+        // row's worth of cells (64 B each) for nothing.
         line.shrink_to_fit();
 
         lines.push(line);
@@ -338,22 +317,20 @@ pub fn extract_cells_with_urls(
     lines
 }
 
-/// Parse scrollback content into structured cells.
-/// Uses the line count from the content itself as the height.
 pub fn parse_scrollback_to_cells(content: &str, width: u32) -> PaneContent {
     let line_count = content.lines().count().max(1) as u32;
     parse_ansi_to_cells(content, width, line_count)
 }
 
-/// Parse ANSI content into structured cells using vt100 terminal emulation.
-///
-/// The grid is at most `u16::MAX` on a side and at least 1: a capture of a
-/// pane with a deep history can run past 65,535 lines, and a plain `as u16`
-/// wrapped that to a zero-row grid the first character panicked on. A taller
-/// capture keeps its last 65,535 lines.
+/// A pane side as a vt100 grid side, saturated at `u16::MAX`: a capture of a
+/// pane with a deep history can run past 65,535 lines, and a taller capture
+/// keeps its last 65,535. vt100 itself makes a zero side one.
+pub(crate) fn grid_side(n: u32) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
 pub fn parse_ansi_to_cells(content: &str, width: u32, height: u32) -> PaneContent {
-    let side = |n: u32| u16::try_from(n.max(1)).unwrap_or(u16::MAX);
-    let mut parser = vt100::Parser::new(side(height), side(width), 0);
+    let mut parser = vt100::Parser::new(grid_side(height), grid_side(width), 0);
 
     let normalized = control_mode::normalize_capture_bytes(content.as_bytes());
     parser.process(&normalized);
@@ -366,5 +343,4 @@ pub use delta_types::*;
 pub use state_types::*;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod lib_tests;

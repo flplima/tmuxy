@@ -13,25 +13,20 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForPaneCount,
   waitForWindowCount,
   waitForCondition,
   getGroupTabCount,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 const { TMUXY_CLI } = require('./helpers/cli');
 
-describe('Scenario: a CLI split from a background tab lands in that tab', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: a CLI split from a background tab lands in that tab', {}, (ctx) => {
   test('tab create, then pane split from the pane left behind: two panes in its tab, one in the new one', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -43,19 +38,13 @@ describe('Scenario: a CLI split from a background tab lands in that tab', () => 
       }
       return counts;
     };
-    const visibleWindow = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
-    const visiblePaneRects = () =>
-      page.evaluate(() =>
-        [...document.querySelectorAll('.pane-layout-item[data-pane-id]')]
-          .map((el) => el.getBoundingClientRect())
-          .filter((r) => r.width > 0 && r.height > 0)
-          .map((r) => ({
-            left: Math.round(r.left),
-            top: Math.round(r.top),
-            width: Math.round(r.width),
-          })),
-      );
+    const visibleWindow = () => page.evaluate(() => window.app?.view().activeTabId);
+    const visiblePaneRects = async () =>
+      (await shownPanes(page, GRID_PANE)).map(({ box }) => ({
+        left: Math.round(box.left),
+        top: Math.round(box.top),
+        width: Math.round(box.width),
+      }));
 
     const [firstWindow] = Object.keys(await panesByWindow());
     expect(await visibleWindow()).toBe(firstWindow);
@@ -100,12 +89,10 @@ describe('Scenario: a CLI split from a background tab lands in that tab', () => 
   }, 90000);
 
   test('tab create, then pane group add from the pane left behind: the group forms in its tab', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
-    const visibleWindow = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const visibleWindow = () => page.evaluate(() => window.app?.view().activeTabId);
     const visibleGroupTabRects = () =>
       page.evaluate(() =>
         [...document.querySelectorAll('.pane-tabs .pane-tab')]

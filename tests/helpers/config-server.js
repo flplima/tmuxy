@@ -15,6 +15,7 @@ const { execFileSync } = require('child_process');
 const { TMUXY_PORT } = require('./config');
 const { startExtraServer } = require('./extra-server');
 const { TMUXY_CLI, tmuxRunAsOperator } = require('./cli');
+const { tmuxEnv } = require('./tmux-socket');
 
 // Clear of the suite's port.
 const CONFIG_PORT = parseInt(process.env.TMUXY_CONFIG_PORT || String(TMUXY_PORT + 200), 10);
@@ -30,12 +31,8 @@ const CONFIG_DIR = path.join(CONFIG_HOME, 'tmuxy');
 const DATA_DIR = path.join(ROOT, 'data');
 const STATE_DIR = path.join(ROOT, 'state');
 const HOME_DIR = path.join(ROOT, 'home');
-const DIRS = {
-  XDG_CONFIG_HOME: CONFIG_HOME,
-  TMUXY_DATA_DIR: DATA_DIR,
-  TMUXY_STATE_DIR: STATE_DIR,
-  HOME: HOME_DIR,
-};
+const env = () =>
+  tmuxEnv({ configHome: CONFIG_HOME, data: DATA_DIR, state: STATE_DIR, home: HOME_DIR });
 
 /**
  * Start the server with no config dir at all, a first run; resolves to a
@@ -45,14 +42,17 @@ const DIRS = {
  */
 async function startConfigServer() {
   fs.rmSync(ROOT, { recursive: true, force: true });
-  fs.mkdirSync(HOME_DIR, { recursive: true });
-  return startExtraServer(CONFIG_PORT, [], DIRS);
+  return startExtraServer(CONFIG_PORT, [], env());
 }
 
-/** The tmuxy CLI against the scratch dirs; returns what it printed. */
+/**
+ * The tmuxy CLI against the scratch dirs; returns what it printed. Through
+ * the suite's environment (`tmuxEnv`), so a run from inside tmuxy calls the
+ * server verbs of the build under test, not of the tmuxy it runs in.
+ */
 const configCli = (...args) =>
   execFileSync(TMUXY_CLI, ['config', ...args], {
-    env: { ...process.env, ...DIRS },
+    env: env(),
     encoding: 'utf8',
   });
 
@@ -82,7 +82,6 @@ const iconSetFor = (name) => iconsSet.push(name);
 
 module.exports = {
   CONFIG_URL,
-  CONFIG_HOME,
   CONFIG_DIR,
   DATA_DIR,
   STATE_DIR,

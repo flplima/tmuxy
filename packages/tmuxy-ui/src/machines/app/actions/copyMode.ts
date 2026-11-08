@@ -1,32 +1,26 @@
-/**
- * Action implementations for the copyMode state slice.
- *
- * Owns context field: copyModeStates (per-pane CopyModeState records).
- */
-
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
-import type { CopyModeState } from '../../../domain/copyMode';
-import { handleCopyModeKey } from '../../../utils/copyModeKeys';
 import {
+  type CopyModeState,
   clampColToLine,
   isWrappedRow,
   extractSelectedText,
   toAbsoluteRow,
-} from '../../../utils/copyMode';
-import { selectPaneTakesCopyMode, selectRightSidebarPane } from '../../selectors/panesAndSidebars';
-import { writeClipboard } from '../../../utils/clipboard';
+} from '../../../domain/copyMode';
+import { handleCopyModeKey } from '../../../domain/copyModeKeys';
+import { selectPaneTakesCopyMode } from '../../selectors/panesAndSidebars';
+import { selectKeyFocusPane, selectKeyTarget } from '../../selectors/keyboard';
+import { writeClipboard } from '../../../infra/clipboard';
 import { TmuxOp } from '../../../domain/commands';
 import {
   applyScrollbackChunk,
   buildScrollbackState,
-  copyModeExitTimes,
   fetchHistory,
   fetchNeededChunk,
   leaveAfterCopy,
   selectEveryRow,
   selectWordAt,
-} from '../scrollback';
+} from './copyMode/scrollback';
 
 export const copyModeActions = {
   /**
@@ -95,9 +89,7 @@ export const copyModeActions = {
     fetchHistory(enqueue, event.paneId, record);
   }),
 
-  /**
-   * Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A).
-   */
+  /** Select the whole of a pane's scrollback (Cmd+A / Ctrl+Shift+A). */
   copyMode_selectAll: act(({ event, context, enqueue }) => {
     if (event.type !== 'SELECT_ALL_SCROLLBACK') return;
 
@@ -133,10 +125,14 @@ export const copyModeActions = {
 
   copyMode_exit: act(({ event, context, enqueue }) => {
     if (event.type !== 'EXIT_COPY_MODE') return;
-    copyModeExitTimes.set(event.paneId, Date.now());
     const newStates = { ...context.copyModeStates };
     delete newStates[event.paneId];
-    enqueue(assign({ copyModeStates: newStates }));
+    enqueue(
+      assign({
+        copyModeStates: newStates,
+        copyModeExitedAt: { ...context.copyModeExitedAt, [event.paneId]: Date.now() },
+      }),
+    );
 
     enqueue(
       sendTo('tmux', {
@@ -146,10 +142,6 @@ export const copyModeActions = {
     );
   }),
 
-  /**
-   * Leave the native-like view: drop the record and the pane follows live
-   * output again.
-   */
   copyMode_exitScroll: assignCtx(({ context, event }) => {
     if (event.type !== 'EXIT_SCROLL_MODE') return {};
     if (!context.copyModeStates[event.paneId]) return {};
@@ -358,7 +350,7 @@ export const copyModeActions = {
     if (!copyState || copyState.mode !== 'copy' || copyState.copiedAt) return;
     if (!copyState.selectionMode || !copyState.selectionAnchor) return;
     const text = extractSelectedText(copyState);
-    if (text) enqueue(() => writeClipboard(text, event.paneId));
+    if (text) enqueue(() => void writeClipboard(text, event.paneId));
     leaveAfterCopy(enqueue, context, event.paneId);
   }),
 
@@ -374,10 +366,7 @@ export const copyModeActions = {
 
   copyMode_key: act(({ event, context, enqueue }) => {
     if (event.type !== 'COPY_MODE_KEY') return;
-    const dockPaneId = context.rightSidebarFocused
-      ? (selectRightSidebarPane(context)?.tmuxId ?? null)
-      : null;
-    const paneId = dockPaneId ?? context.activePaneId;
+    const paneId = selectKeyFocusPane(context);
     if (!paneId) return;
     const copyState = context.copyModeStates[paneId];
     if (!copyState) return;
@@ -403,5 +392,22 @@ export const copyModeActions = {
       );
       fetchNeededChunk(enqueue, context, paneId, updated);
     }
+  }),
+
+  copyMode_copySelection: act(({ context, enqueue }) => {
+    const paneId = selectKeyFocusPane(context);
+    const copyState = paneId ? context.copyModeStates[paneId] : undefined;
+    if (paneId && copyState) {
+      enqueue.raise(
+        copyState.selectionMode
+          ? { type: 'COPY_MODE_YANK', paneId }
+          : { type: 'EXIT_COPY_MODE', paneId },
+      );
+      return;
+    }
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SendKeys({ target: selectKeyTarget(context), keys: 'C-c' }),
+    });
   }),
 };

@@ -1,27 +1,23 @@
 //! Unit tests for the sans-IO `StateAggregator::step` entry point.
-//!
-//! Drives the aggregator with synthetic events and asserts the typed
-//! `SideEffect` values it emits. No tokio, no real tmux, no real time —
-//! just `step(event) -> StepResult`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{Batch, ChangeType, ControlModeEvent, SideEffect, StateAggregator};
 
 fn variant_names(effects: &[SideEffect]) -> Vec<&'static str> {
     effects
         .iter()
         .map(|e| match e {
-            SideEffect::SendTmuxCommand(_) => "SendTmuxCommand",
-            SideEffect::RefreshPanes { .. } => "RefreshPanes",
-            SideEffect::RefreshAfterWindowAdd => "RefreshAfterWindowAdd",
-            SideEffect::AdoptUntaggedWindows(_) => "AdoptUntaggedWindows",
-            SideEffect::EmitState { .. } => "EmitState",
-            SideEffect::ResumePane(_) => "ResumePane",
-            SideEffect::StoreImages { .. } => "StoreImages",
-            SideEffect::WriteClipboard { .. } => "WriteClipboard",
-            SideEffect::CommandReply { .. } => "CommandReply",
-            SideEffect::ShowMessage(_) => "ShowMessage",
+            SideEffect::Send { batch, .. } => match batch {
+                Batch::WindowSetup => "Send(WindowSetup)",
+                Batch::Own => "Send(Own)",
+                Batch::WindowRelist => "Send(WindowRelist)",
+                Batch::PaneRefresh => "Send(PaneRefresh)",
+                Batch::Resume => "Send(Resume)",
+            },
+            SideEffect::Emit(_) => "Emit",
+            SideEffect::Notify(_) => "Notify",
+            SideEffect::Reply { .. } => "Reply",
         })
         .collect()
 }
@@ -35,7 +31,7 @@ fn empty_event_yields_no_effects() {
     assert!(
         variant_names(&result.effects)
             .iter()
-            .all(|v| *v == "EmitState" || *v == "AdoptUntaggedWindows"),
+            .all(|v| *v == "Emit" || *v == "Send(WindowSetup)"),
         "unexpected side effects: {:?}",
         variant_names(&result.effects)
     );
@@ -49,8 +45,8 @@ fn window_add_yields_refresh_after_window_add() {
     });
     let variants = variant_names(&result.effects);
     assert!(
-        variants.contains(&"RefreshAfterWindowAdd"),
-        "expected RefreshAfterWindowAdd in {:?}",
+        variants.contains(&"Send(WindowRelist)"),
+        "expected the window re-list in {:?}",
         variants
     );
 }
@@ -66,8 +62,8 @@ fn unlinked_window_add_also_yields_refresh_after_window_add() {
     // use as new-window replacement — both event kinds must hit the same
     // ordering invariant.
     assert!(
-        variants.contains(&"RefreshAfterWindowAdd"),
-        "expected RefreshAfterWindowAdd in {:?}",
+        variants.contains(&"Send(WindowRelist)"),
+        "expected the window re-list in {:?}",
         variants
     );
 }
@@ -124,8 +120,8 @@ fn change_type_is_surfaced_even_when_emission_is_suppressed() {
         !result
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::EmitState { .. })),
-        "no EmitState may fire while suppression is on"
+            .any(|e| matches!(e, SideEffect::Emit(_))),
+        "no Emit may fire while suppression is on"
     );
     assert_eq!(
         result.change_type,
@@ -137,9 +133,9 @@ fn change_type_is_surfaced_even_when_emission_is_suppressed() {
 #[test]
 fn tick_is_noop_when_not_armed() {
     let mut agg = StateAggregator::new();
-    let effects = agg.tick(std::time::Instant::now());
-    assert!(
-        effects.is_empty(),
+    assert_eq!(
+        agg.tick(std::time::Instant::now()),
+        None,
         "tick without settling armed yields nothing"
     );
 }
@@ -168,8 +164,8 @@ fn arm_settling_suppresses_window_emissions() {
         !result
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::EmitState { .. })),
-        "settling must suppress EmitState during the window"
+            .any(|e| matches!(e, SideEffect::Emit(_))),
+        "settling must suppress Emit during the window"
     );
     assert_eq!(
         result.change_type,
@@ -198,13 +194,10 @@ fn tick_after_deadline_emits_and_clears_when_events_observed() {
     let deadline = agg
         .settling_deadline()
         .expect("settling must still be armed");
-    let effects = agg.tick(deadline + std::time::Duration::from_millis(1));
-    assert!(matches!(
-        effects.as_slice(),
-        [SideEffect::EmitState {
-            change: ChangeType::Full
-        }]
-    ));
+    assert_eq!(
+        agg.tick(deadline + std::time::Duration::from_millis(1)),
+        Some(ChangeType::Other)
+    );
     assert!(!agg.is_settling(), "tick after deadline clears settling");
 }
 
@@ -214,9 +207,9 @@ fn tick_safety_timeout_clears_silently_when_no_events() {
     let t0 = std::time::Instant::now();
     agg.arm_settling(t0);
     // No events arrive — the safety ceiling fires.
-    let effects = agg.tick(t0 + std::time::Duration::from_millis(600));
-    assert!(
-        effects.is_empty(),
+    assert_eq!(
+        agg.tick(t0 + std::time::Duration::from_millis(600)),
+        None,
         "safety timeout must not emit when no events were observed"
     );
     assert!(!agg.is_settling());
@@ -247,7 +240,7 @@ fn clear_settling_unsuppresses_without_emitting() {
         result
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+            .any(|e| matches!(e, SideEffect::Emit(_))),
         "clear_settling must lift the suppression: {:?}",
         result.effects
     );

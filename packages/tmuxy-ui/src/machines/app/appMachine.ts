@@ -1,27 +1,17 @@
 /**
- * App Machine - Parent orchestrator for the tmuxy application
- *
- * Coordinates:
- * - Actors (fromCallback, injected via factory):
- *   - tmuxActor: SSE/HTTP lifecycle, state updates
- *   - tmuxStoreActor: optimistic TmuxStore bridge
- *   - keyboardActor: keydown → formatTmuxKey → send-keys
- *   - sizeActor: window.resize, ResizeObserver, char measurement
- *   - linkModifierActor, gestureActor, serversActor
- * - Child Machines (stateful, no DOM access):
- *   - dragMachine: idle/dragging, spawns pointer listener
- *   - resizeMachine: idle/resizing, spawns pointer listener
+ * The app machine. Its actors are stubs here; AppContext.tsx provides the
+ * real ones, built over the app runtime.
  */
 
 import { RECONNECT_NOTICE_DELAY_MS } from '../constants';
 import {
   setup,
-  assign,
   sendTo,
   raise,
   type ActorRefFrom,
   fromCallback,
   type AnyActorRef,
+  type EventObject,
 } from 'xstate';
 import type { AppMachineContext } from '../types/context';
 import type { AllAppMachineEvents } from '../types/events';
@@ -40,7 +30,7 @@ import { groupsAndFloatsGlobalEvents, groupsAndFloatsIdleEvents } from './states
 import { groupsAndFloatsActions } from './actions/groupsAndFloats';
 import { sidebarsGlobalEvents, sidebarsIdleEvents } from './states/sidebars';
 import { sidebarsActions } from './actions/sidebars';
-import { layoutState } from './states/layout';
+import { layoutGlobalEvents, layoutState } from './states/layout';
 import { askState } from './states/ask';
 import { tabOverviewGlobalEvents } from './states/tabOverview';
 import { phoneGlobalEvents } from './states/phone';
@@ -51,20 +41,36 @@ import { phoneActions } from './actions/phone';
 import { layoutActions } from './actions/layout';
 import { dispatchActions } from './dispatch';
 import { askActions } from './actions/ask';
-import { connectionGlobalEvents, connectionActions } from './connection';
-import { focusAndDragIdleEvents, focusAndDragActions } from './focusAndDrag';
-import { reconcileModelActions } from './reconcileModelUpdate';
-import { applyFontSize } from '../../utils/fontSizeManager';
+import { connectionGlobalEvents } from './states/connection';
+import { connectionActions } from './actions/connection';
+import { viewportGlobalEvents } from './states/viewport';
+import { viewportActions } from './actions/viewport';
+import { layoutModelUpdateActions } from './actions/layout/modelUpdate';
+import { applyFontSize } from '../../infra/fontSizeManager';
 
 import { dragMachine } from '../drag/dragMachine';
 import { resizeMachine } from '../resize/resizeMachine';
 import type { TmuxStoreActorEvent } from '../actors/tmuxStoreActor';
-import type { KeyboardActorEvent } from '../actors/keyboardActor';
+import type { KeyboardActorInput } from '../actors/keyboardActor';
 import type { TmuxActorEvent } from '../actors/tmuxActor';
 import type { SizeActorEvent } from '../actors/sizeActor';
 import type { LinkModifierActorEvent } from '../actors/linkModifierActor';
-import type { GestureActorEvent } from '../actors/gestureActor';
-import type { ServersActorEvent } from '../actors/serversActor';
+import type { GestureActorEvent, GestureActorInput } from '../gestures/gestureActor';
+import type { ServersActorEvent, ServersActorInput } from '../actors/serversActor';
+import { keyboardGlobalEvents } from './states/keyboard';
+import { keyboardActions } from './actions/keyboard';
+import { contextView } from '../contextView';
+import { sameKeyboardSurface, selectKeyContext } from '../selectors/keyboard';
+import { selectTreeVisible } from '../selectors/panesAndSidebars';
+
+/** A server state goes to the store, which reconciles its ops against it. */
+const relayState = { actions: 'relayState' } as const;
+
+/** The one command path, open while the machine has a stream or is getting it back. */
+const commandEntry = {
+  SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
+  DISPATCH_OP: { actions: 'dispatch_op' },
+} as const;
 
 export const appMachine = setup({
   types: {
@@ -74,11 +80,11 @@ export const appMachine = setup({
   actors: {
     tmuxActor: fromCallback<TmuxActorEvent, { parent: AnyActorRef }>(() => () => {}),
     tmuxStoreActor: fromCallback<TmuxStoreActorEvent, { parent: AnyActorRef }>(() => () => {}),
-    keyboardActor: fromCallback<KeyboardActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    keyboardActor: fromCallback<EventObject, KeyboardActorInput>(() => () => {}),
     sizeActor: fromCallback<SizeActorEvent, { parent: AnyActorRef }>(() => () => {}),
     linkModifierActor: fromCallback<LinkModifierActorEvent>(() => () => {}),
-    gestureActor: fromCallback<GestureActorEvent, { parent: AnyActorRef }>(() => () => {}),
-    serversActor: fromCallback<ServersActorEvent, { parent: AnyActorRef }>(() => () => {}),
+    gestureActor: fromCallback<GestureActorEvent, GestureActorInput>(() => () => {}),
+    serversActor: fromCallback<ServersActorEvent, ServersActorInput>(() => () => {}),
     dragMachine,
     resizeMachine,
   },
@@ -89,6 +95,7 @@ export const appMachine = setup({
     ...notificationsActions,
     ...copyModeActions,
     ...groupsAndFloatsActions,
+    ...keyboardActions,
     ...sidebarsActions,
     ...tabOverviewActions,
     ...phoneActions,
@@ -97,8 +104,12 @@ export const appMachine = setup({
     ...dispatchActions,
     ...askActions,
     ...connectionActions,
-    ...focusAndDragActions,
-    ...reconcileModelActions,
+    ...viewportActions,
+    ...layoutModelUpdateActions,
+    relayState: sendTo('tmuxStore', ({ event }) => ({
+      type: 'RECONCILE_SERVER' as const,
+      state: (event as Extract<AllAppMachineEvents, { type: 'TMUX_STATE_UPDATE' }>).state,
+    })),
   },
 }).createMachine({
   id: 'app',
@@ -119,7 +130,10 @@ export const appMachine = setup({
     {
       id: 'keyboard',
       src: 'keyboardActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({
+        parent: self,
+        keys: contextView(self, selectKeyContext, sameKeyboardSurface),
+      }),
     },
     {
       id: 'size',
@@ -133,12 +147,15 @@ export const appMachine = setup({
     {
       id: 'gestures',
       src: 'gestureActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({
+        parent: self,
+        flags: contextView(self, (context) => context.gestureFlags),
+      }),
     },
     {
       id: 'servers',
       src: 'serversActor',
-      input: ({ self }) => ({ parent: self }),
+      input: ({ self }) => ({ parent: self, treeVisible: contextView(self, selectTreeVisible) }),
     },
     {
       id: 'dragLogic',
@@ -155,31 +172,18 @@ export const appMachine = setup({
     ...commandUiState.on,
     ...notificationsState.on,
     ...groupsAndFloatsGlobalEvents,
+    ...keyboardGlobalEvents,
+    ...layoutGlobalEvents,
     ...sidebarsGlobalEvents,
     ...tabOverviewGlobalEvents,
     ...phoneGlobalEvents,
     ...gesturesGlobalEvents,
     ...connectionGlobalEvents,
+    ...viewportGlobalEvents,
 
-    TMUX_FATAL: {
-      target: '.disconnected',
-      actions: assign(({ event }) => ({
-        fatalError: event.message,
-        connected: false,
-      })),
-    },
-    TMUX_DISCONNECTED: {
-      target: '.disconnected',
-      actions: assign({ connected: false, enableAnimations: false }),
-    },
-    TMUX_RECONNECTING: {
-      target: '.reconnecting',
-      actions: assign({ connected: false }),
-    },
-    TMUX_DETACHED: {
-      target: '.detached',
-      actions: assign({ connected: false, enableAnimations: false }),
-    },
+    TMUX_FATAL: { target: '.disconnected', actions: 'connection_fatal' },
+    TMUX_RECONNECTING: { target: '.reconnecting', actions: 'connection_reconnecting' },
+    TMUX_DETACHED: { target: '.detached', actions: 'connection_lost' },
   },
   states: {
     connecting: {
@@ -188,12 +192,7 @@ export const appMachine = setup({
           target: 'idle',
           actions: 'connection_onConnected',
         },
-        TMUX_ERROR: {
-          actions: assign(({ event }) => ({ error: event.error })),
-        },
-        KEYBINDINGS_RECEIVED: {
-          actions: 'connection_keybindingsReceived',
-        },
+        TMUX_ERROR: { actions: 'connection_error' },
       },
     },
 
@@ -204,24 +203,14 @@ export const appMachine = setup({
         ...sidebarsIdleEvents,
         ...layoutState.on,
         ...askState.on,
-        ...focusAndDragIdleEvents,
 
-        TMUX_STATE_UPDATE: {
-          actions: sendTo('tmuxStore', ({ event }) => ({
-            type: 'RECONCILE_SERVER' as const,
-            state: event.state,
-          })),
-        },
+        ...commandEntry,
+        TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: 'reconcile_modelUpdate',
+          actions: 'layout_modelUpdate',
         },
         TMUX_ERROR: {
           actions: raise(({ event }) => ({ type: 'NOTIFY' as const, text: event.error })),
-        },
-        SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
-        DISPATCH_OP: { actions: 'dispatch_op' },
-        KEYBINDINGS_RECEIVED: {
-          actions: 'connection_keybindingsReceived',
         },
       },
     },
@@ -246,38 +235,20 @@ export const appMachine = setup({
           actions: 'connection_onReconnected',
         },
         // What is typed meanwhile goes on to the transport, which holds it
-        // until the stream is back and sends it then (Q5). Only `idle` took
-        // these, so every key typed during an outage was dropped here.
-        SEND_TMUX_COMMAND: { actions: 'dispatch_command' },
-        DISPATCH_OP: { actions: 'dispatch_op' },
-        TMUX_STATE_UPDATE: {
-          actions: sendTo('tmuxStore', ({ event }) => ({
-            type: 'RECONCILE_SERVER' as const,
-            state: event.state,
-          })),
-        },
+        // until the stream is back and sends it then (Q5).
+        ...commandEntry,
+        TMUX_STATE_UPDATE: relayState,
         TMUX_MODEL_UPDATE: {
-          actions: 'reconcile_reconnectingModelUpdate',
+          actions: 'layout_reconnectingModelUpdate',
         },
       },
     },
 
     detached: {
       on: {
-        TMUX_CONNECTED: {
-          target: 'idle',
-          actions: assign({ connected: true, error: null }),
-        },
-        TMUX_RECONNECTED: {
-          target: 'idle',
-          actions: assign({ connected: true, error: null }),
-        },
-        TMUX_STATE_UPDATE: {
-          actions: sendTo('tmuxStore', ({ event }) => ({
-            type: 'RECONCILE_SERVER' as const,
-            state: event.state,
-          })),
-        },
+        TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },
+        TMUX_RECONNECTED: { target: 'idle', actions: 'connection_onReconnected' },
+        TMUX_STATE_UPDATE: relayState,
         TMUX_RECONNECTING: { target: 'reconnecting' },
       },
     },
@@ -285,10 +256,7 @@ export const appMachine = setup({
     disconnected: {
       on: {
         TMUX_RECONNECTING: { target: 'reconnecting' },
-        TMUX_CONNECTED: {
-          target: 'idle',
-          actions: assign({ connected: true, fatalError: null, error: null }),
-        },
+        TMUX_CONNECTED: { target: 'idle', actions: 'connection_onConnected' },
       },
     },
   },

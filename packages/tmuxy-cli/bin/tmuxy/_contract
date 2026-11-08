@@ -1,7 +1,4 @@
 #!/bin/bash
-# The CLI's contract with scripts and agents, shared by every tmuxy shell
-# script through `_lib`, which sources this file: exit codes, failures as text
-# or JSON, and how a target names a pane. Split out of `_lib` by size alone.
 
 # --- Exit codes, failures and JSON ------------------------------------------
 #
@@ -9,24 +6,30 @@
 #   0 ok · 1 failed · 2 bad command line · 3 target not found or ambiguous ·
 #   4 no tmux server on the socket · 130 interrupted. A command that waits for
 #   a program (`pane run --wait`, `pane wait`) exits with the program's status.
-EXIT_FAILED=1
-EXIT_USAGE=2
-EXIT_TARGET=3
-EXIT_NO_SERVER=4
+# The codes and a failure's shape are tmuxy-core's (`cli_contract`), from
+# `_options`.
 
 # `--json` anywhere on the command line (tmuxy-cli takes it off the arguments
 # and sets this): every answer, including a failure, is one JSON object on
 # stdout.
 JSON_OUT="${JSON_OUT:-false}"
 
-# One string as a JSON string literal (quotes included): the characters JSON
-# forbids raw are escaped, every other control character dropped. awk and sed
-# only, since neither jq nor python is a dependency of the CLI.
+# The CLI's one JSON string encoder, as an awk function: `jstr(s)` is `s`
+# with backslash, quote and every control character escaped as serde_json
+# escapes them (`\t`, `\u001b`), so a string answers the same here as from a
+# verb (tmuxy-core `cli_contract` holds the two together). A row printer
+# splices it into its own awk program (`awk "$JSON_AWK"'…'`); `json_string`
+# runs it on one value. awk only, since neither jq nor python is a dependency
+# of the CLI. No variable is ever followed by `(`: BusyBox 1.31's awk (the
+# v86 guest's) reads `out (…)` as a call to a function `out`, and every JSON
+# list failed there with "Call to undefined function".
+JSON_AWK='function jstr(s,  out, i, n, ch) { if (!JSTR_READY) { for (i = 1; i < 32; i++) JSTR_ESC[sprintf("%c", i)] = sprintf("\\u%04x", i); JSTR_ESC["\t"] = "\\t"; JSTR_ESC["\r"] = "\\r"; JSTR_ESC["\b"] = "\\b"; JSTR_ESC["\f"] = "\\f"; JSTR_ESC["\\"] = "\\\\"; JSTR_ESC["\""] = "\\\""; JSTR_READY = 1 } out = ""; n = length(s); for (i = 1; i <= n; i++) { ch = substr(s, i, 1); if (ch in JSTR_ESC) ch = JSTR_ESC[ch]; out = out ch } return out } '
+
+# One string as a JSON string literal (quotes included), its lines joined by
+# `\n`.
 json_string() {
   printf '"'
-  printf '%s' "$1" \
-    | LC_ALL=C sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' -e 's/[[:cntrl:]]//g' \
-    | awk '{ if (NR > 1) printf "\\n"; printf "%s", $0 }'
+  printf '%s' "$1" | LC_ALL=C awk "$JSON_AWK"'{ if (NR > 1) printf "\\n"; printf "%s", jstr($0) }'
   printf '"'
 }
 
@@ -41,6 +44,16 @@ json_ok() {
   printf '%s}\n' "$out"
 }
 
+# ` --json` when the answer is JSON, for a verb's command line.
+_json_flag() {
+  [ "$JSON_OUT" != true ] || printf ' --json'
+}
+
+_done() {
+  [ "$JSON_OUT" = true ] || return 0
+  json_ok "$@"
+}
+
 # Where a JSON failure goes: the real stdout. tmuxy-cli keeps it open as fd 3,
 # since a failure raised inside a `$(…)` — resolving a target, say — would
 # otherwise be captured by the substitution and never seen.
@@ -48,22 +61,16 @@ _json_fd() {
   if { true >&3; } 2>/dev/null; then echo 3; else echo 1; fi
 }
 
-# Stop with a message and an exit code: on stderr as text, or on stdout as
-# `{"ok":false,"error":…,"code":N}` under `--json`.
-# Args: $1=exit code, $2=message
 _fail() {
   local code="$1" message="$2"
   if [ "$JSON_OUT" = true ]; then
-    printf '{"ok":false,"error":%s,"code":%s}\n' "$(json_string "$message")" "$code" >&"$(_json_fd)"
+    printf "$JSON_FAILURE_FORMAT\\n" "$(json_string "$message")" "$code" >&"$(_json_fd)"
   else
     echo "Error: $message" >&2
   fi
   exit "$code"
 }
 
-# A bad command line: the message, then the usage text on stderr when a
-# function printing it is named.
-# Args: $1=message, [$2=usage function]
 _die_usage() {
   if [ "$JSON_OUT" != true ] && [ -n "${2:-}" ]; then
     echo "Error: $1" >&2
@@ -73,16 +80,14 @@ _die_usage() {
   _fail "$EXIT_USAGE" "$1"
 }
 
-# Whether tmux's complaint says there is no server to talk to.
 _no_server_in() {
-  case "$1" in
-    *"no server running"* | *"error connecting to"* | *"No such file or directory"*) return 0 ;;
-  esac
+  local sign
+  for sign in "${NO_SERVER_SIGNS[@]}"; do
+    case "$1" in *"$sign"*) return 0 ;; esac
+  done
   return 1
 }
 
-# Run a read-only tmux command, and stop with exit 4 when there is no server
-# on the socket. Other failures keep tmux's status, for the caller to judge.
 _tmux_read() {
   local err status=0
   err=$(mktemp)
@@ -96,21 +101,34 @@ _tmux_read() {
   return "$status"
 }
 
+# After a `_tmux_read` run inside `$(…)` with its stderr dropped: a "no
+# server" there has answered already under --json (the JSON fd is the real
+# stdout) and exited only the subshell, so the caller would answer a second
+# time with a reason of its own. Only its text line was dropped: print that,
+# and exit with its code. Any other status is the caller's to read.
+_exit_if_no_server() {
+  [ "$1" -eq "$EXIT_NO_SERVER" ] || return 0
+  [ "$JSON_OUT" = true ] || echo "Error: no tmux server on socket '$TMUX_SOCKET'" >&2
+  exit "$EXIT_NO_SERVER"
+}
+
 # A pane to act on, from what the caller wrote: a tmux id (`%3`, `@2`, `$1`),
 # an index or a `session:window.pane` target is handed back as it is; anything
 # else is a LABEL — a pane's `@tmuxy-label` option (`tmuxy pane run --label`),
 # else its title — and must name exactly one pane. None is exit 3; several is
 # exit 3 too, with every match listed, and nothing changed.
-# Args: $1=target
 _resolve_target() {
-  local target="$1" rows matches count
+  local target="$1" rows matches count rc=0
   case "$target" in
     '' | %[0-9]* | @[0-9]* | \$[0-9]* | [0-9]* | *:* | *.* | '{'*)
       printf '%s' "$target"
       return 0
       ;;
   esac
-  rows="$(_tmux_read list-panes -a -F $'#{pane_id}\t#{@tmuxy-label}\t#{pane_title}\t#{session_name}:#{window_index}' 2>/dev/null || true)"
+  # The title is the app's (APP_PANE_TITLE_FMT): tmux seeds every untitled
+  # pane's title with the host name, which would otherwise name them all.
+  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $4 "\t" $2 }')"
   if [ -z "$matches" ]; then
     matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$3 == want { print $1 "\t" $4 "\t" $3 }')"
@@ -134,37 +152,6 @@ _resolve_target() {
     exit "$EXIT_TARGET"
   fi
   printf '%s' "${matches%%$'\t'*}"
-}
-
-# Whether $1 is a safe tmux socket name or absolute path (no leading '-',
-# no '..' traversal, no relative path with '/', and no shell syntax).
-_is_safe_socket() {
-  local sock="${1:-}"
-  [ -n "$sock" ] || return 1
-  [[ "$sock" != -* && "$sock" != *..* ]] || return 1
-  [[ "$sock" != */* || "$sock" == /* ]] || return 1
-  [[ "$sock" =~ ^[A-Za-z0-9._/@+-]+$ ]]
-}
-
-# Whether $1 is a safe tmux session name (matches tmuxy_core::SessionName).
-_is_safe_session_name() {
-  local name="${1:-}"
-  [ -n "$name" ] || return 1
-  [[ "$name" != -* ]] || return 1
-  [[ "$name" =~ ^[A-Za-z0-9_@+-]+$ ]]
-}
-
-# The first name in $1 (one per line, as `list-sessions -F '#{session_name}'`
-# prints them) that is a safe session name and not the stash of parked group
-# members, which sorts before real sessions. Prints nothing when none is.
-_first_safe_session() {
-  local name
-  while IFS= read -r name; do
-    if [ "$name" != "$STASH_SESSION" ] && _is_safe_session_name "$name"; then
-      printf '%s' "$name"
-      return 0
-    fi
-  done <<<"$1"
 }
 
 # The caller's own pane, if `$1` (a TMUX_PANE the caller handed in) is one:

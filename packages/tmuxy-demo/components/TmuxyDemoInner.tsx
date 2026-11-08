@@ -7,6 +7,7 @@ import {
   V86TmuxAdapter,
   GuestTransportLive,
   cheerpxAvailable,
+  phoneMediaQuery,
   useAppFocused,
   type RenderTabline,
 } from 'tmuxy-ui';
@@ -31,8 +32,6 @@ function DemoTabline({ children }: { children: React.ReactNode }) {
 
 const renderTabline: RenderTabline = ({ children }) => <DemoTabline>{children}</DemoTabline>;
 
-// The two texts the features tab's pane group shows, written into the guest's
-// home before the panes `cat` them.
 const PANE_GROUP_FILES = [
   ['pane-group-1.txt', 'Did you notice that this pane has two tabs?'],
   [
@@ -41,18 +40,12 @@ const PANE_GROUP_FILES = [
   ],
 ].map(([file, text]) => `run-shell "printf '${text}\\n' > ~/${file}"`);
 
-// A pane group in the active pane: one member showing the first text, a second
-// one the other, then back to the first, and then to the welcome tab. Run from
-// the pane's own shell with the CLI, as a user would: `group add` acts on the
-// shell's pane, and the new member is the one then showing in the features
-// tab (`tmuxy:features.`). Targets name the demo's session, which the
-// init renames from the guest's `m` (build-v86-snapshot.mjs, tmuxy-console),
-// since a parked shell's own session is the stash.
-// The switch to the welcome tab is the line's own last step rather than an
-// init command, which would run before the shell got to it, and the line ends
-// by setting INIT_DONE, which the app waits for before its first frame.
-// Otherwise targets are relative: the guest's pane ids are whatever its start
-// left them at.
+// Run from the pane's own shell with the CLI: `group add` acts on the shell's
+// pane. Targets name the demo's session (renamed from the guest's `m`) because
+// a parked shell's own session is the stash. The switch to the welcome tab is
+// the line's last step, since an init command would run before the shell got
+// to it; the app waits for INIT_DONE before its first frame. Pane ids are
+// whatever the guest's start left them at, so other targets are relative.
 const SESSION = 'tmuxy';
 const INIT_DONE = '@tmuxy-demo-ready';
 const PANE_GROUP_THEN_WELCOME = [
@@ -60,9 +53,7 @@ const PANE_GROUP_THEN_WELCOME = [
   'send-keys Enter',
 ];
 
-// What the features tab's other two panes show, from files the page puts in
-// the guest's /mnt: the old demo's nyan cat, drawn with the Kitty graphics
-// protocol (public/guest/icat), and a markdown document in a preview.
+// Put in the guest's /mnt by the page.
 const guestFiles = () => ({
   icat: new URL('/guest/icat', window.location.href),
   'tmuxy.md': new URL('/guest/tmuxy.md', window.location.href),
@@ -73,8 +64,6 @@ const typeLine = (line: string) => [`send-keys -l "${line}"`, 'send-keys Enter']
 // Either guest starts with one window of two side-by-side panes (the v86
 // snapshot, the CheerpX image's console relay).
 const FEATURES_TAB = [
-  // Tab 2: features: left column split in two, its top pane a group, the
-  // nyan cat under it and the markdown on the right
   'new-window',
   'rename-window features',
   'split-window -h',
@@ -91,7 +80,6 @@ const FEATURES_TAB = [
 const INIT_COMMANDS_DESKTOP = [
   `rename-session ${SESSION}`,
   ...PANE_GROUP_FILES,
-  // Tab 1: welcome: the two panes, the right one split in two
   'rename-window welcome',
   'split-window -v',
   'select-pane -L',
@@ -101,7 +89,6 @@ const INIT_COMMANDS_DESKTOP = [
 const INIT_COMMANDS_MOBILE = [
   `rename-session ${SESSION}`,
   ...PANE_GROUP_FILES,
-  // Tab 1: welcome: the two panes stacked, for narrow screens
   'rename-window welcome',
   'select-layout even-vertical',
   'select-pane -U',
@@ -110,7 +97,8 @@ const INIT_COMMANDS_MOBILE = [
 
 export default function TmuxyDemoInner() {
   const adapter = useMemo(() => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    // The app's own phone test, so the session is built for the layout it draws.
+    const isMobile = phoneMediaQuery()?.matches ?? false;
     const options = {
       initCommands: isMobile ? INIT_COMMANDS_MOBILE : INIT_COMMANDS_DESKTOP,
       initDoneOption: INIT_DONE,

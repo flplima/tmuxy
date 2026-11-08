@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelFromSnapshot, modelPane, modelWindow } from '../../../test/model';
 import {
-  modelFromSnapshot,
   addPendingOp,
   applyServerSnapshot,
   makePendingOp,
@@ -10,54 +10,19 @@ import {
 } from '../model';
 import { predict } from '../ops';
 import { toTmuxCommand, type TmuxOp } from '../../commands';
-import type { TmuxSnapshot, OpId } from '../types';
-import { OP_STALE_TIMEOUT_MS, OP_ACKED_STALE_TIMEOUT_MS } from '../types';
+import {
+  type TmuxSnapshot,
+  type OpId,
+  OP_STALE_TIMEOUT_MS,
+  OP_ACKED_STALE_TIMEOUT_MS,
+} from '../types';
 import type { TmuxPane, TmuxWindow } from '../../client';
 
-const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
-  id: 0,
-  tmuxId: pid('%0'),
-  windowId: wid('@0'),
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 24,
-  x: 0,
-  y: 0,
-  active: false,
-  command: 'bash',
-  title: '',
-  borderTitle: '',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  paused: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-  ...over,
-});
+const pane = (over: Partial<TmuxPane> = {}): TmuxPane =>
+  modelPane(over.tmuxId ?? pid('%0'), over.windowId ?? wid('@0'), over);
 
-const win = (over: Partial<TmuxWindow> = {}): TmuxWindow => ({
-  id: wid('@0'),
-  index: 0,
-  name: 'main',
-  active: true,
-  windowType: 'tab',
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-  ...over,
-});
+const win = (over: Partial<TmuxWindow> = {}): TmuxWindow =>
+  modelWindow(over.id ?? wid('@0'), over.index ?? 0, { name: 'main', active: true, ...over });
 
 const snapshot = (over: Partial<TmuxSnapshot> = {}): TmuxSnapshot => ({
   panes: [pane({ active: true })],
@@ -121,7 +86,6 @@ describe('TmuxClientModel', () => {
     const m1 = addPendingOp(m0, pending);
     expect(m1.derived.panes).toHaveLength(2);
 
-    // Server sends a snapshot with both panes — placeholder gone, real pane present.
     const serverSnap = snapshot({
       panes: [
         pane({ tmuxId: pid('%0'), width: 39 }),
@@ -155,9 +119,7 @@ describe('TmuxClientModel', () => {
       now: 0,
     });
     const m1 = addPendingOp(m0, pending);
-    // Server snapshot still shows only the original pane — prediction unmet.
     const serverSnap = snapshot();
-    // Now well past the stale timeout.
     const reconciled = applyServerSnapshot(m1, serverSnap, 10_000);
     expect(reconciled.rolledBack).toHaveLength(1);
     expect(reconciled.rolledBack[0].reason).toMatch(/stale/);

@@ -4,7 +4,6 @@ use super::tests_capture::{fixture, joined, window_line};
 use super::*;
 use crate::ids::test_ids::pid;
 
-/// The restore-on-start path builds onto the window `new-session -A` made.
 #[test]
 fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() {
     let lines = joined(&plan(
@@ -32,28 +31,10 @@ fn restoring_onto_an_existing_session_renames_window_zero_instead_of_creating() 
         !lines.iter().any(|l| l.starts_with("run: move-window")),
         "the first window is at 0 already"
     );
-    // The hint names the first window and its first pane's directory.
     let snap = fixture();
     let (name, cwd) = snap.first_window_hint("/home/x").unwrap();
     assert_eq!(name, "main");
     assert_eq!(cwd, "/tmp");
-}
-
-#[test]
-fn a_tmux_word_quotes_what_tmux_would_otherwise_split_or_expand() {
-    // A bare `#` is a comment to tmux's parser: a format is always quoted.
-    assert_eq!(tmux_word("#{window_id}"), "\"#{window_id}\"");
-    assert_eq!(
-        tmux_word("#{s/,/%2C/:window_layout}"),
-        "\"#{s/,/%2C/:window_layout}\""
-    );
-    // `{` opens a command block: a side-by-side layout is quoted.
-    assert_eq!(
-        tmux_word("b1c2,80x24,0,0{40x24,0,0,1}"),
-        "\"b1c2,80x24,0,0{40x24,0,0,1}\""
-    );
-    assert_eq!(tmux_word("a b"), "\"a b\"");
-    assert_eq!(tmux_word("say \"hi\" $HOME"), "\"say \\\"hi\\\" \\$HOME\"");
 }
 
 #[test]
@@ -98,7 +79,6 @@ fn focus_is_restored_last() {
     assert!(lines.contains(&"run: select-pane -t work:0.1".to_string()));
 }
 
-/// The executor threads each answer into the following step.
 #[tokio::test]
 async fn apply_feeds_an_answer_into_the_next_step() {
     let mut seen = Vec::new();
@@ -129,6 +109,20 @@ async fn apply_stops_at_the_first_failure() {
     })
     .await;
     assert_eq!(result.unwrap_err().to_string(), "tmux error: no");
+}
+
+/// Records that do not parse (tmux answering in a shape the parser no longer
+/// reads) are no snapshot at all, never an empty one written over the last.
+#[tokio::test]
+async fn a_capture_that_reads_back_no_window_is_refused() {
+    let taken = take("work", |argv| {
+        std::future::ready(Ok(match argv[0].as_str() {
+            "list-windows" => "a,record,of,another,shape\n".to_string(),
+            _ => String::new(),
+        }))
+    })
+    .await;
+    assert!(taken.is_err());
 }
 
 #[tokio::test]

@@ -13,14 +13,16 @@
  * answered the way the demo site answers them, with nothing behind them.
  */
 
-import type { TmuxAdapter } from '../../infra/transport/driver';
+import type { TransportDriver } from '../../infra/transport/driver';
+import { noAnswer, type BackendCall } from '../../domain/backendCalls';
 import { EventHub } from '../../infra/eventHub';
 import { TransportEvent } from '../../infra/transport/events';
-import { decodeServerStateOrThrow, decodeStateForListener } from '../../infra/transport/wireDecode';
+import { decodeStateForListener } from '../../infra/transport/wireDecode';
 import type { PaneId } from '../../domain/ids';
 import type { CommandFailure, KeyBindings, ServerStateEncoded } from '../../domain/wire';
-import type { TraceSettings } from '../../machines/types/domain';
-import { loadThemeFromStorage, parseThemeMode, saveThemeToStorage } from '../../utils/themeManager';
+import type { Types } from 'effect';
+import type { TraceSettings } from '../../domain/wireSettings';
+import { answerThemeCall, isThemeCall } from '../../infra/prefs';
 
 /** A recording: the grid it was made at, the bindings in force, and a state per step. */
 export interface Fixture {
@@ -32,6 +34,20 @@ export interface Fixture {
   readonly previews?: Readonly<Record<string, unknown>>;
   /** What the server says its machine is called, for the status line. */
   readonly hostname?: string;
+}
+
+/** A story's hold on the adapter its harness made: `keep` is the `onAdapterReady`. */
+export function adapterHolder(): {
+  adapter: FixtureAdapter | null;
+  keep: (a: FixtureAdapter) => void;
+} {
+  const holder = {
+    adapter: null as FixtureAdapter | null,
+    keep: (a: FixtureAdapter) => {
+      holder.adapter = a;
+    },
+  };
+  return holder;
 }
 
 /**
@@ -55,7 +71,6 @@ export interface Transition {
 
 export interface FixtureAdapterOptions {
   fixture: Fixture;
-  /** The state the session is in when the app connects. */
   start: string;
   transitions?: ReadonlyArray<Transition>;
   /**
@@ -70,18 +85,7 @@ export interface FixtureAdapterOptions {
   failCommand?: (command: string) => string | false | null | undefined;
 }
 
-const THEMES = [
-  { name: 'catppuccin', displayName: 'Catppuccin' },
-  { name: 'default', displayName: 'Default' },
-  { name: 'dracula', displayName: 'Dracula' },
-  { name: 'fallout', displayName: 'Fallout' },
-  { name: 'gruvbox', displayName: 'Gruvbox' },
-  { name: 'nord', displayName: 'Nord' },
-  { name: 'solarized', displayName: 'Solarized' },
-  { name: 'tokyonight', displayName: 'Tokyo Night' },
-];
-
-export class FixtureAdapter implements TmuxAdapter {
+export class FixtureAdapter implements TransportDriver {
   readonly events = new EventHub<TransportEvent>();
   private readonly fixture: Fixture;
   private readonly transitions: ReadonlyArray<Transition>;
@@ -90,7 +94,7 @@ export class FixtureAdapter implements TmuxAdapter {
   private current: string;
   /** Every command the app sent, in order. */
   readonly commands: string[] = [];
-  private traceSettings: TraceSettings = {
+  private traceSettings: Types.Mutable<TraceSettings> = {
     enabled: false,
     level: 'shape',
     path: '/home/demo/.local/state/tmuxy/trace.ndjson',
@@ -157,65 +161,47 @@ export class FixtureAdapter implements TmuxAdapter {
     return url;
   }
 
-  async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    switch (cmd) {
+  async send(call: BackendCall): Promise<unknown> {
+    if (isThemeCall(call)) return answerThemeCall(call);
+    switch (call.cmd) {
       case 'get_initial_state':
-        return decodeServerStateOrThrow(this.state(this.current)) as T;
+        return this.state(this.current);
       case 'run_tmux_command':
-        await this.runCommand(String(args?.command ?? ''));
-        return null as T;
+        await this.runCommand(call.args.command);
+        return null;
       case 'read_preview': {
-        const document = this.fixture.previews?.[String(args?.paneId)];
-        if (document === undefined || args?.path !== undefined) {
+        const document = this.fixture.previews?.[call.args.paneId];
+        if (document === undefined || call.args.path != null) {
           throw { error: 'nothing recorded to read', kind: 'unavailable' } satisfies CommandFailure;
         }
-        return document as T;
+        return document;
       }
       case 'get_scrollback_cells':
-        return this.scrollback(String(args?.paneId)) as T;
+        return this.scrollback(call.args.paneId);
       // A recording cannot re-tile, so tmux's answer to a new size is the
       // screen it already drew. Once per size: the same size asked again (a
       // column narrows the client for good) changes nothing.
       case 'set_client_size': {
-        const size = `${args?.cols}x${args?.rows}`;
+        const size = `${call.args.cols}x${call.args.rows}`;
         if (size !== this.clientSize) {
           this.clientSize = size;
           this.emitStateSnapshot();
         }
-        return null as T;
+        return null;
       }
-      // The client leaves the session; tmux runs on.
       case 'detach_client':
         this.events.emit(TransportEvent.Detached({ reason: null }));
-        return null as T;
-      case 'set_theme': {
-        const saved = loadThemeFromStorage();
-        const mode = args?.mode as string | undefined;
-        saveThemeToStorage(
-          (args?.name as string | undefined) || saved?.theme || 'default',
-          mode === undefined ? (saved?.mode ?? 'dark') : parseThemeMode(mode),
-        );
-        return null as T;
-      }
-      case 'set_theme_mode':
-        saveThemeToStorage(loadThemeFromStorage()?.theme || 'default', parseThemeMode(args?.mode));
-        return null as T;
-      case 'get_theme_settings':
-        return (loadThemeFromStorage() ?? { theme: 'default', mode: 'dark' }) as T;
-      case 'get_themes_list':
-        return THEMES as T;
+        return null;
       case 'get_trace_settings':
-        return { ...this.traceSettings } as T;
+        return { ...this.traceSettings };
       case 'set_trace_enabled':
-        this.traceSettings.enabled = Boolean(args?.enabled);
-        return this.traceSettings.enabled as T;
-      case 'set_trace_level': {
-        const level = args?.level;
-        this.traceSettings.level = level === 'labeled' || level === 'full' ? level : 'shape';
-        return this.traceSettings.level as T;
-      }
+        this.traceSettings.enabled = call.args.enabled;
+        return this.traceSettings.enabled;
+      case 'set_trace_level':
+        this.traceSettings.level = call.args.level;
+        return this.traceSettings.level;
       default:
-        return null as T;
+        return noAnswer(call.cmd);
     }
   }
 

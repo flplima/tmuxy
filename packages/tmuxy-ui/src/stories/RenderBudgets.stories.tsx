@@ -1,18 +1,10 @@
 /**
- * React render-efficiency budgets.
- *
- * Every story enables the render log (utils/renderLog.tsx) BEFORE the app
- * mounts, then asserts Profiler commit counts per component id. This catches
- * the class of waste MutationObserver cannot: a component that re-renders but
- * produces identical DOM still burns CPU on every state tick.
- *
- * Budgets are deliberately coarse (order-of-magnitude, not exact commit
- * counts) so refactors don't trip them — the regression they guard is
- * "typing in one pane re-renders the world", not "one extra commit".
- *
- * Profiler onRender only fires in development React builds, so each story
- * first asserts the log is LIVE (boot recorded commits) — a production
- * bundle fails loudly instead of passing on an empty log.
+ * React render budgets: Profiler commit counts per component id
+ * (components/renderLog.tsx), the waste a MutationObserver cannot see. Budgets
+ * are order-of-magnitude so refactors don't trip them: the regression guarded
+ * is "typing in one pane re-renders the world", not "one extra commit".
+ * Profiler onRender only fires in development React builds, so each story first
+ * asserts the log is live; a production bundle fails instead of passing empty.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -27,9 +19,10 @@ import {
   renderLogMark,
   renderCountSince,
   renderCountsById,
-} from '../utils/renderLogStore';
+} from '../components/renderLogStore';
+import { wait } from './animationObservers';
+import { storyApp } from './storyApp';
 
-/** Enter, answered with what the line typed before it printed. */
 const enterShows = (state: string) => [{ match: /^send-keys -t %0 Enter$/, to: state }];
 
 const meta: Meta<typeof FixtureApp> = {
@@ -52,9 +45,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Wait for the boot to stop producing commits. */
 async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
   await waitFor(
     async () => {
@@ -66,17 +56,12 @@ async function waitForQuiescence(idPrefix = 'Pane:'): Promise<void> {
   );
 }
 
-/**
- * 5.1 — Typing isolation: keystrokes into the ACTIVE pane must not commit the
- * other panes or the chrome. This is the canonical "one keypress re-renders
- * the world" regression guard.
- */
+/** Keystrokes into the active pane must not commit the other panes or the chrome. */
 export const TypingIsolation: Story = {
   tags: ['nightly'],
   args: {
     fixture: asFixture(typingThreePanes),
     start: 'three-panes',
-    // Each keystroke answered with the line typed out on the prompt.
     transitions: [{ match: /^send-keys -t %0 -l /, to: 'typed' }],
   },
   play: async ({ canvasElement }) => {
@@ -85,15 +70,11 @@ export const TypingIsolation: Story = {
     await waitFor(() => expect(canvas.getAllByRole('group', { name: /^Pane /i }).length).toBe(3), {
       timeout: 10000,
     });
-    // The log must be LIVE (dev React) — boot always commits panes.
     expect(renderCountSince(0, 'Pane:')).toBeGreaterThan(0);
 
-    // Focus the pane the recording types into and let the boot traffic settle.
     const panes = canvas.getAllByRole('group', { name: /^Pane /i });
     await user.click(panes.find((p) => p.getAttribute('data-pane-id') === '%0')!);
-    const activeId = (
-      window as unknown as { app: { getSnapshot(): { context: { activePaneId: string } } } }
-    ).app.getSnapshot().context.activePaneId;
+    const activeId = storyApp().view().activePaneId;
     const otherIds = panes
       .map((p) => p.getAttribute('data-pane-id'))
       .filter((id): id is string => id !== null && id !== activeId);
@@ -106,7 +87,6 @@ export const TypingIsolation: Story = {
     });
     await wait(500);
 
-    // The typed-into pane committed; nothing else did.
     for (const id of otherIds) {
       expect(
         renderCountSince(mark, `Pane:${id}`),
@@ -119,9 +99,9 @@ export const TypingIsolation: Story = {
 };
 
 /**
- * 5.2 — Output stays inside the TerminalLine memo boundary: a burst of output
- * commits roughly the CHANGED lines, not lines × frames. Guards the custom
- * memo comparator and the line-identity preservation in mergeContent.
+ * A burst of output commits roughly the changed lines, not lines × frames.
+ * Guards TerminalLine's memo comparator and the line identity mergeSparseContent
+ * (domain/deltaProtocol.ts) keeps.
  */
 export const OutputBurstLineMemo: Story = {
   tags: ['nightly'],
@@ -134,7 +114,6 @@ export const OutputBurstLineMemo: Story = {
     await user.click(canvas.getAllByRole('group', { name: /^Pane /i })[0]);
     await waitForQuiescence();
 
-    // `ls` lists the home's handful of files.
     const mark = renderLogMark();
     await user.keyboard('ls{Enter}');
     await waitFor(() => expect(renderCountSince(mark, 'TerminalLine')).toBeGreaterThan(0), {
@@ -142,17 +121,15 @@ export const OutputBurstLineMemo: Story = {
     });
     await wait(800);
 
-    // ~10 changed lines across a few frames — far below lines × frames
-    // (24 lines × ~10 frames ≈ 240 would mean the memo boundary is broken).
+    // 24 lines × ~10 frames ≈ 240 would mean the memo boundary is broken.
     const lineCommits = renderCountSince(mark, 'TerminalLine');
     expect(lineCommits, `TerminalLine commits: ${lineCommits}`).toBeLessThan(120);
   },
 };
 
 /**
- * 5.3 — Tab switch commit budget: switching tabs re-renders the pane grid
- * (hidden↔shown) but unrelated chrome at most once — and switching BACK does
- * not double the cost.
+ * Switching tabs re-renders the pane grid but unrelated chrome at most once,
+ * and switching back does not double the cost.
  */
 export const TabSwitchCommitBudget: Story = {
   tags: ['nightly'],
@@ -179,24 +156,18 @@ export const TabSwitchCommitBudget: Story = {
     await wait(700);
     const tabsCommits = renderCountSince(mark, 'WindowTabs');
     const sidebarCommits = renderCountSince(mark, 'Sidebar');
-    // The tab strip re-renders a bounded number of times (selection flip +
-    // model confirm), and closed chrome not at all.
     expect(tabsCommits, `WindowTabs commits: ${tabsCommits}`).toBeLessThanOrEqual(6);
     expect(sidebarCommits, 'Sidebar (closed) must not render').toBe(0);
   },
 };
 
 /**
- * 5.4 — Idle redraw budget: when no output arrives and the user does not type,
- * terminal redraw count must stay ~0.
- *
- * Specifically guards against regressions like d4523d0 ('a glyph the canvas
- * cannot measure redraws every terminal forever'), where uncached symbol
- * measurements repeatedly triggered font-ready or subscription re-renders.
+ * With no output and no typing, terminal redraws stay at ~0. Guards against
+ * the regression fixed in d4523d0 (a glyph the canvas cannot measure redrew
+ * every terminal forever).
  */
 export const IdleRedrawBudget: Story = {
   tags: ['nightly'],
-  // The listing on screen, as the symbols print under it.
   args: { fixture: asFixture(lsListing), start: 'listed', transitions: enterShows('symbols') },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -206,19 +177,17 @@ export const IdleRedrawBudget: Story = {
     await user.click(canvas.getAllByRole('group', { name: /^Pane /i })[0]);
     await waitForQuiescence();
 
-    // Print symbols including box drawing (the trigger from d4523d0: ●, ⎿, ┌─┐)
+    // The symbols that triggered d4523d0.
     await user.keyboard('echo "● ⎿ ┌─┐"{Enter}');
     await wait(800);
     await waitForQuiescence();
 
-    // Monitor the idle window: over 1.5s with zero input, commits must stay 0.
     const mark = renderLogMark();
     await wait(1500);
 
     const paneCommits = renderCountSince(mark, 'Pane:');
     const terminalCommits = renderCountSince(mark, 'TerminalLine');
-    // Every id: the prefix that matches all of them, since a redraw nobody
-    // budgeted for is exactly the one this story is looking for.
+    // The empty prefix matches every id: an unbudgeted redraw is the one sought.
     const totalCommits = renderCountSince(mark, '');
 
     expect(

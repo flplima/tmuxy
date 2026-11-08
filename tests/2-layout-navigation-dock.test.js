@@ -3,7 +3,8 @@
  */
 
 const {
-  createTestContext,
+  sidebarShown,
+  describeE2E,
   delay,
   focusPage,
   waitForPaneCount,
@@ -24,22 +25,22 @@ const {
   glidePositions,
   sampleSidebarToggle,
   jumpProblem,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers/layout-helpers');
+const { tmuxPanes, tmuxWindow, tmuxWindows } = require('./helpers/tmux-read');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
-describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+/** The session's dock window (`sidebar-right`), as tmux has it; null when it has none. */
+function dockWindow(session) {
+  return tmuxWindows(session).find((w) => w.type === 'sidebar-right') ?? null;
+}
 
+describeE2E('Scenario 6e: Pinned Terminal Dock (right sidebar)', {}, (ctx) => {
   test('prefix S docks a shell at the right edge → sized to its own column → typing reaches it → stays pinned across tabs → Esc reaches the shell, Ctrl+h blurs → the toggle hides it, prefix S reopens the same shell', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    const firstWindowId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId,
-    );
+    const firstWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
     expect(firstWindowId).toMatch(/^@\d+$/);
 
     // Step 1: Open the dock via the real keybinding. First open also CREATES
@@ -66,28 +67,23 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // and that window is NOT in the tab strip.
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const ctxState = window.app?.getSnapshot()?.context;
-          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
-          return !!win && ctxState.panes.some((p) => p.windowId === win.id);
-        }),
+      async () => {
+        const win = dockWindow(ctx.session.name);
+        return !!win && tmuxPanes(win.id).length > 0;
+      },
       20000,
       'a sidebar-right-typed window with a pane',
     );
     const tabStrip = await ctx.page.evaluate(() => {
-      const win = window.app
-        ?.getSnapshot()
-        ?.context?.windows?.find((w) => w.windowType === 'sidebar-right');
       const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
       return {
         // The column's window carries the fixed name `__sidebar-right` (the
         // create command targets it by that name) and tabs render `index:name`,
         // so a tab carrying that label is the column leaking into the strip.
         labels: tabs.map((t) => (t.textContent || '').trim()),
-        dockWindowName: win?.name,
       };
     });
+    tabStrip.dockWindowName = dockWindow(ctx.session.name)?.name;
     expect(tabStrip.dockWindowName).toBe('__sidebar-right');
     expect(tabStrip.labels.some((label) => label.includes('__sidebar'))).toBe(false);
 
@@ -97,29 +93,29 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // the column holds in the sidebar font (@tmuxy-sidebar-rows, written by
     // the client): shorter rows than the pane grid's, so MORE of them than the
     // viewport has — the column is headerless, so it loses none.
+    const dockSize = async () => {
+      const win = dockWindow(ctx.session.name);
+      const tab = await ctx.page.evaluate(() => window.app.view().activeTabId);
+      return {
+        pane: win ? tmuxPanes(win.id)[0] : null,
+        rowsSent: win
+          ? Number(tmuxExec(`display-message -p -t ${win.id} '#{@tmuxy-sidebar-rows}'`))
+          : null,
+        gridRows: tmuxWindow(tab).height,
+      };
+    };
     await waitForCondition(
       ctx.page,
-      async () =>
-        ctx.page.evaluate(() => {
-          const ctxState = window.app?.getSnapshot()?.context;
-          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
-          const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
-          const sent = ctxState?.dockRowsSent;
-          return (
-            pane?.width === 35 &&
-            sent?.windowId === win?.id &&
-            pane?.height === sent.rows &&
-            pane.height > ctxState.targetRows
-          );
-        }),
+      async () => {
+        const size = await dockSize();
+        return (
+          size.pane?.width === 35 &&
+          size.pane.height === size.rowsSent &&
+          size.pane.height > size.gridRows
+        );
+      },
       20000,
-      async () =>
-        ctx.page.evaluate(() => {
-          const ctxState = window.app?.getSnapshot()?.context;
-          const win = ctxState?.windows?.find((w) => w.windowType === 'sidebar-right');
-          const pane = ctxState?.panes?.find((p) => p.windowId === win?.id);
-          return `column pane sized to its own column (got ${pane?.width}x${pane?.height}, want 35x${ctxState?.dockRowsSent?.rows}, viewport rows ${ctxState?.targetRows})`;
-        }),
+      async () => `the column pane sized to its own column: ${JSON.stringify(await dockSize())}`,
     );
 
     // Step 5: Opening it took the keyboard, so typing lands in the dock — not
@@ -127,7 +123,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+        ctx.page.evaluate(() => (window.app?.view().keyboardTarget.kind === 'right') === true),
       10000,
       'dock to hold keyboard focus after opening',
     );
@@ -141,7 +137,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
+        ctx.page.evaluate(() => (window.app?.view().keyboardTarget.kind === 'right') === false),
       5000,
       'the tiled pane to take the keyboard back before the glide',
     );
@@ -200,9 +196,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     await waitForCondition(
       ctx.page,
       async () => {
-        const active = await ctx.page.evaluate(
-          () => window.app?.getSnapshot()?.context?.activeWindowId,
-        );
+        const active = await ctx.page.evaluate(() => window.app?.view().activeTabId);
         return active && active !== firstWindowId;
       },
       8000,
@@ -227,7 +221,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === true),
+        ctx.page.evaluate(() => (window.app?.view().keyboardTarget.kind === 'right') === true),
       5000,
       'dock focused after a click',
     );
@@ -236,7 +230,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     // show within a frame or two.
     await afterFrames(ctx.page);
     const stillFocusedAfterEscape = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.rightSidebarFocused,
+      () => window.app?.view().keyboardTarget.kind === 'right',
     );
     expect(stillFocusedAfterEscape).toBe(true);
     // ...and glides back out to the tiled pane's cursor when Ctrl+h hands the
@@ -249,9 +243,9 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
     await waitForCondition(
       ctx.page,
       async () =>
-        ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.rightSidebarFocused === false),
+        ctx.page.evaluate(() => (window.app?.view().keyboardTarget.kind === 'right') === false),
       5000,
-      'rightSidebarFocused cleared after Ctrl+h',
+      'the dock let go of the keyboard after Ctrl+h',
     );
     expect(
       glidePositions(glideOut).distinct >= 3 ? 'glided' : JSON.stringify(glidePositions(glideOut)),
@@ -299,9 +293,7 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
       () => !document.querySelector('[data-testid="right-sidebar-content"]'),
       { timeout: 10000, polling: 100 },
     );
-    const windowSurvivedHide = await ctx.page.evaluate(() =>
-      window.app?.getSnapshot()?.context?.windows?.some((w) => w.windowType === 'sidebar-right'),
-    );
+    const windowSurvivedHide = dockWindow(ctx.session.name) !== null;
     expect(windowSurvivedHide).toBe(true);
 
     const opening = await sampleSidebarToggle(
@@ -344,15 +336,8 @@ describe('Scenario 6e: Pinned Terminal Dock (right sidebar)', () => {
   }, 180000);
 });
 
-describe('Scenario 6l: The tree lists panes in grid order', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6l: The tree lists panes in grid order', {}, (ctx) => {
   test('panes read left to right as in the grid, and the list follows a swap', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 
@@ -360,28 +345,28 @@ describe('Scenario 6l: The tree lists panes in grid order', () => {
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 2);
 
-    const treeOpen = () =>
-      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    const treeOpen = () => sidebarShown(ctx.page, 'left');
     if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
     // What the grid shows, left to right, and what the tree lists.
-    const order = () =>
-      ctx.page.evaluate(() => {
-        const { activeWindowId, panes } = window.app.getSnapshot().context;
-        const grid = panes
-          .filter((p) => p.windowId === activeWindowId)
-          .sort((a, b) => a.y - b.y || a.x - b.x)
-          .map((p) => p.tmuxId);
-        const tree = [
+    const order = async () => {
+      // The grid's panes as drawn, top to bottom, left to right.
+      const grid = (await shownPanes(ctx.page, GRID_PANE))
+        .sort((a, b) => Math.round(a.box.top - b.box.top) || a.box.left - b.box.left)
+        .map(({ id }) => id);
+      const tree = await ctx.page.evaluate((drawn) => {
+        const activeWindowId = window.app.view().activeTabId;
+        return [
           ...document.querySelectorAll(
             `[data-testid="tree-tab-${activeWindowId}"] + .sidebar-tree-children .sidebar-tree-pane`,
           ),
         ]
           .map((el) => el.getAttribute('data-pane-id'))
-          .filter((id) => grid.includes(id));
-        return { grid, tree };
-      });
+          .filter((id) => drawn.includes(id));
+      }, grid);
+      return { grid, tree };
+    };
     const waitForTreeInGridOrder = (what) =>
       waitForCondition(
         ctx.page,

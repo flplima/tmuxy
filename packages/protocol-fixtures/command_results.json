@@ -1,0 +1,413 @@
+{
+  "connect_server": [
+    null
+  ],
+  "detach_client": [
+    null
+  ],
+  "get_initial_state": [
+    {
+      "active_pane_id": "%2",
+      "active_window_id": "@1",
+      "focus_request": "left",
+      "panes": [
+        {
+          "active": true,
+          "alternate_on": true,
+          "border_title": "border",
+          "command": "zsh",
+          "content": [
+            [
+              {
+                "c": "h"
+              },
+              {
+                "c": "i"
+              }
+            ],
+            [
+              {
+                "c": "!",
+                "s": {
+                  "bg": 4,
+                  "bold": true,
+                  "dim": true,
+                  "fg": {
+                    "b": 40,
+                    "g": 40,
+                    "r": 200
+                  },
+                  "inverse": true,
+                  "italic": true,
+                  "underline": true,
+                  "url": "https://example.com"
+                }
+              }
+            ]
+          ],
+          "copy_cursor_x": 3,
+          "copy_cursor_y": 4,
+          "cursor_hidden": true,
+          "cursor_shape": 6,
+          "cursor_x": 2,
+          "cursor_y": 0,
+          "group_id": "g5",
+          "height": 24,
+          "history_size": 1234,
+          "id": 2,
+          "images": [
+            {
+              "col": 4,
+              "height_cells": 5,
+              "id": 7,
+              "protocol": "kitty",
+              "row": 3,
+              "width_cells": 10
+            }
+          ],
+          "in_mode": true,
+          "marked": true,
+          "mouse_any_flag": true,
+          "pane_ask": "eyJ0b2tlbiI6ImExIn0=",
+          "pane_state": "working",
+          "pane_widget": "tree",
+          "selection_present": true,
+          "selection_start_x": 1,
+          "selection_start_y": -2,
+          "title": "pane title",
+          "tmux_id": "%2",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 0
+        },
+        {
+          "active": false,
+          "alternate_on": false,
+          "border_title": "",
+          "command": "nvim",
+          "content": [
+            []
+          ],
+          "copy_cursor_x": 0,
+          "copy_cursor_y": 0,
+          "cursor_hidden": false,
+          "cursor_shape": 0,
+          "cursor_x": 0,
+          "cursor_y": 0,
+          "height": 24,
+          "history_size": 0,
+          "id": 3,
+          "in_mode": false,
+          "mouse_any_flag": false,
+          "selection_present": false,
+          "selection_start_x": 0,
+          "selection_start_y": 0,
+          "title": "",
+          "tmux_id": "%3",
+          "width": 80,
+          "window_id": "@1",
+          "x": 0,
+          "y": 25
+        }
+      ],
+      "plugins_rev": "3f2a9c1b7d4e6a08",
+      "seq": 41,
+      "session_name": "tmuxy",
+      "theme_rev": "nord:dark",
+      "total_height": 50,
+      "total_width": 80,
+      "windows": [
+        {
+          "active": true,
+          "active_pane_id": "%2",
+          "collapsible": true,
+          "id": "@1",
+          "index": 0,
+          "name": "main",
+          "pane_tree": {
+            "children": [
+              "%1",
+              "%2"
+            ],
+            "vertical": false
+          },
+          "window_type": "tab",
+          "zoomed": true
+        },
+        {
+          "active": false,
+          "float_bg": "dim",
+          "float_drawer": "bottom",
+          "float_height": 20,
+          "float_noheader": true,
+          "float_parent": "@1",
+          "float_width": 60,
+          "id": "@2",
+          "index": 1,
+          "name": "float",
+          "sidebar_cols": 30,
+          "sidebar_hidden": true,
+          "window_type": "float",
+          "zoomed": false
+        }
+      ]
+    }
+  ],
+  "get_scrollback_cells": [
+    {
+      "cells": [
+        [
+          {
+            "c": "h"
+          },
+          {
+            "c": "i",
+            "s": {
+              "bg": 4,
+              "bold": true,
+              "dim": true,
+              "fg": {
+                "b": 40,
+                "g": 40,
+                "r": 200
+              },
+              "inverse": true,
+              "italic": true,
+              "underline": true,
+              "url": "https://example.com"
+            }
+          }
+        ]
+      ],
+      "end": -1,
+      "historySize": 1234,
+      "start": -200,
+      "width": 80
+    }
+  ],
+  "get_theme_settings": [
+    {
+      "appearance": {
+        "activePaneOpacity": 1.0,
+        "activeTextOpacity": 1.0,
+        "animations": true,
+        "blur": true,
+        "cursorBlink": true,
+        "gesturePinchOverview": true,
+        "gesturePinchZoom": true,
+        "gestureSwipeTabs": true,
+        "inactivePaneOpacity": 0.7,
+        "inactiveTextOpacity": 0.7,
+        "nativeMenus": true,
+        "notify": true,
+        "opacity": 0.7,
+        "sendAsk": true,
+        "size": {
+          "cols": 120,
+          "mode": "fixed",
+          "rows": 40
+        },
+        "tabOverviewCols": 3,
+        "transparency": true
+      },
+      "cssVars": {
+        "term-red": "#ff0000"
+      },
+      "icons": {
+        "claude": "*",
+        "codex": "data:image/svg+xml;base64,PHN2Zy8+"
+      },
+      "mode": "dark",
+      "pinned": [
+        "@tmuxy-opacity"
+      ],
+      "theme": "nord"
+    }
+  ],
+  "get_themes_list": [
+    [
+      {
+        "displayName": "Tokyo Night",
+        "modes": [
+          "dark",
+          "light"
+        ],
+        "name": "tokyo-night"
+      }
+    ]
+  ],
+  "get_trace_settings": [
+    {
+      "enabled": true,
+      "level": "shape",
+      "locked": false,
+      "path": "/home/u/.local/state/tmuxy/trace.ndjson"
+    }
+  ],
+  "greeting": [
+    [
+      {
+        "data": {
+          "connection_id": 0,
+          "default_shell": "zsh",
+          "hostname": "gaphs04",
+          "trace_enabled": false
+        },
+        "event": "connection-info"
+      },
+      {
+        "data": {
+          "prefix_bindings": [
+            {
+              "command": "new-window",
+              "description": "new window",
+              "key": "c",
+              "repeat": false
+            }
+          ],
+          "prefix_key": "C-b",
+          "repeat_time_ms": 300,
+          "root_bindings": [
+            {
+              "command": "select-pane -L",
+              "description": "pane left",
+              "key": "M-Left",
+              "repeat": true
+            }
+          ],
+          "tables": {
+            "pane": [
+              {
+                "command": "kill-pane \\; switch-client -T pane",
+                "description": "kill-pane \\; switch-client -T pane",
+                "key": "x",
+                "repeat": false
+              }
+            ]
+          }
+        },
+        "event": "keybindings"
+      }
+    ]
+  ],
+  "list_git_worktrees": [
+    [
+      {
+        "id": "/src/tmuxy",
+        "name": "tmuxy",
+        "root": "/src/tmuxy",
+        "worktrees": [
+          {
+            "bare": false,
+            "branch": "main",
+            "detached": false,
+            "head": "0123abc",
+            "isMain": true,
+            "locked": false,
+            "path": "/src/tmuxy",
+            "prunable": false
+          }
+        ]
+      }
+    ]
+  ],
+  "list_servers": [
+    {
+      "currentId": "localhost",
+      "servers": [
+        {
+          "id": "localhost",
+          "kind": "local",
+          "label": "localhost",
+          "last_used": 1700000000,
+          "reachable": "online",
+          "session": "work",
+          "session_count": 2,
+          "socket": "tmuxy"
+        }
+      ]
+    }
+  ],
+  "list_snapshots": [
+    [
+      {
+        "name": "work",
+        "savedAt": 1700000000
+      }
+    ]
+  ],
+  "open_link": [
+    {
+      "action": "open",
+      "plugin": "gh",
+      "token": "tok-2"
+    },
+    null
+  ],
+  "open_text": [
+    null
+  ],
+  "open_trace_file": [
+    null
+  ],
+  "open_url": [
+    null
+  ],
+  "prepare_plugin_action": [
+    {
+      "token": "tok-1"
+    }
+  ],
+  "query_tmux": [
+    "%0 bash\n"
+  ],
+  "read_preview": [
+    {
+      "kind": "markdown",
+      "name": "README.md",
+      "net": false,
+      "text": "# hi"
+    },
+    {
+      "data": "iVBORw0K",
+      "mime": "image/png"
+    }
+  ],
+  "record_trace": [
+    null
+  ],
+  "restore_session": [
+    null
+  ],
+  "run_tmux_command": [
+    null
+  ],
+  "set_client_size": [
+    null
+  ],
+  "set_cursor_blink": [
+    null
+  ],
+  "set_send_ask": [
+    null
+  ],
+  "set_theme": [
+    null
+  ],
+  "set_theme_mode": [
+    null
+  ],
+  "set_trace_enabled": [
+    true
+  ],
+  "set_trace_level": [
+    "labeled"
+  ],
+  "set_transparency": [
+    null
+  ],
+  "stage_preview": [
+    null
+  ]
+}

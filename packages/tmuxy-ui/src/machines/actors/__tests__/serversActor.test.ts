@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { nextPollDelay, parseSessions, treeOnScreen } from '../serversActor';
+import { nextPollDelay, parseSessions } from '../serversActor';
+import { createInitialContext } from '../../app/context';
+import { selectTreeVisible } from '../../selectors/panesAndSidebars';
+import type { AppMachineContext } from '../../types/context';
 
 // Rows are tab-joined, matching the `-F` format the actor sends.
 const row = (...fields: string[]) => fields.join('\t');
@@ -94,17 +97,23 @@ describe('parseSessions', () => {
 });
 
 describe('the poll’s gate and cadence', () => {
-  it('reads tmux only with a tree on screen: the column, or the phone’s tree in front', () => {
-    expect(treeOnScreen({ leftSidebarOpen: true })).toBe(true);
-    expect(treeOnScreen({ leftSidebarOpen: false })).toBe(false);
-    expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'tree' })).toBe(true);
-    expect(treeOnScreen({ phoneLayout: true, phoneBottomView: 'dock' })).toBe(false);
-    expect(treeOnScreen({ phoneLayout: false, phoneBottomView: 'tree' })).toBe(false);
+  it('reads tmux only with a tree on screen: the column, a peek of it, or the phone’s tree in front', () => {
+    const base = createInitialContext();
+    const visible = (patch: Partial<AppMachineContext>) => selectTreeVisible({ ...base, ...patch });
+    const left = (open: boolean) => ({ ...base.sidebars, left: { ...base.sidebars.left, open } });
+    expect(visible({ sidebars: left(true) })).toBe(true);
+    expect(visible({ sidebars: left(false) })).toBe(false);
+    expect(visible({ sidebars: left(false), sidebarPeek: 'left' })).toBe(true);
+    expect(visible({ phoneLayout: true, phoneBottomView: 'tree' })).toBe(true);
+    expect(visible({ phoneLayout: true, phoneBottomView: 'dock' })).toBe(false);
+    expect(visible({ phoneLayout: true, phoneBottomView: 'menu' })).toBe(false);
     // Held sideways the tree is the left column, unless the menu has its place.
     const sideways = { phoneLayout: true, phoneLandscape: true };
-    expect(treeOnScreen({ ...sideways, phoneBottomView: 'dock' })).toBe(true);
-    expect(treeOnScreen({ ...sideways, phoneBottomView: 'menu' })).toBe(false);
-    expect(treeOnScreen(undefined)).toBe(false);
+    expect(visible({ ...sideways, phoneBottomView: 'dock' })).toBe(true);
+    expect(visible({ ...sideways, phoneBottomView: 'menu' })).toBe(false);
+    expect(visible({ phoneLayout: false, phoneBottomView: 'tree', sidebars: left(false) })).toBe(
+      false,
+    );
   });
 
   it('looks again soon until a listing comes back, then at the steady cadence', () => {

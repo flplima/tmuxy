@@ -1,11 +1,7 @@
 /**
- * Tab Overview actions — the Safari-style "all tabs" view.
- *
- * Owns context fields: tabOverviewOpen, tabOverviewSelected.
- *
- * The overview is a client-side surface over the pane area: opening it zooms
- * the current tab out into a grid of every tab; picking a slot zooms that tab
- * back in and makes it current. Slot order is the tab strip's order (the
+ * The tab overview, a Safari-style "all tabs" view over the pane area: opening
+ * it zooms the current tab out into a grid of every tab; picking a slot zooms
+ * that tab back in and makes it current. Slot order is the tab strip's order (the
  * index-ordered visible windows), and `tabOverviewSelected` is the keyboard
  * cursor over those slots plus one extra trailing slot, the "+" that creates a
  * tab. Everything that changes tmux (select, reorder, close, create) goes
@@ -15,12 +11,11 @@
 
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
-import { isPlaceholderId } from '../../../domain/ids';
+import { isPlaceholderId, realId } from '../../../domain/ids';
 import { selectVisibleWindows } from '../../selectors/panesAndSidebars';
-import { reorderOp } from '../../../utils/tabOverview';
+import { reorderOp } from '../../../domain/tabOverview';
 import { TmuxOp } from '../../../domain/commands';
 
-/** Slot count including the trailing "+" slot. */
 const slotCount = (context: Ctx) => selectVisibleWindows(context).length + 1;
 
 /** The slot of the current tab, where the keyboard cursor starts. */
@@ -49,7 +44,6 @@ export const tabOverviewActions = {
     if (context.tabOverviewOpen) enqueue(assign(closed));
   }),
 
-  /** Move the keyboard cursor; the grid wraps at the ends. */
   tabOverview_move: act(({ context, event, enqueue }) => {
     if (event.type !== 'TAB_OVERVIEW_MOVE' || !context.tabOverviewOpen) return;
     const count = slotCount(context);
@@ -94,7 +88,6 @@ export const tabOverviewActions = {
     // Routed through the store: the strip shows the new order from the drop
     // on, not from tmux's echo on.
     enqueue.raise({ type: 'DISPATCH_OP', op });
-    // The cursor follows the tab the user just moved.
     enqueue(assign({ tabOverviewSelected: Math.min(event.toIndex, visible.length - 1) }));
   }),
 
@@ -117,21 +110,29 @@ export const tabOverviewActions = {
    * from the thing being named.
    */
   tabOverview_rename: assignCtx(({ context, event }) => {
-    if (event.type === 'RENAME_TAB') return { renamingTabId: event.windowId };
-    return {
-      renamingTabId:
-        context.activeWindowId && !isPlaceholderId(context.activeWindowId)
-          ? context.activeWindowId
-          : null,
-    };
+    if (event.type === 'RENAME_TAB') {
+      return { renamingTab: { windowId: event.windowId, surface: event.surface ?? 'strip' } };
+    }
+    const active = realId(context.activeWindowId);
+    return { renamingTab: active ? { windowId: active, surface: 'strip' } : null };
   }),
 
-  /** The field closed, committed or not. */
-  tabOverview_renameEnd: assignCtx(() => ({ renamingTabId: null })),
+  /** The field closed: renamed (a name), or left as it was (null). */
+  tabOverview_renameCommit: act(({ event, enqueue }) => {
+    if (event.type !== 'RENAME_TAB_COMMIT') return;
+    enqueue(assign({ renamingTab: null }));
+    if (!event.name) return;
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.RenameWindow({ target: event.windowId, name: event.name }),
+    });
+  }),
 
-  /** Stacked panes on the active tab: a window option the backend reads (docs/TMUX.md). */
-  tabOverview_toggleStacked: act(({ context, enqueue }) => {
-    const window = context.windows.find((w) => w.id === context.activeWindowId);
+  /** Stacked panes on a tab: a window option the backend reads (docs/TMUX.md). */
+  tabOverview_toggleStacked: act(({ context, event, enqueue }) => {
+    if (event.type !== 'TOGGLE_STACKED_PANES') return;
+    const windowId = event.windowId ?? context.activeWindowId;
+    const window = context.windows.find((w) => w.id === windowId);
     if (!window || isPlaceholderId(window.id)) return;
     enqueue(
       sendTo('tmux', {
@@ -149,13 +150,7 @@ export const tabOverviewActions = {
   tabOverview_closeTab: act(({ context, event, enqueue }) => {
     // A tab tmux has not confirmed yet has no id to kill; the ✕ waits.
     if (event.type !== 'CLOSE_TAB' || isPlaceholderId(event.windowId)) return;
-    enqueue(
-      sendTo('tmux', {
-        type: 'SEND_OP' as const,
-        op: TmuxOp.KillWindow({ windowId: event.windowId }),
-      }),
-    );
-    // Keep the cursor on a slot that still exists once the tab is gone.
+    enqueue.raise({ type: 'DISPATCH_OP', op: TmuxOp.KillWindow({ windowId: event.windowId }) });
     const count = Math.max(1, slotCount(context) - 1);
     if (context.tabOverviewSelected >= count) {
       enqueue(assign({ tabOverviewSelected: count - 1 }));

@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+#
+# The toolchain facts every environment is built with, written down once.
+# The CI workflows and their composite actions, the devcontainer image
+# (.devcontainer/Dockerfile copies this file in, as it copies
+# bin/install-dev-tools), bin/bootstrap and bin/install-dev-tools all ask
+# here.
+#
+# Usage:
+#   bin/toolchain node-version          the Node release CI and the image run
+#   bin/toolchain tmux-version          the tmux CI, the image and docs/TMUX.md target
+#   bin/toolchain rust-targets          the rustup targets past the host's: wasm32 for
+#                                       tmuxy-wasm, i686-musl for the guests' tmuxy-verbs
+#   bin/toolchain tauri-driver-version  the driver the desktop suites run the app under
+#   bin/toolchain packages <set>        apt package names, space-separated:
+#                                         tmux-build       what a tmux release builds with
+#                                         tmux-build-head  the same, for tmux master
+#                                         webkit-dev       the headers the desktop crate links
+#                                         desktop-test     Xvfb and the WebKit WebDriver
+#   bin/toolchain build-tmux [<version>|HEAD]
+#                                       build tmux from source (the pin by default) and
+#                                       install it under /usr/local; needs `packages
+#                                       tmux-build` (`tmux-build-head` for HEAD)
+set -euo pipefail
+
+NODE_VERSION=22
+TMUX_VERSION=3.7a
+RUST_TARGETS=(wasm32-unknown-unknown i686-unknown-linux-musl)
+TAURI_DRIVER_VERSION=2.0.6
+
+packages() {
+  case "${1:-}" in
+    tmux-build) echo libevent-dev libncurses-dev bison ;;
+    # master has no release tarball and no generated configure script.
+    tmux-build-head) echo libevent-dev libncurses-dev bison autoconf automake pkg-config ;;
+    webkit-dev)
+      echo libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev
+      ;;
+    desktop-test)
+      # WebKitWebDriver's package was renamed in Ubuntu 26.04; Debian and
+      # older Ubuntu still call it webkit2gtk-driver. Asked of the apt index,
+      # so it is right only after an `apt-get update`.
+      local webdriver=webkit2gtk-driver
+      if apt-cache show webkitgtk-webdriver >/dev/null 2>&1; then webdriver=webkitgtk-webdriver; fi
+      echo xvfb x11-utils "$webdriver"
+      ;;
+    *)
+      echo "unknown package set: ${1:-} (tmux-build, tmux-build-head, webkit-dev, desktop-test)" >&2
+      exit 2
+      ;;
+  esac
+}
+
+build_tmux() {
+  local version="${1:-$TMUX_VERSION}" work sudo=""
+  if [ "$(id -u)" -ne 0 ]; then sudo=sudo; fi
+  work="$(mktemp -d)"
+  if [ "$version" = HEAD ]; then
+    git clone --depth 1 https://github.com/tmux/tmux.git "$work/tmux"
+    local commit
+    commit="$(git -C "$work/tmux" rev-parse HEAD)"
+    echo "tmux master commit: $commit"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      echo "tmux master commit: $commit" >>"$GITHUB_STEP_SUMMARY"
+    fi
+    (cd "$work/tmux" && sh autogen.sh)
+  else
+    curl -fsSL "https://github.com/tmux/tmux/releases/download/$version/tmux-$version.tar.gz" |
+      tar xz -C "$work"
+    mv "$work/tmux-$version" "$work/tmux"
+  fi
+  (cd "$work/tmux" && ./configure && make -j"$(nproc)" && $sudo make install)
+  rm -rf "$work"
+}
+
+case "${1:-}" in
+  node-version) echo "$NODE_VERSION" ;;
+  tmux-version) echo "$TMUX_VERSION" ;;
+  rust-targets) echo "${RUST_TARGETS[*]}" ;;
+  tauri-driver-version) echo "$TAURI_DRIVER_VERSION" ;;
+  packages) packages "${2:-}" ;;
+  build-tmux) build_tmux "${2:-}" ;;
+  *)
+    echo "usage: bin/toolchain node-version | tmux-version | rust-targets | tauri-driver-version | packages <set> | build-tmux [<version>|HEAD]" >&2
+    exit 2
+    ;;
+esac

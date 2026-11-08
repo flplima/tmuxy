@@ -6,7 +6,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   waitForWindowCount,
   typeInTerminal,
@@ -33,15 +33,8 @@ const { tmuxExec } = require('./helpers/tmux-socket');
  * clicks the "+" button, clicks a tab, and drives the prefix with no pane click
  * in between.
  */
-describe('Scenario: an unpinned command lands in the tab on screen', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: an unpinned command lands in the tab on screen', {}, (ctx) => {
   test('split and sidebar both act on the visible tab, not on tmux’s current window', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -55,7 +48,7 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
       await page.keyboard.up('Control');
       await waitForCondition(
         page,
-        () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive === true),
+        () => page.evaluate(() => window.app?.view().prefixActive === true),
         5000,
         'prefix mode',
       );
@@ -77,8 +70,7 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
       }
       return map;
     };
-    const visibleTab = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const visibleTab = () => page.evaluate(() => window.app?.view().activeTabId);
 
     // A fresh session holds one tab. Wait for the strip to draw it: setup only
     // waits for the session and a pane, and counting before the strip renders
@@ -100,12 +92,9 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
     expect(target).toMatch(/^@\d+$/);
 
     const before = await panesByWindow();
-    const firstTab = await page.evaluate(
-      () =>
-        (window.app?.getSnapshot()?.context?.windows || [])
-          .filter((w) => w.windowType === 'tab')
-          .sort((a, b) => a.index - b.index)[0]?.id,
-    );
+    const firstTab = (await ctx.session.getWindowInfo())
+      .filter((w) => w.type === 'tab')
+      .sort((a, b) => a.index - b.index)[0]?.id;
 
     // 1. The split belongs to the tab on screen.
     await prefixNoPaneClick('5', true);
@@ -145,15 +134,8 @@ describe('Scenario: an unpinned command lands in the tab on screen', () => {
 // command and the app shows it as a snackbar in the top-right corner — not on
 // the status line, which is for status.
 
-describe('Scenario: a rejected tmux command is reported in the snackbar', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: a rejected tmux command is reported in the snackbar', {}, (ctx) => {
   test('tmux’s message appears top-right, off the status line, and the close button dismisses it [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
     const message = "can't find window: @999";
@@ -200,15 +182,8 @@ describe('Scenario: a rejected tmux command is reported in the snackbar', () => 
 // `tmux display-message "build done"` showed nothing, and the command prompt's
 // own `display-message` was answered by the client, unexpanded.
 
-describe('Scenario: tmux display-message shows in the snackbar as a notice', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: tmux display-message shows in the snackbar as a notice', {}, (ctx) => {
   test('from a pane’s shell and from the prompt: a notice top-right, formats expanded by tmux, gone on its own', async () => {
-    if (ctx.skipIfNotReady()) return;
     // `%message` exists from tmux 3.4; before it a display-message aimed at a
     // control client shows nothing (docs/STATE-MANAGEMENT.md).
     const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);

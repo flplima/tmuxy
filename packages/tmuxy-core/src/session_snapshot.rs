@@ -6,22 +6,13 @@
 //! and the program each pane was running, and on restore it rebuilds the tree
 //! and *offers* the programs again. A shell comes back as a shell; `vim notes`
 //! comes back typed at a prompt, waiting for Enter.
-//!
-//! Three things are deliberately NOT here, and docs/NON-GOALS.md says why:
-//! process state, screen contents by default, and a boot service.
-//!
-//! The module is pure except for the thin `std::process`/`std::fs` edges at
-//! the bottom, because every decision in it — which process is the foreground
-//! one, what a restore does first, whether a file is stale — is the kind that
-//! only ever goes wrong on a machine nobody is looking at. So the decisions
-//! take their inputs as values and are tested as values; the edges just fetch.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::constants::tmux_options;
-use crate::{GroupId, PaneId, WindowId};
+use crate::{GroupId, PaneId, WindowId, WindowType};
 
 mod autosave;
 mod capture;
@@ -54,22 +45,9 @@ pub const MIN_FOREGROUND_AGE_SECS: u64 = 2;
 /// (`OpenSidebar` in domain/commands.ts). A sidebar is tmuxy's own window, so a
 /// restore runs it rather than offering it. The bundled script by its installed
 /// path, not a bare `tmuxy`: that is whatever PATH holds, and a stale one exits
-/// at once and takes the column's window with it. The data dir is the one the
-/// entry file publishes (`session::DATA_DIR_ENV`), which the pane's shell
-/// expands.
+/// at once and takes the column's window with it. The pane's shell expands
+/// `$TMUXY_DATA_DIR` (`session::DATA_DIR_ENV`).
 pub const LEFT_SIDEBAR_WIDGET: &str = "$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree";
-/// What a left sidebar ran before: a bare `tmuxy widget tree`, then the
-/// bundled script under the config dir, before the scripts moved to the data
-/// dir. A snapshot saved then still says so, and restores as the sidebar all
-/// the same.
-pub const LEGACY_LEFT_SIDEBAR_WIDGETS: [&str; 2] = [
-    "tmuxy widget tree",
-    "$HOME/.config/tmuxy/bin/tmuxy/tmuxy-widget-tree",
-];
-
-// =============================================================================
-// Model
-// =============================================================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -111,7 +89,7 @@ impl HiddenMember {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }
@@ -173,14 +151,10 @@ impl PaneSnapshot {
         }
         self.command
             .as_ref()
-            .map(|argv| shell_join(argv))
+            .map(|argv| crate::argv::shell_line(argv))
             .or_else(|| self.offer.clone())
     }
 }
-
-// =============================================================================
-// Storage
-// =============================================================================
 
 /// Where a server's snapshots live: `sessions/<socket>/` under the state dir.
 /// A session is named within its tmux server, not the machine — a released
@@ -191,7 +165,7 @@ pub fn snapshot_dir(state_dir: &Path) -> PathBuf {
     let socket = crate::session::tmux_socket();
     // A socket path (`-S /x/y.sock`) keys by its file name, like `tmux -L`.
     let name = socket.rsplit('/').next().unwrap_or(&socket).to_string();
-    state_dir.join("sessions").join(name)
+    state_dir.join(crate::paths::SESSIONS.name).join(name)
 }
 
 /// `<name>.<stamp>.json` — the stamp sorts lexically in time order.
@@ -203,28 +177,7 @@ fn latest_link(dir: &Path, session: &str) -> PathBuf {
     dir.join(format!("{session}.latest.json"))
 }
 
-/// `YYYYMMDDTHHMMSSZ` from unix seconds, with no date crate: the civil
-/// calendar from days (Howard Hinnant's algorithm).
-pub fn stamp(unix: u64) -> String {
-    let days = unix / 86_400;
-    let secs = unix % 86_400;
-    let z = days as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!(
-        "{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z",
-        secs / 3600,
-        (secs / 60) % 60,
-        secs % 60
-    )
-}
+pub use crate::stamp::stamp;
 
 /// Why a snapshot could not be used. Never fatal to the caller: a session that
 /// cannot be restored is started fresh, and this says why.
@@ -279,37 +232,28 @@ pub fn write(dir: &Path, snapshot: &Snapshot) -> Result<Option<PathBuf>, Snapsho
 
     let latest = latest_link(dir, &snapshot.session);
     if let Ok(existing) = std::fs::read_to_string(&latest) {
-        if same_shape(&existing, &json) {
+        if same_shape(&existing, snapshot) {
             return Ok(None);
         }
     }
 
     let target = dir.join(snapshot_file_name(&snapshot.session, snapshot.saved_at));
-    let tmp = dir.join(format!(
-        ".{}.tmp",
-        snapshot_file_name(&snapshot.session, snapshot.saved_at)
-    ));
-    crate::private_files::write(&tmp, &json).map_err(io)?;
-    std::fs::rename(&tmp, &target).map_err(io)?;
+    crate::private_files::replace(&target, &json).map_err(io)?;
     // `latest` is a copy rather than a symlink: a symlink survives nothing on
     // a filesystem that has none, and a copy is one more atomic rename.
-    let tmp_latest = dir.join(format!(".{}.latest.tmp", snapshot.session));
-    crate::private_files::write(&tmp_latest, &json).map_err(io)?;
-    std::fs::rename(&tmp_latest, &latest).map_err(io)?;
+    crate::private_files::replace(&latest, &json).map_err(io)?;
     prune(dir, &snapshot.session, snapshot.saved_at);
     Ok(Some(target))
 }
 
-/// Identical but for `saved_at`: a save that found nothing changed must not
-/// write a new file just because the clock moved.
-fn same_shape(a: &str, b: &str) -> bool {
-    let strip = |s: &str| {
-        s.lines()
-            .filter(|l| !l.trim_start().starts_with("\"saved_at\""))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    strip(a) == strip(b)
+/// Whether the snapshot `existing` holds is `snapshot` but for `saved_at`: a
+/// save that found nothing changed must not write a new file just because
+/// the clock moved.
+fn same_shape(existing: &str, snapshot: &Snapshot) -> bool {
+    parse(existing).is_ok_and(|mut old| {
+        old.saved_at = snapshot.saved_at;
+        old == *snapshot
+    })
 }
 
 /// The dated snapshots of a session, oldest first.
@@ -416,12 +360,42 @@ pub fn forget(dir: &Path, session: &str) -> usize {
     removed
 }
 
+/// What a restore of a session by name rebuilds from, and how, for the CLI's
+/// `tmuxy session restore` and a client's `restore_session` alike: refused
+/// when the name is not a usable session name, when the session is
+/// `running`, or when it has no snapshot. `run` runs each offered command
+/// instead of leaving it typed at the prompt.
+pub fn named_restore(
+    name: &str,
+    running: bool,
+    run: bool,
+) -> Result<(Snapshot, RestoreOptions), crate::CommandError> {
+    use crate::CommandError;
+    if crate::session::SessionName::parse(name).is_none() {
+        return Err(CommandError::invalid(format!(
+            "not a usable session name: {name:?}"
+        )));
+    }
+    if running {
+        return Err(CommandError::invalid(format!(
+            "session {name:?} is already running"
+        )));
+    }
+    let saved = read_latest(&default_dir(), name)
+        .map_err(|e| CommandError::unavailable(e.to_string()))?
+        .ok_or_else(|| CommandError::invalid(format!("no snapshot for {name:?}")))?;
+    let options = RestoreOptions {
+        run,
+        fallback_cwd: fallback_cwd(),
+        onto_existing_window: false,
+        existing_window_index: None,
+    };
+    Ok((saved, options))
+}
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests_capture;
+pub(crate) mod tests_capture;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_restore;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_storage;

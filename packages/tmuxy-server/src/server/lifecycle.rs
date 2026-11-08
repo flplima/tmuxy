@@ -5,7 +5,6 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, warn};
 
-use super::DEFAULT_PORT;
 use crate::dev;
 use crate::state::{build_response, AppState};
 
@@ -13,10 +12,9 @@ use crate::state::{build_response, AppState};
 #[folder = "../tmuxy-ui/dist/"]
 struct FrontendAssets;
 
-/// The user's stylesheets — `/themes/<name>.css` and `/custom.css` — from
-/// the config dir, as `session::resolve_user_css` reads them (a built-in
-/// theme name falls back to the bundled copy). `None` for any other path. Not
-/// cached: a save is meant to show on the next fetch.
+/// `/themes/<name>.css` and `/custom.css` from the config dir (a built-in
+/// theme name falls back to the bundled copy). Not cached: a save is meant to
+/// show on the next fetch.
 pub(super) fn serve_user_css(path: &str) -> Option<Response> {
     let path = path.trim_start_matches('/');
     if path != "custom.css" && !path.starts_with("themes/") {
@@ -60,7 +58,6 @@ pub(super) const APP_CSP: &str = "default-src 'self'; script-src 'self'; \
 pub(super) const DEV_CSP: &str =
     "frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'";
 
-/// Put the app's security headers on a response for one of its own files.
 /// Not for `/api/preview/{pane}`, which is framed by the app and carries a
 /// policy of its own.
 pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Response {
@@ -82,15 +79,12 @@ pub(super) fn with_app_headers(mut response: Response, csp: &'static str) -> Res
     response
 }
 
-/// Serve files from embedded frontend assets (SPA with index.html fallback),
-/// under [`APP_CSP`].
 pub(super) async fn serve_embedded(uri: axum::http::Uri) -> Response {
     with_app_headers(embedded_file(uri.path()), APP_CSP)
 }
 
-/// `--dev`: the app from Vite, under [`DEV_CSP`]. The user's stylesheets are
-/// the server's to serve in dev mode too: Vite only knows the bundled copies
-/// under `public/`.
+/// The user's stylesheets are the server's to serve in dev mode too: Vite
+/// only knows the bundled copies under `public/`.
 pub(super) async fn serve_dev(req: axum::extract::Request) -> Response {
     let response = match serve_user_css(req.uri().path()) {
         Some(response) => response,
@@ -120,9 +114,6 @@ fn embedded_file(path: &str) -> Response {
     let path = path.trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
 
-    // Response::builder().body() returns Err only for invalid header values, which
-    // none of these literal mime types can produce — fall back to a 500 on the
-    // off-chance the embedded asset's mime string somehow becomes invalid.
     if let Some(response) = serve_user_css(path) {
         response
     } else if path == "index.html" {
@@ -130,7 +121,7 @@ fn embedded_file(path: &str) -> Response {
             Some(index) => build_response(
                 StatusCode::OK,
                 "text/html; charset=utf-8",
-                titled_index_html(&index.data, &crate::host_name()),
+                titled_index_html(&index.data, &tmuxy_core::host::host_name()),
             ),
             None => StatusCode::NOT_FOUND.into_response(),
         }
@@ -142,46 +133,30 @@ fn embedded_file(path: &str) -> Response {
         build_response(
             StatusCode::OK,
             "text/html; charset=utf-8",
-            titled_index_html(&index.data, &crate::host_name()),
+            titled_index_html(&index.data, &tmuxy_core::host::host_name()),
         )
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
 }
 
-// ============================================
-// PID file management
-// ============================================
-
-/// One pid file per port, so a second server beside the first neither
-/// overwrites its pid nor gets stopped in its place. In the state dir, with
-/// the rest of this machine's runtime files; the default port keeps the
-/// historical name.
 pub(super) fn pid_file_path(port: u16) -> std::path::PathBuf {
-    pid_file_in(&tmuxy_core::paths::state_dir(), port)
+    tmuxy_core::paths::Layout::current().pid_file(port)
 }
 
-/// Where a build before the state dir held its pid files, `~/.tmuxy`. Read so
-/// `stop` and `status` still find a server that build started; never written.
-fn legacy_pid_file_path(port: u16) -> std::path::PathBuf {
-    pid_file_in(&tmuxy_core::paths::resolved_home_dir().join(".tmuxy"), port)
-}
-
-fn pid_file_in(dir: &std::path::Path, port: u16) -> std::path::PathBuf {
-    if port == DEFAULT_PORT {
-        dir.join("tmuxy.pid")
-    } else {
-        dir.join(format!("tmuxy-{port}.pid"))
-    }
-}
-
+/// A server whose pid file could not be written still serves, but
+/// `tmuxy server stop|status` will not find it: said once, at start.
 pub(super) fn write_pid_file(port: u16) {
     let pid = std::process::id();
     let path = pid_file_path(port);
-    if let Some(dir) = path.parent() {
-        let _ = tmuxy_core::private_files::create_dir_all(dir);
+    let written = match path.parent() {
+        Some(dir) => tmuxy_core::private_files::create_dir_all(dir),
+        None => Ok(()),
     }
-    let _ = tmuxy_core::private_files::write(&path, pid.to_string());
+    .and_then(|()| tmuxy_core::private_files::write(&path, pid.to_string()));
+    if let Err(e) = written {
+        warn!(path = %path.display(), error = %e, "could not write the pid file: `tmuxy server stop` and `status` will not find this server");
+    }
 }
 
 /// Remove the port's pid file if it still names `pid`.
@@ -192,7 +167,6 @@ pub(super) fn write_pid_file(port: u16) {
 /// the new server's file, and `stop` then reported a running server as gone.
 pub(super) fn remove_pid_file(port: u16, pid: u32) {
     remove_pid_file_at(&pid_file_path(port), pid);
-    remove_pid_file_at(&legacy_pid_file_path(port), pid);
 }
 
 pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
@@ -205,16 +179,10 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
     }
 }
 
-/// The pid the port's pid file names: the state dir's, else the one an older
-/// build wrote under `~/.tmuxy`.
-fn read_pid_file(port: u16) -> Option<u32> {
-    [pid_file_path(port), legacy_pid_file_path(port)]
-        .into_iter()
-        .find_map(|path| {
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|s| parse_pid(&s))
-        })
+fn read_pid_file_at(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| parse_pid(&s))
 }
 
 /// The pid a pid file names, if it names one other process. To kill(2), `0`
@@ -228,7 +196,6 @@ fn parse_pid(text: &str) -> Option<u32> {
         .and_then(|pid| u32::try_from(pid).ok())
 }
 
-/// `pid` as kill(2) takes it, for a pid `parse_pid` accepted.
 #[cfg(unix)]
 fn signal_target(pid: u32) -> Option<nix::unistd::Pid> {
     i32::try_from(pid)
@@ -242,11 +209,6 @@ fn is_process_alive(pid: u32) -> bool {
     signal_target(pid).is_some_and(|pid| nix::sys::signal::kill(pid, None).is_ok())
 }
 
-#[cfg(not(unix))]
-fn is_process_alive(_pid: u32) -> bool {
-    false
-}
-
 /// Whether a process name — `comm`, or the file its argv[0] names — is a
 /// tmuxy binary's (`tmuxy`, `tmuxy-server`, the desktop app). The name only,
 /// never the arguments: a pid file can outlive its server and the pid be
@@ -257,7 +219,6 @@ fn matches_tmuxy_command(text: &str) -> bool {
     base.to_ascii_lowercase().contains("tmuxy")
 }
 
-/// Whether `pid` runs a tmuxy binary, checked before `stop` signals it.
 #[cfg(target_os = "linux")]
 fn is_tmuxy_process(pid: u32) -> bool {
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm"));
@@ -280,20 +241,54 @@ fn is_tmuxy_process(pid: u32) -> bool {
         .is_some_and(|out| matches_tmuxy_command(&String::from_utf8_lossy(&out.stdout)))
 }
 
-#[cfg(not(unix))]
-fn is_tmuxy_process(_pid: u32) -> bool {
-    false
+/// Where the server on `port` is: a live tmuxy process named by the pid
+/// file, else the tmuxy process the OS shows listening on the port (the pid
+/// file missing, or stale: left by a build that named the file differently,
+/// or by a server that died without removing it), else nowhere. A stale pid
+/// file is removed on the way.
+enum Server {
+    Running { pid: u32, found_by_port: bool },
+    NotRunning { stale_pid: Option<u32> },
+}
+
+fn locate_server(port: u16) -> Server {
+    locate_server_at(&pid_file_path(port), port)
+}
+
+fn locate_server_at(pid_file: &std::path::Path, port: u16) -> Server {
+    let stale_pid = match read_pid_file_at(pid_file) {
+        Some(pid) if is_process_alive(pid) && is_tmuxy_process(pid) => {
+            return Server::Running {
+                pid,
+                found_by_port: false,
+            }
+        }
+        Some(pid) => {
+            remove_pid_file_at(pid_file, pid);
+            Some(pid)
+        }
+        None => None,
+    };
+    match super::listener::listening_pid(port).filter(|&pid| is_tmuxy_process(pid)) {
+        Some(pid) => Server::Running {
+            pid,
+            found_by_port: true,
+        },
+        None => Server::NotRunning { stale_pid },
+    }
+}
+
+fn found_by(found_by_port: bool) -> &'static str {
+    if found_by_port {
+        ", found by port"
+    } else {
+        ""
+    }
 }
 
 pub(super) fn stop_server(port: u16) {
-    match read_pid_file(port) {
-        Some(pid) => {
-            if !is_process_alive(pid) || !is_tmuxy_process(pid) {
-                println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port, pid);
-                return;
-            }
-
+    match locate_server(port) {
+        Server::Running { pid, found_by_port } => {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{self, Signal};
@@ -303,42 +298,44 @@ pub(super) fn stop_server(port: u16) {
                 };
                 match signal::kill(target, Signal::SIGTERM) {
                     Ok(_) => {
-                        println!("Sent SIGTERM to server (pid {})", pid);
+                        println!(
+                            "Sent SIGTERM to server (pid {pid}{})",
+                            found_by(found_by_port)
+                        );
                         remove_pid_file(port, pid);
                     }
                     Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
             }
-
-            #[cfg(not(unix))]
-            error!("Stop not supported on this platform");
         }
-        None => println!("Server is not running (no PID file found)"),
+        Server::NotRunning {
+            stale_pid: Some(pid),
+        } => println!("Server is not running (stale PID file for pid {pid})"),
+        Server::NotRunning { stale_pid: None } => {
+            println!("Server is not running (no PID file found)")
+        }
     }
 }
 
 pub(super) fn server_status(port: u16) {
-    match read_pid_file(port) {
-        Some(pid) => {
-            if is_process_alive(pid) && is_tmuxy_process(pid) {
-                println!("Server is running (pid {})", pid);
-            } else {
-                println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port, pid);
-            }
+    match locate_server(port) {
+        Server::Running { pid, found_by_port } => {
+            println!("Server is running (pid {pid}{})", found_by(found_by_port))
         }
-        None => println!("Server is not running"),
+        Server::NotRunning {
+            stale_pid: Some(pid),
+        } => println!("Server is not running (stale PID file for pid {pid})"),
+        Server::NotRunning { stale_pid: None } => println!("Server is not running"),
     }
 }
 
 /// How many seconds a server waits for its port to come free. A server told
 /// to stop keeps the port until its shutdown is done, which can take a final
-/// snapshot per session and a bounded drain (`FINAL_SNAPSHOT_TIMEOUT`,
+/// snapshot per session and a bounded drain (`host::FINAL_SNAPSHOT_TIMEOUT`,
 /// `SHUTDOWN_DRAIN_TIMEOUT`); an upgrade starts the new server straight after
 /// the `stop`, so the wait has to outlast the old one's slowest exit.
 pub(super) const BIND_RETRIES: u32 = 15;
 
-/// Bind to addr, retrying up to `max_retries` times with 1s delay if port is in use.
 pub(super) async fn bind_with_retry(
     addr: std::net::SocketAddr,
     max_retries: u32,
@@ -357,24 +354,19 @@ pub(super) async fn bind_with_retry(
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
             Err(e) => {
-                panic!("Failed to bind to {}: {}", addr, e);
+                eprintln!("tmuxy server: cannot listen on {addr}: {e}");
+                std::process::exit(1);
             }
         }
     }
     unreachable!()
 }
 
-/// How long shutdown waits for tracked tasks to finish before giving up.
 const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// How long the final snapshot of a session may hold up shutdown.
-const FINAL_SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
-
 pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::ViteChild>) {
-    // Signal handler installation only fails on platforms without sigaction (none we
-    // target) or when the process has already taken too many file descriptors —
-    // either way, a server that can't react to Ctrl+C is unusable, so panic is
-    // the right call.
+    // Installing the handler fails only without sigaction or out of file
+    // descriptors, and a server that cannot react to Ctrl+C is unusable.
     #[allow(clippy::expect_used)]
     let ctrl_c = async {
         signal::ctrl_c()
@@ -391,9 +383,6 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
             .await;
     };
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
@@ -401,44 +390,9 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
     println!("\nShutting down...");
 
-    // The last snapshot of every session, before anything is torn down: a
-    // graceful shutdown is the common way a machine goes down, and the
-    // autosave's debounce may be holding the final change.
-    if !tmuxy_core::session_snapshot::autosave_disabled() {
-        let dir = tmuxy_core::session_snapshot::default_dir();
-        let targets: Vec<(String, tmuxy_core::control_mode::MonitorCommandSender)> = {
-            let sessions = state.sessions.read().await;
-            sessions
-                .iter()
-                // A session still being rebuilt is half of what its snapshot
-                // says; the snapshot it is being rebuilt FROM is the one to keep.
-                .filter(|(_, conns)| {
-                    !conns
-                        .snapshot_keeper
-                        .as_ref()
-                        .is_some_and(|keeper| keeper.restoring())
-                })
-                .filter_map(|(name, conns)| {
-                    conns
-                        .monitor_command_tx
-                        .clone()
-                        .map(|tx| (name.clone(), tx))
-                })
-                .collect()
-        };
-        for (name, tx) in targets {
-            let _ = tokio::time::timeout(
-                FINAL_SNAPSHOT_TIMEOUT,
-                tmuxy_core::session_snapshot::save_now(&name, &dir, &tx),
-            )
-            .await;
-        }
-    }
+    // Before anything is torn down.
+    tmuxy_core::host::save_final_snapshots(&*state).await;
 
-    // Structured shutdown: broadcast cancellation, then drain every tracked
-    // background task. Tasks already check `state.shutdown.cancelled()` in
-    // their select branches so the cancel fires the actual exit; the drain
-    // here is just a join-to-completion safety net.
     state.shutdown.cancel();
     let mut join_set = state.join_set.lock().await;
     let mut drained = 0usize;
@@ -468,7 +422,10 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
 #[cfg(test)]
 mod tests {
-    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid, titled_index_html};
+    use super::{
+        is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid, titled_index_html,
+        Server,
+    };
 
     #[test]
     fn titled_index_html_names_the_machine_when_the_host_is_plain() {
@@ -499,5 +456,47 @@ mod tests {
         // The cargo test binary itself (`tmuxy_server-*`) matches, whereas init (PID 1) does not.
         assert!(is_tmuxy_process(std::process::id()));
         assert!(!is_tmuxy_process(1));
+    }
+
+    /// The port is the server's identity: a pid file that is missing or
+    /// stale does not hide the server listening on the port (this process,
+    /// a tmuxy binary by name), and the stale file goes.
+    #[test]
+    fn a_server_is_found_by_its_port_when_the_pid_file_is_missing_or_stale() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pid_file =
+            std::env::temp_dir().join(format!("tmuxy-locate-{}-{port}.pid", std::process::id()));
+        let me = std::process::id();
+
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: true } if pid == me
+        ));
+
+        std::fs::write(&pid_file, me.to_string()).unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: false } if pid == me
+        ));
+
+        // Pid 2 is kthreadd on Linux, launchd's sibling on macOS: alive, not tmuxy.
+        std::fs::write(&pid_file, "2").unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: true } if pid == me
+        ));
+        assert!(!pid_file.exists(), "the stale pid file is removed");
+
+        drop(listener);
+        std::fs::write(&pid_file, "2").unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::NotRunning { stale_pid: Some(2) }
+        ));
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::NotRunning { stale_pid: None }
+        ));
     }
 }

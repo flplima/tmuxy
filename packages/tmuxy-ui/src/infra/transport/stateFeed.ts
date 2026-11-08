@@ -5,20 +5,19 @@
  * The server streams a full state then deltas, each against the previous
  * emission and numbered by `seq`. A delta that is missing, misordered or does
  * not decode would apply to the wrong state and silently diverge, so the
- * stage refetches a full state instead (`get_initial_state` at the last
- * viewport the client reported) — one refetch at a time — and, once the
+ * stage refetches a full state instead (`fetchState` at the last viewport
+ * the client reported) — one refetch at a time — and, once the
  * sequencer has adopted it, publishes the sequencer's state in turn. Every
  * other event passes through in order.
  */
 
 import { Chunk, Effect, FiberSet, Option, PubSub, Queue, type Scope, Stream } from 'effect';
 import type { ServerState } from '../../domain/wire';
-import { classifyAdapterError, formatAdapterError } from './AdapterError';
-import type { AdapterError } from './AdapterError';
+import { formatAdapterError, type AdapterError } from './AdapterError';
 import { latencyTracker } from '../latencyTracker';
 import type { StateSequencer } from './stateSequencer';
 import { tracer } from '../tracer';
-import type { SequencedAdapter } from './driver';
+import type { SequencedDriver } from './driver';
 import { type DriverEvent, TransportEvent } from './events';
 import {
   forwardDriverEvents,
@@ -134,11 +133,12 @@ function recordApplied(event: TransportEvent): void {
 /**
  * The service over a driver that streams deltas: its events go through
  * `sequenceStateUpdates` (and, on the web, `latestStatePerFrame`) before they
- * are published, and a `get_initial_state` answer is decoded and adopted by
- * the same sequencer so later deltas apply to it.
+ * are published, and a fetched full state is adopted by the same sequencer
+ * so later deltas apply to it. A refetch asks for the viewport the client
+ * last reported.
  */
 export const makeSequencedTransport = (
-  driver: SequencedAdapter,
+  driver: SequencedDriver,
   options: { readonly latestPerFrame: boolean },
 ): Effect.Effect<TmuxTransportService, never, Scope.Scope> =>
   Effect.gen(function* () {
@@ -148,37 +148,17 @@ export const makeSequencedTransport = (
       feed.unsafeOffer(event);
     });
     const pubsub = yield* openEventPubSub;
-    const base = serviceOver(driver, pubsub);
+    const { service, viewport } = serviceOver(driver, pubsub, {
+      adoptState: (raw) => sequencer.adopt(raw),
+      streamPosition: () => sequencer.position(),
+    });
 
-    // The last viewport the client reported, which a refetch asks for again.
-    const viewport = { cols: 0, rows: 0 };
-    const invoke = <T>(
-      cmd: string,
-      args?: Record<string, unknown>,
-    ): Effect.Effect<T, AdapterError> => {
-      if (
-        (cmd === 'set_client_size' || cmd === 'get_initial_state') &&
-        typeof args?.cols === 'number' &&
-        typeof args?.rows === 'number'
-      ) {
-        viewport.cols = args.cols;
-        viewport.rows = args.rows;
-      }
-      if (cmd !== 'get_initial_state') return base.invoke<T>(cmd, args);
-      return base.invoke<unknown>(cmd, args).pipe(
-        Effect.flatMap((raw) =>
-          Effect.try({
-            try: () => sequencer.adopt(raw) as T,
-            catch: (cause) => classifyAdapterError(cause, { command: cmd }),
-          }),
-        ),
-      );
-    };
-    const resync = Effect.suspend(() =>
-      viewport.cols === 0 || viewport.rows === 0
+    const resync = Effect.suspend(() => {
+      const size = viewport();
+      return size === null || size.cols === 0 || size.rows === 0
         ? Effect.succeedNone
-        : Effect.asSome(invoke<ServerState>('get_initial_state', { ...viewport })),
-    );
+        : Effect.asSome(service.fetchState(size));
+    });
 
     const sequenced = yield* sequenceStateUpdates(feed, sequencer, resync);
     yield* (options.latestPerFrame ? latestStatePerFrame(sequenced) : sequenced).pipe(
@@ -188,5 +168,5 @@ export const makeSequencedTransport = (
       }),
       Effect.forkScoped,
     );
-    return { ...base, invoke };
+    return service;
   });

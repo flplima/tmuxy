@@ -13,8 +13,9 @@ fn query_windows_prints_the_options_in_name_order() {
         format!("#{{{}}}", tmux_options::FLOAT_PARENT),
     ];
     expected.extend(WINDOW_OPTION_NAMES.iter().map(|n| format!("#{{{n}}}")));
-    let fields: Vec<&str> = QUERY_WINDOWS
-        .split(['\'', ','])
+    let query = query_windows("s");
+    let fields: Vec<&str> = query[query.len() - 1]
+        .split(',')
         .filter(|f| f.starts_with("#{@"))
         .collect();
     assert_eq!(fields, expected);
@@ -78,18 +79,17 @@ fn a_pane_record_keeps_a_comma_in_its_path_and_its_restore_command() {
 
 #[test]
 fn the_queries_name_the_session_and_escape_what_can_hold_a_comma() {
-    let (w, p) = queries_for("work");
-    assert!(w.starts_with("list-windows -t work "));
-    assert!(w.contains("#{s/,/%2C/:window_layout}"));
-    assert!(w.contains("#{s/,/%2C/:window_name}"));
-    assert!(p.contains("#{s/,/%2C/:pane_current_path}"));
-    assert!(p.contains("#{s/,/%2C/:@tmuxy-pane-restore}"));
-    // The argv form keeps the format as one word.
-    let argv = split_query(&p);
-    assert_eq!(argv[0], "list-panes");
-    assert_eq!(argv[argv.len() - 2], "-F");
-    assert!(argv[argv.len() - 1].starts_with("#{pane_id},"));
-    assert!(!argv[argv.len() - 1].ends_with('\''));
+    let w = query_windows("work");
+    assert_eq!(w[..3], ["list-windows", "-t", "work"]);
+    assert_eq!(w[3], "-F");
+    assert!(w[4].contains("#{s/,/%2C/:window_layout}"));
+    assert!(w[4].contains("#{s/,/%2C/:window_name}"));
+    let p = query_panes("work");
+    assert_eq!(p[..4], ["list-panes", "-s", "-t", "work"]);
+    assert!(p[5].starts_with("#{pane_id},"));
+    assert!(p[5].contains("#{s/,/%2C/:pane_current_path}"));
+    assert!(p[5].contains("#{s/,/%2C/:@tmuxy-pane-restore}"));
+    assert_eq!(query_stash_panes()[3], crate::constants::STASH_SESSION);
 }
 
 /// The foreground job is the group `tpgid` names; the shell is not it.
@@ -159,7 +159,10 @@ fn a_command_is_offered_as_a_shell_line_that_round_trips() {
         "--resume".to_string(),
         "it's me".to_string(),
     ];
-    assert_eq!(shell_join(&argv), r"claude --resume 'it'\''s me'");
+    assert_eq!(
+        crate::argv::shell_line(&argv),
+        r"claude --resume 'it'\''s me'"
+    );
     let pane = PaneSnapshot {
         index: 0,
         active: true,
@@ -184,7 +187,7 @@ fn the_stamp_is_a_sortable_utc_date() {
     assert!(stamp(1_759_622_400) < stamp(1_759_622_401));
 }
 
-pub(super) fn fixture() -> Snapshot {
+pub(crate) fn fixture() -> Snapshot {
     let mut float_opts = BTreeMap::new();
     float_opts.insert("@tmuxy-float-width".to_string(), "100".to_string());
     let mut group = BTreeMap::new();

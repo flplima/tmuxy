@@ -7,20 +7,13 @@
 
 const fs = require('fs');
 const {
-  createTestContext,
+  describeE2E,
   getTerminalText,
   waitForTerminalText,
   waitForCondition,
   typeInTerminal,
   pressEnter,
 } = require('./helpers');
-
-const ctx = createTestContext();
-
-beforeAll(ctx.beforeAll, ctx.hookTimeout);
-afterAll(ctx.afterAll, ctx.hookTimeout);
-beforeEach(ctx.beforeEach, ctx.hookTimeout);
-afterEach(ctx.afterEach, ctx.hookTimeout);
 
 // ==================== Helpers ====================
 
@@ -58,9 +51,8 @@ async function waitForCursorClass(page, expectedClass, timeout = 10000) {
 
 // ==================== Tests ====================
 
-describe('Nvim Rendering & Interaction', () => {
+describeE2E('Nvim Rendering & Interaction', {}, (ctx) => {
   test('Scenario 6: nvim renders a long file, swaps cursor shape per mode, echoes typing and pages [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // A name of this run's own, so parallel runs never share a buffer.

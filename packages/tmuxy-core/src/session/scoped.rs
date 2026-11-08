@@ -43,6 +43,20 @@ pub fn inherit<F: Future>(fut: F) -> impl Future<Output = F::Output> {
     }
 }
 
+/// Run `f` on a blocking thread with the calling task's target, when it has
+/// one: a blocking thread carries no task-locals, so a read made there would
+/// otherwise resolve the process-wide target.
+pub async fn spawn_blocking<T: Send + 'static>(
+    f: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+    let cell = CELL.try_with(Arc::clone).ok();
+    tokio::task::spawn_blocking(move || match cell {
+        Some(cell) => CELL.sync_scope(cell, f),
+        None => f(),
+    })
+    .await
+}
+
 /// Point the calling task's window at `target`, when the task runs inside
 /// [`with_cell`]; `false` (nothing written) when it does not.
 pub fn retarget(target: ConnectTarget) -> bool {
@@ -87,6 +101,8 @@ mod tests {
             assert_eq!(super::super::ssh_target(), Some(vec!["me@box".to_string()]));
             let spawned = tokio::spawn(inherit(async { super::super::tmux_socket() }));
             assert!(matches!(spawned.await.as_deref(), Ok("remote")));
+            let blocking = spawn_blocking(super::super::tmux_socket).await;
+            assert!(matches!(blocking.as_deref(), Ok("remote")));
         })
         .await;
         // Outside the scope: the process-wide target, never the window's.

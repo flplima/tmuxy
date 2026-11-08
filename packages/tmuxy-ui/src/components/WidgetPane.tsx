@@ -1,69 +1,59 @@
-/**
- * WidgetPane - Renders a pane that displays a custom widget component.
- *
- * Owns the pane chrome and Ctrl+C (which ends the widget's process) and
- * delegates rendering to the registered widget component.
- */
-
 import { useRef, useEffect } from 'react';
 import { PaneHeader } from './PaneHeader';
-import { getWidget } from './widgets/registry';
+import type { RegisteredPaneWidget } from './widgets/registry';
 import {
   useAppSelector,
   useAppSend,
   usePane,
   useIsDragging,
-  useIsPaneInActiveWindow,
   useIsResizing,
   useIsSinglePane,
 } from '../machines/appHooks';
-import { useFramedPaneFocus } from '../hooks/useFramedPaneFocus';
+import { useFramedPaneFocus } from './useFramedPaneFocus';
+import { selectPaneHoldsKeyboard } from '../machines/selectors/keyboard';
 import type { PaneId } from '../domain/ids';
+import { TmuxOp } from '../domain/commands';
 
 interface WidgetPaneProps {
   paneId: PaneId;
-  widgetInfo: { widgetName: string; contentLines: string[] };
+  widget: RegisteredPaneWidget;
 }
 
-export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
+export function WidgetPane({ paneId, widget }: WidgetPaneProps) {
   const send = useAppSend();
   const pane = usePane(paneId);
-  const definition = getWidget(widgetInfo.widgetName)!;
-  const isInActiveWindow = useIsPaneInActiveWindow(paneId);
+  const { definition } = widget;
   const isSinglePane = useIsSinglePane();
   const wrapperRef = useRef<HTMLDivElement>(null);
   // A widget that embeds a frame (a page preview) swallows the mousedown that
   // would otherwise activate its pane; this reads the focus change instead.
   useFramedPaneFocus(paneId, wrapperRef);
-  // While a divider or a pane is being dragged, the gesture belongs to the app
-  // and to nothing inside a pane. Both hooks run every render — `||` between
-  // two hook calls makes the second one conditional.
+  // Both hooks run every render: `||` between two hook calls would make the
+  // second one conditional.
   const dragging = useIsDragging();
   const resizing = useIsResizing();
   const gestureInFlight = dragging || resizing;
 
-  // The widget's own title when it declares one; without one the header
-  // shows the pane's.
   const widgetTitle = useAppSelector((context) =>
-    definition.selectTitle?.(context, paneId, widgetInfo.contentLines),
+    definition.selectTitle?.(context, paneId, widget.lines),
   );
 
-  // Capture-phase window listener that fires BEFORE the keyboard actor's
-  // bubble-phase window listener.
-  const isActiveWidget = !!pane?.active && isInActiveWindow;
+  const isActiveWidget = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const widgetKeyRef = useRef({ send, paneId, isActiveWidget });
   widgetKeyRef.current = { send, paneId, isActiveWidget };
 
+  // Capture phase, so it fires before the keyboard actor's bubble-phase
+  // window listener.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!widgetKeyRef.current.isActiveWidget) return;
 
-      // Ctrl+C: send SIGINT to tmux pane (kills widget, restores shell)
+      // SIGINT ends the widget's process and gives the pane back to its shell.
       if (e.ctrlKey && e.key === 'c') {
         e.preventDefault();
         e.stopImmediatePropagation();
         const { send: s, paneId: pid } = widgetKeyRef.current;
-        s({ type: 'SEND_KEYS', paneId: pid, keys: 'C-c' });
+        s({ type: 'DISPATCH_OP', op: TmuxOp.SendKeys({ target: pid, keys: 'C-c' }) });
       }
     };
 
@@ -85,17 +75,14 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
       data-pane-id={pane.tmuxId}
       tabIndex={-1}
       onMouseDown={() => {
-        send({ type: 'FOCUS_PANE', paneId });
+        send({ type: 'SELECT_PANE', paneId });
       }}
     >
-      <PaneHeader paneId={paneId} titleOverride={widgetTitle} widgetName={widgetInfo.widgetName} />
-      {/* `pointer-events: none` for the length of a drag or a resize, because
-          an embedded frame captures the pointer the moment it crosses into the
-          pane: the `mousemove`s stop reaching the window listener the gesture
-          runs on, so the divider stops following the cursor — and the
-          `mouseup` is swallowed too, leaving the resize stuck on until some
-          later click lands outside a frame. Nothing inside a pane needs the
-          pointer while the app is already using it. */}
+      <PaneHeader paneId={paneId} titleOverride={widgetTitle} />
+      {/* An embedded frame captures the pointer the moment it crosses into the
+          pane: the window's `mousemove`s stop and the `mouseup` is swallowed,
+          leaving a drag or resize stuck on. So no pointer events here while
+          one is in flight. */}
       <div
         className="pane-content pane-content-widget"
         style={{
@@ -104,7 +91,7 @@ export function WidgetPane({ paneId, widgetInfo }: WidgetPaneProps) {
           pointerEvents: gestureInFlight ? 'none' : undefined,
         }}
       >
-        <WidgetComponent paneId={paneId} lines={widgetInfo.contentLines} />
+        <WidgetComponent paneId={paneId} lines={widget.lines} />
       </div>
     </div>
   );

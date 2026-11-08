@@ -10,30 +10,17 @@
  * client invoke to the native outcome (zoom state, button geometry).
  */
 
-import { isMacPlatform, isTauri } from '../utils/platform';
+import { isMacPlatform, isTauri } from './platform';
 import { tracer } from './tracer';
+import { desktopInvoke } from './desktop';
 
 export const isMacTauri = isTauri() && isMacPlatform();
 
-/** Per-page-load prefix so ids stay unique across app restarts in one trace file. */
-const actionPrefix = `titlebar-${Date.now().toString(36)}`;
-let actionCounter = 0;
-
-/** Invoke a window command, tracing it under a fresh `action_id`. */
-async function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
-  const actionId = tracer.isEnabled() ? `${actionPrefix}-${++actionCounter}` : undefined;
-  tracer.event({
-    layer: 'tauri',
-    component: 'desktopWindow',
-    name: cmd,
-    action_id: actionId,
-    ...args,
-  });
-  const core = await import('@tauri-apps/api/core');
-  return core.invoke<T>(cmd, { ...args, actionId });
+function invoke<T = void>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+  const actionId = tracer.actionId();
+  return desktopInvoke<T>(cmd, { ...args, actionId }, { actionId, traced: args });
 }
 
-/** Hand the current mousedown to the OS as a window drag. */
 export function startWindowDrag(): void {
   void import('@tauri-apps/api/window').then(({ getCurrentWindow }) =>
     getCurrentWindow().startDragging(),

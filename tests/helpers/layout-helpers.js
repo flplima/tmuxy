@@ -1,4 +1,7 @@
 const { typeInTerminal, pressEnter, TMUXY_CLI, waitForCondition } = require('./index');
+const { storyModule, inPage } = require('./story-module');
+
+const { cursorPolygon } = storyModule('cursorShape.ts');
 
 // ==================== Float Visual Verification Helper ====================
 
@@ -59,7 +62,11 @@ async function waitForNoModal(page) {
 }
 
 const focusedFloatPaneId = (page) =>
-  page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId ?? null);
+  page.evaluate(() =>
+    window.app?.view().keyboardTarget.kind === 'float'
+      ? window.app?.view().keyboardTarget.paneId
+      : null,
+  );
 
 /**
  * How far the float's centre sits from the centre of the pane container's
@@ -115,7 +122,7 @@ async function openFloatFromCli(ctx) {
     ctx.page,
     async () => (await focusedFloatPaneId(ctx.page)) !== null,
     5000,
-    'focusedFloatPaneId to be set after float appears',
+    'the float to hold the keyboard after it appears',
   );
   return focusedFloatPaneId(ctx.page);
 }
@@ -174,63 +181,65 @@ async function sampleSidebarToggle(
  */
 async function sampleCursorGlide(page, trigger, { settleMs = 250, timeoutMs = 8000 } = {}) {
   const sampling = page.evaluate(
-    ({ settleMs, timeoutMs }) =>
-      new Promise((resolve) => {
-        const shape = document.querySelector('[data-testid="smooth-cursor"] .smooth-cursor-shape');
-        const centroid = () => {
-          const pts = [...shape.style.clipPath.matchAll(/([-\d.]+)px ([-\d.]+)px/g)].map((m) => [
-            +m[1],
-            +m[2],
-          ]);
-          if (pts.length === 0) return null;
-          const sum = pts.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
-          return [Math.round(sum[0] / pts.length), Math.round(sum[1] / pts.length)];
-        };
-        const same = (a, b) => (!a && !b) || (a && b && a[0] === b[0] && a[1] === b[1]);
-        const frames = [];
-        const start = performance.now();
-        let movedAt = null;
-        let stillSince = null;
-        const tick = () => {
-          const now = performance.now();
-          const c = centroid();
-          if (movedAt === null && frames.length > 0 && !same(c, frames[0])) {
-            movedAt = now;
-            frames.length = 1;
-          }
-          if (frames.length > 0 && same(c, frames[frames.length - 1])) {
-            if (stillSince === null) stillSince = now;
-          } else {
-            stillSince = null;
-          }
-          frames.push(c);
-          const done =
-            movedAt === null
-              ? now - start > timeoutMs
-              : stillSince !== null && now - stillSince > settleMs;
-          if (done) {
-            // What the overlay and its anchor look like at the end, so a run
-            // that saw no glide says why (never drawn, hidden, anchor missing).
-            const root = document.querySelector('[data-testid="smooth-cursor"]');
-            const anchors = [...document.querySelectorAll('.terminal-cursor')].map((el) => {
-              const r = el.getBoundingClientRect();
-              return `${el.className}@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
-            });
-            resolve({
-              frames,
-              settled: c,
-              overlay: {
-                opacity: root ? root.style.opacity : 'no overlay',
-                clipPath: shape.style.clipPath.slice(0, 120),
-                reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-                anchors,
-              },
-            });
-          } else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }),
-    { settleMs, timeoutMs },
+    inPage(
+      ({ settleMs, timeoutMs }, polygon) =>
+        new Promise((resolve) => {
+          const shape = document.querySelector(
+            '[data-testid="smooth-cursor"] .smooth-cursor-shape',
+          );
+          const centroid = () => {
+            const pts = polygon(shape.style.clipPath);
+            if (pts.length === 0) return null;
+            const sum = pts.reduce((a, p) => [a[0] + p[0], a[1] + p[1]], [0, 0]);
+            return [Math.round(sum[0] / pts.length), Math.round(sum[1] / pts.length)];
+          };
+          const same = (a, b) => (!a && !b) || (a && b && a[0] === b[0] && a[1] === b[1]);
+          const frames = [];
+          const start = performance.now();
+          let movedAt = null;
+          let stillSince = null;
+          const tick = () => {
+            const now = performance.now();
+            const c = centroid();
+            if (movedAt === null && frames.length > 0 && !same(c, frames[0])) {
+              movedAt = now;
+              frames.length = 1;
+            }
+            if (frames.length > 0 && same(c, frames[frames.length - 1])) {
+              if (stillSince === null) stillSince = now;
+            } else {
+              stillSince = null;
+            }
+            frames.push(c);
+            const done =
+              movedAt === null
+                ? now - start > timeoutMs
+                : stillSince !== null && now - stillSince > settleMs;
+            if (done) {
+              // What the overlay and its anchor look like at the end, so a run
+              // that saw no glide says why (never drawn, hidden, anchor missing).
+              const root = document.querySelector('[data-testid="smooth-cursor"]');
+              const anchors = [...document.querySelectorAll('.terminal-cursor')].map((el) => {
+                const r = el.getBoundingClientRect();
+                return `${el.className}@${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+              });
+              resolve({
+                frames,
+                settled: c,
+                overlay: {
+                  opacity: root ? root.style.opacity : 'no overlay',
+                  clipPath: shape.style.clipPath.slice(0, 120),
+                  reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+                  anchors,
+                },
+              });
+            } else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+      [{ settleMs, timeoutMs }],
+      [cursorPolygon],
+    ),
   );
   await trigger();
   return sampling;

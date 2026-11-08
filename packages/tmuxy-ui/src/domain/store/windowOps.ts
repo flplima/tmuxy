@@ -1,5 +1,4 @@
-import type { TmuxSnapshot, Patch, ReconcileVerdict } from './types';
-import { lingerVerdict } from './types';
+import { type TmuxSnapshot, type Patch, type ReconcileVerdict, lingerVerdict } from './types';
 import type { TmuxPane, TmuxWindow } from '../client';
 import type { TmuxOpOf } from '../commands';
 import {
@@ -11,10 +10,7 @@ import {
 } from '../ids';
 import type { PredictContext, PredictResult } from './ops';
 import { makePlaceholderPane } from './paneOps';
-
-// ============================================
-// NewWindow
-// ============================================
+import { selectWindowTarget, stripTabs } from '../windows';
 
 export function predictNewWindow(
   snapshot: TmuxSnapshot,
@@ -38,10 +34,6 @@ export function predictNewWindow(
     floatNoheader: false,
     zoomed: false,
   };
-  // Size the placeholder pane to the current viewport so the new tab renders
-  // full-width immediately instead of waiting for the server's resize delta.
-  // Fall back to the active pane's window dimensions if totalWidth/Height
-  // aren't populated yet (initial-load case).
   let cols = snapshot.totalWidth;
   let rows = snapshot.totalHeight;
   if (cols <= 0 || rows <= 0) {
@@ -62,16 +54,11 @@ export function predictNewWindow(
   const priorWindowIds = snapshot.windows.map((w) => w.id);
 
   const patch: Patch = (s) => {
-    // A newborn window is only safe to render once reconcileNewWindow would
-    // MATCH it: tab-typed AND it already owns a pane. Hide every other newborn
-    // the server has reported but no op has claimed yet — the placeholder tab
-    // stands in for it until then. This must mirror the reconcile match
-    // condition exactly, or a gap opens: `break-pane` sets the window's
-    // `@tmuxy-window-type` tag a beat BEFORE the moved pane's window_id settles,
-    // so a tab-typed-but-paneless window would otherwise render as a SECOND tab
-    // next to the placeholder (a duplicate tab that blinks away on the next
-    // snapshot). A pane can even arrive a snapshot before its window record —
-    // hide those too.
+    // Must mirror reconcileNewWindow's match condition exactly: `break-pane`
+    // sets the window's `@tmuxy-window-type` tag a beat BEFORE the moved pane's
+    // window_id settles, so a tab-typed but paneless newborn would render as a
+    // second tab beside the placeholder. A pane can even arrive a snapshot
+    // before its window record.
     const isRenderableTab = (w: TmuxWindow): boolean =>
       w.windowType === 'tab' && s.panes.some((p) => p.windowId === w.id);
     const unclaimedNewborns = new Set(
@@ -108,7 +95,6 @@ export function reconcileNewWindow(
   meta: Readonly<Record<string, unknown>>,
   windows: ReadonlyArray<TmuxWindow>,
   panes: ReadonlyArray<TmuxPane>,
-  /** Real window ids already claimed by earlier pending NewWindow ops. */
   claimedRealIds: ReadonlySet<PaneId | WindowId>,
 ): ReconcileVerdict {
   const prior = new Set(meta.priorWindowIds as WindowId[]);
@@ -119,55 +105,28 @@ export function reconcileNewWindow(
       !isPlaceholderId(w.id) &&
       !claimedRealIds.has(w.id) &&
       w.windowType === 'tab' &&
-      // The window must already have a pane. break-pane emits %window-add (and
-      // the window's type tag) a beat before the moved pane's window_id
-      // settles, so matching on the bare window would install the
-      // placeholder→real pane-key override against a window with no pane —
-      // and the real pane then mounts fresh (a remount/flicker) instead of
-      // morphing from the placeholder. Waiting for the pane lets the override
-      // map it and keep the React key stable.
+      // break-pane emits %window-add (and the type tag) a beat before the
+      // moved pane's window_id settles; matched on the bare window, the pane-key
+      // override has no pane to map and the real pane remounts (a flicker).
       panes.some((p) => p.windowId === w.id),
   );
   if (candidate) return { _tag: 'matched', realWindowId: candidate.id };
   return { _tag: 'pending' };
 }
 
-// ============================================
-// SelectWindow (tab switch)
-// ============================================
-
 export function predictSelectWindow(
   op: TmuxOpOf<'SelectWindow'>,
   snapshot: TmuxSnapshot,
 ): PredictResult | null {
   if (!snapshot.activeWindowId) return null;
-  const visible = snapshot.windows.filter((w) => w.windowType === 'tab');
-  if (visible.length === 0) return null;
-
-  let target: TmuxWindow | undefined;
-  if (typeof op.target === 'number') {
-    target = visible.find((w) => w.index === op.target);
-  } else if (op.target.startsWith('@')) {
-    target = visible.find((w) => w.id === op.target);
-  } else {
-    const currentIdx = visible.findIndex((w) => w.id === snapshot.activeWindowId);
-    if (currentIdx === -1) return null;
-    const delta = op.target === 'next' ? 1 : -1;
-    target = visible[(currentIdx + delta + visible.length) % visible.length];
-  }
-  if (!target || target.id === snapshot.activeWindowId) return null;
+  const target = selectWindowTarget(op.target, snapshot.windows, snapshot.activeWindowId);
+  if (!target) return null;
 
   const targetId = target.id;
-  // Flip windows[].active too — the tab strip renders aria-selected from the
-  // per-window flag, not from activeWindowId, and must flip in the same patch.
-  // Self-neutralizes if the target window disappears (killed mid-linger).
-  //
-  // The active pane is derived INSIDE the patch, from whatever snapshot the
-  // patch is replayed onto: the target window's panes may be entirely unknown
-  // at predict time (background windows can arrive pane-less on some
-  // transports), and bailing here would leave the whole switch unpinned —
-  // stale pre-confirm snapshots then flap the tab strip back. When the panes
-  // land, the same patch resolves the right active pane on that replay.
+  // The tab strip reads the per-window `active` flag, so it flips in the same
+  // patch. The active pane is derived inside the patch, from the snapshot it is
+  // replayed onto: a background window can arrive pane-less on some
+  // transports, and the switch must stay pinned until its panes land.
   const patch: Patch = (s) => {
     if (!s.windows.some((w) => w.id === targetId)) return s;
     const targetPanes = s.panes.filter((p) => p.windowId === targetId);
@@ -195,10 +154,6 @@ export function predictSelectWindow(
   };
 }
 
-/**
- * Same linger/supersede semantics as reconcileFocus: stale snapshots computed
- * before the switch flap the tab strip if the pin drops on first confirmation.
- */
 export function reconcileSelectWindow(
   meta: Readonly<Record<string, unknown>>,
   serverActiveWindowId: WindowId | null,
@@ -208,49 +163,52 @@ export function reconcileSelectWindow(
   const target = meta.targetWindowId as WindowId;
   const previous = meta.previousActiveWindowId as WindowId | null | undefined;
   if (committedWindows && !committedWindows.some((w) => w.id === target)) {
-    // The target window is gone — nothing left to pin.
     return { _tag: 'matched' };
   }
   return lingerVerdict(target, previous, serverActiveWindowId, ageMs);
 }
 
-// ============================================
-// KillWindow
-// ============================================
-
 export function predictKillWindow(
   op: TmuxOpOf<'KillWindow'>,
   snapshot: TmuxSnapshot,
+  ctx: PredictContext,
 ): PredictResult | null {
   const windowId = op.windowId ?? snapshot.activeWindowId;
   if (!windowId || isPlaceholderId(windowId)) return null;
   const doomed = snapshot.windows.find((w) => w.id === windowId);
   if (!doomed) return null;
 
-  const tabs = snapshot.windows.filter((w) => w.windowType === 'tab' && w.id !== windowId);
-  // tmux activates an adjacent window; approximate with the previous tab by
-  // index, falling back to the next. The reconciler only requires the window
-  // to be gone, so a different server choice self-corrects on confirm.
-  const sorted = [...tabs].sort((a, b) => a.index - b.index);
-  const nextActive =
-    snapshot.activeWindowId === windowId
-      ? ([...sorted].reverse().find((w) => w.index < doomed.index) ??
-        sorted.find((w) => w.index > doomed.index) ??
-        null)
-      : null;
+  // tmux makes the last window used current (its `lastw` stack), else the
+  // previous one, else the next. The last used is the tab of the most recently
+  // active pane outside the doomed one; the reconciler only requires the
+  // window to be gone, so a different server choice self-corrects on confirm.
+  // Worked out from the state the patch lands on: a rebase replays it over a
+  // newer state, whose current tab may not be the one seen at predict time.
+  const nextActive = (s: TmuxSnapshot): TmuxWindow | null => {
+    const tabs = stripTabs(s.windows).filter((w) => w.id !== windowId);
+    const sorted = [...tabs].sort((a, b) => a.index - b.index);
+    const lastUsed = ctx.paneActivationOrder
+      .map((id) => s.panes.find((p) => p.tmuxId === id)?.windowId)
+      .map((id) => tabs.find((w) => w.id === id))
+      .find((w) => w !== undefined);
+    return (
+      lastUsed ??
+      [...sorted].reverse().find((w) => w.index < doomed.index) ??
+      sorted.find((w) => w.index > doomed.index) ??
+      null
+    );
+  };
 
   const patch: Patch = (s) => {
+    const next = s.activeWindowId === windowId ? nextActive(s) : null;
     const windows = s.windows
       .filter((w) => w.id !== windowId)
-      .map((w) => (nextActive ? { ...w, active: w.id === nextActive.id } : w));
+      .map((w) => (next ? { ...w, active: w.id === next.id } : w));
     const panes = s.panes.filter((p) => p.windowId !== windowId);
-    let activeWindowId = s.activeWindowId;
-    let activePaneId = s.activePaneId;
-    if (s.activeWindowId === windowId) {
-      activeWindowId = nextActive?.id ?? null;
-      const targetPanes = panes.filter((p) => p.windowId === activeWindowId);
-      activePaneId = (targetPanes.find((p) => p.active) ?? targetPanes[0])?.tmuxId ?? null;
-    }
+    if (s.activeWindowId !== windowId) return { ...s, windows, panes };
+    const activeWindowId = next?.id ?? null;
+    const targetPanes = panes.filter((p) => p.windowId === activeWindowId);
+    const activePaneId = (targetPanes.find((p) => p.active) ?? targetPanes[0])?.tmuxId ?? null;
     return { ...s, windows, panes, activeWindowId, activePaneId };
   };
 
@@ -265,10 +223,6 @@ export function reconcileKillWindow(
   if (!windows.some((w) => w.id === killed)) return { _tag: 'matched' };
   return { _tag: 'pending' };
 }
-
-// ============================================
-// RenameWindow
-// ============================================
 
 export function predictRenameWindow(
   op: TmuxOpOf<'RenameWindow'>,
@@ -297,9 +251,49 @@ export function reconcileRenameWindow(
   return { _tag: 'pending' };
 }
 
-// ============================================
-// MoveWindow (tab reorder)
-// ============================================
+/**
+ * A sidebar column shut or shown (`@tmuxy-sidebar-hidden`) is the client's
+ * own say until tmux has had time to answer it. The echo of an earlier
+ * write of this client's, or a state tmux computed before the write, can
+ * arrive after it (a dock, then a shut, then the dock's late echo): read as
+ * news, it would show again a column the user had just shut. The flag is
+ * held, as a focus pin is, until the server has kept it for the linger.
+ * The other tags this client writes size panes the server re-tiles, and
+ * have no flag on the model to predict.
+ */
+export function predictWindowTag(
+  op: TmuxOpOf<'SetWindowTag'>,
+  snapshot: TmuxSnapshot,
+): PredictResult | null {
+  if (op.tag !== 'sidebar-hidden' || isPlaceholderId(op.windowId)) return null;
+  const window = snapshot.windows.find((w) => w.id === op.windowId);
+  if (!window) return null;
+  const hidden = op.value !== null;
+  const patch: Patch = (s) => ({
+    ...s,
+    windows: s.windows.map((w) => (w.id === op.windowId ? { ...w, sidebarHidden: hidden } : w)),
+  });
+  return {
+    patch,
+    meta: { windowId: op.windowId, hidden, wasHidden: Boolean(window.sidebarHidden) },
+  };
+}
+
+export function reconcileWindowTag(
+  meta: Readonly<Record<string, unknown>>,
+  windows: ReadonlyArray<TmuxWindow>,
+  ageMs: number,
+): ReconcileVerdict {
+  if (meta.windowId === undefined) return { _tag: 'matched' };
+  const window = windows.find((w) => w.id === meta.windowId);
+  if (!window) return { _tag: 'matched' };
+  return lingerVerdict(
+    meta.hidden as boolean,
+    meta.wasHidden as boolean,
+    Boolean(window.sidebarHidden),
+    ageMs,
+  );
+}
 
 /**
  * A dragged tab is already where the pointer left it when the drop commits,
@@ -338,23 +332,16 @@ export function reconcileMoveWindow(
 ): ReconcileVerdict {
   const moved = windows.findIndex((w) => w.id === meta.movedWindowId);
   const anchor = windows.findIndex((w) => w.id === meta.anchorId);
-  // Either window gone: there is no order left to wait for.
   if (moved === -1 || anchor === -1) return { _tag: 'matched' };
   const landed = meta.placement === 'before' ? moved + 1 === anchor : anchor + 1 === moved;
   return landed ? { _tag: 'matched' } : { _tag: 'pending' };
 }
 
-// ============================================
-// GroupSwitch (pane-group tab switch)
-// ============================================
-
 /**
- * Predicts the visible-slot swap of a pane-group tab click: the clicked
- * (parked) member takes the previously-visible member's window and geometry;
- * the previously-visible member parks in the clicked member's old window.
- * Mirrors the guest pane-group switch script (resize-window ; swap-pane).
- * Replaces the machine-level groupSwitchDimOverrides freeze + its 500/550/
- * 750ms timers (review follow-up #8: one owner per optimistic hold).
+ * A pane-group tab click: the clicked (parked) member takes the visible
+ * member's window and geometry, and the visible one parks in the clicked
+ * one's old window — what the pane-group switch script does
+ * (resize-window ; swap-pane).
  */
 export function predictGroupSwitch(
   op: TmuxOpOf<'GroupSwitch'>,
@@ -375,7 +362,6 @@ export function predictGroupSwitch(
   };
   const parkedWindowId = clicked.windowId;
 
-  // Self-neutralizes when either pane disappears mid-linger.
   const patch: Patch = (s) => {
     const hasClicked = s.panes.some((p) => p.tmuxId === clickedId);
     const hasVisible = s.panes.some((p) => p.tmuxId === visibleId);
@@ -412,11 +398,9 @@ export function reconcileGroupSwitch(
   const clicked = panes.find((p) => p.tmuxId === clickedId);
   const visible = panes.find((p) => p.tmuxId === visibleId);
   if (!clicked || !visible) {
-    // A pane involved in the swap is gone (killed mid-linger, group closed).
-    // The patch self-neutralizes, so there's nothing left to pin — release
-    // quietly rather than roll back and surface a phantom error.
+    // A pane of the swap is gone: release quietly rather than surface a
+    // phantom rollback error.
     return { _tag: 'matched' };
   }
-  // The member that was showing is the "previous" focus the swap moved from.
   return lingerVerdict(clickedId, visibleId, serverActivePaneId, ageMs);
 }

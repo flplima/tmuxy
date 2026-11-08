@@ -17,8 +17,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
-  createTestContext,
-  navigateToSession,
+  describeE2E,
+  openSession,
   waitForCondition,
   waitForTerminalText,
   runCommand,
@@ -28,7 +28,8 @@ const {
   tmuxRunAsOperator,
 } = require('./helpers');
 const { writePluginDir, pluginCli, pluginStateDir, knownActions } = require('./helpers/plugins');
-const { stateDir, tmuxExec } = require('./helpers/tmux-socket');
+const { tmuxExec } = require('./helpers/tmux-socket');
+const { tmuxWindow, tmuxPanes } = require('./helpers/tmux-read');
 
 const PLUGIN = 'e2e-surfaces';
 const PWNED = path.join(os.tmpdir(), 'tmuxy-e2e-plugin-pwned');
@@ -129,18 +130,24 @@ async function surfacePane(page, surface) {
   return fs.readFileSync(file, 'utf8').trim();
 }
 
-/** What the page shows of the active window: its panes and whether it is zoomed. */
-const activeWindow = (page) =>
-  page.evaluate(() => {
-    const c = window.app.getSnapshot().context;
-    const win = c.windows.find((w) => w.id === c.activeWindowId);
-    return {
-      id: c.activeWindowId,
-      zoomed: Boolean(win?.zoomed),
-      panes: c.panes.filter((p) => p.windowId === c.activeWindowId).map((p) => p.tmuxId),
-      tabs: c.windows.filter((w) => !w.windowType || w.windowType === 'tab').length,
-    };
+/** The tab the page shows, as tmux has it: its panes, whether it is zoomed, and how many tabs there are. */
+async function activeWindow(page) {
+  const { id, tabs } = await page.evaluate(() => {
+    const v = window.app.view();
+    return { id: v.activeTabId, tabs: v.windows.filter((w) => w.kind === 'tab').length };
   });
+  if (!/^@\d+$/.test(id ?? '')) return { id, zoomed: false, panes: [], tabs };
+  try {
+    return { id, zoomed: tmuxWindow(id).zoomed, panes: tmuxPanes(id).map((p) => p.id), tabs };
+  } catch (err) {
+    // The page follows tmux a round trip later: right after a kill it can
+    // still show a window tmux no longer has, which is "not there yet".
+    if (/can't find window/.test(String(err.stderr ?? err.message))) {
+      return { id, zoomed: false, panes: [], tabs };
+    }
+    throw err;
+  }
+}
 
 /** The float on screen holding `text`, and whether it has a header. */
 const floatShowing = (page, text) =>
@@ -154,14 +161,10 @@ const floatShowing = (page, text) =>
     return { header: !!float.querySelector('.pane-header'), width: r.width };
   }, text);
 
-describe('Scenario 32: Plugins', () => {
-  const ctx = createTestContext();
+describeE2E('Scenario 32: Plugins', {}, (ctx) => {
   let pluginDir = null;
 
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
   beforeEach(async () => {
-    await ctx.beforeEach();
     fs.rmSync(PWNED, { force: true });
     fs.rmSync(pluginState(), { recursive: true, force: true });
     pluginDir = writePlugin();
@@ -175,13 +178,11 @@ describe('Scenario 32: Plugins', () => {
     tmuxRunAsOperator('set-option -gu @tmuxy-plugins');
     tmuxRunAsOperator('set-option -gu @tmuxy-plugins-rev');
     fs.rmSync(pluginDir, { recursive: true, force: true });
-    await ctx.afterEach();
   }, ctx.hookTimeout);
 
   test('a linked plugin’s pane actions open in each surface, and its items go when it is removed', async () => {
-    if (ctx.skipIfNotReady()) return;
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name);
+    await openSession(page, ctx.session.name);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     const home = await activeWindow(page);
 
@@ -315,9 +316,8 @@ describe('Scenario 32: Plugins', () => {
   });
 
   test('selected text reaches a selection action byte for byte, in a file, and nothing in it runs', async () => {
-    if (ctx.skipIfNotReady()) return;
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name);
+    await openSession(page, ctx.session.name);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     pluginCli('install', '--path', pluginDir, '--yes');
     await waitForCondition(

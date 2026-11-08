@@ -9,9 +9,12 @@ tmux pane running a real process — it can be focused, navigated into, resized 
 other — but what it draws is a component, not cells.
 
 A pane declares itself a widget by printing a marker line: `__TMUXY_WIDGET__:<name>`, which
-`packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend scans pane content for
-it (`components/widgets/registry.ts`), and everything the pane prints after the marker is the
-widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
+`packages/tmuxy-cli/bin/tmuxy/tmuxy-widget` emits before passing stdin through. The frontend finds
+it in the pane's content once for every surface that asks — the body, its header tab and icon, the
+tree row, the pane menu (`selectPaneWidget`, `machines/selectors/paneWidget.ts`, over
+`domain/paneWidget.ts`) — joining the rows a pane narrower than the marker wraps it over, and
+holding the answer while the pane's content is not captured yet (a resize, a group switch).
+Everything the pane prints after the marker is the widget's content — the channel a widget's script uses to hand it a payload. The marker alone is
 not enough: it is pane output, and anything a pane prints could forge it, so `tmuxy-widget` also
 tags the pane with `@tmuxy-pane-widget` out of band before printing, and the frontend renders a
 widget only when that tag names the same one (see [SECURITY.md](SECURITY.md) and the option
@@ -28,9 +31,9 @@ back to a shell. That is what ctrl+c in a widget pane does.
 
 A preview's path is a pane option, `@tmuxy-pane-preview`, written by `tmuxy-widget-preview` out of band like the widget tag, and the widget asks for the document by naming its pane, never a path (`read_preview`, both transports, `tmuxy_core::preview`). What it links — stylesheets, scripts, images, fonts — it may read only from the document's own folder. Why, and what else holds, is [A Preview Reads One File](SECURITY-CONTENT.md#a-preview-reads-one-file).
 
-A new rev is the cue to read the document again; the old one stays on screen meanwhile, and on a failed read, so a save never blanks the pane. A markdown document is replaced inside the scroller it was drawn in, so the reader stays where they were. A page is composed by the client (`widgets/preview/previewPage.ts`) — its local resources inlined as code and `data:` URLs, the theme and a small bridge script put first — staged with the backend, and loaded by the frame from a URL that carries the page's own policy as a header. A new composition is a new URL, so the frame reloads, and it reopens at the scroll position the bridge last reported.
+A new rev is the cue to read the document again; the old one stays on screen meanwhile, and on a failed read, so a save never blanks the pane. A markdown document is replaced inside the scroller it was drawn in, so the reader stays where they were. A page is composed by the client (`components/widgets/preview/previewPage.ts`) — its local resources inlined as code and `data:` URLs, the theme and a small bridge script put first — staged with the backend, and loaded by the frame from a URL that carries the page's own policy as a header. A new composition is a new URL, so the frame reloads, and it reopens at the scroll position the bridge last reported.
 
-The frame is the same hole in the event surface the old browser widget was, and it is handled the same way: the pane is activated from the focus moving into the frame (`hooks/useFramedPaneFocus.ts`), and the pane's content takes no pointer while the app is dragging a divider or a pane. The keyboard is the page's while the user is in it, so the bridge sends a Ctrl or Alt chord pressed there back to the app, replayed on the pane: Ctrl+C reaches `WidgetPane` and ends the widget, the prefix reaches the keyboard actor. In the markdown view the pager keys scroll (`j`/`k`, space and `b`, `ctrl-d`/`ctrl-u`, `g`/`G`), and any other plain key stops at the widget rather than being typed into a pane where nothing reads it.
+The frame is the same hole in the event surface the old browser widget was, and it is handled the same way: the pane is activated from the focus moving into the frame (`components/useFramedPaneFocus.ts`), and the pane's content takes no pointer while the app is dragging a divider or a pane. The keyboard is the page's while the user is in it, so the bridge sends a Ctrl or Alt chord pressed there back to the app, replayed on the pane: Ctrl+C reaches `WidgetPane` and ends the widget, the prefix reaches the keyboard actor. In the markdown view the pager keys scroll (`j`/`k`, space and `b`, `ctrl-d`/`ctrl-u`, `g`/`G`), and any other plain key stops at the widget rather than being typed into a pane where nothing reads it.
 
 ### A pane group's header
 
@@ -42,12 +45,12 @@ A pane PARKED in a pane group streams no content, so there is no widget to ask f
 
 ### A widget's definition
 
-A widget registers a **definition**, not just a component, so it can furnish the parts of the pane
+A widget is a **definition**, not just a component, so it can furnish the parts of the pane
 chrome it does not own: its tab `icon`, a `selectTitle` for the tab, and a `selectMenuItems`
 section that leads the pane's ⋮ menu. Each is a pure function of machine context plus the pane's
 widget content, so a menu that is not the widget's own child can still ask the widget what it can
-currently do. Adding a widget means writing a definition and registering it in
-`components/widgets/init.ts`; no shared component needs to learn its name.
+currently do. Adding a widget means writing a definition and naming it in the table in
+`components/widgets/registry.ts`; no shared component needs to learn its name.
 
 Widget state that outlives a render belongs in the app machine rather than in the component, so
 the menu and the pane read the same source of truth. See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md).

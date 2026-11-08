@@ -1,8 +1,12 @@
 # Tmuxy Dev Container
 # Based on the official Claude Code devcontainer pattern with project-specific tools:
-# tmux 3.7a, Rust, agent-browser
+# the pinned tmux, Rust, agent-browser
 
-FROM node:22
+# The Node release is bin/toolchain's (`node-version`); bin/devcontainer passes
+# it, and the default is held to it by bin/ci/toolchain.test.mjs for the hosts
+# that build from devcontainer.json alone.
+ARG NODE_VERSION=22
+FROM node:${NODE_VERSION}
 
 ARG TZ
 ENV TZ="$TZ"
@@ -14,6 +18,11 @@ ENV TZ="$TZ"
 RUN usermod -l user -d /home/user -m node \
     && groupmod -n user node
 
+# The toolchain facts (the tmux pin and its build, the rust targets, the
+# WebKitGTK headers) are bin/toolchain's, which CI reads too. bin/install-dev-tools
+# reads it from beside itself, so it stays in /tmp until that has run.
+COPY bin/toolchain /tmp/
+
 # System dependencies
 # What only an IMAGE needs: its base tools, its build deps, its browser. The
 # agent tooling on top of this — fzf, neovim, jq, zstd, the CJK face, Xvfb and
@@ -24,14 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # openssh-server so `gh codespace ssh` can reach a Codespace — the Codespaces
     # agent starts sshd but does not install it)
     less git procps sudo unzip openssh-client openssh-server \
-    # Build tools (tmux, native modules)
+    # Build tools (native modules; tmux's own are the next line)
     build-essential pkg-config libssl-dev ca-certificates \
-    libevent-dev libncurses-dev bison \
+    $(/tmp/toolchain packages tmux-build) \
     # Chromium (agent-browser; ARM64 has no downloadable build so we use system)
     chromium \
     # Tauri build deps (WebKitGTK)
-    libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-    libjavascriptcoregtk-4.1-dev librsvg2-dev \
+    $(/tmp/toolchain packages webkit-dev) \
     # Scoped passwordless sudo for chown/chmod so the credential-volume ownership
     # fix (.devcontainer/fix-credential-ownership.sh) can repair root-owned/stale-UID
     # named volumes on container start.
@@ -53,11 +61,8 @@ RUN NVIM_ARCH=$(uname -m | sed 's/aarch64/arm64/') && \
     | tar xz -C /opt && \
     ln -sf /opt/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim
 
-# Build tmux 3.7a from source
 # Debian ships an older tmux; build the version tmuxy targets everywhere.
-RUN curl -sL https://github.com/tmux/tmux/releases/download/3.7a/tmux-3.7a.tar.gz | tar xz \
-    && cd tmux-3.7a && ./configure && make -j$(nproc) && make install \
-    && cd .. && rm -rf tmux-3.7a
+RUN /tmp/toolchain build-tmux
 
 # Rust toolchain
 ENV RUSTUP_HOME=/usr/local/rustup
@@ -66,11 +71,9 @@ ENV PATH=/usr/local/cargo/bin:$PATH
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     sh -s -- -y --default-toolchain stable --profile minimal \
     && rustup component add rustfmt clippy \
-    # wasm32 target + pinned wasm-bindgen for tmuxy-wasm (npm run build:wasm);
-    # the CLI version must match the wasm-bindgen crate in Cargo.lock
-    && rustup target add wasm32-unknown-unknown \
-    # i686-musl for the v86 guest's tmuxy-group binary (scripts/build-v86-snapshot.mjs)
-    && rustup target add i686-unknown-linux-musl \
+    # wasm32 for tmuxy-wasm (npm run build:wasm; its wasm-bindgen CLI is
+    # install-dev-tools'), i686-musl for the guests' tmuxy-verbs binary
+    && rustup target add $(/tmp/toolchain rust-targets) \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 
@@ -79,10 +82,11 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 # the wasm-bindgen the v86 build needs. The env var above is what tells it a
 # browser is already here, so it downloads none.
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-# The script reads its font list from beside itself, so both are copied.
+# The script reads its font list and bin/toolchain from beside itself, so
+# those are in /tmp with it.
 COPY bin/install-dev-tools bin/chromium-fonts.txt /tmp/
 RUN /tmp/install-dev-tools --full \
-    && rm /tmp/install-dev-tools /tmp/chromium-fonts.txt \
+    && rm /tmp/install-dev-tools /tmp/chromium-fonts.txt /tmp/toolchain \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 

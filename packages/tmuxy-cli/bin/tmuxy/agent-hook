@@ -1,9 +1,4 @@
 #!/bin/bash
-# tmuxy agent hook <agent> <event> — what `tmuxy agent install` puts in a
-# coding agent's lifecycle hooks. Reads the event's JSON on stdin, asks the
-# server binary what it means (`agent state`, the one place that decides),
-# and sets the pane's @tmuxy-pane-state to it.
-#
 # The agent waits for every hook, on every tool call, so this one never makes
 # it wait for tmux: it records the state it wants and returns, and a
 # background job applies the latest wanted state under a lock. Hooks that
@@ -41,18 +36,18 @@ echo "$state" >"$dir/wanted" 2>/dev/null || exit 0
 
 # What the pane says is read from tmux, not remembered: other writers set the
 # state too — the server reading a dialog off the screen
-# (tmuxy-server/src/agents/screen.rs), a send's question, `tmuxy pane state` —
+# (tmuxy-core/src/host/socket_watch/agent_screen.rs), a send's question, `tmuxy pane state` —
 # and a remembered "already applied" skipped the hook that should have put it
 # back (a pane left `needs-input` after the user had answered).
 apply() {
   local wanted="" current=""
   _lock_acquire "$dir"
   read -r wanted <"$dir/wanted"
-  current="$(_tmux show-options -pqv -t "$TMUX_PANE" @tmuxy-pane-state 2>/dev/null || true)"
+  current="$(_tmux show-options -pqv -t "$TMUX_PANE" "$OPT_PANE_STATE" 2>/dev/null || true)"
   if [ "$wanted" = clear ]; then
-    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") @tmuxy-pane-state"
+    [ -z "$current" ] || _run_safe "set-option -p -u -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE"
   elif [ -n "$wanted" ] && [ "$wanted" != "$current" ]; then
-    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") @tmuxy-pane-state $(shquote "$wanted")"
+    _run_safe "set-option -p -t $(shquote "$TMUX_PANE") $OPT_PANE_STATE $(shquote "$wanted")"
   fi
   _lock_release "$dir"
 }

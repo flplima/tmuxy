@@ -9,26 +9,15 @@ mod run;
 pub use offer::*;
 pub use run::*;
 
-// =============================================================================
-// Restore
-// =============================================================================
-
-/// The script whose `park` verb parks a restored group member (`packages/tmuxy-cli/bin/tmuxy/pane-group`).
 pub(super) fn group_script() -> String {
-    crate::session::bin_dir()
-        .join("tmuxy")
-        .join("pane-group")
+    crate::paths::Layout::current()
+        .pane_group_script()
         .to_string_lossy()
         .into_owned()
 }
 
-/// The `pane-group close` command a restored member's `pane-died` hook runs
-/// (`groups::arm`): the same script `park` is asked of.
 fn group_close_command() -> String {
-    format!(
-        "{} close",
-        crate::groups::quote_script_path(Path::new(&group_script()))
-    )
+    crate::groups::close_command(Path::new(&group_script()))
 }
 
 /// The server option a restore's shell step leaves its answer in. Named for
@@ -41,22 +30,21 @@ fn answer_option(session: &str) -> String {
 /// Run `shell` through `run-shell` and keep what it printed as `key`.
 ///
 /// Not by reading run-shell's own output: tmux 3.4 does not hand that back to
-/// a control client, it opens it in view-mode on the current pane — and a
-/// pane in view-mode takes the keys the restore types next as mode commands,
-/// one of which opens a prompt that leaves the control client answering
-/// nothing more. So the shell writes its output into a server option, which
-/// is read back and cleared, and the shell step always succeeds (a "returned
-/// 1" is view-mode output too); a failure surfaces as an answer the next
-/// steps cannot use as a target. A `run-shell` a client sends is relayed the
-/// same way (`control_mode/monitor/run_shell.rs`).
+/// a control client, it opens it in view-mode on the current pane, and a pane
+/// in view-mode takes the keys the restore types next as mode commands, one
+/// of which opens a prompt that leaves the control client answering nothing
+/// more. So the shell writes into a server option, read back and cleared, and
+/// always succeeds (a "returned 1" is view-mode output too); a failure
+/// surfaces as an answer the next steps cannot use as a target. A client's
+/// `run-shell` is relayed the same way (`control_mode/monitor_core/run_shell.rs`).
 fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
     let option = answer_option(session);
     let relay = format!(
         "{} set-option -g {option} \"$({shell} 2>&1)\"; true",
-        tmux_shell_command()
+        crate::session::tmux_shell_line()
     );
     vec![
-        Step::Run(argv(&["run-shell", &run_shell_literal(&relay)])),
+        Step::Run(argv(&["run-shell", &crate::argv::format_literal(&relay)])),
         Step::Ask {
             key: key.to_string(),
             argv: argv(&["show-options", "-gv", &option]),
@@ -64,18 +52,6 @@ fn ask_run_shell(session: &str, key: &str, shell: &str) -> Vec<Step> {
         Step::Run(argv(&["set-option", "-gu", &option])),
     ]
 }
-
-/// A shell line for `run-shell`, with its `#` doubled. `run-shell` expands
-/// formats in its command before `/bin/sh` sees it, inside shell quotes too,
-/// so a snapshot's scrollback or cwd holding `#(…)` would run it, and a
-/// `#{…}` would be replaced with whatever tmux knows by that name.
-fn run_shell_literal(shell: &str) -> String {
-    shell.replace('#', "##")
-}
-
-/// The window types tmuxy itself sets; a snapshot naming another is not one
-/// it wrote.
-const WINDOW_TYPES: [&str; 3] = ["float", "sidebar-left", "sidebar-right"];
 
 /// The pane options a snapshot carries ([`capture`]): a group's id and the
 /// pane's place in it.
@@ -160,8 +136,8 @@ fn argv(words: &[&str]) -> TmuxArgv {
 ///   * Each offered command is offered (`offer_steps`), not typed or run;
 ///     `run` types it and adds the Enter. A program that was running is not
 ///     proof it should run again.
-///   * A pane with saved scrollback starts as `cat` of that text and then the
-///     shell, so what was on screen is on screen again above a fresh prompt.
+///   * A pane's saved scrollback is printed into it (`run-shell -t … printf`),
+///     not typed, so what was on screen is back above a fresh prompt.
 pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
     let mut steps = Vec::new();
     if snapshot.windows.is_empty() {
@@ -177,7 +153,6 @@ pub fn plan(snapshot: &Snapshot, options: &RestoreOptions) -> Vec<Step> {
     steps
 }
 
-/// The first window's first pane's directory, or the fallback.
 fn first_cwd(w: &WindowSnapshot, options: &RestoreOptions) -> String {
     w.panes
         .first()
@@ -290,7 +265,11 @@ fn pane_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<Ste
         if let Some(kind) = w
             .window_type
             .as_ref()
-            .filter(|k| WINDOW_TYPES.contains(&k.as_str()))
+            // The window types tmuxy itself sets; a snapshot naming another
+            // is not one it wrote.
+            .filter(|k| {
+                WindowType::parse(k).is_some_and(|t| t == WindowType::Float || t.is_sidebar())
+            })
         {
             steps.push(Step::Run(argv(&[
                 "set-option",
@@ -376,10 +355,10 @@ fn hidden_member_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mu
         let key = format!("HID{n}");
         let park = format!(
             "bash {} park {} {} {}{}",
-            shell_quote(&group_script()),
-            shell_quote(&pane_target(s, w.index, p.index)),
-            shell_quote(member.group_id.as_str()),
-            shell_quote(&cwd_or_fallback(&member.cwd, options)),
+            crate::argv::shell_word(&group_script()),
+            crate::argv::shell_word(&pane_target(s, w.index, p.index)),
+            crate::argv::shell_word(member.group_id.as_str()),
+            crate::argv::shell_word(&cwd_or_fallback(&member.cwd, options)),
             member
                 .position
                 .map(|pos| format!(" {pos}"))
@@ -461,23 +440,18 @@ fn content_steps(snapshot: &Snapshot, options: &RestoreOptions, steps: &mut Vec<
                         "run-shell",
                         "-t",
                         &pane,
-                        &run_shell_literal(&format!("printf '%s\\n' {}", shell_quote(&text))),
+                        &crate::argv::format_literal(&format!(
+                            "printf '%s\\n' {}",
+                            crate::argv::shell_word(&text)
+                        )),
                     ])));
                 }
             }
             if let Some(cmd) = p.offered_command() {
                 // tmuxy's own sidebar widget runs without asking; any other
                 // command a snapshot names, in a sidebar or not, is offered.
-                let chrome = w.window_type.as_deref() == Some("sidebar-left")
-                    && (cmd == LEFT_SIDEBAR_WIDGET
-                        || LEGACY_LEFT_SIDEBAR_WIDGETS.contains(&cmd.as_str()));
-                // An older snapshot's bare `tmuxy widget tree` runs as the
-                // bundled script, which no stale PATH can break.
-                let cmd = if chrome {
-                    LEFT_SIDEBAR_WIDGET.to_string()
-                } else {
-                    cmd
-                };
+                let chrome = w.window_type.as_deref() == Some(WindowType::SidebarLeft.as_str())
+                    && cmd == LEFT_SIDEBAR_WIDGET;
                 if let (Some(word), false) = (&p.restore_command, chrome) {
                     // The program's own word outlives the offer: typed and
                     // not run, it would otherwise be gone from the next save.

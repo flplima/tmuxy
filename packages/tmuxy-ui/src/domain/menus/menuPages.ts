@@ -1,26 +1,23 @@
 /**
- * A menu spec walked as pages, the way a phone app shows a menu: the top
- * level is the first page, and choosing a submenu goes to a page listing its
- * children (components/PhoneMenu.tsx). The way down is a path of submenu ids;
+ * A menu spec walked as pages, as the phone shows a menu
+ * (components/phone/PhoneMenu.tsx). The way down is a path of submenu ids;
  * the spec is rebuilt from the live state, so a step that no longer leads
  * anywhere (a submenu gone or disabled) ends the walk there.
- *
- * Pure.
  */
 
 import type { MenuNode, MenuSpec } from './spec';
 
-export interface MenuPage {
+export interface MenuPage<A> {
   /** The submenu's label; null for the top page. */
   title: string | null;
   /** The submenu's id; null for the top page. */
   id: string | null;
-  nodes: MenuSpec;
+  nodes: MenuSpec<A>;
 }
 
-type Submenu = Extract<MenuNode, { kind: 'submenu' }>;
+type Submenu<A> = Extract<MenuNode<A>, { kind: 'submenu' }>;
 
-function submenuIn(nodes: MenuSpec, id: string): Submenu | null {
+function submenuIn<A>(nodes: MenuSpec<A>, id: string): Submenu<A> | null {
   for (const node of nodes) {
     if (node.kind === 'submenu' && node.id === id && !node.disabled) return node;
   }
@@ -28,8 +25,8 @@ function submenuIn(nodes: MenuSpec, id: string): Submenu | null {
 }
 
 /** The pages from the top down `path`, as far as it still leads. */
-export function menuPages(spec: MenuSpec, path: readonly string[]): MenuPage[] {
-  const pages: MenuPage[] = [{ title: null, id: null, nodes: spec }];
+export function menuPages<A>(spec: MenuSpec<A>, path: readonly string[]): MenuPage<A>[] {
+  const pages: MenuPage<A>[] = [{ title: null, id: null, nodes: spec }];
   for (const id of path) {
     const sub = submenuIn(pages[pages.length - 1].nodes, id);
     if (!sub) break;

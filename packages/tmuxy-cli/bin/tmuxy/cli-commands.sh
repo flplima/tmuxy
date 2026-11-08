@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — tab, widget, session, nav, run and connect subcommands.
 
 # A tab to act on: an `@id`, an index or a `session:window` target is handed
 # back as written; anything else is a tab NAME, which must name exactly one
 # window (exit 3 otherwise, with nothing changed).
-# Args: $1=target
 _resolve_tab() {
-  local target="$1" rows matches count
+  local target="$1" rows matches count rc=0
   case "$target" in
     @[0-9]* | [0-9]* | \$[0-9]* | %[0-9]* | *:* | '{'*) printf '%s' "$target"; return 0 ;;
   esac
-  rows="$(_tmux_read list-windows -a -F $'#{window_id}\t#{window_name}\t#{session_name}' 2>/dev/null || true)"
+  rows="$(_tmux_read list-windows -a -F $'#{window_id}\t#{window_name}\t#{session_name}' 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $3 }')"
   [ -n "$matches" ] || _fail "$EXIT_TARGET" "no tab named '$target'"
   count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
@@ -25,22 +24,12 @@ _resolve_tab() {
   printf '%s' "${matches%%$'\t'*}"
 }
 
-# The tab a command acts on: TAB_ID the one named (`_resolve_tab`), else
-# empty; TAB_T the matching `-t` clause, which is the caller's own window
-# (through its pane id, `CALLER_T`) when none is named.
-# Args: $1=target as written (may be empty)
 _tab_t() {
   TAB_ID=""
   TAB_T="$CALLER_T"
   [ -n "${1:-}" ] || return 0
   TAB_ID="$(_resolve_tab "$1")" || exit $?
   TAB_T=" -t $(shquote "$TAB_ID")"
-}
-
-# A mutation's answer: the JSON object under `--json`, else nothing.
-_done() {
-  [ "$JSON_OUT" = true ] || return 0
-  json_ok "$@"
 }
 
 # --- Tab subcommands ---
@@ -58,15 +47,12 @@ cmd_tab() {
         esac
       done
       if [ "$JSON_OUT" = true ]; then
-        # Include @tmuxy-window-type ($6) so we can drop tmuxy's hidden windows
-        # (floats and the sidebars). Keep "tab" and untagged/foreign ("")
-        # windows so this still works in a plain (non-tmuxy) session.
-        # Tab-separated: window_name is user-controlled free text (tmuxy tab
-        # rename), so a comma in it would shift every following field.
+        # Floats and sidebars are tmuxy's hidden windows; an untagged window
+        # is a tab, as in a plain (non-tmuxy) session.
         local rows
         rows=$(_tmux_read list-windows -F "$LIST_WINDOWS_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!="float" && $6!~/^sidebar-/{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
+          awk -F'\t' -v float="$WINDOW_TYPE_FLOAT" -v left="$WINDOW_TYPE_SIDEBAR_LEFT" -v right="$WINDOW_TYPE_SIDEBAR_RIGHT" "$JSON_AWK"'BEGIN{printf "["; n=0} NF>0 && $6!=float && $6!=left && $6!=right{ if(n++) printf ","; printf "{\"id\":\"%s\",\"index\":%s,\"name\":\"%s\",\"panes\":%s,\"active\":%s}", jstr($1), $2, jstr($3), $4, ($5=="1"?"true":"false")} END{printf "]\n"}'
       else
         _tmux_read list-windows
       fi
@@ -81,27 +67,10 @@ cmd_tab() {
           *) [ -z "$name" ] && name="$arg" ;;
         esac
       done
-      # new-window crashes tmux 3.5a — use splitw+breakp as a single tmux command
-      # list (separated by \;) so it runs atomically through run-shell. Direct
-      # external tmux invocations crash CC; this routes through run-shell safely.
-      # splitw+breakp creates the new window and selects it. Tabs carry no
-      # marker — an untagged window in the session is a tab, so no tagging.
-      # The break names its session: `#{session_id}` is run-shell's, expanded
-      # for the calling pane, where a bare breakp would put the window in
-      # whichever session tmux last touched (see TMUX_PANE above).
-      local out
-      if [ -n "$name" ]; then
-        out=$(_run_safe "splitw$CALLER_T \\; breakp -t '#{session_id}:' -n $(shquote "$name") -P -F '##{window_id}'")
-      else
-        out=$(_run_safe "splitw$CALLER_T \\; breakp -t '#{session_id}:' -P -F '##{window_id}'")
-      fi
-      local tab_id
-      tab_id=$(echo "$out" | grep -o '@[0-9]*' | tail -1 || true)
-      if [ "$JSON_OUT" = true ]; then
-        printf '{"ok":true,"tabId":"%s"}\n' "${tab_id:-}"
-      elif [ -n "$tab_id" ]; then
-        echo "$tab_id"
-      fi
+      # The tab itself is the server binary's `new-tab` (tmuxy-core
+      # `tmux_command::NewTab`).
+      find_server_cmd || exit "$EXIT_FAILED"
+      exec "${SERVER_CMD[@]}" new-tab ${server_json[@]+"${server_json[@]}"} -- ${name:+"$name"}
       ;;
 
     kill)
@@ -186,7 +155,7 @@ cmd_widget() {
       ;;
 
     preview)
-      exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
+      JSON_OUT="$JSON_OUT" exec "$SCRIPTS_DIR/tmuxy-widget-preview" "$@"
       ;;
 
     --help|-h)
@@ -218,25 +187,13 @@ cmd_session() {
       ;;
 
     connect)
-      case "${1:-}" in
-        --help|-h) exec bash "$SCRIPTS_DIR/session-connect" --help ;;
-      esac
-      exec bash "$SCRIPTS_DIR/session-connect" "$@"
+      session_connect "$@"
       ;;
 
     save|snapshots)
       # Reads only (tmux queries and `ps`), safe as a plain subprocess.
-      find_server_cmd
-      [ "$JSON_OUT" = true ] || exec "${SERVER_CMD[@]}" session "$sub" "$@"
-      local out status=0
-      out=$("${SERVER_CMD[@]}" session "$sub" "$@") || status=$?
-      [ "$status" -eq 0 ] || _fail "$status" "$out"
-      if [ "$sub" = snapshots ]; then
-        # The binary prints one `name<TAB>saved<TAB>state` per line.
-        printf '%s\n' "$out" | awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NF>0{ if(n++) printf ","; printf "{\"name\":\"%s\",\"saved\":\"%s\",\"state\":\"%s\"}", jstr($1), jstr($2), jstr($3)} END{printf "]\n"}'
-      else
-        json_ok "output=$(json_string "$out")"
-      fi
+      find_server_cmd || exit "$EXIT_FAILED"
+      exec "${SERVER_CMD[@]}" session "$sub" ${server_json[@]+"${server_json[@]}"} "$@"
       ;;
 
     restore)
@@ -262,8 +219,7 @@ cmd_session() {
       done
       [ -z "$stdin_tty" ] || [ ! -c "$stdin_tty" ] || tty_redir=" < $(shquote "$stdin_tty")"
       find_server_cmd
-      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$quoted$tty_redir"
-      _done
+      _run_shell "$(shquote "${SERVER_CMD[@]}") session restore$(_json_flag)$quoted$tty_redir"
       ;;
 
     forget)
@@ -275,8 +231,7 @@ cmd_session() {
       local quoted=""
       for arg in "$@"; do quoted="$quoted $(shquote "$arg")"; done
       find_server_cmd
-      _run_shell "$(shquote "${SERVER_CMD[@]}") session forget$quoted"
-      _done
+      _run_shell "$(shquote "${SERVER_CMD[@]}") session forget$(_json_flag)$quoted"
       ;;
 
     --help|-h)
@@ -321,179 +276,27 @@ cmd_nav() {
 
 # --- Run escape hatch ---
 
-# The tmux commands `tmuxy run` passes on, by their names and aliases. They
-# read the server, move panes and windows about, or close them. Left out is
-# every command that types into a pane (`send-keys`, `paste-buffer`,
-# `pipe-pane`: keys go through `tmuxy pane send`, which asks the user before
-# typing into another pane), runs a shell or keeps a command for later
-# (`run-shell`, `if-shell`, `split-window <cmd>`, `new-session <cmd>`,
-# `bind-key`, `command-prompt`, `display-popup`, ...), and every write to an
-# option, hook or environment: an option can run a shell (`status-right`
-# with `#(...)`, `command-alias`, `default-command`) or mirror a pane's keys
-# into every other one (`synchronize-panes`).
-RUN_COMMANDS=(
-  break-pane breakp capture-pane capturep clear-history clearhist clock-mode
-  copy-mode delete-buffer deleteb display-message display has-session has
-  join-pane joinp kill-pane killp kill-server kill-session kill-window killw
-  last-pane lastp last-window last link-window linkw list-buffers lsb
-  list-clients lsc list-commands lscm list-keys lsk list-panes lsp
-  list-sessions ls list-windows lsw move-pane movep move-window movew
-  new-window neww next-layout nextl next-window next previous-layout prevl
-  previous-window prev rename-session rename rename-window renamew
-  resize-pane resizep resize-window resizew rotate-window rotatew
-  select-layout selectl select-pane selectp select-window selectw
-  show-buffer showb show-hooks show-messages showmsgs show-options show
-  show-window-options showw swap-pane swapp swap-window swapw
-  unlink-window unlinkw
-)
-
-# What `tmuxy run` will not do, as the reason it says so; nothing when the
-# command may run. Takes the command's words, name first.
-#
-# A name counts only as written: tmux would also take a unique prefix of one
-# (`i` is `if-shell`), so a prefix of an allowed name is not allowed. The
-# arguments reach tmux as they are, so what tmux itself reads in them is
-# refused too: an argument ending in `;` ends the command and starts another,
-# and a format either runs a shell, `#(...)`, or expands a value as a format
-# again (the `E:` and `T:` modifiers), over a pane title or a path any
-# program can set.
-_run_refusal() {
-  local arg reexpand='[{;][ET][:;]'
-  for arg in "$@"; do
-    case "$arg" in
-      *';')
-        echo "tmux reads an argument ending in ';' as the start of another command"
-        return
-        ;;
-      *'#('*)
-        echo "a '#(' format runs a shell"
-        return
-        ;;
-    esac
-    if [[ "$arg" =~ $reexpand ]]; then
-      echo "the E: and T: formats expand a value again, and a '#(' in it runs a shell"
-      return
-    fi
-  done
-  case " ${RUN_COMMANDS[*]} " in
-    *" $1 "*) ;;
-    *) echo "'$1' is not a command \`tmuxy run\` passes on (\`tmuxy run --help\` lists them); keys go through \`tmuxy pane send\`" ;;
-  esac
-}
-
+# What runs, what is refused and the help are the server binary's `run`
+# (tmuxy-core `command_router::route_cli_run`).
 cmd_run() {
-  case "${1:-}" in
-    --help|-h) usage_run; return ;;
-    "") _die_usage "tmux command required" usage_run ;;
-  esac
-
-  # The command may come as one argument (`tmuxy run 'list-sessions -F
-  # "#{session_name}"'`): its words, split as a shell splits them. Every word
-  # but the name, which is one of RUN_COMMANDS, is quoted on its way to
-  # run-shell, so neither run-shell's format expansion nor its shell reads
-  # anything in them.
-  local words=() word
-  if [[ "$1" == *[[:space:]]* ]]; then
-    while IFS= read -r -d '' word; do words+=("$word"); done < <(printf '%s' "$1" | xargs printf '%s\0')
-  else
-    words=("$1")
-  fi
-  shift
-  words+=("$@")
-  local refusal
-  refusal="$(_run_refusal "${words[@]}")"
-  if [ -n "$refusal" ]; then
-    _fail "$EXIT_FAILED" "refused: $refusal"
-  fi
-  local name="${words[0]}"
-  set -- "${words[@]:1}"
-
-  case "$name" in
-    new-window|neww)
-      # Intercept: new-window crashes tmux 3.5a with control mode attached.
-      # `tmuxy tab create` is the one place that knows the safe shape (splitw
-      # + breakp, one run-shell); this keeps only the flag it takes.
-      echo "Note: new-window intercepted for safety. Using split-window + break-pane." >&2
-      local name_arg=""
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          -n) name_arg="$2"; shift 2 ;;
-          *) shift ;;
-        esac
-      done
-      cmd_tab create ${name_arg:+"$name_arg"}
-      ;;
-
-    resize-window|resizew)
-      _fail "$EXIT_FAILED" "resize-window is blocked — it is unreliable with control mode attached (ignored when sent externally). Use resize-pane."
-      ;;
-
-    *)
-      if [ "$JSON_OUT" = true ]; then
-        # The command's output and status as one object: what tmux printed
-        # is a string, and a failure is `ok:false` with the exit code it had.
-        local out status=0
-        out=$(_run_safe "$name $(shquote "$@")") || status=$?
-        local ok=true
-        [ "$status" -eq 0 ] || ok=false
-        printf '{"ok":%s,"status":%s,"stdout":%s}\n' "$ok" "$status" "$(json_string "$out")"
-        return "$status"
-      fi
-      _run_safe "$name $(shquote "$@")"
-      ;;
-  esac
+  find_server_cmd || exit "$EXIT_FAILED"
+  exec "${SERVER_CMD[@]}" run ${server_json[@]+"${server_json[@]}"} -- "$@"
 }
 
 # --- Connect to a different tmux server (desktop app) ---
 
+# The stages, the checks and the request are the server binary's
+# `session-connect` and `connect` (tmuxy-verbs `connect_cli`).
+session_connect() {
+  find_server_cmd || exit "$EXIT_FAILED"
+  exec "${SERVER_CMD[@]}" session-connect ${server_json[@]+"${server_json[@]}"} "$@"
+}
+
 cmd_connect() {
   case "${1:-}" in
     --help|-h) usage_connect; return ;;
-    "")
-      # No socket given → the connect flow, `tmuxy session connect`: it asks
-      # for a destination, probes it, saves it to servers.json and attaches.
-      exec bash "$SCRIPTS_DIR/session-connect"
-      ;;
+    "") session_connect ;;
   esac
-
-  local socket="$1"
-  local session="${2:-}"
-
-  if ! _is_safe_socket "$socket"; then
-    _fail "$EXIT_USAGE" "'$socket' is not a valid tmux socket name or absolute path"
-  fi
-  if [ -n "$session" ] && ! _is_safe_session_name "$session"; then
-    _fail "$EXIT_USAGE" "'$session' is not a valid tmux session name"
-  fi
-
-  # Target socket flag: a slash means a full socket path (-S), else a name (-L).
-  local target_flag="-L"
-  case "$socket" in */*) target_flag="-S" ;; esac
-
-  # Resolve the session when the caller didn't name one: prefer the target
-  # server's first existing session with a safe name (`_first_safe_session`),
-  # otherwise fall back to `tmuxy` (which the app creates on attach). Querying
-  # the target socket directly is read-only and safe even though it's a
-  # different server.
-  if [ -z "$session" ]; then
-    # `|| true` so a missing/empty target server (list-sessions exits non-zero)
-    # doesn't trip `set -e`; fall back to `tmuxy`.
-    session="$(_first_safe_session "$(command tmux "$target_flag" "$socket" list-sessions -F '#{session_name}' 2>/dev/null || true)")"
-    [ -z "$session" ] && session="tmuxy"
-  fi
-
-  # Publish the request on the CURRENT server via run-shell (control-mode safe).
-  # The desktop app's connect watcher reads these and reconnects.
-  # Session first, socket last: the desktop app's watcher triggers on
-  # TMUXY_CONNECT_TO, so it must be the final write or the poll can fire
-  # between the two and reconnect to the default session.
-  _run_safe "set-environment -g TMUXY_CONNECT_SESSION $(shquote "$session")"
-  _run_safe "set-environment -g TMUXY_CONNECT_TO $(shquote "$socket")"
-
-  if [ "$JSON_OUT" = true ]; then
-    json_ok "socket=$(json_string "$socket")" "session=$(json_string "$session")"
-    return 0
-  fi
-  echo "Requested desktop app reconnect to socket '$socket' (session '$session')."
-  echo "No effect in the web UI — the web server's socket is fixed at launch."
+  find_server_cmd || exit "$EXIT_FAILED"
+  exec "${SERVER_CMD[@]}" connect ${server_json[@]+"${server_json[@]}"} --socket "$1" ${2:+--session "$2"}
 }

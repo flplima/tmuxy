@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# tmuxy — AI-first noun-verb CLI for tmux
-#
-# Safety: All mutating commands route through `tmux run-shell` to avoid
-# crashing tmux 3.3a–3.5a when control mode is attached.
-# Read-only commands run as direct subprocesses (safe with control mode).
+# Mutating commands route through `tmux run-shell`: an external mutation
+# crashes tmux 3.3a–3.5a while control mode is attached. Read-only commands
+# run as direct subprocesses.
 
 set -euo pipefail
 
@@ -19,20 +17,18 @@ if [ "${1:-}" = agent ] && [ "${2:-}" = hook ]; then
 fi
 SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
-# Rewritten by the release's bump-version, so it is package.json's version.
-TMUXY_VERSION="${TMUXY_VERSION:-0.1.4}"
+# The binary that mirrors this file into the data dir writes its own version
+# in place of the placeholder (tmuxy-core `session::assets`); a checkout's copy
+# reads the tree's package.json.
+TMUXY_VERSION="@TMUXY_VERSION@"
+case "$TMUXY_VERSION" in
+  @*)
+    TMUXY_VERSION="$(sed -n 's/^  "version": "\([^"]*\)",$/\1/p' "${SELF%/*}/../../../package.json" 2>/dev/null || true)"
+    TMUXY_VERSION="${TMUXY_VERSION:-unknown}"
+    ;;
+esac
 
-# --- Helpers ---
-
-# Socket resolution (explicit TMUX_SOCKET, else the socket of the server whose
-# pane we are in, else the dedicated `tmuxy` socket — never the user's default
-# tmux server), `_tmux`/`_run_safe`, `shquote` and `find_server_cmd` are
-# shared with the bin/tmuxy scripts, so they live in their `_lib`. Every tmux call in this
-# script goes through `_tmux`, every mutation through `_run_safe`. `_lib`
-# resolves SCRIPTS_DIR from its own `$0` (this file, not the scripts
-# directory), so restore ours afterwards.
 source "$SCRIPTS_DIR/_lib"
-SCRIPTS_DIR="$(cd "$(dirname "$SELF")/tmuxy" && pwd)"
 
 # The real stdout, for a JSON failure raised inside a `$(…)` (`_json_fd`).
 exec 3>&1
@@ -43,7 +39,7 @@ trap 'exit 130' INT
 # `tmuxy plugin`'s own commands. Any other word after `plugin` is a plugin's
 # verb, whose arguments are its own. RESERVED_VERBS in tmuxy-core lists the
 # same words; tests/cli/cli-plugin.test.js holds the two together.
-PLUGIN_COMMANDS=" install list update remove action log check new config path search exec publish help --help -h "
+PLUGIN_COMMANDS=" install list update remove action log check new config path search exec help --help -h "
 
 # `--json` on the line is the output mode, not an argument of the command: it
 # is taken off here so every subcommand reads one switch, and the verbs that
@@ -78,9 +74,8 @@ unset _args _arg _own
 # once, with the same preference the server has (an attached real session,
 # else the first real one) hands tmux an answer it honours for an unattached
 # client the way it does for a pane's own — and `_run_safe` passes it on to
-# the client it spawns inside run-shell. Read-only, and skipped when there
-# is no server to ask. Never for `tmuxy agent`: an agent hook outside any
-# tmuxy pane must change nothing, not some other pane's state.
+# the client it spawns inside run-shell. Never for `tmuxy agent`: an agent
+# hook outside any tmuxy pane must change nothing, not some other pane's state.
 # The caller's own pane, before that: `pane send` asks the user before typing
 # into any other.
 export TMUXY_CALLER_PANE="${TMUX_PANE:-}"
@@ -88,7 +83,7 @@ if [ -z "${TMUX_PANE:-}" ] && [ "${1:-}" != agent ]; then
   _outside_pane="$(_tmux list-panes -a \
     -f '#{&&:#{window_active},#{pane_active}}' \
     -F '#{session_attached}	#{session_name}	#{pane_id}' 2>/dev/null \
-    | awk -F'\t' '$2 != "__tmuxy_stash" { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
+    | awk -F'\t' -v stash="$STASH_SESSION" '$2 != stash { if ($1 > 0) { print $3; exit } ; if (!first) first = $3 } END { if (first) print first }' \
     | head -1 || true)"
   if [ -n "$_outside_pane" ]; then
     TMUX_PANE="$_outside_pane"
@@ -101,8 +96,7 @@ fi
 # TMUX_PANE on the inner client is not enough: for an unattached client tmux
 # limits itself to the SESSION holding that pane and then takes the session's
 # current window and active pane — so `pane split` from a pane whose tab was
-# not the active one split the active tab. Empty when no pane is known, and
-# the command goes target-less as before.
+# not the active one split the active tab.
 CALLER_T=""
 [ -z "${TMUX_PANE:-}" ] || CALLER_T=" -t $TMUX_PANE"
 
@@ -110,13 +104,8 @@ CALLER_T=""
 #
 # Free-text tmux fields (window names, pane commands) can contain commas and
 # quotes, so the --json serializers use a tab separator and escape the values.
-# `pane_title` is filtered against the host name because tmux seeds every
-# pane's title with it — same expression as tmux_formats::APP_PANE_TITLE in
-# packages/tmuxy-core/src/constants.rs; keep the two in step.
-APP_PANE_TITLE_FMT='#{?#{==:#{pane_title},#{host}},,#{pane_title}}'
-LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t#{@tmuxy-label}'
-LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t#{@tmuxy-window-type}'
-JSON_ESCAPE_AWK='function jstr(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\n/, "\\n", s); gsub(/\r/, "\\r", s); gsub(/\t/, "\\t", s); return s } '
+LIST_PANES_JSON_FMT=$'#{pane_id}\t#{window_id}\t#{pane_width}\t#{pane_height}\t#{pane_current_command}\t#{pane_active}\t'"$APP_PANE_TITLE_FMT"$'\t'"#{$OPT_PANE_LABEL}"
+LIST_WINDOWS_JSON_FMT=$'#{window_id}\t#{window_index}\t#{window_name}\t#{window_panes}\t#{window_active}\t'"#{$OPT_WINDOW_TYPE}"
 
 # --- Help ---
 
@@ -142,7 +131,7 @@ Commands:
   connect     Reconnect the desktop app to a different tmux server (socket)
   server      Production server operations
   trace       Inspect/export a local action-trace file (docs/TRACING.md)
-  config      Re-apply tmuxy.conf (reload) or change a setting (use-tmux-conf)
+  config      Re-apply tmuxy.conf (reload), check it (doctor) or change a setting
   plugin      Install, list, update and remove plugins; run their actions
   gui         Open the desktop GUI application
 
@@ -201,28 +190,10 @@ Commands:
   restore-cmd   Say how to bring the pane back after a restore '<command>' [%id]
   paste         Paste text into pane <text>
   float         Create a float pane [cmd args...]
-  group         Pane group operations (add, close, switch, next, prev, move, join, leave)
+  group         Pane group operations (see 'tmuxy pane group --help')
 
 A target is a pane id (%3) or a label (see 'tmuxy --help'); the default is
 the pane this runs in. Run 'tmuxy pane <command> --help' for details.
-EOF
-}
-
-usage_pane_group() {
-  cat <<'EOF'
-Usage: tmuxy pane group <command> [args...]
-
-Commands:
-  add           Add current pane to a group
-  close         Close pane from group [%id]
-  switch        Switch to pane in group <%id>
-  next          Next pane in group
-  prev          Previous pane in group
-  move          Move a member to another place in its group <%id> <index>
-  join          Make a pane a member of another pane's group <%id> <%member> [index]
-  leave         Take a member out of its group [%id] [--tab | --beside <%id> <dir>]
-  all           Every pane in the tab joins one group, %id's (the current pane's) [%id]
-  ungroup       A group's members come back as splits in the tab, and the group is gone [%id]
 EOF
 }
 
@@ -258,7 +229,7 @@ usage_session() {
 Usage: tmuxy session <command> [args...]
 
 Commands:
-  switch        Interactive session switcher [--float]
+  switch        Interactive session switcher
   connect       Connect to a server and attach <dest> [--socket NAME]
   save          Snapshot a session now [name] [--scrollback N]
   restore       Rebuild a session from its snapshot <name> [--run]
@@ -284,49 +255,6 @@ Directions:
   down        Pane splits only (vertical)
   next        Sequential forward (same as right)
   prev        Last pane, fall back to last window
-EOF
-}
-
-usage_run() {
-  cat <<'EOF'
-Usage: tmuxy run <tmux-command> [args...]
-
-Run a tmux command that reads, arranges or closes panes and windows,
-safely through run-shell.
-
-It runs these, by full name or alias (never a prefix):
-EOF
-  # The list is RUN_COMMANDS (bin/tmuxy/cli-commands.sh), without the
-  # aliases and the two names it only intercepts.
-  local name names=()
-  for name in "${RUN_COMMANDS[@]}"; do
-    case "$name" in new-window | resize-window) ;; *-*) names+=("$name") ;; esac
-  done
-  printf '%s \n' "$(printf '%s ' "${names[@]}" | fold -s -w 74)" | sed 's/^/  /; s/ *$//'
-  cat <<'EOF'
-
-And refuses everything else:
-  - keys into any pane, your own too (send-keys, paste-buffer, pipe-pane):
-    use `tmuxy pane send`, which asks the user before typing into another
-  - commands that run a shell or keep a command for later (run-shell,
-    if-shell, split-window, new-session, respawn-pane, bind-key,
-    command-prompt, display-popup, …): use `tmuxy pane split`, `pane run`,
-    `tab create`
-  - writes to an option, hook or the environment (set-option, set-hook,
-    set-environment, source-file)
-  - an argument ending in `;` (tmux starts another command there), and a
-    format that runs a shell: `#(…)`, or the `E:` and `T:` modifiers
-  - new-window is intercepted → `tmuxy tab create`
-  - resize-window is blocked (unreliable with control mode attached)
-
-Every argument reaches tmux quoted: `#{…}` formats are expanded by the
-command they are given to, never by run-shell.
-
-Examples:
-  tmuxy run swap-pane -s %0 -t %1
-  tmuxy run list-panes -F '#{pane_id} #{pane_current_command}'
-  tmuxy run copy-mode -q            # leave copy mode
-  tmuxy run new-window              # intercepted → safe alternative
 EOF
 }
 
@@ -365,7 +293,6 @@ source "$SCRIPTS_DIR/cli-commands.sh"
 source "$SCRIPTS_DIR/cli-plugin.sh"
 source "$SCRIPTS_DIR/cli-mcp.sh"
 
-# The verbs below that exec the server binary hand `--json` back to it.
 server_json=()
 [ "$JSON_OUT" != true ] || server_json=(--json)
 
@@ -435,7 +362,6 @@ CEOF
     ;;
   trace)
     shift
-    # Inspect/export a local action-trace file (docs/TRACING.md).
     if [ "${1:-}" = "check" ] || [ "${1:-}" = "health" ]; then
       shift
       find_server_cmd
@@ -473,14 +399,24 @@ CEOF
     ;;
   gui)
     shift
-    find_server_cmd
-    exec "${SERVER_CMD[@]}" gui "$@"
+    # The app's `gui` takes no flags: a `--help` handed on would open it.
+    case "${1:-}" in
+      --help | -h)
+        cat <<'GEOF'
+Usage: tmuxy gui
+
+Open the desktop GUI application on this socket's session.
+GEOF
+        exit 0
+        ;;
+    esac
+    find_desktop_cmd || _fail "$EXIT_FAILED" "the desktop app is not installed (or has never been opened)"
+    exec "$DESKTOP_CMD" gui "$@"
     ;;
   --help|-h)
     usage
     ;;
   "")
-    # `tmuxy --json` is the status, as a bare `tmuxy` is.
     if [ "$JSON_OUT" = true ]; then
       cmd_info
     else

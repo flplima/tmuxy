@@ -1,10 +1,8 @@
 /**
- * The `preview` widget: a local markdown document or page, read again
- * whenever the file changes (`tmuxy open`, packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-preview).
- *
- * The pane's widget lines carry the file's name and a rev that changes with
- * the file; a new rev is what makes the widget read the document again. The
- * document keeps showing while the next one is read, and on a failed read.
+ * The `preview` widget: a local markdown document or page (`tmuxy open`,
+ * `tmuxy-widget-preview`), read again whenever the rev in the pane's widget lines
+ * changes. The document keeps showing while the next one is read, and on a
+ * failed read.
  */
 
 import { useEffect, useRef } from 'react';
@@ -15,17 +13,17 @@ import { usePreviewTheme } from './previewTheme';
 import { useKeyedRequest } from './useKeyedRequest';
 import type { WidgetProps } from '../registry';
 import { parsePreviewLines } from '../../../domain/preview';
-import { useBindingOwnsKey, useIsPaneInActiveWindow, usePane } from '../../../machines/appHooks';
+import './preview.css';
+import { useAppSelector, useBindingOwnsKey } from '../../../machines/appHooks';
+import { selectPaneHoldsKeyboard } from '../../../machines/selectors/keyboard';
 
 /**
  * A plain key typed at the preview is nobody's: the pane runs no program that
- * reads it, and sent there it would echo onto the screen under the widget
- * marker until the marker scrolled away. So while the preview holds the
- * keyboard, a key with no modifier stops here, and a chord goes on to the app
- * (the prefix, Ctrl+hjkl, and Ctrl+C, which `WidgetPane` turns into the
- * widget's exit) — as does a plain key that is a binding's, the `-` of
- * `prefix -`. The document's capture phase: after every window capture
- * listener, the pager's among them whenever it mounted, and before the
+ * reads it, and sent there it would echo under the widget marker. So a key with
+ * no modifier stops here, unless a binding owns it (the `-` of `prefix -`); a
+ * chord goes on to the app (the prefix, Ctrl+hjkl, and Ctrl+C, which
+ * `WidgetPane` turns into the widget's exit). The document's capture phase runs
+ * after every window capture listener (the pager's among them) and before the
  * keyboard actor's, which listens on the window as the event bubbles back.
  */
 function useSwallowedTyping(active: boolean) {
@@ -48,10 +46,7 @@ export function PreviewWidget({ paneId, lines }: WidgetProps) {
 
   const source = usePreviewSource(paneId);
   const theme = usePreviewTheme();
-  // Both hooks every render: a `&&` between them would make the second conditional.
-  const paneActive = !!usePane(paneId)?.active;
-  const inActiveWindow = useIsPaneInActiveWindow(paneId);
-  const active = paneActive && inActiveWindow;
+  const active = useAppSelector((ctx) => selectPaneHoldsKeyboard(ctx, paneId));
   const doc = useKeyedRequest(rev || null, source.readDocument);
   useSwallowedTyping(active);
 

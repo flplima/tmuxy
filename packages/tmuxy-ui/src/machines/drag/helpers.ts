@@ -1,16 +1,16 @@
-/**
- * Helper functions for drag operations
- */
-
 import type { TmuxPane } from '../../domain/client';
 import type { PaneId } from '../../domain/ids';
-import { paneInsetX } from '../../constants/layout';
+import { paneBox, type GridOffset } from '../../domain/paneGeometry';
 
-/**
- * Find swap target pane using mouse position (in pixels relative to pane container)
- * Bounds match PaneLayout.tsx getPaneStyle: top includes header row (y-1),
- * height is (height+1) charHeights (content + header).
- */
+function inBox(
+  box: { left: number; top: number; width: number; height: number },
+  x: number,
+  y: number,
+): boolean {
+  return x >= box.left && x < box.left + box.width && y >= box.top && y < box.top + box.height;
+}
+
+/** The pane under the pointer (px, container-relative), in the box PaneLayout draws it in. */
 export function findSwapTarget(
   panes: TmuxPane[],
   draggedId: PaneId,
@@ -18,26 +18,12 @@ export function findSwapTarget(
   mouseY: number,
   charWidth: number,
   charHeight: number,
-  centerOffsetX: number = 0,
-  centerOffsetY: number = 0,
+  origin: GridOffset,
 ): PaneId | null {
-  const insetX = paneInsetX(charWidth);
-
-  for (const pane of panes) {
-    if (pane.tmuxId === draggedId) continue;
-
-    // Calculate pixel bounds matching PaneLayout.tsx getPaneStyle
-    const headerY = Math.max(0, pane.y - 1);
-    const left = centerOffsetX + pane.x * charWidth - insetX;
-    const top = centerOffsetY + headerY * charHeight;
-    const right = left + pane.width * charWidth + 2 * insetX;
-    const heightRows = pane.y > 0 ? pane.height + 1 : pane.height;
-    const bottom = top + heightRows * charHeight;
-
-    if (mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom) {
-      return pane.tmuxId;
-    }
-  }
-
-  return null;
+  const pane = panes.find(
+    (p) =>
+      p.tmuxId !== draggedId &&
+      inBox(paneBox(p, charWidth, charHeight, origin.x, origin.y), mouseX, mouseY),
+  );
+  return pane?.tmuxId ?? null;
 }

@@ -1,0 +1,49 @@
+/**
+ * Debug > Copy App State: the client's view of the session as JSON on the
+ * clipboard, for debugging the production app, which has no console.
+ */
+
+import { writeClipboard } from '../../infra/clipboard';
+import type { AppMachineContext } from '../../machines/types/context';
+
+function appStateSummary(ctx: AppMachineContext): Record<string, unknown> {
+  return {
+    sessionName: ctx.sessionName,
+    activeWindowId: ctx.activeWindowId,
+    activePaneId: ctx.activePaneId,
+    windows: ctx.windows.map((w) => ({
+      index: w.index,
+      id: w.id,
+      name: w.name,
+      type: w.windowType,
+      active: w.active,
+      activePaneId: w.activePaneId ?? null,
+    })),
+    panes: ctx.panes.map((p) => ({
+      id: p.tmuxId,
+      windowId: p.windowId,
+      x: p.x,
+      y: p.y,
+      width: p.width,
+      height: p.height,
+      active: p.active,
+      command: p.command,
+    })),
+    sidebars: ctx.sidebars,
+    keyboardOwner: ctx.keyboardOwner,
+    tabOverviewOpen: ctx.tabOverviewOpen,
+  };
+}
+
+/** Where a clipboard write's outcome goes: status line on success, snackbar on failure. */
+export interface ClipboardReport {
+  onCopied: (text: string) => void;
+  onFailed: (text: string) => void;
+}
+
+export function copyAppState(ctx: AppMachineContext, report: ClipboardReport): void {
+  const text = JSON.stringify(appStateSummary(ctx), null, 2);
+  void writeClipboard(text, null).then((ok) =>
+    ok ? report.onCopied('Copied app state') : report.onFailed('Clipboard write failed'),
+  );
+}

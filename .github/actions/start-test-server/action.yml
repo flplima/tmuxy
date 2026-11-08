@@ -1,0 +1,84 @@
+name: Start the server under test
+description: The prebuilt frontend and server (the build-frontend and build-server artifacts), with the `tmuxy` CLI on PATH, started in the background and waited for.
+# The server's log is /tmp/tmuxy-server.log and its pid TMUXY_SERVER_PID, for
+# the steps after this one.
+inputs:
+  # The E2E suites' own server: their tmux socket and port (DEFAULT_SOCKET in
+  # tests/helpers/tmux-socket.js, DEFAULT_PORT in tests/helpers/config.js) —
+  # the server and the tests are the two halves of every round trip, so a
+  # server elsewhere makes every test fail at "session not found" — and the
+  # environment the helpers resolve (tests/helpers/server-env.js): the suite's
+  # own config, data and state dirs, so a plugin or theme a test installs is
+  # one the server sees. Set for the later steps too, with the suites' wait
+  # scale and their no-snapshot policy.
+  e2e:
+    description: "'true' for the E2E suites' server; otherwise a plain one on :9000"
+    required: false
+    default: 'false'
+  trace:
+    description: Where the server writes its action trace (docs/TRACING.md), labeled; none when empty
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Download frontend dist
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: frontend-dist
+        path: packages/tmuxy-ui/dist
+
+    - name: Download server binary
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        name: tmuxy-server-release
+        path: target/release
+
+    # Artifacts do not preserve the executable bit.
+    - name: Make the server executable
+      shell: bash
+      run: chmod +x target/release/tmuxy-server
+
+    # So panes spawned by the server (a widget, a float's command) resolve
+    # the CLI — mirrors brew/AppImage installs.
+    - name: Link tmuxy CLI onto PATH
+      shell: bash
+      run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
+
+    # Every wait budget in the suites is a number measured on a laptop; a
+    # runner is slower and shared, so it gets twice as long for each. This
+    # cannot turn a failing test green, only stop a slow one failing. The
+    # shared server neither saves nor rebuilds sessions (tmuxEnv in
+    # tests/helpers/tmux-socket.js): a session re-made under a name a test used
+    # before must come up empty. The snapshot suite starts a server of its own
+    # with both cleared.
+    - name: Set the E2E suites' environment
+      if: inputs.e2e == 'true'
+      shell: bash
+      run: |
+        {
+          echo TMUX_SOCKET=tmuxy-test
+          echo TMUXY_PORT=9100
+          echo TMUXY_WAIT_SCALE=2
+          echo TMUXY_NO_SNAPSHOT=1
+          echo TMUXY_NO_RESTORE=1
+        } >> "$GITHUB_ENV"
+
+    - name: Start server
+      shell: bash
+      env:
+        E2E: ${{ inputs.e2e }}
+        TRACE: ${{ inputs.trace }}
+      run: |
+        port=9000
+        if [ "$E2E" = true ]; then
+          eval "$(node tests/helpers/server-env.js)"
+          port="$TMUXY_PORT"
+        fi
+        if [ -n "$TRACE" ]; then
+          TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$port" --trace "$TRACE" 2>/tmp/tmuxy-server.log &
+        else
+          ./target/release/tmuxy-server --port "$port" 2>/tmp/tmuxy-server.log &
+        fi
+        echo "TMUXY_SERVER_PID=$!" >> "$GITHUB_ENV"
+        bin/ci/wait-for-server "http://localhost:$port"

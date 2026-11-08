@@ -1,28 +1,19 @@
 /**
- * SessionPicker — the session switcher's body: a filter box over the list it
- * narrows (`sessionSwitcherSpec`). The status line's dropdown (SessionMenu)
- * and the detached overlay (SessionList) both draw it.
- *
- * A menu was enough for four sessions. A dozen ran off the screen, and finding
- * one among them meant reading every row. So the list scrolls inside a capped
- * box, and the box above it filters as you type.
- *
- * It is a combobox rather than a menu: the keyboard stays in the text box,
- * where typing has to go, and the arrows move a highlight through the list
- * instead of the focus (`aria-activedescendant`). Enter picks the highlighted
- * row, so typing a few letters and Enter is a whole switch.
+ * A combobox rather than a menu: the keyboard stays in the text box, where
+ * typing has to go, and the arrows move a highlight through the list instead
+ * of the focus (`aria-activedescendant`).
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
-import { sessionSwitcherSpec } from '../domain/menus/sessionSwitcher';
-import type { MenuNode } from '../domain/menus/spec';
+import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
+import type { AppMenuNode } from './menus/specs/actions';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
 import './SessionPicker.css';
 
-export type SwitcherItem = Extract<MenuNode, { kind: 'item' }>;
+export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
 
 const CONNECT_ID = 'session-connect';
 
@@ -61,7 +52,6 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
-  // The highlighted row stays in view as the arrows walk past the list's edge.
   useEffect(() => {
     listRef.current
       ?.querySelector<HTMLElement>('[aria-selected="true"]')
@@ -155,8 +145,8 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
               }`}
               data-testid={node.testId}
               {...dataAttributes(node.data)}
-              // Moving over a row is choosing where the highlight is, as in a
-              // menu; the focus stays in the box so typing goes on working.
+              // Hover moves the highlight; the press must not take the focus
+              // out of the filter box.
               onPointerMove={() => setActiveId(node.id)}
               onPointerDown={(event) => event.preventDefault()}
               onClick={() => onChoose(node)}

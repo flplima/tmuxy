@@ -38,20 +38,21 @@ pub(super) fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "tmuxy-plugins-test-{tag}-{}-{}",
         std::process::id(),
-        random_hex().unwrap()
+        crate::random::token()
     ));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-pub(super) fn dirs_in(base: &Path) -> Dirs {
-    Dirs {
+pub(super) fn dirs_in(base: &Path) -> Layout {
+    Layout {
         config: base.join("config"),
+        data: base.join("data"),
         state: base.join("state"),
+        home: base.to_path_buf(),
     }
 }
 
-/// A plugin directory with the given manifest and executable commands.
 pub(super) fn plugin_dir(base: &Path, manifest_text: &str, commands: &[&str]) -> PathBuf {
     let dir = base.join("plugin");
     std::fs::create_dir_all(&dir).unwrap();
@@ -69,15 +70,13 @@ pub(super) fn plugin_dir(base: &Path, manifest_text: &str, commands: &[&str]) ->
     dir
 }
 
-// ── Manifest ────────────────────────────────────────────────────────────
-
 #[test]
 fn a_full_manifest_parses() {
     let m = manifest::parse(GOOD).unwrap();
     assert_eq!(m.name, "claude-artifacts");
     assert_eq!(m.requires, vec!["curl"]);
     assert_eq!(m.actions.len(), 2);
-    let open = m.action("open-url").unwrap();
+    let open = m.actions.iter().find(|a| a.id == "open-url").unwrap();
     assert_eq!(open.menu, Some(Menu::App));
     assert_eq!(open.surface, Surface::Popup);
     assert_eq!(
@@ -88,7 +87,7 @@ fn a_full_manifest_parses() {
         })
     );
     assert_eq!(open.command, vec!["bin/open-url", "--flag"]);
-    let plain = m.action("plain").unwrap();
+    let plain = m.actions.iter().find(|a| a.id == "plain").unwrap();
     assert_eq!(plain.surface, Surface::Split);
     assert_eq!(plain.menu, None);
     assert_eq!(m.cli[0].verb, "artifact");
@@ -185,8 +184,6 @@ fn a_percentage_resolves_against_the_tab() {
     assert_eq!(Dim::Cells(0).resolve(10), 1);
 }
 
-// ── Sources ─────────────────────────────────────────────────────────────
-
 #[test]
 fn a_repo_source_parses_with_subdir_and_ref() {
     let s = source::parse_repo("someone/tmuxy-tools/plugins/devtools@v1.2").unwrap();
@@ -228,8 +225,6 @@ fn an_install_argument_is_a_repo_a_name_or_neither() {
     );
     assert!(source::parse_install("Not A Name").is_err());
 }
-
-// ── Lockfile ────────────────────────────────────────────────────────────
 
 #[test]
 fn the_lockfile_round_trips_sorted_and_owner_only() {
@@ -277,8 +272,6 @@ fn a_hand_broken_entry_is_refused() {
     assert!(serde_json::from_str::<Entry>(r#"{"name":"x","path":"/a","extra":1}"#).is_err());
 }
 
-// ── Registry & commands ─────────────────────────────────────────────────
-
 #[test]
 fn a_linked_plugin_and_the_users_own_load() {
     let base = scratch("registry");
@@ -289,7 +282,7 @@ fn a_linked_plugin_and_the_users_own_load() {
     lock.upsert(Entry::from_path("missing", &base.join("nowhere")));
     lock.save(&dirs).unwrap();
     std::fs::write(
-        dirs.user_manifest(),
+        dirs.user_plugin_manifest(),
         "[plugin]\napi = 1\nname = \"user\"\nversion = \"0\"\n\
          [[actions]]\nid = \"a\"\ntitle = \"A\"\ncommand = [\"x\"]\n\
          [[cli]]\nverb = \"list\"\ncommand = [\"x\"]\n\
@@ -356,8 +349,6 @@ fn a_command_that_escapes_its_plugin_is_refused() {
     std::fs::remove_dir_all(base).unwrap();
 }
 
-// ── Inventory ───────────────────────────────────────────────────────────
-
 #[test]
 fn the_inventory_is_compact_and_its_rev_follows_its_content() {
     let base = scratch("inventory");
@@ -390,16 +381,14 @@ fn the_inventory_is_compact_and_its_rev_follows_its_content() {
         "same inventory, same rev"
     );
     assert_ne!(inventory::encode(&[]).1, rev);
-    let cmds = inventory::commands(&dirs);
+    let cmds = inventory::commands(&dirs).unwrap();
     assert_eq!(cmds[0], format!("set-option -g @tmuxy-plugins {b64}"));
     assert_eq!(cmds[1], format!("set-option -g @tmuxy-plugins-rev {rev}"));
+    // A lockfile that no longer loads publishes nothing, rather than an
+    // inventory with no plugins in it.
+    std::fs::write(dirs.lockfile(), "{ not json").unwrap();
+    assert!(inventory::commands(&dirs).is_err());
     std::fs::remove_dir_all(base).unwrap();
-}
-
-#[test]
-fn a_shell_word_is_quoted_with_its_hashes_doubled() {
-    assert_eq!(job::shell_word("/usr/bin/tmux"), "/usr/bin/tmux");
-    assert_eq!(job::shell_word("/a b/it's#1"), r"'/a b/it'\''s##1'");
 }
 
 #[test]

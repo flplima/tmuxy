@@ -16,12 +16,12 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  createTestContext,
-  navigateToSession,
+  menuItems,
+  describeE2E,
+  openSession,
   waitForCondition,
   runCommand,
   clickMenuItem,
-  noMenuOpen,
   sendPrefixCommand,
   shownRunRect,
   tmuxRunAsOperator,
@@ -122,7 +122,7 @@ async function nextRun(page, seen, what) {
     15000,
     () => `the action to run from ${what}; ${whyNoRun()}`,
   );
-  expect(await waitForPaneCount(page, 1, 10000)).toBe(true);
+  await waitForPaneCount(page, 1, 10000);
   await afterFrames(page, 2);
   return runs()[seen];
 }
@@ -133,13 +133,12 @@ const termBackground = (page) =>
     getComputedStyle(document.documentElement).getPropertyValue('--term-background').trim(),
   );
 
-/** The client's plugin key bindings, as `key command` lines. */
-const pluginBindings = (page) =>
-  page.evaluate(() =>
-    (window.app.getSnapshot().context.keybindings?.prefix_bindings ?? [])
-      .filter((b) => b.command.includes('--trigger key'))
-      .map((b) => b.key),
-  );
+/** The key hint the menu shows beside the plugin's action; null while the menu lists no action. */
+const pluginKeyHint = async (page) => {
+  const items = await menuItems(page, ['Pane', 'Plugins']);
+  if (items === undefined) return undefined;
+  return (items ?? []).find((i) => i.text.includes('E2E Record'))?.hint ?? null;
+};
 
 /** Click the run of `text` in the active pane with `modifiers` held. */
 async function clickText(page, text, modifiers) {
@@ -149,14 +148,10 @@ async function clickText(page, text, modifiers) {
   for (const key of [...modifiers].reverse()) await page.keyboard.up(key);
 }
 
-describe('Scenario 33: Plugin keys, links and themes', () => {
-  const ctx = createTestContext();
+describeE2E('Scenario 33: Plugin keys, links and themes', {}, (ctx) => {
   let pluginDir = null;
 
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
   beforeEach(async () => {
-    await ctx.beforeEach();
     fs.rmSync(pluginStateDir(PLUGIN), { recursive: true, force: true });
     pluginDir = writePluginDir(MANIFEST, { record: RECORD }, { 'themes/night.css': NIGHT });
     // A key the user bound: the plugin's M-u must leave it alone.
@@ -172,12 +167,11 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
     tmuxRunAsOperator('set-option -gu @tmuxy-plugins');
     tmuxRunAsOperator('set-option -gu @tmuxy-plugins-rev');
     fs.rmSync(pluginDir, { recursive: true, force: true });
-    await ctx.afterEach();
   }, ctx.hookTimeout);
 
   async function installAndOpen() {
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name);
+    await openSession(page, ctx.session.name);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     pluginCli('install', '--path', pluginDir, '--yes');
     await waitForCondition(
@@ -190,17 +184,15 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
   }
 
   test('a plugin key is bound at once, shown in the menu, keeps the user’s, and goes with the plugin', async () => {
-    if (ctx.skipIfNotReady()) return;
     const page = await installAndOpen();
 
     // Bound with no restart: the reload the install asked for brought it.
     await waitForCondition(
       page,
-      async () => (await pluginBindings(page)).includes('M-y'),
+      async () => Boolean(await pluginKeyHint(page)),
       15000,
-      async () => `the client to have the plugin key; it has ${await pluginBindings(page)}`,
+      async () => `the menu to show the plugin key; it shows ${await pluginKeyHint(page)}`,
     );
-    expect(await pluginBindings(page)).not.toContain('M-u');
     // The user's M-u is still theirs in tmux, and `list` says why the
     // plugin's is not bound. Read until the install's reloads have settled.
     // The whole table: before tmux 3.8, `list-keys -T prefix M-u` prints nothing.
@@ -217,16 +209,8 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
       () => `M-u to stay the user's; tmux has "${userKey()}", list says:\n${pluginCli('list')}`,
     );
 
-    // The menu shows the key beside the action.
-    await clickMenuItem(page, ['Pane', 'Plugins']);
-    const item = page.locator('[role="menuitem"]', { hasText: 'E2E Record' });
-    await item.waitFor({ state: 'visible', timeout: 5000 });
-    expect((await item.locator('.menu-keybinding').textContent()).trim()).not.toBe('');
-    for (let level = 0; level < 3; level++) await page.keyboard.press('Escape');
-    await waitForCondition(page, () => noMenuOpen(page), 5000, 'the menu to close');
-
     // The key runs the action on the pane it was pressed in.
-    const active = await page.evaluate(() => window.app.getSnapshot().context.activePaneId);
+    const active = await page.evaluate(() => window.app?.view().activePaneId);
     const before = runs().length;
     await sendPrefixCommand(page, 'Alt+y');
     const run = await nextRun(page, before, 'the key');
@@ -237,15 +221,14 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
     pluginCli('remove', PLUGIN);
     await waitForCondition(
       page,
-      async () => !(await pluginBindings(page)).includes('M-y'),
+      async () => (await pluginKeyHint(page)) === null,
       15000,
-      'the plugin key to go',
+      'the plugin action and its key to leave the menu',
     );
     expect(tmuxRunAsOperator('list-keys -T prefix')).not.toContain('--trigger key');
   });
 
   test('a clicked URL or text a link handler takes opens its action; Shift and other URLs go to the browser', async () => {
-    if (ctx.skipIfNotReady()) return;
     const page = await installAndOpen();
     await page.evaluate(() => {
       window.__opened = [];
@@ -296,13 +279,12 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
   });
 
   test('a plugin theme is offered, applies, and falls back to the default once its plugin goes', async () => {
-    if (ctx.skipIfNotReady()) return;
     const page = await installAndOpen();
-    const themes = () =>
-      page.evaluate(() => window.app.getSnapshot().context.availableThemes.map((t) => t.name));
+    const themes = async () =>
+      ((await menuItems(page, ['View', 'Theme'])) ?? []).map((i) => i.text);
     await waitForCondition(
       page,
-      async () => (await themes()).includes(`${PLUGIN}__night`),
+      async () => (await themes()).some((t) => t.includes(`Night (${PLUGIN})`)),
       10000,
       async () => `the theme list to have the plugin's; it has ${await themes()}`,
     );
@@ -327,7 +309,7 @@ describe('Scenario 33: Plugin keys, links and themes', () => {
     // waited on too.
     await waitForCondition(
       page,
-      async () => !(await themes()).includes(`${PLUGIN}__night`),
+      async () => !(await themes()).some((t) => t.includes(`Night (${PLUGIN})`)),
       10000,
       async () => `the plugin's theme to leave the list; it has ${await themes()}`,
     );

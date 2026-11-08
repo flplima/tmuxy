@@ -1,27 +1,13 @@
 import { expect, within, waitFor } from 'storybook/test';
-import type { NativeSlidePhase } from '../machines/actors/gestureActor';
+import type { NativeSlidePhase } from '../machines/gestures/gestureActor';
+import { wait } from './animationObservers';
+import { appContext, storyApp } from './storyApp';
+import { stripTabs } from '../domain/windows';
+import { cursorPolygon } from './cursorShape';
 
-export interface AppActor {
-  getSnapshot(): {
-    context: {
-      activeWindowId: string | null;
-      activePaneId: string | null;
-      tabOverviewOpen: boolean;
-      /** The pane area's width — what a slide's commit share is measured against. */
-      containerWidth: number;
-      gesture: unknown;
-      windows: Array<{ id: string; index: number; windowType: string | null; zoomed?: boolean }>;
-      panes: Array<{ tmuxId: string; windowId: string }>;
-    };
-  };
-  send(event: unknown): void;
-}
-export const actor = () => (window as unknown as { app: AppActor }).app;
-export const ctx = () => actor().getSnapshot().context;
-export const tabs = () =>
-  ctx()
-    .windows.filter((w) => w.windowType === 'tab')
-    .sort((a, b) => a.index - b.index);
+export const actor = storyApp;
+export const ctx = appContext;
+export const tabs = () => stripTabs(ctx().windows).sort((a, b) => a.index - b.index);
 export const ownPanes = () => ctx().panes.filter((p) => p.windowId === ctx().activeWindowId);
 export const paneOf = (windowId: string) =>
   ctx().panes.find((p) => p.windowId === windowId)!.tmuxId;
@@ -31,7 +17,6 @@ export const settled = () => ctx().gesture === null;
 
 export const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-export const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 export const layout = () => document.querySelector('.pane-container > .pane-layout') as HTMLElement;
 export const paneEl = (id: string) =>
   document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`) as HTMLElement;
@@ -71,7 +56,7 @@ export class Fingers {
   }
   /** The fingers stay on the pad: no event for `ms`. */
   async rest(ms: number) {
-    await pause(ms);
+    await wait(ms);
     this.t += ms / 1000;
   }
   async lift() {
@@ -93,7 +78,7 @@ export async function pinchSteps(el: Element, steps: number[]) {
         deltaY: step,
       }),
     );
-    await pause(0);
+    await wait(0);
   }
   await nextFrame();
 }
@@ -112,8 +97,8 @@ export function webkitGesture(el: Element, type: string, scale: number): Event {
  */
 export function cursorLeft(): number {
   const shape = document.querySelector<HTMLElement>('.smooth-cursor-shape');
-  const m = shape?.style.clipPath.match(/polygon\(\s*(-?[\d.]+)px/);
-  return m ? parseFloat(m[1]) : NaN;
+  const [corner] = cursorPolygon(shape?.style.clipPath ?? '');
+  return corner ? corner[0] : NaN;
 }
 
 /** `read()` once a frame until `done()` holds and the value has stopped changing (2s cap). */
@@ -138,21 +123,6 @@ export function expectOneWay(samples: number[], direction: 1 | -1, what: string)
     );
   }
 }
-
-export const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-  animations: true,
-  cursorBlink: true,
-  tabOverviewCols: 3,
-  gestureSwipeTabs: true,
-  gesturePinchZoom: true,
-  gesturePinchOverview: true,
-};
 
 export async function ready(canvasElement: HTMLElement) {
   await within(canvasElement).findAllByRole('group', { name: /Pane/i }, { timeout: 8000 });

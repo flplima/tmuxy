@@ -6,7 +6,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   getTerminalText,
   waitForTerminalText,
   runCommand,
@@ -15,28 +15,31 @@ const {
 
 // ==================== Scenario 23: Image Protocols ====================
 
-describe('Scenario 23: Terminal Image Protocols', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 23: Terminal Image Protocols', {}, (ctx) => {
   // Minimal 1x1 red pixel PNG, base64
   const TINY_PNG_B64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
   /**
-   * Helper: get image placements from XState context for the active pane
+   * The images drawn in the active pane: each one's protocol, id, and the
+   * cells its box covers.
    */
   async function getImagePlacements(page) {
     return page.evaluate(() => {
-      const snap = window.app?.getSnapshot?.();
-      if (!snap) return [];
-      const ctx = snap.context;
-      const activePaneId = ctx.activePaneId;
-      const pane = ctx.panes?.find((p) => p.tmuxId === activePaneId);
-      return pane?.images || [];
+      const pane = document.querySelector('.pane-layout-item.pane-active');
+      const row = pane?.querySelector('.terminal-line');
+      if (!row) return [];
+      const cellWidth = parseFloat(getComputedStyle(row).getPropertyValue('--cell-w'));
+      const cellHeight = row.getBoundingClientRect().height;
+      return [...pane.querySelectorAll('img.terminal-image')].map((img) => {
+        const r = img.getBoundingClientRect();
+        return {
+          id: img.dataset.imageId,
+          protocol: img.dataset.protocol,
+          widthCells: Math.round(r.width / cellWidth),
+          heightCells: Math.round(r.height / cellHeight),
+        };
+      });
     });
   }
 
@@ -56,7 +59,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   }
 
   test('iTerm2 inline image: sequence stripped, placement created, img rendered and served', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Text, then the iTerm2 inline image sequence, then more text — a picture
@@ -93,10 +95,9 @@ describe('Scenario 23: Terminal Image Protocols', () => {
 
     // The <img> src has to resolve: the endpoint serves the real PNG bytes,
     // and an id that was never stored is a 404, not an empty 200.
-    const paneId = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot?.();
-      return snap?.context?.activePaneId?.replace('%', '') || '';
-    });
+    const paneId = await ctx.page.evaluate(
+      () => window.app?.view().activePaneId?.replace('%', '') || '',
+    );
     const served = await ctx.page.evaluate(async (url) => {
       const resp = await fetch(url);
       return {
@@ -117,7 +118,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   }, 60000);
 
   test('iTerm2 non-inline file download is ignored (no placement)', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // File download (no inline=1) — should be consumed but produce no image
@@ -131,7 +131,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   }, 60000);
 
   test('Kitty graphics protocol (APC _G, f=100 PNG): placement + img rendered', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Kitty graphics: ESC _ G <keys> ; <payload> ESC \
@@ -156,7 +155,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   }, 60000);
 
   test('Sixel (DCS Pq): placement created from a real-decoded bitmap', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Minimal valid Sixel: 1 color palette, one band of six pixels per
@@ -189,7 +187,6 @@ describe('Scenario 23: Terminal Image Protocols', () => {
   }, 60000);
 
   test('A terminal query is not a picture, and clear takes a picture away', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     const pictures = () =>

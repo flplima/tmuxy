@@ -1,19 +1,11 @@
 /**
- * InlineRename — renaming a thing where the thing is, rather than in a prompt.
+ * Renames a tab or a pane in place. Blur commits rather than discards: clicking
+ * away is what people do when they think they are finished, and an accidental
+ * rename is one rename away from fixed, where a lost name is not.
  *
- * A tab and a pane both get their names changed the same way: the label turns
- * into a field holding what it already says, selected, so typing replaces it
- * and Enter is the only key you need. Escape puts it back.
- *
- * Committing on blur rather than discarding is deliberate: clicking away is
- * what people do when they think they are finished, and losing the name they
- * just typed to a misplaced click is a worse outcome than an accidental
- * rename, which is itself a rename away from being fixed.
- *
- * The keyboard actor already leaves real form controls alone (it checks the
- * event's target), so what is typed here reaches the field rather than tmux;
- * the pointer handlers below are the other half of that, keeping a click in
- * the field from also selecting the tab or pane underneath it.
+ * The keyboard actor leaves form controls alone (it checks the event's
+ * target); the pointer handlers keep a click in the field from also selecting
+ * the tab or pane underneath it.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -39,8 +31,7 @@ export function InlineRename({
 }: InlineRenameProps) {
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Whether the field has already had its say, so the blur that follows a
-  // commit or a cancel does not have a second one.
+  // The blur that follows a commit or a cancel must not finish a second time.
   const doneRef = useRef(false);
 
   useEffect(() => {
@@ -71,8 +62,7 @@ export function InlineRename({
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => finish(true)}
       onKeyDown={(e) => {
-        // Every key belongs to the field, including the ones the app binds:
-        // a rename is not the moment for prefix keys or tab switching.
+        // Every key belongs to the field, including the ones the app binds.
         e.stopPropagation();
         if (e.key === 'Enter') {
           e.preventDefault();

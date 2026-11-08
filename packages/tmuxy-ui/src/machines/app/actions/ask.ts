@@ -1,8 +1,6 @@
 /**
  * Action implementations for pending confirmations (`tmuxy pane send -t`).
  *
- * Owns context field: askSelections.
- *
  * A question lives on the pane itself, as the `@tmuxy-ask` tmux option — so
  * every client attached to the session sees the same question, and answering
  * it in one is answering it in all of them. Nothing here holds the question:
@@ -10,18 +8,17 @@
  * here rather than in the overlay component because the keyboard actor moves
  * it too, from outside React.
  *
- * See `utils/paneAsk.ts` for the wire format and `packages/tmuxy-cli/bin/tmuxy/ask` for the other
+ * See `domain/paneAsk.ts` for the wire format and `packages/tmuxy-cli/bin/tmuxy/ask` for the other
  * end of it.
  */
 
 import { sendTo } from 'xstate';
 import { act, assignCtx, type Ctx } from '../actionTypes';
-import { paneAskFor, paneSendFor, type AskAnswer } from '../../../utils/paneAsk';
+import { paneAskFor, type AskAnswer } from '../../../domain/paneAsk';
 import { TmuxOp } from '../../../domain/commands';
-import { visibleFloats } from '../../selectors/panesAndSidebars';
+import { selectVisibleSendAsks } from '../../selectors/keyboard';
 import type { PaneId } from '../../../domain/ids';
 
-/** The highlighted option for a pane — `yes` until the user moves it. */
 export function askSelectionFor(context: Ctx, paneId: PaneId): AskAnswer {
   return context.askSelections[paneId] ?? 'yes';
 }
@@ -74,26 +71,40 @@ export const askActions = {
 
   ask_answerVisible: act(({ context, event, enqueue }) => {
     if (event.type !== 'ANSWER_VISIBLE_ASKS') return;
-    // What the user can SEE: the active tab's panes, plus the floats drawn
-    // over it (a float lives in a window of its own, so a windowId test
-    // alone would skip one the user is looking straight at). A shortcut
-    // that reached questions in other tabs would answer things off screen,
-    // which is the one thing the confirmation exists to prevent.
-    const onScreen = new Set(
-      visibleFloats(context.floatPanes, context.windows, context.activeWindowId).map(
-        (float) => float.paneId,
-      ),
-    );
-    for (const pane of context.panes) {
-      if (pane.windowId !== context.activeWindowId && !onScreen.has(pane.tmuxId)) continue;
-      // Sends only: allowing what an agent asked is the shortcut's job, and
-      // re-running every restored program at once is not.
-      if (!paneSendFor(pane)) continue;
-      enqueue.raise({
-        type: 'ANSWER_ASK' as const,
-        paneId: pane.tmuxId,
-        answer: event.answer,
-      });
+    // What the user can SEE: a shortcut that reached questions in other tabs
+    // would answer things off screen, which is the one thing the confirmation
+    // exists to prevent. Sends only: allowing what an agent asked is the
+    // shortcut's job, and re-running every restored program at once is not.
+    for (const paneId of selectVisibleSendAsks(context)) {
+      enqueue.raise({ type: 'ANSWER_ASK' as const, paneId, answer: event.answer });
+    }
+  }),
+
+  /** A plain key typed into a pane with a question on it. */
+  ask_key: act(({ context, event, enqueue }) => {
+    if (event.type !== 'ASK_KEY') return;
+    const { paneId, key } = event;
+    const ask = paneAskFor(context.panes.find((p) => p.tmuxId === paneId));
+    if (!ask) return;
+    const answer = (choice: AskAnswer) =>
+      enqueue.raise({ type: 'ANSWER_ASK' as const, paneId, answer: choice });
+    const move = (to: AskAnswer) =>
+      enqueue.raise({ type: 'MOVE_ASK_SELECTION' as const, paneId, to });
+    if (ask.kind === 'offer') {
+      answer(key === 'Enter' ? 'yes' : 'no');
+      return;
+    }
+    switch (key) {
+      case 'ArrowUp':
+      case '1':
+        return move('yes');
+      case 'ArrowDown':
+      case '2':
+        return move('no');
+      case 'Escape':
+        return answer('no');
+      case 'Enter':
+        return answer(askSelectionFor(context, paneId));
     }
   }),
 };

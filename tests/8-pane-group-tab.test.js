@@ -5,7 +5,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   splitPaneKeyboard,
@@ -15,21 +15,16 @@ const {
   createWindowKeyboard,
   activeWindowId,
   windowCount,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 const { TMUXY_CLI } = require('./helpers/cli');
 
 /** The session a group's hidden members are parked in (tmuxy-core `STASH_SESSION`). */
 const STASH_SESSION = '__tmuxy_stash';
 
-describe('Pane groups: a whole tab in and out of one group', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Pane groups: a whole tab in and out of one group', {}, (ctx) => {
   test('three splits → group all → one pane with three group tabs → ungroup → three splits again, none grouped', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -38,14 +33,7 @@ describe('Pane groups: a whole tab in and out of one group', () => {
     await splitPaneKeyboard(page, 'vertical');
     await waitForPaneCount(page, 3);
 
-    const visiblePanes = () =>
-      page.evaluate(
-        () =>
-          [...document.querySelectorAll('.pane-layout-item')].filter((el) => {
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          }).length,
-      );
+    const visiblePanes = async () => (await shownPanes(page, GRID_PANE)).length;
     // The panes sharing a group with one of this tab's panes. `-a`: the
     // parked members live in the stash session; other tests' groups may too,
     // so only this tab's group counts.
@@ -98,17 +86,12 @@ describe('Pane groups: a whole tab in and out of one group', () => {
       10000,
       async () => `no pane to carry a group id (grouped: ${await groupedPanes()})`,
     );
-    const rects = await page.evaluate(() =>
-      [...document.querySelectorAll('.pane-layout-item')]
-        .map((el) => el.getBoundingClientRect())
-        .filter((r) => r.width > 0 && r.height > 0)
-        .map((r) => ({
-          left: Math.round(r.left),
-          top: Math.round(r.top),
-          w: Math.round(r.width),
-          h: Math.round(r.height),
-        })),
-    );
+    const rects = (await shownPanes(page, GRID_PANE)).map(({ box }) => ({
+      left: Math.round(box.left),
+      top: Math.round(box.top),
+      w: Math.round(box.width),
+      h: Math.round(box.height),
+    }));
     expect(rects).toHaveLength(3);
     // No two panes drawn on the same spot: every one has its own place.
     const spots = new Set(rects.map((r) => `${r.left},${r.top}`));
@@ -123,18 +106,10 @@ describe('Pane groups: a whole tab in and out of one group', () => {
    * and from the strip (right-click → "Close Tab").
    */
   test('closing a grouped tab takes its parked member with it, from the CLI and from the strip', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
-    const visiblePanes = () =>
-      page.evaluate(
-        () =>
-          [...document.querySelectorAll('.pane-layout-item')].filter((el) => {
-            const r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
-          }).length,
-      );
+    const visiblePanes = async () => (await shownPanes(page, GRID_PANE)).length;
     const members = async (group) =>
       String(await ctx.session.query("list-panes -a -F '#{session_name} #{@tmuxy-group-id}'"))
         .split('\n')

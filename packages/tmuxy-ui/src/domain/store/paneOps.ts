@@ -1,5 +1,11 @@
-import type { TmuxSnapshot, Patch, ReconcileVerdict } from './types';
-import { FOCUS_CONFIRM_LINGER_MS, FOCUS_SUPERSEDE_GRACE_MS, lingerVerdict } from './types';
+import {
+  type TmuxSnapshot,
+  type Patch,
+  type ReconcileVerdict,
+  confirmedVerdict,
+  FOCUS_SUPERSEDE_GRACE_MS,
+  lingerVerdict,
+} from './types';
 import type { TmuxPane } from '../client';
 import type { TmuxOpOf } from '../commands';
 import {
@@ -9,10 +15,6 @@ import {
   type WindowId,
 } from '../ids';
 import type { PredictContext, PredictResult } from './ops';
-
-// ============================================
-// Split
-// ============================================
 
 export function predictSplit(
   op: TmuxOpOf<'Split'>,
@@ -116,7 +118,6 @@ export function makePlaceholderPane(
     alternateOn: false,
     mouseAnyFlag: false,
     marked: false,
-    paused: false,
     historySize: 0,
     selectionPresent: false,
     selectionStartX: 0,
@@ -129,14 +130,10 @@ export function makePlaceholderPane(
 export function reconcileSplit(
   meta: Readonly<Record<string, unknown>>,
   committed: TmuxSnapshot,
-  /** Real pane ids already claimed by earlier pending Split ops in this pass. */
   claimedRealIds: ReadonlySet<PaneId | WindowId>,
 ): ReconcileVerdict {
   const priorPaneIds = new Set(meta.priorPaneIds as PaneId[]);
 
-  // The real new pane is any tmuxId in committed.panes that wasn't in priorPaneIds
-  // and isn't a placeholder AND hasn't already been claimed by an earlier op
-  // in the same reconcile pass.
   const realNew = committed.panes.find(
     (p) =>
       !priorPaneIds.has(p.tmuxId) && !isPlaceholderId(p.tmuxId) && !claimedRealIds.has(p.tmuxId),
@@ -145,15 +142,10 @@ export function reconcileSplit(
     return { _tag: 'pending' };
   }
 
-  // The server is authoritative on final geometry — drift from our
-  // half-and-half guess is expected (tmux's layout algorithm can land a cell
-  // or two away) and does not affect matching.
+  // Geometry is not matched: tmux's layout algorithm can land a cell or two
+  // away from the half-and-half guess.
   return { _tag: 'matched', realPaneId: realNew.tmuxId };
 }
-
-// ============================================
-// Navigate / SelectPane (focus changes)
-// ============================================
 
 export function predictNavigate(
   op: TmuxOpOf<'Navigate'>,
@@ -208,7 +200,6 @@ export function reconcileFocus(
   const target = meta.targetPaneId as PaneId;
   const previous = meta.previousActivePaneId as PaneId | null | undefined;
   if (committedPanes && !committedPanes.some((p) => p.tmuxId === target)) {
-    // The target pane is gone — nothing left to pin.
     return { _tag: 'matched' };
   }
   return lingerVerdict(target, previous, serverActivePaneId, ageMs);
@@ -296,10 +287,6 @@ function axisOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number)
   );
 }
 
-// ============================================
-// Swap
-// ============================================
-
 export function predictSwap(op: TmuxOpOf<'Swap'>, snapshot: TmuxSnapshot): PredictResult | null {
   const sourcePane = snapshot.panes.find((p) => p.tmuxId === op.sourcePaneId);
   const targetPane = snapshot.panes.find((p) => p.tmuxId === op.targetPaneId);
@@ -383,10 +370,6 @@ function positionClose(
   );
 }
 
-// ============================================
-// KillPane
-// ============================================
-
 /**
  * The neighbor that absorbs a killed pane's freed space: a sibling sharing
  * the doomed pane's FULL edge (same cross-axis extent) — the common case for
@@ -402,6 +385,27 @@ function findAbsorber(doomed: TmuxPane, siblings: ReadonlyArray<TmuxPane>): Tmux
         p.height === doomed.height &&
         (p.x + p.width + 1 === doomed.x || doomed.x + doomed.width + 1 === p.x)),
   );
+}
+
+/**
+ * `panes` without `gone`, its freed space given to the neighbour that shares
+ * its full edge (`findAbsorber`): what tmux does to the window a pane leaves.
+ */
+export function withoutPane(panes: ReadonlyArray<TmuxPane>, gone: TmuxPane): TmuxPane[] {
+  const sibs = panes.filter((p) => p.windowId === gone.windowId && p.tmuxId !== gone.tmuxId);
+  const absorber = findAbsorber(gone, sibs);
+  return panes
+    .filter((p) => p.tmuxId !== gone.tmuxId)
+    .map((p) => {
+      if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
+      return {
+        ...p,
+        x: Math.min(p.x, gone.x),
+        y: Math.min(p.y, gone.y),
+        width: p.y === gone.y && p.height === gone.height ? p.width + gone.width + 1 : p.width,
+        height: p.x === gone.x && p.width === gone.width ? p.height + gone.height + 1 : p.height,
+      };
+    });
 }
 
 export function predictKillPane(
@@ -430,15 +434,11 @@ export function predictKillPane(
       null;
   }
 
-  // Snapshot-relative and therefore idempotent: the absorber is located in
-  // the snapshot being patched, not the dispatch-time one, so the patch
-  // replays correctly over stale pre-kill echoes during the confirm linger
-  // even when their row offsets differ (status-line shifts). Once the
-  // server's post-kill layout is committed, the doomed pane is gone and the
-  // geometry passes through untouched — re-expanding a confirmed layout
-  // would double-add the space. tmux's layout tree can distribute the space
-  // differently for hand-crafted layouts; the reconciler is lenient, so a
-  // geometry drift self-corrects.
+  // The absorber is found in the snapshot being patched, not the dispatch-time
+  // one, so the patch replays correctly over stale pre-kill snapshots during
+  // the confirm linger (their row offsets can differ). tmux's layout tree can
+  // spread the space differently for hand-crafted layouts; the reconciler is
+  // lenient about it.
   const patch: Patch = (s) => {
     const doomedNow = s.panes.find((p) => p.tmuxId === paneId);
     if (!doomedNow) {
@@ -447,26 +447,7 @@ export function predictKillPane(
         activePaneId: s.activePaneId === paneId ? nextFocus : s.activePaneId,
       };
     }
-    const sibs = s.panes.filter((p) => p.windowId === doomedNow.windowId && p.tmuxId !== paneId);
-    const absorber = findAbsorber(doomedNow, sibs);
-    const panes = s.panes
-      .filter((p) => p.tmuxId !== paneId)
-      .map((p) => {
-        if (!absorber || p.tmuxId !== absorber.tmuxId) return p;
-        return {
-          ...p,
-          x: Math.min(p.x, doomedNow.x),
-          y: Math.min(p.y, doomedNow.y),
-          width:
-            p.y === doomedNow.y && p.height === doomedNow.height
-              ? p.width + doomedNow.width + 1
-              : p.width,
-          height:
-            p.x === doomedNow.x && p.width === doomedNow.width
-              ? p.height + doomedNow.height + 1
-              : p.height,
-        };
-      });
+    const panes = withoutPane(s.panes, doomedNow);
     return {
       ...s,
       panes,
@@ -490,14 +471,10 @@ export function reconcileKillPane(
     // flap the absorber back to half-size the moment this op's patch is
     // gone. The patch is idempotent over confirmed layouts, so holding it
     // costs nothing.
-    return ageMs >= FOCUS_CONFIRM_LINGER_MS ? { _tag: 'matched' } : { _tag: 'pending' };
+    return confirmedVerdict(ageMs);
   }
   return { _tag: 'pending' };
 }
-
-// ============================================
-// ZoomToggle
-// ============================================
 
 const ZOOM_SIZE_TOLERANCE = 2;
 
@@ -548,7 +525,6 @@ export function reconcileZoomToggle(
   ageMs: number,
 ): ReconcileVerdict {
   const paneId = meta.zoomedPaneId as PaneId | undefined;
-  // Unzoom toggles carry no prediction (empty meta) — nothing to wait for.
   if (!paneId) return { _tag: 'matched' };
   const extentW = meta.extentW as number;
   const extentH = meta.extentH as number;

@@ -1,25 +1,20 @@
-/**
- * WindowTabItem — individual tab item and active-tab scroll-into-view hook
- * for WindowTabs.
- */
-
-import { TmuxOp } from '../domain/commands';
-import { siblingShift, type useReorderDrag } from '../hooks/useReorderDrag';
+import { siblingShift, type useReorderDrag } from './useReorderDrag';
 import type { TmuxWindow } from '../domain/client';
 import { Tooltip } from './Tooltip';
 import { InlineRename } from './InlineRename';
 import type { WindowId } from '../domain/ids';
 import { PaneStateMark } from './PaneStateMark';
 import { tabIcon } from './paneTabDisplay';
-import { type PaneStateName } from '../utils/paneState';
+import { useAppSelector } from '../machines/appHooks';
+import { selectKeyBindings } from '../machines/selectors/ui';
+import { TmuxOp } from '../domain/commands';
+import { keyHint, withKeyHint } from '../domain/keyLabels';
+import { commandHint } from './menus/specs/actions';
+import { type PaneStateName } from '../domain/paneState';
 import type { AppMachineEvent } from '../machines/types/events';
 import type { selectTabDrop } from '../machines/selectors/layout';
 
-/**
- * The tab's mark: what its busiest pane is doing — the tree's marks, with a
- * question or a failure ahead of work in progress — and while all of them are
- * idle, the tab's icon (`tabIcon`).
- */
+/** What the tab's busiest pane is doing; while all are idle, the tab's icon. */
 function TabMark({ icon, state }: { icon: string; state: PaneStateName }) {
   if (state !== 'idle') return <PaneStateMark state={state} className="tab-mark" />;
   return (
@@ -46,6 +41,8 @@ interface WindowTabItemProps {
   send: (event: AppMachineEvent) => void;
 }
 
+const ZOOM_TOGGLE = TmuxOp.ZoomToggle({ paneId: null });
+
 export function WindowTabItem({
   window,
   idx,
@@ -62,12 +59,10 @@ export function WindowTabItem({
   handleContextMenu,
   send,
 }: WindowTabItemProps) {
+  const keybindings = useAppSelector(selectKeyBindings);
   const { dragging, dropMarkerAt } = reorder;
   const visualIndex = idx + 1;
   const isDragged = dragging?.windowId === window.id;
-  // The strip shows the order the drop would make while the drag is
-  // on: every tab the dragged one has passed slides out of its way by
-  // the dragged tab's width, so the drop only confirms what is seen.
   const shift = dragging && !isDragged ? siblingShift(dragging, idx) : 0;
   const style = isDragged
     ? { transform: `translateX(${dragging!.dx}px)` }
@@ -109,14 +104,8 @@ export function WindowTabItem({
           className="tab-name-input"
           value={window.name}
           ariaLabel={`Rename tab ${visualIndex}`}
-          onCommit={(name) => {
-            send({ type: 'TAB_RENAME_END' });
-            send({
-              type: 'DISPATCH_OP',
-              op: TmuxOp.RenameWindow({ target: window.id, name }),
-            });
-          }}
-          onCancel={() => send({ type: 'TAB_RENAME_END' })}
+          onCommit={(name) => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name })}
+          onCancel={() => send({ type: 'RENAME_TAB_COMMIT', windowId: window.id, name: null })}
         />
       ) : (
         (() => {
@@ -129,17 +118,16 @@ export function WindowTabItem({
           );
         })()
       )}
-      {/* What this tab is doing that its name does not say. Both are
-          window state, so a background tab shows them too. */}
+      {/* Window state, so a background tab shows them too. */}
       {window.collapsible && (
-        <Tooltip label="Stacked Panes (prefix+S to toggle)">
+        <Tooltip label={withKeyHint('Stacked Panes', commandHint(keybindings, 'tab-stack-toggle'))}>
           <span className="tab-flag" aria-label="Stacked Panes">
             {'\uf51e'}
           </span>
         </Tooltip>
       )}
       {window.zoomed && (
-        <Tooltip label="Pane Zoom (prefix+z to toggle)">
+        <Tooltip label={withKeyHint('Pane Zoom', keyHint(keybindings, ZOOM_TOGGLE))}>
           <span className="tab-flag" aria-label="Pane Zoom">
             ⛶
           </span>

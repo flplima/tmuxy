@@ -1,55 +1,21 @@
-/**
- * Unit tests for per-op predict/reconcile logic — currently the focus-op
- * (SelectPane / Navigate) reconcile semantics: confirm-linger, stale-echo
- * holding, and supersession, plus the tmuxy-nav-* alias parsing.
- */
-
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelPane } from '../../../test/model';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
 import { TmuxOp } from '../../commands';
 import { makePendingOp } from '../model';
 import {
   EMPTY_SNAPSHOT,
-  FOCUS_CONFIRM_LINGER_MS,
+  CONFIRM_LINGER_MS,
   FOCUS_SUPERSEDE_GRACE_MS,
   type TmuxSnapshot,
   type OpId,
 } from '../types';
-import type { TmuxPane } from '../../client';
 import type { PaneId, WindowId } from '../../ids';
 
-function pane(tmuxId: PaneId, x: number, y: number, width: number, height: number): TmuxPane {
-  return {
-    id: parseInt(tmuxId.slice(1), 10),
-    tmuxId,
-    windowId: wid('@0'),
-    content: [],
-    cursorX: 0,
-    cursorY: 0,
-    width,
-    height,
-    x,
-    y,
-    active: false,
-    command: 'bash',
-    title: '',
-    borderTitle: '',
-    inMode: false,
-    copyCursorX: 0,
-    copyCursorY: 0,
-    alternateOn: false,
-    mouseAnyFlag: false,
-    paused: false,
-    historySize: 0,
-    selectionPresent: false,
-    selectionStartX: 0,
-    selectionStartY: 0,
-    cursorShape: 0,
-    cursorHidden: false,
-  };
-}
+const pane = (tmuxId: PaneId, x: number, y: number, width: number, height: number) =>
+  modelPane(tmuxId, wid('@0'), { x, y, width, height });
 
 // Two side-by-side panes: %0 [0..39] and %1 [41..80].
 const SNAPSHOT: TmuxSnapshot = {
@@ -76,94 +42,6 @@ function focusOp(now: number) {
   });
 }
 
-describe('parseCommandToOp — tmuxy-nav aliases', () => {
-  it('maps tmuxy-nav-* to Navigate ops', () => {
-    expect(parseCommandToOp('tmuxy-nav-left')).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-right')).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-up')).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-    expect(parseCommandToOp('tmuxy-nav-down')).toEqual({
-      _tag: 'Navigate',
-      direction: 'D',
-      script: true,
-    });
-  });
-
-  it('maps the pinned compound form too', () => {
-    expect(parseCommandToOp('select-pane -t %0 \\; tmuxy-nav-right')).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-  });
-
-  // The alias is what the config writes, but never what a keypress carries:
-  // bindings reach the client through `list-keys`, which reports aliases
-  // already expanded. Missing this form costs every arrow key its prediction
-  // and leaves the user waiting on a shell script plus a round trip.
-  it('maps the expanded run-shell form list-keys actually reports', () => {
-    const expanded = (dir: string) =>
-      `run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav ${dir} #{pane_id}"`;
-    expect(parseCommandToOp(expanded('left'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'L',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('right'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'R',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('up'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-    expect(parseCommandToOp(expanded('down'))).toEqual({
-      _tag: 'Navigate',
-      direction: 'D',
-      script: true,
-    });
-  });
-
-  it('maps the expanded form behind the window+pane pin', () => {
-    expect(
-      parseCommandToOp(
-        'select-window -t @2 \\; select-pane -t %0 \\; ' +
-          'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav right #{pane_id}"',
-      ),
-    ).toEqual({ _tag: 'Navigate', direction: 'R', script: true });
-  });
-
-  // Configs written before v0.0.6 carry the path relative, and the migration
-  // that absolutises them runs server-side; the parser should not care.
-  it('maps the pre-migration relative path form', () => {
-    expect(parseCommandToOp('run-shell "bash bin/tmuxy/nav up"')).toEqual({
-      _tag: 'Navigate',
-      direction: 'U',
-      script: true,
-    });
-  });
-
-  // `next`/`prev` are not directions the client can predict geometrically —
-  // they must stay RawCommand rather than guess a neighbour.
-  it('leaves the non-directional nav verbs unpredicted', () => {
-    const cmd = 'run-shell "bash /home/u/.local/share/tmuxy/bin/tmuxy/nav prev #{pane_id}"';
-    expect(parseCommandToOp(cmd)).toEqual({ _tag: 'RawCommand', command: cmd });
-  });
-});
-
 describe('reconcileFocus — linger and supersession', () => {
   const t0 = 1_000_000;
 
@@ -171,9 +49,7 @@ describe('reconcileFocus — linger and supersession', () => {
     const op = focusOp(t0);
     const confirmed: TmuxSnapshot = { ...SNAPSHOT, activePaneId: pid('%1') };
     expect(reconcile(op, confirmed, undefined, t0 + 100)._tag).toBe('pending');
-    expect(reconcile(op, confirmed, undefined, t0 + FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
-      'matched',
-    );
+    expect(reconcile(op, confirmed, undefined, t0 + CONFIRM_LINGER_MS + 1)._tag).toBe('matched');
   });
 
   it('holds through stale echoes of the pre-op focus', () => {
@@ -268,8 +144,7 @@ describe('MoveWindow predict (tab reorder)', () => {
 describe('SelectWindow predicts even when the target window has no known panes', () => {
   // Background windows can arrive pane-less on some transports; bailing on
   // the prediction left the whole switch unpinned, and pre-confirm snapshots
-  // flapped the tab strip back (masked, pre-refactor, by a machine-level
-  // grace pin that no longer exists).
+  // flapped the tab strip back.
   const win = (id: WindowId, index: number, active: boolean) => ({
     id,
     index,
@@ -316,6 +191,29 @@ describe('SelectWindow predicts even when the target window has no known panes',
     };
     const resolved = result!.patch(withPane);
     expect(resolved.activePaneId).toBe(pid('%9'));
+  });
+
+  it("lands on the target window's own active pane, not its first pane", () => {
+    // `pane.active` is session-wide: none of a background tab's panes carry
+    // it. The window's own activePaneId (from the server) is what the switch
+    // must use — the first pane was a wrong guess the server then corrected.
+    const target = { ...win(wid('@1'), 1, false), activePaneId: pid('%36') };
+    const background: TmuxSnapshot = {
+      ...snap,
+      windows: [win(wid('@0'), 0, true), target],
+      panes: [
+        ...snap.panes,
+        { ...pane(pid('%35'), 0, 0, 40, 20), windowId: wid('@1') },
+        { ...pane(pid('%36'), 40, 0, 40, 20), windowId: wid('@1') },
+      ],
+    };
+    const result = predict(
+      TmuxOp.SelectWindow({ target: wid('@1') }),
+      background,
+      CTX,
+      'op_own' as OpId,
+    );
+    expect(result!.patch(background).activePaneId).toBe(pid('%36'));
   });
 });
 
@@ -414,5 +312,111 @@ describe('NewWindow reconcile requires the window to have a pane', () => {
       ],
     };
     expect(patch(withPane).windows.map((w) => w.id)).toContain(wid('@1'));
+  });
+});
+
+describe('JoinPane moves a pane into another tab ahead of tmux', () => {
+  const win = (id: WindowId, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const target = { ...pane(pid('%5'), 0, 0, 81, 20), windowId: wid('@1') };
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win(wid('@0'), 0, true), { ...win(wid('@1'), 1, false), activePaneId: pid('%5') }],
+    panes: [...SNAPSHOT.panes, target],
+  };
+  const join = TmuxOp.JoinPane({ paneId: pid('%1'), windowId: wid('@1') });
+
+  it('leaves its window to its neighbour and splits the target’s active pane below it', () => {
+    const moved = predict(join, snap, CTX, 'op_join' as OpId)!.patch(snap);
+    const byId = (id: PaneId) => moved.panes.find((p) => p.tmuxId === id)!;
+    expect(byId(pid('%0'))).toMatchObject({ x: 0, width: 81 });
+    expect(byId(pid('%5'))).toMatchObject({ y: 0, height: 9 });
+    expect(byId(pid('%1'))).toMatchObject({
+      windowId: wid('@1'),
+      x: 0,
+      y: 10,
+      width: 81,
+      height: 10,
+    });
+    expect(moved.windows.find((w) => w.id === wid('@1'))!.activePaneId).toBe(pid('%1'));
+  });
+
+  it('waits until tmux lists the pane in the target window', () => {
+    const result = predict(join, snap, CTX, 'op_join' as OpId)!;
+    const pending = makePendingOp({
+      id: 'op_join' as OpId,
+      op: join,
+      command: 'join-pane -s %1 -t @1',
+      patch: result.patch,
+      meta: result.meta,
+      now: 0,
+    });
+    expect(reconcile(pending, snap, undefined, 10_000)._tag).toBe('pending');
+    const joined = result.patch(snap);
+    expect(reconcile(pending, joined, undefined, 10_000)._tag).toBe('matched');
+  });
+});
+
+describe('KillWindow on the current tab lands where tmux will', () => {
+  const win = (id: WindowId, index: number, active: boolean) => ({
+    id,
+    index,
+    name: `w${index}`,
+    active,
+    windowType: 'tab' as const,
+    floatParent: null,
+    floatWidth: null,
+    floatHeight: null,
+    floatDrawer: null,
+    floatBg: null,
+    floatNoheader: false,
+  });
+  const snap: TmuxSnapshot = {
+    ...SNAPSHOT,
+    windows: [win(wid('@0'), 0, false), win(wid('@1'), 1, false), win(wid('@2'), 2, true)],
+    panes: [
+      { ...pane(pid('%0'), 0, 0, 80, 20), windowId: wid('@0') },
+      { ...pane(pid('%1'), 0, 0, 80, 20), windowId: wid('@1') },
+      { ...pane(pid('%2'), 0, 0, 80, 20), windowId: wid('@2'), active: true },
+    ],
+    activeWindowId: wid('@2'),
+    activePaneId: pid('%2'),
+  };
+  const kill = TmuxOp.KillWindow({ windowId: wid('@2') });
+
+  it('the tab used last, as tmux’s own last-window choice', () => {
+    const ctx = { ...CTX, paneActivationOrder: [pid('%2'), pid('%0'), pid('%1')] };
+    const after = predict(kill, snap, ctx, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@0'));
+  });
+
+  it('the previous tab when nothing says which was used last', () => {
+    const after = predict(kill, snap, CTX, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@1'));
+  });
+
+  // A rebase replays the patch over the server's state, which can still have
+  // the doomed tab current when the optimistic one predicted from did not.
+  it('a tab, when the state it lands on has the doomed tab current and the predicted-from one did not', () => {
+    const elsewhere: TmuxSnapshot = {
+      ...snap,
+      windows: snap.windows.map((w) => ({ ...w, active: w.id === wid('@0') })),
+      activeWindowId: wid('@0'),
+      activePaneId: pid('%0'),
+    };
+    const after = predict(kill, elsewhere, CTX, 'op_kw' as OpId)!.patch(snap);
+    expect(after.activeWindowId).toBe(wid('@1'));
+    expect(after.activePaneId).toBe(pid('%1'));
   });
 });

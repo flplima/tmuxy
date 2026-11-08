@@ -1,8 +1,3 @@
-/**
- * A menu item's icon (`domain/menus/icons.ts`), drawn inline so it takes the
- * item's colour (muted at rest, full on hover — see `.menu-item-icon`).
- */
-
 import { MENU_ICONS, type MenuIconName } from '../../domain/menus/icons';
 
 const iconProps = {

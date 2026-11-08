@@ -1,9 +1,7 @@
 /**
- * The phone's bottom view, under the key row: three views side by side, the
- * app menu, the tabs/panes tree and the side pane — the pinned terminal the
- * desktop keeps in its right column. A sideways swipe moves to the view
- * beside, a slide like the one between tabs (components/PhoneBottomView.tsx,
- * utils/bottomSlide.ts); past an end it gives a little and goes back.
+ * The phone's bottom view: a sideways swipe slides between the menu, the tree
+ * and the side pane (components/phone/bottomSlide.ts); past an end it gives a
+ * little and goes back.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -13,7 +11,7 @@ import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
 import { box, ctx, swipeTimed, touch } from './phoneStoryHelpers';
-import { SWIPE_SETTLE_MAX_MS } from '../utils/gestures';
+import { SWIPE_SETTLE_MAX_MS } from '../machines/gestures/gestures';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Mocked App/Phone Bottom View',
@@ -23,7 +21,6 @@ const meta: Meta<typeof FixtureApp> = {
     start: 'main-active',
     config: { phoneLayout: true },
   },
-  // The phone's screen, not the grid's box: the layout fits the grid to it.
   render: ({ fixture, start, config }) => (
     <FixtureProvider fixture={fixture} start={start} config={config} width={390} height={844}>
       <TmuxyApp />
@@ -60,8 +57,6 @@ export const BottomViewSlidesToTheSidePane: Story = {
     expect(bottom.getAttribute('data-view')).toBe('tree');
     expect(canvasElement.querySelector('.phone-dock')).toBeNull();
 
-    // Half way through the swipe: the tree has moved with the finger and the
-    // side pane rides at its right edge, not yet the view in front.
     const y = frame.top + 40;
     const [fromX, toX] = [frame.right - 20, frame.left + 20];
     touch(bottom, 'touchstart', fromX, y);
@@ -79,7 +74,6 @@ export const BottomViewSlidesToTheSidePane: Story = {
     for (let i = 4; i <= 6; i++) touch(bottom, 'touchmove', fromX + ((toX - fromX) * i) / 6, y);
     touch(bottom, 'touchend', toX, y);
 
-    // Released past the mark: it settles with the side pane in front, alone.
     await waitFor(() => {
       expect(bottom.getAttribute('data-view')).toBe('dock');
       expect(bottom.getAttribute('data-sliding')).toBeNull();
@@ -99,9 +93,8 @@ export const BottomViewSlidesToTheSidePane: Story = {
     expect(ground).not.toBe(black);
     expect(canvasElement.querySelector('.phone-tree')).toBeNull();
 
-    // A short, slow pull lets go short of the mark: it settles back where it
-    // was. The settle is given its longest time before the view is read, so a
-    // flip that was coming has come.
+    // The settle gets its longest time before the view is read, so a flip
+    // that was coming has come.
     const yNow = () => box(bottom).top + 40;
     await swipeTimed(bottom, yNow(), frame.left + 20, frame.left + 50, { steps: 3, stepMs: 150 });
     await new Promise((r) => setTimeout(r, SWIPE_SETTLE_MAX_MS + 150));
@@ -110,7 +103,6 @@ export const BottomViewSlidesToTheSidePane: Story = {
       expect(bottom.getAttribute('data-view')).toBe('dock');
     }, SETTLE);
 
-    // The way back: the tree rides in from the left.
     await swipeTimed(bottom, yNow(), frame.left + 20, frame.right - 20);
     await waitFor(() => {
       expect(bottom.getAttribute('data-view')).toBe('tree');
@@ -120,7 +112,6 @@ export const BottomViewSlidesToTheSidePane: Story = {
     }, SETTLE);
     expect(canvasElement.querySelector('.phone-dock')).toBeNull();
 
-    // On the same way, the menu rides in from the left and stays in front.
     await swipeTimed(bottom, yNow(), frame.left + 20, frame.right - 20);
     await waitFor(() => {
       expect(bottom.getAttribute('data-view')).toBe('menu');

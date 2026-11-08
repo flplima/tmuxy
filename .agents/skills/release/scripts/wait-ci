@@ -3,7 +3,7 @@
 # Block until a release-relevant CI run reaches a terminal state.
 #
 # Usage: wait-ci commit [<sha>]      # step 2: the push workflows green on a commit
-#        wait-ci tag <version>       # step 5: the tag-triggered Build App run
+#        wait-ci tag <version>       # step 5: the tag-triggered build app run
 #        wait-ci ... --timeout <s>   # default 2700 (45 min)
 #
 # Exit 0 when everything watched succeeded, 1 on any failure, 2 on timeout.
@@ -23,17 +23,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# The workflows that must pass on a plain push to main. Deploy Demo is
+# The workflows that must pass on a plain push to main. deploy demo is
 # path-filtered (tmuxy-demo / tmuxy-ui sources), so it only has to pass when
 # the commit triggered it.
 #
-# NOT "Build App": it triggers on tags, a daily schedule and manual dispatch,
+# NOT "build app": it triggers on tags, a daily schedule and manual dispatch,
 # never on a plain push to main, so waiting for it here would time out on
 # every release. The tag run in step 6 is what gates shipping, and its own
 # `release` job needs `tests` (lint-and-tests on the TAG ref) + `build` +
 # `upgrade-path` — so nothing reaches brew without a green 3-platform build.
-EXPECTED=("lint and tests" "Deploy Demo")
-OPTIONAL=("Deploy Demo")
+EXPECTED=("lint and tests" "deploy demo")
+OPTIONAL=("deploy demo")
 
 case "$MODE" in
   commit)
@@ -45,7 +45,7 @@ case "$MODE" in
   tag)
     [ -n "$ARG" ] || { echo "usage: wait-ci tag <version>" >&2; exit 2; }
     LABEL="tag v$ARG"
-    EXPECTED=("Build App")
+    EXPECTED=("build app")
     OPTIONAL=()
     query() { gh run list --workflow build-app.yml --branch "v$ARG" --json name,status,conclusion; }
     ;;

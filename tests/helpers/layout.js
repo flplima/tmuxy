@@ -1,21 +1,22 @@
 /**
  * Layout Invariant Assertions
  *
- * Verifies visual correctness of the pane mosaic after every layout mutation.
- * Replaces the old assertSpacing helper with comprehensive checks:
+ * Verifies visual correctness of the pane mosaic after a layout mutation:
  *
  * 1. No overlap between pane-layout-items
  * 2. Pane mosaic is centered in the container
  * 3. No pane overflows the container
  * 4. Container padding is respected
  * 5. Pane headers are not obscured by adjacent panes
- * 6. Rendered dimensions match XState context
+ * 6. Each terminal is as wide as tmux says the pane is
  * 7. Exactly one pane has .pane-active
  * 8. Inter-pane gaps match expected charWidth/charHeight
  */
 
 const { waitForCondition } = require('./browser');
 const { waitForLayoutSettled } = require('./pane-ops');
+const { getCellSize } = require('./cell-grid');
+const { tmuxExec } = require('./tmux-socket');
 
 /**
  * Assert all layout invariants hold for the current pane mosaic.
@@ -46,21 +47,41 @@ async function assertLayoutInvariants(page, options = {}) {
     'pane transitions to finish',
   );
 
+  const view = await page.evaluate(() => window.app.view());
+  const { charWidth, charHeight } = await getCellSize(page);
+  const [totalWidth, totalHeight] = tmuxExec(
+    `display-message -p -t ${view.activeTabId} '#{window_width} #{window_height}'`,
+  )
+    .split(' ')
+    .map(Number);
+  const panes = tmuxExec(`list-panes -t ${view.activeTabId} -F '#{pane_id} #{pane_width}'`)
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [tmuxId, width] = line.split(' ');
+      return { tmuxId, width: Number(width) };
+    });
+
   const result = await page.evaluate(
-    ({ checkCentering: cc, checkGaps: cg }) => {
+    ({
+      checkCentering: cc,
+      checkGaps: cg,
+      charWidth,
+      charHeight,
+      panes,
+      view,
+      totalWidth,
+      totalHeight,
+    }) => {
       const errs = [];
-      const snap = window.app?.getSnapshot();
-      if (!snap?.context) return { errors: [], skipped: true };
-      const { charWidth, charHeight, panes, activeWindowId, activePaneId } = snap.context;
+      const { activePaneId } = view;
 
       const container = document.querySelector('.pane-container');
-      if (!container) return { errors: ['No .pane-container found'], skipped: false };
+      if (!container) return { errors: ['No .pane-container found'] };
       const cRect = container.getBoundingClientRect();
 
       // Collect visible pane-layout-items for the active window
-      const activePaneIds = new Set(
-        (panes || []).filter((p) => p.windowId === activeWindowId).map((p) => p.tmuxId),
-      );
+      const activePaneIds = new Set(panes.map((p) => p.tmuxId));
       const allItems = Array.from(
         document.querySelectorAll('.pane-layout-item[data-pane-id]'),
       ).filter((el) => activePaneIds.has(el.getAttribute('data-pane-id')));
@@ -70,27 +91,18 @@ async function assertLayoutInvariants(page, options = {}) {
       const rects = [];
       const ids = [];
       for (const el of allItems) {
-        const r = el.getBoundingClientRect();
-        const overflowLeft = cRect.left - r.left;
-        const overflowRight = r.right - cRect.right;
-        const overflowTop = cRect.top - r.top;
-        const overflowBottom = r.bottom - cRect.bottom;
-        const maxOverflow = Math.max(overflowLeft, overflowRight, overflowTop, overflowBottom);
-        if (maxOverflow < 50) {
-          items.push(el);
-          rects.push(r);
-          ids.push(el.getAttribute('data-pane-id'));
-        }
+        items.push(el);
+        rects.push(el.getBoundingClientRect());
+        ids.push(el.getAttribute('data-pane-id'));
       }
 
-      if (rects.length === 0) return { errors: [], skipped: true };
+      if (rects.length === 0) return { errors: ["no pane of tmux's active tab is drawn"] };
 
       // Check if the pane grid fits within the container.
       // When totalWidth*charWidth > containerWidth, the grid overflows and
       // centering/padding/overflow checks are meaningless (server hasn't resized yet).
       const gridFits =
-        snap.context.totalWidth * charWidth <= cRect.width &&
-        snap.context.totalHeight * charHeight <= cRect.height;
+        totalWidth * charWidth <= cRect.width && totalHeight * charHeight <= cRect.height;
 
       // ========== 1. No overlap between pane-layout-items ==========
       for (let i = 0; i < rects.length; i++) {
@@ -224,8 +236,7 @@ async function assertLayoutInvariants(page, options = {}) {
       // Only check width; height semantics differ between layout-string (includes border)
       // and content rows, making exact pixel comparison unreliable.
       for (let i = 0; i < items.length; i++) {
-        const pane = (panes || []).find((p) => p.tmuxId === ids[i]);
-        if (!pane) continue;
+        const pane = panes.find((p) => p.tmuxId === ids[i]);
         const termContent = items[i].querySelector('.terminal-content');
         if (!termContent) continue;
         const tRect = termContent.getBoundingClientRect();
@@ -240,7 +251,7 @@ async function assertLayoutInvariants(page, options = {}) {
       // ========== 7. Exactly one .pane-active ==========
       // Skip when grid doesn't fit — overflow filter may exclude the active pane
       // Skip when a float is focused — all tiled panes become inactive
-      const hasFloatFocus = !!snap.context.focusedFloatPaneId;
+      const hasFloatFocus = view.keyboardTarget.kind === 'float';
       if (gridFits && !hasFloatFocus) {
         const activeItems = items.filter((el) => el.classList.contains('pane-active'));
         if (activeItems.length !== 1) {
@@ -251,7 +262,7 @@ async function assertLayoutInvariants(page, options = {}) {
           const activeId = activeItems[0].getAttribute('data-pane-id');
           if (activePaneId && activeId !== activePaneId) {
             errs.push(
-              `Active pane: DOM .pane-active is ${activeId}, but XState activePaneId is ${activePaneId}`,
+              `Active pane: DOM .pane-active is ${activeId}, but the app's active pane is ${activePaneId}`,
             );
           }
         }
@@ -310,12 +321,10 @@ async function assertLayoutInvariants(page, options = {}) {
         }
       }
 
-      return { errors: errs, skipped: false };
+      return { errors: errs };
     },
-    { checkCentering: checkCentering, checkGaps: checkGaps },
+    { checkCentering, checkGaps, charWidth, charHeight, panes, view, totalWidth, totalHeight },
   );
-
-  if (result.skipped) return;
 
   if (result.errors.length > 0) {
     throw new Error(

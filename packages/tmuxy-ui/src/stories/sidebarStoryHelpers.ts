@@ -1,23 +1,6 @@
 import { waitFor } from 'storybook/test';
-
-export interface AppSnap {
-  context: {
-    activePaneId: string | null;
-    activeWindowId: string | null;
-    charWidth: number;
-    windows: Array<{
-      id: string;
-      index: number;
-      name: string;
-      windowType: string | null;
-      sidebarCols?: number | null;
-    }>;
-    panes: Array<{ tmuxId: string; windowId: string; width: number }>;
-    sessions: Array<{ sessionName: string }>;
-  };
-}
-export const app = () =>
-  (window as unknown as { app: { getSnapshot(): AppSnap } }).app.getSnapshot();
+import { appContext } from './storyApp';
+import { stripTabs } from '../domain/windows';
 
 /**
  * The panes that belong to TABS — the only ones the tree lists.
@@ -27,15 +10,10 @@ export const app = () =>
  * out along with floats — it would otherwise list itself.
  */
 export function tabPanes() {
-  const tabWindowIds = new Set(
-    app()
-      .context.windows.filter((w) => w.windowType === 'tab')
-      .map((w) => w.id),
-  );
-  return app().context.panes.filter((p) => tabWindowIds.has(p.windowId));
+  const tabWindowIds = new Set(stripTabs(appContext().windows).map((w) => w.id));
+  return appContext().panes.filter((p) => p.windowId !== null && tabWindowIds.has(p.windowId));
 }
 
-/** Wait until the sidebar drawer + tree portal into document.body with rendered rows. */
 export async function waitForTree(): Promise<HTMLElement> {
   return waitFor(
     () => {

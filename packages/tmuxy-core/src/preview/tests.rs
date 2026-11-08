@@ -1,8 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 use super::*;
 
-/// A fresh folder holding a document and whatever the test writes beside it.
 struct Folder(PathBuf);
 
 impl Folder {
@@ -72,9 +69,9 @@ fn the_document_is_read_with_its_kind_and_anything_else_is_refused() {
         net: false,
     })
     .unwrap();
-    assert_eq!(doc["kind"], "markdown");
-    assert_eq!(doc["name"], "notes.md");
-    assert_eq!(doc["text"], "# Notes");
+    assert_eq!(doc.kind, "markdown");
+    assert_eq!(doc.name, "notes.md");
+    assert_eq!(doc.text, "# Notes");
 
     let html = folder.write("page.HTML", b"<h1>x</h1>");
     let doc = read_document(&Authorisation {
@@ -82,8 +79,8 @@ fn the_document_is_read_with_its_kind_and_anything_else_is_refused() {
         net: true,
     })
     .unwrap();
-    assert_eq!(doc["kind"], "html");
-    assert_eq!(doc["net"], true);
+    assert_eq!(doc.kind, "html");
+    assert!(doc.net);
 
     let key = folder.write("id_rsa", b"secret");
     assert!(read_document(&Authorisation {
@@ -133,8 +130,8 @@ fn a_resource_inside_the_documents_folder_is_read() {
         "./css/site.css",
     )
     .unwrap();
-    assert_eq!(css["mime"], "text/css; charset=utf-8");
-    assert_eq!(css["data"], "Ym9keXt9");
+    assert_eq!(css.mime, "text/css; charset=utf-8");
+    assert_eq!(css.data, "Ym9keXt9");
     assert!(resolve_resource(&doc, "img/logo.png").is_ok());
 }
 
@@ -272,7 +269,6 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
         alternate_on: false,
         mouse_any_flag: false,
         marked: false,
-        paused: false,
         history_size: 0,
         selection_present: false,
         selection_start_x: 0,
@@ -296,7 +292,6 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
         .stage(p3.clone(), "<h1>three</h1>".into(), false)
         .unwrap();
 
-    // Seed session A with %1 and %2, and session B with %3.
     let full = |session: &str, panes: Vec<crate::TmuxPane>| crate::StateUpdate::Full {
         state: crate::TmuxState {
             session_name: session.into(),
@@ -324,7 +319,6 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
     assert!(pages.page(&p2).is_some());
     assert!(pages.page(&p3).is_some());
 
-    // Widget cleared on %1 via delta -> %1 evicted, %2 and %3 preserved.
     let mut delta_panes = std::collections::HashMap::new();
     delta_panes.insert(
         p1.clone(),
@@ -347,12 +341,10 @@ fn staged_pages_are_evicted_when_a_preview_clears_or_its_pane_closes() {
     assert!(pages.page(&p2).is_some());
     assert!(pages.page(&p3).is_some());
 
-    // Full sync on session A where %2 closed -> %2 evicted, session B's %3 preserved!
     pages.sync_update("a", &full("a", Vec::new()));
     assert!(pages.page(&p2).is_none());
     assert!(pages.page(&p3).is_some());
 
-    // Pane %3 removed via delta -> %3 evicted.
     let mut removed = std::collections::HashMap::new();
     removed.insert(p3.clone(), None);
     pages.sync_update(

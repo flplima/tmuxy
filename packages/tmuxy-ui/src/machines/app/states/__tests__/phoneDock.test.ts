@@ -6,17 +6,10 @@
  * And the dock holds the keyboard only while it is the view in front.
  */
 import { describe, it, expect } from 'vitest';
-import { fromCallback } from 'xstate';
-import { sidebarsActions } from '../../actions/sidebars';
-import { phoneActions } from '../../actions/phone';
-import { sidebarsGlobalEvents, sidebarsIdleEvents } from '../sidebars';
-import { phoneGlobalEvents } from '../phone';
 import type { TmuxOp } from '../../../../domain/commands';
 import { pid, wid } from '../../../../test/wire';
+import { recorder, startApp } from '../../../../test/app';
 import type { AppMachineContext } from '../../../types/context';
-import { mountState } from './testHarness';
-
-const state = { on: { ...sidebarsGlobalEvents, ...sidebarsIdleEvents, ...phoneGlobalEvents } };
 
 const withDock = {
   activePaneId: pid('%1'),
@@ -33,18 +26,9 @@ const withDock = {
 } as unknown as Partial<AppMachineContext>;
 
 function mount(context: Partial<AppMachineContext>) {
-  const sent: TmuxOp[] = [];
-  const tmux = fromCallback(({ receive }) => {
-    receive((event) => {
-      const e = event as unknown as { type: string; op?: TmuxOp };
-      if (e.type === 'SEND_OP' && e.op) sent.push(e.op);
-    });
-  });
-  const servers = fromCallback(() => () => {});
-  const actor = mountState(state, { ...sidebarsActions, ...phoneActions }, {}, context, {
-    extraActors: { tmux, servers },
-  });
-  return { actor, sent };
+  const tmux = recorder();
+  const actor = startApp({ context, actors: { tmuxActor: tmux.logic } });
+  return { actor, sent: tmux.ops };
 }
 
 /** The rows written to the dock's window, in order. */
@@ -57,31 +41,31 @@ describe('the phone’s dock rows', () => {
   it('are the view’s, and an update never writes the terminal box’s count over them', () => {
     const { actor, sent } = mount({ ...withDock, phoneLayout: true });
     actor.send({ type: 'SET_PHONE_DOCK_SIZE', cols: 40, rows: 8 });
-    actor.send({ type: 'SYNC_DOCK_ROWS' });
-    actor.send({ type: 'SYNC_DOCK_ROWS' });
-    expect(rowsWritten(sent)).toEqual([8]);
+    actor.send({ type: 'SYNC_DOCK_SIZE' });
+    actor.send({ type: 'SYNC_DOCK_SIZE' });
+    expect(rowsWritten(sent())).toEqual([8]);
   });
 
   it('follow the terminal box on a desktop', () => {
     const { actor, sent } = mount({ ...withDock, phoneLayout: false });
-    actor.send({ type: 'SYNC_DOCK_ROWS' });
-    expect(rowsWritten(sent)).toHaveLength(1);
-    expect(rowsWritten(sent)[0]).toBeGreaterThan(24);
+    actor.send({ type: 'SYNC_DOCK_SIZE' });
+    expect(rowsWritten(sent())).toHaveLength(1);
+    expect(rowsWritten(sent())[0]).toBeGreaterThan(24);
   });
 });
 
 describe('the bottom view', () => {
   it('gives the dock the keyboard in front and takes it back for the menu and the tree', () => {
     const { actor } = mount({ ...withDock, phoneLayout: true });
-    const ctx = () => actor.getSnapshot().context as AppMachineContext;
+    const ctx = () => actor.getSnapshot().context;
     actor.send({ type: 'SET_PHONE_BOTTOM_VIEW', view: 'dock' });
     expect(ctx().phoneBottomView).toBe('dock');
-    expect(ctx().rightSidebarFocused).toBe(true);
+    expect(ctx().keyboardOwner).toMatchObject({ kind: 'right', paneId: pid('%9') });
     actor.send({ type: 'SET_PHONE_BOTTOM_VIEW', view: 'menu' });
     expect(ctx().phoneBottomView).toBe('menu');
-    expect(ctx().rightSidebarFocused).toBe(false);
+    expect(ctx().keyboardOwner.kind).toBe('panes');
     actor.send({ type: 'SET_PHONE_BOTTOM_VIEW', view: 'dock' });
     actor.send({ type: 'SET_PHONE_BOTTOM_VIEW', view: 'tree' });
-    expect(ctx().rightSidebarFocused).toBe(false);
+    expect(ctx().keyboardOwner.kind).toBe('panes');
   });
 });

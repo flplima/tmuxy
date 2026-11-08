@@ -9,14 +9,15 @@
 //! server attaches and after every config reload (a config sourced again
 //! may reset the tables), and taken away when their plugin goes. The server
 //! reads and binds over its control-mode connection, so the reads come after
-//! a `source-file` it queued; a CLI verb, which has none, inside one
-//! `run-shell` (`job`).
+//! a `source-file` it queued; a CLI verb, which has none, reads as an
+//! external tmux and binds inside one `run-shell` (`run_shell`).
 
 use std::collections::BTreeMap;
 
 use super::manifest::KeyTable;
 use super::registry::Registry;
-use super::{job, Dirs, Result};
+use super::{PluginError, Result};
+use crate::paths::Layout;
 
 /// What marks a binding as a plugin's.
 pub const MARKER: &str = "--trigger key";
@@ -39,7 +40,6 @@ pub fn binding_command(plugin: &str, action: &str) -> String {
     )
 }
 
-/// One declared key and what became of it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Planned {
     pub plugin: String,
@@ -50,38 +50,27 @@ pub struct Planned {
     pub taken_by: Option<String>,
 }
 
-/// `list-keys -T <table>`, the whole table, as an external read for a CLI
-/// verb (no control-mode connection of its own). The server reads the same
-/// over its connection (`transport::apply_plugin_keys`). Always the whole
-/// table: before 3.8, `list-keys -T <table> <key>` answers nothing at all.
-fn list_keys(table: KeyTable) -> String {
+/// `list-keys -T <table>`, read by a CLI verb as an external tmux. Through
+/// [`crate::list_keys::listing`], as the server's read is, so a read that
+/// failed is an error, never an empty table.
+fn read_table(table: KeyTable) -> Result<String> {
     let argv = ["list-keys".to_string(), "-T".into(), table.as_str().into()];
-    crate::session::tmux_output(&argv).unwrap_or_default()
+    crate::list_keys::listing(crate::session::tmux_output(&argv)).map_err(PluginError::from)
 }
 
-/// The `list-keys` that lists one whole table.
 pub fn list_command(table: KeyTable) -> String {
-    format!("list-keys -T {}", table.as_str())
+    crate::list_keys::command(table.as_str())
 }
 
-/// `(table, key, line)` of every binding in `listing` (`list-keys -T t`).
-fn bindings_in(listing: &str) -> impl Iterator<Item = (&str, &str, &str)> {
-    listing.lines().filter_map(|l| {
-        let words: Vec<&str> = l.split_whitespace().collect();
-        let at = words.iter().position(|w| *w == "-T")?;
-        Some((*words.get(at + 1)?, *words.get(at + 2)?, l))
-    })
+fn is_ours(command: &str) -> bool {
+    command.contains(MARKER) && command.contains(" plugin action ")
 }
 
-fn is_ours(line: &str) -> bool {
-    line.contains(MARKER) && line.contains(" plugin action ")
-}
-
-/// `(table, key)` of every plugin binding in `listing` (`list-keys -T t`).
+/// `(table, key)` of every plugin binding in a `list-keys` listing.
 pub fn ours_in(listing: &str) -> Vec<(String, String)> {
-    bindings_in(listing)
-        .filter(|(_, _, line)| is_ours(line))
-        .map(|(table, key, _)| (table.to_string(), key.to_string()))
+    crate::list_keys::rows(listing)
+        .filter(|row| is_ours(&row.command))
+        .map(|row| (row.table.to_string(), row.key.to_string()))
         .collect()
 }
 
@@ -89,15 +78,23 @@ pub fn ours_in(listing: &str) -> Vec<(String, String)> {
 /// Declared keys are normalized (`manifest::normalize_key`) to names tmux
 /// prints unquoted, so a word compare finds them.
 fn user_binding_in(listing: &str, key: &str) -> Option<String> {
-    bindings_in(listing)
-        .find(|(_, k, line)| *k == key && !line.contains(MARKER))
-        .map(|(_, _, line)| line.split_whitespace().collect::<Vec<_>>().join(" "))
+    crate::list_keys::rows(listing)
+        .find(|row| row.key == key && !is_ours(&row.command))
+        .map(|row| {
+            let repeat = if row.repeat { "-r " } else { "" };
+            format!(
+                "bind-key {repeat}-T {} {} {}",
+                row.table, row.key, row.command
+            )
+        })
 }
 
 /// What a user binding on `key` is, when there is one that is not a
-/// plugin's: the key a plugin may not take.
+/// plugin's: the key a plugin may not take. For what a verb shows (the
+/// install prompt, `tmuxy plugin list`), never for what it binds: with no
+/// server to ask, nothing holds a key.
 pub fn user_binding(table: KeyTable, key: &str) -> Option<String> {
-    user_binding_in(&list_keys(table), key)
+    user_binding_in(&read_table(table).unwrap_or_default(), key)
 }
 
 /// The keys every plugin asks for, and which of them can be bound: the first
@@ -137,7 +134,8 @@ fn plan_with(
     out
 }
 
-/// [`plan_with`] against the tmux server as it is now (`tmuxy plugin list`).
+/// [`plan_with`] against the tmux server as it is now (`tmuxy plugin list`),
+/// read as [`user_binding`] reads it.
 pub fn plan(registry: &Registry) -> Vec<Planned> {
     plan_with(registry, user_binding)
 }
@@ -183,14 +181,19 @@ pub fn commands(
     (planned, out)
 }
 
-/// [`commands`] from a CLI verb: read and run inside one `run-shell`.
-/// Returns the plan.
-pub fn apply(dirs: &Dirs) -> Result<Vec<Planned>> {
+/// [`commands`] from a CLI verb, run inside one `run-shell`; returns the
+/// plan. A table that does not read stops it before anything is bound.
+pub fn apply(dirs: &Layout) -> Result<Vec<Planned>> {
     let registry = Registry::load(dirs)?;
-    let (planned, cmds) = commands(&registry, list_keys);
+    let prefix = read_table(KeyTable::Prefix)?;
+    let root = read_table(KeyTable::Root)?;
+    let (planned, cmds) = commands(&registry, |table| match table {
+        KeyTable::Prefix => prefix.clone(),
+        KeyTable::Root => root.clone(),
+    });
     let argv: Vec<String> = cmds.join(&[";".to_string()][..]);
     if !argv.is_empty() {
-        job::run(dirs, &argv)?;
+        crate::run_shell::tmux(dirs, &argv)?;
     }
     Ok(planned)
 }

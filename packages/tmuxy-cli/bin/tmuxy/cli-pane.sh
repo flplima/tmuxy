@@ -1,25 +1,11 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — pane and pane-group subcommands.
-# `pane run`, `pane wait` and `pane capture` are in cli-pane-run.sh.
 
-# The pane a command acts on: PANE_ID is the target named (a pane id or a
-# label, `_resolve_target`), else the caller's own pane; PANE_T the same as a
-# `-t` clause for the command line (empty when no pane is known — tmux's own
-# default). A label that resolves to nothing or to several panes ends the
-# command here, before anything has changed.
-# Args: $1=target as written (may be empty)
 _pane_t() {
   PANE_ID="${TMUX_PANE:-}"
   PANE_T="$CALLER_T"
   [ -n "${1:-}" ] || return 0
   PANE_ID="$(_resolve_target "$1")" || exit $?
   PANE_T=" -t $(shquote "$PANE_ID")"
-}
-
-# A mutation's answer: the JSON object under `--json`, else nothing.
-_pane_done() {
-  [ "$JSON_OUT" = true ] || return 0
-  json_ok "$@"
 }
 
 # --- Pane subcommands ---
@@ -58,33 +44,38 @@ cmd_pane() {
       target="$own"
 
       if [ "$value" = "--clear" ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-restore"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_RESTORE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-restore $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_RESTORE $(shquote "$value")"
       fi
-      _pane_done "paneId=$(json_string "$target")"
+      _done "paneId=$(json_string "$target")"
       ;;
 
     state)
       # Declare what this pane is doing, for the sidebar tree to draw. Any
       # process can call it — an agent's hooks, a shell's precmd/preexec, a
-      # build script on failure — which is why the value is not validated
-      # here: the client owns the vocabulary and collapses what it doesn't
-      # know, so a writer is free to use its own names.
+      # build script on failure. The words are core's `PaneStateName`, read
+      # exactly as written by the UI, the push notification and the screen
+      # corrector alike, so a near-miss is refused here instead of reading as
+      # `idle` everywhere.
       local value="" target=""
       for arg in "$@"; do
         case "$arg" in
           --help|-h)
-            echo "Usage: tmuxy pane state <idle|working|needs-input|error|unread|clear> [target]"
+            echo "Usage: tmuxy pane state <$PANE_STATE_WORDS|clear> [target]"
             return
             ;;
           *) if [ -z "$value" ]; then value="$arg"; else target="$arg"; fi ;;
         esac
       done
       [ -n "$value" ] || _die_usage "state value required"
-      # Default to the calling pane. `set-option -p` with no target resolves
-      # against tmux's idea of the current pane, which under run-shell is the
-      # ACTIVE one, not the caller — so the target is always explicit.
+      local word known=false
+      for word in ${PANE_STATE_WORDS//|/ } clear; do
+        [ "$value" != "$word" ] || known=true
+      done
+      $known || _die_usage "unknown pane state '$value' (one of: ${PANE_STATE_WORDS//|/, }, clear)"
+      # `set-option -p` with no target resolves against tmux's idea of the
+      # current pane, which under run-shell is the ACTIVE one, not the caller.
       if [ -n "$target" ]; then
         target="$(_resolve_target "$target")" || exit $?
       else
@@ -92,11 +83,11 @@ cmd_pane() {
       fi
       [ -n "$target" ] || _die_usage "no pane to target (pass a target or run inside a pane)"
       if [ "$value" = clear ]; then
-        _run_safe "set-option -p -u -t $(shquote "$target") @tmuxy-pane-state"
+        _run_safe "set-option -p -u -t $(shquote "$target") $OPT_PANE_STATE"
       else
-        _run_safe "set-option -p -t $(shquote "$target") @tmuxy-pane-state $(shquote "$value")"
+        _run_safe "set-option -p -t $(shquote "$target") $OPT_PANE_STATE $(shquote "$value")"
       fi
-      _pane_done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
+      _done "paneId=$(json_string "$target")" "state=$(json_string "$value")"
       ;;
 
     list)
@@ -113,12 +104,10 @@ cmd_pane() {
       local scope=(${TMUX_PANE:+-t "$TMUX_PANE"})
       if $all; then scope=(-s); fi
       if [ "$JSON_OUT" = true ]; then
-        # Tab-separated: pane_current_command is free text, so a comma in it
-        # would shift every following field and break the JSON.
         local rows
         rows=$(_tmux_read list-panes ${scope[@]+"${scope[@]}"} -F "$LIST_PANES_JSON_FMT") || exit $?
         printf '%s\n' "$rows" | \
-          awk -F'\t' "$JSON_ESCAPE_AWK"'BEGIN{printf "["} NF==0{next} n++{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s,\"title\":\"%s\",\"label\":\"%s\"}", jstr($1), jstr($2), $3, $4, jstr($5), ($6=="1"?"true":"false"), jstr($7), jstr($8)} END{printf "]\n"}'
+          awk -F'\t' "$JSON_AWK"'BEGIN{printf "["} NF==0{next} n++{printf ","} {printf "{\"id\":\"%s\",\"tab\":\"%s\",\"width\":%s,\"height\":%s,\"command\":\"%s\",\"active\":%s,\"title\":\"%s\",\"label\":\"%s\"}", jstr($1), jstr($2), $3, $4, jstr($5), ($6=="1"?"true":"false"), jstr($7), jstr($8)} END{printf "]\n"}'
       else
         _tmux_read list-panes ${scope[@]+"${scope[@]}"}
       fi
@@ -159,20 +148,20 @@ cmd_pane() {
       done
       _pane_t "$target"
       _run_safe "killp$PANE_T"
-      _pane_done "paneId=$(json_string "$PANE_ID")"
+      _done "paneId=$(json_string "$PANE_ID")"
       ;;
 
     select)
       local arg="${1:-}"
       case "$arg" in
         --help|-h) echo "Usage: tmuxy pane select [-U|-D|-L|-R|target]"; return ;;
-        -U|-D|-L|-R) _run_safe "selectp $arg$CALLER_T"; _pane_done "direction=$(json_string "$arg")" ;;
+        -U|-D|-L|-R) _run_safe "selectp $arg$CALLER_T"; _done "direction=$(json_string "$arg")" ;;
         "") _die_usage "pane direction or target required" ;;
         -*) _die_usage "invalid argument '$arg'. Use -U, -D, -L, -R, or a target" ;;
         *)
           _pane_t "$arg"
           _run_safe "selectp$PANE_T"
-          _pane_done "paneId=$(json_string "$PANE_ID")"
+          _done "paneId=$(json_string "$PANE_ID")"
           ;;
       esac
       ;;
@@ -189,7 +178,7 @@ cmd_pane() {
       done
       [ -n "$args" ] || _die_usage "direction required (-U, -D, -L, -R)"
       _run_safe "resizep$CALLER_T$args"
-      _pane_done
+      _done
       ;;
 
     swap)
@@ -201,7 +190,7 @@ cmd_pane() {
       src="$(_resolve_target "$1")" || exit $?
       dst="$(_resolve_target "$2")" || exit $?
       _run_safe "swap-pane -s $(shquote "$src") -t $(shquote "$dst")"
-      _pane_done "src=$(json_string "$src")" "dst=$(json_string "$dst")"
+      _done "src=$(json_string "$src")" "dst=$(json_string "$dst")"
       ;;
 
     zoom)
@@ -209,7 +198,7 @@ cmd_pane() {
         --help|-h) echo "Usage: tmuxy pane zoom"; return ;;
       esac
       _run_safe "resizep -Z$CALLER_T"
-      _pane_done
+      _done
       ;;
 
     break)
@@ -270,7 +259,7 @@ Options:
 FEOF
           return ;;
       esac
-      exec bash "$SCRIPTS_DIR/float-create" "$@"
+      JSON_OUT=$JSON_OUT exec bash "$SCRIPTS_DIR/float-create" "$@"
       ;;
 
     group)
@@ -289,108 +278,23 @@ FEOF
 
 # --- Pane group subcommands ---
 
+# The verbs, their arguments, their defaults and their help are the `group`
+# verb's (`packages/tmuxy-verbs/src/group_cli.rs`): this forwards them to the
+# pane-group script inside run-shell, and the verb answers.
 cmd_pane_group() {
-  local sub="${1:-}"
-  shift 2>/dev/null || true
-
-  case "$sub" in
-    add)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group add"; return ;;
-      esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' add #{pane_id} #{pane_width} #{pane_height}"
-      _pane_done
-      ;;
-
-    close)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group close [%id]"; return ;;
-      esac
-      # The default stays a bare format for run-shell to expand; `shquote`
-      # doubles its `#`, which would hand the script the text instead.
-      local target='#{pane_id}'
-      [ -z "${1:-}" ] || target="$(shquote "$1")"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' close $target"
-      _pane_done
-      ;;
-
-    switch)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group switch <%id>"; return ;;
-      esac
-      [ -n "${1:-}" ] || _die_usage "Usage: tmuxy pane group switch <pane_id>"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' switch $(shquote "$1")"
-      _pane_done
-      ;;
-
-    move)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group move <%id> <index>   (0 is first)"; return ;;
-      esac
-      [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group move <%id> <index>"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' move $(shquote "$1") $(shquote "$2")"
-      _pane_done
-      ;;
-
-    join)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"; return ;;
-      esac
-      [ -n "${1:-}" ] && [ -n "${2:-}" ] || _die_usage "Usage: tmuxy pane group join <%id> <%member-or-pane> [index]"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' join $(shquote "$1") $(shquote "$2") $(shquote "${3:-}")"
-      _pane_done
-      ;;
-
-    leave)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group leave [%id] [--tab | --beside <%id> <left|right|up|down>]"; return ;;
-      esac
-      local pane_id="${TMUX_PANE:-}"
-      case "${1:-}" in %*) pane_id="$1"; shift ;; esac
-      [ -n "$pane_id" ] || _die_usage "no pane to take out of its group (pass %id or run inside a pane)"
-      local mode="${1:---tab}" beside="${2:-}" dir="${3:-right}"
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' leave $(shquote "$pane_id") $(shquote "$mode") $(shquote "$beside") $(shquote "$dir")"
-      _pane_done
-      ;;
-
-    next|prev)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group $sub"; return ;;
-      esac
-      _run_shell "bash '$SCRIPTS_DIR/pane-group' $sub #{pane_id}"
-      _pane_done
-      ;;
-
-    all)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group all [%id]   (every pane in the tab joins %id's group)"; return ;;
-      esac
-      # A pane named on the command line is quoted; the default is a format
-      # for run-shell to expand to the caller's pane.
-      local anchor="${1:-}"
-      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' all $anchor"
-      _pane_done
-      ;;
-
-    ungroup)
-      case "${1:-}" in
-        --help|-h) echo "Usage: tmuxy pane group ungroup [%id]   (the group's members become splits in the tab)"; return ;;
-      esac
-      # A pane named on the command line is quoted; the default is a format
-      # for run-shell to expand to the caller's pane.
-      local anchor="${1:-}"
-      if [ -n "$anchor" ]; then anchor=$(shquote "$anchor"); else anchor='#{pane_id}'; fi
-      _run_shell "bash '$SCRIPTS_DIR/pane-group-tab' ungroup $anchor"
-      _pane_done
-      ;;
-
-    --help|-h|"")
-      usage_pane_group
-      ;;
-
-    *)
-      _die_usage "Unknown group command: $sub" usage_pane_group
-      ;;
-  esac
+  local arg words=()
+  for arg in "$@"; do
+    case "$arg" in
+      --help | -h)
+        find_server_cmd || exit 1
+        exec "${SERVER_CMD[@]}" group "$@"
+        ;;
+    esac
+    words+=("$(shquote "$arg")")
+  done
+  if [ $# -eq 0 ]; then
+    find_server_cmd || exit 1
+    exec "${SERVER_CMD[@]}" group --help
+  fi
+  _run_as_caller "bash $(shquote "$SCRIPTS_DIR/pane-group") ${words[*]}$(_json_flag)"
 }

@@ -1,7 +1,3 @@
-//! State aggregator for tmux control mode
-//!
-//! Aggregates control mode events into coherent state using vt100 terminal emulation.
-
 use super::parser::ControlModeEvent;
 use super::{images, osc};
 use crate::{PaneId, WindowId};
@@ -11,32 +7,37 @@ use tracing::{debug, warn};
 // The settling debounce uses a monotonic clock. `std::time::Instant::now()`
 // panics on wasm32; web-time backs it with performance.now() in the browser.
 #[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
+pub use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
-use web_time::Instant;
+pub use web_time::Instant;
 
-/// Type of change that occurred
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// What kind of change a step made: the classes a host's emission policy
+/// tells apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ChangeType {
-    /// No change
     #[default]
     None,
-    /// Pane output changed (high frequency, may be debounced)
-    PaneOutput { pane_id: PaneId },
-    /// Pane layout/position changed
-    PaneLayout,
-    /// Window-related change (add, close, rename, focus)
+    /// Pane content changed: high frequency, throttled or debounced.
+    Output,
+    /// Pane geometry changed: coalesced over a short debounce.
+    Layout,
+    /// A window came, went, was renamed or became the current one.
     Window,
-    /// Pane focus changed within window
-    PaneFocus,
-    /// Session-related change
-    Session,
-    /// Full state refresh needed
-    Full,
-    /// Flow control: pane paused
-    FlowPause { pane_id: PaneId },
-    /// Flow control: pane resumed
-    FlowContinue { pane_id: PaneId },
+    /// The focused pane of a window changed.
+    Focus,
+    /// Anything else (the session, a re-list): emitted at once.
+    Other,
+}
+
+impl ChangeType {
+    /// Whether the change belongs to a burst a multi-step script makes, the
+    /// kind settling holds back and waits out.
+    pub fn is_structural(self) -> bool {
+        matches!(
+            self,
+            ChangeType::Window | ChangeType::Layout | ChangeType::Focus
+        )
+    }
 }
 
 /// Is this "title" a graphics escape tmux mistook for one?
@@ -52,7 +53,7 @@ pub enum ChangeType {
 /// `;payload` — so a program whose real title merely starts with a G keeps it.
 /// See docs/RICH-RENDERING.md for why wrapping the escape is the fix on the
 /// sending side.
-pub(super) fn is_graphics_payload(title: &str) -> bool {
+fn is_graphics_payload(title: &str) -> bool {
     let Some(rest) = title.strip_prefix('G') else {
         return false;
     };
@@ -73,102 +74,114 @@ pub(super) fn is_graphics_payload(title: &str) -> bool {
     })
 }
 
-/// Result of processing a control mode event
-#[derive(Debug, Default)]
-pub(crate) struct ProcessEventResult {
-    /// Whether state changed in a way that should trigger a UI update
-    pub state_changed: bool,
-    /// Pane IDs that need their content refreshed via capture-pane
-    pub panes_needing_refresh: Vec<PaneId>,
-    /// Type of change that occurred (for smart update strategies)
-    pub change_type: ChangeType,
-    /// Newly decoded images: (pane_id, vec of (image_id, StoredImage))
-    pub new_images: Vec<(PaneId, Vec<(u32, super::images::StoredImage)>)>,
-    /// OSC 52 clipboard write requests from the terminal application.
-    /// Each entry is (pane_id, decoded text); no pane for a paste-buffer yank. Forwarded to the emitter so
-    /// the frontend can mirror the request into the system clipboard.
-    pub clipboard_writes: Vec<(Option<PaneId>, String)>,
-    /// tmux commands the runtime must send back over the control connection
-    /// (beyond the dedicated refresh/capture fields above). Used by the
-    /// push-based (wasm) path, e.g. reading a paste buffer after
-    /// %paste-buffer-changed.
-    pub commands: Vec<String>,
-    /// Completed reply-wrapped commands: (reply id, everything the command
-    /// printed, whether every block succeeded). See `reply_wrapped_lines`.
-    pub command_replies: Vec<(u64, String, Option<String>)>,
-    /// Notices for the person, about something the aggregator did on their
-    /// behalf (a view mode it closed).
-    pub messages: Vec<String>,
+pub(super) fn shown_title(title: String) -> String {
+    if is_graphics_payload(&title) {
+        String::new()
+    } else {
+        title
+    }
 }
 
-/// Outcome of a single `StateAggregator::step` call.
-///
-/// Effects describe the I/O the runtime must perform. `change_type` is also
-/// returned out-of-band because the monitor's settling state machine needs to
-/// see *every* change (including suppressed ones), not just the ones that
-/// flowed through into an `EmitState` effect. Without this, the settling
-/// timer wouldn't extend during compound commands while window emissions are
-/// suppressed.
+#[derive(Debug, Default)]
+pub(crate) struct ProcessEventResult {
+    pub state_changed: bool,
+    /// Panes to capture again.
+    pub panes_needing_refresh: Vec<PaneId>,
+    pub change_type: ChangeType,
+    /// Newly decoded images: (pane, [(image id, image)]).
+    pub new_images: Vec<(PaneId, Vec<(u32, super::images::StoredImage)>)>,
+    /// OSC 52 clipboard writes, (pane, decoded text); no pane for a
+    /// paste-buffer yank.
+    pub clipboard_writes: Vec<(Option<PaneId>, String)>,
+    /// The aggregator's own commands (a buffer read, a view mode closed, a
+    /// collapsed window's rows evened out).
+    pub commands: Vec<String>,
+    /// Completed reply-wrapped commands: (reply id, everything the command
+    /// printed, tmux's error when a block failed). See `reply_wrapped_lines`.
+    pub command_replies: Vec<(u64, String, Option<String>)>,
+    /// Notices for the person: a `%message`, or something the aggregator
+    /// did on their behalf (a view mode it closed).
+    pub messages: Vec<String>,
+    /// A pane tmux paused (flow control), to be resumed at once.
+    pub resume: Option<PaneId>,
+}
+
+/// Outcome of a single `StateAggregator::step` call: the effects, in the
+/// order the host must run them, and the class of change the step made
+/// (reported even when settling holds its emission back).
 #[derive(Debug, Clone, Default)]
 pub struct StepResult {
     pub effects: Vec<SideEffect>,
     pub change_type: ChangeType,
 }
 
-/// Typed side effect emitted by the sans-IO state machine.
-///
-/// The aggregator never performs I/O itself — it only describes what the
-/// runtime (currently `TmuxMonitor`) must do. This makes the state machine
-/// fully testable without tokio: drive it with synthetic events and assert
-/// on the returned `Vec<SideEffect>`.
+/// What a batch of the aggregator's commands is for. The order a step
+/// returns them in is load-bearing (A1 in `docs/INVARIANTS.md`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Batch {
+    /// Each window's options, set once per window and kind
+    /// (`window_setup_commands`), ahead of anything that sizes or draws it.
+    WindowSetup,
+    /// The aggregator's own commands: a yanked buffer read, a view mode
+    /// closed, a collapsed window's rows evened out.
+    Own,
+    /// A window was added or closed: panes, then windows, then the stash
+    /// (M2) — a window listed before its panes is a window with panes
+    /// missing.
+    WindowRelist,
+    /// Panes whose content is stale: `list-panes` (and the stash), then a
+    /// capture of each (M3), so the captures are placed against the cursor
+    /// tmux reports now.
+    PaneRefresh,
+    /// A pane tmux paused (flow control), resumed.
+    Resume,
+}
+
+/// Something for the person, or for the host's own stores.
 #[derive(Debug, Clone)]
-pub enum SideEffect {
-    /// Send a tmux command through control mode. The runtime is expected to
-    /// dispatch this via `ControlModeConnection::send_command(s)`.
-    SendTmuxCommand(String),
-    /// Capture-pane is needed for these pane ids — emit list-panes first,
-    /// then capture each. Surfaced as its own variant so the monitor can
-    /// preserve the ordering invariant documented in `refresh_panes`.
-    RefreshPanes { pane_ids: Vec<PaneId> },
-    /// After a window-add event, refresh both list-panes and list-windows.
-    /// Order is load-bearing (see `refresh_after_window_add`).
-    RefreshAfterWindowAdd,
-    /// Auto-adopt every untagged window with the supplied `set-option`
-    /// commands. Idempotent — `collect_window_tag_commands` skips already
-    /// tagged windows.
-    AdoptUntaggedWindows(Vec<String>),
-    /// Indicate the runtime should emit a state update if the aggregator has
-    /// one queued. The variant carries the `ChangeType` so the runtime can
-    /// pick the right emission strategy (throttle, debounce, immediate).
-    EmitState { change: ChangeType },
-    /// Resume a paused pane (flow control).
-    ResumePane(PaneId),
-    /// Forward a freshly-decoded image set to the emitter.
-    StoreImages {
+pub enum Notice {
+    /// Freshly decoded images of a pane (a host serving image bytes keeps
+    /// them; the placements ride the state).
+    Images {
         pane_id: PaneId,
         images: Vec<(u32, super::images::StoredImage)>,
     },
-    /// Forward an OSC 52 clipboard write to the system clipboard.
-    /// `pane_id` is the writer, or `None` for a paste-buffer yank.
-    WriteClipboard {
+    /// An OSC 52 clipboard write, or a copy-mode yank (`pane_id: None`).
+    Clipboard {
         pane_id: Option<PaneId>,
         text: String,
     },
-    /// A command sent with `reply_wrapped_lines` has finished: hand its output
-    /// back to whoever asked. `error` is tmux's message when a block of the
-    /// command was an `%error` — tmux stops a command list at the first
-    /// failure, so `output` is then what the commands before it printed.
-    CommandReply {
+    /// A notice shown like a `%message`.
+    Message(String),
+    /// A command tmux refused, or a link that failed.
+    Error(String),
+}
+
+/// What a step asks of the host. The aggregator does no I/O: every command
+/// it needs sent is here wire-ready, so a host only runs the effects in the
+/// order they come — the native monitor and the wasm guest alike
+/// (`monitor_core`).
+#[derive(Debug, Clone)]
+pub enum SideEffect {
+    /// Control-mode lines to write, in order, in one flush.
+    Send {
+        batch: Batch,
+        commands: Vec<String>,
+    },
+    /// A state emission is due; the class picks throttle, debounce or now.
+    Emit(ChangeType),
+    Notify(Notice),
+    /// A command sent with `reply_wrapped_lines` has finished: `error` is
+    /// tmux's message when a block of it was an `%error` — tmux stops a
+    /// command list at the first failure, so `output` is then what the
+    /// commands before it printed.
+    Reply {
         id: u64,
         output: String,
         error: Option<String>,
     },
-    /// A notice for the person, shown like a `%message`: something the
-    /// aggregator did on their behalf, such as closing a view mode.
-    ShowMessage(String),
 }
 
-/// Aggregates control mode events into coherent state
 /// A sidebar window with its column width and, when the client set it, the
 /// rows its column holds (`tmux_options::SIDEBAR_ROWS`).
 pub type SidebarSizing = (WindowId, u32, Option<u32>);
@@ -176,59 +189,42 @@ pub type SidebarSizing = (WindowId, u32, Option<u32>);
 pub struct StateAggregator {
     /// How many `list-panes` reports have been applied. A monitor sizing a
     /// window judges each `resizew` by the report that FOLLOWS it, so this is
-    /// what tells one report from the next (see `monitor::needs_resize`).
+    /// what tells one report from the next (see `monitor_core::sizing::needs_resize`).
     pub pane_reports: u64,
     /// Windows whose `@tmuxy-collapsible` just dropped: their first-level rows
     /// are evened out on the next step (see `collapsible_layout_commands`).
     even_out_pending: Vec<WindowId>,
-    /// Session name (e.g., "tmuxy")
+    /// The session's name: the configured one until `%session-changed`
+    /// confirms it, then whatever tmux renames it to. Empty follows any.
     session_name: String,
     /// The attached session's id (`$0`), from `%session-changed`: tmux tells
     /// every control client of every session's rename, so this is what picks
     /// out ours. Unknown on a core started after the attach.
     session_id: Option<String>,
-
-    /// Pane states indexed by pane ID
     panes: HashMap<PaneId, PaneState>,
-
-    /// Window states indexed by window ID
     windows: HashMap<WindowId, WindowState>,
-
-    /// Active window ID
     active_window_id: Option<WindowId>,
-
-    /// Pane IDs with a capture-pane command in flight. Used for de-duplication
-    /// (don't send a second capture while one is pending) and to preserve the
-    /// previous content of a resized pane until its capture lands (see
-    /// `to_state_update`). Response ROUTING does not use this — every capture
-    /// is bracketed by `TMUXY_CAP_BEGIN <token> <pane>` / `TMUXY_CAP_END <token>`
-    /// marker responses (see `Markers`), so a capture block is attributed to
-    /// its pane exactly, never by arrival order or output-shape guessing.
+    /// Panes with a capture in flight: no second one is sent while one is
+    /// pending, and the first state waits for the initial ones
+    /// (`initial_state_ready`). A capture's reply is routed by its markers
+    /// (`Markers`), never by this order.
     pending_captures: std::collections::VecDeque<PaneId>,
     /// Panes asked for a capture while one was already in flight for them:
     /// a fresh capture is issued when the in-flight one lands.
     recapture: std::collections::HashSet<PaneId>,
-    /// Whether a list-panes / list-windows response has been parsed since
-    /// this aggregator was created — the first ones are the initial sync.
+    /// Whether a list-panes / list-windows response has been parsed yet: the
+    /// first ones are the initial sync.
     panes_synced: bool,
     windows_synced: bool,
-    /// Pane the response between a `TMUXY_CAP_BEGIN <pane>` marker and its
-    /// `TMUXY_CAP_END` belongs to (each command in a control-mode command
-    /// list gets its own %begin/%end block, so the trio arrives consecutively).
-    capture_armed: Option<PaneId>,
-    /// Buffer names for pending marker-wrapped `show-buffer` reads (FIFO),
-    /// issued in response to %paste-buffer-changed (copy-mode yank mirror).
-    pending_buffer_reads: std::collections::VecDeque<String>,
-    /// True between the TMUXY_BUF_BEGIN marker response and the buffer-content
-    /// response that immediately follows it (each command in a control-mode
-    /// command list gets its own %begin/%end block).
-    buffer_read_armed: bool,
+    /// The read whose answer is the next block: its BEGIN marker's block
+    /// just arrived (see `Read`).
+    armed: Option<markers::Read>,
+    /// `show-buffer` reads in flight, issued on `%paste-buffer-changed` to
+    /// mirror a copy-mode yank.
+    pending_buffer_reads: usize,
     /// Panes whose row just reported view mode: each is asked about
     /// (`clients_read_command`) on the step that parsed the row.
     view_mode_opened: Vec<PaneId>,
-    /// The pane whose `list-clients` answer is the next block, between its
-    /// `TMUXY_CLI_BEGIN <pane>` and `TMUXY_CLI_END` markers.
-    clients_read_armed: Option<PaneId>,
     /// The reply-wrapped command whose output is being collected: everything
     /// between its `TMUXY_RPY_BEGIN <id>` and `TMUXY_RPY_END <id>` marker
     /// blocks. See `reply_wrapped_lines`.
@@ -236,84 +232,58 @@ pub struct StateAggregator {
     /// The token this aggregator's marker lines carry, and the commands that
     /// print them (`Markers`): a marker without it is pane output.
     markers: Markers,
-
-    /// Latest value of the session-scoped `@tmuxy-focus-request` option, read
-    /// as a column of the `list-windows` poll. A one-shot request from a shell
-    /// helper (`packages/tmuxy-cli/bin/tmuxy/nav`) for the client to move keyboard focus somewhere
-    /// no tmux command could — see `tmux_options::FOCUS_REQUEST`. The client
-    /// that acts on it unsets the option, which clears this on the next poll.
+    /// Latest value of the session-scoped `@tmuxy-focus-request`, read as a
+    /// column of `list-windows`: a one-shot request from a shell helper
+    /// (`packages/tmuxy-cli/bin/tmuxy/nav`) for the client to move keyboard
+    /// focus where no tmux command can (`tmux_options::FOCUS_REQUEST`). The
+    /// client that acts on it unsets the option.
     focus_request: Option<String>,
-
     /// Latest value of the global `@tmuxy-plugins-rev`, read as a column of
     /// the `list-panes` rows. A new value tells the client to re-read the
     /// plugin inventory (`tmux_options::PLUGINS`).
     plugins_rev: Option<String>,
-
     /// Latest `<@tmuxy-theme>:<@tmuxy-theme-mode>`, as the theme subscription
-    /// reports it (`tmux_formats::SUBSCRIBE_THEME_CMD`). A new value tells the
-    /// client to read the theme settings again, so a theme picked on one
+    /// reports it (`tmux_formats::subscribe_theme_command`). A new value tells
+    /// the client to read the theme settings again, so a theme picked on one
     /// client is drawn by all of them.
     theme_rev: Option<String>,
-
-    // Delta state tracking
-    /// Previous state snapshot for delta computation
     prev_state: Option<crate::TmuxState>,
-
-    /// Sequence number for delta updates
     delta_seq: u64,
-
-    /// When true, window/layout change events update internal state but
-    /// return `state_changed: false` to suppress emission. Pane output
-    /// events still emit immediately. Used during command-aware settling
-    /// to batch intermediate states from compound commands (e.g., splitw ; breakp).
+    /// While settling a compound command (`splitw ; breakp`), window and
+    /// layout events update state without asking for an emission.
     suppress_window_emissions: bool,
-
-    /// Panes whose VT100 was reset because they moved between windows
-    /// (e.g., break-pane). %output events are suppressed for these panes
-    /// until a capture-pane response arrives, preventing stale content from
-    /// the old window from accumulating in the reset buffer.
+    /// Panes whose vt100 was reset because they moved between windows
+    /// (break-pane): their `%output` is dropped until a capture lands, so the
+    /// old window's content does not pile up in the fresh buffer.
     panes_moved_window: std::collections::HashSet<PaneId>,
-
-    /// Buffered %output for panes not yet created in state.
-    /// When tmux splits a pane, %output for the new pane can arrive before
-    /// %layout-change creates the pane. This buffer holds that early output
-    /// so parse_layout() can replay it when the pane is created.
+    /// `%output` for panes not in state yet: on a split, tmux can send the new
+    /// pane's output before the `%layout-change` that creates it, so
+    /// `parse_layout` replays it once the pane exists.
     early_output: HashMap<PaneId, Vec<u8>>,
-
-    /// HIDDEN pane-group members parked in the stash session, keyed by pane id.
-    /// These are not real panes in this session's plane — they carry only what a
-    /// group tab strip needs (window id, group id, command, title). Rebuilt from
-    /// each `LIST_STASH_PANES_CMD` response and emitted as lightweight
-    /// `TmuxPane` stubs (see `to_tmux_state`). The frontend tells a stub from the
+    /// HIDDEN pane-group members parked in the stash session, carrying only
+    /// what a group tab strip needs. Rebuilt from each `TmuxList::Stash` reply
+    /// and emitted as `TmuxPane` stubs; the frontend tells a stub from the
     /// visible member by its window id (a stash window is never the active one).
     stash_members: HashMap<PaneId, StashMember>,
-
-    /// Window ids that have had `pane-border-status top` enforced. Tabs no
-    /// longer carry a `@tmuxy-window-type` marker (untagged ⇒ tab, derived at
-    /// emit), so there's no per-window tmux flag to make the enforcement
-    /// idempotent — this in-memory set does, applying the border settings once
-    /// per window per connection.
-    border_enforced: std::collections::HashSet<WindowId>,
-    /// Sidebar windows whose pane border has been switched off. `pane-border-status
-    /// top` is a GLOBAL window option (every new window inherits it), so a sidebar
-    /// needs it turned off explicitly whether or not it was first adopted as a tab.
-    sidebar_border_cleared: std::collections::HashSet<WindowId>,
-
-    /// Compound-command settling state. When armed (`settling_until.is_some()`),
-    /// window/layout emissions are suppressed and the aggregator's `tick(now)`
-    /// is responsible for firing the consolidated state emit when the deadline
-    /// expires.
+    /// What each window has been set up as on this connection
+    /// (`window_setup_commands`): tabs carry no marker to gate the setup on,
+    /// so this is what makes it once per window.
+    window_setup: HashMap<WindowId, window_state::WindowSetup>,
+    /// Compound-command settling: while armed, window/layout emissions are
+    /// held and `tick(now)` fires the consolidated emit at the deadline.
     settling_until: Option<Instant>,
     settling_started: Option<Instant>,
     settling_awaiting_first_event: bool,
 }
 
 impl StateAggregator {
+    /// An aggregator that follows whichever session its client attaches to.
     pub fn new() -> Self {
-        Self::with_session_name(crate::DEFAULT_SESSION_NAME)
+        Self::with_session_name("")
     }
 
-    /// Create with a specific session name
+    /// An aggregator for the session `session_name`: session events about
+    /// any other are not its own (`names_our_session`).
     pub fn with_session_name(session_name: &str) -> Self {
         Self {
             session_name: session_name.to_string(),
@@ -326,11 +296,9 @@ impl StateAggregator {
             recapture: std::collections::HashSet::new(),
             panes_synced: false,
             windows_synced: false,
-            capture_armed: None,
-            pending_buffer_reads: std::collections::VecDeque::new(),
-            buffer_read_armed: false,
+            armed: None,
+            pending_buffer_reads: 0,
             view_mode_opened: Vec::new(),
-            clients_read_armed: None,
             reply_in_flight: None,
             markers: Markers::fresh(),
 
@@ -344,8 +312,7 @@ impl StateAggregator {
             panes_moved_window: std::collections::HashSet::new(),
             early_output: HashMap::new(),
             stash_members: HashMap::new(),
-            border_enforced: std::collections::HashSet::new(),
-            sidebar_border_cleared: std::collections::HashSet::new(),
+            window_setup: HashMap::new(),
             settling_until: None,
             settling_started: None,
             settling_awaiting_first_event: false,
@@ -372,41 +339,43 @@ mod command_response;
 mod delta_emit;
 mod events;
 mod markers;
-mod pane_output;
 mod pane_state;
 mod parsing;
 mod stash_and_helpers;
 mod step_and_output;
 mod window_state;
 
-pub use command_response::window_relist_commands;
 use command_response::ReplyInFlight;
 pub use markers::{
     control_mode_lines, Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER,
-    CAPTURE_END_MARKER, CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER, LIST_CLIENTS_FORMAT,
-    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    CAPTURE_END_MARKER, LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
+#[cfg(test)]
+pub(crate) use markers::{CLIENTS_BEGIN_MARKER, CLIENTS_END_MARKER};
 pub use pane_state::PaneState;
-pub use stash_and_helpers::{
-    accepted_clipboard_write, normalize_capture_bytes, MAX_CLIPBOARD_BYTES,
-    MAX_STORED_IMAGES_PER_PANE, MIN_CLIPBOARD_INTERVAL,
-};
-use stash_and_helpers::{
-    is_list_panes_line, is_stash_member_line, normalize_pane_command, StashMember,
-};
-use window_state::parse_layout_panes;
+pub(crate) use stash_and_helpers::normalize_capture_bytes;
+use stash_and_helpers::{accepted_clipboard_write, MAX_STORED_IMAGES_PER_PANE};
+use stash_and_helpers::{normalize_pane_command, StashMember};
+pub use stash_and_helpers::{MAX_CLIPBOARD_BYTES, MIN_CLIPBOARD_INTERVAL};
 pub use window_state::WindowState;
+use window_state::{parse_layout_panes, LayoutPane};
 
+#[cfg(test)]
+mod test_pane;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_capture;
+#[cfg(test)]
+mod tests_capture_cursor;
 #[cfg(test)]
 mod tests_hyperlinks;
 #[cfg(test)]
 mod tests_panes;
 #[cfg(test)]
 mod tests_sidebar_and_delta;
+#[cfg(test)]
+mod tests_text_sizes;
 #[cfg(test)]
 mod tests_view_mode;
 #[cfg(test)]

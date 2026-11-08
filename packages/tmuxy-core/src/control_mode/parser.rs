@@ -1,28 +1,14 @@
-//! Parser for tmux control mode notifications
-//!
-//! Control mode outputs various notifications prefixed with `%`:
-//! - `%output %pane-id value` - Pane output
-//! - `%layout-change @window layout visible-layout flags` - Layout changed
-//! - `%begin/%end/%error` - Command response blocks
-//! - etc.
-
 use super::octal::decode_octal;
 use crate::{PaneId, WindowId};
 
-/// Events parsed from control mode output
 #[derive(Debug, Clone)]
 pub enum ControlModeEvent {
     /// Raw pane output (octal-decoded)
-    Output { pane_id: PaneId, content: Vec<u8> },
-
-    /// Extended output with timing info (when flow control is enabled)
-    ExtendedOutput {
+    Output {
         pane_id: PaneId,
-        age_ms: u64,
         content: Vec<u8>,
     },
 
-    /// Layout change notification
     LayoutChange {
         window_id: WindowId,
         layout: String,
@@ -30,14 +16,18 @@ pub enum ControlModeEvent {
         flags: String,
     },
 
-    /// Window added
-    WindowAdd { window_id: WindowId },
+    WindowAdd {
+        window_id: WindowId,
+    },
 
-    /// Window closed
-    WindowClose { window_id: WindowId },
+    WindowClose {
+        window_id: WindowId,
+    },
 
-    /// Window renamed
-    WindowRenamed { window_id: WindowId, name: String },
+    WindowRenamed {
+        window_id: WindowId,
+        name: String,
+    },
 
     /// Active pane changed in window
     WindowPaneChanged {
@@ -46,30 +36,42 @@ pub enum ControlModeEvent {
     },
 
     /// Pane mode changed (e.g., entered/exited copy mode)
-    PaneModeChanged { pane_id: PaneId },
+    PaneModeChanged {
+        pane_id: PaneId,
+    },
 
     /// A `refresh-client -B` subscription's value changed for a pane:
     /// `%subscription-changed <name> $session @window <index> %pane ... : value`.
-    SubscriptionChanged { name: String, pane_id: PaneId },
+    SubscriptionChanged {
+        name: String,
+        pane_id: PaneId,
+    },
 
     /// A session-scoped `refresh-client -B` subscription's value changed:
     /// `%subscription-changed <name> $session - - - : value`, no window or
     /// pane named, the value whole.
-    SessionSubscriptionChanged { name: String, value: String },
+    SessionSubscriptionChanged {
+        name: String,
+        value: String,
+    },
 
     /// A paste buffer was created or updated (e.g. copy-mode yank, set-buffer).
     /// tmux does not forward OSC 52 to a control-mode client, so this is how
     /// tmuxy learns a copy happened and mirrors the buffer to the web clipboard.
-    PasteBufferChanged { buffer_name: String },
+    PasteBufferChanged {
+        buffer_name: String,
+    },
 
-    /// Session changed
     SessionChanged {
         session_id: String,
         session_name: String,
     },
 
     /// A session renamed: any session on the server, not only the attached one
-    SessionRenamed { session_id: String, name: String },
+    SessionRenamed {
+        session_id: String,
+        name: String,
+    },
 
     /// Session window changed (active window in session)
     SessionWindowChanged {
@@ -80,35 +82,43 @@ pub enum ControlModeEvent {
     /// Sessions list changed (session created/destroyed)
     SessionsChanged,
 
-    /// Command response block completed
     CommandResponse {
-        timestamp: u64,
-        command_num: u32,
         output: String,
         success: bool,
     },
 
     /// Flow control: pane paused
-    Pause { pane_id: PaneId },
+    Pause {
+        pane_id: PaneId,
+    },
 
     /// Flow control: pane continued
-    Continue { pane_id: PaneId },
+    Continue {
+        pane_id: PaneId,
+    },
 
     /// A `display-message` aimed at this client (tmux 3.4+): `%message text`.
     /// tmux writes the text as it is, unescaped; the parser strips control
     /// characters and caps the length (`MAX_MESSAGE_CHARS`). One this client
     /// ran itself comes inside its command's response block instead (see
     /// `message_line`).
-    Message { text: String },
+    Message {
+        text: String,
+    },
 
     /// Control mode client exiting
-    Exit { reason: Option<String> },
+    Exit {
+        reason: Option<String>,
+    },
 
     /// Unlinked window added (window not linked to current session)
-    UnlinkedWindowAdd { window_id: WindowId },
+    UnlinkedWindowAdd {
+        window_id: WindowId,
+    },
 
-    /// Unlinked window closed
-    UnlinkedWindowClose { window_id: WindowId },
+    UnlinkedWindowClose {
+        window_id: WindowId,
+    },
 }
 
 /// The most a `%begin` … `%end` reply may hold. A whole capture of a long
@@ -116,9 +126,7 @@ pub enum ControlModeEvent {
 /// rather than grown without bound.
 pub(super) const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
-/// Parser for control mode notifications
 pub struct Parser {
-    /// State for multi-line command responses
     in_response: bool,
     response_buffer: String,
     /// Whether any body line has been accumulated for the current response.
@@ -126,11 +134,8 @@ pub struct Parser {
     /// body line may itself be empty — a capture-pane whose top row is blank —
     /// and must still count, or every leading blank row is lost.
     response_has_lines: bool,
-    /// The reply outgrew `max_response_bytes` and its body was dropped.
     response_overflowed: bool,
     max_response_bytes: usize,
-    response_timestamp: u64,
-    response_command_num: u32,
     /// The open block's guard — `%begin`'s time, command number and flags —
     /// which tmux repeats on the `%end`/`%error` that closes it.
     response_guard: String,
@@ -144,23 +149,10 @@ impl Parser {
             response_has_lines: false,
             response_overflowed: false,
             max_response_bytes: MAX_RESPONSE_BYTES,
-            response_timestamp: 0,
-            response_command_num: 0,
             response_guard: String::new(),
         }
     }
 
-    /// Parse a single line from control mode output, as the bytes tmux wrote.
-    /// Returns Some(event) if a complete event was parsed, None otherwise.
-    ///
-    /// Pane output is parsed from the bytes themselves. tmux passes a pane's
-    /// non-ASCII bytes through raw and cuts `%output` wherever its read ended,
-    /// so one line can carry part of a character — a program repainting its
-    /// line byte by byte (zsh-autosuggestions) sends `語` as three lines of one
-    /// byte each. Read as text first, each fragment became U+FFFD and the
-    /// character never reached the emulator, whose UTF-8 decoder joins a
-    /// character split across writes; its cursor then sat a glyph short of
-    /// tmux's, and the next relative move redrew the line in the wrong place.
     #[cfg(test)]
     pub(crate) fn with_max_response_bytes(max: usize) -> Self {
         Self {
@@ -169,6 +161,17 @@ impl Parser {
         }
     }
 
+    /// Parse one line of control mode output, as the bytes tmux wrote.
+    /// `None` while a response block is still open, or for a line that is
+    /// no event.
+    ///
+    /// Pane output is parsed from the bytes themselves. tmux passes a pane's
+    /// non-ASCII bytes through raw and cuts `%output` wherever its read ended,
+    /// so one line can carry part of a character — a program repainting its
+    /// line byte by byte (zsh-autosuggestions) sends `語` as three lines of one
+    /// byte each. Read as text, each fragment would become U+FFFD and never
+    /// reach the emulator, whose UTF-8 decoder joins a character split across
+    /// writes.
     pub fn parse_line(&mut self, line: impl AsRef<[u8]>) -> Option<ControlModeEvent> {
         use crate::constants::control_events as ev;
 
@@ -218,14 +221,12 @@ impl Parser {
         }
 
         // A stray %end/%error with no matching %begin would otherwise emit a
-        // CommandResponse carrying the previous block's stale timestamp/
-        // command_num and an empty body, which downstream treats as a real
-        // (state-changing) response.
+        // CommandResponse with an empty body, which downstream takes for the
+        // answer to a command it sent.
         if line.starts_with(ev::END) || line.starts_with(ev::ERROR) {
             return None;
         }
 
-        // Parse notifications (all start with %)
         if !line.starts_with('%') {
             return None;
         }
@@ -236,7 +237,6 @@ impl Parser {
     fn parse_notification(&self, line: &str) -> Option<ControlModeEvent> {
         use crate::constants::control_events as ev;
 
-        // %layout-change @window layout visible-layout flags
         if line.starts_with(ev::LAYOUT_CHANGE) {
             return self.parse_layout_change(line);
         }
@@ -255,12 +255,10 @@ impl Parser {
             });
         }
 
-        // %window-renamed @window name
         if line.starts_with(ev::WINDOW_RENAMED) {
             return self.parse_window_renamed(line);
         }
 
-        // %window-pane-changed @window %pane
         if line.starts_with(ev::WINDOW_PANE_CHANGED) {
             return self.parse_window_pane_changed(line);
         }
@@ -293,7 +291,6 @@ impl Parser {
             });
         }
 
-        // %session-changed $session name
         if line.starts_with(ev::SESSION_CHANGED) {
             return self.parse_session_changed(line);
         }
@@ -307,7 +304,6 @@ impl Parser {
             });
         }
 
-        // %session-window-changed $session @window
         if line.starts_with(ev::SESSION_WINDOW_CHANGED) {
             return self.parse_session_window_changed(line);
         }
@@ -335,11 +331,6 @@ impl Parser {
         if let Some(text) = message_line(line) {
             return Some(ControlModeEvent::Message { text });
         }
-
-        // %client-detached / %client-session-changed are intentionally
-        // ignored: they describe OTHER clients on the same server, and no
-        // consumer (aggregator, monitor, wasm) has ever acted on them. They
-        // fall through to the unknown-line None below.
 
         // %exit [reason]
         if let Some(rest) = line.strip_prefix(ev::EXIT) {
@@ -374,7 +365,6 @@ impl Parser {
     /// tmux's ASCII; the value is the pane's bytes, kept exactly.
     fn parse_output(rest: &[u8]) -> Option<ControlModeEvent> {
         let Some(space_idx) = rest.iter().position(|&b| b == b' ') else {
-            // No content (empty output)
             return Some(ControlModeEvent::Output {
                 pane_id: std::str::from_utf8(rest).ok()?.trim().parse().ok()?,
                 content: Vec::new(),
@@ -390,20 +380,9 @@ impl Parser {
         const SEPARATOR: &[u8] = b" : ";
         let sep_idx = rest.windows(SEPARATOR.len()).position(|w| w == SEPARATOR)?;
         let header = std::str::from_utf8(&rest[..sep_idx]).ok()?;
-        let mut header_parts = header.split_whitespace();
-
-        let pane_id = PaneId::parse(header_parts.next()?).ok()?;
-        let age_ms = header_parts
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        let pane_id = PaneId::parse(header.split_whitespace().next()?).ok()?;
         let content = decode_octal(&rest[sep_idx + SEPARATOR.len()..]);
-
-        Some(ControlModeEvent::ExtendedOutput {
-            pane_id,
-            age_ms,
-            content,
-        })
+        Some(ControlModeEvent::Output { pane_id, content })
     }
 
     fn parse_layout_change(&self, line: &str) -> Option<ControlModeEvent> {
@@ -494,7 +473,7 @@ pub const MAX_MESSAGE_CHARS: usize = 500;
 ///
 /// A message from a `display-message` this client ran itself arrives INSIDE
 /// that command's `%begin`/`%end` block, where the parser takes every line as
-/// response text — so the monitor also looks for it in the output of the
+/// response text — so the monitor core also looks for it in the output of the
 /// commands it sent.
 pub fn message_line(line: &str) -> Option<String> {
     line.strip_prefix(crate::constants::control_events::MESSAGE)

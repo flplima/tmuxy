@@ -1,48 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../../test/wire';
+import { modelPane } from '../../../test/model';
 import { predict, reconcile } from '../ops';
 import { parseCommandToOp } from '../parseCommand';
 import { makePendingOp } from '../model';
 import {
   EMPTY_SNAPSHOT,
-  FOCUS_CONFIRM_LINGER_MS,
+  CONFIRM_LINGER_MS,
   FOCUS_SUPERSEDE_GRACE_MS,
   type TmuxSnapshot,
   type OpId,
 } from '../types';
-import type { TmuxPane } from '../../client';
 import type { PaneId, WindowId } from '../../ids';
 
-function pane(tmuxId: PaneId, x: number, y: number, width: number, height: number): TmuxPane {
-  return {
-    id: parseInt(tmuxId.slice(1), 10),
-    tmuxId,
-    windowId: wid('@0'),
-    content: [],
-    cursorX: 0,
-    cursorY: 0,
-    width,
-    height,
-    x,
-    y,
-    active: false,
-    command: 'bash',
-    title: '',
-    borderTitle: '',
-    inMode: false,
-    copyCursorX: 0,
-    copyCursorY: 0,
-    alternateOn: false,
-    mouseAnyFlag: false,
-    paused: false,
-    historySize: 0,
-    selectionPresent: false,
-    selectionStartX: 0,
-    selectionStartY: 0,
-    cursorShape: 0,
-    cursorHidden: false,
-  };
-}
+const pane = (tmuxId: PaneId, x: number, y: number, width: number, height: number) =>
+  modelPane(tmuxId, wid('@0'), { x, y, width, height });
 
 // Two side-by-side panes: %0 [0..39] and %1 [41..80].
 const SNAPSHOT: TmuxSnapshot = {
@@ -55,48 +27,6 @@ const SNAPSHOT: TmuxSnapshot = {
 };
 
 const CTX = { defaultShell: 'bash', paneActivationOrder: [] as PaneId[] };
-
-describe('parseCommandToOp — kill / rename / zoom', () => {
-  it('parses kill-pane forms', () => {
-    expect(parseCommandToOp('kill-pane')).toEqual({ _tag: 'KillPane', paneId: null });
-    expect(parseCommandToOp('kill-pane -t %3')).toEqual({ _tag: 'KillPane', paneId: pid('%3') });
-    expect(parseCommandToOp('select-pane -t %0 \\; kill-pane')).toEqual({
-      _tag: 'KillPane',
-      paneId: null,
-    });
-  });
-
-  it('parses kill-window forms (index targets stay raw)', () => {
-    expect(parseCommandToOp('kill-window')).toEqual({ _tag: 'KillWindow', windowId: null });
-    expect(parseCommandToOp('kill-window -t @2')).toEqual({
-      _tag: 'KillWindow',
-      windowId: wid('@2'),
-    });
-    expect(parseCommandToOp('kill-window -t :2')._tag).toBe('RawCommand');
-  });
-
-  it('parses rename-window forms', () => {
-    expect(parseCommandToOp("rename-window -- 'my tab'")).toEqual({
-      _tag: 'RenameWindow',
-      target: null,
-      name: 'my tab',
-    });
-    expect(parseCommandToOp('rename-window -t @1 newname')).toEqual({
-      _tag: 'RenameWindow',
-      target: wid('@1'),
-      name: 'newname',
-    });
-  });
-
-  it('parses zoom toggles, leaving plain resizes raw', () => {
-    expect(parseCommandToOp('resize-pane -Z')).toEqual({ _tag: 'ZoomToggle', paneId: null });
-    expect(parseCommandToOp('resize-pane -t %2 -Z')).toEqual({
-      _tag: 'ZoomToggle',
-      paneId: pid('%2'),
-    });
-    expect(parseCommandToOp('resize-pane -L 5')._tag).toBe('RawCommand');
-  });
-});
 
 describe('KillPane predict/reconcile', () => {
   it('removes the pane, expands the aligned neighbor, refocuses MRU', () => {
@@ -135,9 +65,7 @@ describe('KillPane predict/reconcile', () => {
     const confirmed = { ...snap, panes: [snap.panes[0]] };
     expect(reconcile(pendingOp, snap, undefined, 100)._tag).toBe('pending');
     expect(reconcile(pendingOp, confirmed, undefined, 100)._tag).toBe('pending');
-    expect(reconcile(pendingOp, confirmed, undefined, FOCUS_CONFIRM_LINGER_MS + 1)._tag).toBe(
-      'matched',
-    );
+    expect(reconcile(pendingOp, confirmed, undefined, CONFIRM_LINGER_MS + 1)._tag).toBe('matched');
   });
 
   it('patch replays idempotently over confirmed layouts during the linger', () => {

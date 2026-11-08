@@ -4,21 +4,20 @@
  * Focus, key combos, tmux prefix, typing, and tmux command line.
  */
 
-const { delay, waitForCondition, waitForKeyboardFocus } = require('./browser');
+const { delay, waitForCondition, waitForKeyboardFocus, clickTerminal } = require('./browser');
 
 // ==================== Focus Helper ====================
 
 /**
  * Focus the terminal element, clicking the ACTIVE pane's terminal.
- * Clicking a non-active pane triggers FOCUS_PANE → select-pane, which
+ * Clicking a non-active pane triggers SELECT_PANE → select-pane, which
  * races with subsequent prefix binding commands (e.g., prefix+o).
  * Falls back to any terminal, then body, if the active selector fails.
  */
 async function focusTerminal(page) {
   // Prefer the active pane's terminal to avoid changing the active pane
-  const activeSelector = '.pane-active [role="log"]';
   try {
-    await page.click(activeSelector, { timeout: 2000 });
+    await clickTerminal(page.locator('.pane-active [role="log"]').first());
   } catch {
     // Active pane terminal may not exist yet; try any terminal (the click
     // waits for one to appear).
@@ -48,74 +47,41 @@ async function sendKeyCombo(page, ...keys) {
 }
 
 /**
- * Read the tmux prefix key from the browser's XState context.
- * Returns { modifier, key } e.g. { modifier: 'Control', key: 'b' } for C-b.
- * Falls back to Ctrl+B (tmux default) if not available.
+ * Wait until the app has the server's key bindings, and return its prefix key
+ * as Playwright presses it: `C-a` is `{ modifier: 'Control', key: 'a' }`, a
+ * bare key has no modifier. Until the bindings arrive the keyboard actor finds
+ * nothing for the key after the prefix and drops it (keyboardActor.ts), which
+ * on a slow runner the first prefix-bound action of a test can race.
  */
-async function getPrefixKey(page) {
-  const prefixStr = await page.evaluate(() => {
-    return window.app?.getSnapshot()?.context?.keybindings?.prefix_key;
-  });
-  // Parse "C-b" or "C-a" style prefix key strings
-  if (prefixStr && prefixStr.startsWith('C-')) {
-    return { modifier: 'Control', key: prefixStr.slice(2) };
-  }
-  // Default to Ctrl+B (tmux default)
-  return { modifier: 'Control', key: 'b' };
-}
-
-/**
- * Block until the keyboard actor has prefix bindings loaded from the server.
- *
- * The keyboard actor's `prefixBindings` map is populated from an
- * UPDATE_KEYBINDINGS event whose payload comes from the server's
- * `list-keys -T prefix` response. If a prefix-bound keypress (e.g.
- * `prefix+n` → next-window) arrives before that event lands, the actor
- * looks the key up, finds nothing, and silently drops it ("Unknown
- * binding - just ignore (like tmux does)" in keyboardActor.ts).
- *
- * On a slow CI runner the bindings response can lag the first test's
- * first prefix-bound action; locally the cache is usually warm enough
- * to not notice. Wait for prefix_bindings.length > 0 before pressing.
- */
-async function waitForKeybindings(page, timeout = 5000) {
-  await waitForCondition(
+async function getPrefixKey(page, timeout = 5000) {
+  const prefix = await waitForCondition(
     page,
-    () =>
-      page.evaluate(() => {
-        const kb = window.app?.getSnapshot()?.context?.keybindings;
-        return Boolean(kb?.prefix_bindings?.length);
-      }),
+    () => page.evaluate(() => window.app?.view().prefixKey ?? null),
     timeout,
-    'the prefix bindings to be loaded from the server',
+    "the server's key bindings to reach the app",
   );
+  const modifiers = { C: 'Control', M: 'Alt', S: 'Shift' };
+  const match = /^([CMS])-(.+)$/.exec(prefix);
+  return match ? { modifier: modifiers[match[1]], key: match[2] } : { modifier: null, key: prefix };
 }
 
 /**
- * Send tmux prefix key (dynamically read from XState keybindings)
- *
- * Waits for the keyboard actor to *confirm* it entered prefix mode
- * (via PREFIX_MODE_CHANGE → ctx.prefixActive) before returning. The
- * fixed PREFIX delay used to "give tmux time" isn't actually about
- * tmux — the gate is the frontend keyboardActor's prefix state. On a
- * slow CI runner, 300 ms can land before the actor's keydown handler
- * runs; the subsequent `n` keypress then sees inPrefixMode=false,
- * falls through to send-keys, and the binding never fires.
+ * Press the prefix key and wait for the app to be in prefix mode: a key
+ * pressed before then is not looked up in the prefix table but sent to the
+ * pane, and the binding never fires.
  */
 async function sendTmuxPrefix(page) {
   await focusTerminal(page);
-  // Ensure the keyboard actor knows the prefix bindings before any
-  // prefix-bound key is delivered — otherwise the second keystroke is
-  // silently dropped, and the test waiting on its effect times out.
-  await waitForKeybindings(page);
-
-  // Read the actual prefix key from the browser's XState context
   const prefix = await getPrefixKey(page);
-  await page.keyboard.down(prefix.modifier);
-  await delay(50);
+  if (prefix.modifier) {
+    await page.keyboard.down(prefix.modifier);
+    await delay(50);
+  }
   await page.keyboard.press(prefix.key);
-  await delay(50);
-  await page.keyboard.up(prefix.modifier);
+  if (prefix.modifier) {
+    await delay(50);
+    await page.keyboard.up(prefix.modifier);
+  }
 
   // Wait for the keyboard actor to acknowledge prefix mode rather
   // than relying on a fixed delay.
@@ -131,27 +97,21 @@ async function sendTmuxPrefix(page) {
 async function waitForPrefixActive(page, timeout = 2000) {
   await waitForCondition(
     page,
-    () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive === true),
+    () => page.evaluate(() => window.app?.view().prefixActive === true),
     timeout,
     'prefix mode to activate',
   );
 }
 
 /**
- * Block until ctx.prefixActive flips back to false — the keyboard actor has
- * consumed the key after the prefix and dispatched whatever it was bound to.
- *
- * This is as far as a generic prefix helper can honestly wait. What the
- * binding then DOES lands asynchronously through tmux and SSE, and only the
- * caller knows which effect to watch for: `waitForPaneCount` after a split,
- * `assertContentMatch` after a command. The fixed 500ms this replaced stood in
- * for both jobs and did neither — too long on a fast machine, too short on a
- * loaded CI runner, and silent either way.
+ * Wait until the app has left prefix mode: the key after the prefix was
+ * consumed and its binding dispatched. What the binding then does is the
+ * caller's to wait for (`waitForPaneCount` after a split, say).
  */
 async function waitForPrefixConsumed(page, timeout = 3000) {
   await waitForCondition(
     page,
-    () => page.evaluate(() => window.app?.getSnapshot()?.context?.prefixActive !== true),
+    () => page.evaluate(() => window.app?.view().prefixActive !== true),
     timeout,
     'the key after the prefix to be consumed',
   );
@@ -196,14 +156,20 @@ async function sendPrefixCommand(page, key, options = {}) {
  * A column already open is left as it is, since the key would close it.
  */
 async function openSidebarKeyboard(page, side) {
-  const open = await page.evaluate(
-    (s) => window.app?.getSnapshot()?.context?.[`${s}SidebarOpen`] === true,
-    side,
-  );
-  if (open) return;
+  if (await sidebarShown(page, side)) return;
   await sendTmuxPrefix(page);
   await page.keyboard.press(side === 'left' ? 's' : 'Shift+S');
   await waitForPrefixConsumed(page);
+}
+
+/** Whether a sidebar column is drawn docked beside the grid. */
+async function sidebarShown(page, side) {
+  return page.evaluate((s) => {
+    const column = document.querySelector(`.sidebar-column-${s}`);
+    if (!column) return false;
+    const r = column.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }, side);
 }
 
 /**
@@ -213,13 +179,13 @@ async function typeInTerminal(page, text, { target } = {}) {
   // Click the active pane's terminal for reliable focus, or `target` when the
   // text is meant for another terminal (the dock's). Clicking the active pane
   // there would take the keyboard away from the terminal the text is for.
-  // Using the first [role="log"] would change the active pane via FOCUS_PANE.
+  // Using the first [role="log"] would change the active pane via SELECT_PANE.
   const terminal =
     (target && (await page.$(target))) ||
     (await page.$('.pane-active [role="log"]')) ||
     (await page.$('[role="log"]'));
   if (terminal) {
-    await terminal.click();
+    await clickTerminal(terminal);
   } else {
     await page.click('body');
   }
@@ -228,7 +194,7 @@ async function typeInTerminal(page, text, { target } = {}) {
   // bringToFront() re-establishes it at the CDP level.
   await page.bringToFront();
   // Wait for the app to be holding the keyboard rather than sleeping and
-  // hoping. The hidden input (utils/mobileKeyboard.ts) owns browser focus on
+  // hoping. The hidden input (infra/dom/mobileKeyboard.ts) owns browser focus on
   // every device, so its being the active element is the signal that a
   // keystroke will land in a pane.
   await waitForKeyboardFocus(page);
@@ -328,7 +294,7 @@ async function tmuxCommandKeyboard(page, cmd) {
 /**
  * Wait until the keyboard actor sends keys where the app's context says they
  * go now. The actor hears of a focus change by message, after the context has
- * it; the hidden input's `data-keyboard-target` (utils/mobileKeyboard.ts) is
+ * it; the hidden input's `data-keyboard-target` (infra/dom/mobileKeyboard.ts) is
  * the actor saying it has caught up. `target` is a pane id, `left-sidebar`,
  * or `focused-float` for whatever float the context has focused.
  */
@@ -338,7 +304,11 @@ async function waitForKeyboardTarget(page, target, timeout = 10000) {
     () =>
       page.evaluate((want) => {
         const expected =
-          want === 'focused-float' ? window.app?.getSnapshot()?.context?.focusedFloatPaneId : want;
+          want === 'focused-float'
+            ? window.app?.view().keyboardTarget.kind === 'float'
+              ? window.app?.view().keyboardTarget.paneId
+              : null
+            : want;
         const input = document.querySelector('input[data-keyboard-target]');
         return Boolean(expected) && input?.dataset.keyboardTarget === expected;
       }, target),
@@ -353,10 +323,9 @@ module.exports = {
   focusTerminal,
   sendKeyCombo,
   getPrefixKey,
-  waitForKeybindings,
+  sidebarShown,
   waitForPrefixActive,
   waitForPrefixConsumed,
-  sendTmuxPrefix,
   sendPrefixCommand,
   openSidebarKeyboard,
   typeInTerminal,

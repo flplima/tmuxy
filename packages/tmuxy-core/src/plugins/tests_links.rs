@@ -248,14 +248,12 @@ fn a_plugin_key_command_prints_back_as_itself() {
     // inside escaped. What the client reads back is the command it bound.
     let listing =
         format!("bind-key    -T prefix       M-a                  run-shell -b \"{command}\"\n");
-    let bindings = crate::transport::parse_bindings("prefix", &listing);
+    let bindings = crate::host::parse_bindings("prefix", &listing);
     let bound = &bindings[0];
     assert_eq!(bound.key, "M-a");
     assert_eq!(bound.command, format!("run-shell -b \"{command}\""));
 }
 
-/// The commands that rebind the plugin keys come from the tables as read:
-/// a user's binding keeps its key, every old plugin binding goes first.
 #[test]
 fn key_commands_keep_a_users_binding_and_drop_stale_plugin_ones() {
     let base = scratch("key-commands");
@@ -311,12 +309,13 @@ fn settings_are_typed_and_a_secret_never_reaches_the_context() {
     assert!(settings::set(&dirs, plugin, "nope", "x").is_err());
     settings::set(&dirs, plugin, "mode", "fast").unwrap();
     settings::set(&dirs, plugin, "token", "s3cret-value").unwrap();
-    let context = settings::context_values(&dirs, plugin);
+    let context = settings::context_values(&dirs, plugin).unwrap();
     assert_eq!(context["mode"], "fast");
     assert_eq!(context["download_dir"], "~/Downloads");
     assert!(context.get("token").is_none());
     assert!(!context.to_string().contains("s3cret"));
     let token = settings::current(&dirs, plugin)
+        .unwrap()
         .into_iter()
         .find(|c| c.setting.key == "token")
         .unwrap();
@@ -331,7 +330,18 @@ fn settings_are_typed_and_a_secret_never_reaches_the_context() {
         assert_eq!(mode & 0o777, 0o600);
     }
     settings::unset(&dirs, plugin, "mode").unwrap();
-    assert_eq!(settings::context_values(&dirs, plugin)["mode"], "safe");
+    assert_eq!(
+        settings::context_values(&dirs, plugin).unwrap()["mode"],
+        "safe"
+    );
+    // A file that no longer parses is not rewritten from nothing: a `set`
+    // would have kept only its own key, and lost the token.
+    let file = settings::path(&dirs, "artifacts");
+    let damaged = format!("{}\n[[[", std::fs::read_to_string(&file).unwrap());
+    std::fs::write(&file, &damaged).unwrap();
+    assert!(settings::set(&dirs, plugin, "mode", "fast").is_err());
+    assert!(settings::context_values(&dirs, plugin).is_err());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), damaged);
     assert_eq!(SettingType::Int.parse("12").unwrap(), SettingValue::Int(12));
     std::fs::remove_dir_all(base).unwrap();
 }

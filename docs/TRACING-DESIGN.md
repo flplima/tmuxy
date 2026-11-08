@@ -21,7 +21,7 @@ connected.
   -------------                          ----------------------
   React/XState/Effect                    React/XState/Effect
         | client trace events                  | client trace events
-        v  (Tauri IPC)                          v  (POST /trace, batched)
+        v  (record_trace, over IPC)             v  (POST /trace, batched)
   Rust (Tauri shell) --------.           Rust (server) --------.
         |                    |                  |               |
   tracing Layer -------> trace.ndjson     tracing Layer --> trace.ndjson
@@ -30,21 +30,17 @@ connected.
 
 ### The Rust side is (almost) free
 
-Every Rust layer already emits `tracing` spans and events. A custom
-`tracing-subscriber` **Layer** that serializes each span/event to one NDJSON
-line captures all of it — the monitor's spans, the `#[instrument]` handlers,
-every `info!`/`warn!`/`error!` — with **zero new call sites**. The work is:
-
-1. Write the NDJSON `Layer` and add it to the subscriber in `init_logging()`.
-2. **Install the subscriber on every entry path**, including the Tauri GUI path
-   that currently skips it (the gap above).
-3. Take timestamps at the layer, from the system clock, so the pure core
-   stays pure.
-
-The handful of hot-path events that matter for causality but aren't yet spans
-(aggregator `step`, monitor flush decision, emitter dispatch) get one
-`#[instrument]` or structured event each — recording the **typed variant name
-and ids only**, never the command string (see [§ Safety](TRACING.md#safety--the-redaction-boundary)).
+Every Rust layer emits `tracing` spans and events, and one `tracing-subscriber`
+**Layer** (`TraceLayer`, `tmuxy-core/src/trace/layer.rs`) serializes each to an
+NDJSON line — the monitor's spans, the `#[instrument]` handlers, every
+`info!`/`warn!`/`error!` — with no call site of its own. `init_logging`
+(`tmuxy-core/src/logging.rs`) adds it to the subscriber on every entry path: the
+server binary, `tmuxy server` and the Tauri GUI. Timestamps are taken at the
+layer, from the system clock, so the pure core stays pure. The hot-path events
+that matter for causality but are not spans — the aggregator's `step`, the
+monitor's flush decision, the emitter's dispatch — carry one structured event
+each, recording the **typed variant name and ids only**, never the command
+string (see [§ Safety](TRACING.md#safety--the-redaction-boundary)).
 
 ### The frontend side generalizes what exists
 
@@ -54,19 +50,20 @@ ones:
 - The **`send` monkey-patch** in `packages/tmuxy-ui/src/machines/AppContext.tsx`
   sees every event dispatched to the app machine and emits one trace event per
   event type.
-- The **Effect chokepoint**: every adapter call runs through
-  `Effect.runPromiseExit` in `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts`,
-  yielding a typed `AdapterError` (`packages/tmuxy-ui/src/infra/transport/AdapterError.ts`).
-  That exit is the natural place to record the outcome of every client→backend
-  call.
+- The **Effect chokepoint**: every store op runs through
+  `Effect.runPromiseExit` in `packages/tmuxy-ui/src/machines/actors/tmuxStoreActor.ts`,
+  yielding a typed `AdapterError` (`packages/tmuxy-ui/src/infra/transport/AdapterError.ts`)
+  or `OpError`; `machines/actors/failureText.ts` records each failure's tag
+  there, the outcome of every client→backend call.
 - The **adapter round-trip hooks**: `latencyTracker.markInput()` (send) and
   `recordUpdate()` (apply) already fire in both `HttpAdapter` and `TauriAdapter`.
   The tracer emits alongside them.
 
 A small `tracer` singleton mirrors `latencyTracker`'s structure — same runtime
 gating, same `window.__*` exposure, a buffer that batches events and ships them:
-`POST /trace` on the web, Tauri IPC on the desktop. Both land in the one
-Rust-owned file.
+`POST /trace` on the web; on the desktop the `record_trace` backend call over
+the `dispatch` IPC, which `tmuxy-core/src/host/command.rs` hands to the same
+writer. Both land in the one Rust-owned file.
 
 ### Event schema
 
@@ -95,16 +92,15 @@ Each seam already exists in the code; the tracer emits at it.
 | Layer | Seam (file) | What it records |
 | --- | --- | --- |
 | xstate | `send` tap, `machines/AppContext.tsx` | app-machine transition (event name only); the derived `TMUX_MODEL_UPDATE` firehose is coalesced to a periodic `phase:'count'` |
-| store | dispatch, `machines/actors/tmuxStoreActor.ts` (via `parseCommandToOp`) | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded |
-| effect | `Effect.runPromiseExit`, `tmuxActor.ts` / `tmuxStoreActor.ts` | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag) |
-| adapter | `markInput` in `drivers/HttpAdapter.ts` / `drivers/TauriAdapter.ts`, `recordApplied` in `stateFeed.ts` | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency |
+| store | dispatch, `machines/actors/tmuxStoreActor.ts` (the op `machines/app/dispatch.ts` parsed) | `TmuxOp` variant (Split, SelectPane, KillWindow, ZoomToggle, …) + target ids — the WHAT, args discarded |
+| effect | `Effect.runPromiseExit` in `machines/actors/tmuxStoreActor.ts`, recorded by `machines/actors/failureText.ts` | adapter/op **failures** by typed `code` (`AdapterError` / `OpError` tag) |
+| adapter | `markInput` in `infra/transport/drivers/HttpAdapter.ts` / `infra/transport/drivers/TauriAdapter.ts`, apply in `infra/transport/stateFeed.ts` | send (kind, `action_id`) and apply (delta `seq`) boundaries + latency |
 | http | `POST /commands` header, `sse.rs` | `action_id` (`X-Action-Id`) → the exact request-leg join |
-| server | `send_via_control_mode`, `sse.rs` | the mutating ingress by command **verb** (first token; args only at `full`) |
-| emitter | `emit_state`, `sse.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
-| tmux | the in-band reads in `tmuxy-core/src/transport.rs` | read op name + argc |
-| tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
-| tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under a `titlebar-*` `action_id`, joined to the native outcome: traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
-| marker | `tmuxy trace --mark`, `trace_view.rs` | a user-stamped "bug happened here" label |
+| server | `host::command::handle` (`tmuxy-core/src/host/command.rs`) | the mutating ingress by command **verb** (first token; args only at `full`) |
+| emitter | `emit_state`: the `StateEmitter` trait in `tmuxy-core/src/control_mode/monitor.rs`, the host's impl in `tmuxy-core/src/host/runtime/emitter.rs` | each state emit by delta `seq` + kind, joinable to the client `apply` |
+| tmux | the routed commands and reads (`tmuxy-core/src/command_router.rs`) | read op name + argc |
+| tauri | title-bar chrome, `infra/desktopWindow.ts` → `tmuxy-tauri-app/src/titlebar.rs` | each status-bar action (`set_titlebar_height`, `titlebar_double_click`) under its own `action_id`, joined to its native outcome: the traffic-light centre `y` for a bar `height`, or the double-click `kind`/`variant` (zoom → maximized/restored, minimize, none) |
+| marker | `tmuxy trace --mark`, `tmuxy-verbs/src/trace_view.rs` | a user-stamped "bug happened here" label |
 | pane | aggregator, `control_mode/state.rs` | each pane's life, content-free: `pane appeared` (window, size, `shell`, `bytes` replayed from before it was listed), `pane first output` (`bytes`), `capture requested`, `pane captured` (non-blank `lines`), `pane resized`, `pane gone`. The session comes from the monitor's `run{session}` span |
 | server | session creation, `sse.rs` | `session creation path`: `via` `courier` (through another session's control client, with its `viewers`) or `direct` |
 | test | `tests/helpers/trace-environment.js` | an E2E run's markers: `<file> › <test> › start` and `› pass`/`› fail`, so one test's slice can be read with `--window` |

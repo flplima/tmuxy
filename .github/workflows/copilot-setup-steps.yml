@@ -1,4 +1,4 @@
-name: Copilot Setup Steps
+name: copilot setup steps
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
       - .github/actions/**
       - bin/bootstrap
       - bin/install-dev-tools
+      - bin/toolchain
       - package-lock.json
       - Cargo.lock
   pull_request:
@@ -16,6 +17,7 @@ on:
       - .github/actions/**
       - bin/bootstrap
       - bin/install-dev-tools
+      - bin/toolchain
       - package-lock.json
       - Cargo.lock
 
@@ -30,16 +32,12 @@ jobs:
 
       - uses: ./.github/actions/setup-node-rust
         with:
-          rust-targets: wasm32-unknown-unknown,i686-unknown-linux-musl
+          rust: guest
 
       - uses: ./.github/actions/install-linux-deps
-        with:
-          profile: rust
 
       # The same list the devcontainer image installs, so the two agent
-      # environments cannot drift apart: apt extras, cargo-watch (which is what
-      # `npm start` runs on) and agent-browser with its Chrome — the browser
-      # both an agent and the Playwright-driven suites use.
+      # environments cannot drift apart.
       - name: Install shared agent tooling
         run: bash bin/install-dev-tools
 

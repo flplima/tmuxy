@@ -11,7 +11,8 @@
  * accepts gets through.
  */
 
-/** Which menu offers an action. */
+import { decodeBase64Text } from './base64';
+
 export type PluginMenu = 'app' | 'pane' | 'selection';
 
 export interface PluginActionInfo {
@@ -31,10 +32,8 @@ export interface PluginInfo {
   readonly textLinks: boolean;
 }
 
-/** The option the inventory is read from. */
 export const PLUGINS_OPTION = '@tmuxy-plugins';
 
-/** The query that reads it. */
 export const READ_PLUGINS_COMMAND = `show-options -gqv ${PLUGINS_OPTION}`;
 
 /** A plugin or action name, as the server validates one. */
@@ -60,20 +59,13 @@ function asAction(raw: unknown): PluginActionInfo | null {
   };
 }
 
-/** Base64 to text, as UTF-8. */
-function decodeBase64(b64: string): string {
-  const binary = atob(b64);
-  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
 /** The inventory from the option's value; `[]` for anything unreadable. */
 export function parseInventory(raw: string): PluginInfo[] {
   const value = raw.trim();
   if (value === '') return [];
   let parsed: unknown;
   try {
-    parsed = JSON.parse(decodeBase64(value));
+    parsed = JSON.parse(decodeBase64Text(value));
   } catch {
     return [];
   }
@@ -96,13 +88,11 @@ export function parseInventory(raw: string): PluginInfo[] {
   return plugins;
 }
 
-/** One menu entry: a plugin's action. */
 export interface PluginMenuEntry {
   readonly plugin: string;
   readonly action: PluginActionInfo;
 }
 
-/** The actions a menu offers, in inventory order. */
 export function pluginMenuEntries(
   plugins: ReadonlyArray<PluginInfo>,
   menu: PluginMenu,
@@ -119,7 +109,6 @@ export function pluginItemId(plugin: string, action: string): string {
   return `plugin:${plugin}:${action}`;
 }
 
-/** Every host a URL handler takes, and whether any plugin has text handlers. */
 export function pluginLinkHosts(plugins: ReadonlyArray<PluginInfo>): {
   hosts: ReadonlySet<string>;
   text: boolean;

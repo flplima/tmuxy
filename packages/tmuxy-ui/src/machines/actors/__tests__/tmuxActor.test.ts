@@ -1,14 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createActor, createMachine, type AnyActorRef } from 'xstate';
 import { createTmuxActor } from '../tmuxActor';
-import type { TmuxAdapter } from '../../../infra/transport/driver';
+import type { BackendCall } from '../../../domain/backendCalls';
 import type { AppRuntime } from '../../../infra/runtime';
 import { fakeTransport } from '../../../test/transport';
 
-/**
- * Spawn a tmuxActor as a child of a tiny parent machine and return both.
- * Captures every event the actor sends to the parent in `events`.
- */
 function spawnTmuxActor(runtime: AppRuntime) {
   const events: Array<{ type: string; [k: string]: unknown }> = [];
   const tmuxActor = createTmuxActor(runtime);
@@ -36,19 +32,14 @@ function spawnTmuxActor(runtime: AppRuntime) {
   return { actor, events };
 }
 
-/** Helper: wait until the predicate is true (or timeout). */
-async function waitFor(pred: () => boolean, timeoutMs = 1000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (pred()) return;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  throw new Error('timeout waiting for predicate');
+/** Resolves once `pred` holds; the test's own timeout is the only limit. */
+async function waitFor(pred: () => boolean): Promise<void> {
+  while (!pred()) await new Promise((r) => setTimeout(r, 5));
 }
 
 describe('tmuxActor — cancellable scrollback', () => {
   it('FETCH_SCROLLBACK_CELLS success sends COPY_MODE_CHUNK_LOADED to parent', async () => {
-    const invoke = vi.fn(async (cmd: string) => {
+    const invoke = vi.fn(async ({ cmd }: BackendCall) => {
       if (cmd === 'get_scrollback_cells') {
         return {
           cells: [],
@@ -58,9 +49,9 @@ describe('tmuxActor — cancellable scrollback', () => {
           width: 80,
         };
       }
-      return undefined;
+      return null;
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()
@@ -74,23 +65,18 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 
   it('interrupts the previous fetch so its result never reaches the parent', async () => {
-    // First call: a slow promise that never resolves. Second call: a fast resolution.
-    // Confirm the slow one never delivers a COPY_MODE_CHUNK_LOADED — because
-    // it was interrupted before it could fire its onSuccess.
     const calls: Array<{ start: number; end: number }> = [];
     let firstResolve: ((value: unknown) => void) | null = null;
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { start: number; end: number; paneId: string };
       calls.push({ start: a.start, end: a.end });
       if (calls.length === 1) {
-        // Slow: pretend the server is taking forever, then "respond" after the
-        // second request has fired. By that time our fiber should be interrupted.
+        // Answered only after the second request has gone out.
         return new Promise((resolve) => {
           firstResolve = resolve;
         });
       }
-      // Fast second response.
       return {
         cells: [[{ c: 'X' }]],
         historySize: 200,
@@ -100,7 +86,7 @@ describe('tmuxActor — cancellable scrollback', () => {
       };
     });
 
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
 
     actor.getSnapshot().children.tmux!.send({
@@ -118,8 +104,6 @@ describe('tmuxActor — cancellable scrollback', () => {
       end: 60,
     });
 
-    // Now resolve the FIRST call's promise — it would have shipped a stale
-    // result if the fiber hadn't been interrupted.
     await waitFor(() => firstResolve !== null);
     firstResolve!({
       cells: [[{ c: 'STALE' }]],
@@ -129,13 +113,9 @@ describe('tmuxActor — cancellable scrollback', () => {
       width: 80,
     });
 
-    // Wait until the second call's COPY_MODE_CHUNK_LOADED has fired.
     await waitFor(() => events.some((e) => e.type === 'COPY_MODE_CHUNK_LOADED'));
 
     const loaded = events.filter((e) => e.type === 'COPY_MODE_CHUNK_LOADED');
-    // The fresh request (start:50) should have landed. The stale request's
-    // result must NOT appear — because the fiber was interrupted before its
-    // onSuccess could run.
     expect(loaded).toHaveLength(1);
     expect(loaded[0].historySize).toBe(200);
     expect(loaded[0].start).toBe(50);
@@ -143,8 +123,8 @@ describe('tmuxActor — cancellable scrollback', () => {
   });
 
   it('different paneId fetches do NOT interrupt each other', async () => {
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { paneId: string; start: number; end: number };
       return {
         cells: [],
@@ -154,7 +134,7 @@ describe('tmuxActor — cancellable scrollback', () => {
         width: 80,
       };
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
 
     actor
@@ -175,13 +155,13 @@ describe('tmuxActor — cancellable scrollback', () => {
     // `%1` is gone; `%2` answers. The failure is sent first, and what it did
     // or did not send the parent is read once the second fetch — which it
     // does not interrupt, being another pane's — has landed behind it.
-    const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
-      if (cmd !== 'get_scrollback_cells') return undefined;
+    const invoke = vi.fn(async ({ cmd, args }: BackendCall): Promise<unknown> => {
+      if (cmd !== 'get_scrollback_cells') return null;
       const a = args as { paneId: string; start: number; end: number };
       if (a.paneId === '%1') throw { error: 'pane gone', kind: 'tmux' };
       return { cells: [], historySize: 100, start: a.start, end: a.end, width: 80 };
     });
-    const { runtime } = fakeTransport({ invoke: invoke as TmuxAdapter['invoke'] });
+    const { runtime } = fakeTransport({ send: (call) => invoke(call) });
     const { actor, events } = spawnTmuxActor(runtime);
     actor
       .getSnapshot()

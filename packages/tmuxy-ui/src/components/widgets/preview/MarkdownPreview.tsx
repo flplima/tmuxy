@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef } from 'react';
+import { CHAR_HEIGHT } from '../../../constants/layout';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidBlock } from './MermaidBlock';
@@ -25,7 +26,7 @@ import {
   splitFrontMatter,
   type PreviewDocument,
 } from '../../../domain/preview';
-import { openExternalUrl, safeHref } from '../../../utils/openUrl';
+import { openExternalUrl, safeHref } from '../../../infra/openUrl';
 
 function LocalImage({ path, alt, source }: { path: string; alt: string; source: PreviewSource }) {
   const image = useKeyedRequest(path, () => source.readResource(path));
@@ -118,7 +119,7 @@ function FrontMatter({ yaml }: { yaml: string }) {
   );
 }
 
-const LINE = 24;
+const LINE = CHAR_HEIGHT;
 
 /**
  * The pager keys, while the preview is the pane with the keyboard: what a
@@ -172,7 +173,6 @@ export function MarkdownPreview({
   doc: PreviewDocument;
   theme: PreviewTheme;
   source: PreviewSource;
-  /** The pane holds the keyboard. */
   active: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);

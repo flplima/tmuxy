@@ -1,30 +1,11 @@
 name: Install Linux dependencies
-inputs:
-  profile:
-    required: true
+description: The WebKitGTK headers the desktop crate links against, for a job that compiles the whole workspace.
 runs:
   using: composite
   steps:
     - shell: bash
-      env:
-        PROFILE: ${{ inputs.profile }}
       run: |
         set -euo pipefail
         "$GITHUB_WORKSPACE/bin/ci/apt-get" update
-        case "$PROFILE" in
-          lint)
-            "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends \
-              libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-              libjavascriptcoregtk-4.1-dev librsvg2-dev
-            ;;
-          rust)
-            "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends \
-              libevent-dev libncurses-dev bison \
-              libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-              libjavascriptcoregtk-4.1-dev librsvg2-dev
-            ;;
-          *)
-            echo "Unknown dependency profile: $PROFILE" >&2
-            exit 1
-            ;;
-        esac
+        # shellcheck disable=SC2046 # one package per word
+        "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $("$GITHUB_WORKSPACE/bin/toolchain" packages webkit-dev)

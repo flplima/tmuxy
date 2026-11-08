@@ -1,22 +1,16 @@
 /**
- * SidebarToggle - header icon-button that opens/closes one of the two sidebars.
- *
- * Each toggle lives in its own sidebar's cluster but keeps a fixed place in
- * the header: the left one right after the menu, the right one at the far
- * right end. Opening a column widens the cluster around the title, not the
- * toggle, so the click that opened the column closes it from the same spot.
- *
- * Each reflects its sidebar's open flag as a pressed state, and dispatches the
- * same event its `prefix` keybinding sends (`t` for the tree, `T` for the
- * terminal). Resting the mouse on a closed column's toggle shows the column
- * over the panes until the pointer leaves it (useSidebarPeek); the click
- * docks it.
+ * Each toggle keeps a fixed place in the header (the left one after the menu,
+ * the right one at the far end): opening a column widens the cluster around
+ * the title, not the toggle, so the click that opened it closes it from the
+ * same spot.
  */
 
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { SidebarGlyph } from './SidebarColumn';
 import { Tooltip } from './Tooltip';
-import { useSidebarPeekToggle } from '../hooks/useSidebarPeek';
+import { useSidebarPeekToggle } from './useSidebarPeek';
+import { selectKeyBindings } from '../machines/selectors/ui';
+import { clientKeyHint, withKeyHint } from '../domain/keyLabels';
 import './SidebarToggle.css';
 
 interface SidebarToggleProps {
@@ -24,32 +18,30 @@ interface SidebarToggleProps {
 }
 
 const LABELS = {
-  left: { aria: 'Toggle tree sidebar', title: 'Toggle tree sidebar (prefix s)' },
-  right: { aria: 'Toggle terminal sidebar', title: 'Toggle terminal sidebar (prefix S)' },
+  left: { aria: 'Toggle tree sidebar', key: 'left-sidebar' },
+  right: { aria: 'Toggle terminal sidebar', key: 'right-sidebar' },
 } as const;
 
 export function SidebarToggle({ side }: SidebarToggleProps) {
   const send = useAppSend();
-  const shown = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarOpen : ctx.rightSidebarOpen,
-  );
+  const shown = useAppSelector((ctx) => ctx.sidebars[side].open);
   const peeking = useAppSelector((ctx) => ctx.sidebarPeek === side);
+  const keybindings = useAppSelector(selectKeyBindings);
   const labels = LABELS[side];
+  const title = withKeyHint(labels.aria, clientKeyHint(keybindings, labels.key));
   const peek = useSidebarPeekToggle(side, !shown);
 
   return (
     // The peeking column already answers what the button does, and the
     // tooltip would sit over its first rows.
-    <Tooltip label={peeking ? '' : labels.title}>
+    <Tooltip label={peeking ? '' : title}>
       <button
         className={`sidebar-toggle sidebar-toggle-${side}${shown ? ' sidebar-toggle-active' : ''}`}
         aria-label={labels.aria}
         aria-pressed={shown}
         onPointerEnter={peek.onPointerEnter}
         onPointerLeave={peek.onPointerLeave}
-        onClick={() =>
-          send({ type: side === 'left' ? 'TOGGLE_LEFT_SIDEBAR' : 'TOGGLE_RIGHT_SIDEBAR' })
-        }
+        onClick={() => send({ type: 'TOGGLE_SIDEBAR', side })}
       >
         <SidebarGlyph side={side} />
       </button>

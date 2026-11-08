@@ -1,6 +1,6 @@
 use super::crypto::{self, b64url, from_b64url, origin, VapidKey};
 use super::store::{Store, Subscription, SubscriptionKeys, MAX_SUBSCRIPTIONS};
-use super::watch::{parse_rows, Notice, Watch};
+use super::watch::{Notice, Watch};
 use super::Push;
 use aes_gcm::aead::Aead;
 use aes_gcm::{AeadCore, Aes128Gcm, Key, KeyInit, Nonce};
@@ -10,6 +10,7 @@ use ring::rand::SystemRandom;
 use ring::signature::{UnparsedPublicKey as SignatureKey, ECDSA_P256_SHA256_FIXED};
 use sha2::Sha256;
 use std::sync::{Arc, Mutex};
+use tmuxy_core::host::socket_watch::{parse_rows, PaneRow};
 
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("tmuxy-push-{name}-{}", std::process::id()));
@@ -206,6 +207,7 @@ fn a_key_that_no_longer_reads_is_replaced_with_its_devices() {
         key.public_key(),
         "the new key is kept"
     );
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -232,11 +234,11 @@ fn only_a_push_service_subscription_is_taken() {
     assert!(short.checked().is_err());
 }
 
-fn rows(states: &[(&str, &str)], notify: &str) -> Vec<super::watch::PaneRow> {
+fn rows(states: &[(&str, &str)], notify: &str) -> Vec<PaneRow> {
     parse_rows(
         &states
             .iter()
-            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\tmain"))
+            .map(|(pane, state)| format!("{pane}\twork\t{notify}\t{state}\t2.1.314\t\t\tmain"))
             .collect::<Vec<_>>()
             .join("\n"),
     )
@@ -270,7 +272,6 @@ fn a_pane_coming_to_need_the_user_is_one_notice() {
         .update(&rows(&[("%1", "needs-input"), ("%2", "error")], "on"), "")
         .is_empty());
 
-    // Back to working, then asking again: news again.
     watch.update(&rows(&[("%1", "working")], "on"), "");
     let again = watch.update(&rows(&[("%1", "needs-input")], "on"), "");
     assert_eq!(again.len(), 1);
@@ -369,8 +370,10 @@ async fn a_device_subscribes_with_the_servers_key() {
     use tower::ServiceExt;
 
     let dir = scratch("routes");
-    let mut state = AppState::new();
-    state.push = Push::with_store(Store::new(dir.clone()));
+    let state = AppState {
+        push: Push::with_store(Store::new(dir.clone())),
+        ..Default::default()
+    };
     let app = api_routes(HostPolicy::Loopback { allowed: vec![] }).with_state(Arc::new(state));
     let request = |method: &str, path: &str, body: String| {
         Request::builder()

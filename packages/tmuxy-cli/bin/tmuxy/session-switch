@@ -1,29 +1,20 @@
 #!/bin/bash
-# session-switch — Interactive session switcher
-#
-# Standalone mode (default): switch tmux client to selected session
-# Float mode (--float): set TMUXY_SWITCH_TO env var and exit (caller handles switch)
 set -euo pipefail
 source "${0%/*}/_lib"
 
-float_mode=false
 for arg in "$@"; do
   case "$arg" in
-    --float) float_mode=true ;;
     --help|-h)
-      echo "Usage: tmuxy session switch [--float]"
+      echo "Usage: tmuxy session switch"
       echo ""
       echo "Interactive session switcher."
-      echo "  --float   Set TMUXY_SWITCH_TO env var instead of switching directly"
       exit 0
       ;;
   esac
 done
 
-# Get current session
 current=$(_tmux display-message -p '#{session_name}')
 
-# List all sessions (never the hidden stash session that parks group members).
 # A read loop rather than `mapfile`: macOS ships bash 3.2, where mapfile does
 # not exist and `set -e` then killed the switcher before it drew anything.
 sessions=()
@@ -36,7 +27,6 @@ if [ ${#sessions[@]} -eq 0 ]; then
   exit 1
 fi
 
-# Display numbered list
 echo "Sessions:"
 for i in "${!sessions[@]}"; do
   num=$((i + 1))
@@ -49,7 +39,6 @@ for i in "${!sessions[@]}"; do
 done
 echo ""
 
-# Prompt
 read -rp 'Select session (number or "new"): ' choice
 
 if [ "$choice" = "new" ]; then
@@ -70,12 +59,6 @@ fi
 
 echo "$selected"
 
-if $float_mode; then
-  # `shquote`, not bare single quotes: a session name the user picked can
-  # contain one, and `run-shell` expands `#(...)` in the string it is handed.
-  _run_safe "set-environment -g TMUXY_SWITCH_TO $(shquote "$selected")"
-else
-  # switch-client acts on the calling client, so it must stay a direct call —
-  # run-shell would run without a client context and can't switch anything.
-  _tmux switch-client -t "$selected"
-fi
+# switch-client acts on the calling client, so it must stay a direct call —
+# run-shell would run without a client context and can't switch anything.
+_tmux switch-client -t "$selected"

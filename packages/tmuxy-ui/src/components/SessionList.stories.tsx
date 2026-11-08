@@ -1,12 +1,3 @@
-/**
- * SessionList stories, over a recording of real tmux: the way back in once
- * detached.
- *
- * Driven the way a user gets there — Detach Session from the app menu — and
- * back: the overlay lists the sessions, on screen, and picking one attaches
- * to it again, the overlay gone and the panes back.
- */
-
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { FixtureApp } from '../stories/FixtureHarness';
@@ -31,12 +22,19 @@ export const DetachThenPickASession: Story = {
       timeout: 15000,
     });
 
-    await user.click(canvas.getByRole('button', { name: 'Menu' }));
-    await user.click(page.getByRole('menuitem', { name: 'Session' }));
-    await user.click(await page.findByRole('menuitem', { name: /Detach Session/ }));
+    // Only the desktop detaches, so the menu offers it only where `isTauri()`
+    // (infra/platform.ts) holds. Set after mount and cleared once the item is
+    // chosen: the rest of the app keeps its web paths.
+    const tauriWindow = window as unknown as Record<string, unknown>;
+    tauriWindow.__TAURI_INTERNALS__ = {};
+    try {
+      await user.click(canvas.getByRole('button', { name: 'Menu' }));
+      await user.click(page.getByRole('menuitem', { name: 'Session' }));
+      await user.click(await page.findByRole('menuitem', { name: /Detach Session/ }));
+    } finally {
+      delete tauriWindow.__TAURI_INTERNALS__;
+    }
 
-    // The overlay says so, and lists the session to step back into, on screen,
-    // under the switcher's filter box.
     await waitFor(() => expect(canvas.getByText('Detached')).toBeInTheDocument());
     const list = canvasElement.querySelector('.session-picker') as HTMLElement;
     expect(list).not.toBeNull();

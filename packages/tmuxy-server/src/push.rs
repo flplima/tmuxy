@@ -22,7 +22,6 @@ mod store;
 mod watch;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 use axum::{
@@ -38,21 +37,15 @@ use tracing::{debug, info, warn};
 
 use crate::state::AppState;
 use store::{Store, Subscription};
-pub(crate) use watch::is_version;
 use watch::{Notice, Watch};
-
-/// How often the watcher reads the panes while a device is subscribed.
-const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// How long a push service keeps a notification for a device that is off.
 const PUSH_TTL_SECS: u32 = 60 * 60;
 
-/// The most bytes of a subscription request the server reads.
 const MAX_SUBSCRIPTION_BYTES: usize = 8 * 1024;
 
-/// The server's web push: where it keeps its key and its devices, and the
-/// client it pushes with. The store is touched only under the lock, so two
-/// subscribes at once cannot lose one another.
+/// The store is touched only under the lock, so two subscribes at once
+/// cannot lose one another.
 pub struct Push {
     store: StdMutex<Store>,
     client: reqwest::Client,
@@ -89,8 +82,6 @@ impl Push {
             .unwrap_or(false)
     }
 
-    /// Push `notice` to every device, forgetting the ones the push service
-    /// says are gone.
     pub(crate) async fn send(&self, notice: &Notice) {
         let Some((key, devices)) = self.with(|s| (s.vapid_key().ok(), s.subscriptions())) else {
             return;
@@ -161,19 +152,15 @@ impl Push {
     }
 }
 
-/// A subscription the push service no longer knows, or one no push can be
-/// made for: forgotten.
 struct Gone;
 
-/// Watch the panes and push what comes to need the user, for the life of
-/// the server.
-pub async fn watch(state: Arc<AppState>) {
+pub async fn watch(state: Arc<AppState>, mut panes: tmuxy_core::host::socket_watch::Rows) {
     // The key is read (or made, or an unreadable one replaced along with its
     // devices) before any device can subscribe, so no new subscription is
     // forgotten with an old key.
     let _ = state.push.public_key();
     let shutdown = state.shutdown.clone();
-    let host = crate::host_name();
+    let host = tmuxy_core::host::host_name();
     let watched = Arc::clone(&state);
     state
         .spawn(async move {
@@ -181,7 +168,7 @@ pub async fn watch(state: Arc<AppState>) {
             let mut watch = Watch::default();
             loop {
                 tokio::select! {
-                    _ = tokio::time::sleep(WATCH_INTERVAL) => {}
+                    changed = panes.changed() => if changed.is_err() { return },
                     _ = shutdown.cancelled() => return,
                 }
                 if !state.push.has_subscriptions() {
@@ -190,9 +177,7 @@ pub async fn watch(state: Arc<AppState>) {
                     watch = Watch::default();
                     continue;
                 }
-                let Some(rows) = watch::read_panes().await else {
-                    continue;
-                };
+                let rows = Arc::clone(&panes.borrow_and_update());
                 for notice in watch.update(&rows, &host) {
                     debug!(target: "tmuxy_server::push", pane = %notice.pane_id, "pushing a notification");
                     state.push.send(&notice).await;
@@ -202,10 +187,6 @@ pub async fn watch(state: Arc<AppState>) {
         .await;
 }
 
-// ============================================
-// Routes
-// ============================================
-
 /// `GET /api/push`: the VAPID public key a device subscribes with.
 pub async fn key_handler(State(state): State<Arc<AppState>>) -> Response {
     match state.push.public_key() {
@@ -214,8 +195,6 @@ pub async fn key_handler(State(state): State<Arc<AppState>>) -> Response {
     }
 }
 
-/// A JSON body of at most `MAX_SUBSCRIPTION_BYTES`, or the status and
-/// reason it is refused with.
 async fn read_json<T: serde::de::DeserializeOwned>(
     headers: &HeaderMap,
     body: Body,

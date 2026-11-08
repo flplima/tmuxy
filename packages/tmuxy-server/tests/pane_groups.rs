@@ -15,59 +15,48 @@ use std::time::{Duration, Instant};
 
 const STASH: &str = "__tmuxy_stash";
 
-struct Server {
-    socket: String,
-}
+#[path = "../../tmuxy-core/tests/common/scratch.rs"]
+mod scratch;
 
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = Command::new("tmux")
-            .args(["-L", &self.socket, "kill-server"])
-            .output();
+struct Server(scratch::ScratchServer);
+
+impl std::ops::Deref for Server {
+    type Target = scratch::ScratchServer;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl Server {
     fn start(name: &str) -> Self {
-        let server = Self {
-            socket: format!("tmuxy-pane-groups-{name}-{}", std::process::id()),
-        };
-        server.tmux(&[
-            "-f",
-            "/dev/null",
-            "new-session",
-            "-d",
-            "-s",
-            "work",
-            "-x",
-            "120",
-            "-y",
-            "40",
-        ]);
-        // What a monitor publishes on attach, for the hook's run-shell: the
-        // binary AND its subcommand, as the pair `session::server_command_env`
-        // writes — unset here, since `tmuxy-server` takes its verbs directly.
-        // A shell inside the desktop app exports TMUXY_SERVER_SUBCOMMAND=server
-        // for its own binary, and the tmux server this test starts hands that
-        // to every hook; publishing only the binary left the hook running
-        // `tmuxy-server server group close`, which is no command at all.
+        let server = Self(scratch::ScratchServer::with_session(
+            &format!("pane-groups-{name}"),
+            120,
+            40,
+        ));
+        // The pair `session::server_command_env` publishes, with the
+        // subcommand unset since `tmuxy-server` takes its verbs directly. A
+        // shell inside the desktop app exports TMUXY_SERVER_SUBCOMMAND=server,
+        // which this test's tmux server would hand to every hook, which would
+        // then run `tmuxy-server server group close`, no command at all.
         server.tmux(&["set-environment", "-g", "TMUXY_SERVER_BIN", bin()]);
         server.tmux(&["set-environment", "-g", "-u", "TMUXY_SERVER_SUBCOMMAND"]);
+        // The scripts a hook names are the data dir's (`Layout::scripts`):
+        // this checkout's, for the verb and for the hooks tmux runs.
+        let data = server.home.join("data");
+        std::fs::create_dir_all(data.join("bin")).unwrap();
+        std::os::unix::fs::symlink(scripts_dir(), data.join("bin/tmuxy")).unwrap();
+        server.tmux(&[
+            "set-environment",
+            "-g",
+            "TMUXY_DATA_DIR",
+            data.to_str().unwrap(),
+        ]);
         server
     }
 
-    fn tmux(&self, args: &[&str]) -> String {
-        let out = Command::new("tmux")
-            .args(["-L", &self.socket])
-            .args(args)
-            .output()
-            .expect("tmux runs");
-        assert!(
-            out.status.success(),
-            "tmux {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    fn data_dir(&self) -> PathBuf {
+        self.home.join("data")
     }
 
     fn group(&self, args: &[&str]) -> Output {
@@ -75,7 +64,7 @@ impl Server {
             .arg("group")
             .args(args)
             .env("TMUX_SOCKET", &self.socket)
-            .env("TMUXY_SCRIPTS_DIR", scripts_dir())
+            .env("TMUXY_DATA_DIR", self.data_dir())
             .env_remove("TMUX")
             .output()
             .expect("tmuxy-server runs")
@@ -140,7 +129,11 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     for pane in [&p1, &p2] {
         assert_eq!(s.option(pane, "remain-on-exit"), "on");
         let hooks = s.tmux(&["show-hooks", "-p", "-t", pane]);
-        assert!(hooks.contains("pane-group close"), "{hooks}");
+        let script = s.data_dir().join("bin/tmuxy/pane-group");
+        assert!(
+            hooks.contains(&format!("{} close", script.display())),
+            "{hooks}"
+        );
     }
 
     s.ok(&["add", &p2, "120", "40"]);
@@ -181,12 +174,13 @@ fn a_group_lives_its_whole_life_through_the_group_verb() {
     s.ok(&["close", &p3]);
     assert_eq!(s.visible(), p1);
 
-    // A member that exits by itself goes through the same close, by its hook.
-    s.tmux(&["respawn-pane", "-k", "-t", &p1, "true"]);
-    s.eventually("the hook to promote p2", || s.visible() == p2);
-
+    // A member that exits by itself goes through the same close, by its hook,
+    // which promotes p2 before it dissolves the group: wait for the end of it.
     // Down to one member: no group any more.
-    assert_eq!(s.option(&p2, "@tmuxy-group-id"), "");
+    s.tmux(&["respawn-pane", "-k", "-t", &p1, "true"]);
+    s.eventually("the hook to promote p2 and dissolve the group", || {
+        s.visible() == p2 && s.option(&p2, "@tmuxy-group-id").is_empty()
+    });
     assert_eq!(s.option(&p2, "remain-on-exit"), "");
 }
 
@@ -212,6 +206,7 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
         .arg(scripts_dir().join("pane-group"))
         .args(["join", &pane, &pane])
         .env("TMUX_SOCKET", &s.socket)
+        .env("TMUXY_DATA_DIR", s.data_dir())
         .env("TMUXY_SERVER_BIN", bin())
         .env_remove("TMUXY_SERVER_SUBCOMMAND")
         .env_remove("TMUX")
@@ -220,20 +215,86 @@ fn the_scripts_reach_the_verb_and_keep_its_refusals() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group join: a pane cannot join itself"
+        "Error: pane-group join: a pane cannot join itself"
     );
 
     let out = s.group(&["move", &pane, "0"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        format!("pane-group move: {pane} is not in a group")
+        format!("Error: pane-group move: {pane} is not in a group")
     );
 
     let out = s.group(&["close", "not-a-pane"]);
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(
         String::from_utf8_lossy(&out.stderr).trim(),
-        "pane-group close: not a pane id: \"not-a-pane\""
+        "Error: pane-group close: not a pane id: \"not-a-pane\""
     );
+
+    // Under --json every answer is one object on stdout, a refusal included,
+    // and nothing to step to is the contract's "no target" status.
+    let json = |args: &[&str]| {
+        let out = s.group(args);
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        )
+    };
+    assert_eq!(
+        json(&["--json", "move", &pane, "0"]),
+        (
+            Some(1),
+            format!(
+                r#"{{"ok":false,"error":"pane-group move: {pane} is not in a group","code":1}}"#
+            )
+        )
+    );
+    assert_eq!(
+        json(&["next", &pane, "--no-wrap", "--json"]),
+        (
+            Some(3),
+            r#"{"ok":false,"error":"pane-group next: no member that way","code":3}"#.to_string()
+        )
+    );
+    assert_eq!(s.group(&["next", &pane, "--no-wrap"]).stderr, b"");
+    assert_eq!(
+        json(&["--json", "gc"]),
+        (Some(0), r#"{"ok":true}"#.to_string())
+    );
+}
+
+/// `all` gathers the tab into the anchor's group, in tab order; `ungroup`
+/// brings every member back as a split in the tab and the group is gone.
+#[test]
+fn all_gathers_the_tab_and_ungroup_spreads_it_back() {
+    let s = Server::start("all");
+    let p1 = s.visible();
+    let p2 = s.tmux(&["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", &p1]);
+    let p3 = s.tmux(&["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", &p1]);
+
+    s.ok(&["all", &p1]);
+    let gid = s.option(&p1, "@tmuxy-group-id");
+    assert!(!gid.is_empty());
+    for pane in [&p2, &p3] {
+        assert_eq!(s.option(pane, "@tmuxy-group-id"), gid, "{pane}");
+        assert_eq!(s.session_of(pane), STASH, "{pane}");
+    }
+    assert_eq!(
+        s.tmux(&["list-panes", "-t", "work:0", "-F", "#{pane_id}"]),
+        p1
+    );
+
+    s.ok(&["ungroup", &p1]);
+    let shown = s.tmux(&["list-panes", "-t", "work:0", "-F", "#{pane_id}"]);
+    for pane in [&p1, &p2, &p3] {
+        assert!(
+            shown.lines().any(|p| p == pane.as_str()),
+            "{pane} in {shown}"
+        );
+        assert_eq!(s.option(pane, "@tmuxy-group-id"), "", "{pane}");
+    }
+
+    // A pane in no group has nothing to spread.
+    s.ok(&["ungroup", &p1]);
 }

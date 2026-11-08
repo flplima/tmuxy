@@ -1,23 +1,5 @@
-/**
- * What the phone stories share: the app snapshot a story reads, a box on
- * screen, and one finger's touch sequences as the browser would dispatch
- * them (PhoneLayout.stories.tsx, PhoneBottomView.stories.tsx).
- */
-
-interface Snap {
-  context: {
-    targetCols: number;
-    targetRows: number;
-    charWidth: number;
-    charHeight: number;
-    phoneLayout: boolean;
-    phoneLandscape: boolean;
-    phoneZoom: number;
-    phoneCollapsed: boolean;
-  };
-}
-export const ctx = () =>
-  (window as unknown as { app: { getSnapshot(): Snap } }).app.getSnapshot().context;
+import { appContext } from './storyApp';
+export const ctx = appContext;
 
 export const box = (el: Element | null) => {
   if (!el) throw new Error('missing element');

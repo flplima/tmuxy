@@ -17,44 +17,15 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::sync::Mutex;
 use std::time::Duration;
 
-use tmuxy_core::control_mode::{
-    CommandReply, LogSink, MonitorCommand, MonitorConfig, StateEmitter, TmuxMonitor,
-};
-use tmuxy_core::StateUpdate;
+use tmuxy_core::control_mode::MonitorCommand;
 
 mod common;
 
-#[derive(Default)]
-struct Quiet {
-    errors: Mutex<Vec<String>>,
-}
-impl LogSink for Quiet {}
-impl StateEmitter for Quiet {
-    fn emit_state(&self, _update: StateUpdate) {}
-    fn emit_error(&self, error: String) {
-        self.errors.lock().unwrap().push(error);
-    }
-}
-
-async fn ask(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, command: &str) -> CommandReply {
-    let (reply, rx) = tokio::sync::oneshot::channel();
-    tx.send(MonitorCommand::RunCommandWithReply {
-        command: command.to_string(),
-        reply,
-    })
-    .await
-    .unwrap();
-    tokio::time::timeout(Duration::from_secs(10), rx)
-        .await
-        .expect("reply within the deadline")
-        .expect("monitor answered")
-}
-
-async fn panes_in(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, window: &str) -> usize {
-    ask(tx, &format!("list-panes -t {window} -F '#{{pane_id}}'"))
+async fn panes_in(monitor: &common::Monitor, window: &str) -> usize {
+    monitor
+        .ask(&format!("list-panes -t {window} -F '#{{pane_id}}'"))
         .await
         .output
         .lines()
@@ -64,25 +35,14 @@ async fn panes_in(tx: &tokio::sync::mpsc::Sender<MonitorCommand>, window: &str) 
 
 #[tokio::test]
 async fn a_pinned_split_survives_a_concurrent_select_window() {
-    let socket = format!("tmuxy-pin-race-{}", std::process::id());
-    std::env::set_var("TMUX_SOCKET", &socket);
-
-    let config = MonitorConfig {
-        session: "app".to_string(),
-        create_session: true,
-        ..Default::default()
-    };
-    let (mut monitor, tx) = TmuxMonitor::connect(config, None)
-        .await
-        .expect("control-mode connection on the scratch socket");
-    let runner = tokio::spawn(async move {
-        let emitter = Quiet::default();
-        monitor.run(&emitter).await;
-    });
+    let server = common::ScratchServer::process_wide("pin-race");
+    let monitor = server.attach("app", true).await;
 
     // Two windows. tmux's current window is the first; the pin names the second.
-    ask(&tx, "new-window -d").await;
-    let listing = ask(&tx, "list-windows -F '#{window_id} #{pane_id}'").await;
+    monitor.ask("new-window -d").await;
+    let listing = monitor
+        .ask("list-windows -F '#{window_id} #{pane_id}'")
+        .await;
     let rows: Vec<Vec<&str>> = listing
         .output
         .lines()
@@ -90,17 +50,24 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
         .collect();
     assert_eq!(rows.len(), 2, "two windows: {}", listing.output);
     let (first_window, second_window, second_pane) = (rows[0][0], rows[1][0], rows[1][1]);
-    ask(&tx, &format!("select-window -t {first_window}")).await;
-    assert_eq!(panes_in(&tx, second_window).await, 1);
+    monitor
+        .ask(&format!("select-window -t {first_window}"))
+        .await;
+    assert_eq!(panes_in(&monitor, second_window).await, 1);
 
     // The pinned split, stalled between its pin and its split so the other
     // client is certain to land in between.
     let pinned = format!(
         "select-window -t {second_window} \\; select-pane -t {second_pane} \\; run-shell 'sleep 1' \\; split-window -h"
     );
-    tx.send(MonitorCommand::RunCommand { command: pinned })
-        .await
-        .unwrap();
+    // As a client sends it: through the router, which writes the frontend's
+    // `\;` as the `;` control mode reads.
+    let tmuxy_core::command_router::Route::ControlMode(command) =
+        tmuxy_core::command_router::route_command(&pinned, "tmuxy", None)
+    else {
+        panic!("the pinned split routes to control mode");
+    };
+    monitor.send(MonitorCommand::RunCommand { command }).await;
     // A position INSIDE the stalled list's one-second window, by design: the
     // other client has to act between the pin and the split, and nothing
     // observable marks that moment but the clock.
@@ -110,28 +77,25 @@ async fn a_pinned_split_survives_a_concurrent_select_window() {
     common::tmux(&["select-window", "-t", first_window]).unwrap();
 
     // The stalled list finishes and the split lands somewhere.
-    let tx_ref = &tx;
+    let monitor_ref = &monitor;
     common::wait_until(
         "the stalled split to land",
         Duration::from_secs(10),
         move || async move {
-            panes_in(tx_ref, second_window).await + panes_in(tx_ref, first_window).await == 3
+            panes_in(monitor_ref, second_window).await + panes_in(monitor_ref, first_window).await
+                == 3
         },
     )
     .await;
 
     assert_eq!(
-        panes_in(&tx, second_window).await,
+        panes_in(&monitor, second_window).await,
         2,
         "the split must land on the PINNED window"
     );
     assert_eq!(
-        panes_in(&tx, first_window).await,
+        panes_in(&monitor, first_window).await,
         1,
         "and never on the window tmux happened to be on"
     );
-
-    tx.send(MonitorCommand::Shutdown).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner).await;
-    let _ = common::tmux(&["kill-server"]);
 }

@@ -5,9 +5,8 @@ use crate::ids::test_ids::{pid, wid};
 /// A response between the capture markers is attributed to exactly the
 /// pane named by the BEGIN marker — and unmarked responses (e.g. a
 /// send-keys ack with EMPTY output, indistinguishable in shape from
-/// capturing a blank pane) can never steal a pending capture. This was
-/// the pane-content-misattribution bug: under command churn one pane
-/// rendered another pane's capture, or none at all.
+/// capturing a blank pane) can never steal a pending capture: under command
+/// churn one pane rendered another pane's capture, or none at all.
 #[test]
 fn capture_routing_is_marker_exact_and_theft_proof() {
     let mut agg = StateAggregator::new();
@@ -16,8 +15,6 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     agg.queue_captures(&[pid("%0"), pid("%1")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
@@ -26,7 +23,7 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     // as a capture for %0.
     let r = agg.process_event(response(""));
     assert!(
-        !matches!(r.change_type, ChangeType::PaneOutput { .. }),
+        !matches!(r.change_type, ChangeType::Output),
         "unmarked empty ack must not be routed as a capture"
     );
 
@@ -35,7 +32,7 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "1")));
     let r = agg.process_event(response("PANE_ONE_CONTENT\n"));
     assert!(
-        matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%1"),
+        r.change_type == ChangeType::Output,
         "marked capture must be attributed to the pane in the marker"
     );
     agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
@@ -51,7 +48,7 @@ fn capture_routing_is_marker_exact_and_theft_proof() {
     // %0's capture follows and lands in %0 — no shifted attribution.
     agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0")));
     let r = agg.process_event(response("PANE_ZERO_CONTENT\n"));
-    assert!(matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%0"));
+    assert!(r.change_type == ChangeType::Output);
     agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert_eq!(
         agg.panes.get_mut("%0").unwrap().get_content()[0]
@@ -77,8 +74,6 @@ fn capture_marker_survives_strftime_padding() {
     agg.queue_captures(&[pid("%69")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
@@ -89,13 +84,13 @@ fn capture_marker_survives_strftime_padding() {
         agg.markers().tag(CAPTURE_BEGIN_MARKER)
     )));
     let r = agg.process_event(response("PADDED_OK\n"));
-    assert!(matches!(r.change_type, ChangeType::PaneOutput { ref pane_id } if pane_id == "%69"));
+    assert!(r.change_type == ChangeType::Output);
     agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert!(agg.pending_captures.is_empty());
 }
 
 /// A marked capture for a pane killed mid-flight is discarded — and its
-/// in-flight entry is released so content preservation can't wedge.
+/// in-flight entry is released so the pane's captures can't wedge.
 #[test]
 fn capture_for_dead_pane_is_discarded_and_released() {
     let mut agg = StateAggregator::new();
@@ -103,14 +98,12 @@ fn capture_for_dead_pane_is_discarded_and_released() {
     agg.queue_captures(&[pid("%9")]);
 
     let response = |output: &str| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     };
     agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "9")));
     let r = agg.process_event(response("GHOST\n"));
-    assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
+    assert!(!matches!(r.change_type, ChangeType::Output));
     agg.process_event(response(&marked(&agg, CAPTURE_END_MARKER, "")));
     assert!(agg.pending_captures.is_empty());
 }
@@ -127,18 +120,16 @@ fn a_failed_capture_releases_its_pane_without_an_end_marker() {
     agg.queue_captures(&[pid("%9")]);
 
     let block = |output: &str, success: bool| ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success,
     };
     agg.process_event(block(&marked(&agg, CAPTURE_BEGIN_MARKER, "9"), true));
     agg.process_event(block("can't find pane: %9\n", false));
     assert!(agg.pending_captures.is_empty());
-    assert!(agg.capture_armed.is_none());
+    assert!(agg.armed.is_none());
 
     let r = agg.process_event(block("GHOST\n", true));
-    assert!(!matches!(r.change_type, ChangeType::PaneOutput { .. }));
+    assert!(!matches!(r.change_type, ChangeType::Output));
     assert!(agg.pending_captures.is_empty());
 }
 
@@ -163,7 +154,7 @@ fn osc52_clipboard_write_propagates_to_result() {
     );
 }
 
-/// SEC-01. One write per pane per `MIN_CLIPBOARD_INTERVAL`: a program
+/// One OSC 52 write per pane per `MIN_CLIPBOARD_INTERVAL`: a program
 /// writing the clipboard in a loop gets its first write and no more until
 /// the interval has passed.
 #[test]
@@ -187,7 +178,7 @@ fn a_pane_writing_the_clipboard_in_a_loop_is_rate_limited() {
     assert_eq!(agg.process_event(write()).clipboard_writes.len(), 1);
 }
 
-/// SEC-13. A paste buffer is server-global and `%paste-buffer-changed`
+/// A paste buffer is server-global and `%paste-buffer-changed`
 /// names no origin, so it is read (in-band, marker-wrapped) only while a
 /// pane of this session is in copy mode — the trace a yank leaves. Both
 /// hosts share this arm, so both have the gate.
@@ -201,10 +192,13 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
 
     let outside = agg.step(changed());
     assert!(
-        !outside
-            .effects
-            .iter()
-            .any(|e| matches!(e, SideEffect::SendTmuxCommand(_))),
+        !outside.effects.iter().any(|e| matches!(
+            e,
+            SideEffect::Send {
+                batch: Batch::Own,
+                ..
+            }
+        )),
         "no pane in copy mode: the buffer is not read ({:?})",
         outside.effects
     );
@@ -215,7 +209,10 @@ fn a_paste_buffer_change_is_read_only_while_a_pane_is_in_copy_mode() {
         .effects
         .iter()
         .find_map(|e| match e {
-            SideEffect::SendTmuxCommand(cmd) => Some(cmd.as_str()),
+            SideEffect::Send {
+                batch: Batch::Own,
+                commands,
+            } => commands.first().map(String::as_str),
             _ => None,
         })
         .expect("a pane in copy mode: the buffer is read over the control channel");
@@ -239,10 +236,13 @@ fn tmuxys_own_paste_buffers_are_never_read_back() {
             buffer_name: name.to_string(),
         });
         assert!(
-            !step
-                .effects
-                .iter()
-                .any(|e| matches!(e, SideEffect::SendTmuxCommand(_))),
+            !step.effects.iter().any(|e| matches!(
+                e,
+                SideEffect::Send {
+                    batch: Batch::Own,
+                    ..
+                }
+            )),
             "{name} was read: {:?}",
             step.effects
         );
@@ -264,7 +264,10 @@ fn a_paste_buffer_name_is_quoted_into_its_read() {
         .effects
         .into_iter()
         .find_map(|e| match e {
-            SideEffect::SendTmuxCommand(cmd) => Some(cmd),
+            SideEffect::Send {
+                batch: Batch::Own,
+                mut commands,
+            } => commands.pop(),
             _ => None,
         })
         .expect("a pane in copy mode: the buffer is read");
@@ -276,7 +279,6 @@ fn a_paste_buffer_name_is_quoted_into_its_read() {
 
 #[test]
 fn output_without_osc52_yields_no_clipboard_write() {
-    // Sanity check that the new field doesn't fire on plain output.
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
 
@@ -289,10 +291,9 @@ fn output_without_osc52_yields_no_clipboard_write() {
     assert!(result.clipboard_writes.is_empty());
 }
 
-/// SEC-22. Nothing evicted from a pane's image store while the pane lived
-/// — the server's own store is trimmed only for DEAD panes — so a program
-/// printing pictures in a loop grew the process for the life of the pane,
-/// on nothing but pane output.
+/// A pane's image store is capped while the pane lives (the server's own is
+/// trimmed only for DEAD panes): unevicted, a program printing pictures in a
+/// loop grew the process for the life of the pane, on pane output alone.
 #[test]
 fn a_pane_stops_hoarding_pictures_at_the_cap() {
     let mut pane = PaneState::new(pid("%0"), 80, 24);
@@ -321,7 +322,7 @@ fn a_pane_stops_hoarding_pictures_at_the_cap() {
     assert!(!pane.image_store.contains_key(&0));
 }
 
-/// SEC-01. OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
+/// OSC 52 arrives in pane OUTPUT, so `cat` of a crafted file is
 /// enough to reach it — a background pane (a tailed log, a stray ssh
 /// session) could silently replace what the user was about to paste.
 #[test]
@@ -341,7 +342,7 @@ fn osc52_from_a_pane_the_user_is_not_in_is_dropped() {
     );
 }
 
-/// SEC-01. The payload is whatever the file held, so it is bounded.
+/// An OSC 52 payload is whatever the file held, so it is bounded.
 #[test]
 fn an_osc52_write_over_the_cap_is_dropped() {
     let under = accepted_clipboard_write(
@@ -398,9 +399,13 @@ fn a_mode_change_notification_relists_the_pane_instead_of_toggling_copy_mode() {
         "a notification alone is not copy mode"
     );
     assert!(
-        alone.effects.iter().any(
-            |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
-        ),
+        alone.effects.iter().any(|e| matches!(
+            e,
+            SideEffect::Send {
+                batch: Batch::PaneRefresh,
+                ..
+            }
+        )),
         "the pane is re-listed ({:?})",
         alone.effects
     );
@@ -408,7 +413,7 @@ fn a_mode_change_notification_relists_the_pane_instead_of_toggling_copy_mode() {
         !alone
             .effects
             .iter()
-            .any(|e| matches!(e, SideEffect::EmitState { .. })),
+            .any(|e| matches!(e, SideEffect::Emit(_))),
         "the reply emits, not the notification ({:?})",
         alone.effects
     );
@@ -460,8 +465,6 @@ fn a_moved_pane_whose_capture_fails_gets_its_output_back() {
 
     agg.process_event(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
     agg.process_event(ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: "can't find pane: %0\n".to_string(),
         success: false,
     });
@@ -499,24 +502,30 @@ fn a_capture_requested_while_one_is_in_flight_follows_when_it_lands() {
     agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
     let landed = agg.step(response("OLD GEOMETRY\n", true));
     assert!(
-        landed.effects.iter().any(
-            |e| matches!(e, SideEffect::RefreshPanes { pane_ids } if pane_ids == &[pid("%0")])
-        ),
+        landed.effects.iter().any(|e| captures(e, "%0")),
         "the dropped request is made once the pane is free ({:?})",
         landed.effects
     );
     agg.step(response(&marked(&agg, CAPTURE_END_MARKER, ""), true));
 
-    // The follow-up itself asks for nothing more.
-    assert_eq!(agg.queue_captures(&[pid("%0")]), vec![pid("%0")]);
+    // The follow-up, in flight since the step queued it, asks for nothing more.
     agg.step(response(&marked(&agg, CAPTURE_BEGIN_MARKER, "0"), true));
     let settled = agg.step(response("NEW GEOMETRY\n", true));
     assert!(
-        !settled
-            .effects
-            .iter()
-            .any(|e| matches!(e, SideEffect::RefreshPanes { .. })),
+        !settled.effects.iter().any(|e| matches!(
+            e,
+            SideEffect::Send {
+                batch: Batch::PaneRefresh,
+                ..
+            }
+        )),
         "a capture nobody asked twice for ends the chain ({:?})",
         settled.effects
     );
+}
+
+/// Whether `effect` is a pane refresh that captures `pane`.
+pub(super) fn captures(effect: &SideEffect, pane: &str) -> bool {
+    matches!(effect, SideEffect::Send { batch: Batch::PaneRefresh, commands }
+        if commands.iter().any(|c| c.contains(&format!("capture-pane -t {pane} "))))
 }

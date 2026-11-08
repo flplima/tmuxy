@@ -1,109 +1,124 @@
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-/// Build the argv passed to `tmux` plus a human-readable description that's
-/// safe to log (one socket flag pair only — `tmux_bin()` already includes
-/// the socket, so omit it from the args for the log line). `tmux_args`
-/// carries the actual argv used by `spawn`.
+/// What makes a session, whichever client asks tmux for it (this
+/// connection's `-CC new-session -A`, or another session's control-mode
+/// client): its name, the group it joins, and its first window.
+///
+/// A second GUI window on the same session joins the base session's group
+/// (`-t <base>`), sharing every window and pane but keeping its own current
+/// window. A session about to be rebuilt from a snapshot gets its first
+/// window made here, by name and directory, so the rebuild has a window 0 to
+/// build onto. With `-A` tmux ignores all three when the session exists.
+pub fn new_session_flags(
+    session: &str,
+    group_target: Option<&str>,
+    first_window: Option<&(String, String)>,
+) -> Vec<String> {
+    let mut flags = vec!["-s".to_string(), session.to_string()];
+    if let Some(base) = group_target {
+        flags.extend(["-t".to_string(), crate::session::exact_session_target(base)]);
+    }
+    if let Some((name, cwd)) = first_window {
+        flags.extend([
+            "-n".to_string(),
+            name.clone(),
+            "-c".to_string(),
+            cwd.clone(),
+        ]);
+    }
+    flags
+}
+
+/// The argv that launches `tmux -CC`, led by its program (the tmux path, or
+/// `ssh -tt <dest> tmux`).
 pub(super) fn build_tmux_args(
     session_name: &str,
     create_if_missing: bool,
     group_target: Option<&str>,
     first_window: Option<&(String, String)>,
-) -> (Vec<String>, String) {
-    // Full argv including the program token: the local tmux path, or
-    // `ssh -tt <dest> tmux` when tunneled to a remote host. `-tt` is required
-    // for `-CC` control mode's remote pty.
+) -> Vec<String> {
+    // Over ssh, `-tt` is required for `-CC` control mode's remote pty.
     let mut tmux_args: Vec<String> = crate::session::tmux_argv(true);
-    // Apply the tmuxy config chain (session::get_config_path: the defaults,
-    // the user's tmuxy.conf, the essentials) at server-startup time. tmux only reads
-    // `-f` when it forks a new server, so this only affects the create path;
-    // the monitor's `sync_initial_state()` source-files the same config after
-    // attach to cover the attach path. Skipped over SSH — the local config
-    // path doesn't exist on the remote host (the remote server uses its own
-    // tmux config, and sync_initial_state's remote source-file is a no-op).
-    if crate::session::ssh_target().is_none() {
-        if let Some(path) = crate::session::get_config_path() {
-            tmux_args.push("-f".to_string());
-            tmux_args.push(path.to_string_lossy().into_owned());
-        }
+    // tmux only reads `-f` when it forks a new server, so this covers the
+    // create path; `sync_initial_state` source-files the same config after an
+    // attach.
+    if let Some(path) = crate::session::get_config_path() {
+        tmux_args.push("-f".to_string());
+        tmux_args.push(path.to_string_lossy().into_owned());
     }
     if create_if_missing {
-        // -A: attach to existing session if it exists, otherwise create.
-        // Atomic from tmux's perspective — no clientless gap for the macOS
-        // launchd reaper to hit.
-        tmux_args.extend([
-            "-CC".to_string(),
-            "new-session".to_string(),
-            "-A".to_string(),
-            "-s".to_string(),
-            session_name.to_string(),
-        ]);
-        // A second GUI window on the same session: `-t <base>` makes the new
-        // session a member of the base session's group, so the two share every
-        // window and pane but keep their own current window — which is what
-        // lets one OS window sit on one tab while another sits on a different
-        // one. With `-A` the flag is inert when the session already exists.
-        if let Some(base) = group_target {
-            tmux_args.extend(["-t".to_string(), base.to_string()]);
-        }
-        // A session about to be rebuilt from a snapshot gets its first window
-        // made right here, by name and directory, so the rebuild has a
-        // window 0 to build onto. tmux ignores both when the session exists.
-        if let Some((name, cwd)) = first_window {
-            tmux_args.extend([
-                "-n".to_string(),
-                name.clone(),
-                "-c".to_string(),
-                cwd.clone(),
-            ]);
-        }
+        // `-A` attaches or creates in one step: no clientless gap for the
+        // macOS launchd reaper to hit.
+        tmux_args.extend(["-CC", "new-session", "-A"].map(String::from));
+        tmux_args.extend(new_session_flags(session_name, group_target, first_window));
     } else {
         tmux_args.extend([
             "-CC".to_string(),
             "attach-session".to_string(),
             "-t".to_string(),
-            session_name.to_string(),
+            crate::session::exact_session_target(session_name),
         ]);
     }
-
-    // `tmux_args` now leads with the program token (tmux path or `ssh …`), so
-    // the joined argv is itself the human-readable, log-safe description.
-    let shell_desc = tmux_args.join(" ");
-
-    (tmux_args, shell_desc)
+    tmux_args
 }
 
-/// Spawn the PTY-master parser task. Reads raw bytes from the master end of
-/// the pty, converts each line to UTF-8 lossily, parses control-mode events,
-/// forwards them to `tx`, and signals readiness via `ready_tx` after the
-/// first successfully parsed event.
-///
-/// Every line — parsed or not — is also pushed into `recent_output`, capped
-/// to the last 200 entries, so a later send error can include tmux's final
-/// words. With pty-process the child's stdout AND stderr are merged into
-/// the same PTY stream, so any error tmux writes on its way out lands here
-/// for capture.
+/// How tmux's first control-mode event settles a connect.
+pub(super) enum Opening {
+    Connected,
+    /// tmux reached control mode but its own command failed (the opening
+    /// block closed with `%error`) or it exited: tmux's words, if any.
+    Refused(String),
+}
+
+/// `-CC` opens control mode with a DCS (`ESC P 1000 p`) written right before
+/// the `%begin` of the block answering tmux's own command, on the same line.
+const CONTROL_MODE_DCS: &[u8] = b"\x1bP1000p";
+
+/// The verdict tmux's first event gives, and the event itself when it is the
+/// monitor's to see. tmux answers its own command (`attach-session`,
+/// `new-session`) in the opening block, so `%end` means attached and
+/// `%error` carries why not; a notification means attached too, and `%exit`
+/// means tmux left. The opening block answers nothing tmuxy sent, so it goes
+/// no further.
+fn opening_of(event: ControlModeEvent) -> (Opening, Option<ControlModeEvent>) {
+    match event {
+        ControlModeEvent::CommandResponse { success: true, .. } => (Opening::Connected, None),
+        ControlModeEvent::CommandResponse {
+            success: false,
+            output,
+        } => (Opening::Refused(output), None),
+        ControlModeEvent::Exit { reason } => (Opening::Refused(reason.unwrap_or_default()), None),
+        event => (Opening::Connected, Some(event)),
+    }
+}
+
+/// Parse the PTY master's lines into events on `tx`, settling `opening` on
+/// the first one. A line before control mode opens that is not control mode's
+/// (tmux's error on its way out, or ssh's warnings) is no event. Every line
+/// also goes to `recent_output` (the last 200): pty-process merges the
+/// child's stdout and stderr into the PTY stream, so whatever tmux says on
+/// its way out lands there for error messages.
 pub(super) fn spawn_parser_task(
     reader: pty_process::OwnedReadPty,
     tx: mpsc::Sender<ControlModeEvent>,
-    ready_tx: tokio::sync::oneshot::Sender<()>,
+    opening: tokio::sync::oneshot::Sender<Opening>,
     recent_output: Arc<Mutex<Vec<String>>>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut buf_reader = BufReader::new(reader);
         let mut parser = Parser::new();
         let mut buf = Vec::with_capacity(4096);
-        let mut ready_tx = Some(ready_tx);
+        let mut opening = Some(opening);
 
         loop {
             buf.clear();
             match read_line_capped(&mut buf_reader, &mut buf, MAX_LINE_BYTES).await {
                 Ok(0) => {
-                    // EOF — tmux process exited (or PTY was closed). tmux's
-                    // parting words (often a `%error` or `%exit detached`
-                    // line) are raw control-mode output, so they are logged at
-                    // `trace`, below the action trace's floor (docs/TRACING.md).
+                    // tmux's parting words (often a `%error` or `%exit
+                    // detached` line) are raw control-mode output, so they are
+                    // logged at `trace`, below the action trace's floor
+                    // (docs/TRACING.md).
                     let tail: Vec<String> = {
                         let guard = recent_output.lock().await;
                         let n = guard.len();
@@ -116,7 +131,6 @@ pub(super) fn spawn_parser_task(
                     }
                     break;
                 }
-                // A line past the cap, dropped whole.
                 Ok(_) if buf.is_empty() => {}
                 Ok(_) => {
                     while buf.last() == Some(&b'\n') || buf.last() == Some(&b'\r') {
@@ -137,14 +151,23 @@ pub(super) fn spawn_parser_task(
                         }
                     }
 
-                    if let Some(event) = parser.parse_line(&buf) {
-                        // Signal readiness on first parsed event
-                        if let Some(rtx) = ready_tx.take() {
-                            let _ = rtx.send(());
+                    let bytes = match opening {
+                        Some(_) => buf.strip_prefix(CONTROL_MODE_DCS).unwrap_or(&buf),
+                        None => &buf[..],
+                    };
+                    let Some(mut event) = parser.parse_line(bytes) else {
+                        continue;
+                    };
+                    if let Some(settle) = opening.take() {
+                        let (verdict, first) = opening_of(event);
+                        let _ = settle.send(verdict);
+                        match first {
+                            Some(first) => event = first,
+                            None => continue,
                         }
-                        if tx.send(event).await.is_err() {
-                            break;
-                        }
+                    }
+                    if tx.send(event).await.is_err() {
+                        break;
                     }
                 }
                 Err(e) => {
@@ -153,7 +176,7 @@ pub(super) fn spawn_parser_task(
                 }
             }
         }
-    });
+    })
 }
 
 /// The longest control-mode line kept. tmux writes a pane's output a read at
@@ -206,20 +229,19 @@ where
 }
 
 impl ControlModeConnection {
-    /// Check that `session_name` actually exists before we burn a PTY on it.
-    /// Returns `Err(SessionNotFound)` enriched with the running session list
-    /// for diagnostics — operators almost always need to see "what *do* you
-    /// have" when this fires.
+    /// `Err(SessionNotFound)` names the sessions that do exist: whoever hits
+    /// this almost always needs to see "what *do* you have".
     pub(super) fn preflight_session(
         session_name: &str,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
         let tmux_path = crate::session::tmux_path();
         tracing::debug!(session = session_name, "connect(): checking session");
-        let has_session_cmd = format!("{} has-session -t {}", tmux_path, session_name);
+        let target = crate::session::exact_session_target(session_name);
+        let has_session_cmd = format!("{} has-session -t {}", tmux_path, target);
         log_to(log, LogKind::Command, has_session_cmd.clone());
         let check = crate::session::tmux_command()
-            .args(["has-session", "-t", session_name])
+            .args(["has-session", "-t", &target])
             .output()
             .map_err(|e| {
                 let msg = format!(
@@ -271,7 +293,6 @@ impl ControlModeConnection {
         })
     }
 
-    /// Allocate a fresh PTY sized to `INITIAL_PTY_COLS x INITIAL_PTY_ROWS`.
     pub(super) fn allocate_pty(
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(pty_process::Pty, pty_process::Pts), TmuxError> {
@@ -292,12 +313,8 @@ impl ControlModeConnection {
         Ok((pty, pts))
     }
 
-    /// Spawn `tmux -CC …` attached to the supplied pty slave.
-    ///
-    /// Sets `TERM=xterm-256color`, `LANG=en_US.UTF-8` (only if absent), and
-    /// prepends the Homebrew bin paths to `PATH` on macOS. These all exist
-    /// to keep `.app`-from-Finder launches functional: launchd hands us a
-    /// sparse env that breaks `default-command`s using Homebrew binaries.
+    /// Sets `TERM` and `LANG` when absent: launchd hands an `.app` started
+    /// from Finder a sparse environment.
     pub(super) fn spawn_tmux(
         tmux_args: &[String],
         pts: pty_process::Pts,
@@ -305,8 +322,6 @@ impl ControlModeConnection {
         shell_desc: &str,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<tokio::process::Child, TmuxError> {
-        // `tmux_args[0]` is the program to launch — the local tmux path, or
-        // `ssh` when tunneling to a remote host (see `build_tmux_args`).
         let program = &tmux_args[0];
         let mut cmd = pty_process::Command::new(program);
         cmd = cmd.args(&tmux_args[1..]);
@@ -347,33 +362,6 @@ impl ControlModeConnection {
         if std::env::var_os("LANG").is_none() && std::env::var_os("LC_ALL").is_none() {
             cmd = cmd.env("LANG", "en_US.UTF-8");
         }
-        #[cfg(target_os = "macos")]
-        {
-            // `~/.local/bin` holds the `tmuxy` shorthand the app writes on launch
-            // (session::refresh_launcher); without it a pane's `tmuxy widget tree`
-            // (the left sidebar) is "command not found" when launched from Finder.
-            let local_bin = dirs::home_dir()
-                .map(|h| h.join(".local/bin").to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let extras: Vec<&str> = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
-                .into_iter()
-                .chain((!local_bin.is_empty()).then_some(local_bin.as_str()))
-                .collect();
-            let current = std::env::var("PATH").unwrap_or_default();
-            let missing: Vec<&str> = extras
-                .iter()
-                .copied()
-                .filter(|p| !current.split(':').any(|seg| seg == *p))
-                .collect();
-            if !missing.is_empty() {
-                let prefixed = if current.is_empty() {
-                    missing.join(":")
-                } else {
-                    format!("{}:{}", missing.join(":"), current)
-                };
-                cmd = cmd.env("PATH", prefixed);
-            }
-        }
         if let Some(dir) = working_dir {
             cmd = cmd.current_dir(dir);
         }
@@ -388,78 +376,93 @@ impl ControlModeConnection {
         })
     }
 
-    /// Block until the parser task signals readiness (first parsed event from
-    /// tmux), or `Err(TmuxError::Timeout)` after 10 seconds. The 10s ceiling
-    /// is long enough to swallow a slow first-time `default-command` startup
+    /// Connected once tmux's first control-mode event says so (`Opening`).
+    /// The 10s ceiling swallows a slow first-time `default-command` startup
     /// while still surfacing a dead tmux server quickly.
-    pub(super) async fn wait_for_initial_state(
-        child: &mut tokio::process::Child,
-        ready_rx: tokio::sync::oneshot::Receiver<()>,
+    pub(super) async fn wait_for_control_mode(
+        &mut self,
+        opening: tokio::sync::oneshot::Receiver<Opening>,
+        reader: tokio::task::JoinHandle<()>,
         session_name: &str,
         shell_desc: &str,
-        recent_output: &Arc<Mutex<Vec<String>>>,
         log: Option<&Arc<dyn LogSink>>,
     ) -> Result<(), TmuxError> {
-        tracing::debug!("connect(): waiting for first control mode event (10s timeout)");
+        tracing::debug!("connect(): waiting for control mode to open (10s timeout)");
         log_to(
             log,
             LogKind::Info,
-            "waiting for first control mode event (10s timeout)",
+            "waiting for control mode to open (10s timeout)",
         );
 
-        match tokio::time::timeout(Duration::from_secs(10), ready_rx).await {
-            Ok(Ok(())) => {
-                // The smoke tests count this line in the desktop app's log
-                // file: more than two in a run is a reconnect loop.
-                tracing::info!("connect(): control mode connected successfully");
-                log_to(log, LogKind::Info, "control mode connected successfully");
-                Ok(())
-            }
-            Ok(Err(_)) => {
-                // Parser hit EOF before sending readiness — tmux exited.
-                let _ = child.kill().await;
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let tail = drain_recent_output(recent_output).await;
-                log_to(
-                    log,
-                    LogKind::Output,
-                    format!(
-                        "control mode died immediately, output: {}",
-                        if tail.is_empty() { "(empty)" } else { &tail }
-                    ),
-                );
-                Err(TmuxError::ProcessExited {
-                    reason: format!(
-                        "control mode died immediately for session '{}' (command: {}, output: {})",
-                        session_name,
-                        shell_desc,
-                        if tail.is_empty() { "(empty)" } else { &tail },
-                    ),
-                })
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                let tail = drain_recent_output(recent_output).await;
-                log_to(
-                    log,
-                    LogKind::Output,
-                    format!(
-                        "control mode timed out after 10s, output: {}",
-                        if tail.is_empty() { "(empty)" } else { &tail }
-                    ),
-                );
-                Err(TmuxError::Timeout {
-                    operation: format!("control mode connect to session '{}'", session_name),
-                    after: Duration::from_secs(10),
-                })
-            }
+        let outcome = tokio::time::timeout(CONNECT_TIMEOUT, opening).await;
+        if let Ok(Ok(Opening::Connected)) = outcome {
+            tracing::info!("connect(): {CONNECTED_LINE}");
+            log_to(log, LogKind::Info, CONNECTED_LINE);
+            return Ok(());
         }
+        // A tmux that came up late is attached by now, and killing an
+        // attached control client crashes tmux 3.5a: it is detached, and one
+        // that already exited is only reaped. Its parting words are what the
+        // reader has read once the PTY closes.
+        self.graceful_close().await;
+        if tokio::time::timeout(Duration::from_secs(1), reader)
+            .await
+            .is_err()
+        {
+            tracing::debug!("connect(): the PTY reader is still reading");
+        }
+        let status = match self.child.try_wait() {
+            Ok(Some(status)) => status.to_string(),
+            _ => "still running".to_string(),
+        };
+        let tail = drain_recent_output(&self.recent_output).await;
+        let output = if tail.is_empty() { "(empty)" } else { &tail };
+        let (what, error) = match outcome {
+            Ok(Ok(Opening::Refused(said))) => {
+                let said = if said.is_empty() { output } else { &said };
+                (
+                    "refused",
+                    TmuxError::ProcessExited {
+                        reason: format!(
+                            "tmux refused control mode for session '{session_name}': {said} (command: {shell_desc}, {status})"
+                        ),
+                    },
+                )
+            }
+            Ok(_) => (
+                "never opened",
+                TmuxError::ProcessExited {
+                    reason: format!(
+                        "tmux exited before control mode opened for session '{session_name}': {output} (command: {shell_desc}, {status})"
+                    ),
+                },
+            ),
+            Err(_) => (
+                "timed out after 10s",
+                TmuxError::Timeout {
+                    operation: format!("control mode connect to session '{session_name}'"),
+                    after: CONNECT_TIMEOUT,
+                },
+            ),
+        };
+        log_to(
+            log,
+            LogKind::Output,
+            format!("control mode {what}, {status}, output: {output}"),
+        );
+        Err(error)
     }
 }
 
+/// How long tmux has to print its first control-mode line.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Logged once per control-mode connection. `tests/smoke/smoke-test.js` and
+/// `tests/smoke/macos-sparse-path-test.js` count it in the desktop app's log
+/// file (more than two in a run is a reconnect loop): rewording it blinds them.
+const CONNECTED_LINE: &str = "control mode connected successfully";
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod read_line_tests {
     use super::read_line_capped;
 

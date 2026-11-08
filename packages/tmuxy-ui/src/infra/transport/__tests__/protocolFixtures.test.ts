@@ -2,15 +2,14 @@
  * The TypeScript half of the Rust ↔ TS protocol contract.
  *
  * `packages/protocol-fixtures/` holds canonical wire payloads serialized by
- * the Rust types (see `packages/tmuxy-server/src/sse.rs`, `mod
- * protocol_fixtures`). Nothing generates the TS schemas (`domain/wire.ts`)
+ * the Rust types (`packages/tmuxy-core/src/host/protocol_fixtures.rs`). Nothing generates the TS schemas (`domain/wire.ts`)
  * from those types — they mirror them by hand — so a field that drifts is
  * invisible to both suites. `history_size` reached production that way. These
  * tests decode the committed fixtures through the real schemas and fail when a
  * field the server sends does not survive the trip.
  *
  * Regenerate the fixtures with:
- *   UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures
+ *   UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-core protocol_fixtures
  */
 
 import { readFileSync } from 'node:fs';
@@ -18,18 +17,12 @@ import { describe, it, expect } from 'vitest';
 import { Schema } from 'effect';
 
 import {
-  ClipboardEvent,
   CommandFailure,
-  ConnectionInfo,
-  DetachedEvent,
-  KeyBindings,
-  LogEvent,
-  MessageFrame,
   ServerState as ServerStateSchema,
-  ThemeSettings,
-  TmuxMessageEvent,
   type ServerState,
 } from '../../../domain/wire';
+import { BACKEND_COMMANDS, type CommandName } from '../../../domain/backendCalls';
+import { HOST_EVENTS, type HostEventName } from '../hostEvents';
 import { handleStateUpdate, applyDelta } from '../../../domain/deltaProtocol';
 import { toClientState } from '../../../domain/client';
 import { wireDelta, wireUpdate } from '../../../test/wire';
@@ -51,6 +44,21 @@ function fixture(name: string): unknown {
  */
 function droppedKeys(sent: Record<string, unknown>, decoded: Record<string, unknown>): string[] {
   return Object.keys(sent).filter((key) => !(key in decoded));
+}
+
+/**
+ * Every path under `sent` whose key the decoded value no longer carries,
+ * through nested objects and arrays.
+ */
+function droppedPaths(sent: unknown, decoded: unknown, path: string): string[] {
+  if (Array.isArray(sent) && Array.isArray(decoded)) {
+    return sent.flatMap((item, i) => droppedPaths(item, decoded[i], `${path}[${i}]`));
+  }
+  if (!sent || typeof sent !== 'object' || !decoded || typeof decoded !== 'object') return [];
+  const kept = decoded as Record<string, unknown>;
+  return Object.entries(sent).flatMap(([key, value]) =>
+    key in kept ? droppedPaths(value, kept[key], `${path}.${key}`) : [`${path}.${key}`],
+  );
 }
 
 describe('Rust → TypeScript protocol fixtures', () => {
@@ -102,8 +110,8 @@ describe('Rust → TypeScript protocol fixtures', () => {
   });
 
   it('applies the canonical delta frame on top of the canonical full state', () => {
-    const full = fixture('sse_state_update_full.json') as { event: string; data: unknown };
-    const delta = fixture('sse_state_update_delta.json') as { event: string; data: unknown };
+    const full = fixture('event_state_update_full.json') as { event: string; data: unknown };
+    const delta = fixture('event_state_update_delta.json') as { event: string; data: unknown };
 
     expect(full.event).toBe('state-update');
     expect(delta.event).toBe('state-update');
@@ -139,8 +147,8 @@ describe('Rust → TypeScript protocol fixtures', () => {
   });
 
   it('keeps every pane field the server can send reachable through applyDelta', () => {
-    const full = fixture('sse_state_update_full.json') as { data: unknown };
-    const delta = fixture('sse_state_update_delta.json') as {
+    const full = fixture('event_state_update_full.json') as { data: unknown };
+    const delta = fixture('event_state_update_delta.json') as {
       data: {
         type: 'delta';
         delta: { seq: number; panes: Record<string, Record<string, unknown>> };
@@ -157,44 +165,71 @@ describe('Rust → TypeScript protocol fixtures', () => {
     expect(unmerged).toEqual([]);
   });
 
-  it('reads every SSE frame the server can emit', () => {
-    const frames = fixture('sse_frames.json') as { event: string; data: unknown }[];
-    // The names the HttpAdapter subscribes to. A frame whose name is not here
-    // is dispatched to no listener in the browser at all.
-    const handled = new Set([
-      'connection-info',
-      'state-update',
-      'keybindings',
-      'theme-settings',
-      'css-changed',
-      'tmux-error',
-      'clipboard',
-      'tmux-message',
-      'log',
-      'detached',
-      'fatal',
-    ]);
-    // The schema each listener decodes its frame with.
-    const schemas = new Map<string, (data: unknown) => unknown>([
-      ['connection-info', Schema.decodeUnknownSync(ConnectionInfo)],
-      ['keybindings', Schema.decodeUnknownSync(KeyBindings)],
-      ['theme-settings', Schema.decodeUnknownSync(ThemeSettings)],
-      // A notification with nothing to decode: the listener takes no payload.
-      ['css-changed', Schema.decodeUnknownSync(Schema.NullOr(Schema.Unknown))],
-      ['tmux-error', Schema.decodeUnknownSync(MessageFrame)],
-      ['clipboard', Schema.decodeUnknownSync(ClipboardEvent)],
-      ['tmux-message', Schema.decodeUnknownSync(TmuxMessageEvent)],
-      ['log', Schema.decodeUnknownSync(LogEvent)],
-      ['detached', Schema.decodeUnknownSync(DetachedEvent)],
-      ['fatal', Schema.decodeUnknownSync(MessageFrame)],
-    ]);
+  it('reads every event a host can emit, dropping no field', () => {
+    const frames = fixture('events.json') as { event: string; data: unknown }[];
     for (const frame of frames) {
-      expect(handled.has(frame.event), `no client listener for SSE event "${frame.event}"`).toBe(
+      // The table both drivers listen through: an event whose name is not
+      // in it reaches no listener on either transport.
+      expect(frame.event in HOST_EVENTS, `no client listener for event "${frame.event}"`).toBe(
         true,
       );
-      const decode = schemas.get(frame.event);
-      expect(decode, `no schema for SSE event "${frame.event}"`).toBeDefined();
-      expect(() => decode!(frame.data)).not.toThrow();
+      const decoded = Schema.decodeUnknownSync(
+        HOST_EVENTS[frame.event as HostEventName].schema as Schema.Schema<unknown, unknown>,
+      )(frame.data);
+      if (frame.data && typeof frame.data === 'object' && !Array.isArray(frame.data)) {
+        expect(
+          droppedKeys(frame.data as Record<string, unknown>, decoded as Record<string, unknown>),
+          frame.event,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('sends every command the host decodes, under its name and with its arguments', () => {
+    const requests = fixture('command_requests.json') as { cmd: string; args?: unknown }[];
+    expect(requests.map((r) => r.cmd).sort()).toEqual(Object.keys(BACKEND_COMMANDS).sort());
+    for (const { cmd, args = {} } of requests) {
+      const schema = BACKEND_COMMANDS[cmd as CommandName].args as unknown as Schema.Schema<
+        unknown,
+        unknown
+      > & { readonly fields: Record<string, unknown> };
+      // An argument the host reads that the table lacks, or one the host
+      // does not know of, fails here.
+      expect(
+        () => Schema.decodeUnknownSync(schema, { onExcessProperty: 'error' })(args),
+        cmd,
+      ).not.toThrow();
+      // The request fills every optional argument, so a field only the
+      // table has is one the host never reads.
+      expect(
+        Object.keys(schema.fields).filter((key) => !(key in (args as object))),
+        cmd,
+      ).toEqual([]);
+    }
+  });
+
+  it('decodes every answer of every command, dropping no field', () => {
+    const answers = fixture('command_results.json') as Record<string, unknown[]>;
+    expect(Object.keys(answers).sort()).toEqual(Object.keys(BACKEND_COMMANDS).sort());
+    for (const [cmd, sent] of Object.entries(answers)) {
+      const schema = BACKEND_COMMANDS[cmd as CommandName].result as unknown as Schema.Schema<
+        unknown,
+        unknown
+      >;
+      for (const answer of sent) {
+        const decoded = Schema.decodeUnknownSync(schema)(answer);
+        expect(droppedPaths(answer, decoded, cmd), cmd).toEqual([]);
+      }
+    }
+    // The desktop's greeting is a list of host events, read through the
+    // same table as a live event.
+    for (const { event, data } of answers.greeting[0] as { event: string; data: unknown }[]) {
+      expect(event in HOST_EVENTS, event).toBe(true);
+      expect(() =>
+        Schema.decodeUnknownSync(
+          HOST_EVENTS[event as HostEventName].schema as Schema.Schema<unknown, unknown>,
+        )(data),
+      ).not.toThrow();
     }
   });
 

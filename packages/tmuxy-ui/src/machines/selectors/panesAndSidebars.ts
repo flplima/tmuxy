@@ -1,41 +1,23 @@
 import { CONTAINER_PADDING_X } from '../../constants/layout';
 import type { AppMachineContext } from '../types/context';
-import type { FloatPaneState, PaneGroup } from '../types/domain';
-import { isTabWindow, type TmuxPane, type TmuxWindow } from '../../domain/client';
-import { createMemoizedSelector, createMemoizedSelectorWithArg } from '../../utils/memoize';
+import type { FloatPaneState, SidebarSide } from '../types/domain';
+import {
+  type PaneGroup,
+  paneTakesCopyMode,
+  type TmuxPane,
+  type TmuxWindow,
+} from '../../domain/client';
+import { createMemoizedSelector, createMemoizedSelectorWithArg } from './memoize';
 import { DEFAULT_CHAR_WIDTH, LEFT_SIDEBAR_COLS, RIGHT_SIDEBAR_COLS } from '../constants';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { PaneTree } from '../../domain/wire';
+import { sidebarWindow, stripTabs } from '../../domain/windows';
 import { previewInputs, selectPreviewPanes, selectSidebarCellMetrics } from './layout';
 
-// ============================================
-// Window & Sidebar Selectors
-// ============================================
-
-/**
- * Windows with `active` derived from context.activeWindowId.
- *
- * The server snapshot also carries an `active` boolean per window, but it
- * lags our optimistic SELECT_TAB flip — a snapshot captured before tmux
- * processed `select-window` still marks the old window active, which would
- * make the tab highlight blink (new → old → new) as those snapshots arrive.
- * Deriving from activeWindowId here makes the UI a single source of truth.
- */
-export const selectWindows = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
-  (context: AppMachineContext) =>
-    context.windows.map((w) => {
-      const shouldBeActive = w.id === context.activeWindowId;
-      return w.active === shouldBeActive ? w : { ...w, active: shouldBeActive };
-    }),
-);
-
-/** Windows visible in the status bar. Only tab-typed windows show as tabs;
- *  group and float windows are hidden, and foreign (untagged) windows are
- *  ignored entirely. */
+/** The tabs the strip shows (`isStripTab`). */
 export const selectVisibleWindows = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.windows, ctx.activeWindowId] as const,
-  (context: AppMachineContext) => selectWindows(context).filter(isTabWindow),
+  (ctx: AppMachineContext) => [ctx.windows] as const,
+  (context: AppMachineContext) => stripTabs(context.windows),
 );
 
 /**
@@ -43,14 +25,12 @@ export const selectVisibleWindows = createMemoizedSelector(
  * exist yet.
  *
  * Each sidebar is a `sidebar-left` / `sidebar-right`-typed window holding
- * exactly one pane — the same shape a float window has, created by the same
- * `break-pane` + tag command list. It lives outside the active window, so it is
- * invisible to `selectPreviewPanes` (which filters to the active window) and to
- * the tab strip (`selectVisibleWindows` keeps only tabs); these selectors are
- * the only way the UI reaches it.
+ * exactly one pane, the shape a float window has. It lives outside the active
+ * window, so neither `selectPreviewPanes` nor the tab strip sees it: these
+ * selectors are the only way the UI reaches it.
  */
 function sidebarPane(context: AppMachineContext, side: 'left' | 'right'): TmuxPane | null {
-  const window = context.windows.find((w) => w.windowType === `sidebar-${side}`);
+  const window = sidebarWindow(context.windows, side);
   if (!window) return null;
   return context.panes.find((p) => p.windowId === window.id) ?? null;
 }
@@ -81,8 +61,7 @@ export function selectSettledPaneWidth(context: AppMachineContext): number | nul
 export const selectSidebarLayout = createMemoizedSelector(
   (ctx: AppMachineContext) =>
     [
-      ctx.leftSidebarOpen,
-      ctx.rightSidebarOpen,
+      ctx.sidebars,
       ctx.measuredCell,
       ctx.baseFontSize,
       ctx.windows,
@@ -96,11 +75,11 @@ export const selectSidebarLayout = createMemoizedSelector(
     const draggedCols = (side: 'left' | 'right') => {
       const preview = context.sidebarColsPreview;
       if (preview && preview.side === side) return preview.cols;
-      return context.windows.find((w) => w.windowType === `sidebar-${side}`)?.sidebarCols ?? null;
+      return sidebarWindow(context.windows, side)?.sidebarCols ?? null;
     };
     return {
-      leftOpen: context.leftSidebarOpen,
-      rightOpen: context.rightSidebarOpen,
+      leftOpen: context.sidebars.left.open,
+      rightOpen: context.sidebars.right.open,
       leftWidth: (draggedCols('left') ?? LEFT_SIDEBAR_COLS) * charWidth,
       rightWidth:
         (draggedCols('right') ?? RIGHT_SIDEBAR_COLS) * selectSidebarCellMetrics(context).cellWidth,
@@ -114,21 +93,46 @@ export const selectRightSidebarPane = createMemoizedSelector(
   (context: AppMachineContext): TmuxPane | null => sidebarPane(context, 'right'),
 );
 
-// ============================================
-// Pane Group, Visible Panes & Float Selectors
-// ============================================
+/** The pane behind `side`'s column. */
+export function selectSidebarPane(context: AppMachineContext, side: SidebarSide): TmuxPane | null {
+  return side === 'left' ? selectLeftSidebarPane(context) : selectRightSidebarPane(context);
+}
+
+/** Whether `side`'s window is hidden (`@tmuxy-sidebar-hidden`): closed for every client. */
+export function selectSidebarHidden(context: AppMachineContext, side: SidebarSide): boolean {
+  return Boolean(sidebarWindow(context.windows, side)?.sidebarHidden);
+}
 
 /**
- * Get the active pane ID in a group (derived from which pane is in the active window)
+ * Whether the tree is on screen: its docked column, a peek of it, the
+ * phone's bottom view showing it or, held sideways, the phone's left column
+ * unless the menu has its place. The sessions it lists are polled only then.
  */
-export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): PaneId | null {
-  for (const paneId of group.paneIds) {
-    const pane = context.panes.find((p) => p.tmuxId === paneId);
-    if (pane?.windowId === context.activeWindowId) {
-      return paneId;
-    }
+export function selectTreeVisible(context: AppMachineContext): boolean {
+  if (context.phoneLayout) {
+    return context.phoneLandscape
+      ? context.phoneBottomView !== 'menu'
+      : context.phoneBottomView === 'tree';
   }
-  return null;
+  return context.sidebars.left.open || context.sidebarPeek === 'left';
+}
+
+/** The member of a group shown in the active window. */
+export function getActivePaneInGroup(context: AppMachineContext, group: PaneGroup): PaneId | null {
+  const shown = groupMemberInTab(context, group.paneIds);
+  return shown?.windowId === context.activeWindowId ? shown.tmuxId : null;
+}
+
+/** The member of a group drawn in a tab, on screen or not (the others are parked in the stash). */
+export function groupMemberInTab(
+  context: Pick<AppMachineContext, 'panes' | 'windows'>,
+  members: readonly PaneId[],
+): TmuxPane | null {
+  const tabs = new Set(context.windows.filter((w) => w.windowType === 'tab').map((w) => w.id));
+  return (
+    context.panes.find((p) => members.includes(p.tmuxId) && p.windowId && tabs.has(p.windowId)) ??
+    null
+  );
 }
 
 /** The group members parked out of view: every member but the one in the active window. */
@@ -143,10 +147,7 @@ function hiddenGroupPaneIds(context: AppMachineContext): Set<PaneId> {
   return hidden;
 }
 
-/**
- * Select visible panes - filters out hidden group panes
- * For groups, only the pane in the active window is visible.
- */
+/** The tiled panes on screen: no floats, and of a group only its shown member. */
 function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
   let previewPanes = selectPreviewPanes(context);
 
@@ -161,13 +162,6 @@ function selectVisiblePanesUncached(context: AppMachineContext): TmuxPane[] {
 
   return [...result].sort((a, b) => (a.tmuxId < b.tmuxId ? -1 : a.tmuxId > b.tmuxId ? 1 : 0));
 }
-
-/** tmux's marked pane (`select-pane -m`) in the attached session, or null. */
-export const selectMarkedPaneId = createMemoizedSelector(
-  (ctx: AppMachineContext) => [ctx.panes] as const,
-  (context: AppMachineContext): string | null =>
-    context.panes.find((p) => p.marked)?.tmuxId ?? null,
-);
 
 /**
  * The floats that belong to the tab the user is looking at, bottom-most first.
@@ -237,9 +231,6 @@ export const selectHiddenWindowPanes = createMemoizedSelector(
   selectHiddenWindowPanesUncached,
 );
 
-/**
- * Find the group that contains a given pane (if any)
- */
 export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
   (ctx: AppMachineContext, _paneId: PaneId) => ctx.paneGroups,
   (context: AppMachineContext, paneId: PaneId): PaneGroup | undefined => {
@@ -247,18 +238,11 @@ export const selectPaneGroupForPane = createMemoizedSelectorWithArg(
   },
 );
 
-/**
- * Get all panes in a group (resolved from pane IDs)
- */
 export function selectPaneGroupPanes(context: AppMachineContext, group: PaneGroup): TmuxPane[] {
   return group.paneIds
     .map((id) => context.panes.find((p) => p.tmuxId === id))
     .filter((p): p is TmuxPane => p !== undefined);
 }
-
-// ============================================
-// Single Pane & Active Tree Selectors
-// ============================================
 
 const selectPreviewPaneMap = createMemoizedSelector(
   previewInputs,
@@ -280,19 +264,8 @@ export const selectPaneById = createMemoizedSelectorWithArg(
   },
 );
 
-export function selectIsPaneInActiveWindow(context: AppMachineContext, paneId: PaneId): boolean {
-  const pane = context.panes.find((p) => p.tmuxId === paneId);
-  return pane?.windowId === context.activeWindowId;
-}
-
-/**
- * Whether copy mode means anything on the pane. A pane running a widget (a
- * preview, the tree) draws its own view, and under it the pane's text is only
- * the widget's marker: there is nothing there to scroll back through or copy.
- */
 export function selectPaneTakesCopyMode(context: AppMachineContext, paneId: PaneId): boolean {
-  const pane = context.panes.find((p) => p.tmuxId === paneId);
-  return !!pane && !pane.paneWidget;
+  return paneTakesCopyMode(context.panes, paneId);
 }
 
 export function selectIsSinglePane(context: AppMachineContext): boolean {

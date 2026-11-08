@@ -13,7 +13,7 @@
 import { toClientState } from '../domain/client';
 import { TmuxOp, toTmuxCommand } from '../domain/commands';
 import type { PaneId } from '../domain/ids';
-import { ConnectionInfo } from '../domain/wire';
+import { ConnectionInfo, MessageFrame } from '../domain/wire';
 import { buildEndpointUrl, getSessionFromUrl } from '../infra/transport/endpoint';
 import { decodeEvent, decodeStateForListener } from '../infra/transport/wireDecode';
 import { kindleView, type KindleView, type Run } from './grid';
@@ -44,6 +44,7 @@ const KEYS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 const decodeConnectionInfo = decodeEvent(ConnectionInfo, 'connection-info');
+const decodeTmuxError = decodeEvent(MessageFrame, 'tmux-error');
 
 const session = getSessionFromUrl();
 let connectionId: number | null = null;
@@ -261,7 +262,8 @@ async function connect(): Promise<void> {
   });
   events.addEventListener('state-update', scheduleRefresh);
   events.addEventListener('tmux-error', (event) => {
-    setStatus(String(JSON.parse((event as MessageEvent).data).data));
+    const frame = decodeTmuxError(JSON.parse((event as MessageEvent).data).data);
+    if (frame) setStatus(frame.message);
   });
   events.onerror = () => {
     setStatus('Reconnecting…');

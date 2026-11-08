@@ -7,7 +7,7 @@ import { Effect, Layer } from 'effect';
 import { HttpAdapter } from './drivers/HttpAdapter';
 import { TauriAdapter } from './drivers/TauriAdapter';
 import type { GuestTmuxAdapter } from './drivers/guest/GuestTmuxAdapter';
-import { isTauri } from '../../utils/platform';
+import { isTauri } from '../platform';
 import { TmuxTransport, makeTransport } from './TmuxTransport';
 import { makeSequencedTransport } from './stateFeed';
 
@@ -27,7 +27,6 @@ export const TauriTransportLive = Layer.scoped(
 export const GuestTransportLive = (guest: GuestTmuxAdapter) =>
   Layer.scoped(TmuxTransport, makeTransport(guest));
 
-/** The desktop app's IPC, the web server otherwise. */
 export function transportForEnvironment(): Layer.Layer<TmuxTransport> {
   return isTauri() ? TauriTransportLive : HttpTransportLive;
 }

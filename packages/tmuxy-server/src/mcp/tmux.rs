@@ -1,6 +1,3 @@
-//! The tmux side of the MCP tools: one session's control-mode connection,
-//! and the panes and tabs read off it.
-//!
 //! Reads go through `route_query` and mutations through `route_command`
 //! (`command_router`), on the monitor's own channel — the same policy and the
 //! same path as a browser's commands. A value written into a command line is
@@ -12,11 +9,11 @@ use tmuxy_core::command_router::Route;
 use tmuxy_core::constants::tmux_formats::APP_PANE_TITLE;
 use tmuxy_core::control_mode::MonitorCommandSender;
 use tmuxy_core::session::SessionName;
-use tmuxy_core::{tmux_quote, transport, CommandError, PaneId};
+use tmuxy_core::{tmux_quote, CommandError, PaneId, WindowType};
 
 use crate::state::AppState;
 
-/// A session an agent is driving, attached.
+#[derive(Clone)]
 pub(super) struct Tmux {
     state: Arc<AppState>,
     session: SessionName,
@@ -24,7 +21,6 @@ pub(super) struct Tmux {
 }
 
 impl Tmux {
-    /// The session's monitor, attached for the agent if no client has it.
     pub(super) async fn attach(
         state: &Arc<AppState>,
         session: &SessionName,
@@ -54,24 +50,10 @@ impl Tmux {
         &self.session
     }
 
-    pub(super) fn channel(&self) -> &MonitorCommandSender {
-        &self.tx
-    }
-
-    /// Keep holding the monitor through a long wait (`AGENT_HOLD`).
     pub(super) async fn keep_alive(&self) {
-        if let Some(conns) = self
-            .state
-            .sessions
-            .write()
-            .await
-            .get_mut(self.session.as_str())
-        {
-            conns.agent_hold_until = Some(tokio::time::Instant::now() + crate::sse::AGENT_HOLD);
-        }
+        crate::sse::hold_for_agent(&self.state, &self.session).await;
     }
 
-    /// How many browser streams are watching the session.
     pub(super) async fn viewers(&self) -> usize {
         self.state
             .sessions
@@ -81,23 +63,22 @@ impl Tmux {
             .map_or(0, |conns| conns.connections.len())
     }
 
-    /// Run a command that only reads, and what it printed.
     pub(super) async fn read(&self, command: &str) -> Result<String, CommandError> {
-        match transport::route_query(command) {
+        match tmuxy_core::command_router::route_query(command) {
             Route::Blocked(reason) => Err(CommandError::forbidden(reason)),
-            Route::ControlMode(command) => transport::query(&self.tx, &command).await,
+            Route::ControlMode(command) => {
+                tmuxy_core::control_mode::query(&self.tx, &command).await
+            }
         }
     }
 
-    /// Run a mutation, and what it printed.
     pub(super) async fn mutate(&self, command: &str) -> Result<String, CommandError> {
         let size = crate::sse::new_window_client_size(&self.state, &self.session).await;
-        transport::run_with_output(&self.tx, command, &self.session, size).await
+        tmuxy_core::host::run_with_output(&self.tx, command, &self.session, size).await
     }
 
-    /// The session as a `-t` target: `=` so a prefix never matches another.
     pub(super) fn session_target(&self) -> String {
-        tmux_quote(&format!("={}", self.session))
+        tmux_quote(&tmuxy_core::session::exact_session_target(&self.session))
     }
 
     /// Every pane of the session, tabs, floats and sidebars alike.
@@ -144,7 +125,6 @@ impl Tmux {
     }
 }
 
-/// What kind of window a pane sits in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum PaneKind {
@@ -156,10 +136,10 @@ pub(super) enum PaneKind {
 impl PaneKind {
     /// From the window's `@tmuxy-window-type` (docs/TMUX-TAGS.md).
     fn from_window_type(window_type: &str) -> Self {
-        match window_type {
-            "float" => Self::Float,
-            t if t.starts_with("sidebar") => Self::Sidebar,
-            _ => Self::Tab,
+        match WindowType::parse(window_type) {
+            Some(WindowType::Float) => Self::Float,
+            Some(WindowType::SidebarLeft | WindowType::SidebarRight) => Self::Sidebar,
+            Some(WindowType::Tab) | None => Self::Tab,
         }
     }
 }
@@ -173,7 +153,6 @@ pub(super) struct Pane {
     pub kind: PaneKind,
     pub width: u32,
     pub height: u32,
-    /// The program in front.
     pub command: String,
     /// The pane the user has focused: the active pane of the current window.
     pub active: bool,

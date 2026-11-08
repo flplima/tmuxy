@@ -1,34 +1,17 @@
-// Jest setup for E2E tests
-
 const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 
-// Pin the tmux socket before anything can shell out.
-//
-// The suite mutates tmux through `packages/tmuxy-cli/bin/tmuxy-cli`, which derives its socket from
-// $TMUX when TMUX_SOCKET is unset. Running the suite from inside a tmux pane —
-// the normal case for a tmux tool — would therefore aim every split, kill and
-// send-keys at whatever server the developer's shell is attached to, wrecking a
-// real working session. Inheriting $TMUX also splits reads and writes across
-// two different servers, since the read helpers resolve the socket themselves.
-//
-// The default is the suite's own socket, never the one a live tmuxy serves —
-// see DEFAULT_SOCKET in helpers/tmux-socket.js.
-const { DEFAULT_SOCKET, tmuxEnv, tmuxSocket, stateDir } = require('./helpers/tmux-socket');
+// Every child process gets the suite's socket and dirs from `tmuxEnv()`
+// (helpers/tmux-socket.js), never this process's environment, which may name
+// the developer's own tmux (`$TMUX`) or socket.
+const { tmuxEnv, tmuxSocket, stateDir } = require('./helpers/tmux-socket');
 
-process.env.TMUX_SOCKET = process.env.TMUX_SOCKET || DEFAULT_SOCKET;
-delete process.env.TMUX;
-delete process.env.TMUX_PANE;
-
-// The per-test timeout is `testTimeout` in jest.config.js.
-
-// Global error handler
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 const { waitForServer, disconnectBrowser } = require('./helpers/browser');
-const { TMUXY_PORT, TMUXY_URL, WORKSPACE_ROOT } = require('./helpers/config');
+const { TMUXY_PORT, TMUXY_URL, WORKSPACE_ROOT, serverBinary } = require('./helpers/config');
 
 /**
  * The tmux socket the server on `TMUXY_URL` is attached to, or null when it
@@ -96,13 +79,12 @@ let _weStartedServer = false;
 let _serverPid = null;
 
 beforeAll(async () => {
-  // Auto-start production server if not running
   let serverRunning = false;
   try {
     const response = await fetch(TMUXY_URL);
     serverRunning = response.ok;
   } catch {
-    // Server not running
+    // Not running: started below.
   }
 
   if (serverRunning) {
@@ -146,16 +128,14 @@ beforeAll(async () => {
       fs.rmSync(require('path').join(stateDir(), 'sessions'), { recursive: true, force: true });
       // Explicit port AND explicit env, not the inherited ones: the server is
       // the other half of every round trip, so it has to listen where the
-      // helpers look and attach to the socket they read and write. Without
-      // `--port` it took the default 9000 whatever TMUXY_PORT said, so two
-      // runs — or a run and a dev server — fought over one port while each
-      // believed it had its own. tmuxEnv() is the helpers' own resolution.
+      // helpers look (without `--port` it takes 9000, whatever TMUXY_PORT
+      // says) and attach to the socket they read and write.
       // Traced, so a failure can be read across the layers rather than from
       // its last log lines (docs/TRACING.md; markers per test come from
       // tests/helpers/trace-environment.js). The state dir was just cleared,
       // so the file is this run's alone.
       const server = spawn(
-        './target/release/tmuxy-server',
+        serverBinary(),
         ['--port', String(TMUXY_PORT), '--trace', process.env.TMUXY_E2E_TRACE],
         {
           cwd: WORKSPACE_ROOT,
@@ -173,27 +153,18 @@ beforeAll(async () => {
       throw error;
     }
   }
-
-  // No keepalive session — the server's monitor loop handles tmux server
-  // restarts by recreating sessions with create_session=true. A subprocess
-  // `tmux new-session` to create _keepalive races with the server's CC
-  // connection and can cause SessionsChanged/UnlinkedWindowClose events
-  // that crash the monitor.
-
-  // No warmup session — previous approach created a browser page + CC
-  // connection that raced with the first real test's CC connection.
 }, 180000);
 
 afterAll(async () => {
-  // Release the shared browser so the process can exit on its own; without
-  // this the run needed `--forceExit`, which also hid every other leak.
+  // Release the shared browser so the process exits on its own, without
+  // `--forceExit` hiding every other leaked handle.
   await disconnectBrowser();
 
   if (_weStartedServer && _serverPid) {
     try {
       process.kill(_serverPid);
     } catch {
-      // Best effort — process may already be gone
+      // Already gone.
     }
   }
 

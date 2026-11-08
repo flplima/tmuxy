@@ -8,13 +8,13 @@
 
 const {
   PHONE,
-  usePhoneContext,
+  phoneContext,
   expectOnScreen,
   swipeSideways,
   boxOf,
   waitForPhoneGrid,
 } = require('./helpers/phone');
-const { waitForCondition } = require('./helpers');
+const { describeE2E, waitForCondition } = require('./helpers');
 
 /** What the bottom view shows: which view, the menu's title and rows, the tree's tabs. */
 const bottomState = (page) =>
@@ -52,90 +52,91 @@ async function tapText(page, selector, text) {
   await page.touchscreen.tap(point.x, point.y);
 }
 
-describe('Phone width (390px) with a touchscreen: the menu', () => {
-  const ctx = usePhoneContext(PHONE);
+describeE2E(
+  'Phone width (390px) with a touchscreen: the menu',
+  { context: phoneContext(PHONE) },
+  (ctx) => {
+    test('the tab bar and a slide pick the menu, the tree or the side pane; a submenu is a page with the way back, and its item runs', async () => {
+      await ctx.setupPage();
+      await waitForPhoneGrid(ctx.page);
+      const page = ctx.page;
+      let state = null;
+      const until = (check, what) =>
+        waitForCondition(
+          page,
+          async () => check((state = await bottomState(page))),
+          10000,
+          () => `${what} (last: ${JSON.stringify(state)})`,
+        );
 
-  test('the tab bar and a slide pick the menu, the tree or the side pane; a submenu is a page with the way back, and its item runs', async () => {
-    if (ctx.skipIfUnavailable()) return;
-    await ctx.setupPage();
-    await waitForPhoneGrid(ctx.page);
-    const page = ctx.page;
-    let state = null;
-    const until = (check, what) =>
-      waitForCondition(
-        page,
-        async () => check((state = await bottomState(page))),
-        10000,
-        () => `${what} (last: ${JSON.stringify(state)})`,
+      // 1. The tree is in front, its tab lit in the bar along the top.
+      await until((s) => s.view === 'tree' && s.selected === 'tree' && s.tabs >= 1, 'the tree');
+      const tabsBefore = state.tabs;
+      expectOnScreen(await boxOf(page, '.phone-tabs'), 'the tab bar');
+
+      // 2. The Menu tab: the app menu's top page, its submenus as rows.
+      await tapText(page, '.phone-tab', 'Menu');
+      await until(
+        (s) => s.view === 'menu' && s.selected === 'menu' && s.title === 'Menu',
+        'the menu in front',
       );
+      expect(state.back).toBeNull();
+      for (const row of ['Pane', 'Tab', 'Session', 'View']) expect(state.rows).toContain(row);
+      const menu = await boxOf(page, '.phone-menu');
+      expectOnScreen(menu, 'the menu');
+      expect(menu.top).toBeGreaterThanOrEqual((await boxOf(page, '.phone-tabs')).bottom - 1);
 
-    // 1. The tree is in front, its tab lit in the bar along the top.
-    await until((s) => s.view === 'tree' && s.selected === 'tree' && s.tabs >= 1, 'the tree');
-    const tabsBefore = state.tabs;
-    expectOnScreen(await boxOf(page, '.phone-tabs'), 'the tab bar');
+      // 3. Tab: a page of its own, titled for it, with the way back to the menu.
+      await tapText(page, '.phone-menu-row', 'Tab');
+      await until((s) => s.title === 'Tab' && s.rows.includes('New Tab'), 'the Tab page');
+      expect(state.back).toBe('Back to Menu');
+      expect(state.rows).not.toContain('Session');
 
-    // 2. The Menu tab: the app menu's top page, its submenus as rows.
-    await tapText(page, '.phone-tab', 'Menu');
-    await until(
-      (s) => s.view === 'menu' && s.selected === 'menu' && s.title === 'Menu',
-      'the menu in front',
-    );
-    expect(state.back).toBeNull();
-    for (const row of ['Pane', 'Tab', 'Session', 'View']) expect(state.rows).toContain(row);
-    const menu = await boxOf(page, '.phone-menu');
-    expectOnScreen(menu, 'the menu');
-    expect(menu.top).toBeGreaterThanOrEqual((await boxOf(page, '.phone-tabs')).bottom - 1);
+      // 4. Its item does what the desktop's does: a new tab, and the page stays.
+      await tapText(page, '.phone-menu-row', 'New Tab');
+      await waitForCondition(
+        page,
+        () =>
+          page.evaluate(
+            (n) => window.app.view().windows.filter((w) => w.kind === 'tab').length === n,
+            tabsBefore + 1,
+          ),
+        10000,
+        'New Tab to open a tab',
+      );
+      await until((s) => s.title === 'Tab', 'the Tab page to stay');
 
-    // 3. Tab: a page of its own, titled for it, with the way back to the menu.
-    await tapText(page, '.phone-menu-row', 'Tab');
-    await until((s) => s.title === 'Tab' && s.rows.includes('New Tab'), 'the Tab page');
-    expect(state.back).toBe('Back to Menu');
-    expect(state.rows).not.toContain('Session');
+      // 5. Back: the top page again.
+      await page.touchscreen.tap(
+        ...(await page.evaluate(() => {
+          const r = document.querySelector('.phone-menu-back').getBoundingClientRect();
+          return [r.left + r.width / 2, r.top + r.height / 2];
+        })),
+      );
+      await until((s) => s.title === 'Menu' && s.back === null, 'the way back to the top page');
 
-    // 4. Its item does what the desktop's does: a new tab, and the page stays.
-    await tapText(page, '.phone-menu-row', 'New Tab');
-    await waitForCondition(
-      page,
-      () =>
-        page.evaluate(
-          (n) =>
-            window.app.getSnapshot().context.windows.filter((w) => w.windowType === 'tab')
-              .length === n,
-          tabsBefore + 1,
-        ),
-      10000,
-      'New Tab to open a tab',
-    );
-    await until((s) => s.title === 'Tab', 'the Tab page to stay');
-
-    // 5. Back: the top page again.
-    await page.touchscreen.tap(
-      ...(await page.evaluate(() => {
-        const r = document.querySelector('.phone-menu-back').getBoundingClientRect();
-        return [r.left + r.width / 2, r.top + r.height / 2];
-      })),
-    );
-    await until((s) => s.title === 'Menu' && s.back === null, 'the way back to the top page');
-
-    // 6. A slide: left from the menu is the tree, which lists the new tab;
-    //    right from the tree is the menu again, and right from the menu,
-    //    the left end, goes nowhere.
-    const y = (await boxOf(page, '.phone-bottom-stage')).top + 60;
-    await swipeSideways(page, y, 330, 60);
-    await until((s) => s.view === 'tree' && !s.sliding, 'the slide to the tree');
-    await until((s) => s.tabs === tabsBefore + 1, 'the tree to list the new tab');
-    await swipeSideways(page, y, 60, 330);
-    await until((s) => s.view === 'menu' && !s.sliding, 'the slide back to the menu');
-    await swipeSideways(page, y, 60, 330);
-    await until((s) => s.view === 'menu' && !s.sliding, 'the menu to stay at the left end');
-
-    // 7. The Tree tab brings the tree back in front. The slide before it was
-    //    let go at speed, and a tap while the browser still flings it only
-    //    stops the fling, with no click, as on any phone: tap until it lands.
-    await until(async (s) => {
-      if (s.view === 'tree' && s.selected === 'tree') return true;
+      // 6. The Tree tab brings the tree back in front, listing the new tab.
       await tapText(page, '.phone-tab', 'Tree');
-      return false;
-    }, 'the Tree tab');
-  }, 120000);
-});
+      await until((s) => s.view === 'tree' && s.selected === 'tree', 'the Tree tab');
+      await until((s) => s.tabs === tabsBefore + 1, 'the tree to list the new tab');
+
+      // 7. A slide: right from the tree is the menu, right again from the menu,
+      //    the left end, goes nowhere, and left from the menu is the tree. Last,
+      //    because Chrome can draw no click for a tap that lands a moment after
+      //    a swipe, so no tap here follows one.
+      const y = (await boxOf(page, '.phone-bottom-stage')).top + 60;
+      await swipeSideways(page, y, 60, 330);
+      await until(
+        (s) => s.view === 'menu' && s.selected === 'menu' && !s.sliding,
+        'the slide to the menu',
+      );
+      await swipeSideways(page, y, 60, 330);
+      await until((s) => s.view === 'menu' && !s.sliding, 'the menu to stay at the left end');
+      await swipeSideways(page, y, 330, 60);
+      await until(
+        (s) => s.view === 'tree' && s.selected === 'tree' && !s.sliding,
+        'the slide back to the tree',
+      );
+    }, 120000);
+  },
+);

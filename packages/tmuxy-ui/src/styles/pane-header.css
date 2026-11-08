@@ -1,0 +1,271 @@
+/* The theme's gray at 30% on the background only, so the title, icons and
+   buttons on it stay fully opaque. */
+.pane-header {
+  display: flex;
+  align-items: center;
+  height: var(--pane-header-height);
+  margin: 0;
+  background-color: color-mix(in srgb, var(--border-medium) 30%, transparent);
+  font-family: var(--font-mono);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+  /* The active header says so with colour, not weight. */
+  font-weight: 400;
+  color: var(--pane-header-text-inactive);
+  user-select: none;
+  box-sizing: border-box;
+  padding: 0;
+  gap: 0;
+}
+
+.pane-header-active {
+  color: var(--pane-header-text-inactive);
+}
+
+.pane-header-active .pane-tab-selected,
+.pane-header-active .pane-tab-active {
+  color: var(--pane-header-text-active);
+}
+
+/* A parked group member reads as an inactive pane: the accent marks the pane
+   being typed into. */
+.pane-header .pane-tab:not(.pane-tab-selected),
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-title,
+.pane-header .pane-tab:not(.pane-tab-selected) .pane-tab-icon {
+  color: var(--pane-header-text-inactive);
+}
+
+/* The ⋮ and ✕ are chrome: the same quiet tone on every header, active or not. */
+.pane-header .pane-header-menu,
+.pane-header .pane-header-close,
+.pane-header .pane-tab-controls .pane-header-menu,
+.pane-header .pane-tab-controls .pane-header-close {
+  color: var(--pane-header-text-inactive);
+}
+
+.pane-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  height: 100%;
+  gap: 0;
+}
+
+.pane-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* A group's header is shared out equally between its members, each with its
+   own ⋮/✕, so a parked member can be closed too. */
+.pane-tabs-group {
+  overflow-x: hidden;
+}
+
+.pane-tabs-group > .pane-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 2px;
+  border-right: 1px solid color-mix(in srgb, var(--border-medium) 50%, transparent);
+}
+
+.pane-tabs-group > .pane-tab:last-child {
+  border-right: none;
+}
+
+/* Dimmed by its ground too: with the same controls on every share, the shares
+   have to read apart at a glance. */
+.pane-tabs-group > .pane-tab:not(.pane-tab-selected) {
+  background-color: color-mix(in srgb, #000 22%, transparent);
+}
+
+/* A pane dragged over a header: the share it would take, or the gap it would
+   join the group at. The member being dragged is faded in its own header. */
+.pane-tab.pane-tab-drop-onto {
+  box-shadow: inset 0 -2px 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-before {
+  box-shadow: inset 3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-drop-after {
+  box-shadow: inset -3px 0 0 var(--term-white);
+}
+
+.pane-tab.pane-tab-dragging {
+  opacity: 0.45;
+}
+
+.pane-tab-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.pane-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  height: 100%;
+  background-color: transparent;
+  border: none;
+  transition: color var(--transition-fast);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pane-tab:first-child {
+  padding-left: 4px;
+}
+
+/* Hovering anywhere in the pane brightens its header, not only hovering the
+   title. `:not(:hover)` keeps a hovered tab's own rule (below) from applying
+   twice. */
+.pane-layout-item:hover .pane-tab,
+.float-container:hover .pane-tab,
+.pane-tab:hover {
+  color: var(--text-secondary);
+}
+
+/* ...and the pane under the pointer is not dimmed. */
+.pane-layout-item:not(.pane-dragging):hover .pane-content {
+  opacity: var(--active-text-opacity);
+}
+
+.pane-tab-selected .pane-tab-title {
+  color: inherit;
+}
+
+.pane-tab-active {
+  color: var(--term-bright-white);
+}
+
+.pane-tab-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0;
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* An SVG process icon (components/PaneIcon.tsx), drawn as a mask so it takes
+   the text's colour. */
+.process-icon-svg {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.pane-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.75);
+  color: inherit;
+  min-width: 0;
+}
+
+.pane-tab-active .pane-tab-title,
+.pane-tab-active .pane-tab-icon {
+  color: var(--theme-accent);
+}
+
+.pane-header-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px 0 auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--pane-header-text-inactive);
+  font-size: calc(var(--tmuxy-font-size, 15px) * 0.93);
+  line-height: 1;
+  opacity: 0.5;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
+  flex-shrink: 0;
+  z-index: var(--z-pane-chrome);
+  cursor: pointer;
+}
+
+.pane-header-menu:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
+  opacity: 1;
+}
+
+/* Marked (`prefix m`): the tmux mark a later `join-pane`/`swap-pane -s` uses.
+   Its text is the theme's ground colour, not its foreground: an accent is
+   chosen to stand out from the background, which makes it a poor ground for
+   the foreground. */
+.pane-header-mark {
+  flex: 0 0 auto;
+  margin-left: var(--spacing-lg);
+  padding: 0 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--theme-accent);
+  color: #000;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  white-space: nowrap;
+  z-index: var(--z-pane-chrome);
+}
+
+:root.theme-light .pane-header-mark {
+  color: #fff;
+}
+
+.pane-header-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--pane-header-text-inactive);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.5;
+  transition:
+    color var(--transition-fast),
+    opacity var(--transition-fast),
+    background-color var(--transition-fast);
+  flex-shrink: 0;
+  z-index: var(--z-pane-chrome);
+}
+
+.pane-header-close:hover {
+  background-color: color-mix(in srgb, var(--term-white) 20%, transparent);
+  opacity: 1;
+}

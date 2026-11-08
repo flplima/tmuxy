@@ -1,17 +1,12 @@
 /**
- * The mark a pane's state draws — in the sidebar tree, on a tab, in a pane
- * header. Idle draws nothing: the mark is there to say a pane wants something
- * or is busy, and a mark on every quiet pane drowned the ones that did.
- *
- * Working is the one animated state (motion means "busy, leave it alone",
- * stillness "stopped, it wants you"): a Braille spinner, the same characters
- * the agents put in their own terminal titles. Every spinner on screen steps
- * from one shared clock, so they turn together and only their own text node
- * re-renders.
+ * Idle draws nothing: a mark on every quiet pane drowned the ones that wanted
+ * something. Working is the one animated state, a Braille spinner (the
+ * characters agents put in their own terminal titles); every spinner steps
+ * from one shared clock, so they turn together.
  */
 
 import { useSyncExternalStore } from 'react';
-import { PANE_STATE_GLYPH, PANE_STATE_LABEL, type PaneStateName } from '../utils/paneState';
+import { PANE_STATE_GLYPH, PANE_STATE_LABEL, type PaneStateName } from '../domain/paneState';
 import { Tooltip } from './Tooltip';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];

@@ -6,24 +6,17 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { createActor, fromCallback, SimulatedClock } from 'xstate';
-import { appMachine } from '../appMachine';
+import { SimulatedClock } from 'xstate';
+import { recorder, startApp } from '../../../test/app';
 import { RECONNECT_NOTICE_DELAY_MS } from '../../constants';
 import { TmuxOp } from '../../../domain/commands';
 
 describe('typing through an outage', () => {
   it('a key and an op sent while reconnecting reach the store, noticed or not', () => {
-    const sent: Array<{ type: string }> = [];
-    const tmuxStoreActor = fromCallback(({ receive }) => {
-      receive((event) => {
-        sent.push(event as { type: string });
-      });
-    });
+    const store = recorder();
+    const sent = store.received;
     const clock = new SimulatedClock();
-    const actor = createActor(appMachine.provide({ actors: { tmuxStoreActor } } as never), {
-      clock,
-    }).start();
-    actor.send({ type: 'TMUX_CONNECTED' });
+    const actor = startApp({ actors: { tmuxStoreActor: store.logic }, clock });
     actor.send({ type: 'TMUX_RECONNECTING' });
     const before = sent.length;
 
@@ -32,6 +25,6 @@ describe('typing through an outage', () => {
     expect(actor.getSnapshot().matches({ reconnecting: 'noticed' })).toBe(true);
     actor.send({ type: 'DISPATCH_OP', op: TmuxOp.CyclePane({ windowId: null }) });
 
-    expect(sent.slice(before).map((e) => e.type)).toEqual(['DISPATCH_OP', 'DISPATCH_OP']);
+    expect(sent.slice(before).map((e) => e.type)).toEqual(['STORE_DISPATCH', 'STORE_DISPATCH']);
   });
 });

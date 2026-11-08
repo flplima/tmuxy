@@ -17,6 +17,7 @@ pub struct Grid {
 
 impl Grid {
     pub fn new(size: Size, scrollback_len: usize) -> Self {
+        let size = size.at_least_one();
         Self {
             size,
             pos: Pos::default(),
@@ -119,6 +120,7 @@ impl Grid {
     }
 
     pub fn set_size(&mut self, size: Size) {
+        let size = size.at_least_one();
         if size.cols != self.size.cols {
             for row in &mut self.rows {
                 row.wrap(false);
@@ -614,6 +616,17 @@ impl Grid {
 pub struct Size {
     pub rows: u16,
     pub cols: u16,
+}
+
+impl Size {
+    /// A grid has at least one row and one column: the cursor clamps and the
+    /// scroll region are all `side - 1`, which a zero side underflows.
+    fn at_least_one(self) -> Self {
+        Self {
+            rows: self.rows.max(1),
+            cols: self.cols.max(1),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]

@@ -3,7 +3,8 @@
  */
 
 const {
-  createTestContext,
+  getCellSize,
+  describeE2E,
   focusPage,
   focusTerminal,
   getTerminalText,
@@ -11,6 +12,8 @@ const {
   waitForShellPrompt,
   runCommand,
   getUIPaneCount,
+  shownPanes,
+  GRID_PANE,
   typeInTerminal,
   typeComposedChar,
   typeComposedText,
@@ -24,20 +27,14 @@ const {
   pasteText,
 } = require('./helpers');
 const { tmuxSideOfSession } = require('./helpers/tmux-side');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 const BRACKETED_PASTE_SCRIPT = require('path').join(__dirname, 'helpers', 'bracketed-paste.py');
 
 // ==================== Scenario 1: General Layout ====================
 
-describe('Scenario 1: General Layout', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 1: General Layout', {}, (ctx) => {
   test('Split vertical → split horizontal → 3 panes with correct sizes and positions', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Split vertical (prefix + %) → 2 panes side by side
@@ -61,51 +58,27 @@ describe('Scenario 1: General Layout', () => {
     const paneCount = await getUIPaneCount(ctx.page);
     expect(paneCount).toBe(3);
 
-    // Step 4: Read layout data from XState and compute expected positions
-    const layoutData = await ctx.page.evaluate(() => {
-      const snap = window.app?.getSnapshot();
-      if (!snap?.context) return null;
-      const c = snap.context;
-      const visiblePanes = (c.panes || []).filter((p) => p.windowId === c.activeWindowId);
-      return {
-        charWidth: c.charWidth,
-        charHeight: c.charHeight,
-        totalWidth: c.totalWidth,
-        totalHeight: c.totalHeight,
-        containerWidth: c.containerWidth,
-        containerHeight: c.containerHeight,
-        panes: visiblePanes.map((p) => ({
-          id: p.tmuxId,
-          x: p.x,
-          y: p.y,
-          width: p.width,
-          height: p.height,
-        })),
-      };
-    });
+    // Step 4: tmux's panes for the tab on screen, and the cell as drawn
+    const layoutData = {
+      panes: tmuxPanes(await ctx.page.evaluate(() => window.app.view().activeTabId)),
+    };
     expect(layoutData).not.toBeNull();
     expect(layoutData.panes.length).toBe(3);
 
-    const { charWidth } = layoutData;
+    const { charWidth } = await getCellSize(ctx.page);
 
     // Step 5: Read DOM bounding rects and verify pane layout structure
-    const actualRects = await ctx.page.evaluate(() => {
-      const items = document.querySelectorAll('.pane-layout-item[data-pane-id]');
-      const container = document.querySelector('.pane-container');
-      if (!container) return null;
-      const cRect = container.getBoundingClientRect();
-      return Array.from(items).map((el) => {
-        const r = el.getBoundingClientRect();
-        return {
-          id: el.getAttribute('data-pane-id'),
-          left: r.left - cRect.left,
-          top: r.top - cRect.top,
-          width: r.width,
-          height: r.height,
-        };
-      });
-    });
-    expect(actualRects).not.toBeNull();
+    const container = await ctx.page.evaluate(
+      () => document.querySelector('.pane-container')?.getBoundingClientRect().toJSON() ?? null,
+    );
+    expect(container).not.toBeNull();
+    const actualRects = (await shownPanes(ctx.page, GRID_PANE)).map(({ id, box }) => ({
+      id,
+      left: box.left - container.left,
+      top: box.top - container.top,
+      width: box.width,
+      height: box.height,
+    }));
     expect(actualRects.length).toBe(3);
 
     // Step 6: Verify pane layout structure
@@ -159,15 +132,8 @@ describe('Scenario 1: General Layout', () => {
 
 // ==================== Scenario 2: Keyboard Basics ====================
 
-describe('Scenario 2: Keyboard Basics', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 2: Keyboard Basics', {}, (ctx) => {
   test('Type → backspace → Tab → Ctrl+C → Ctrl+D → arrow-up history', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await assertContentMatch(ctx.page, 'Scenario 2 setup');
 
@@ -252,15 +218,8 @@ describe('Scenario 2: Keyboard Basics', () => {
 
 // ==================== Scenario 2b: Browser Paste ====================
 
-describe('Scenario 2b: Browser Paste', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 2b: Browser Paste', {}, (ctx) => {
   test('paste event delivers text to the terminal, including multi-word content', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusPage(ctx.page);
 
@@ -274,7 +233,6 @@ describe('Scenario 2b: Browser Paste', () => {
   }, 60000);
 
   test('a paste longer than one chunk, and quotes, $, # and ; inside one, reach the shell verbatim', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusPage(ctx.page);
 
@@ -299,7 +257,6 @@ describe('Scenario 2b: Browser Paste', () => {
   }, 60000);
 
   test('a multi-line paste reaches a bracketed-paste program as ONE paste, not a Return per line', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusPage(ctx.page);
 
@@ -318,7 +275,6 @@ describe('Scenario 2b: Browser Paste', () => {
   }, 60000);
 
   test('a clipboard cannot end a bracketed paste early with another spelling of the end marker', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusPage(ctx.page);
 
@@ -359,15 +315,8 @@ describe('Scenario 2b: Browser Paste', () => {
 
 // ==================== Scenario 2c: International Input ====================
 
-describe('Scenario 2c: International Input', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 2c: International Input', {}, (ctx) => {
   test('dead-key, Option, AltGr and IME characters reach the shell as text', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await focusTerminal(ctx.page);
 
@@ -409,15 +358,8 @@ describe('Scenario 2c: International Input', () => {
 
 // ==================== Scenario 23: Multi-Viewport Layout ====================
 
-describe('Scenario 23: Multi-Viewport Layout', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 23: Multi-Viewport Layout', {}, (ctx) => {
   test('3 panes → layout invariants at 3 viewport sizes [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Create 3-pane layout: vertical split + horizontal split
@@ -433,11 +375,12 @@ describe('Scenario 23: Multi-Viewport Layout', () => {
       { width: 800, height: 600, label: 'small' },
       { width: 1920, height: 1080, label: 'large' },
     ];
-    const paneGrid = () =>
-      ctx.page.evaluate(() =>
-        JSON.stringify(
-          (window.app?.getSnapshot()?.context?.panes ?? []).map((p) => [p.width, p.height]),
-        ),
+    const paneGrid = async () =>
+      JSON.stringify(
+        tmuxPanes(await ctx.page.evaluate(() => window.app.view().activeTabId)).map((p) => [
+          p.width,
+          p.height,
+        ]),
       );
 
     for (const vp of viewports) {

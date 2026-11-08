@@ -1,0 +1,94 @@
+/* Border on the outer modal-container so its overflow:hidden doesn't clip it. */
+.float-modal .modal-container {
+  border: 1px solid var(--accent-green);
+  box-shadow: var(--shadow-lg);
+  animation: float-appear 200ms ease-out both;
+}
+
+.float-container {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.float-content {
+  flex: 1;
+  overflow: hidden;
+  background: var(--bg-black);
+  box-sizing: border-box;
+  /* The anchor for anything drawn over the float's body, such as the ask
+     overlay, which covers the terminal but not the float's header. */
+  position: relative;
+}
+
+@keyframes float-appear {
+  from {
+    opacity: 0;
+    transform: scaleY(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.drawer .modal-container {
+  border-radius: 0;
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: both;
+}
+
+.drawer-left .modal-container {
+  animation-name: slide-in-left;
+}
+
+.drawer-right .modal-container {
+  animation-name: slide-in-right;
+}
+
+.drawer-top .modal-container {
+  animation-name: slide-in-top;
+}
+
+.drawer-bottom .modal-container {
+  animation-name: slide-in-bottom;
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-top {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

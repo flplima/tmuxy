@@ -1,6 +1,5 @@
-/* AskOverlay — a send into this pane waiting on the user, drawn over the
-   pane's own blurred content. Sits inside `.pane-content`, which is
-   positioned, so it covers the terminal but not the pane header. */
+/* Sits inside `.pane-content`, which is positioned, so it covers the terminal
+   but not the pane header. */
 
 .ask-overlay {
   position: absolute;
@@ -14,12 +13,9 @@
   color: var(--text-primary);
 }
 
-/* The blur belongs to the overlay, not to the terminal underneath it: a
-   `filter` on the pane's own content would also blur the overlay (a filtered
-   element is a containing block for its descendants) and would fight the
-   glyph-grid rendering. A scrim with a backdrop-filter leaves the terminal
-   DOM untouched — the text is still there, still selectable once the question
-   is gone. The scrim is the whole ground: the text sits straight on it. */
+/* A backdrop-filter scrim, not a `filter` on the pane's content: a filtered
+   element is a containing block for its descendants, so it would blur the
+   overlay too and fight the glyph-grid rendering. */
 .ask-overlay-scrim {
   position: absolute;
   inset: 0;
@@ -59,9 +55,8 @@
   color: var(--text-dimmed);
 }
 
-/* A long or multi-line send: shown whole, never cut, in a block that scrolls
-   on both axes and is the first thing to give up height in a small pane, so
-   the question above it and the answers below never move. */
+/* A long send is shown whole, never cut: the block scrolls and is the first to
+   give up height in a small pane, so the question and answers never move. */
 .ask-overlay-command-block {
   flex: 0 1 auto;
   min-height: 0;
@@ -118,8 +113,7 @@
 }
 
 /* The highlight is the keyboard's cursor, so it has to read as selected even
-   though nothing here holds DOM focus. Inverse video in the theme's accent,
-   like the prefix chip. */
+   though nothing here holds DOM focus. */
 .ask-overlay-choice-selected,
 .ask-overlay-choice-selected .ask-overlay-choice-number {
   border-color: var(--theme-accent);

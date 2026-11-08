@@ -9,10 +9,10 @@ use crate::request_guard::HostPolicy;
 use crate::state::AppState;
 
 mod lifecycle;
+mod listener;
 use lifecycle::*;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 #[derive(Args)]
@@ -77,11 +77,8 @@ fn resolve_password_from(flag: Option<String>, env_password: Option<String>) -> 
         .or_else(|| env_password.filter(|s| !s.is_empty()))
 }
 
-/// The port `tmuxy server` listens on unless told otherwise.
-const DEFAULT_PORT: u16 = 9000;
+const DEFAULT_PORT: u16 = tmuxy_core::constants::DEFAULT_SERVER_PORT;
 
-/// Wrap the router in the Basic-auth layer when a password is configured.
-/// With no password the router is returned unchanged (server stays open).
 fn with_optional_auth(
     app: axum::Router,
     password: Option<String>,
@@ -141,11 +138,9 @@ fn resolve_listen(
              Set TMUXY_PASSWORD (or --password), listen on --host 127.0.0.1, or pass --no-auth on a network you trust."
         ));
     }
-    // SEC-10/SEC-15: a routable bind keeps the allowed list and still checks
-    // `Host` against it. It used to be discarded here, so `--allowed-host` (and
-    // `TMUXY_ALLOWED_HOSTS`, which the public demo builds it from) silently did
-    // nothing, and a routable `--no-auth` bind was one DNS rebind from a shell.
-    // `bound` is None for a wildcard, which answers on every address it has.
+    // A routable bind checks `Host` too: without it a routable `--no-auth`
+    // bind is one DNS rebind from a shell. `bound` is None for a wildcard,
+    // which answers on every address it has.
     let bound = (!ip.is_unspecified()).then_some(ip);
     Ok(Listen {
         ip,
@@ -156,7 +151,6 @@ fn resolve_listen(
     })
 }
 
-/// `--allowed-host` values plus the comma-separated `TMUXY_ALLOWED_HOSTS`.
 fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
     let env = std::env::var("TMUXY_ALLOWED_HOSTS").unwrap_or_default();
     flag.into_iter()
@@ -169,11 +163,17 @@ fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-/// Stop before serving anything when there is no usable tmux: every client
-/// would otherwise sit reconnecting to a monitor that can never attach.
-fn require_tmux() {
-    match tmuxy_core::tmux_check::check_tmux() {
-        Ok(version) => tracing::info!(%version, "tmux found"),
+/// Get the process ready to serve (`tmuxy_core::host::prepare`), or stop
+/// with the reason: with no usable tmux every client would sit reconnecting
+/// to a monitor that can never attach. What the user's config would fail
+/// on is said once here, on the terminal the server was started from.
+fn prepare() {
+    match tmuxy_core::host::prepare::prepare() {
+        Ok(prepared) => {
+            for warning in &prepared.config_warnings {
+                eprintln!("tmuxy server: config warning: {warning}");
+            }
+        }
         Err(e) => {
             eprintln!("tmuxy server: {e}");
             std::process::exit(1);
@@ -202,30 +202,15 @@ pub enum ServerAction {
     Stop,
     /// Show server status
     Status,
-    /// Inspect a local action-trace file: print a summary, or export a
-    /// Chrome-trace/Perfetto timeline with `--export` (docs/TRACING.md).
-    Trace(crate::trace_view::TraceViewArgs),
-    /// Save, restore, list or forget session snapshots. Backs
-    /// `tmuxy session save|restore|snapshots|forget`.
-    Session(crate::session_cli::SessionArgs),
-    /// Pane-group operations. Backs the `packages/tmuxy-cli/bin/tmuxy/pane-group` script,
-    /// which run it inside `tmux run-shell`. Hidden: `tmuxy pane group` is
-    /// the user's way in.
-    #[command(hide = true)]
-    Group(tmuxy_group::GroupArgs),
-    /// Wire coding agents (Claude Code, Codex, Antigravity) into tmuxy: hooks
-    /// that show their state, and the tmuxy skill. Backs `tmuxy agent`.
-    Agent(crate::agents::AgentArgs),
-    /// Install, list, update and remove plugins, and run their actions.
-    /// Backs `tmuxy plugin` (docs/PLUGINS.md).
-    Plugin(crate::plugin_cli::PluginArgs),
+    #[command(flatten)]
+    Verb(tmuxy_verbs::Verb),
 }
 
-/// Parse `argv` — the program name first, then `tmuxy server`'s own arguments
-/// and subcommands — and run it. The one clap wrapper around [`ServerArgs`]:
-/// the standalone `tmuxy-server` binary hands over its own argv, and the
-/// desktop binary builds one for `tmuxy server …` and `tmuxy trace …`. A
-/// parse error prints clap's message and exits, as clap does.
+/// `argv` is the program name, then `tmuxy server`'s own arguments: the
+/// standalone binary hands over its own, and the desktop binary builds one
+/// for `tmuxy server …` and `tmuxy trace …`. Serving, `stop` and `status` are
+/// this crate's; every other verb is `tmuxy-verbs`'. A parse error prints
+/// clap's message and exits.
 pub async fn run_argv<I, T>(argv: I)
 where
     I: IntoIterator<Item = T>,
@@ -258,48 +243,43 @@ pub async fn run(args: ServerArgs) {
                         std::process::exit(2);
                     }
                 };
-            require_tmux();
-            // Action tracing per the gating rules (docs/TRACING.md), which
-            // announces itself. Only on the actual server-start path — never
-            // for stop/status/tree/connect.
-            tmuxy_core::trace::init(args.trace.clone(), dev_mode);
-            if args.no_restore {
-                std::env::set_var("TMUXY_NO_RESTORE", "1");
-            }
+            prepare();
             let frontend = if dev_mode {
                 Frontend::Dev
             } else {
                 Frontend::Embedded
             };
-            serve(frontend, args.port, listen, password).await
+            let state = AppState {
+                restore: !args.no_restore,
+                ..AppState::default()
+            };
+            serve(frontend, args.port, listen, password, state, args.trace).await
         }
         Some(ServerAction::Stop) => stop_server(args.port),
         Some(ServerAction::Status) => server_status(args.port),
-        Some(ServerAction::Trace(view_args)) => crate::trace_view::run(view_args),
-        Some(ServerAction::Session(session_args)) => crate::session_cli::run(session_args).await,
-        Some(ServerAction::Group(group_args)) => tmuxy_group::run(group_args),
-        Some(ServerAction::Agent(agent_args)) => crate::agents::run(agent_args),
-        Some(ServerAction::Plugin(plugin_args)) => crate::plugin_cli::run(plugin_args),
+        Some(ServerAction::Verb(verb)) => tmuxy_verbs::run(verb).await,
     }
 }
 
-/// Where the app's own pages come from.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Frontend {
-    /// The built frontend compiled into this binary.
     Embedded,
     /// `--dev`: Vite started as a child and proxied, so the UI hot-reloads.
     Dev,
 }
 
-/// Serve the API and the frontend until a shutdown signal.
-async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<String>) {
-    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server is
-    // told to bind that one, it wins the race; Vite fails silently, and the
-    // `proxy_to_vite` fallback then loops back to tmuxy-server itself — browser
-    // EventSources 404 on /events while `curl` (different headers/timing)
-    // appears to work. Bail early with an actionable message instead of
-    // letting that happen.
+async fn serve(
+    frontend: Frontend,
+    port: u16,
+    listen: Listen,
+    password: Option<String>,
+    state: AppState,
+    trace: Option<Option<String>>,
+) {
+    // Vite binds a hard-coded port (strictPort: true, 9001). If tmuxy-server
+    // takes it, Vite fails silently and the dev proxy loops back to
+    // tmuxy-server itself: EventSources 404 on /events while `curl` appears
+    // to work.
     if frontend == Frontend::Dev && port == dev::VITE_PORT {
         error!(port, "FATAL: port collides with the hard-coded Vite port");
         error!(
@@ -309,22 +289,11 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
         std::process::exit(1);
     }
 
+    let state = Arc::new(state);
+    let started = tmuxy_core::host::start(state.clone(), trace, frontend == Frontend::Dev);
     if frontend == Frontend::Embedded {
         write_pid_file(port);
     }
-    // Migrate an older install's config dir, mirror the shipped config and
-    // the built-in themes into the data dir, and build the config chain.
-    tmuxy_core::session::ensure_config();
-    tmuxy_core::session::ensure_themes();
-    // Materialize bundled CLI dispatcher and helper scripts so the in-config
-    // `command-alias` entries (Ctrl+hjkl nav, pane groups, etc.) and the
-    // direct "Add Pane to Group" menu commands resolve at
-    // `$TMUXY_DATA_DIR/bin/tmuxy/…`, the data dir the config chain publishes
-    // to tmux. Mirrors gui.rs setup().
-    tmuxy_core::session::ensure_bin_scripts();
-    tmuxy_core::plugins::gc::on_start();
-
-    let state = Arc::new(AppState::new());
 
     let vite = match frontend {
         Frontend::Embedded => None,
@@ -333,15 +302,21 @@ async fn serve(frontend: Frontend, port: u16, listen: Listen, password: Option<S
                 "[dev] Starting Vite dev server on port {}...",
                 dev::VITE_PORT
             );
-            let vite = dev::spawn_vite().await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-            vite
+            dev::spawn_vite().await
         }
     };
 
-    crate::sse::watch_config_dir(state.clone()).await;
-    crate::push::watch(state.clone()).await;
-    crate::agents::screen::watch(state.clone()).await;
+    let shutdown = state.shutdown.clone();
+    let background = started.background;
+    state
+        .spawn(async move {
+            tokio::select! {
+                _ = background => {}
+                _ = shutdown.cancelled() => {}
+            }
+        })
+        .await;
+    crate::push::watch(state.clone(), started.panes).await;
     let routes = crate::state::api_routes(listen.policy.clone());
     let app = match frontend {
         Frontend::Embedded => routes.fallback(serve_embedded),

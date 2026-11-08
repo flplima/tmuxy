@@ -1,19 +1,5 @@
 #!/bin/bash
-# Unified navigation across group members, pane splits and the sidebar columns
 # Args: $1=direction (left|right|up|down|next|prev), $2=current pane_id
-#
-# left/right: group members → pane splits (horizontal) → sidebar column. In a
-#             group, Ctrl+l shows the next member and Ctrl+h the previous one,
-#             without wrapping: past the last (or first) member the key moves
-#             on to the neighbouring pane, and past the grid's edge into the
-#             sidebar docked there.
-# up/down:    pane splits only (vertical neighbors, no fallback)
-# next:       same as right
-# prev:       last-pane in window, fall back to last-window
-#
-# Leaving the grid sideways lands in a sidebar. Its pane lives in its own window,
-# so `select-pane` can't reach it without switching the visible tab — the move is
-# published as a focus request the client acts on instead (see `request_focus`).
 
 set -euo pipefail
 source "${0%/*}/_lib"
@@ -22,39 +8,33 @@ DIR="$1"
 PANE_ID="$2"
 
 nav_prev() {
-  # Try last-pane (switches to last active pane in current window)
   local before after
   before=$(_tmux display-message -p '#{pane_id}')
   _tmux last-pane 2>/dev/null || true
   after=$(_tmux display-message -p '#{pane_id}')
   if [ "$before" != "$after" ]; then
-    refresh_panes
     return
   fi
-  # Only 1 pane — try last-window
   _tmux last-window 2>/dev/null || true
-  refresh_panes
 }
 
 nav_vertical() {
   local tmux_dir="$1"
   _tmux selectp "$tmux_dir" -t "$PANE_ID"
-  refresh_panes
 }
 
 nav_horizontal() {
   local tmux_dir="$1"   # -R or -L
   local edge_dir="$2"   # "right" or "left"
 
-  # Everything the decision below needs, in ONE tmux call. A `display-message`
-  # aimed at a PANE resolves the window-scoped @tmuxy-window-type and the
-  # pane-scoped @tmuxy-group-id alongside the edge flag, so what used to be
-  # several process spawns on every Ctrl+h / Ctrl+l is one. The always-present
-  # edge flag goes last on purpose: `$( )` strips trailing newlines, so an
-  # option that happens to be unset must never be the final field.
+  # A `display-message` aimed at a PANE resolves the window-scoped
+  # @tmuxy-window-type and the pane-scoped @tmuxy-group-id alongside the edge
+  # flag, in one process spawn on every Ctrl+h / Ctrl+l. The always-present
+  # edge flag goes last: `$( )` strips trailing newlines, so an option that
+  # happens to be unset must never be the final field.
   local probe current_type gid at_edge
-  probe=$(_tmux display-message -t "$PANE_ID" -p "#{@tmuxy-window-type}
-#{@tmuxy-group-id}
+  probe=$(_tmux display-message -t "$PANE_ID" -p "#{$OPT_WINDOW_TYPE}
+#{$OPT_GROUP_ID}
 #{pane_at_$edge_dir}")
   {
     IFS= read -r current_type || true
@@ -64,38 +44,29 @@ nav_horizontal() {
 $probe
 EOF
 
-  # Step 0: already inside a sidebar column — the only way out is back to the
-  # panes, and only when heading away from that column's edge. The CALLER's
-  # pane decides this, not the session's current pane: run from the dock's
-  # shell, `display-message` with no target names the tab's active pane, and
-  # the branch below would never match.
+  # The CALLER's pane decides this, not the session's current pane: run from
+  # the dock's shell, `display-message` with no target names the tab's active
+  # pane, and the branch below would never match.
   case "$current_type" in
-    sidebar-left)  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
-    sidebar-right) [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
+    "$WINDOW_TYPE_SIDEBAR_LEFT")  [ "$edge_dir" = "right" ] && request_focus panes; return ;;
+    "$WINDOW_TYPE_SIDEBAR_RIGHT") [ "$edge_dir" = "left" ]  && request_focus panes; return ;;
   esac
 
-  # Step 1: a grouped pane steps to the neighbouring member first, in the
-  # group's order (as its tabs are drawn). No wrap: from the last member
-  # Ctrl+l falls through to the pane on the right, and from the first Ctrl+h
-  # to the pane on the left — `--no-wrap` exits 3 when there is no member that
-  # way.
+  # A grouped pane steps to the neighbouring member first, without wrapping.
   if [ -n "$gid" ]; then
     local step=next rc=0
     [ "$edge_dir" = "left" ] && step=prev
-    find_group_cmd
-    TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" "${GROUP_CMD[@]}" "$step" --no-wrap "$PANE_ID" || rc=$?
+    group_verb "$step" --no-wrap "$PANE_ID" || rc=$?
     case "$rc" in
       0) return ;;
-      3) ;;
+      "$EXIT_TARGET") ;;
       *) exit "$rc" ;;
     esac
   fi
 
-  # Step 2: at the grid's edge already? tmux said so in the probe above.
-  # (Comparing the active pane before/after a `select-pane -L/-R` does not
-  # work: at the edge tmux WRAPS to the opposite side rather than doing
-  # nothing.) If a sidebar is open on that edge, it is the next thing along;
-  # otherwise stay put.
+  # The edge comes from `pane_at_*`, not from comparing the active pane
+  # around a `select-pane -L/-R`: at the edge tmux WRAPS to the opposite side
+  # rather than doing nothing.
   if [ "$at_edge" = "1" ]; then
     if [ -n "$(shown_sidebar_window "$edge_dir")" ]; then
       request_focus "$edge_dir"
@@ -103,9 +74,7 @@ EOF
     return
   fi
 
-  # Step 3: a neighbour exists in that direction — move to it.
   _tmux selectp "$tmux_dir" -t "$PANE_ID" 2>/dev/null || true
-  refresh_panes
 }
 
 case "$DIR" in

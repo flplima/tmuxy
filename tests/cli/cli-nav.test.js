@@ -9,8 +9,7 @@ describe('CLI nav subcommand', () => {
     }
   });
 
-  // Every direction goes to the nav script through run-shell, naming the
-  // calling pane, so the script acts on the pane the key was pressed in.
+  // `#{pane_id}`: the script acts on the pane the key was pressed in.
   test.each(['left', 'right', 'up', 'down', 'next', 'prev'])(
     '%s dispatches run-shell with nav %s for the calling pane',
     (direction) => {

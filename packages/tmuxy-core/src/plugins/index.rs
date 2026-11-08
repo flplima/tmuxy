@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{PluginError, Result};
 
-/// Where the index is published.
 pub const DEFAULT_INDEX: &str =
     "https://raw.githubusercontent.com/flplima/tmuxy/plugin-index/plugins.json";
 
@@ -54,7 +53,6 @@ pub fn location() -> String {
         .unwrap_or_else(|| DEFAULT_INDEX.to_string())
 }
 
-/// Read the index: over HTTPS with `curl`, or from a file.
 pub fn load() -> Result<Index> {
     let at = location();
     let text = if at.starts_with("https://") {

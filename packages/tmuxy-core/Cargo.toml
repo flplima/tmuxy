@@ -9,12 +9,14 @@ homepage.workspace = true
 description = "Core tmux interaction library for tmuxy"
 
 # The control-mode parser + state aggregator (parser/state/osc/images/octal +
-# the Tmux*/Delta types) are sans-IO and compile to wasm32. The synchronous
-# tmux-command layer (session/executor) is the `cli` feature, and the
-# async/pty transport (monitor/connection/transport) on top of it is the
-# default `native` feature, so the pure core can build with
-# --no-default-features for the WASM (tmuxy-wasm) crate and the v86 guest's
-# tmuxy-group binary can take `cli` without tokio.
+# the Tmux*/Delta types), the command-list grammar and the routing policy
+# (tmux_command, command_router, tmux_compat) are sans-IO and compile to
+# wasm32. Running tmux as a subprocess and the user's config directory
+# (session) is the `cli` feature, and the async/pty transport (monitor,
+# connection, and the hosts' loop in host) on top of it is the default `native`
+# feature, so the pure core can build with
+# --no-default-features for the WASM (tmuxy-wasm) crate, and the in-browser
+# guests' tmuxy-verbs binary can take `cli` without the pty transport.
 [dependencies]
 # Pure path — always compiled, wasm-safe.
 serde.workspace = true
@@ -30,13 +32,14 @@ vt100 = "0.16"
 icy_sixel = "0.5"
 # PNG encoding for sixel + kitty-RGBA outputs.
 png = "0.18"
-# Standards-compliant base64 decoder for kitty/iTerm2 image payloads.
 base64.workspace = true
 flate2 = "1"
+# Unguessable tokens (`random`); the wasm build turns on its browser backend.
+getrandom = "0.4"
 
 # `cli`: the user's config directory.
 dirs = { workspace = true, optional = true }
-# `native`: the async transport.
+# `cli`: the ask protocol's waits (`ask`); `native`: the async transport.
 tokio = { workspace = true, optional = true }
 pty-process = { version = "0.5", features = ["async"], optional = true }
 # `native`: plugin manifests (`plugins::manifest`).
@@ -48,6 +51,8 @@ regex = { version = "1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+# `native`: the machine's host name, for a client's greeting (`host::host_name`).
+nix = { workspace = true, features = ["hostname"], optional = true }
 
 # wasm-compatible Instant (performance.now()) for the settling debounce timer.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -59,12 +64,13 @@ criterion = "0.5"
 
 [features]
 default = ["native"]
-# Running tmux as a subprocess and the user's config directory (session,
-# executor): what a CLI verb needs, and all tmuxy-group takes.
-cli = ["dep:dirs"]
+# Running tmux as a subprocess, the user's config directory (session) and
+# asking a pane's user (ask): what a CLI verb needs, and all the guests'
+# tmuxy-verbs binary takes.
+cli = ["dep:dirs", "dep:tokio"]
 # The async/pty transport (monitor, connection, transport, snapshots, trace)
 # on top of `cli`. Off for the wasm build.
-native = ["cli", "dep:tokio", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex"]
+native = ["cli", "dep:nix", "dep:pty-process", "dep:tracing-subscriber", "dep:toml", "dep:url", "dep:regex"]
 
 [lints]
 workspace = true

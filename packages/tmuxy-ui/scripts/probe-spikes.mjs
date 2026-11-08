@@ -1,30 +1,32 @@
 #!/usr/bin/env node
 /**
- * Probe every `v86`-tagged Storybook story in ONE Chromium page.
- *
- * The v86 stories share a process-wide emulator engine (V86Engine's
- * getSharedEngine): the first story cold-boots (~5s), every later story
- * restores the pinned snapshot (~1s). The regular probe-stories.mjs opens a
- * fresh page per story, which re-boots the machine every time and excludes
- * these stories entirely — this runner navigates between stories in-page via
- * the Storybook preview channel so the shared engine actually gets exercised
- * (including the SharedIsolation reset guard).
+ * Probe every `v86`-tagged Storybook story in ONE Chromium page. The v86
+ * stories share a process-wide emulator engine: the first story cold-boots
+ * (~5s), every later one restores the pinned snapshot (~1s). This runner moves
+ * between stories in-page through the preview, so the shared engine and its
+ * reset are what get exercised.
  *
  * Usage: node scripts/probe-spikes.mjs [port] [storyIdSubstring...]
  *
  * Expects a Storybook dev or static server already running on the given port
- * (default 6006). Optional substrings filter which v86 stories run. Exits
- * non-zero if any story fails to render or its play function throws.
+ * (default 6006). Optional substrings filter which v86 stories run, and
+ * PROBE_TIER=gate takes only the stories tagged `gate` (the blocking per-push
+ * set; lib/probe-common.mjs). Exits non-zero if any story fails to render or
+ * its play function throws.
  *
  * A failing story's screenshot and error text land in PROBE_ARTIFACT_DIR
  * (default `probe-artifacts/` beside package.json), for CI to upload.
  *
- * Every failure turns the run red: this sweep has no quarantine list. A story
- * that cannot pass against the guest's real tmux is deleted, not shielded.
+ * Every failure turns the run red: this sweep has no quarantine list and no
+ * retry. A story that cannot pass against the guest's real tmux is deleted,
+ * not shielded; telling a flake from a defect is the nightly's job, which runs
+ * a failed story again on a fresh runner (lib/nightly-ledger.mjs). The story
+ * after a failure starts on a cold-booted engine, so one failure's leftover
+ * guest state cannot fail the next story too.
  *
  * Set PROBE_TIMINGS_JSON=<path> to also write a machine-readable per-story
- * timings report ({ generatedAt, storybookPort, stories: [{id, ok, retried,
- * secs}], totals }). This turns the v86 sweep's wall-clock into an Axis-A
+ * timings report ({ generatedAt, storybookPort, stories: [{id, ok, secs}],
+ * totals }). This turns the v86 sweep's wall-clock into an Axis-A
  * regression signal (see docs/PERFORMANCE.md) — the numbers are relative
  * (shared-engine, runner-load-sensitive), useful for trend, not absolutes.
  */
@@ -46,7 +48,12 @@ const {
 } = parseProbeArgs(process.argv.slice(2));
 const PER_STORY_TIMEOUT_MS = 240000;
 
-const ids = await fetchStoryIds({ storybookUrl: STORYBOOK_URL, filters: FILTERS, v86: true });
+const ids = await fetchStoryIds({
+  storybookUrl: STORYBOOK_URL,
+  filters: FILTERS,
+  v86: true,
+  tier: process.env.PROBE_TIER || 'all',
+});
 if (ids.length === 0) {
   console.error('no v86 stories matched');
   process.exit(1);
@@ -59,9 +66,8 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 
-// Console-error accounting. The shared page spans every story, so errors are
-// attributed to whichever story is on screen when they fire — good enough to
-// point a human at the culprit.
+// The shared page spans every story: an error is attributed to whichever
+// story is on screen when it fires.
 let currentStoryId = ids[0];
 const consoleErrorsByStory = new Map();
 page.on('console', (msg) => {
@@ -105,10 +111,8 @@ await page.goto(`${STORYBOOK_URL}/iframe.html?id=${ids[0]}&viewMode=story&global
 });
 
 async function awaitOutcome(id) {
-  // Every event has to name THIS story. Storybook keeps running the story it
-  // was on while the probe moves to the next one, so a failure trailing in
-  // from the previous story used to be reported against whichever story was on
-  // screen — which is how a red v86 run could name a story that never failed.
+  // Every event has to name THIS story: Storybook keeps running the story it
+  // was on while the probe moves to the next one.
   const mine = (e, storyId) => e.storyId === null || e.storyId === storyId;
   try {
     await page.waitForFunction(
@@ -133,12 +137,17 @@ async function awaitOutcome(id) {
 }
 
 // channel.emit only sends OUTBOUND (to a manager that doesn't exist on
-// iframe.html) — drive the preview's own selection handler directly.
-const selectStory = (storyId) =>
-  page.evaluate((s) => {
+// iframe.html) — drive the preview's own selection handler directly, once
+// the page has one.
+const selectStory = async (storyId) => {
+  await page.waitForFunction(() => window.__STORYBOOK_PREVIEW__?.onSetCurrentStory, null, {
+    timeout: 60000,
+  });
+  await page.evaluate((s) => {
     window.__probeEvents = [];
     window.__STORYBOOK_PREVIEW__.onSetCurrentStory({ storyId: s, viewMode: 'story' });
   }, storyId);
+};
 
 // Navigate the page fresh to a story — this tears down the shared v86 engine
 // (JS context is discarded) and cold-boots a new one. The addInitScript
@@ -149,50 +158,62 @@ const loadStory = (storyId) =>
     timeout: 60000,
   });
 
+/**
+ * One story: selected on the shared page, or loaded fresh (a cold-booted
+ * engine) after `fresh`. A probe call that fails because the page went away
+ * under it fails only this story; the next starts on a fresh page instead of
+ * the run ending with every later story unprobed.
+ */
+async function probeStory(id, i, fresh) {
+  if (fresh) {
+    await loadStory(id);
+  } else if (i > 0) {
+    // Let the finished story's trailing engine traffic drain before rewinding
+    // the shared machine: switching at once leaves the next mount racing the
+    // previous story's outbound bytes. tmux has answered everything sent once
+    // the app has caught up (`window.app.caughtUp`); a story that never does
+    // gets a cold-booted engine instead. (A periodic page reload would wipe
+    // document-level singletons such as the injected `#tmuxy-theme`
+    // stylesheet mid-run.)
+    const drained = page
+      .evaluate(() => window.app?.caughtUp?.())
+      .then(
+        () => true,
+        () => false,
+      );
+    const bound = new Promise((r) => setTimeout(() => r(false), PER_STORY_TIMEOUT_MS));
+    if (await Promise.race([drained, bound])) await selectStory(id);
+    else await loadStory(id);
+  }
+  const started = Date.now();
+  return { result: await awaitOutcome(id), started };
+}
+
 const results = [];
+let fresh = false;
 for (let i = 0; i < ids.length; i++) {
   const id = ids[i];
   currentStoryId = id;
-  if (i > 0) {
-    // Let the finished story's teardown/trailing engine traffic settle
-    // before rewinding the shared machine — switching at storyRendered+0ms
-    // leaves the next mount racing the previous story's outbound bytes.
-    // (A periodic full page reload was tried to clear accumulated engine
-    // drift, but it wiped document-level singletons like the injected
-    // `#tmuxy-theme` stylesheet mid-run; the core provisional-window-index
-    // fix removed the biggest accumulation source — tab-create stories no
-    // longer take tens of seconds — so a snapshot reset between stories is
-    // enough. A cold boot still happens on a failing story's retry below.)
-    await new Promise((r) => setTimeout(r, 1500));
-    await selectStory(id);
+  let result;
+  let started = Date.now();
+  try {
+    ({ result, started } = await probeStory(id, i, fresh));
+  } catch (err) {
+    result = { id, ok: false, reason: 'probe-error', message: err.message.split('\n')[0] };
   }
-  const started = Date.now();
-  let result = await awaitOutcome(id);
-  let retried = false;
-  if (!result.ok) {
-    // Retry on a FRESH cold-booted engine: most deep-run failures are
-    // accumulated-degradation, not real defects, and a full page reload clears
-    // all of it (JS timers, serial backlog, WASM/guest drift) — far more
-    // reliable than a snapshot-only bounce. A genuine defect still reproduces
-    // deterministically on the clean engine.
-    await loadStory(id);
-    result = await awaitOutcome(id);
-    retried = true;
-  }
+  fresh = !result.ok;
   const secs = Number(((Date.now() - started) / 1000).toFixed(1));
   if (!result.ok) {
-    // The page errors so far and this story's console errors travel with the
-    // result, into its artifacts and the report at the end.
     result.pageErrors = [...pageErrors];
     result.consoleErrors = consoleErrorsByStory.get(id) ?? [];
-    result.artifact = await writeArtifacts(page, `v86-${id}`, result);
+    result.artifact = await writeArtifacts(page, `v86-${id}`, result).catch(() => undefined);
   }
   console.log(
-    `${result.ok ? 'PASS' : 'FAIL'}${retried ? ' (retry)' : ''}  ${id} (${secs}s)${
+    `${result.ok ? 'PASS' : 'FAIL'}  ${id} (${secs}s)${
       result.ok ? '' : ` — ${result.reason}${result.message ? `: ${result.message}` : ''}`
     }`,
   );
-  results.push({ ...result, retried, secs });
+  results.push({ ...result, secs });
 }
 
 await browser.close();
@@ -226,7 +247,6 @@ if (timingsPath) {
     stories: results.map((r) => ({
       id: r.id,
       ok: r.ok,
-      retried: r.retried,
       secs: r.secs,
     })),
     totals: {

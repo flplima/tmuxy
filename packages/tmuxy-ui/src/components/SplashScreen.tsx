@@ -1,7 +1,7 @@
 /**
  * A new desktop window's first page: the sessions on this machine, one click
  * to join one, and a field for an ssh host to attach to instead
- * (utils/splashWindow.ts). Shown in place of the app until the window has
+ * (infra/splashWindow.ts). Shown in place of the app until the window has
  * attached; the first window, and every browser tab, never sees it.
  */
 
@@ -12,7 +12,7 @@ import {
   listLocalSessions,
   type AttachChoice,
   type LocalSession,
-} from '../utils/splashWindow';
+} from '../infra/splashWindow';
 import './SplashScreen.css';
 
 interface SplashScreenProps {

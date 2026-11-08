@@ -1,17 +1,11 @@
 /**
- * Cell-grid scaffolding for component stories that render terminal content
- * without the app (TerminalLine, Cursor).
- *
- * In the app the size actor measures the terminal font once and App.tsx
- * publishes `--cell-w` / `--cell-gap` on the root. Stories that mount a bare
- * component have no actor, so this decorator performs the same measurement on
- * its own element (utils/cellMetrics.ts — the very function the app uses) and
- * publishes the same variables, giving the story the snapped grid the real
- * terminal renders on. Play functions can then assert geometry in cells.
+ * For component stories without the app (TerminalLine, Cursor): there is no
+ * size actor to publish `--cell-w` / `--cell-gap`, so this decorator runs the
+ * app's own measurement (infra/dom/cellMetrics.ts) on its element.
  */
 
 import { useCallback, type CSSProperties, type ReactNode } from 'react';
-import { measureCellMetrics } from '../utils/cellMetrics';
+import { measureCellMetrics } from '../infra/dom/cellMetrics';
 
 function publish(el: HTMLElement): void {
   const m = measureCellMetrics(el);

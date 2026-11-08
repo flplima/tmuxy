@@ -1,21 +1,13 @@
 /**
- * SidebarTitle — a sidebar's label, shown in the app header above its column.
- *
- * Neither column carries a header of its own while docked, so the title lives up
- * here instead, inside a cluster sized to exactly that column's width. Its
- * brightness is the focus cue: full opacity when the column has the keyboard,
- * dimmed when it doesn't. That, plus where the cursor is, is the ONLY thing that
- * says which surface is focused — the divider between column and panes stays a
- * flat gray in every state.
- *
- * The left title is the session's name alone and opens the session switcher,
- * because what the tree below it lists is that session's tabs. The right title is
- * whatever its pane is running, so a pinned `tail -f` says so.
+ * A docked column has no header of its own, so its title lives in the app
+ * header, in a cluster sized to the column's width. Its colour is the
+ * column's only focus cue: the divider stays flat in every state.
  */
 
 import { memo, useCallback, useRef, useState } from 'react';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import { selectRightSidebarPane } from '../machines/selectors/panesAndSidebars';
+import { selectSidebarHoldsKeyboard } from '../machines/selectors/keyboard';
 import { sidebarShellTitle } from './paneTabDisplay';
 import { Tooltip } from './Tooltip';
 import { SessionMenu } from './SessionMenu';
@@ -25,12 +17,8 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
   const send = useAppSend();
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
   const rightPane = useAppSelector(selectRightSidebarPane);
-  const focused = useAppSelector((ctx) =>
-    side === 'left' ? ctx.leftSidebarFocused : ctx.rightSidebarFocused,
-  );
+  const focused = useAppSelector((ctx) => selectSidebarHoldsKeyboard(ctx, side));
 
-  // The switcher is a dropdown hanging off this button — see SessionMenu for
-  // why it is a dropdown and not a float.
   const switcherRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -38,10 +26,7 @@ export const SidebarTitle = memo(function SidebarTitle({ side }: { side: 'left' 
   // the same as clicking the column itself. That matters because a click inside
   // the column lands on whatever the pane is showing — a tree row activates it —
   // so the title is the one spot that focuses and does nothing else.
-  const focusColumn = useCallback(
-    () => send({ type: side === 'left' ? 'FOCUS_LEFT_SIDEBAR' : 'FOCUS_RIGHT_SIDEBAR' }),
-    [send, side],
-  );
+  const focusColumn = useCallback(() => send({ type: 'FOCUS_SIDEBAR', side }), [send, side]);
 
   return (
     <span

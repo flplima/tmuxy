@@ -12,8 +12,8 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
 - **`scroll_delta`**: a monotonic `i64` counter of whole-screen scrolls (+1 per
   row scrolled off the top, −1 per reverse scroll), exposed as
   `Grid::scroll_delta` and `Screen::scroll_delta`. Scrolls inside an active
-  scroll region do not count. tmuxy-core's OSC 8 cell→URL map shifts its marks
-  by the delta between two reads so a link stays on the text it was written on.
+  scroll region do not count. tmuxy-core shifts image placements by the delta
+  between two reads so a picture stays on the text it was drawn beside.
 - **Cursor-preserving vertical reflow in `set_size`**: shrinking first drops
   rows below the cursor, and only then scrolls rows off the top into
   scrollback; growing pulls rows back out of scrollback. Upstream's
@@ -37,6 +37,11 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   of a pane's memory at 256 rows of reflow history. Covered by
   `tests/terminal_fidelity.rs` in tmuxy-core.
 - **`col_back_tab`**: moves to the previous multiple-of-8 tab stop, for CBT.
+- **No zero-sized grid**: `Grid::new` and `Grid::set_size` make a zero side
+  one (`Size::at_least_one`). Every cursor clamp and the scroll region are
+  `side - 1`, so a 0-row or 0-column parser panicked on its first resize or
+  write; tmuxy-core no longer guards each call
+  (`tests/degenerate_size.rs`).
 - **`col_wrap` on degenerate grids**: saturating arithmetic and an `if let`
   instead of an `unwrap`, so a one-row or one-column grid cannot underflow or
   panic (`tests/degenerate_size.rs`).
@@ -56,6 +61,40 @@ and upstream vt100 another, and tmuxy re-emulates tmux's output cell for cell
   right before it (any control, escape, CSI — REP included — or OSC clears
   `last_char`), and no further than the end of the line, so a huge count
   neither wraps where tmux did not nor costs 65,535 writes.
+
+## Hyperlinks and text sizes are cell attributes
+
+Upstream drops OSC 8 and OSC 66; tmuxy-core used to strip them before vt100
+saw the bytes and keep its own map of which cell carried which link, which
+then had to be fed a character at a time, shifted on every scroll, dropped on
+a screen switch and checked against the text under it. Now the cell carries
+them, so they move, reflow, scroll and get overwritten with their text.
+
+- **`attrs.rs`**: `Attrs::link`, a `LinkId` (4 bytes, kept as bytes so the
+  cell stays byte-aligned), and `TextSize` (`Normal`, `DoubleWidth`,
+  `DoubleHeight`) in two free bits of `mode`. `Cell` grows from 32 to 36
+  bytes. `Cell::text_size` reads the size.
+- **`hyperlinks.rs`**: the screen's link table, id → URL. As in tmux, ids only
+  grow and the oldest link is forgotten past `MAX_HYPERLINKS` (5000, tmux's
+  number) or `MAX_HYPERLINK_BYTES` (1 MiB of URLs); a cell under a forgotten
+  link reads as having none, never someone else's. A URL longer than
+  `MAX_HYPERLINK_URL_BYTES` (8 KiB) opens no link. Reopening the newest link
+  (an application repainting a frame) reuses its entry.
+- **`screen.rs`**: a pen beside the SGR attributes, `pen_link` and `pen_size`,
+  that `SGR 0` and DECSC/DECRC leave alone (`ls --hyperlink --color` resets
+  its colours inside a link). Only a drawn character and its wide
+  continuation take the pen; an erase, and the cells a write clears around it,
+  get none. `Screen::hyperlink(&Cell)` resolves a cell's URL;
+  `Screen::set_cell_text_size` lets a capture refill put a size back.
+- **`perform.rs`**: `OSC 8 ; params ; url` sets the pen's link (an empty URL
+  closes it); a URL that filled all 16 of vte's OSC pieces may have lost its
+  tail, so it opens nothing. `OSC 66 ; s=<n>:w=<n> ; text` prints `text` at
+  `DoubleHeight` (`s` ≥ 2) or `DoubleWidth` (`w` ≥ 2). OSC 0, 1 and 2 pass
+  the whole title, `;` included, to the callbacks: vte splits the string at
+  every `;`, and upstream dropped any title with one in it.
+
+Covered by `tests/terminal_fidelity.rs` and
+`src/control_mode/state/tests_hyperlinks.rs` in tmuxy-core.
 
 ## `screen.rs`
 
@@ -108,6 +147,16 @@ about 1,300 lines no caller reached. `Screen::contents`, `rows`,
   `clear_wide` and `erase` look the other half up with checked arithmetic, so
   a stale wide flag at the edge clears nothing instead of panicking.
   Covered by `tests/degenerate_size.rs` in tmuxy-core.
+
+## DEC line sizes
+
+- **`ESC # 3`..`ESC # 6`** (DECDHL top and bottom, DECSWL, DECDWL) set a
+  per-row `LineSize` (`row.rs`, re-exported from `lib.rs`), dispatched in
+  `perform.rs`'s `esc_dispatch` beside DECALN; upstream ignored them.
+  `Screen::row_line_size`, `set_row_line_size` and `dec_line_size` read and
+  write it. tmux keeps the size but strips it from a `capture-pane`, so
+  tmuxy-core puts it back after a capture and draws the row at its size
+  (`control_mode/state/pane_output.rs`).
 
 ## `cell.rs`
 

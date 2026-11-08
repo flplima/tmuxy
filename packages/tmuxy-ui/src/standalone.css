@@ -1,5 +1,4 @@
-/* Standalone-only styles — imported by main.tsx, NOT by library consumers.
-   These set body/root for when tmuxy-ui is the full-page app. */
+/* The full-page app's body and root: main.tsx imports it, library consumers do not. */
 
 /* The page root is opaque so nothing behind the browser shows; the desktop
    app (html[data-desktop], set in main.tsx) makes it transparent so the OS
@@ -48,7 +47,7 @@ html:not([data-desktop]) body {
 
 /* On a phone the app is laid out in what is visible: a keyboard covers the
    page without resizing it, so the root follows the visual viewport instead
-   (hooks/usePhoneViewport.ts sets the class and the two variables). */
+   (components/phone/usePhoneViewport.ts sets the class and the two variables). */
 html.tmuxy-phone #root {
   position: fixed;
   top: var(--app-top, 0px);
@@ -72,7 +71,7 @@ html.tmuxy-phone #root {
 }
 
 /* The keyboard covers the home indicator: while it is up
-   (hooks/usePhoneViewport.ts marks the root), the inset kept clear of it
+   (components/phone/usePhoneViewport.ts marks the root), the inset kept clear of it
    would only be a gap above the keyboard. */
 html.tmuxy-phone.tmuxy-keyboard-up #root {
   padding-bottom: 0;

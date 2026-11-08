@@ -1,197 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
-import { pid, wid } from '../../../../test/wire';
+import { pid } from '../../../../test/wire';
+import { placeholderPaneId } from '../../../../domain/ids';
+import { TmuxOp } from '../../../../domain/commands';
 import { layoutState } from '../layout';
 import { layoutActions } from '../../actions/layout';
-const layoutGuards = {};
+import { act } from '../../actionTypes';
 import { mountState, sendAndGetContext } from './testHarness';
-import type { ResizeState, DragState } from '../../../types/domain';
-import type { PaneId, WindowId } from '../../../../domain/ids';
+import type { ResizeState } from '../../../types/domain';
 
 describe('layout state', () => {
-  it('SELECT_TAB flips activeWindowId and computes optimistic activePaneId', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@0'),
-      activePaneId: pid('%0'),
-      windows: [
-        {
-          id: wid('@0'),
-          index: 0,
-          name: 'a',
-          active: true,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-        {
-          id: wid('@1'),
-          index: 1,
-          name: 'b',
-          active: false,
-          windowType: 'tab',
-          floatParent: null,
-          floatWidth: null,
-          floatHeight: null,
-          floatDrawer: null,
-          floatBg: null,
-          floatNoheader: false,
-        },
-      ],
-      panes: [
-        {
-          id: 0,
-          tmuxId: pid('%0'),
-          windowId: wid('@0'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 24,
-          x: 0,
-          y: 0,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          paused: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-        {
-          id: 1,
-          tmuxId: pid('%1'),
-          windowId: wid('@1'),
-          content: [],
-          cursorX: 0,
-          cursorY: 0,
-          width: 80,
-          height: 24,
-          x: 0,
-          y: 0,
-          active: true,
-          command: 'bash',
-          title: '',
-          borderTitle: '',
-          inMode: false,
-          copyCursorX: 0,
-          copyCursorY: 0,
-          alternateOn: false,
-          mouseAnyFlag: false,
-          paused: false,
-          historySize: 0,
-          selectionPresent: false,
-          selectionStartX: 0,
-          selectionStartY: 0,
-          cursorShape: 0,
-          cursorHidden: false,
-        },
-      ],
-    });
-    const ctx = sendAndGetContext(actor, {
-      type: 'SELECT_TAB',
-      windowId: wid('@1'),
-    });
-    expect(ctx.activeWindowId).toBe(wid('@1'));
-    expect(ctx.activePaneId).toBe(pid('%1'));
-    // Outgoing window's active pane was recorded for restore-on-return
-    expect(ctx.lastActivePaneByWindow[wid('@0')]).toBe(pid('%0'));
-  });
-
-  it("SELECT_TAB lands on the target window's own active pane, not its first pane", () => {
-    // `pane.active` is session-wide: none of a background tab's panes carry
-    // it. The window's own activePaneId (from the server) is what the switch
-    // must use — the first pane was a wrong guess the server then corrected.
-    const win = (id: WindowId, index: number, active: boolean, activePaneId: PaneId | null) => ({
-      id,
-      index,
-      name: id,
-      active,
-      windowType: 'tab' as const,
-      floatParent: null,
-      floatWidth: null,
-      floatHeight: null,
-      floatDrawer: null,
-      floatBg: null,
-      floatNoheader: false,
-      activePaneId,
-    });
-    const pane = (tmuxId: PaneId, windowId: WindowId, active: boolean) => ({
-      id: Number(tmuxId.slice(1)),
-      tmuxId,
-      windowId,
-      content: [],
-      cursorX: 0,
-      cursorY: 0,
-      width: 80,
-      height: 24,
-      x: 0,
-      y: 0,
-      active,
-      command: 'bash',
-      title: '',
-      borderTitle: '',
-      inMode: false,
-      copyCursorX: 0,
-      copyCursorY: 0,
-      alternateOn: false,
-      mouseAnyFlag: false,
-      marked: false,
-      paused: false,
-      historySize: 0,
-      selectionPresent: false,
-      selectionStartX: 0,
-      selectionStartY: 0,
-      images: [],
-      cursorShape: 0,
-      cursorHidden: false,
-    });
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@0'),
-      activePaneId: pid('%0'),
-      windows: [win(wid('@0'), 0, true, pid('%0')), win(wid('@4'), 4, false, pid('%36'))],
-      panes: [
-        pane(pid('%0'), wid('@0'), true),
-        pane(pid('%50'), wid('@4'), false),
-        pane(pid('%36'), wid('@4'), false),
-      ],
-    });
-    const ctx = sendAndGetContext(actor, { type: 'SELECT_TAB', windowId: wid('@4') });
-    expect(ctx.activeWindowId).toBe(wid('@4'));
-    expect(ctx.activePaneId).toBe(pid('%36'));
-  });
-
-  it('SELECT_TAB is a no-op when already on the target window', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      activeWindowId: wid('@5'),
-      windows: [],
-    });
-    const ctx = sendAndGetContext(actor, {
-      type: 'SELECT_TAB',
-      windowId: wid('@5'),
-    });
-    // No flip and no dispatch — active window unchanged.
-    expect(ctx.activeWindowId).toBe(wid('@5'));
-  });
-
   it('RESIZE_STATE_UPDATE writes resize and resizeActive flag', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
+    const actor = mountState(layoutState, layoutActions, {
       resize: null,
       resizeActive: false,
     });
-    // Casting via unknown — the test only cares about the assign behavior,
-    // not the shape of the resize payload itself (covered elsewhere).
     const resize = { paneId: pid('%1'), handle: 'e' } as unknown as ResizeState;
     let ctx = sendAndGetContext(actor, { type: 'RESIZE_STATE_UPDATE', resize });
     expect(ctx.resize).toEqual(resize);
@@ -200,25 +22,10 @@ describe('layout state', () => {
     expect(ctx.resizeActive).toBe(false);
   });
 
-  it('DRAG_STATE_UPDATE assigns the drag field directly', () => {
-    const actor = mountState(layoutState, layoutActions, layoutGuards, {
-      drag: null,
-    });
-    // A real drag payload must land verbatim... (null → null asserted
-    // nothing: the previous version of this test passed even with the
-    // handler deleted).
-    const drag = { paneId: pid('%2'), currentX: 10, currentY: 20 } as unknown as DragState;
-    let ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag });
-    expect(ctx.drag).toEqual(drag);
-    // ...and null must clear it again.
-    ctx = sendAndGetContext(actor, { type: 'DRAG_STATE_UPDATE', drag: null });
-    expect(ctx.drag).toBeNull();
-  });
-
   it('the 2s RESIZE_COMPLETED fallback clears a stale preview when no server update arrives', () => {
     vi.useFakeTimers();
     try {
-      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+      const actor = mountState(layoutState, layoutActions, {
         resize: null,
         resizeActive: false,
       });
@@ -236,7 +43,7 @@ describe('layout state', () => {
   it('the 2s RESIZE_COMPLETED fallback does not clobber a newer resize started within the window', () => {
     vi.useFakeTimers();
     try {
-      const actor = mountState(layoutState, layoutActions, layoutGuards, {
+      const actor = mountState(layoutState, layoutActions, {
         resize: null,
         resizeActive: false,
       });
@@ -253,5 +60,43 @@ describe('layout state', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('CLOSE_PANE with no pane named (the app menu’s Close Pane)', () => {
+    const close = (context: Record<string, unknown>) => {
+      const raised: TmuxOp[] = [];
+      const state = { on: { ...layoutState.on, DISPATCH_OP: { actions: 'recordOp' } } };
+      const actor = mountState(
+        state,
+        {
+          ...layoutActions,
+          recordOp: act(({ event }) => {
+            if (event.type === 'DISPATCH_OP') raised.push(event.op);
+          }),
+        },
+        context,
+      );
+      actor.send({ type: 'CLOSE_PANE', paneId: null });
+      return raised;
+    };
+
+    it('closes the float that holds the keyboard, through the group-aware close', () => {
+      const raised = close({
+        activePaneId: pid('%3'),
+        keyboardOwner: { kind: 'float', paneId: pid('%9') },
+        floatPanes: { [pid('%9')]: { paneId: pid('%9') } },
+      });
+      expect(raised).toEqual([TmuxOp.GroupClose({ paneId: pid('%9') })]);
+    });
+
+    it('else the active pane', () => {
+      expect(close({ activePaneId: pid('%3') })).toEqual([TmuxOp.KillPane({ paneId: pid('%3') })]);
+    });
+
+    it('else, while the active pane is a placeholder, tmux’s own active pane', () => {
+      expect(close({ activePaneId: placeholderPaneId('5') })).toEqual([
+        TmuxOp.KillPane({ paneId: null }),
+      ]);
+    });
   });
 });

@@ -18,16 +18,12 @@ path = "src/main.rs"
 [dependencies]
 tmuxy-core = { path = "../tmuxy-core" }
 serde.workspace = true
-# preserve_order: `tmuxy agent install` rewrites the user's own agent
-# settings, which must keep the order they were written in.
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json.workspace = true
 tokio = { workspace = true, features = ["process"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
 thiserror.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 axum = { version = "0.8" }
-# HTTP Basic auth: decode the `Authorization: Basic <base64>` header.
 base64.workspace = true
 clap.workspace = true
 rust-embed = "8"
@@ -44,11 +40,14 @@ sha2 = "0.10"
 aes-gcm = "0.10"
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
-tmuxy-group = { path = "../tmuxy-group" }
-# `pane_wait_for` on `/mcp`: wait until a pane's screen matches a pattern.
+tmuxy-verbs = { path = "../tmuxy-verbs" }
 regex = "1"
 
 [target.'cfg(unix)'.dependencies]
-nix = { workspace = true, features = ["signal", "hostname"] }
+nix = { workspace = true, features = ["signal"] }
 libc = "0.2"
 
+
+[dev-dependencies]
+# Paused time: the grace and hold tests advance the clock instead of sleeping.
+tokio = { workspace = true, features = ["test-util"] }

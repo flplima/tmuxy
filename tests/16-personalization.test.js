@@ -11,13 +11,11 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  createTestContext,
-  navigateToSession,
+  describeE2E,
+  openSession,
   waitForCondition,
   noMenuOpen,
   clickMenuItem,
-  splitPaneKeyboard,
-  waitForPaneCount,
 } = require('./helpers');
 const {
   CONFIG_URL,
@@ -61,22 +59,16 @@ async function themeMenuItems(page) {
   return items;
 }
 
-describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
-  const ctx = createTestContext();
+describeE2E('Scenario 31: Personalizing tmuxy from its config dir', {}, (ctx) => {
   let stopServer = () => {};
 
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
   afterEach(async () => {
-    stopServer();
+    await stopServer();
     stopServer = () => {};
     unsetConfigVariable();
-    await ctx.afterEach();
   }, ctx.hookTimeout);
 
   test('a copied theme is listed, picked, repainted on save, overridden by @tmuxy-css-* then custom.css, and tmuxy.conf reloads live', async () => {
-    if (ctx.skipIfNotReady()) return;
     unsetConfigVariable();
     stopServer = await startConfigServer();
     const themes = path.join(CONFIG_DIR, 'themes');
@@ -99,7 +91,7 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     fs.writeFileSync(path.join(themes, 'e2e-mine.css'), mine);
 
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name, CONFIG_URL);
+    await openSession(page, ctx.session.name, CONFIG_URL);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     const before = await painted(page);
 
@@ -107,15 +99,10 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     // list arrives after the connect, so it is awaited before the menu opens.
     await waitForCondition(
       page,
-      () =>
-        page.evaluate(() =>
-          window.app.getSnapshot().context.availableThemes.some((t) => t.name === 'e2e-mine'),
-        ),
+      async () => (await themeMenuItems(page)).some((item) => item.text.includes('E2e Mine')),
       10000,
-      'the themes list to arrive',
+      'the theme menu to list the copied theme',
     );
-    const listed = await themeMenuItems(page);
-    expect(listed.some((item) => item.text.includes('E2e Mine'))).toBe(true);
     await clickMenuItem(page, ['View', 'Theme', 'E2e Mine']);
     await waitForCondition(
       page,
@@ -124,14 +111,13 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
       async () =>
         `the copied theme to be applied; the page shows ${JSON.stringify(await painted(page))}, ` +
         `theme ${await page.evaluate(() => {
-          const c = window.app.getSnapshot().context;
           let saved = null;
           try {
             saved = localStorage.getItem('tmuxy-theme-name');
           } catch (e) {
             saved = `unavailable: ${e.message}`;
           }
-          return JSON.stringify({ name: c.themeName, mode: c.themeMode, saved });
+          return JSON.stringify({ saved });
         })}`,
     );
     let now = await painted(page);
@@ -195,11 +181,10 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     expect(now.themeHref).toContain('/themes/e2e-mine.css');
   });
   test('a theme pinned in tmuxy.conf beats the menu and the saved choice, and the menu shows it pinned', async () => {
-    if (ctx.skipIfNotReady()) return;
     unsetConfigVariable();
     stopServer = await startConfigServer();
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name, CONFIG_URL);
+    await openSession(page, ctx.session.name, CONFIG_URL);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     const themeHref = () =>
       page.evaluate(() => document.getElementById('tmuxy-theme')?.getAttribute('href') ?? '');
@@ -238,7 +223,6 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
     for (let level = 0; level < 3; level++) await page.keyboard.press('Escape');
     await waitForCondition(page, () => noMenuOpen(page), 5000, 'the menu to close');
     expect(await themeHref()).toContain('/themes/nord.css');
-    expect(await page.evaluate(() => window.app.getSnapshot().context.themeName)).toBe('nord');
 
     // A reload of the page keeps it: the saved Dracula does not come back.
     await page.reload();
@@ -257,7 +241,6 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
   // server — another monitor, as the desktop app beside a phone is — through
   // the theme subscription. A web window used to keep its pick to itself.
   test('a theme picked in one window is drawn by the others, on this session and on another', async () => {
-    if (ctx.skipIfNotReady()) return;
     stopServer = await startConfigServer();
     ctx.session.runAsOperator('set-option -gu @tmuxy-theme');
     const page = ctx.page;
@@ -270,9 +253,9 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
         status: getComputedStyle(document.querySelector('.tmux-status-bar')).backgroundColor,
       }));
     try {
-      await navigateToSession(page, ctx.session.name, CONFIG_URL);
-      await navigateToSession(twin, ctx.session.name, CONFIG_URL);
-      await navigateToSession(elsewhere, other, CONFIG_URL);
+      await openSession(page, ctx.session.name, CONFIG_URL);
+      await openSession(twin, ctx.session.name, CONFIG_URL);
+      await openSession(elsewhere, other, CONFIG_URL);
       for (const p of [page, twin, elsewhere]) {
         await p.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
       }
@@ -312,11 +295,10 @@ describe('Scenario 31: Personalizing tmuxy from its config dir', () => {
   // server's own, in its state dir rather than a data dir another server
   // could share.
   test('Reload Config sources the chain rebuilt from a use-tmux-conf choice made since the connect', async () => {
-    if (ctx.skipIfNotReady()) return;
     unsetConfigVariable();
     stopServer = await startConfigServer();
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name, CONFIG_URL);
+    await openSession(page, ctx.session.name, CONFIG_URL);
     await page.waitForSelector('.pane-layout-item.pane-active', { timeout: 15000 });
     expect(fs.existsSync(path.join(STATE_DIR, 'tmuxy.entry.conf'))).toBe(true);
     expect(fs.existsSync(path.join(DATA_DIR, 'tmuxy.entry.conf'))).toBe(false);

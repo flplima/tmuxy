@@ -37,9 +37,6 @@ out/
 # What `tsc -p packages/tmuxy-demo` leaves behind (its tsconfig is incremental)
 *.tsbuildinfo
 
-# Storybook
-storybook-static/
-
 # v86 spike assets (large guest kernel + BIOS, fetched via `npm run fetch:v86-image`)
 packages/tmuxy-ui/v86-assets
 # ...and the copies the demo serves them from (packages/tmuxy-demo/scripts/stage-guest-assets.mjs)

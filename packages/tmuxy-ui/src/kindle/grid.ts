@@ -9,10 +9,10 @@
  * faint.
  */
 import type { ClientState, TmuxPane, TmuxWindow } from '../domain/client';
-import { isTabWindow } from '../domain/client';
 import type { PaneId, WindowId } from '../domain/ids';
 import type { TerminalCell } from '../domain/wireCells';
-import { isWideChar } from '../components/terminalShared';
+import { stripTabs } from '../domain/windows';
+import { isWideChar } from '../components/terminal/terminalShared';
 
 /** A stretch of one row drawn in one style. */
 export interface Run {
@@ -142,7 +142,7 @@ function toRuns(row: readonly Cell[]): Run[] {
 }
 
 export function kindleView(state: ClientState): KindleView {
-  const tabWindows = state.windows.filter(isTabWindow);
+  const tabWindows = stripTabs(state.windows);
   const window = shownWindow(state, tabWindows);
   const tabs = tabWindows.map((w) => ({
     id: w.id,

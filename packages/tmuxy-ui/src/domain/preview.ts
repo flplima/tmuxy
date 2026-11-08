@@ -11,9 +11,13 @@
  * its in-memory files through these rules too.
  */
 
-export type PreviewKind = 'html' | 'markdown';
+import { Schema } from 'effect';
+import { PREVIEW_LINES } from './tmuxyConstants.gen';
 
-/** What a document may link, by extension. Mirrors `RESOURCE_EXTENSIONS`. */
+export const PreviewKind = Schema.Literal('html', 'markdown');
+export type PreviewKind = Schema.Schema.Type<typeof PreviewKind>;
+
+/** What a document may link, by extension: the `Resource` rows of tmuxy-core's `mime::FILE_TYPES` (a test holds the two together). */
 const RESOURCE_EXTENSIONS = new Set([
   'css',
   'js',
@@ -39,7 +43,6 @@ function extensionOf(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-/** The kind of document a path names, or null for anything a preview does not show. */
 export function previewKind(path: string): PreviewKind | null {
   const ext = extensionOf(path);
   if (ext === 'html' || ext === 'htm') return 'html';
@@ -47,7 +50,6 @@ export function previewKind(path: string): PreviewKind | null {
   return null;
 }
 
-/** Whether a document-relative path is a type a page may load. */
 export function isPreviewResource(relative: string): boolean {
   return RESOURCE_EXTENSIONS.has(extensionOf(relative));
 }
@@ -89,20 +91,22 @@ export function previewResourcePath(ref: string, from = ''): string | null {
 }
 
 /** `read_preview` with no path: the document. */
-export interface PreviewDocument {
-  kind: PreviewKind;
+export const PreviewDocument = Schema.Struct({
+  kind: PreviewKind,
   /** The file's name, for the pane's title until the document gives one. */
-  name: string;
-  text: string;
+  name: Schema.String,
+  text: Schema.String,
   /** Opened with `--net`: the page may load from the network. */
-  net: boolean;
-}
+  net: Schema.Boolean,
+});
+export type PreviewDocument = Schema.Schema.Type<typeof PreviewDocument>;
 
 /** `read_preview` with a path: a resource's type and its bytes in base64. */
-export interface PreviewResource {
-  mime: string;
-  data: string;
-}
+export const PreviewResource = Schema.Struct({
+  mime: Schema.String,
+  data: Schema.String,
+});
+export type PreviewResource = Schema.Schema.Type<typeof PreviewResource>;
 
 /** The widget's content lines, as `tmuxy-widget-preview` prints them. */
 export interface PreviewLines {
@@ -119,19 +123,18 @@ export function parsePreviewLines(lines: string[]): PreviewLines {
   let rev = '';
   let themed = true;
   for (const line of lines) {
-    if (line === '__NO_THEME__') themed = false;
-    else if (line.startsWith('__FILE__:')) file = line.slice('__FILE__:'.length);
+    if (line === PREVIEW_LINES.noTheme) themed = false;
+    else if (line.startsWith(PREVIEW_LINES.file)) file = line.slice(PREVIEW_LINES.file.length);
     else {
       // The rev line is rewritten in place with `\r`, so a line can carry an
       // earlier rev's leftovers before the current one.
-      const at = line.lastIndexOf('__REV__:');
-      if (at >= 0) rev = line.slice(at + '__REV__:'.length).trim();
+      const at = line.lastIndexOf(PREVIEW_LINES.rev);
+      if (at >= 0) rev = line.slice(at + PREVIEW_LINES.rev.length).trim();
     }
   }
   return { file, rev, themed };
 }
 
-/** A markdown document split into its YAML front matter and the rest. */
 export interface MarkdownParts {
   /** The YAML between the fences, or null when the document opens without any. */
   frontMatter: string | null;

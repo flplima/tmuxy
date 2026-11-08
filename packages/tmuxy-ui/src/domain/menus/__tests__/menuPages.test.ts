@@ -6,25 +6,26 @@
 
 import { describe, it, expect } from 'vitest';
 import { menuPages } from '../menuPages';
-import { action, type MenuSpec } from '../spec';
+import type { MenuSpec } from '../spec';
 
-const spec: MenuSpec = [
+// The action is opaque to the walk: a string stands in for the app's.
+const spec: MenuSpec<string> = [
   {
     kind: 'submenu',
     id: 'menu-view',
     label: 'View',
     children: [
-      { kind: 'item', id: 'zoom', label: 'Zoom', action: action('zoom') },
+      { kind: 'item', id: 'zoom', label: 'Zoom', action: 'zoom' },
       {
         kind: 'submenu',
         id: 'menu-theme',
         label: 'Theme',
-        children: [{ kind: 'item', id: 'dracula', label: 'Dracula', action: action('t') }],
+        children: [{ kind: 'item', id: 'dracula', label: 'Dracula', action: 't' }],
       },
     ],
   },
   { kind: 'submenu', id: 'menu-off', label: 'Off', disabled: true, children: [] },
-  { kind: 'item', id: 'about', label: 'About', action: action('about') },
+  { kind: 'item', id: 'about', label: 'About', action: 'about' },
 ];
 
 describe('menuPages', () => {

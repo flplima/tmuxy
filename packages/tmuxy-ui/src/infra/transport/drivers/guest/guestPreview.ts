@@ -13,7 +13,7 @@
  * reading forever.
  */
 import type { CommandFailure } from '../../../../domain/wire';
-import { quote } from '../../../../domain/commands';
+import { runShell } from '../../../../domain/commandHelpers';
 import {
   previewKind,
   previewResourcePath,
@@ -22,10 +22,9 @@ import {
 } from '../../../../domain/preview';
 import { isPaneId } from '../../../../domain/ids';
 
-/** Run a tmux command and resolve with what it printed (`GuestEngine.query`). */
+/** `GuestEngine.query`. */
 type Query = (command: string) => Promise<string>;
 
-/** The types a page may load, as a preview serves them. */
 const MIME: Record<string, string> = {
   css: 'text/css',
   js: 'text/javascript',
@@ -54,9 +53,21 @@ function shSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-/** A shell command as one run-shell argument; run-shell expands `#` first. */
-function runShell(command: string): string {
-  return `run-shell ${quote(command.replace(/#/g, '##'))}`;
+/**
+ * The bytes a run-shell reads at a time. A relayed run-shell hands its output
+ * back as one shell argument (tmuxy-core `monitor_core::run_shell`), which
+ * Linux caps at 128 KiB; this much is 64,000 characters of base64.
+ */
+const CHUNK_BYTES = 48_000;
+
+async function readBase64(query: Query, file: string): Promise<string> {
+  let data = '';
+  for (let skip = 0; ; skip++) {
+    const read = `dd if=${shSingleQuote(file)} bs=${CHUNK_BYTES} skip=${skip} count=1 2>/dev/null | base64`;
+    const chunk = (await query(runShell(read))).replace(/\s+/g, '');
+    data += chunk;
+    if (chunk.length < (CHUNK_BYTES / 3) * 4) return data;
+  }
 }
 
 export async function readGuestPreview(
@@ -92,11 +103,10 @@ export async function readGuestPreview(
   const relative = previewResourcePath(path);
   if (!relative) throw refused('not a file this preview may read');
   const file = document.slice(0, document.lastIndexOf('/') + 1) + relative;
-  const data = await query(runShell(`base64 -- ${shSingleQuote(file)}`));
   return {
     mime:
       MIME[relative.slice(relative.lastIndexOf('.') + 1).toLowerCase()] ??
       'application/octet-stream',
-    data: data.replace(/\s+/g, ''),
+    data: await readBase64(query, file),
   };
 }

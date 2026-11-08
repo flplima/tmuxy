@@ -1,8 +1,9 @@
 /**
  * The HTTP driver against a scripted EventSource and fetch: the stream's
  * lifecycle (connect, drop, reconnect, give up), what each kind of server
- * answer becomes, and the serial queue every `run_tmux_command` goes through
- * — a split fired right after a tab switch must not reach the server first.
+ * answer becomes, and, through the transport the app runs on it, the serial
+ * lane every tmux op takes — a split fired right after a tab switch must not
+ * reach the server first.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -10,8 +11,23 @@ import { Effect, ManagedRuntime, Schedule, Stream } from 'effect';
 import { HttpTransportLive } from '../../layers';
 import { TmuxTransport, type TmuxTransportService } from '../../TmuxTransport';
 import { HttpAdapter } from '../HttpAdapter';
+import { REOPEN_AFTER_DROP_MS } from '../httpStream';
 import { installMockEventSource, MockEventSource, openStreams, stream } from './mockEventSource';
 import type { ServerState } from '../../../../domain/wire';
+import { TmuxOp } from '../../../../domain/commands';
+
+/** Every Fatal the adapter publishes, and the first one once it comes. */
+const fatalsOf = (adapter: HttpAdapter) => {
+  const all: string[] = [];
+  const first = new Promise<string>((resolve) => {
+    adapter.events.subscribe((e) => {
+      if (e._tag !== 'Fatal') return;
+      all.push(e.message);
+      resolve(e.message);
+    });
+  });
+  return { all, first };
+};
 
 describe('HttpAdapter connect() lifecycle', () => {
   let restoreEventSource: () => void;
@@ -44,20 +60,16 @@ describe('HttpAdapter connect() lifecycle', () => {
   });
 
   it('keeps retrying when a reconnect attempt fails to establish (no dead-loop)', async () => {
-    // Regression: the old imperative path scheduled a reconnect only from the
-    // *connected-then-dropped* branch. When a reconnect's EventSource failed to
-    // OPEN, onerror rejected and returned without rescheduling, so the loop died
-    // and the client stayed disconnected until a manual reload. The Schedule
-    // treats an establish failure and a drop identically, so it must retry both.
+    // A reconnect whose EventSource failed to OPEN once ended the retry loop,
+    // leaving the client disconnected until a reload: an establish failure
+    // must be retried like a drop.
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
     const first = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await first;
 
-    // Drop → fiber reopens ES2.
     MockEventSource.instances[0].onerror?.(new Event('error'));
-    // ES2 never reaches connected and errors (server still restarting). The old
-    // code gave up here; the Schedule must reopen ES3.
+    // ES2 never reaches connected and errors (server still restarting).
     (await stream(1)).onerror?.(new Event('error'));
 
     // Server finally answers on the third stream — the client recovers on its
@@ -68,29 +80,31 @@ describe('HttpAdapter connect() lifecycle', () => {
     adapter.disconnect();
   });
 
-  it('ten drops in a row each reconnect at once, on the real backoff schedule', async () => {
+  it('ten drops in a row each reconnect after the same short pause, on the real backoff schedule', async () => {
     // One schedule for the channel's whole life only ever climbed: by the
     // fifth drop a reconnect waited 16s, then 30s for good, however briefly
     // the link had been down. The default schedule, deliberately — a 1ms one
     // cannot show this.
-    const adapter = new HttpAdapter();
-    const first = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await first;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const adapter = new HttpAdapter();
+      const first = adapter.connect();
+      (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+      await first;
 
-    for (let drop = 1; drop <= 10; drop++) {
-      const droppedAt = Date.now();
-      MockEventSource.instances[drop - 1].onerror?.(new Event('error'));
-      await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(drop + 1), {
-        timeout: 1500,
-      });
-      expect(Date.now() - droppedAt).toBeLessThan(1500);
-      MockEventSource.instances[drop].emit('connection-info', { data: { connection_id: drop } });
-      await vi.waitFor(() => expect(adapter.isConnected()).toBe(true));
+      for (let drop = 1; drop <= 10; drop++) {
+        MockEventSource.instances[drop - 1].onerror?.(new Event('error'));
+        const reopened = stream(drop);
+        await vi.advanceTimersByTimeAsync(REOPEN_AFTER_DROP_MS);
+        (await reopened).emit('connection-info', { data: { connection_id: drop } });
+        expect(adapter.isConnected()).toBe(true);
+      }
+      expect(openStreams().length).toBe(1);
+      adapter.disconnect();
+    } finally {
+      vi.useRealTimers();
     }
-    expect(openStreams().length).toBe(1);
-    adapter.disconnect();
-  }, 20000);
+  });
 
   it('a pinged stream that goes silent is dropped and reopened', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
@@ -131,27 +145,22 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const fatals: string[] = [];
-    adapter.events.subscribe((e) => {
-      if (e._tag === 'Fatal') fatals.push(e.message);
-    });
-    adapter.connect().catch(() => {});
+    const fatals = fatalsOf(adapter);
+    const connecting = adapter.connect();
 
     (await stream(0)).onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(fatals).toHaveLength(1));
-    expect(fatals[0]).toBe(
+    expect(await fatals.first).toBe(
       'The server refused this page: request Host is not this server (see --allowed-host)',
     );
 
-    // Whatever attempt was already scheduled fails too, and nothing follows
-    // it: the retry predicate reads `fatal` and the channel's fiber ends,
-    // which is what the adapter records by letting go of it.
-    const opened = MockEventSource.instances.length;
-    MockEventSource.instances[opened - 1].onerror?.(new Event('error'));
-    const channel = adapter as unknown as { channelFiber: unknown };
-    await vi.waitFor(() => expect(channel.channelFiber).toBeNull());
-    expect(MockEventSource.instances.length).toBeLessThanOrEqual(opened + 1);
-    expect(fatals).toHaveLength(1);
+    // The retry was already scheduled when the refusal came back: that
+    // attempt fails too, and nothing follows it — the channel gives up, and
+    // the caller still waiting on connect() hears so.
+    (await stream(1)).onerror?.(new Event('error'));
+    await expect(connecting).rejects.toThrow();
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(fatals.all).toHaveLength(1);
+    await expect(adapter.connect()).rejects.toThrow(/fatal/);
     adapter.disconnect();
   });
 
@@ -199,100 +208,18 @@ describe('HttpAdapter connect() lifecycle', () => {
       }),
     );
     const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const fatals: string[] = [];
-    adapter.events.subscribe((e) => {
-      if (e._tag === 'Fatal') fatals.push(e.message);
-    });
+    const fatals = fatalsOf(adapter);
     adapter.connect().catch(() => {});
 
     (await stream(0)).onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(fatals).toHaveLength(1));
-    expect(fatals[0]).toBe('The server refused this session: too many sessions to create another');
-    adapter.disconnect();
-  });
-
-  it('runs run_tmux_command through the serial queue in issue order', async () => {
-    const adapter = new HttpAdapter();
-    const c = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await c;
-
-    // Each POST resolves only when the test releases it, so the second command
-    // cannot complete before the first unless the queue reordered them.
-    const posted: string[] = [];
-    const releases: Array<() => void> = [];
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation((_url: string, init: { body: string }) => {
-        const command = JSON.parse(init.body).args.command as string;
-        posted.push(command);
-        return new Promise((resolve) => {
-          releases.push(() =>
-            resolve({ ok: true, json: () => Promise.resolve({ result: command }) }),
-          );
-        });
-      }),
+    expect(await fatals.first).toBe(
+      'The server refused this session: too many sessions to create another',
     );
-
-    const r1 = adapter.invoke<string>('run_tmux_command', { command: 'first' });
-    const r2 = adapter.invoke<string>('run_tmux_command', { command: 'second' });
-
-    // Only the first POST has left the browser; the second waits behind it.
-    await vi.waitFor(() => expect(posted).toEqual(['first']));
-    releases[0]();
-    await vi.waitFor(() => expect(posted).toEqual(['first', 'second']));
-    releases[1]();
-
-    expect(await r1).toBe('first');
-    expect(await r2).toBe('second');
-    adapter.disconnect();
-  });
-
-  it('a key typed while the stream is down is posted once it is back, under the new connection, before later commands', async () => {
-    const adapter = new HttpAdapter({ reconnectSchedule: Schedule.spaced('1 millis') });
-    const c = adapter.connect();
-    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
-    await c;
-
-    const posted: Array<{ command: string; connectionId: string }> = [];
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockImplementation(
-          (_url: string, init: { body: string; headers: Record<string, string> }) => {
-            posted.push({
-              command: JSON.parse(init.body).args.command as string,
-              connectionId: init.headers['X-Connection-Id'],
-            });
-            return Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) });
-          },
-        ),
-    );
-
-    // The stream drops; the user keeps typing, then splits the pane.
-    MockEventSource.instances[0].onerror?.(new Event('error'));
-    await vi.waitFor(() => expect(adapter.isConnected()).toBe(false));
-    const key = "send-keys -t %1 -l -- 'x'";
-    void adapter.invoke('run_tmux_command', { command: key });
-    const split = adapter.invoke('run_tmux_command', { command: 'split-window -h' });
-
-    // Nothing leaves the browser while the stream is down...
-    const second = await stream(1);
-    expect(posted).toEqual([]);
-
-    // ...and once it is back, the key goes first, naming the new connection.
-    second.emit('connection-info', { data: { connection_id: 2 } });
-    await split;
-    expect(posted).toEqual([
-      { command: key, connectionId: '2' },
-      { command: 'split-window -h', connectionId: '2' },
-    ]);
     adapter.disconnect();
   });
 });
 
-describe('the HTTP transport: initial state against the live stream', () => {
+describe('the HTTP transport the app runs: initial state and the serial lane', () => {
   let restoreEventSource: () => void;
 
   beforeEach(() => {
@@ -378,12 +305,11 @@ describe('the HTTP transport: initial state against the live stream', () => {
     );
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }, { c: ' ' }]];
@@ -409,8 +335,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     );
     const transport = openTransport();
     const connected = transport.call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
     return {
@@ -430,7 +355,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     // still making windows, the stream delivers them, and to the server
     // nothing changes after that — no delta would ever bring them back.
     const { transport, es, answer } = await withPendingAnswer();
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
 
     const prompt = [[{ c: '$' }]];
@@ -446,7 +371,7 @@ describe('the HTTP transport: initial state against the live stream', () => {
     const { transport, es, answer } = await withPendingAnswer();
     const prompt = [[{ c: '$' }]];
     // The client's first answer, which also gives the resync its size.
-    const initial = transport.call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = transport.call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer(state(prompt));
     await initial;
@@ -460,6 +385,76 @@ describe('the HTTP transport: initial state against the live stream', () => {
     await vi.waitFor(() =>
       expect(transport.lastState()?.windows.map((w) => w.id)).toEqual(['@1', '@5']),
     );
+    await transport.close();
+  });
+
+  /** A connected transport over a fetch that records each POST's command and connection. */
+  const connectedTransport = async (
+    respond: (command: string) => Promise<unknown> = () =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ result: null }) }),
+  ) => {
+    const posted: Array<{ command: string; connectionId: string }> = [];
+    const transport = openTransport();
+    const connected = transport.call((t) => t.connect);
+    (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
+    await connected;
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementation(
+          (_url: string, init: { body: string; headers: Record<string, string> }) => {
+            const command = JSON.parse(init.body).args.command as string;
+            posted.push({ command, connectionId: init.headers['X-Connection-Id'] });
+            return respond(command);
+          },
+        ),
+    );
+    return { transport, posted };
+  };
+
+  it('runs every tmux op through the serial lane in issue order', async () => {
+    // Each POST resolves only when the test releases it, so the second op
+    // cannot complete before the first unless the lane reordered them.
+    const releases: Array<() => void> = [];
+    const { transport, posted } = await connectedTransport(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ ok: true, json: () => Promise.resolve({ result: null }) }));
+        }),
+    );
+
+    const r1 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'first' })));
+    const r2 = transport.call((t) => t.run(TmuxOp.RawCommand({ command: 'second' })));
+
+    // Only the first POST has left the browser; the second waits behind it.
+    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first']));
+    releases[0]();
+    await vi.waitFor(() => expect(posted.map((p) => p.command)).toEqual(['first', 'second']));
+    releases[1]();
+    await Promise.all([r1, r2]);
+    await transport.close();
+  });
+
+  it('a key typed while the stream is down is posted once it is back, under the new connection, before later commands', async () => {
+    const { transport, posted } = await connectedTransport();
+
+    // The stream drops; the user keeps typing, then splits the pane.
+    MockEventSource.instances[0].onerror?.(new Event('error'));
+    await stream(1);
+    await transport.call((t) => t.run(TmuxOp.SendText({ target: '%1', text: 'x' })));
+    const split = transport.call((t) => t.run(TmuxOp.Split({ direction: 'vertical' })));
+
+    // Nothing leaves the browser while the stream is down...
+    expect(posted).toEqual([]);
+
+    // ...and once it is back, the key goes first, naming the new connection.
+    MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
+    await split;
+    expect(posted).toEqual([
+      { command: "send-keys -t %1 -l -- 'x'", connectionId: '2' },
+      { command: 'split-window -h', connectionId: '2' },
+    ]);
     await transport.close();
   });
 });

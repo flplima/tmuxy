@@ -181,11 +181,25 @@ fn enrich_and_scan_sockets_discovers_live_local_sockets_and_skips_test_sockets()
     assert_eq!(enriched[2].session_count, Some(3));
 }
 
+/// The rows are read as the format the command asks for prints them: the
+/// parser split on tabs while the command asked for `|`, so every session
+/// read as one window, unattached, and the stash was counted as a session.
 #[test]
 fn parse_session_list_filters_out_stash_session() {
-    let out = "main\t3\t1\n__tmuxy_stash\t2\t0\nnotes\t1\t0\n";
+    let sep = discovery::SESSION_FIELD_SEP;
+    assert_eq!(
+        LIST_SESSIONS_FORMAT,
+        format!("#{{session_name}}{sep}#{{session_windows}}{sep}#{{session_attached}}")
+    );
+    assert_eq!(
+        LIST_SESSIONS,
+        format!("list-sessions -F '{LIST_SESSIONS_FORMAT}'")
+    );
+    let out = "main|3|1\n__tmuxy_stash|2|0\nnotes|1|0\na|b|2|0\nbroken\n";
     let sessions = parse_session_list(out);
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions.len(), 3);
+    assert_eq!(sessions[2].name, "a|b");
+    assert_eq!(sessions[2].windows, 2);
     assert_eq!(sessions[0].name, "main");
     assert_eq!(sessions[0].windows, 3);
     assert!(sessions[0].attached);

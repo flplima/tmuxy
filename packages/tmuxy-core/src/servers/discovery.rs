@@ -1,8 +1,5 @@
-//! Local socket scanning and reachability enrichment.
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{read_servers_strict, slug, write_servers, Server, ServerKind, MY_TMUX_ID};
@@ -21,7 +18,6 @@ pub enum ServerReachability {
     Offline,
 }
 
-/// Summary of a tmux session on a server, as `list-sessions` reports it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteSessionInfo {
     pub name: String,
@@ -29,7 +25,6 @@ pub struct RemoteSessionInfo {
     pub attached: bool,
 }
 
-/// Current UNIX timestamp in seconds.
 pub fn now_unix_secs() -> Option<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -37,8 +32,7 @@ pub fn now_unix_secs() -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-/// Record a fresh `last_used` timestamp (and optional preferred session) for a
-/// saved server in `servers.json`.
+/// Stamp `last_used` (and the session, when given) on a saved server.
 pub fn touch_server(id: &str, session: Option<&str>) -> std::io::Result<()> {
     let mut servers = read_servers_strict()?.unwrap_or_default();
     if let Some(existing) = servers.iter_mut().find(|s| s.id == id) {
@@ -51,8 +45,6 @@ pub fn touch_server(id: &str, session: Option<&str>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Whether a socket name belongs to an automated test harness rather than a
-/// user server.
 pub fn is_ephemeral_test_socket(name: &str) -> bool {
     const PREFIXES: &[&str] = &[
         "tmuxy-test",
@@ -129,7 +121,7 @@ pub fn tmux_socket_dirs() -> Vec<PathBuf> {
 }
 
 fn socket_mtime(socket: &str) -> Option<SystemTime> {
-    if socket.contains('/') {
+    if crate::session::is_socket_path(socket) {
         return std::fs::metadata(socket).ok()?.modified().ok();
     }
     for dir in tmux_socket_dirs() {
@@ -161,9 +153,8 @@ pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
             }
         }
     }
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    let out = Command::new("tmux")
-        .args([flag, socket, "list-sessions", "-F", "#{session_name}"])
+    let out = crate::session::local_tmux_on(socket)
+        .args(["list-sessions", "-F", "#{session_name}"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -268,31 +259,38 @@ pub fn enrich_and_scan_sockets(
     servers
 }
 
+/// The separator of [`LIST_SESSIONS`]'s fields. Only the name can hold it,
+/// and the name is the first field, so a row is split from the right.
+pub(super) const SESSION_FIELD_SEP: char = '|';
+
+/// The row [`parse_session_list`] reads, as a `list-sessions -F` format: name,
+/// window count, attached clients.
+pub const LIST_SESSIONS_FORMAT: &str = "#{session_name}|#{session_windows}|#{session_attached}";
+
+/// The `list-sessions` command whose rows [`parse_session_list`] reads.
+pub const LIST_SESSIONS: &str = concat!(
+    "list-sessions -F '",
+    "#{session_name}|#{session_windows}|#{session_attached}",
+    "'"
+);
+
+/// The sessions [`LIST_SESSIONS`] printed, less tmuxy's stash. A row that does
+/// not have its three fields is skipped.
 pub fn parse_session_list(stdout: &str) -> Vec<RemoteSessionInfo> {
     stdout
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
-            if line.is_empty() {
-                return None;
-            }
-            let mut parts = line.split('\t');
-            let name = parts.next()?.trim();
+            let mut fields = line.trim().rsplitn(3, SESSION_FIELD_SEP);
+            let attached = fields.next()?.trim();
+            let windows = fields.next()?.trim().parse::<usize>().ok()?;
+            let name = fields.next()?.trim();
             if name.is_empty() || name == STASH_SESSION {
                 return None;
             }
-            let windows = parts
-                .next()
-                .and_then(|w| w.trim().parse::<usize>().ok())
-                .unwrap_or(1);
-            let attached = parts
-                .next()
-                .map(|a| a.trim() != "0" && !a.trim().is_empty())
-                .unwrap_or(false);
             Some(RemoteSessionInfo {
                 name: name.to_string(),
                 windows,
-                attached,
+                attached: !attached.is_empty() && attached != "0",
             })
         })
         .collect()

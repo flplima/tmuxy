@@ -16,6 +16,7 @@ import {
   createV86Emulator,
   encodeUtf8SerialBytes,
   fetchGuestSnapshot,
+  restoreSnapshot,
   type V86Emulator,
 } from './v86Guest';
 
@@ -46,7 +47,6 @@ export class V86Engine extends GuestEngine {
     return this.screen;
   }
 
-  /** Start / stop painting the VGA console. */
   setScreenPainting(on: boolean): void {
     const adapter = this.emu?.screen_adapter;
     if (!adapter) return;
@@ -54,8 +54,6 @@ export class V86Engine extends GuestEngine {
     else adapter.pause();
   }
 
-  /** Cold boot: create the emulator, register the persistent serial pump,
-   *  restore the snapshot, then attach + sync + run `initCommands`. */
   protected async doBoot(initCommands: string[], files: GuestFile[]): Promise<void> {
     await this.freshCore();
 
@@ -82,13 +80,12 @@ export class V86Engine extends GuestEngine {
     this.booted = true;
 
     // Wait for the machine to finish initializing, then restore the snapshot and
-    // start the CPU from it (restore_state consumes the buffer, so hand it a
-    // fresh copy and keep the cache for reset()). The restore itself is quick
+    // start the CPU from it (the bytes stay cached for reset()). The restore itself is quick
     // (~2s), but the guest resumes a few seconds shy of ready — the snapshot is
     // captured mid-init, so on resume it finishes bringing tmux up — so this
     // still uses the patient (cold) budget, not the warm one.
     await loaded;
-    await emu.restore_state((await snapshotBytes).slice(0));
+    await restoreSnapshot(emu, await snapshotBytes);
     await emu.run();
     await this.putFiles(files);
     await this.start(initCommands, ATTACH, COLD);
@@ -101,7 +98,6 @@ export class V86Engine extends GuestEngine {
     for (const { name, bytes } of files) await this.emu?.create_file(name, bytes);
   }
 
-  /** Fetch the machine snapshot (cached — reset() reuses the bytes). */
   private async fetchSnapshot(): Promise<ArrayBuffer> {
     if (this.snapshotBytes) return this.snapshotBytes;
     const bytes = await fetchGuestSnapshot();
@@ -109,7 +105,6 @@ export class V86Engine extends GuestEngine {
     return bytes;
   }
 
-  /** Reuse path: restore the pinned snapshot, install a fresh core, re-attach. */
   protected async doReset(initCommands: string[], files: GuestFile[]): Promise<void> {
     // Call doBoot directly (not boot) — we're already inside the lifecycle
     // queue, and re-enqueuing would deadlock behind ourselves.
@@ -118,15 +113,12 @@ export class V86Engine extends GuestEngine {
     this.attached = false;
     this.byteBuf = '';
     this.failInFlight('engine reset');
-    const bytes = await this.fetchSnapshot();
-    // restore_state consumes the buffer; hand it a fresh copy each reset.
-    await this.emu.restore_state(bytes.slice(0));
+    await restoreSnapshot(this.emu, await this.fetchSnapshot());
     await this.freshCore();
     await this.putFiles(files);
     await this.start(initCommands, ATTACH, WARM);
   }
 
-  /** Queue a control-mode command; streamed to the guest at the paced rate. */
   send(cmd: string): void {
     this.byteBuf += encodeUtf8SerialBytes(cmd);
     this.drainQueue();
@@ -138,11 +130,8 @@ export class V86Engine extends GuestEngine {
   // chunk size overruns it; what bounds the rate is the guest itself, which
   // reads ~45 KB/s (1,500 marker commands — 46 KB — all answered in order, at
   // every pacing up to 128 KB/s). Staying under that keeps the kernel's tty
-  // buffer from filling behind a burst. The pace used to be 8 bytes/4 ms,
-  // 2 KB/s, out of a worry about a 16-byte FIFO that this UART does not have:
-  // a burst of splits — each a ~600-byte list-panes plus captures — queued
-  // seconds of backlog, keystrokes waited behind it, and tracked commands
-  // timed out before their bytes had been written.
+  // buffer from filling behind a burst; a pace far below it (2 KB/s) queued
+  // seconds of backlog behind a burst of splits and timed tracked commands out.
   private static readonly CHUNK_BYTES = 128;
   private static readonly CHUNK_INTERVAL_MS = 4;
   private drainQueue(): void {

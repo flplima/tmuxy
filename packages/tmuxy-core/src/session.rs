@@ -5,36 +5,32 @@ use crate::error::TmuxError;
 
 mod assets;
 mod config;
+mod doctor;
 mod launcher;
-mod migrate;
 #[cfg(feature = "native")]
 pub mod scoped;
 mod state;
 
 pub use assets::*;
 pub use config::*;
+pub use doctor::*;
 pub use launcher::*;
 pub use state::*;
 
 type Result<T> = std::result::Result<T, TmuxError>;
 
-/// Resolved path to the tmux binary, cached after first lookup.
 static TMUX_PATH: OnceLock<String> = OnceLock::new();
 
-/// Find the tmux binary path.
-///
 /// macOS GUI apps (.app bundles) inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`)
-/// that excludes Homebrew, MacPorts, and Nix paths. We check common locations explicitly
-/// so the Tauri desktop app works when launched from Finder/Spotlight.
+/// that excludes Homebrew, MacPorts and Nix, so the desktop app launched from
+/// Finder/Spotlight would not find tmux without the explicit candidates.
 fn find_tmux() -> String {
-    // Explicit env override
-    if let Ok(path) = std::env::var("TMUX_BIN") {
+    if let Ok(path) = std::env::var(TMUX_BIN_ENV) {
         if std::path::Path::new(&path).exists() {
             return path;
         }
     }
 
-    // Try PATH first (works in terminals, CI, and Linux desktop)
     if let Ok(output) = Command::new("which").arg("tmux").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -44,7 +40,6 @@ fn find_tmux() -> String {
         }
     }
 
-    // Common locations not in macOS GUI PATH
     let candidates = [
         "/opt/homebrew/bin/tmux",                 // Homebrew on Apple Silicon
         "/usr/local/bin/tmux",                    // Homebrew on Intel Mac / Linux manual install
@@ -58,22 +53,16 @@ fn find_tmux() -> String {
         }
     }
 
-    // Fallback — let the OS try to resolve it
     "tmux".to_string()
 }
 
-/// Get the resolved tmux binary path (cached).
 pub fn tmux_path() -> &'static str {
     TMUX_PATH.get_or_init(find_tmux)
 }
 
-/// The named tmux server socket tmuxy talks to when `TMUX_SOCKET` is unset.
-/// A dedicated socket keeps tmuxy's server fully isolated from the user's
-/// own tmux sessions on the default socket.
-///
-/// This is the socket of a **released build**. The development and test
-/// environments set `TMUX_SOCKET` to `tmuxy-dev` and `tmuxy-test` instead, so
-/// a dev server or a test run never disturbs an installed tmuxy.
+/// The tmux socket of a **released build** when `TMUX_SOCKET` is unset, kept
+/// apart from the user's own sessions on the default socket. The dev server
+/// and the tests set `TMUX_SOCKET` to `tmuxy-dev` and `tmuxy-test`.
 pub const DEFAULT_TMUX_SOCKET: &str = "tmuxy";
 
 /// The tmux server and session every tmux invocation targets: a socket (a
@@ -88,15 +77,12 @@ pub struct ConnectTarget {
 
 /// The target set at runtime, when one has been.
 ///
-/// A process normally serves one target for its whole life, read from the
-/// environment (`TMUX_SOCKET`, `TMUXY_SESSION`, `TMUXY_SSH`) at launch — the
-/// web server and the CLI never change it. The desktop app does: `tmuxy
-/// connect` points a running app at another server, and that switch has to
-/// be seen whole by every tmux invocation on every thread. Writing the three
-/// environment variables one by one was neither — a command issued mid-switch
-/// could pair the old socket with the new session, and `setenv` beside a
-/// `getenv` on another thread is undefined behaviour — so the switch lands
-/// here, in one write, and the resolvers below read it before the environment.
+/// Otherwise the target comes from the environment (`TMUX_SOCKET`,
+/// `TMUXY_SESSION`, `TMUXY_SSH`). The desktop app's `tmuxy connect` switches
+/// a running app to another server, which every thread must see whole:
+/// writing the three variables one by one could pair the old socket with the
+/// new session, and `setenv` beside a `getenv` on another thread is undefined
+/// behaviour.
 static CONNECT_TARGET: RwLock<Option<ConnectTarget>> = RwLock::new(None);
 
 /// Point every later tmux invocation at `target`.
@@ -134,24 +120,36 @@ pub fn tmux_socket() -> String {
     }
 }
 
-/// The socket flag pair for tmux invocations: `["-L", <name>]` for a socket
-/// name, or `["-S", <path>]` when `TMUX_SOCKET` holds a path (contains `/`).
-/// Passing the flag unconditionally also overrides an inherited `$TMUX`, so
-/// tmuxy behaves the same whether or not it was launched from inside a tmux
-/// pane — and never touches the user's default tmux server.
+/// Whether `socket` is a socket's path (tmux `-S`) rather than a name in
+/// tmux's socket directory (`-L`): it contains a `/`.
+pub fn is_socket_path(socket: &str) -> bool {
+    socket.contains('/')
+}
+
+/// `["-L", <name>]`, or `["-S", <path>]` for a [`is_socket_path`].
+/// Passing the flag always also overrides an inherited `$TMUX`, so tmuxy
+/// launched from inside a tmux pane never talks to that pane's server.
+pub fn socket_args(socket: &str) -> [&str; 2] {
+    [if is_socket_path(socket) { "-S" } else { "-L" }, socket]
+}
+
+/// [`socket_args`] for the [`tmux_socket`].
 pub fn tmux_socket_args() -> [String; 2] {
-    let socket = tmux_socket();
-    let flag = if socket.contains('/') { "-S" } else { "-L" };
-    [flag.to_string(), socket]
+    socket_args(&tmux_socket()).map(String::from)
+}
+
+/// The local tmux on `socket`, whatever the [`connect_target`] says: for a
+/// look at a server other than the one tmuxy is attached to.
+pub fn local_tmux_on(socket: &str) -> Command {
+    let mut command = Command::new(tmux_path());
+    command.args(socket_args(socket));
+    command
 }
 
 /// The SSH tunnel tmuxy runs tmux through: the [`connect_target`]'s, else
-/// `TMUXY_SSH`. When set and non-empty, every tmux invocation is wrapped as
-/// `ssh <tail> tmux …` so the desktop app can attach its control-mode monitor
-/// to a tmux server on a remote host. The value is a whitespace-separated ssh
-/// argv *tail* — options plus the destination, e.g. `-p 2222 user@host` or
-/// just `user@host`. Empty/unset means local (the normal case, and always the
-/// case for the web server).
+/// `TMUXY_SSH`, a whitespace-separated ssh argv *tail* (options plus the
+/// destination, e.g. `-p 2222 user@host`). Every tmux invocation is then
+/// wrapped as `ssh <tail> tmux …`. `None`: local.
 pub fn ssh_target() -> Option<Vec<String>> {
     let raw = match connect_target() {
         Some(target) => target.ssh,
@@ -160,23 +158,15 @@ pub fn ssh_target() -> Option<Vec<String>> {
     ssh_argv(raw.as_deref())
 }
 
-/// An ssh argv tail split into arguments; `None` when there is nothing in it.
 fn ssh_argv(raw: Option<&str>) -> Option<Vec<String>> {
     let tail = raw?.trim();
     (!tail.is_empty()).then(|| tail.split_whitespace().map(String::from).collect())
 }
 
-/// Build the argv to invoke tmux, honoring an optional SSH tunnel
-/// ([`ssh_target`]). `pty` selects whether the ssh hop allocates a remote tty
-/// (`-tt`) — required for `-CC` control mode, but harmful for one-off reads
-/// (it echoes CRs into captured output), so pass `false` for those.
-///
-/// Returns e.g.:
-///   local:  `["/opt/homebrew/bin/tmux", "-L", "tmuxy"]`
-///   ssh:    `["ssh", "-tt", "user@host", "tmux", "-L", "tmuxy"]`
-///
-/// The remote tmux is invoked as bare `tmux` (resolved by the remote login
-/// shell's PATH) — the local [`tmux_path`] absolute path is meaningless there.
+/// The argv to invoke tmux, through the [`ssh_target`] if any. `pty` makes
+/// the ssh hop allocate a remote tty (`-tt`): required for `-CC` control mode,
+/// harmful for one-off reads (it echoes CRs into captured output). The remote
+/// tmux is a bare `tmux`, resolved by the remote login shell's PATH.
 pub fn tmux_argv(pty: bool) -> Vec<String> {
     match ssh_target() {
         Some(ssh) => {
@@ -197,8 +187,7 @@ pub fn tmux_argv(pty: bool) -> Vec<String> {
     }
 }
 
-/// Create a `Command` for tmux targeting the resolved socket (and SSH tunnel,
-/// if any). Used for one-off reads/writes — no remote tty (`pty = false`).
+/// A tmux `Command` for one-off reads and writes (no remote tty).
 ///
 /// Nothing a client sends may be appended to this: over ssh the trailing
 /// arguments are joined into one remote shell command line. A client's
@@ -234,9 +223,24 @@ pub fn tmux_output(argv: &[String]) -> Result<String> {
     }
 }
 
-/// Build the tmux shell command string with the socket flag for use in shell
-/// invocations. Returns e.g. "/opt/homebrew/bin/tmux -L tmuxy", or when tunneled
-/// "ssh user@host tmux -L tmuxy".
+/// What tmux says when there is no server to talk to: none running on the
+/// socket, or a socket file that is gone. Generated into the CLI's `_options`
+/// for its `_no_server_in` (`tmuxy-cli/bin/tmuxy/_contract`).
+pub const NO_SERVER_SIGNS: [&str; 2] = ["no server running", "error connecting to"];
+
+/// Whether what tmux said is one of the [`NO_SERVER_SIGNS`].
+pub fn is_no_server(message: &str) -> bool {
+    NO_SERVER_SIGNS.iter().any(|sign| message.contains(sign))
+}
+
+/// tmux on tmuxy's server, as a shell command line: what a job `run-shell`
+/// starts calls to reach the server that started it.
+pub fn tmux_shell_line() -> String {
+    let [flag, socket] = tmux_socket_args();
+    crate::argv::shell_line(&[tmux_path(), &flag, &socket])
+}
+
+/// [`tmux_argv`] joined with spaces, e.g. `ssh user@host tmux -L tmuxy`.
 pub fn tmux_bin() -> String {
     tmux_argv(false).join(" ")
 }
@@ -256,10 +260,11 @@ pub fn session_name() -> String {
         .unwrap_or_else(|| crate::DEFAULT_SESSION_NAME.to_string())
 }
 
-/// Whether `dest` is an ssh destination and nothing more: `[user@]host`,
-/// never an option. A `TMUXY_CONNECT_SSH` is written into the tmux server's
-/// environment by anything that can reach it, and ssh runs a
-/// `-oProxyCommand=…` as a local command.
+/// Whether `dest` is an ssh destination and nothing more: `[user@]host`, a
+/// port after a colon allowed ([`split_ssh_port`]), never an option. A
+/// connect request's host is written into the tmux server's environment by
+/// anything that reaches it, and ssh runs a `-oProxyCommand=…` as a local
+/// command.
 pub fn is_ssh_destination(dest: &str) -> bool {
     let word = |s: &str, extra: &[u8]| {
         !s.is_empty()
@@ -276,6 +281,20 @@ pub fn is_ssh_destination(dest: &str) -> bool {
     }
 }
 
+/// `dest` without the port its last `:` names, and that port: ssh takes no
+/// port in a destination, so a `host:2222` reaches it as `-p 2222 host`. A
+/// colon that is part of the host (an IPv6 address) or followed by no port
+/// number leaves the destination whole.
+pub fn split_ssh_port(dest: &str) -> (&str, Option<u16>) {
+    match dest.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => match port.parse() {
+            Ok(port) => (host, Some(port)),
+            Err(_) => (dest, None),
+        },
+        _ => (dest, None),
+    }
+}
+
 /// Whether `socket` is a tmux socket name or path tmuxy will hand to tmux:
 /// no whitespace, quotes or shell syntax, since over ssh it reaches the
 /// remote shell as text.
@@ -283,7 +302,7 @@ pub fn is_safe_socket(socket: &str) -> bool {
     !socket.is_empty()
         && !socket.starts_with('-')
         && !socket.contains("..")
-        && (!socket.contains('/') || socket.starts_with('/'))
+        && (!is_socket_path(socket) || socket.starts_with('/'))
         && socket.bytes().all(|b| {
             b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'@' | b'+')
         })
@@ -291,12 +310,12 @@ pub fn is_safe_socket(socket: &str) -> bool {
 
 /// Whether `name` is a session name the server will write into a command line.
 ///
-/// SEC-14. A client names its session in `?session=`, and that name goes into
+/// A client names its session in `?session=`, and that name goes into
 /// control-mode commands and into `run-shell` strings that tmux format-expands
-/// before a shell sees them. Rather than escape for each of those contexts,
-/// the name is held to letters, digits and `_ - @ +` — every name tmuxy itself
-/// creates fits, tmux forbids `.` and `:` in any case, and nothing in the
-/// alphabet means anything to a format string, a shell or a command parser.
+/// before a shell sees them. Rather than escape for each context, the name is
+/// held to letters, digits and `_ - @ +`: tmux forbids `.` and `:` anyway, and
+/// nothing in the alphabet means anything to a format string, a shell or a
+/// command parser.
 pub fn is_safe_session_name(name: &str) -> bool {
     SessionName::parse(name).is_some()
 }
@@ -308,7 +327,6 @@ pub fn is_safe_session_name(name: &str) -> bool {
 pub struct SessionName(String);
 
 impl SessionName {
-    /// `name` as a session name, or `None` when it is outside the alphabet.
     pub fn parse(name: &str) -> Option<Self> {
         let safe = !name.is_empty()
             && !name.starts_with('-')
@@ -340,13 +358,30 @@ impl std::ops::Deref for SessionName {
     }
 }
 
-/// Whether tmux has a session called `name`, from a read-only `has-session`.
+/// `name` as a `-t` target that matches that session alone. A bare name also
+/// matches a session it is a unique prefix of (tmux's `cmd-find.c`), so
+/// `work` with only `workbench` running would find `workbench`; `=` asks for
+/// the exact name.
+pub fn exact_session_target(name: &str) -> String {
+    format!("={name}")
+}
+
+/// Whether tmux has a session called exactly `name`, from a read-only
+/// `has-session`.
 pub fn session_exists(name: &SessionName) -> Result<bool> {
     let output = tmux_command()
-        .args(["has-session", "-t", name.as_str()])
+        .args(["has-session", "-t", &exact_session_target(name)])
         .output()?;
     tracing::debug!(session = %name, exit = ?output.status.code(), "has-session");
     Ok(output.status.success())
+}
+
+/// [`session_exists`] as every tmuxy caller answers it: a name outside the
+/// session alphabet names no session, and a tmux that cannot be asked at all
+/// is taken to have it — a snapshot is restored, and a session created, only
+/// for one known to be gone, never on a guess.
+pub fn session_known(name: &str) -> bool {
+    SessionName::parse(name).is_some_and(|name| session_exists(&name).unwrap_or(true))
 }
 
 /// Names of every session the tmux server currently holds, from a read-only
@@ -366,26 +401,20 @@ pub fn session_names() -> Vec<String> {
         })
 }
 
-/// The socket name tmux itself uses when nobody says otherwise — the server a
+/// The socket name tmux itself uses when nobody says otherwise: the server a
 /// person's own `tmux` command talks to.
-///
-/// tmuxy stays off it by default (see `DEFAULT_TMUX_SOCKET`).
 pub const USERS_OWN_SOCKET: &str = "default";
 
-/// Whether the socket in play is the user's OWN tmux server rather than one of
-/// tmuxy's.
 pub fn on_users_own_server() -> bool {
     tmux_socket() == USERS_OWN_SOCKET
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests_layout;
-
+mod tests_doctor;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests_migrate;
+mod tests_layout;
+#[cfg(test)]
+mod tests_state;

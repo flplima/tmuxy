@@ -1,30 +1,9 @@
-/**
- * TmuxStore — the client model, its optimistic dispatch and reconciliation.
- *
- * Responsibilities:
- *  - Hold the model. Subscribers are notified whenever `derived` changes
- *    shape. Everything here is synchronous except the send to tmux, which is
- *    why only `dispatch` is an Effect (it needs the transport).
- *  - `dispatch(op)` runs predict → apply optimistic patch → send command →
- *    on tmux error: rollback. The matching server delta clears the op via
- *    `reconcile`.
- *  - `reconcile(snapshot)` is the entry point for fresh server state. Runs
- *    every pending op's reconciler, drops matched/failed ones, recomputes
- *    `derived`. Rollbacks — from a snapshot or from the idle sweep that
- *    stands in for one — reach `subscribeRollbacks` listeners.
- *
- * The store does NOT own React subscriptions directly — it exposes a plain
- * subscribe API; the appMachine bridges them so XState `context` stays the
- * single source consumed by the rest of the codebase. That keeps every
- * existing selector and hook working without modification.
- */
-
 import { Effect } from 'effect';
 import { formatAdapterError } from '../transport/AdapterError';
 import { TmuxTransport } from '../transport/TmuxTransport';
 import type { ServerState } from '../../domain/wire';
 import { preserveSnapshotIdentity, transformServerState } from '../../domain/store/snapshot';
-import { toTmuxCommand, type TmuxOp } from '../../domain/commands';
+import { toTmuxCommand, TmuxOp } from '../../domain/commands';
 import {
   addPendingOp,
   applyServerSnapshot,
@@ -34,27 +13,31 @@ import {
   rollbackOp,
   type RollbackEntry,
 } from '../../domain/store/model';
-import type { PredictContext } from '../../domain/store/ops';
-import { predict } from '../../domain/store/ops';
-import type { OpError, OpId, TmuxClientModel } from '../../domain/store/types';
-import { EMPTY_MODEL, OpRejectedByTmux, OpTransportError } from '../../domain/store/types';
+import { DEFAULT_SHELL, predict } from '../../domain/store/ops';
+import type { PaneId } from '../../domain/ids';
+import {
+  type OpError,
+  type OpId,
+  type TmuxClientModel,
+  EMPTY_MODEL,
+  OpRejectedByTmux,
+  OpTransportError,
+} from '../../domain/store/types';
 
 export interface DispatchOptions {
   /**
-   * Override the wire-format command string sent to tmux. Use this when the
-   * caller has the full original command (including format strings like
-   * `-c "#{pane_current_path}"` or the `select-pane -t %N \;` prefix-pin
-   * the keyboardActor injects) and `toTmuxCommand(op)` would lose information.
-   * The op is still used for prediction; only the command string changes.
+   * The exact string to send in place of the op's own form, when the op was
+   * parsed from one: a binding keeps its pin and flags, `-c
+   * "#{pane_current_path}"` its format. The op is still what is predicted.
+   * Without it the op itself goes to the lane, which batches keystrokes.
    */
-  readonly command?: string;
+  readonly wire?: string;
 }
 
 export type StoreListener = (model: TmuxClientModel) => void;
 export type RollbackListener = (entries: ReadonlyArray<RollbackEntry>) => void;
 
 export interface TmuxStore {
-  /** Current model snapshot. */
   readonly getModel: () => TmuxClientModel;
 
   /**
@@ -79,8 +62,8 @@ export interface TmuxStore {
 
   /**
    * Apply a fresh server snapshot. Reconciles every pending op, drops
-   * matched/stale ones, recomputes `derived`. This is the single entry
-   * point from the SSE/Tauri state stream.
+   * matched/stale ones, recomputes `derived`. The single entry point from
+   * the state stream.
    */
   readonly reconcile: (state: ServerState) => void;
 
@@ -92,34 +75,38 @@ export interface TmuxStore {
   readonly clear: () => void;
 
   /**
-   * Subscribe to model changes. The listener fires after every committed
-   * mutation — both server reconciliations and local dispatches. Returns
-   * an unsubscribe function. Listeners are invoked synchronously by the
-   * mutation.
+   * The listener fires at once with the current model, then synchronously
+   * after every committed mutation — server reconciliations and local
+   * dispatches alike.
    */
   readonly subscribe: (listener: StoreListener) => () => void;
 
-  /** Update the default PredictContext (called when defaultShell / MRU change). */
-  readonly setPredictContext: (ctx: PredictContext) => void;
+  /** The host's default shell (its greeting): what a predicted pane runs. */
+  readonly setDefaultShell: (shell: string) => void;
 
   /**
    * Hear every op a reconcile pass rolled back, whether the pass was driven
    * by a server snapshot or by the idle sweep. Fires after the subscribers
    * have seen the model it rolled back from; never with an empty list.
-   * Returns an unsubscribe function.
    */
   readonly subscribeRollbacks: (listener: RollbackListener) => () => void;
 }
 
 export function makeTmuxStore(): TmuxStore {
   let model: TmuxClientModel = EMPTY_MODEL;
-  let predictContext: PredictContext = { defaultShell: 'bash', paneActivationOrder: [] };
+  let defaultShell = DEFAULT_SHELL;
+  // Panes most recently active first, for the predictions that pick a pane as
+  // tmux would (Navigate's tie-break, where KillPane/KillWindow land).
+  let activation: PaneId[] = [];
   const listeners = new Set<StoreListener>();
   const rollbackListeners = new Set<RollbackListener>();
 
-  /** Replace the model and tell every subscriber. */
   const commit = (next: TmuxClientModel): void => {
     model = next;
+    const active = next.derived.activePaneId;
+    if (active && activation[0] !== active) {
+      activation = [active, ...activation.filter((id) => id !== active)];
+    }
     for (const l of listeners) {
       try {
         l(next);
@@ -130,7 +117,6 @@ export function makeTmuxStore(): TmuxStore {
     scheduleIdleReconcile(next);
   };
 
-  /** Commit a reconcile pass and report what it rolled back. */
   const commitReconciled = (result: ReturnType<typeof applyServerSnapshot>): void => {
     commit(result.model);
     if (result.rolledBack.length === 0) return;
@@ -150,12 +136,10 @@ export function makeTmuxStore(): TmuxStore {
   };
 
   // Age-based verdicts (stale sweeps, focus-linger release, supersession)
-  // are computed inside reconcile passes — which are normally driven by
-  // server snapshots. On an IDLE control stream no snapshot ever arrives,
-  // so a wrong pin (a zoomed-geometry patch after a rapid re-toggle, a
-  // superseded focus op) would wedge forever. While ops are pending,
-  // re-reconcile against the unchanged committed snapshot on a timer so
-  // time-based verdicts fire even with nothing on the wire.
+  // run inside reconcile passes, normally driven by server snapshots. An
+  // idle control stream sends none, so a wrong pin would wedge forever:
+  // while ops are pending, re-reconcile against the unchanged committed
+  // snapshot on a timer.
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   const IDLE_RECONCILE_MS = 500;
   const scheduleIdleReconcile = (current: TmuxClientModel): void => {
@@ -170,7 +154,12 @@ export function makeTmuxStore(): TmuxStore {
 
   const applyOptimistic = (op: TmuxOp, command: string): OpId => {
     const opId = generateOpId();
-    const result = predict(op, model.derived, predictContext, opId);
+    const result = predict(
+      op,
+      model.derived,
+      { defaultShell, paneActivationOrder: activation },
+      opId,
+    );
     const pending = result
       ? makePendingOp({ id: opId, op, command, patch: result.patch, meta: result.meta })
       : makePendingOp({ id: opId, op, command, patch: (s) => s, meta: {} });
@@ -181,6 +170,7 @@ export function makeTmuxStore(): TmuxStore {
   const dispatchRemote = (
     transport: TmuxTransport['Type'],
     opId: OpId,
+    sent: TmuxOp,
     command: string,
   ): Effect.Effect<OpId, OpError> =>
     Effect.suspend(() => {
@@ -188,11 +178,12 @@ export function makeTmuxStore(): TmuxStore {
       // the quick stale sweep, and a swept op would blink the optimistic UI
       // away and remount when the confirm finally lands.
       setStatus(opId, 'in-flight');
-      return transport.invoke('run_tmux_command', { command });
+      return transport.run(sent);
     }).pipe(
       Effect.matchEffect({
         onFailure: (err) => {
-          const { model: rolledBack, entry } = rollbackOp(model, opId, formatAdapterError(err));
+          const reason = formatAdapterError(err);
+          const { model: rolledBack, entry } = rollbackOp(model, opId, reason);
           commit(rolledBack);
           if (entry) {
             console.warn(`[TmuxStore] rolled back op ${opId} (${entry.op._tag}): ${entry.reason}`);
@@ -200,11 +191,9 @@ export function makeTmuxStore(): TmuxStore {
           return Effect.fail(
             err._tag === 'TmuxError'
               ? new OpRejectedByTmux({ opId, command, stderr: err.stderr })
-              : new OpTransportError({ opId, command, cause: err }),
+              : new OpTransportError({ opId, command, reason }),
           );
         },
-        // Sent — reconcile() drops it when a matching delta arrives, or the
-        // stale-timeout sweeps it.
         onSuccess: () =>
           Effect.sync(() => {
             commit(setStatus(opId, 'awaiting-confirm'));
@@ -221,17 +210,14 @@ export function makeTmuxStore(): TmuxStore {
 
     dispatch: (op, opts) =>
       Effect.flatMap(TmuxTransport, (transport) => {
-        // Prefer the caller's explicit command string (preserves keyboardActor's
-        // `select-pane -t %N \;` prefix-pin and tmux format strings like
-        // `-c "#{pane_current_path}"`). Fall back to the op's canonical form
-        // only for ops constructed in-code (SELECT_TAB → SelectWindow{target}).
-        const command = opts?.command ?? toTmuxCommand(op);
+        const command = opts?.wire ?? toTmuxCommand(op);
         // Nothing to send (a paste that was all controls): an empty line on
         // the control-mode connection detaches it, and a pending op for it
         // would only wait out the stale sweep. Done before it starts; its id
         // is never recorded.
         if (command.trim() === '') return Effect.succeed(generateOpId());
-        return dispatchRemote(transport, applyOptimistic(op, command), command);
+        const sent = opts?.wire === undefined ? op : TmuxOp.RawCommand({ command });
+        return dispatchRemote(transport, applyOptimistic(op, command), sent, command);
       }),
 
     reconcile: (state) => {
@@ -246,12 +232,12 @@ export function makeTmuxStore(): TmuxStore {
 
     clear: () => {
       appliedSeq = null;
+      activation = [];
       commit(EMPTY_MODEL);
     },
 
     subscribe: (listener) => {
       listeners.add(listener);
-      // Fire once on subscribe so the bridge can sync immediately.
       try {
         listener(model);
       } catch (err) {
@@ -262,8 +248,8 @@ export function makeTmuxStore(): TmuxStore {
       };
     },
 
-    setPredictContext: (ctx) => {
-      predictContext = ctx;
+    setDefaultShell: (shell) => {
+      defaultShell = shell;
     },
 
     subscribeRollbacks: (listener) => {

@@ -1,13 +1,4 @@
-/**
- * Typed hooks over the app machine provided by `AppProvider` (AppContext.tsx).
- *
- * Components use them to:
- * - useAppSelector(selector) - derive values from machine context
- * - useAppSend() - get the machine's send function
- * - useAppState('stateName') - check if machine is in a specific state
- * - useIsDragging() - check if drag is in progress
- * - useIsResizing() - check if resize is in progress
- */
+/** Typed hooks over the app machine provided by `AppProvider` (AppContext.tsx). */
 
 import { useCallback, useContext } from 'react';
 import { useSelector } from '@xstate/react';
@@ -15,12 +6,10 @@ import type { StateValueFrom } from 'xstate';
 import type { appMachine, AppMachineActor } from './app/appMachine';
 import type { AppMachineContext } from './types/context';
 import type { AppMachineEvent } from './types/events';
-import type { TmuxPane } from '../domain/client';
-import type { PaneGroup } from './types/domain';
+import type { TmuxPane, PaneGroup } from '../domain/client';
 import type { CopyModeState } from '../domain/copyMode';
 import {
   selectPaneById,
-  selectIsPaneInActiveWindow as selectIsPaneInActiveWindowFn,
   selectIsSinglePane as selectIsSinglePaneFn,
   selectPaneGroupForPane,
   selectPaneGroupPanes as selectPaneGroupPanesFn,
@@ -49,13 +38,12 @@ export function useAppActor(): AppMachineActor {
   return actor;
 }
 
-/** Type-safe selector hook for app machine context */
 export function useAppSelector<T>(selector: (context: AppMachineContext) => T): T {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => selector(snapshot.context));
 }
 
-/** Selector hook with shallow array comparison (prevents re-renders when array contents unchanged) */
+/** A selector whose array result re-renders only when its elements change. */
 export function useAppSelectorShallow<T extends unknown[]>(
   selector: (context: AppMachineContext) => T,
 ): T {
@@ -81,7 +69,6 @@ export function useBindingOwnsKey(): (key: string) => boolean {
   return useCallback((key) => selectBindingOwnsKey(actor.getSnapshot().context, key), [actor]);
 }
 
-/** Get the send function for app machine events */
 export function useAppSend(): (event: AppMachineEvent) => void {
   const actor = useAppActor();
   return actor.send;
@@ -93,19 +80,17 @@ export function useAppState(stateValue: StateValueFrom<typeof appMachine>): bool
   return useSelector(actor, (snapshot) => snapshot.matches(stateValue));
 }
 
-/** Check if a drag operation is in progress */
 export function useIsDragging(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.drag !== null);
 }
 
-/** Check if a resize operation is in progress */
 export function useIsResizing(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.resize !== null);
 }
 
-/** Get a specific pane by ID (with resize preview). */
+/** A pane as drawn, with the resize preview. */
 export function usePane(paneId: PaneId | null): TmuxPane | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) =>
@@ -113,13 +98,6 @@ export function usePane(paneId: PaneId | null): TmuxPane | undefined {
   );
 }
 
-/** Check if a pane is in the active window */
-export function useIsPaneInActiveWindow(paneId: PaneId): boolean {
-  const actor = useAppActor();
-  return useSelector(actor, (snapshot) => selectIsPaneInActiveWindowFn(snapshot.context, paneId));
-}
-
-/** Check if there's only a single visible pane */
 export function useIsSinglePane(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => selectIsSinglePaneFn(snapshot.context));
@@ -132,13 +110,10 @@ interface PaneGroupResult {
 }
 
 /**
- * Equality for usePaneGroup's derived shape. Without it the selector returns a
- * fresh object every snapshot, so every PaneHeader re-renders on every model
- * update — including 60fps content-only deltas — and the common ungrouped case
- * (`{ undefined, [], null }`) re-renders needlessly too. `group` is ref-stable
- * (selectPaneGroupForPane is memoized on paneGroups) and groupPanes elements are
- * refs into context.panes, so this compares faithfully: any relevant change
- * (membership, a group pane's object, the active pane) still re-renders.
+ * Equality for usePaneGroup's derived shape, which is a fresh object every
+ * snapshot: without it every PaneHeader re-renders on every model update,
+ * content-only deltas included. `group` is ref-stable (selectPaneGroupForPane
+ * is memoized on paneGroups) and groupPanes holds refs into context.panes.
  */
 function paneGroupResultEqual(a: PaneGroupResult, b: PaneGroupResult): boolean {
   return (
@@ -148,7 +123,6 @@ function paneGroupResultEqual(a: PaneGroupResult, b: PaneGroupResult): boolean {
   );
 }
 
-/** Get the group containing a pane, with resolved pane data and active pane ID */
 export function usePaneGroup(paneId: PaneId): PaneGroupResult {
   const actor = useAppActor();
   return useSelector(
@@ -163,18 +137,15 @@ export function usePaneGroup(paneId: PaneId): PaneGroupResult {
   );
 }
 
-/** Get the copy mode state for a pane (undefined if not in copy mode) */
 export function useCopyModeState(paneId: PaneId): CopyModeState | undefined {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.copyModeStates[paneId]);
 }
 
-/** Get the app config flags */
 export function useAppConfig(): AppConfig {
   return useContext(AppConfigContext);
 }
 
-/** Check if the app container is focused (for keyboard capture gating) */
 export function useAppFocused(): boolean {
   const actor = useAppActor();
   return useSelector(actor, (snapshot) => snapshot.context.appFocused);

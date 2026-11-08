@@ -8,40 +8,43 @@
 //! no separate list to keep in sync. A group's ORDER is `@tmuxy-group-pos`
 //! where a reorder wrote one, then pane number — see [`order_key`].
 //!
-//! Everything here is pure. An operation takes the panes as one
-//! `list-panes -a` read ([`Panes`], parsed from [`LIST_PANES_FORMAT`]) and
-//! returns the tmux commands that carry it out ([`Invocation`]s), so every rule
-//! is a value a unit test can look at. `tmuxy-server group <verb>` does the
-//! reading and the running (`group_cli.rs`), and the `packages/tmuxy-cli/bin/tmuxy/pane-group`
-//! script is its name.
+//! Everything here is pure: an operation takes one `list-panes -a` read
+//! ([`Panes`]) and returns the tmux commands that carry it out
+//! ([`Invocation`]s). The `group` verb (`tmuxy-verbs/src/group_cli.rs`)
+//! does the reading and the running; the
+//! `packages/tmuxy-cli/bin/tmuxy/pane-group` script is its name.
 
 use std::fmt;
 
 use crate::constants::{tmux_options, STASH_SESSION};
 use crate::{GroupId, PaneId, WindowId};
 
-/// What every group operation reads: one row per pane on the server, the
-/// stash included. `session_name` is last because it is the one free-text
-/// field: it may hold the separator, and the parser keeps everything after
-/// the sixth one. The separator is a space, not a tab: tmux 3.4 prints a
-/// control character in a format as `_`, and a row with no separators is no
-/// row at all.
-pub const LIST_PANES_FORMAT: &str = concat!(
-    "#{pane_id} #{window_id} #{@tmuxy-group-id} #{@tmuxy-group-pos} ",
-    "#{pane_width} #{pane_height} #{session_name}"
-);
+/// `session_name` is last because it is the one free-text field: it may hold
+/// the separator. The separator is a space, not a tab: tmux 3.4 prints a
+/// control character in a format as `_`.
+pub fn list_panes_format() -> String {
+    [
+        "pane_id",
+        "window_id",
+        tmux_options::GROUP_ID,
+        tmux_options::GROUP_POS,
+        "pane_width",
+        "pane_height",
+        "session_name",
+    ]
+    .map(|column| format!("#{{{column}}}"))
+    .join(&FIELD_SEPARATOR.to_string())
+}
 
-/// The field separator in [`LIST_PANES_FORMAT`].
 const FIELD_SEPARATOR: char = ' ';
 
-/// The program the stash session's own first window runs. The window exists
-/// only so the session does; `tail -f /dev/null` sleeps in a read, where the
+/// The program the stash session's first window runs, there only so the
+/// session exists. `tail -f /dev/null` sleeps in a read, where the
 /// default interactive shell would open its controlling tty, and a shell
 /// killed mid-`init_io` hangs in the kernel forever (see
 /// `packages/tmuxy-cli/bin/tmuxy/reap-orphan-shells`).
 pub const STASH_PAYLOAD: &str = "tail -f /dev/null";
 
-/// One pane, as [`LIST_PANES_FORMAT`] prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneRow {
     pub pane: PaneId,
@@ -54,20 +57,16 @@ pub struct PaneRow {
 }
 
 impl PaneRow {
-    /// Parked out of view in the stash session.
     pub fn is_parked(&self) -> bool {
         self.session == STASH_SESSION
     }
 }
 
-/// Where a member sorts in its group: its `@tmuxy-group-pos` when a reorder
-/// wrote one, then its pane number — the whole order of a group nobody has
-/// rearranged. The frontend's `buildGroupsFromPanes` follows the same rule.
+/// The frontend's `buildGroupsFromPanes` follows the same order.
 pub fn order_key(pos: Option<u32>, pane: &PaneId) -> (u32, u32) {
     (pos.unwrap_or(u32::MAX), pane.number())
 }
 
-/// Every pane on the server, read once.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Panes {
     rows: Vec<PaneRow>,
@@ -78,8 +77,8 @@ impl Panes {
         Self { rows }
     }
 
-    /// Parse a `list-panes -a -F LIST_PANES_FORMAT` read. A row that does not
-    /// parse is not a pane this module can act on, and is left out.
+    /// Parse a `list-panes -a -F list_panes_format()` read. A row that does not
+    /// parse is left out.
     pub fn parse(output: &str) -> Self {
         let rows = output
             .lines()
@@ -107,7 +106,12 @@ impl Panes {
         self.row(pane)?.group.as_ref()
     }
 
-    /// A group's members, in the group's order.
+    /// The panes of `window`, in tmux's order (the tab's).
+    pub fn in_window<'a>(&'a self, window: &'a WindowId) -> impl Iterator<Item = &'a PaneRow> {
+        self.rows.iter().filter(move |r| r.window == *window)
+    }
+
+    /// A group's members, sorted by [`order_key`].
     pub fn members(&self, group: &GroupId) -> Vec<&PaneRow> {
         let mut members: Vec<&PaneRow> = self
             .rows
@@ -118,7 +122,6 @@ impl Panes {
         members
     }
 
-    /// The member on screen: the one not parked in the stash.
     pub fn visible(&self, group: &GroupId) -> Option<&PaneRow> {
         self.rows
             .iter()
@@ -133,8 +136,8 @@ impl Panes {
         self.rows.iter().filter(|r| r.session == session).count()
     }
 
-    /// Stash windows of groups with no member on screen any more — their tab
-    /// was closed wholesale, orphaning the parked members.
+    /// Stash windows of groups with no member on screen any more: their tab
+    /// was closed wholesale.
     fn orphaned_stash_windows(&self) -> Vec<WindowId> {
         let mut windows: Vec<WindowId> = Vec::new();
         for r in self.rows.iter().filter(|r| r.is_parked()) {
@@ -149,9 +152,7 @@ impl Panes {
 }
 
 /// One `tmux` process: its commands run as a single `;`-joined list, so they
-/// land together. A `tolerant` invocation's failure is ignored — the
-/// best-effort steps (unsetting an option that may not be set, sweeping a
-/// window that may be gone).
+/// land together. A `tolerant` invocation's failure is ignored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {
     pub commands: Vec<Vec<String>>,
@@ -173,7 +174,7 @@ impl Invocation {
         }
     }
 
-    /// The argv after `tmux`: the commands with `;` between them.
+    /// The argv after `tmux`.
     pub fn argv(&self) -> Vec<String> {
         let mut argv = Vec::new();
         for (i, command) in self.commands.iter().enumerate() {
@@ -190,7 +191,6 @@ fn cmd(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|p| p.to_string()).collect()
 }
 
-/// What a group operation needs from outside the read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Context {
     /// The `pane-group close` command a member's `pane-died` hook runs.
@@ -199,8 +199,7 @@ pub struct Context {
     pub rev_token: String,
 }
 
-/// Why an operation was refused. The text is what the script prints after its
-/// own name.
+/// The `Display` text is what the script prints after its own name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GroupError {
     NoSuchPane(PaneId),
@@ -226,13 +225,8 @@ impl fmt::Display for GroupError {
 
 impl std::error::Error for GroupError {}
 
-// ---------------------------------------------------------------------------
-// Building blocks
-// ---------------------------------------------------------------------------
-
-/// Create the stash session, detached, if it does not exist. `new-session -d`
-/// is control-mode safe — unlike `new-window`, which crashes the server — and
-/// the core suppresses the `%sessions-changed` it causes.
+/// `new-session -d` is control-mode safe, unlike `new-window`, which crashes
+/// the server; the core suppresses the `%sessions-changed` it causes.
 pub fn ensure_stash(panes: &Panes) -> Option<Invocation> {
     (!panes.stash_exists()).then(|| {
         Invocation::tolerant(cmd(&[
@@ -251,8 +245,8 @@ pub fn ensure_stash(panes: &Panes) -> Option<Invocation> {
     })
 }
 
-/// Kill the stash windows of orphaned groups. Idempotent; a group an
-/// operation is working on is never one, since it has a member on screen.
+/// Kill the stash windows of orphaned groups. A group an operation is
+/// working on is never one, since it has a member on screen.
 pub fn gc(panes: &Panes) -> Vec<Invocation> {
     panes
         .orphaned_stash_windows()
@@ -261,9 +255,13 @@ pub fn gc(panes: &Panes) -> Vec<Invocation> {
         .collect()
 }
 
-/// Format a filesystem path as one POSIX shell word for `Context::close_command`:
-/// bare when it holds only plain path characters, single-quoted otherwise.
-pub fn quote_script_path(path: &std::path::Path) -> String {
+/// [`Context::close_command`] for the `pane-group` script at `script`.
+pub fn close_command(script: &std::path::Path) -> String {
+    format!("{} close", quote_script_path(script))
+}
+
+/// Format a filesystem path as one POSIX shell word for `Context::close_command`.
+fn quote_script_path(path: &std::path::Path) -> String {
     let s = path.to_string_lossy();
     if !s.is_empty()
         && s.bytes().all(|b| {
@@ -290,7 +288,7 @@ pub fn quote_script_path(path: &std::path::Path) -> String {
 /// `#` doubling run-shell's format expansion asks for is therefore applied
 /// to the script path alone.
 pub fn arm(pane: &str, close_command: &str) -> Vec<Invocation> {
-    let shell_cmd = format!("bash {} {pane}", close_command.replace('#', "##"));
+    let shell_cmd = format!("bash {} {pane}", crate::argv::format_literal(close_command));
     let hook = format!("run-shell {}", crate::tmux_double_quoted(&shell_cmd));
     vec![
         Invocation::tolerant(cmd(&[
@@ -319,7 +317,6 @@ pub fn disarm(pane: &PaneId) -> Vec<Invocation> {
     ]
 }
 
-/// Take a pane out of its group: its tag, its place and its arming.
 pub fn ungroup(pane: &PaneId) -> Vec<Invocation> {
     let mut out = vec![Invocation::tolerant(cmd(&[
         "set-option",
@@ -339,8 +336,6 @@ pub fn ungroup(pane: &PaneId) -> Vec<Invocation> {
     out
 }
 
-/// A group left with one member is no group: given the members that remain,
-/// ungroup the survivor if there is just one.
 pub fn dissolve_if_alone(remaining: &[PaneId]) -> Vec<Invocation> {
     match remaining {
         [survivor] => ungroup(survivor),
@@ -348,9 +343,8 @@ pub fn dissolve_if_alone(remaining: &[PaneId]) -> Vec<Invocation> {
     }
 }
 
-/// Give each pane its place in the group, 0 onwards, in the order given, so
-/// the order is a property of the panes and survives a restart through the
-/// snapshot.
+/// The order is stored on the panes so it survives a restart through the
+/// session snapshot.
 pub fn set_order(ordered: &[PaneId]) -> Invocation {
     Invocation::strict(
         ordered
@@ -416,8 +410,6 @@ fn resize_window(target: &str, (width, height): (u32, u32)) -> Vec<String> {
     ])
 }
 
-/// Bring `target` into the slot `visible` holds: its stash window sized to the
-/// slot first, then the swap.
 fn swap_into_view(target: &PaneRow, visible: &PaneRow) -> Invocation {
     Invocation::strict(vec![
         resize_window(target.window.as_str(), (visible.width, visible.height)),
@@ -447,7 +439,6 @@ fn split(anchor: &PaneId, cwd: Option<&str>) -> Vec<String> {
     argv
 }
 
-/// `index` clamped into `0..=len`.
 fn clamp_index(index: i64, len: usize) -> usize {
     usize::try_from(index.max(0)).unwrap_or(usize::MAX).min(len)
 }
@@ -466,8 +457,6 @@ mod ops;
 pub use ops::*;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests_ops;

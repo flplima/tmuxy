@@ -1,15 +1,7 @@
 /**
- * What a pane's header does, by mouse alone, over states recorded from real
- * tmux (`fixtures/scenarios/pane-header-ops.ts`):
- *
- *  - KillPaneViaHeaderButton  the header's ✕ closes that pane
- *  - ZoomViaHeaderDoubleClick double-clicking a header zooms its pane, and again unzooms it
- *  - PaneDragSwap             dragging a header onto another pane swaps the two
- *  - PaneContextMenuSplit     the header tab's context menu splits its pane below
- *
- * Each story sends what the app sends and is answered with the screen tmux
- * drew for that command, so what is asserted is the app's rendering of tmux's
- * real reply.
+ * A pane header's mouse actions, over states recorded from real tmux
+ * (`fixtures/scenarios/pane-header-ops.ts`): each command the app sends is
+ * answered with the screen tmux drew for it.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -17,8 +9,14 @@ import { expect, within, waitFor, userEvent } from 'storybook/test';
 import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import paneHeaderOps from './fixtures/gen/pane-header-ops.json';
-import { activePaneId, findMenuItem, paneGroups, paneIds, paneRect } from './appStoryHelpers';
-import type { Canvas } from './appStoryHelpers';
+import {
+  activePaneId,
+  findMenuItem,
+  paneGroups,
+  paneIds,
+  paneRect,
+  type Canvas,
+} from './appStoryHelpers';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Pane Header Actions',
@@ -32,7 +30,6 @@ type Story = StoryObj<typeof FixtureApp>;
 const paneEl = (canvas: Canvas, id: string) =>
   paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
 
-/** The recorded panes are on screen, each with a visible box. */
 async function waitForPanes(canvas: Canvas, ids: string[]) {
   await waitFor(
     () => {
@@ -46,10 +43,7 @@ async function waitForPanes(canvas: Canvas, ids: string[]) {
 const leftmost = (canvas: Canvas, a: string, b: string) =>
   paneRect(canvas, a).left < paneRect(canvas, b).left ? a : b;
 
-/**
- * The header's ✕ is PaneHeader's group-aware CLOSE_PANE, which for a plain
- * pane is `kill-pane -t <it>`: the clicked pane goes, its neighbours stay.
- */
+/** For a plain pane the header's ✕ is `kill-pane -t <it>`: its neighbours stay. */
 export const KillPaneViaHeaderButton: Story = {
   args: {
     start: 'split-below',
@@ -69,15 +63,10 @@ export const KillPaneViaHeaderButton: Story = {
   },
 };
 
-/**
- * Double-clicking a header dispatches ZOOM_PANE — `select-pane` then
- * `resize-pane -t <it> -Z` — and the pane fills the window; double-clicking
- * it again sends the same toggle and it is back in its half.
- */
+/** Double-clicking a header toggles `resize-pane -t <it> -Z`, both ways. */
 export const ZoomViaHeaderDoubleClick: Story = {
   args: {
-    // The same command both ways: what it is answered with depends on the
-    // state it finds.
+    // The same command both ways: the answer depends on the state it finds.
     transitions: [
       { match: /^resize-pane -t %1 -Z$/, from: 'two', to: 'zoomed' },
       { match: /^resize-pane -t %1 -Z$/, from: 'zoomed', to: 'unzoomed' },
@@ -103,11 +92,6 @@ export const ZoomViaHeaderDoubleClick: Story = {
   },
 };
 
-/**
- * Drag a header onto another pane: mousedown on the source header, move past
- * the drag threshold onto the target, release. The drag machine sends
- * `swap-pane -d -s <src> -t <target>`, and the two exchange places.
- */
 export const PaneDragSwap: Story = {
   args: {
     start: 'closed',
@@ -129,9 +113,8 @@ export const PaneDragSwap: Story = {
     header.dispatchEvent(
       new MouseEvent('mousedown', { button: 0, clientX: startX, clientY: startY, bubbles: true }),
     );
-    // The first steps cross the 5px threshold (PaneHeader promotes the press
-    // to DRAG_START); later ones feed DRAG_MOVE so the drag machine picks the
-    // drop target under the cursor.
+    // The first steps cross the 5px drag threshold; later ones let the drag
+    // machine pick the drop target under the cursor.
     const steps = 6;
     for (let i = 1; i <= steps; i++) {
       (i <= 2 ? header : dstEl).dispatchEvent(
@@ -148,10 +131,6 @@ export const PaneDragSwap: Story = {
   },
 };
 
-/**
- * Right-click a pane's header tab → the context menu opens; "Split Pane Below"
- * splits that pane, and the new pane is the active one.
- */
 export const PaneContextMenuSplit: Story = {
   args: { transitions: [{ match: /^split-window -v$/, to: 'split-below' }] },
   play: async ({ canvasElement }) => {
@@ -172,8 +151,6 @@ export const PaneContextMenuSplit: Story = {
     await user.click(await findMenuItem(canvasElement.ownerDocument, /Split Pane Below/i));
     await waitForPanes(canvas, ['%0', '%1', '%2']);
     await waitFor(() => expect(activePaneId()).toBe('%2'), { timeout: 10000 });
-    // Once its enter morph (which starts from the split pane's box) settles,
-    // the new pane sits under the one whose menu split it.
     await waitFor(
       () => {
         expect(paneRect(canvas, '%2').top).toBeGreaterThan(paneRect(canvas, '%0').bottom - 4);

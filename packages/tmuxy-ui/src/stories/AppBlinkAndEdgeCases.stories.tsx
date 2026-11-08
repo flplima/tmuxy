@@ -11,6 +11,7 @@ import {
   paneRect,
   paneIds,
 } from './appStoryHelpers';
+import { appContext } from './storyApp';
 
 const meta: Meta<typeof V86AppHarness> = {
   title: 'Scenarios/Application Blink & Edge Cases',
@@ -26,13 +27,10 @@ export default meta;
 type Story = StoryObj<typeof V86AppHarness>;
 
 /**
- * Drag-swap keeps SHORT content top-anchored — the regression guard for the
- * bottom-anchor bug (a swap-triggered resize replayed the accumulated %output
- * through a fresh grid, scrolling short content to the bottom in the v86 path).
- * Two near-empty panes each get one short line at the top, then are swapped by
- * dragging a titlebar. After the drop, each pane's content must stay in the TOP
- * rows (deepest non-blank row and cursor well above the pane bottom) — a
- * full-screen pane would hide this, so the panes are deliberately short.
+ * Drag-swap keeps short content top-anchored: a swap-triggered resize used to
+ * replay the accumulated %output through a fresh grid, scrolling short content
+ * to the bottom in the v86 path. The panes are deliberately near-empty: a
+ * full screen would hide it.
  */
 export const DragSwapShortContentStaysTopAnchored: Story = {
   play: async ({ canvasElement }) => {
@@ -42,26 +40,8 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     const findPane = (id: string) =>
       paneGroups(canvas).find((p: HTMLElement) => p.getAttribute('data-pane-id') === id)!;
 
-    // Deepest non-blank content row + cursor row for a pane (from the app state).
     const anchor = (id: string): { h: number; deepest: number; cY: number } => {
-      const pane = (
-        window as unknown as {
-          app: {
-            getSnapshot(): {
-              context: {
-                panes: Array<{
-                  tmuxId: string;
-                  height: number;
-                  cursorY: number;
-                  content: Array<Array<{ c?: string }>>;
-                }>;
-              };
-            };
-          };
-        }
-      ).app
-        .getSnapshot()
-        .context.panes.find((p) => p.tmuxId === id)!;
+      const pane = appContext().panes.find((p) => p.tmuxId === id)!;
       let deepest = -1;
       pane.content.forEach((line, i) => {
         if (line.some((cell) => (cell.c ?? '').trim().length > 0)) deepest = i;
@@ -83,15 +63,14 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
     await fillShort(b, 'SHORT_BBB');
     await tmuxCaughtUp();
 
-    // Precondition: both panes are short and top-anchored before the swap.
     for (const id of [a, b]) {
       const g = anchor(id);
       expect(g.deepest, `pane ${id} should start short/top-anchored`).toBeLessThan(g.h / 2);
     }
 
-    // Drag pane A's titlebar onto pane B to swap them.
     const header = findPane(a).querySelector('.pane-header') as HTMLElement;
     const hRect = header.getBoundingClientRect();
+    const srcRect = paneRect(canvas, a);
     const dstRect = paneRect(canvas, b);
     const sX = hRect.left + hRect.width / 2;
     const sY = hRect.top + hRect.height / 2;
@@ -112,15 +91,17 @@ export const DragSwapShortContentStaysTopAnchored: Story = {
       await inputPause(100);
     }
     dstEl.dispatchEvent(new MouseEvent('mouseup', { clientX: eX, clientY: eY, bubbles: true }));
-    await waitFor(() => expect(paneIds(canvas)[0]).toBe(b), {
-      timeout: 30000,
-      interval: 400,
-    }).catch(() => {});
+    // The swap put b where a was: the drag did something.
+    await waitFor(
+      () => {
+        const moved = paneRect(canvas, b);
+        expect(Math.round(moved.left)).toBe(Math.round(srcRect.left));
+        expect(Math.round(moved.top)).toBe(Math.round(srcRect.top));
+      },
+      { timeout: 30000, interval: 400 },
+    );
     await tmuxCaughtUp();
 
-    // After the swap, each pane's short content must remain TOP-anchored: the
-    // deepest non-blank row and the cursor stay in the upper half of the pane,
-    // never glued to the bottom (which is exactly the bug this guards).
     for (const id of paneIds(canvas)) {
       const g = anchor(id);
       expect(

@@ -64,7 +64,7 @@ as `tests/perf/interaction-baseline.json`. For your own machine, run `cargo benc
 tmuxy-core --bench core_pipeline` and then `node tests/perf/compare-core-bench.mjs
 --update-baseline`, which merges the run under its platform key. For the CI
 platform, take `core-pipeline-report.json` from the `core-pipeline-bench-<run>`
-artifact of a nightly `perf measurements` run you trust and paste
+artifact of a `nightly perf` run you trust and paste
 it under `platforms["linux-x64"]`. Until someone does, a CI run records its
 numbers and warns about nothing; the ratio budget gates regardless.
 
@@ -107,14 +107,10 @@ distort what it measures.
 Drive the app over the link in question with the HUD open (or read
 `window.__tmuxyLatency.getSnapshot()`) to get the input→paint distribution for
 that transport — the question the v86/wasm harness structurally cannot answer.
-The C1–C4 rows in the results below came from a one-off latency-injection
-proxy that no longer exists; a controlled re-run needs delay injected the same
-way, between the browser and a real server, on `POST /commands` and the
-`GET /events` stream.
-
-Because the transports run over TCP, real packet loss reaches the app as delay
-(head-of-line retransmit), not dropped events; the loss condition in that table
-modelled it as a random extra stall rather than truly dropping bytes.
+A controlled run needs delay injected between the browser and a real server,
+on `POST /commands` and the `GET /events` stream; the one-off proxy that once
+did it no longer exists. Because the transports run over TCP, real packet loss
+reaches the app as delay (head-of-line retransmit), not dropped events.
 
 ## Axis C — whole-interaction latency (the CI regression gate)
 
@@ -189,7 +185,7 @@ Add `--cdp http://localhost:9222` to attach to the Chrome the dev environment
 already runs instead of launching one (the devcontainer deliberately does not
 install Playwright's browsers; CI is the reverse and launches). Refresh the
 committed baseline for a platform with `npm run perf:compare -- --report … --update-baseline`
-and commit the result. For the Linux platforms, run the "perf measurements"
+and commit the result. For the Linux platforms, run the `nightly perf`
 workflow (`.github/workflows/nightly-perf.yml`, `interaction-baseline` job)
 instead: it measures on a runner, with more samples than the gate job takes,
 and opens a PR with the refreshed file. Either way a baseline change lands
@@ -214,7 +210,7 @@ npm run perf:interactions:tauri -- --samples 12 --label local \
 npm run perf:compare -- --report tests/perf/interaction-report-tauri.json
 ```
 
-CI runs both nightly, in `nightly-perf.yml` ("perf measurements"), uploading
+CI runs both nightly, in `nightly-perf.yml` (`nightly perf`), uploading
 the report as an artifact; the ratio budgets fail the run there, so a
 regression shows as a red nightly the next morning:
 
@@ -224,34 +220,11 @@ regression shows as a red nightly the next morning:
 | `interaction-latency-desktop` | Axis C, desktop | the release Tauri binary, under Xvfb |
 | `core-bench` | Axis A bench | tmuxy-core under the bench (release) profile |
 
-They ran per commit until the per-commit `desktop` job switched to a debug
-build: the desktop measurement needs the release binary, and that build was the
-longest step on every push's critical path. With no branch protection the
-per-commit gates were informational anyway. `workflow_dispatch` with `gates`
-checked runs all three on demand.
+`workflow_dispatch` with `gates` checked runs all three on demand.
 
 ### Measured
 
-Local server on an isolated socket, macOS arm64, 10 samples per interaction,
-tmux 3.7. Same machine and same session shape for both columns. Treat the
-ratios as the durable part and the milliseconds as machine-specific.
-
-| Interaction | before | after | × keystroke (before → after) |
-| --- | --- | --- | --- |
-| `key-echo` | 29.2 ms | 38.3 ms | 1× → 1× |
-| `pane-nav-keyboard` | 356 ms | **10.1 ms** | 12.2× → **0.3×** |
-| `pane-zoom-toggle` | 235.1 ms | **92.3 ms** | 8.1× → 2.4× |
-| `pane-split` | 82.1 ms | 78.1 ms | 2.8× → 2.0× |
-| `tab-switch` | 3.5 ms | 4.7 ms | 0.1× → 0.1× |
-
-"Before" is the state this harness was written to explain: keyboard pane
-navigation cost twelve keystroke round trips. What the three fixes were, and
-how the number moved, is improvement area 4 below.
-
-The sub-keystroke numbers are not magic — `tab-switch` and (now)
-`pane-nav-keyboard` paint from the optimistic prediction before tmux answers.
-The harness measures what the user sees, and for a predicted op that is the
-prediction; the server's answer arrives later and reconciles.
+The ratios are the durable part and the milliseconds machine-specific. `tab-switch` and `pane-nav-keyboard` come in under a keystroke because they paint from the optimistic prediction before tmux answers: the harness measures what the user sees, and for a predicted op that is the prediction; the server's answer arrives later and reconciles.
 
 See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measured baseline; Axis D — retention over a long session; Session snapshots.
 
@@ -262,20 +235,17 @@ See [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) for these sections: Measu
 - No client-side input prediction / local echo — an explicit Non-Goal (see
   [NON-GOALS.md](NON-GOALS.md), "Local Echo / Input Prediction"). Axis B exists in part to decide, with data,
   whether a high-latency use case ever justifies revisiting that.
-- **No committed baseline for the platforms CI actually runs on.**
-  `tests/perf/interaction-baseline.json` holds `darwin-arm64/*` only, and
-  `tests/perf/core-pipeline-baseline.json` holds `darwin-arm64` only. Both CI perf
-  jobs therefore ride on their ratio gates alone and leave the absolute column
-  blank. That is the designed fallback, not a failure — but it means a uniform
-  slowdown that inflates every number together, keystroke echo included, is
-  currently invisible on CI. Seeding a `linux-x64` interaction baseline is
-  still a human act, but no longer a manual one: run the "perf measurements"
-  workflow (`.github/workflows/nightly-perf.yml`) and it opens a PR with the
-  measured file for you to read and merge. The review is the point — CI must
-  never ratchet a baseline to whatever the runner did last — and it had never
-  happened because the review used to mean downloading an artifact and copying
-  a file over by hand. The core bench baseline is seeded from the report
-  `rust-tests` uploads on every commit (see Axis A above).
+- **No CI baseline for the core bench.** `tests/perf/interaction-baseline.json`
+  holds `darwin-arm64/web`, `linux-x64/web` and `linux-x64/tauri`, so the
+  interaction jobs compare absolute milliseconds too; `tests/perf/core-pipeline-baseline.json`
+  holds `darwin-arm64` only, so `core-bench` rides on its ratio gate alone and
+  leaves the absolute column blank. That is the designed fallback, not a
+  failure — but a uniform slowdown of the bench is invisible on CI until someone
+  seeds `linux-x64` from the report the nightly `core-bench` job uploads (see
+  Axis A above). Refreshing an interaction baseline is a human act, but not a
+  manual one: the `nightly perf` workflow's `interaction-baseline` job opens a
+  PR with the measured file, and the review is the point — CI must never
+  ratchet a baseline to whatever the runner did last.
 - **No Axis B measurement in CI.** The RTT curve and the latency-injection
   proxy are a controlled experiment run by hand, not a gate — injected delay is
   the independent variable, so there is nothing for a runner to regress.

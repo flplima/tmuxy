@@ -1,13 +1,9 @@
 /**
- * IME composition, clipboard paste/copy, copy-on-select, and hidden-input
- * focus restoration listeners for keyboardActor.
- *
  * Copy on select, as the Claude Code TUI does it: the mouse release that
  * ends a selection over terminal text puts that text on the clipboard at
  * once and says in the snackbar how many characters went — the notice is the
- * sign, the selection does not blink. The
- * selection stays on screen; the next key clears it (keyboardActor) and is
- * processed as typed. A release that leaves the same text selected — a click
+ * sign, the selection does not blink. The selection stays on screen; the next
+ * key clears it (keyboardActor) and is processed as typed. A release that leaves the same text selected — a click
  * inside it, a drag that ends where it began — copies nothing twice.
  */
 
@@ -18,24 +14,28 @@ import {
   touchIsPrimary,
   setKeyboardInputTarget,
   setupMobileKeyboard,
-} from '../../../utils/mobileKeyboard';
-import { flashCopiedRange } from '../../../utils/copyFlash';
-import { terminalSelection, terminalTextOf } from '../../../utils/nativeSelection';
-import { getLatches, pressKey } from '../../../utils/keyLatch';
-import { noteFocus, PANE_SURFACE } from '../../../utils/chromeTab';
-import { isModelPaneId, type PaneId } from '../../../domain/ids';
+} from '../../../infra/dom/mobileKeyboard';
+import { flashCopiedRange } from '../../../infra/dom/copyFlash';
+import { terminalSelection, terminalTextOf } from '../../../infra/dom/nativeSelection';
+import { getLatches, pressKey } from '../../../infra/dom/keyLatch';
+import { noteFocus } from '../../../infra/dom/chromeTab';
+import { PANE_SURFACE } from '../../../infra/dom/terminalDom';
+import { writeClipboard } from '../../../infra/clipboard';
+import { isModelPaneId, realId, type PaneId } from '../../../domain/ids';
 import { TmuxOp } from '../../../domain/commands';
 import { withoutControls } from '../../../domain/commandHelpers';
-import { isRealFormControl, realPaneId } from './keyFormatting';
+import { isRealFormControl } from './keyFormatting';
+import type { ContextView } from '../../contextView';
+import { overlayPaneId, type KeyContext } from '../../selectors/keyboard';
+
+/** The pane the hidden input types into: the float or dock holding the keyboard, else the active one. */
+function inputPaneId(keys: KeyContext): PaneId | null {
+  return overlayPaneId(keys.owner) ?? keys.activePaneId;
+}
 
 export interface ImeClipboardDeps {
   parent: AnyActorRef;
-  isEnabled: () => boolean;
-  isLeftSidebarFocused: () => boolean;
-  getSessionName: () => string;
-  getActivePaneId: () => PaneId | null;
-  getOverlayPaneId: () => PaneId | null;
-  getKeyTarget: () => string;
+  keys: ContextView<KeyContext>;
 }
 
 export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
@@ -45,13 +45,13 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   let pendingCopyText: string | null = null;
 
   const syncKeyboardInputTarget = () => {
-    const currentPane = deps.getOverlayPaneId() ?? deps.getActivePaneId();
+    const currentPane = inputPaneId(deps.keys.get());
     setKeyboardInputTarget(currentPane);
     if (document.activeElement === getMobileInput()) {
       keyboardFocusEstablished = true;
       return;
     }
-    const target = realPaneId(currentPane);
+    const target = realId(currentPane);
     if (!touchIsPrimary() && !keyboardFocusEstablished && target !== null && nothingFocused()) {
       focusKeyboardInput(target);
       keyboardFocusEstablished = true;
@@ -74,11 +74,11 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
    */
   const reclaimKeyboard = () => {
     if (touchIsPrimary() || primaryPointerDown || hasSelection()) return;
-    if (deps.isLeftSidebarFocused()) return;
+    if (deps.keys.get().owner.kind === 'left') return;
     const active = document.activeElement as HTMLElement | null;
     if (active === getMobileInput()) return;
     if (isRealFormControl(active) || active?.tagName === 'IFRAME') return;
-    const paneId = realPaneId(deps.getOverlayPaneId() ?? deps.getActivePaneId());
+    const paneId = realId(inputPaneId(deps.keys.get()));
     if (paneId === null) return;
     focusKeyboardInput(paneId);
     keyboardFocusEstablished = true;
@@ -88,7 +88,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   };
 
   const cleanupKeyboardInput = setupMobileKeyboard((text, paneId) => {
-    if (!deps.isEnabled() || deps.isLeftSidebarFocused()) return;
+    if (!deps.keys.get().enabled || deps.keys.get().owner.kind === 'left') return;
     if (getLatches().ctrl !== 'off' || getLatches().alt !== 'off') {
       const [first, ...rest] = [...text];
       if (first) pressKey(first);
@@ -96,7 +96,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       if (!text) return;
     }
     const textTarget =
-      paneId === null ? deps.getKeyTarget() : (realPaneId(paneId) ?? deps.getSessionName());
+      paneId === null ? deps.keys.get().target : (realId(paneId) ?? deps.keys.get().sessionName);
     deps.parent.send({ type: 'DISPATCH_OP', op: TmuxOp.SendText({ target: textTarget, text }) });
   });
 
@@ -107,7 +107,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       return;
     }
     isComposing = true;
-    compositionTarget = deps.getKeyTarget();
+    compositionTarget = deps.keys.get().target;
   };
 
   const handleCompositionEnd = (event: CompositionEvent) => {
@@ -116,9 +116,9 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       compositionTarget = null;
       return;
     }
-    const target = compositionTarget ?? deps.getKeyTarget();
+    const target = compositionTarget ?? deps.keys.get().target;
     compositionTarget = null;
-    if (!deps.isEnabled()) return;
+    if (!deps.keys.get().enabled) return;
     if (event.target === getMobileInput()) return;
 
     const composedText = event.data;
@@ -130,7 +130,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   };
 
   const handlePaste = (event: ClipboardEvent) => {
-    if (!deps.isEnabled()) return;
+    if (!deps.keys.get().enabled) return;
     if (isRealFormControl(event.target)) return;
     event.preventDefault();
     // Filtered here as well as in the command: a clipboard of nothing but
@@ -140,7 +140,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
 
     deps.parent.send({
       type: 'DISPATCH_OP',
-      op: TmuxOp.PasteText({ target: deps.getKeyTarget(), text }),
+      op: TmuxOp.PasteText({ target: deps.keys.get().target, text }),
     });
   };
 
@@ -170,7 +170,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
   // until it has gone and come back.
   let copiedOnSelect: string | null = null;
   const copyOnSelect = () => {
-    if (!deps.isEnabled() || touchIsPrimary()) return;
+    if (!deps.keys.get().enabled || touchIsPrimary()) return;
     const selected = terminalSelection();
     if (!selected) {
       copiedOnSelect = null;
@@ -182,7 +182,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     const wrote = document.execCommand('copy');
     if (!wrote) {
       pendingCopyText = null;
-      void navigator.clipboard?.writeText(selected.text);
+      void writeClipboard(selected.text, null);
     }
     const count = [...selected.text].length;
     deps.parent.send({
@@ -205,7 +205,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     if (touchIsPrimary() || hasSelection()) return;
     const active = document.activeElement as HTMLElement | null;
     if (byPointer && active?.matches?.('[role="tab"], [role="tablist"]')) {
-      const paneId = realPaneId(deps.getActivePaneId());
+      const paneId = realId(deps.keys.get().activePaneId);
       if (paneId === null) return;
       focusKeyboardInput(paneId);
       keyboardFocusEstablished = true;
@@ -215,7 +215,7 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
       byPointer ? '[data-pane-id][tabindex]' : PANE_SURFACE,
     ) as HTMLElement | null;
     if (!pane || pane !== active) return;
-    const paneId = realPaneId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
+    const paneId = realId(isModelPaneId(pane.dataset.paneId) ? pane.dataset.paneId : null);
     if (paneId === null) return;
     focusKeyboardInput(paneId);
     keyboardFocusEstablished = true;

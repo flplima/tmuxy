@@ -1,8 +1,8 @@
 //! Where an API request came from, checked before any handler runs.
 //!
 //! The API is a remote shell — `/commands` runs any tmux command — and a
-//! browser sends requests to it on behalf of whatever page its user has open. So every API request has to come from the
-//! app itself:
+//! browser sends requests to it on behalf of whatever page its user has open.
+//! So every API request has to come from the app itself:
 //!
 //! - `Sec-Fetch-Site`, which every current browser sends, must be `same-origin`
 //!   (the app) or `none` (typed into the address bar). A page on any other
@@ -10,12 +10,11 @@
 //!   `same-site`, and so is a sandboxed page, whose origin is opaque.
 //! - `Origin`, when present, must name the host the request was sent to. It
 //!   covers a browser that predates Fetch Metadata.
-//! - On a loopback bind, `Host` must be a loopback name, or one the operator
-//!   allowed with `--allowed-host`. That is what stops DNS rebinding: a page
-//!   whose domain was re-pointed at 127.0.0.1 is same-origin with the server as
-//!   far as the browser knows, but it still sends its own domain as `Host`. A
-//!   routable bind requires a password instead, and the browser holds no
-//!   credentials for the rebound origin.
+//! - `Host` must be a name this server answers to: a loopback name, the
+//!   address it bound, or one the operator allowed with `--allowed-host`
+//!   (`HostPolicy`). That is what stops DNS rebinding: a page whose domain was
+//!   re-pointed at the server is same-origin with it as far as the browser
+//!   knows, but it still sends its own domain as `Host`.
 //!
 //! A request with none of these headers is not a browser acting for a page —
 //! `curl`, a script — and is let through. See docs/SECURITY.md.
@@ -31,7 +30,6 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use tracing::warn;
 
-/// What a request's `Host` header may be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostPolicy {
     /// The server listens on loopback: `Host` must be a loopback name or one of
@@ -58,8 +56,6 @@ pub enum HostPolicy {
     },
 }
 
-/// The hostname half of a `host[:port]` authority, brackets stripped from an
-/// IPv6 literal.
 fn hostname(authority: &str) -> &str {
     if let Some(rest) = authority.strip_prefix('[') {
         return rest.split(']').next().unwrap_or(rest);
@@ -240,7 +236,6 @@ pub fn is_top_level_navigation(headers: &HeaderMap) -> bool {
     )
 }
 
-/// Axum middleware applying [`check_request`] to every API route.
 pub async fn require_same_origin(
     State(policy): State<Arc<HostPolicy>>,
     req: Request<Body>,
@@ -256,5 +251,4 @@ pub async fn require_same_origin(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests;

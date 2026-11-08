@@ -1,11 +1,5 @@
 import { expect, waitFor } from 'storybook/test';
 
-export interface Snap {
-  context: {
-    activeWindowId: string | null;
-  };
-}
-
 export function tabButton(canvasElement: HTMLElement, name: string): HTMLElement {
   const el = [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')].find(
     (t) => t.textContent?.includes(name),
@@ -14,7 +8,6 @@ export function tabButton(canvasElement: HTMLElement, name: string): HTMLElement
   return el;
 }
 
-/** The preview card, wherever it has been portalled to. */
 export function preview(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="tab-preview"]');
 }
@@ -71,7 +64,6 @@ export function waitForPreviewInserted(): Promise<HTMLElement> {
   });
 }
 
-/** Catch `card` as soon as it receives `.is-leaving`. */
 export function waitForCardLeaving(card: HTMLElement): Promise<void> {
   return new Promise<void>((resolve) => {
     const observer = new MutationObserver(() => {

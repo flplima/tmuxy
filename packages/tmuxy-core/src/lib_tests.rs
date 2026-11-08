@@ -16,37 +16,8 @@ fn window_type_round_trip() {
 }
 
 #[test]
-fn window_type_serializes_as_kebab() {
-    let ty = WindowType::SidebarLeft;
-    let json = serde_json::to_string(&ty).unwrap();
-    assert_eq!(json, "\"sidebar-left\"");
-    let back: WindowType = serde_json::from_str(&json).unwrap();
-    assert_eq!(back, WindowType::SidebarLeft);
-}
-
-/// A delta with nothing set is dropped, and that is the whole point — but
-/// a delta carrying ANY change must survive, whatever the change is.
-#[test]
 fn a_pane_delta_is_empty_only_when_nothing_changed() {
     assert!(PaneDelta::default().is_empty());
-
-    // The two that the old hand-written field list had missed or would
-    // have missed. A dropped delta here is a pane state the tree never
-    // shows, or a question the user is never asked.
-    let state_only = PaneDelta {
-        pane_state: Some(Some("needs-input".to_string())),
-        ..Default::default()
-    };
-    assert!(
-        !state_only.is_empty(),
-        "a pane-state change must be emitted"
-    );
-
-    let ask_only = PaneDelta {
-        pane_ask: Some(Some("eyJ0b2tlbiI6ImExIn0=".to_string())),
-        ..Default::default()
-    };
-    assert!(!ask_only.is_empty(), "a pending question must be emitted");
 
     // Clearing is a change too: this is what answering the question, and
     // an agent unsetting its state on exit, look like on the wire.
@@ -56,7 +27,6 @@ fn a_pane_delta_is_empty_only_when_nothing_changed() {
     };
     assert!(!cleared.is_empty(), "clearing a question must be emitted");
 
-    // And the common case still short-circuits before any serialization.
     let content_only = PaneDelta {
         content: Some(std::collections::HashMap::new()),
         ..Default::default()
@@ -64,10 +34,8 @@ fn a_pane_delta_is_empty_only_when_nothing_changed() {
     assert!(!content_only.is_empty());
 }
 
-/// Each field on its own is a change worth emitting. A field added later
-/// is covered without touching this list, because `is_empty` reads the
-/// serialized form rather than naming fields — this walks the ones that
-/// exist today to pin that behaviour down.
+/// `is_empty` reads the serialized form rather than naming fields, so a field
+/// added later is covered too; this walks the ones that exist today.
 #[test]
 fn every_pane_delta_field_makes_it_non_empty() {
     let all_fields = serde_json::json!({
@@ -91,7 +59,6 @@ fn every_pane_delta_field_makes_it_non_empty() {
         "alternate_on": true,
         "mouse_any_flag": true,
         "marked": true,
-        "paused": true,
         "history_size": 10,
         "selection_present": true,
         "selection_start_x": 1,
@@ -107,7 +74,6 @@ fn every_pane_delta_field_makes_it_non_empty() {
         .map(|k| k.to_string())
         .collect();
 
-    // Setting each field ALONE must produce a non-empty delta.
     for key in &keys {
         let one = serde_json::json!({ key.as_str(): all_fields[key].clone() });
         let delta: PaneDelta = serde_json::from_value(one).unwrap();
@@ -118,8 +84,6 @@ fn every_pane_delta_field_makes_it_non_empty() {
     }
 }
 
-/// The window twin of the test above: `WindowDelta::is_empty` reads the
-/// serialized form too, so every field, alone, is a change that survives.
 #[test]
 fn every_window_delta_field_makes_it_non_empty() {
     assert!(WindowDelta::default().is_empty());
@@ -165,9 +129,8 @@ fn every_window_delta_field_makes_it_non_empty() {
 mod vt100_capture_test {
     #[test]
     fn test_sgr_dim_faint_propagates_to_cell_style() {
-        // SGR 2 (faint/dim) — used by Claude Code's TUI for autosuggestion text.
-        // vt100 0.15 silently dropped this; 0.16 propagates it as cell.dim().
-        // \e[2m turns on dim, \e[22m turns it off, \e[0m fully resets.
+        // SGR 2 (faint) is how Claude Code's TUI draws autosuggestions;
+        // vt100 0.15 silently dropped it.
         let bytes = b"\x1b[2mdim\x1b[22m bright\x1b[2mD\x1b[0mP";
         let mut terminal = vt100::Parser::new(1, 32, 0);
         terminal.process(bytes);
@@ -183,12 +146,6 @@ mod vt100_capture_test {
                 .is_some_and(|s| s.dim)
         };
 
-        // Column layout for "\x1b[2mdim\x1b[22m bright\x1b[2mD\x1b[0mP":
-        //   0..2: 'd','i','m' (dim on)
-        //   3:    ' '         (dim off)
-        //   4..9: 'b','r','i','g','h','t'
-        //   10:   'D'         (dim on again)
-        //   11:   'P'         (dim off via SGR 0)
         assert!(is_dim(0), "'d' should be dim");
         assert!(is_dim(1), "'i' should be dim");
         assert!(is_dim(2), "'m' should be dim");
@@ -261,7 +218,6 @@ mod vt100_capture_test {
         assert_eq!(cells, vec!["\u{2764}\u{FE0F}", "X"]);
     }
 
-    /// The background a row's cells carry, from the first column of `text`.
     fn row_backgrounds(text: &str) -> Vec<(String, Option<crate::CellColor>)> {
         let mut terminal = vt100::Parser::new(1, 20, 0);
         terminal.process(text.as_bytes());
@@ -344,23 +300,6 @@ mod vt100_capture_test {
         let (col, cells) = combined_cells("中\u{0301}X");
         assert_eq!(col, 3);
         assert_eq!(cells, vec!["中\u{0301}", "X"]);
-    }
-}
-
-mod pane_delta_marked_tests {
-    use super::PaneDelta;
-
-    /// A mark toggle is often the ONLY thing that changes about a pane; a delta
-    /// carrying just `marked` must not be classified as empty, or it is never
-    /// sent and the flag waits for the next full snapshot.
-    #[test]
-    fn a_delta_with_only_the_marked_flag_is_not_empty() {
-        let delta = PaneDelta {
-            marked: Some(true),
-            ..PaneDelta::default()
-        };
-        assert!(!delta.is_empty());
-        assert!(PaneDelta::default().is_empty());
     }
 }
 

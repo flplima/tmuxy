@@ -1,8 +1,7 @@
 /**
- * Tauri Desktop App IPC Commands E2E Tests
- *
- * Tests the Tauri IPC integration seam (`run_tmux_command`, `query_tmux`,
- * `get_initial_state`, `get_scrollback_cells`, snackbar error reporting).
+ * The desktop app's IPC commands: `run_tmux_command`, `query_tmux`,
+ * `get_initial_state`, `get_scrollback_cells`, and a rejected command reaching
+ * the snackbar.
  */
 
 const {
@@ -16,6 +15,7 @@ const {
   waitForRawWindowCount,
 } = require('./helpers/wdio-client');
 const { tmuxExec } = require('../helpers/tmux-socket');
+const { waitForCondition } = require('../helpers/browser');
 
 const ctx = createTauriTestContext();
 let driver = null;
@@ -82,12 +82,10 @@ describe('IPC Commands', () => {
     expect(nothing == null || nothing === '').toBe(true);
   });
 
-  // The bug this transport used to have: the frontend pins every command to
-  // the tab the user is looking at (`select-window ; select-pane ; <cmd>`),
-  // and the desktop rewrote the pinned command with a session target that
-  // tmux resolves late — against whatever window the session was on when
-  // the command ran. A split on tab B landed on tab A. Every command now
-  // reaches tmux byte-identical over the control-mode connection.
+  // The frontend pins every command to the tab the user is looking at
+  // (`select-window ; select-pane ; <cmd>`). A transport that adds a session
+  // target to it (this one once did) has tmux resolve it late, against the
+  // window the session is on when it runs: a split on tab B lands on tab A.
   test("a split pinned to a tab that is not tmux's current window lands on that tab", async () => {
     await setupApp();
     await waitForRawWindowCount(driver, 1);
@@ -105,25 +103,26 @@ describe('IPC Commands', () => {
         .trim()
         .split('\n')
         .map((line) => line.split(' '));
-    let windows = await listWindows();
-    for (let i = 0; i < 50 && windows.length < 2; i++) {
-      await new Promise((r) => setTimeout(r, 200));
-      windows = await listWindows();
-    }
-    if (windows.length !== 2) {
-      // What tmux has, and what it said: a rejected new-window is a snackbar
-      // entry now, so the reason is on the page.
-      const all = await invokeCommand(driver, 'query_tmux', {
-        command:
-          "list-windows -a -F '#{session_name} #{window_id} #{window_width}x#{window_height}'",
-      });
-      const notes = await driver.execute(() =>
-        (window.app?.getSnapshot()?.context?.notifications || []).map((n) => n.text),
-      );
-      throw new Error(
-        `expected 2 windows in the session, tmux lists: ${JSON.stringify(all)}; notifications: ${JSON.stringify(notes)}`,
-      );
-    }
+    let windows = [];
+    await waitForCondition(
+      null,
+      async () => (windows = await listWindows()).length === 2,
+      10000,
+      async () => {
+        // What tmux has, and what it said: a rejected new-window is a
+        // snackbar entry now, so the reason is on the page.
+        const all = await invokeCommand(driver, 'query_tmux', {
+          command:
+            "list-windows -a -F '#{session_name} #{window_id} #{window_width}x#{window_height}'",
+        });
+        const notes = await driver.execute(() =>
+          [...document.querySelectorAll('[data-testid="snackbar-item"]')].map(
+            (el) => el.textContent,
+          ),
+        );
+        return `2 windows in the session (tmux lists: ${JSON.stringify(all)}; snackbar: ${JSON.stringify(notes)})`;
+      },
+    );
     const [first, second] = windows;
     await invokeCommand(driver, 'run_tmux_command', { command: `select-window -t ${first[0]}` });
 
@@ -139,20 +138,15 @@ describe('IPC Commands', () => {
     });
 
     // The split is on the pinned window — and NOT on the one tmux was on.
-    const start = Date.now();
-    while ((await panesIn(second[0])) < 2 && Date.now() - start < 10000) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    expect(await panesIn(second[0])).toBe(2);
+    await waitForCondition(
+      null,
+      async () => (await panesIn(second[0])) === 2,
+      10000,
+      'the split on the pinned window',
+    );
     expect(await panesIn(first[0])).toBe(1);
   });
 
-  // Regression for the "+ New Tab" button: the frontend dispatches
-  // SEND_TMUX_COMMAND with `new-window`, which routes through
-  // adapter.invoke('run_tmux_command'). On tmux 3.5a a bare external
-  // `tmux new-window` while control mode is attached crashes the server,
-  // so run_tmux_command must intercept and rewrite to `splitw ; breakp` —
-  // exactly like the SSE server does.
   // A mutation resolves to nothing, so tmux's `%error` is the only word the
   // user gets when a command did nothing. The monitor attributes it to the
   // command and the app shows it in the snackbar.
@@ -167,13 +161,8 @@ describe('IPC Commands', () => {
           (el) => el.textContent,
         ),
       );
-    const start = Date.now();
-    let texts = [];
-    while (!texts.some((t) => t.includes(message)) && Date.now() - start < 10000) {
-      await new Promise((r) => setTimeout(r, 200));
-      texts = await snackbarTexts();
-    }
-    expect(texts.some((t) => t.includes(message))).toBe(true);
+    const shown = async () => (await snackbarTexts()).some((t) => t.includes(message));
+    await waitForCondition(null, shown, 10000, `the snackbar to say "${message}"`);
 
     // Its close button takes it away.
     await driver.execute((needle) => {
@@ -182,22 +171,17 @@ describe('IPC Commands', () => {
       );
       item.querySelector('button[aria-label="Dismiss notification"]').click();
     }, message);
-    const dismissed = Date.now();
-    texts = await snackbarTexts();
-    while (texts.some((t) => t.includes(message)) && Date.now() - dismissed < 5000) {
-      await new Promise((r) => setTimeout(r, 100));
-      texts = await snackbarTexts();
-    }
-    expect(texts.some((t) => t.includes(message))).toBe(false);
+    await waitForCondition(null, async () => !(await shown()), 5000, 'the snackbar entry to go');
   });
 
+  // The "+ New Tab" button sends `new-window` through run_tmux_command; a bare
+  // `new-window` while control mode is attached crashes tmux 3.5a, so it is
+  // rewritten to `splitw ; breakp`, as the web server does.
   test('new-window over IPC is rewritten to splitw+breakp: tmux survives and the window appears', async () => {
     await setupApp();
 
-    // Assert on the raw window count (ctx.windows), which the monitor reports
-    // as soon as the window exists. The @tmuxy-window-type=tab classification
-    // is stamped asynchronously and, under CI's tmux 3.4, can lag indefinitely,
-    // so gating on it made this flaky. Window creation is classification-independent.
+    // The raw window count: the `@tmuxy-window-type` classification can lag
+    // indefinitely under tmux 3.4 (see getRawWindowCount).
     await waitForRawWindowCount(driver, 1);
 
     await invokeCommand(driver, 'run_tmux_command', { command: 'new-window' });
@@ -213,10 +197,9 @@ describe('IPC Commands', () => {
 
   // The monitor starts with the app, before the webview can listen, so its
   // one Full broadcast is gone by the time the frontend asks for a baseline.
-  // That baseline used to be a subprocess poll that did not know the modes a
-  // program had set before the app started — so a pane running a full-screen
-  // mouse-tracking program (Claude Code) stayed "plain" on the client and
-  // every wheel over it was dropped. The initial state is the monitor's own now.
+  // The baseline has to carry the modes a program set before the app started:
+  // without them a pane running a full-screen mouse-tracking program (Claude
+  // Code) stays "plain" on the client and every wheel over it is dropped.
   test('get_initial_state reports the modes of a program that was already running', async () => {
     await setupApp();
     await invokeCommand(driver, 'run_tmux_command', {
@@ -224,15 +207,14 @@ describe('IPC Commands', () => {
         'send-keys -l \'printf "\\033[?1049h\\033[?1000h\\033[?1006h"; sleep 60\' \\; send-keys Enter',
     });
     // tmux has the modes once the program printed them.
-    let flags = '';
-    for (let i = 0; i < 50; i++) {
-      flags = tmuxExec(
-        `display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`,
-      ).trim();
-      if (flags === '1 1') break;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    expect(flags).toBe('1 1');
+    const flags = () =>
+      tmuxExec(`display-message -p -t ${sessionName} '#{alternate_on} #{mouse_any_flag}'`).trim();
+    await waitForCondition(
+      null,
+      () => flags() === '1 1',
+      10000,
+      async () => `tmux to hold the alternate screen and mouse mode (it has '${flags()}')`,
+    );
 
     const state = await invokeCommand(driver, 'get_initial_state', { cols: 120, rows: 40 });
     const pane = state.panes.find((p) => p.active) || state.panes[0];
@@ -240,20 +222,12 @@ describe('IPC Commands', () => {
     expect(pane.mouse_any_flag).toBe(true);
   });
 
-  // Regression for copy mode scrollback: without get_scrollback_cells the
-  // frontend's FETCH_SCROLLBACK_CELLS path errors silently, leaving the
-  // user staring at empty rows when scrolling up past the live viewport.
-  // Pre-fix, calling this command threw "Unknown command get_scrollback_cells"
-  // — the bug was the missing IPC binding, not the underlying parsing.
+  // Without get_scrollback_cells the frontend's FETCH_SCROLLBACK_CELLS path
+  // errors silently and scrolling up past the live viewport shows empty rows.
   test('get_scrollback_cells is exposed and returns the expected shape', async () => {
     await setupApp();
 
-    // `panes[0].id` — `getAppState` projects each pane as `{ id, windowId, … }`,
-    // so the `panes[0]?.tmuxId` this used to read was ALWAYS undefined and the
-    // `?? '%0'` fallback always fired. The test then asked tmux about a pane
-    // that does not exist and read the honest "tmux pane '%0' does not exist"
-    // as the IPC binding being broken. No fallback now: wait for the pane, and
-    // say so if it never arrives.
+    // `getAppState` projects each pane as `{ id, windowId, … }`.
     let paneId;
     const deadline = Date.now() + 10000;
     while (Date.now() < deadline && !paneId) {
@@ -272,8 +246,7 @@ describe('IPC Commands', () => {
     // throws and the scrollback stays empty.
     expect(result).toBeDefined();
     // The error first: a failed command resolves as `{ __error }` (see
-    // invokeCommand), and asserting a missing `cells` before it reported
-    // "Received: undefined" while the reason sat unread in the same object.
+    // invokeCommand), and its reason says more than a missing `cells`.
     expect(result.__error).toBeUndefined();
     expect(result.cells).toBeDefined();
     expect(Array.isArray(result.cells)).toBe(true);
@@ -281,8 +254,5 @@ describe('IPC Commands', () => {
     expect(typeof result.start).toBe('number');
     expect(typeof result.end).toBe('number');
     expect(typeof result.width).toBe('number');
-    // The bug-3 invocation surface (an unknown command name) returns
-    // `{ __error: ... }` from invokeCommand's wrapper; assert no error.
-    expect(result.__error).toBeUndefined();
   });
 });

@@ -3,8 +3,7 @@
  */
 
 const {
-  createTestContext,
-  delay,
+  describeE2E,
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
@@ -18,22 +17,19 @@ const {
   clickGroupTab,
   waitForGroupTabs,
   waitForCondition,
+  waitForShellPrompt,
   verifyFloatVisible,
   waitForFloatModal,
-  focusedFloatPaneId,
   sampleCursorGlide,
   glidePositions,
+  focusedFloatPaneId,
 } = require('./helpers/layout-helpers');
+const { tmuxExec } = require('./helpers/tmux-socket');
+const { tmuxPanes } = require('./helpers/tmux-read');
 
 // ============ Scenario 6f: A float belongs to the tab it was opened over ============
 
-describe('Scenario 6f: Float Tab Scope', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6f: Float Tab Scope', { snapshot: true }, (ctx) => {
   /** The tab buttons in strip order. */
   async function tabButtons(page) {
     return page.$$('.tab-name:not(.tab-add)');
@@ -42,8 +38,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
   /** Click whichever tab button is not the active one. */
   /** Click the inactive tab, and resolve once the app is on its window. */
   async function clickOtherTab(page) {
-    const activeWindow = () =>
-      page.evaluate(() => window.app?.getSnapshot()?.context?.activeWindowId);
+    const activeWindow = () => page.evaluate(() => window.app?.view().activeTabId);
     const from = await activeWindow();
     for (const tab of await tabButtons(page)) {
       const active = await tab.evaluate((el) => el.classList.contains('tab-name-active'));
@@ -62,7 +57,6 @@ describe('Scenario 6f: Float Tab Scope', () => {
   }
 
   test('Float over tab 1 → backdrop covers the tab content only → other tab is clear → back again [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // A second tab to switch to. It opens active, so click back to the first
@@ -70,9 +64,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
     await createWindowKeyboard(ctx.page);
     await waitForWindowCount(ctx.page, 2, 10000);
     await clickOtherTab(ctx.page);
-    const homeWindowId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.activeWindowId,
-    );
+    const homeWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
 
     // Step 1: open the float the way a user does
     await typeInTerminal(ctx.page, `${TMUXY_CLI} pane float`);
@@ -83,14 +75,12 @@ describe('Scenario 6f: Float Tab Scope', () => {
     // holds it as the focused float.
     await waitForCondition(
       ctx.page,
-      () => ctx.page.evaluate(() => !!window.app?.getSnapshot()?.context?.focusedFloatPaneId),
+      () => ctx.page.evaluate(() => window.app?.view().keyboardTarget.kind === 'float'),
       10000,
       'the new float to take focus',
     );
 
-    const floatPaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-    );
+    const floatPaneId = await focusedFloatPaneId(ctx.page);
     expect(floatPaneId).toMatch(/^%\d+$/);
 
     // Step 2: the float is tagged with the tab it was opened over, and the
@@ -150,10 +140,10 @@ describe('Scenario 6f: Float Tab Scope', () => {
         dLeft: Math.abs(b.left - c.left),
         dRight: Math.abs(b.right - c.right),
         stripAbove: s.bottom <= b.top + 1,
-        parent:
-          window.app?.getSnapshot()?.context?.floatPanes?.[
-            window.app?.getSnapshot()?.context?.focusedFloatPaneId
-          ]?.parentWindowId,
+        focusedFloat:
+          window.app?.view().keyboardTarget.kind === 'float'
+            ? window.app.view().keyboardTarget.paneId
+            : null,
       };
     };
     // The float opening reflows the grid, so the backdrop and the container
@@ -183,7 +173,10 @@ describe('Scenario 6f: Float Tab Scope', () => {
       },
     );
     expect(scope.stripAbove).toBe(true);
-    expect(scope.parent).toBe(homeWindowId);
+    // tmux records the tab the float was opened over.
+    expect(tmuxExec(`display-message -p -t ${scope.focusedFloat} '#{@tmuxy-float-parent}'`)).toBe(
+      homeWindowId,
+    );
 
     // Step 3: the other tab shows no float at all
     await clickOtherTab(ctx.page);
@@ -191,9 +184,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
       timeout: 10000,
       polling: 100,
     });
-    expect(
-      await ctx.page.evaluate(() => window.app?.getSnapshot()?.context?.focusedFloatPaneId),
-    ).toBeNull();
+    expect(await focusedFloatPaneId(ctx.page)).toBeNull();
     // And that tab's own pane takes input, rather than the hidden float.
     const TOKEN = 'OTHER_TAB_' + Date.now();
     await runCommand(ctx.page, `echo ${TOKEN}`, TOKEN);
@@ -205,8 +196,11 @@ describe('Scenario 6f: Float Tab Scope', () => {
     await verifyFloatVisible(ctx.page);
     const backAgain = await ctx.page.evaluate(() => ({
       count: document.querySelectorAll('.modal-overlay').length,
-      focused: window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-      active: window.app?.getSnapshot()?.context?.activeWindowId,
+      focused:
+        window.app?.view().keyboardTarget.kind === 'float'
+          ? window.app?.view().keyboardTarget.paneId
+          : null,
+      active: window.app?.view().activeTabId,
     }));
     expect(backAgain.count).toBe(1);
     expect(backAgain.focused).toBe(floatPaneId);
@@ -223,13 +217,7 @@ describe('Scenario 6f: Float Tab Scope', () => {
 
 // ====== Scenario 6j: right-click anywhere on a pane header opens that pane's menu ======
 
-describe('Scenario 6j: Pane header context menu', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6j: Pane header context menu', {}, (ctx) => {
   /**
    * Right-click `selector` with the real right button. Playwright's own click
    * waits for the element to be visible and stable, and names whatever covers
@@ -282,11 +270,10 @@ describe('Scenario 6j: Pane header context menu', () => {
     ctx.session.runCommand(`display-message -p -t ${paneId} '#{pane_marked}'`).trim() === '1';
 
   test('the ⋮, the MARKED badge, a hidden group member and a float header each open the menu for their pane [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 2);
-    const paneA = await ctx.page.evaluate(() => window.app.getSnapshot().context.activePaneId);
+    const paneA = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     const header = `.pane-layout-item[data-pane-id="${paneA}"] .pane-header`;
 
     // The ⋮ of a single pane sits outside its tab: right-clicking it is the
@@ -331,13 +318,7 @@ describe('Scenario 6j: Pane header context menu', () => {
 
 // ====== Scenario 6i: the cursor jumps, not glides, when the picture under it changes ======
 
-describe('Scenario 6i: Cursor motion across tabs and group members', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6i: Cursor motion across tabs and group members', {}, (ctx) => {
   /**
    * The motion a trigger produced, as the assertion wants it: how many places
    * the overlay was seen at, and whether it ended somewhere else at all — a
@@ -384,7 +365,6 @@ describe('Scenario 6i: Cursor motion across tabs and group members', () => {
     );
 
   test('moving between panes glides; switching group member or tab draws the cursor in place [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Two panes side by side: moving the keyboard between them is a move
@@ -409,8 +389,25 @@ describe('Scenario 6i: Cursor motion across tabs and group members', () => {
     // tab's cursor sits after its first prompt, top left — exactly where this
     // member's is until it prints something, which would leave nothing to see.
     await runCommand(ctx.page, 'for i in 1 2 3; do echo back$i; done', 'back3');
-    const firstTab = await ctx.page.evaluate(() => window.app.getSnapshot().context.activeWindowId);
+    const firstTab = await ctx.page.evaluate(() => window.app?.view().activeTabId);
     await createWindowKeyboard(ctx.page);
+    // The new tab is current in the client before its pane is drawn: sampled
+    // from then, the overlay starts on the old tab and the click puts it back
+    // where it started. Its pane drawn, with a prompt, is the new tab on screen.
+    const newPane = tmuxPanes(await ctx.page.evaluate(() => window.app.view().activeTabId))[0]?.id;
+    await waitForCondition(
+      ctx.page,
+      () =>
+        ctx.page.evaluate((id) => {
+          const r = document
+            .querySelector(`.pane-layout-item[data-pane-id="${id}"]`)
+            ?.getBoundingClientRect();
+          return r && r.width > 0 && r.height > 0;
+        }, newPane),
+      10000,
+      `the new tab's pane ${newPane} on screen`,
+    );
+    await waitForShellPrompt(ctx.page);
     const tab = await motion(() => ctx.page.click(`.tab-name[data-window-id="${firstTab}"]`));
     expect(tab.moved).toBe(true);
     expect(tab.longestRun <= 2 ? 'drawn in place' : tab.detail).toBe('drawn in place');

@@ -1,26 +1,18 @@
-/**
- * SidebarTreeRow — row types, git context helpers, and tab/pane treeitem rows
- * for SidebarTree.
- */
-
-import { TmuxOp } from '../domain/commands';
-import { paneRowLines, paneWidgetName, tabIcon } from './paneTabDisplay';
+import { paneRowLines, tabIcon } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
 import { PaneStateMark } from './PaneStateMark';
-import { paneStateFor, type tabPaneStates } from '../utils/paneState';
+import { paneStateFor, type tabPaneStates } from '../domain/paneState';
 import { Tooltip } from './Tooltip';
 import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
-import type { useReorderDrag } from '../hooks/useReorderDrag';
+import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
 
-/** Nesting depth for `aria-level`: tabs 1, their panes (a group's members included) 2. */
 function rowLevel(r: Row): number {
   return r.kind === 'tab' ? 1 : 2;
 }
 
-/** A pane's cwd as its row shows it: with the trailing slash of a directory. */
 function displayCwd(cwd: string | undefined): string {
   if (!cwd) return '';
   return cwd.endsWith('/') ? cwd : `${cwd}/`;
@@ -48,7 +40,6 @@ interface SidebarTreeRowProps {
   tabReorder: ReturnType<typeof useReorderDrag>;
   suppressClickRef: React.MutableRefObject<boolean>;
   renamingWindowId: string | null;
-  setRenamingWindowId: React.Dispatch<React.SetStateAction<string | null>>;
   dragPaneId: PaneId | null;
   setDragPaneId: React.Dispatch<React.SetStateAction<PaneId | null>>;
   dropWindowId: string | null;
@@ -73,7 +64,6 @@ export function SidebarTreeRow({
   tabReorder,
   suppressClickRef,
   renamingWindowId,
-  setRenamingWindowId,
   dragPaneId,
   setDragPaneId,
   dropWindowId,
@@ -116,8 +106,6 @@ export function SidebarTreeRow({
         data-collapsed={row.collapsed}
         data-testid={`tree-tab-${row.window.id}`}
         onPointerDown={(e) => {
-          // The chevron folds, the field renames, a right-click menus:
-          // none of them starts a drag.
           if (e.button !== 0 || renamingWindowId === row.window.id) return;
           if ((e.target as HTMLElement).closest('button')) return;
           tabReorder.handlePointerDown(e, row.window.id, tabIndex);
@@ -172,7 +160,6 @@ export function SidebarTreeRow({
           aria-expanded={!row.collapsed}
           data-testid={`tree-chevron-${row.window.id}`}
           onClick={(e) => {
-            // The row itself selects the tab; only the chevron folds it.
             e.stopPropagation();
             toggleCollapse(row.window.id);
           }}
@@ -183,14 +170,10 @@ export function SidebarTreeRow({
           <InlineRename
             value={row.window.name}
             ariaLabel={`Rename tab ${row.position}`}
-            onCommit={(name) => {
-              setRenamingWindowId(null);
-              send({
-                type: 'DISPATCH_OP',
-                op: TmuxOp.RenameWindow({ target: row.window.id, name }),
-              });
-            }}
-            onCancel={() => setRenamingWindowId(null)}
+            onCommit={(name) => send({ type: 'RENAME_TAB_COMMIT', windowId: row.window.id, name })}
+            onCancel={() =>
+              send({ type: 'RENAME_TAB_COMMIT', windowId: row.window.id, name: null })
+            }
           />
         ) : (
           <span className="sidebar-tree-label">
@@ -221,10 +204,8 @@ export function SidebarTreeRow({
   }
 
   const isActive = row.pane.tmuxId === activePaneId;
-  // The current tab's panes read a step brighter than the dimmed rest.
   const inCurrentTab = row.window.id === activeWindowId;
-  const widgetName = paneWidgetName(row.pane);
-  const { process, title } = paneRowLines(row.pane, widgetName);
+  const { process, title } = paneRowLines(row.pane);
   const state = paneStateFor(row.pane);
   const cwd = displayCwd(cwdByPane.get(row.pane.tmuxId));
   const branch = branchOf([row.pane.tmuxId]);
@@ -283,7 +264,7 @@ export function SidebarTreeRow({
           {state !== 'idle' ? (
             <PaneStateMark state={state} className="sidebar-tree-icon sidebar-tree-state" />
           ) : (
-            <PaneIcon pane={row.pane} widgetName={widgetName} className="sidebar-tree-icon" />
+            <PaneIcon pane={row.pane} className="sidebar-tree-icon" />
           )}
           <span className="sidebar-tree-name">{process}</span>
           <span className="sidebar-tree-id">{row.pane.tmuxId}</span>

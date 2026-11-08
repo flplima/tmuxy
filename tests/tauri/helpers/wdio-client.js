@@ -1,22 +1,18 @@
 /**
- * WebdriverIO client wrapper for Tauri E2E tests
- *
- * Provides a thin abstraction over WebdriverIO's `remote()` that mirrors
- * the Playwright-based helpers used in the web E2E tests, adapting
- * page.evaluate → driver.execute, page.keyboard → driver.keys, etc.
+ * The Tauri suites' helpers, over WebdriverIO's `remote()`: the web E2E
+ * helpers' shapes on `driver.execute` and `driver.keys`.
  */
 
 const { remote } = require('webdriverio');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const path = require('path');
 const { DRIVER_PORT } = require('./tauri-driver');
-const { tmuxCmd } = require('../../helpers/tmux-socket');
+const { tmuxCmd, tmuxEnv } = require('../../helpers/tmux-socket');
+const { tauriBinary } = require('../../helpers/config');
 
-const WORKSPACE_ROOT = path.resolve(__dirname, '../../..');
-// `npx tauri build --debug` is what a local run produces, so that stays the
-// default. CI builds the release binary once and drives both the smoke test
-// and this suite against it — the binary users actually launch.
-const TAURI_BINARY = process.env.TAURI_BINARY || path.join(WORKSPACE_ROOT, 'target/debug/tmuxy');
+// CI builds the release binary once and drives both the smoke test and this
+// suite against it (`$TAURI_BINARY`), the binary users actually launch.
+const TAURI_BINARY = tauriBinary();
 
 // WebDriver Unicode key codes for special keys.
 //
@@ -39,12 +35,21 @@ const KEYS = {
   Meta: '\uE03D',
 };
 
+/**
+ * Run tmux on the suite's socket, in the suite's environment: a tmux server
+ * this starts is born with it, and every pane's shell inherits it. Throws when
+ * tmux fails; prints nothing.
+ */
+function tmux(args) {
+  execSync(`${tmuxCmd()} ${args}`, { stdio: 'ignore', env: tmuxEnv() });
+}
+
 /** Kill the tmux session `sessionName` on the suite's socket, if it exists. */
 function killTmuxSession(sessionName) {
   try {
-    execSync(`${tmuxCmd()} kill-session -t ${sessionName}`, { stdio: 'ignore' });
+    tmux(`kill-session -t ${sessionName}`);
   } catch {
-    // Session may not exist yet
+    // Not there is the state wanted.
   }
 }
 
@@ -69,14 +74,10 @@ async function launchApp(binary = TAURI_BINARY) {
     },
     logLevel: 'warn',
     // Creating the session launches the app and waits for its webview to
-    // register as an automation target. On the Linux CI runners that has
-    // always taken ~26s (the app itself is silent for ~25s between GTK init
-    // and its first log line), so a 30s cap left about three seconds of
-    // headroom and any startup cost that crossed it turned the job red. The
-    // wait is bounded by the job timeout either way; what matters is that
-    // the number is not sitting on top of the measurement. Callers print the
-    // elapsed time so the margin stays visible in the log instead of being
-    // rediscovered from a red build.
+    // register as an automation target: ~26s on the Linux CI runners (the
+    // app is silent for ~25s between GTK init and its first log line), so a
+    // 30s cap turned the job red on any extra startup cost. Callers print the
+    // elapsed time so the margin stays visible in the log.
     connectionRetryTimeout: 120000,
     // No retries: WebKitWebDriver serves one session at a time, so a second
     // attempt after a timeout fails with "Maximum number of active
@@ -86,18 +87,16 @@ async function launchApp(binary = TAURI_BINARY) {
 }
 
 /**
- * Create a new WebdriverIO session connected to tauri-driver.
- * Each session launches a new Tauri app instance with a unique tmux session.
+ * Launch a fresh app on a fresh tmux session.
  *
  * @param {Object} options
  * @param {string} [options.sessionName] - TMUXY_SESSION name (default: auto-generated)
  * @returns {Promise<{driver: WebdriverIO.Browser, sessionName: string}>}
  */
 async function createSession(options = {}) {
-  // tauri-driver doesn't forward `tauri:options.env` to the spawned binary's
-  // std::env, so TMUXY_SESSION must be set in the process environment before
-  // tauri-driver starts, or we use the default session name ("tmuxy").
-  // For test isolation, each test kills and re-creates the "tmuxy" session.
+  // tauri-driver does not forward `tauri:options.env` to the binary, so the
+  // app takes TMUXY_SESSION from tauri-driver's own environment, else
+  // "tmuxy"; each test kills and re-creates that session instead.
   const sessionName = options.sessionName || 'tmuxy';
 
   // Pre-create the tmux session. The Tauri binary's built-in session creation
@@ -105,12 +104,10 @@ async function createSession(options = {}) {
   // that crash tmux on a fresh start without an attached client.
   killTmuxSession(sessionName);
   try {
-    execSync(`${tmuxCmd()} new-session -d -s ${sessionName}`, { stdio: 'ignore' });
+    tmux(`new-session -d -s ${sessionName}`);
   } catch {
-    // Session may already exist
+    // Already there is fine.
   }
-  // The initial window needs no marker — tabs carry none, so an untagged
-  // window in the session already surfaces as a 'tab' on first state emission.
 
   const driver = await launchApp();
 
@@ -118,17 +115,15 @@ async function createSession(options = {}) {
 }
 
 /**
- * Wait for the Tauri app's UI to be ready (terminal element visible with content).
+ * Wait for a terminal showing a shell prompt.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {number} timeout - Max wait time in ms
  */
 async function waitForAppReady(driver, timeout = 30000) {
-  // Wait for [role="log"] to exist
   const terminal = await driver.$('[role="log"]');
   await terminal.waitForExist({ timeout });
 
-  // Wait for terminal to have content (shell prompt)
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const hasContent = await driver.execute(() => {
@@ -145,7 +140,7 @@ async function waitForAppReady(driver, timeout = 30000) {
 }
 
 /**
- * Wait for window.app (XState machine) to be available.
+ * Wait for `window.app` to be published.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {number} timeout
@@ -163,7 +158,7 @@ async function waitForXState(driver, timeout = 15000) {
 }
 
 /**
- * Get terminal text content from all [role="log"] elements.
+ * The text of every `[role="log"]`, joined.
  *
  * @param {WebdriverIO.Browser} driver
  * @returns {Promise<string>}
@@ -200,20 +195,18 @@ async function waitForTerminalText(driver, text, timeout = 15000, times = 1) {
 }
 
 /**
- * Type text into the terminal via WebDriver keys.
+ * Click the terminal and type `text` into it, a key at a time.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {string} text
  */
 async function typeKeys(driver, text) {
-  // Click terminal element first for focus
   const terminal = await driver.$('[role="log"]');
   if (await terminal.isExisting()) {
     await terminal.click();
     await driver.pause(100);
   }
 
-  // Type each character
   for (const char of text) {
     await driver.keys(char);
     await driver.pause(30);
@@ -221,7 +214,7 @@ async function typeKeys(driver, text) {
 }
 
 /**
- * Press a special key (Enter, Escape, etc.)
+ * Press a special key (Enter, Escape, etc.).
  *
  * @param {WebdriverIO.Browser} driver
  * @param {string} key - Key name from KEYS map
@@ -234,19 +227,7 @@ async function pressKey(driver, key) {
 }
 
 /**
- * Send a key combination (e.g., Ctrl+A).
- *
- * @param {WebdriverIO.Browser} driver
- * @param {string[]} keys - Array of key names, e.g. ['Control', 'a']
- */
-async function sendKeyCombo(driver, ...keys) {
-  const codes = keys.map((k) => KEYS[k] || k);
-  await driver.keys(codes);
-  await driver.pause(100);
-}
-
-/**
- * Get the XState machine context from the browser.
+ * The parts of the app's machine context the Tauri suites check.
  *
  * @param {WebdriverIO.Browser} driver
  * @returns {Promise<Object|null>}
@@ -280,7 +261,7 @@ async function getAppState(driver) {
 }
 
 /**
- * Get the number of panes in the active window.
+ * How many panes the app holds in its active window.
  *
  * @param {WebdriverIO.Browser} driver
  * @returns {Promise<number>}
@@ -330,14 +311,32 @@ async function dumpWindows(driver) {
 }
 
 /**
- * Invoke a Tauri command via the frontend's adapter.
+ * Run a client command (e.g. 'run_tmux_command') the way the page's adapter
+ * does: through the desktop's one `dispatch` IPC command, as `{ cmd, args }`.
  *
  * @param {WebdriverIO.Browser} driver
- * @param {string} command - Tauri command name (e.g., 'run_tmux_command')
+ * @param {string} command - The client command's wire name
  * @param {Object} args - Command arguments
  * @returns {Promise<*>}
  */
 async function invokeCommand(driver, command, args = {}) {
+  return invokeIpc(driver, 'dispatch', { request: { cmd: command, args } });
+}
+
+/**
+ * Invoke one of the desktop's window-chrome IPC commands (`new_window`,
+ * `list_gui_windows`, `get_window_style`, …) directly.
+ *
+ * @param {WebdriverIO.Browser} driver
+ * @param {string} command - The IPC command's name
+ * @param {Object} args - Command arguments
+ * @returns {Promise<*>}
+ */
+async function invokeWindowCommand(driver, command, args = {}) {
+  return invokeIpc(driver, command, args);
+}
+
+async function invokeIpc(driver, command, args) {
   // Use executeAsync because Tauri invoke() returns a Promise, and the WebDriver
   // execute/sync endpoint doesn't support async functions in WebKitWebDriver.
   return driver.executeAsync(
@@ -346,9 +345,8 @@ async function invokeCommand(driver, command, args = {}) {
         ?.invoke(cmd, a)
         .then((result) => {
           if (result == null) return done(null);
-          // Sanitize the control characters that break WebDriver JSON — but
-          // keep newlines and tabs: a `query_tmux` listing is one row per line,
-          // and a caller splitting on '\n' must get its rows back.
+          // Control characters break WebDriver JSON; newlines and tabs stay,
+          // since a `query_tmux` listing is one row per line.
           if (typeof result === 'string') {
             return done(result.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''));
           }
@@ -365,7 +363,7 @@ async function invokeCommand(driver, command, args = {}) {
 }
 
 /**
- * Wait for pane count to reach expected value.
+ * Wait for the app's active window to hold `expected` panes.
  *
  * @param {WebdriverIO.Browser} driver
  * @param {number} expected
@@ -406,9 +404,18 @@ async function waitForRawWindowCount(driver, expected, timeout = 20000) {
   );
 }
 
+/** Poll `condition` until it holds; throw with `what` past `timeout` ms. */
+async function waitUntil(condition, timeout, what) {
+  const deadline = Date.now() + timeout;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${what} (${timeout}ms)`);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 /**
- * Shared test lifecycle helper for Tauri E2E suites.
- * Ensures each test tears down its WDIO session and waits for the tmux session to die.
+ * The Tauri suites' per-test lifecycle: launch the app, and tear its
+ * WebDriver session and tmux session down after each test.
  */
 function createTauriTestContext() {
   const state = { driver: null, sessionName: null };
@@ -427,61 +434,60 @@ function createTauriTestContext() {
       try {
         await state.driver.deleteSession();
       } catch {
-        // Session may already be dead
+        // Already gone.
       }
       state.driver = null;
     }
 
-    // Kill tmux session — and WAIT until it is actually gone. The app reuses
-    // the same session name across tests, so a kill that is still in flight
-    // when the next test's app starts leaves that test attached to a dying
-    // session: it reads a stale multi-pane baseline, then collapses to a fresh
-    // 1-pane session mid-test (the flaky delta-protocol failure).
+    // Wait until the session is gone, not just killed: every test reuses the
+    // name, and a next app that attaches to the dying one reads a stale
+    // multi-pane baseline, then collapses to a fresh 1-pane session mid-test.
     if (state.sessionName) {
       const target = state.sessionName;
       const gone = () => {
         try {
-          execSync(`${tmuxCmd()} has-session -t ${target}`, { stdio: 'ignore' });
+          tmux(`has-session -t ${target}`);
           return false;
         } catch {
           return true;
         }
       };
       try {
-        execSync(`${tmuxCmd()} kill-session -t ${target}`, { stdio: 'ignore' });
+        tmux(`kill-session -t ${target}`);
       } catch {
-        // Session may already be gone
+        // Already gone.
       }
-      const deadline = Date.now() + 5000;
-      while (!gone() && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 100));
-      }
+      await waitUntil(gone, 5000, `tmux session ${target} to be gone`);
       state.sessionName = null;
     }
 
-    // Brief pause for process cleanup
-    await new Promise((r) => setTimeout(r, 500));
+    // The next test launches the app again; one still exiting holds its
+    // window and its control-mode client. A process running the binary, by
+    // its program word: `pgrep -f` through a shell also matched that shell,
+    // whose command line names the binary, so the app never read as gone.
+    const appRunning = () =>
+      execFileSync('ps', ['-eo', 'args='], { encoding: 'utf8' })
+        .split('\n')
+        .some((args) => args.trim().split(' ')[0] === TAURI_BINARY);
+    await waitUntil(() => !appRunning(), 10000, `the app (${TAURI_BINARY}) to exit`);
   }
 
   return { state, setupApp, afterEachHook };
 }
 
 module.exports = {
-  createSession,
   createTauriTestContext,
   killTmuxSession,
   launchApp,
   waitForAppReady,
-  waitForXState,
   getTerminalText,
   waitForTerminalText,
   typeKeys,
   pressKey,
-  sendKeyCombo,
   getAppState,
   getPaneCount,
   invokeCommand,
+  invokeWindowCommand,
   waitForPaneCount,
   waitForRawWindowCount,
-  TAURI_BINARY,
 };

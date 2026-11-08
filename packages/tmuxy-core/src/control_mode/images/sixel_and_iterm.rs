@@ -2,10 +2,6 @@ use super::*;
 use base64::Engine;
 
 impl ImageParser {
-    // -------------------------------------------------------------------
-    // iTerm2 Inline Images
-    // -------------------------------------------------------------------
-
     pub(super) fn try_parse_iterm2(
         &mut self,
         data: &[u8],
@@ -46,7 +42,7 @@ impl ImageParser {
             return Some((end, None));
         }
 
-        let decoded = base64_decode(base64_data);
+        let decoded = base64_decode(base64_data).unwrap_or_default();
         if decoded.is_empty() {
             return Some((end, None));
         }
@@ -84,13 +80,8 @@ impl ImageParser {
         ))
     }
 
-    // -------------------------------------------------------------------
-    // Sixel (DCS Pq...ST)
-    //
-    // We decode the palette-based raster using icy_sixel (pure Rust) and
-    // re-encode as PNG. This keeps the frontend renderer uniform — every
-    // protocol funnels through an <img src> served by /api/images.
-    // -------------------------------------------------------------------
+    // Sixel (DCS Pq...ST) is re-encoded as PNG, so every protocol reaches the
+    // frontend as an <img src> served by /api/images.
 
     pub(super) fn try_parse_sixel(
         &mut self,
@@ -131,8 +122,8 @@ impl ImageParser {
             return Some((consumed, None));
         }
 
-        // icy_sixel's full-DCS decoder expects the whole envelope including
-        // ESC P ... ESC \. Hand it the full slice.
+        // icy_sixel's full-DCS decoder expects the whole envelope, ESC P to
+        // ESC \.
         let full = &data[..consumed];
         let img = match icy_sixel::SixelImage::decode(full) {
             Ok(img) => img,
@@ -227,10 +218,9 @@ impl ImageParser {
 
     /// Retire pictures for the CSI sequences that empty a screen.
     ///
-    /// A placement is anchored to cells, not drawn into them, so vt100 clearing
-    /// the grid never touched it: after `clear`, or after an editor quit, the
-    /// picture stayed on screen over whatever came next. `emitted` is the clean
-    /// output so far, to see whether an erase-below starts from the top left.
+    /// A placement is anchored to cells, not drawn into them, so vt100
+    /// clearing its grid does not touch it. `emitted` is the clean output so
+    /// far, to see whether an erase-below starts from the top left.
     pub(super) fn observe_csi<F>(&mut self, data: &[u8], emitted: &mut Vec<u8>, on_flush: &mut F)
     where
         F: FnMut(&[u8], &mut Self),
@@ -285,11 +275,6 @@ impl ImageParser {
     }
 }
 
-// -------------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------------
-
-/// Whether the bytes end with a cursor move to the top left (CUP to 1;1).
 /// Whether two placements share a cell.
 pub(super) fn overlaps(a: &ImagePlacement, b: &ImagePlacement) -> bool {
     let span_u16 = |start: u16, len: u16| (start, start.saturating_add(len.max(1)));
@@ -301,6 +286,7 @@ pub(super) fn overlaps(a: &ImagePlacement, b: &ImagePlacement) -> bool {
     a_left < b_right && b_left < a_right && a_top < b_bottom && b_top < a_bottom
 }
 
+/// Whether the bytes end with a cursor move to the top left (CUP to 1;1).
 pub(super) fn ends_with_cursor_home(bytes: &[u8]) -> bool {
     [
         &b"\x1b[H"[..],
@@ -340,9 +326,6 @@ fn parse_iterm2_dim(raw: &str, px_per_cell: u16) -> u16 {
     raw.parse::<u16>().unwrap_or(0)
 }
 
-/// True if `content` contains a string-sequence terminator (BEL or ST `ESC \`).
-/// Used to tell an *incomplete* image escape (none present → split across the
-/// %output boundary) from a complete one that simply isn't an image.
 /// Read a tmux passthrough body up to its terminating `ESC \`, restoring every
 /// doubled `ESC` on the way. Returns the payload and how many bytes it spanned,
 /// or `None` when the terminator has not arrived yet.
@@ -447,14 +430,10 @@ pub(super) fn ends_pending_escape(pending: &[u8], next: &[u8]) -> bool {
         || last_terminator_start(next).is_some()
 }
 
-/// Find the end of an OSC sequence (BEL or ESC \).
-/// Input starts after `ESC ]` (so `content[0]` is the first byte after `]`).
-/// Returns (bytes consumed from input INCLUDING terminator, content slice).
 /// Find the terminator of an OSC body (BEL or ESC \\). `content` starts
-/// AFTER the `ESC ]` prefix; returns (bytes consumed from `content`, body).
-/// Shared with `OscParser` — the two modules used to carry near-identical
-/// copies with different slicing conventions.
-pub(crate) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
+/// AFTER the `ESC ]` prefix; returns (bytes consumed from `content`,
+/// terminator included, and the body).
+pub(super) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
     for i in 0..content.len() {
         if content[i] == 0x07 {
             return Some((i + 1, &content[..i]));
@@ -466,23 +445,15 @@ pub(crate) fn find_osc_end(content: &[u8]) -> Option<(usize, &[u8])> {
     None
 }
 
-/// Decode standard base64 (and url-safe), tolerating embedded whitespace.
-pub(super) fn base64_decode(input: &str) -> Vec<u8> {
+/// Decode standard base64 (and url-safe), padded or not, tolerating embedded
+/// whitespace. `None` for anything that is not base64 in any of those forms.
+pub(crate) fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
     // Strip whitespace that real-world payloads often inject for readability.
     let cleaned: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    if let Ok(b) = base64::engine::general_purpose::STANDARD.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::STANDARD_NO_PAD.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::URL_SAFE.decode(&cleaned) {
-        return b;
-    }
-    if let Ok(b) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&cleaned) {
-        return b;
-    }
-    Vec::new()
+    [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(&cleaned).ok())
 }
 
 /// Detect a raster image MIME type from known magic bytes. Non-image payloads

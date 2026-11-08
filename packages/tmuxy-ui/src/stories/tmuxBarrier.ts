@@ -10,6 +10,9 @@
  * `inputPause` is the one way to let time pass there.
  */
 
+import { wait } from './animationObservers';
+import { storyApp } from './storyApp';
+
 /**
  * tmux has done everything sent so far, its notifications are in the app's
  * state and the screen shows it (`window.app.caughtUp`, `AppContext.tsx`).
@@ -17,7 +20,7 @@
  * flip caused by tmux's answer has happened by then, or never will.
  */
 export function tmuxCaughtUp(): Promise<void> {
-  return (window as unknown as { app: { caughtUp(): Promise<void> } }).app.caughtUp();
+  return storyApp().caughtUp();
 }
 
 /** Every CSS transition under `root` has run to its end (a swap's slide, a resize). */
@@ -38,5 +41,5 @@ export async function transitionsDone(root: Element): Promise<void> {
  * the user would see.
  */
 export function inputPause(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return wait(ms);
 }

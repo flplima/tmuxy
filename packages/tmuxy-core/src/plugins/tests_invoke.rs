@@ -8,8 +8,6 @@ use super::source;
 use super::tests::{dirs_in, plugin_dir, scratch, GOOD};
 use super::*;
 
-// ── Invocation ──────────────────────────────────────────────────────────
-
 fn target() -> Target {
     Target {
         pane: "%3".into(),
@@ -43,7 +41,7 @@ fn each_surface_is_one_command_list() {
     assert!(float.contains("@tmuxy-float-width 160"), "{float}");
     assert!(float.contains("@tmuxy-float-height 35"), "{float}");
     assert!(!float.contains("noheader"), "{float}");
-    assert!(float.ends_with("select-pane -t %3"), "{float}");
+    assert!(float.contains("; select-pane -t %3 ;"), "{float}");
 
     let sized = Size {
         width: Some(Dim::Cells(300)),
@@ -82,16 +80,9 @@ fn the_exec_line_carries_names_and_a_token_only() {
     .unwrap();
     assert_eq!(
         line,
-        "exec '/opt/tmuxy app/tmuxy' 'server' 'plugin' 'exec' 'p' 'a' '0123456789abcdef0123456789abcdef'"
+        "exec '/opt/tmuxy app/tmuxy' server plugin exec p a 0123456789abcdef0123456789abcdef"
     );
     assert!(invoke::exec_command_line(Path::new("/a#b"), None, "p", "a", "t").is_err());
-}
-
-#[test]
-fn the_free_index_is_the_first_gap_from_the_lowest() {
-    assert_eq!(invoke::free_index("1\n2\n4\n"), 3);
-    assert_eq!(invoke::free_index("0\n"), 1);
-    assert_eq!(invoke::free_index(""), 0);
 }
 
 #[test]
@@ -158,18 +149,21 @@ fn the_context_names_the_pane_and_the_selection_file() {
         tab: "@1".into(),
         session: "main".into(),
     };
-    let json: serde_json::Value = serde_json::from_str(&invoke::context_json(
-        &dirs,
-        plugin,
-        invoke::Context {
-            action: Some("plain"),
-            trigger: Trigger::Menu,
-            pane: "%9",
-            info: Some(&info),
-            selection_file: Some(Path::new("/s/file")),
-            link: None,
-        },
-    ))
+    let json: serde_json::Value = serde_json::from_str(
+        &invoke::context_json(
+            &dirs,
+            plugin,
+            invoke::Context {
+                action: Some("plain"),
+                trigger: Trigger::Menu,
+                pane: "%9",
+                info: Some(&info),
+                selection_file: Some(Path::new("/s/file")),
+                link: None,
+            },
+        )
+        .unwrap(),
+    )
     .unwrap();
     assert_eq!(json["pane"]["id"], "%9");
     assert_eq!(json["pane"]["cwd"], "/w");
@@ -179,8 +173,6 @@ fn the_context_names_the_pane_and_the_selection_file() {
     assert_eq!(json["settings"], serde_json::json!({}));
     std::fs::remove_dir_all(base).unwrap();
 }
-
-// ── Scaffold & GC ───────────────────────────────────────────────────────
 
 #[test]
 fn a_new_plugin_passes_its_own_check() {
@@ -215,9 +207,8 @@ fn gc_removes_only_unlisted_unused_checkouts() {
     for sha in [keep, drop, busy] {
         std::fs::create_dir_all(dirs.checkout("p", sha)).unwrap();
     }
-    std::fs::create_dir_all(dirs.root().join("p.state")).unwrap();
+    std::fs::create_dir_all(dirs.plugins_root().join("p.state")).unwrap();
 
-    // A process running from the old checkout keeps it.
     let busy_dir = dirs.checkout("p", busy);
     let mut child = std::process::Command::new("sleep")
         .arg("30")
@@ -234,9 +225,23 @@ fn gc_removes_only_unlisted_unused_checkouts() {
         assert!(busy_dir.exists());
     }
     assert!(dirs.checkout("p", keep).exists());
-    assert!(dirs.root().join("p.state").exists(), "not a checkout");
-    // Once its process is gone, the next run removes it.
+    assert!(
+        dirs.plugins_root().join("p.state").exists(),
+        "not a checkout"
+    );
     assert!(gc::collect(&dirs).busy.is_empty());
     assert!(!busy_dir.exists());
     std::fs::remove_dir_all(base).unwrap();
+}
+
+/// `--wait` polls for a status file the pane's process writes when it exits.
+/// A pane kept open after its process died (`remain-on-exit`), or one whose
+/// status could not be written, never writes it: the waiter took a pane that
+/// still answered for one that still ran, and waited for as long as it stayed.
+#[test]
+fn a_dead_pane_ends_the_wait() {
+    assert!(invoke::pane_running("%4 0\n", "%4"));
+    assert!(!invoke::pane_running("%4 1\n", "%4"));
+    assert!(!invoke::pane_running("", "%4"));
+    assert!(!invoke::pane_running("%5 0", "%4"));
 }

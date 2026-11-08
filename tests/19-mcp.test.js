@@ -9,7 +9,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   waitForShellPrompt,
   waitForPaneCount,
   waitForTerminalText,
@@ -63,15 +63,8 @@ async function paneBox(page, paneId) {
   }, paneId);
 }
 
-describe('Scenario: an MCP client sees and drives the session', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: an MCP client sees and drives the session', {}, (ctx) => {
   test('a split appears, a send waits for the user to allow it, the output is read back, the pane closes', async () => {
-    if (ctx.skipIfNotReady()) return;
     const { page } = ctx;
     await ctx.setupPage();
     await waitForShellPrompt(page);

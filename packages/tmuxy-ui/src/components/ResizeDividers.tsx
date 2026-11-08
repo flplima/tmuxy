@@ -1,25 +1,18 @@
 /**
- * ResizeDividers - Renders resize handles between adjacent panes.
- *
- * Scans pane pairs to find shared edges (with 1-cell tmux divider gap),
- * merges overlapping segments, and renders invisible clickable dividers.
- *
  * A divider whose panes have no room to give — a stack of one-row panes, say —
- * is drawn as pinned and refuses the drag outright, rather than accepting a
- * gesture tmux would throw away. The ones that can move are clamped instead,
- * in the resize machine (machines/resize/limits.ts).
+ * is drawn as pinned and refuses the drag, rather than accepting a gesture
+ * tmux would throw away.
  *
- * Keys use sequential indices (divider-0, divider-1, ...) in a canonical
- * sort order so React reconciles existing DOM nodes in-place across resize,
- * layout cycle, and split/placeholder-swap operations. The total number of
- * dividers is N-1 for N panes in standard tmux layouts, so the count (and
- * therefore the keys) stays constant when only positions/orientations change.
+ * Keys are indices in a canonical sort order, so React reuses the DOM nodes
+ * across resize, layout cycle and placeholder swap: a tmux layout of N panes
+ * has N-1 dividers, so the keys stay put when only positions change.
  */
 
 import { useAppSend } from '../machines/appHooks';
+import { dividerBox } from '../domain/paneGeometry';
 import type { PaneCellBox } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
-import { haptics } from '../utils/haptics';
+import { haptics } from '../infra/haptics';
 import { bandScope, resizeLimits, isLocked } from '../machines/resize/limits';
 import type { PaneId } from '../domain/ids';
 import type { PaneTree } from '../domain/wire';
@@ -36,10 +29,9 @@ interface ResizeDividersProps {
 interface DividerSegment {
   start: number; // left for horizontal, top for vertical
   end: number; // right for horizontal, bottom for vertical
-  paneId: PaneId; // pane to resize
+  paneId: PaneId;
 }
 
-/** A fully resolved divider with orientation and axis position */
 interface ResolvedDivider {
   orientation: 'h' | 'v';
   axisPos: number; // yPos for horizontal, xPos for vertical
@@ -49,10 +41,8 @@ interface ResolvedDivider {
 }
 
 /**
- * Merge adjacent/overlapping segments at a given divider position, when
- * `sameDivider` says one drag moves them both. Two segments on one line are
- * still two dividers when tmux resizes them apart — the row lines of an even
- * 2×2 grid whose root splits into columns.
+ * Two segments on one line are still two dividers when tmux resizes them
+ * apart — the row lines of an even 2×2 grid whose root splits into columns.
  */
 function mergeSegments(
   segments: DividerSegment[],
@@ -66,7 +56,7 @@ function mergeSegments(
 
   for (let i = 1; i < sorted.length; i++) {
     const next = sorted[i];
-    // Adjacent or overlapping (allow 1-cell gap for tmux divider)
+    // tmux's divider is a 1-cell gap
     if (next.start <= current.end + 1 && sameDivider(current, next)) {
       current.end = Math.max(current.end, next.end);
     } else {
@@ -79,7 +69,6 @@ function mergeSegments(
   return merged;
 }
 
-/** Collect horizontal and vertical divider segments from pane adjacency */
 function collectDividerSegments(panes: TmuxPane[]) {
   const horizontal = new Map<number, DividerSegment[]>();
   const vertical = new Map<number, DividerSegment[]>();
@@ -90,7 +79,6 @@ function collectDividerSegments(panes: TmuxPane[]) {
     for (let j = i + 1; j < panes.length; j++) {
       const other = panes[j];
 
-      // Horizontal divider: panes share a horizontal edge.
       // Gap is 1 (real tmux) or 2 (demo: separator + header row).
       const horizontallyOverlap = pane.x < other.x + other.width && pane.x + pane.width > other.x;
       const hGapAB = other.y - (pane.y + pane.height);
@@ -110,7 +98,6 @@ function collectDividerSegments(panes: TmuxPane[]) {
         horizontal.get(yPos)!.push({ start: left, end: right, paneId: other.tmuxId });
       }
 
-      // Vertical divider: panes share a vertical edge (with 1-cell tmux divider gap)
       const verticallyOverlap = pane.y < other.y + other.height && pane.y + pane.height > other.y;
 
       if (pane.x + pane.width + 1 === other.x && verticallyOverlap) {
@@ -132,12 +119,6 @@ function collectDividerSegments(panes: TmuxPane[]) {
   return { horizontal, vertical };
 }
 
-/**
- * Flatten horizontal/vertical maps into a single sorted list of dividers.
- * Canonical sort: orientation (h before v), then axisPos, then start.
- * This ensures stable sequential indices across renders when divider count
- * stays constant (resize, layout cycle, placeholder swap).
- */
 function resolveDividers(
   horizontal: Map<number, DividerSegment[]>,
   vertical: Map<number, DividerSegment[]>,
@@ -171,7 +152,6 @@ function resolveDividers(
     }
   });
 
-  // Canonical sort for stable index assignment
   dividers.sort((a, b) => {
     if (a.orientation !== b.orientation) return a.orientation < b.orientation ? -1 : 1;
     if (a.axisPos !== b.axisPos) return a.axisPos - b.axisPos;
@@ -181,7 +161,7 @@ function resolveDividers(
   return dividers;
 }
 
-/** Thickness of resize grab handles in pixels */
+/** px */
 const DIVIDER_THICKNESS = 8;
 
 export function ResizeDividers({
@@ -192,7 +172,6 @@ export function ResizeDividers({
   centeringOffset,
 }: ResizeDividersProps) {
   const send = useAppSend();
-  // The layout is whoever writes' to change; a viewer gets no handles on it.
   const geometry: Record<PaneId, PaneCellBox> = Object.fromEntries(
     panes.map((p) => [p.tmuxId, { x: p.x, y: p.y, width: p.width, height: p.height }]),
   );
@@ -213,36 +192,13 @@ export function ResizeDividers({
             className={`resize-divider${locked ? ' resize-divider-locked' : ''}`}
             data-testid={`resize-divider-${idx}`}
             aria-disabled={locked || undefined}
-            style={
-              isH
-                ? {
-                    cursor: locked ? 'not-allowed' : 'ns-resize',
-                    left: centeringOffset.x + div.start * charWidth,
-                    top: centeringOffset.y + div.axisPos * charHeight - DIVIDER_THICKNESS / 2,
-                    width: (div.end - div.start) * charWidth,
-                    height: DIVIDER_THICKNESS,
-                  }
-                : {
-                    cursor: locked ? 'not-allowed' : 'ew-resize',
-                    // Center the 8px hit area in the 1-charWidth separator
-                    // column at axisPos; the visible 1px line (via ::before)
-                    // sits at the column's exact midpoint.
-                    left:
-                      centeringOffset.x +
-                      div.axisPos * charWidth +
-                      charWidth / 2 -
-                      DIVIDER_THICKNESS / 2,
-
-                    top: centeringOffset.y + Math.max(0, div.start - 1) * charHeight,
-                    width: DIVIDER_THICKNESS,
-                    height: (div.end - Math.max(0, div.start - 1)) * charHeight,
-                  }
-            }
+            style={{
+              cursor: locked ? 'not-allowed' : isH ? 'ns-resize' : 'ew-resize',
+              ...dividerBox(div, charWidth, charHeight, centeringOffset, DIVIDER_THICKNESS),
+            }}
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              // Nowhere to go: taking the drag would only collect a gesture
-              // tmux is going to refuse.
               if (locked) return;
               haptics.trigger(10);
               document.addEventListener('mouseup', () => haptics.trigger('success'), {

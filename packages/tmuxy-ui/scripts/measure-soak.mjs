@@ -1,76 +1,29 @@
 #!/usr/bin/env node
 /**
- * Soak harness — does a long session degrade?
+ * Soak harness: does a long session degrade? A leak fails no per-interaction
+ * budget (each interaction stays fast while memory climbs), so this runs two
+ * loads that leak in different places: output volume through one pane (the
+ * control-mode parser, the delta protocol, the scrollback trim, the line
+ * components) and split/kill churn (per-pane state in the app, the server and
+ * tmux).
  *
- * Nothing else in the suite runs for more than a few minutes, so the question
- * "what happens to a tab left open all day" has never had an answer. Every
- * other tier measures a single interaction against a budget; a leak does not
- * fail any of them, because each individual interaction stays fast while the
- * heap, the DOM and the server's memory climb underneath it.
+ * It asserts a plateau, not a number: absolute heap and RSS depend on the
+ * machine, the Chrome build and the runner's load, so each phase is sampled in
+ * windows and the second half is compared to the first. Heap and node counts
+ * come from CDP `Performance.getMetrics`, not `performance.memory`, which is
+ * quantised to 5MB buckets. Server RSS is read from the OS.
  *
- * Two kinds of load, because they leak in different places:
+ * The load goes through `tmuxy pane send`, not the keyboard: Playwright's
+ * `keyboard.type()` of a long command line drops characters (a mangled `yes`
+ * once became an infinite loop).
  *
- *   * Output volume — tens of MB streamed through one pane. Exercises the
- *     control-mode parser, the delta protocol, the scrollback trim and the
- *     line components. A retained reference anywhere in that chain shows up as
- *     a heap or node count that does not come back down.
- *   * Structural churn — hundreds of split/kill cycles. Exercises pane
- *     creation and teardown on both sides: the app's machine state, the
- *     server's per-pane state, and tmux itself. A pane that is destroyed but
- *     not forgotten shows up here and nowhere else.
+ * `--gate` is off until nightly runs have calibrated the thresholds.
  *
- * ## What it asserts
- *
- * A plateau, not an absolute number. Absolute heap and RSS depend on the
- * machine, the Chrome build and what else the runner is doing, so a ceiling in
- * megabytes would be either meaningless or permanently red. Instead each
- * measure is sampled in windows across the run and the SECOND HALF is compared
- * to the first: a healthy session reaches a working set and stays there, so the
- * later windows must not be meaningfully above the earlier ones. A leak is
- * monotone growth, which is exactly what that comparison catches and what a
- * single before/after reading cannot distinguish from warm-up.
- *
- * Heap and node counts come from CDP `Performance.getMetrics` — the browser's
- * own accounting, not `performance.memory`, which is quantised to 5MB buckets
- * in a way that hides anything smaller than a catastrophe. Server RSS is read
- * from the OS for the pid serving the session.
- *
- * ## Load is driven through the CLI, not the keyboard
- *
- * The interaction harness next door types everything, because what it measures
- * IS the keystroke path. This one measures what the app retains while rendering
- * someone else's output, so it drives the load through `tmuxy pane send` — the
- * same path an agent uses — and leaves the browser as the thing being measured.
- *
- * That is not only a tidier seam, it is a necessary one: `keyboard.type()` of a
- * long command line into a pane drops characters often enough to be useless
- * here. Observed while building this, with a mangled `yes` command that lost
- * its middle and became an infinite loop printing the tail of the next word. A
- * memory measurement cannot be built on a load generator that sometimes runs a
- * different command than the one it was given.
- *
- * ## Why it is non-blocking at first
- *
- * `--gate` is off by default. The thresholds below are guesses until there is
- * a corpus of nightly runs to calibrate them against, and a guessed threshold
- * on a 10-minute job is a nightly that gets ignored. The job publishes the
- * report every night; once the numbers have a known shape, `--gate` goes on in
- * the workflow and the guesses become budgets.
- *
- * ## Run it against a socket of its own
- *
- * The churn phase splits and closes panes, and the output phase types into
- * whichever pane is active — in the session the server it is pointed at is
- * serving. A tmuxy server with no `TMUX_SOCKET` serves the DEFAULT `tmuxy`
- * socket, which on a dev machine is the session someone is working in, so
- * pointing this at one types megabytes of `yes` into their shell. The server
- * under test must be started with a socket of its own:
+ * It splits, closes and types megabytes of `yes` into the session it is
+ * served, and a server with no `TMUX_SOCKET` serves the default `tmuxy` socket
+ * (someone's working session), so give the server under test its own socket:
  *
  *   TMUX_SOCKET=tmuxy-soak ./target/release/tmuxy-server --port 9131 --dev
- *
- * (The three-socket rule in the repo's AGENTS.md, for the same reason: a
- * released build serves `tmuxy`, the dev server `tmuxy-dev`, the E2E suite
- * `tmuxy-test`. This harness is a fourth caller and needs a fourth.)
  *
  * Usage:
  *   node measure-soak.mjs [--url URL] [--session NAME] [--cdp URL]
@@ -97,15 +50,13 @@ const SESSION = opt('--session', null);
 const CDP = opt('--cdp', null);
 /** Megabytes of output to stream through a pane, total. */
 const OUTPUT_MB = Number(opt('--output-mb', '20'));
-/** split → kill cycles to run. */
 const CYCLES = Number(opt('--cycles', '200'));
-/** How many sample windows to divide each phase into. Must be even. */
+/** Sample windows per phase: even, at least 4. */
 const WINDOWS = Number(opt('--windows', '8'));
 const OUT = opt('--out', null);
 const LABEL = opt('--label', 'local');
 const SERVER_PID = opt('--server-pid', null);
 const GATE = flag('--gate');
-/** The tmux socket the server under test is serving; see the header. */
 const SOCKET = opt('--socket', process.env.TMUX_SOCKET ?? null);
 const CLI = opt('--cli', new URL('../../tmuxy-cli/bin/tmuxy-cli', import.meta.url).pathname);
 
@@ -113,14 +64,8 @@ const CLI = opt('--cli', new URL('../../tmuxy-cli/bin/tmuxy-cli', import.meta.ur
 // path, and the shadow is hoisted, so the resolution hits a TDZ error.
 const TARGET_URL = SESSION ? `${URL_BASE}?session=${encodeURIComponent(SESSION)}` : URL_BASE;
 
-/**
- * Run a shell line in the session's active pane, through the tmuxy CLI.
- *
- * `pane send` routes the keys through `tmux run-shell`, which is the only
- * control-mode-safe way in (docs/TMUX.md). The line is handed over as one
- * argument so the shell quoting survives, and `Enter` is a separate key name
- * because that is how `send-keys` spells it.
- */
+// `pane send` routes the keys through `tmux run-shell`, the control-mode-safe
+// way in (docs/TMUX.md); `Enter` is send-keys' name for the key.
 function runInPane(line) {
   execFileSync(CLI, ['pane', 'send', line, 'Enter'], {
     encoding: 'utf-8',
@@ -129,30 +74,14 @@ function runInPane(line) {
   });
 }
 
-/**
- * Stream `mb` megabytes through the active pane, sampling as it goes.
- *
- * `yes | head -c` is the cheapest generator that produces real bytes rather
- * than a tight redraw loop: the point is volume through the parser and the
- * delta protocol, not frame rate. It is split into chunks so samples land
- * between them rather than all at the end, which is what makes a plateau
- * visible at all.
- */
+// `yes | head -c`: real bytes through the parser, not a tight redraw loop.
 async function phaseOutput(page, cdp, serverPid, { mb, windows }) {
   const samples = [];
   const chunkMB = Math.max(1, Math.round(mb / windows));
   for (let w = 0; w < windows; w++) {
-    // A sentinel echoed after the bytes, not a prompt match. With megabytes of
-    // `yes` in the scrollback, "the text ends in a prompt character" is both
-    // slow to evaluate and wrong as often as not — the last visible line is
-    // whatever the trim left behind. A unique marker per window is exact, and
-    // it is the same thing the SteadyStream story waits for.
+    // A sentinel, not a prompt match: with megabytes of `yes` in the
+    // scrollback the last visible line is whatever the trim left behind.
     const done = `SOAK-OUTPUT-DONE-${w}`;
-    // `head -c` on `yes` output: real bytes through the parser, the delta
-    // protocol and the scrollback trim, rather than a tight redraw loop. The
-    // sentinel is echoed after them and its own text never appears in the
-    // stream, so finding it means the command finished rather than that the
-    // marker happened to be mid-buffer.
     runInPane(`yes soakline | head -c ${chunkMB}m; echo ${done}`);
     await page.waitForFunction(
       (marker) =>
@@ -168,7 +97,6 @@ async function phaseOutput(page, cdp, serverPid, { mb, windows }) {
   return samples;
 }
 
-/** How many distinct panes the page is showing. */
 function countPanes(page) {
   return page.evaluate(
     () =>
@@ -178,7 +106,6 @@ function countPanes(page) {
   );
 }
 
-/** Wait until the pane count satisfies `predicate`, or give up on this cycle. */
 async function waitForPaneCount(page, predicate, reference) {
   await page
     .waitForFunction(
@@ -198,7 +125,6 @@ async function waitForPaneCount(page, predicate, reference) {
     .catch(() => {});
 }
 
-/** Split the active pane, through the CLI's control-mode-safe route. */
 function splitPane() {
   execFileSync(CLI, ['pane', 'split', '-v'], {
     encoding: 'utf-8',
@@ -207,23 +133,8 @@ function splitPane() {
   });
 }
 
-/**
- * Split and close a pane `cycles` times, sampling every window.
- *
- * Both halves go through the CLI — `pane split` to open and `exit` in the new
- * pane's own shell to close — for the reason in the header: this harness
- * measures what the app RETAINS, and the keystroke path is the interaction
- * harness's subject, not this one's. What matters for a per-pane leak is that
- * the pane really is created and destroyed in tmux and the app really learns
- * about both over SSE, which is identical either way. (A raw `tmux
- * split-window` would be worse than useless: an external mutation crashes the
- * server while control mode is attached — docs/TMUX.md. The CLI wraps it in
- * `run-shell`.)
- *
- * The browser is still watched throughout, because it is the thing being
- * measured: every cycle waits for the app's own pane count to move, so a
- * sample is never taken mid-transition.
- */
+// Through the CLI, never a raw `tmux split-window`: an external mutation
+// crashes tmux while control mode is attached (docs/TMUX.md).
 async function phaseChurn(page, cdp, serverPid, { cycles, windows }) {
   const samples = [];
   const perWindow = Math.max(1, Math.round(cycles / windows));
@@ -321,8 +232,6 @@ async function main() {
     console.error(`\n${summary}`);
     process.exit(1);
   }
-  // Not a gate yet: see the header. Still said out loud, so a trend is
-  // visible in the job log without opening the artifact.
   console.warn(`\nwarning: ${summary} (not gating — pass --gate to fail on this)`);
 }
 

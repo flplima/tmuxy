@@ -38,13 +38,6 @@ async function clickPaneGroupAdd(page) {
 }
 
 /**
- * Click "Add Pane to Group" via the ⋮ menu (alias for clickPaneGroupAdd)
- */
-async function clickGroupTabAdd(page) {
-  await clickPaneGroupAdd(page);
-}
-
-/**
  * Get the number of tabs in the pane group (0 if not grouped)
  * If there are multiple panes, returns the tab count of the first grouped pane found
  */
@@ -204,7 +197,6 @@ async function getThemeAccent(page) {
 
 module.exports = {
   clickPaneGroupAdd,
-  clickGroupTabAdd,
   getGroupTabCount,
   clickGroupTab,
   clickGroupTabClose,

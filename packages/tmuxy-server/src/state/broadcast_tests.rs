@@ -5,30 +5,30 @@ use super::*;
 #[test]
 fn seqs_are_monotonic_from_one() {
     let b = SessionBroadcast::new();
-    assert_eq!(b.broadcast("a".into()), 1);
-    assert_eq!(b.broadcast("b".into()), 2);
-    assert_eq!(b.broadcast("c".into()), 3);
+    assert_eq!(b.broadcast("state-update", "a".into()), 1);
+    assert_eq!(b.broadcast("state-update", "b".into()), 2);
+    assert_eq!(b.broadcast("state-update", "c".into()), 3);
 }
 
 #[test]
 fn replay_since_returns_strictly_newer() {
     let b = SessionBroadcast::new();
     for i in 1..=5 {
-        b.broadcast(format!("m{}", i));
+        b.broadcast("state-update", format!("m{}", i));
     }
     let replay = b.replay_since(3);
     assert_eq!(replay.len(), 2);
     assert_eq!(replay[0].0, 4);
-    assert_eq!(&*replay[0].1, "m4");
+    assert_eq!(&*replay[0].1.data, "m4");
     assert_eq!(replay[1].0, 5);
-    assert_eq!(&*replay[1].1, "m5");
+    assert_eq!(&*replay[1].1.data, "m5");
 }
 
 #[test]
 fn ring_buffer_drops_oldest_at_capacity() {
     let b = SessionBroadcast::new();
     for i in 1..=(EVENT_BUFFER_SIZE + 5) {
-        b.broadcast(format!("m{}", i));
+        b.broadcast("state-update", format!("m{}", i));
     }
     assert_eq!(b.oldest_seq(), Some(6));
     let replay = b.replay_since(5);
@@ -56,7 +56,7 @@ fn concurrent_broadcasters_keep_the_ring_in_order() {
                 std::thread::spawn(move || {
                     gate.wait();
                     for i in 0..per_thread {
-                        b.broadcast(format!("t{t}-{i}"));
+                        b.broadcast("state-update", format!("t{t}-{i}"));
                     }
                 })
             })
@@ -78,15 +78,14 @@ fn the_ring_keeps_no_more_than_its_byte_budget() {
     let b = SessionBroadcast::new();
     let big = "x".repeat(EVENT_BUFFER_MAX_BYTES / 2 - 1);
     for _ in 0..4 {
-        b.broadcast(big.clone());
+        b.broadcast("state-update", big.clone());
     }
     let kept = b.replay_since(0);
     assert_eq!(kept.len(), 2, "two half-budget events fit, four do not");
     assert_eq!(b.oldest_seq(), Some(3));
     assert_eq!(kept.iter().map(|(s, _)| *s).collect::<Vec<_>>(), [3, 4]);
 
-    // One event over the whole budget is still kept, alone.
-    b.broadcast("y".repeat(EVENT_BUFFER_MAX_BYTES + 1));
+    b.broadcast("state-update", "y".repeat(EVENT_BUFFER_MAX_BYTES + 1));
     assert_eq!(b.replay_since(0).len(), 1);
     assert_eq!(b.oldest_seq(), Some(5));
 }

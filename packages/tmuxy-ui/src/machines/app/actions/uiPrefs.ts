@@ -1,42 +1,30 @@
-/**
- * Action implementations for the uiPrefs state slice.
- *
- * Each action is prefixed `uiPrefs_` to avoid name collisions across states
- * when spread into setup({ actions }).
- *
- * Side effects (applyTheme, saveThemeToStorage, applyFontSize,
- * saveFontSizeToStorage) run imperatively inside enqueueActions before the
- * assigned context update; this matches the original appMachine behavior
- * where DOM/localStorage write happen synchronously with state mutation.
- */
-
+import { appearancePrefs } from '../appearance';
 import { assign, sendTo } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
+import { invokeEvent } from '../../actors/tmuxActor';
 import {
   applyTheme,
   applyThemeMode,
   applyCssVars,
   reloadThemeCss,
-  saveThemeToStorage,
-} from '../../../utils/themeManager';
+} from '../../../infra/themeManager';
 import {
   applyFontSize,
-  saveFontSizeToStorage,
   increaseFontSize,
   decreaseFontSize,
   DEFAULT_FONT_SIZE,
-} from '../../../utils/fontSizeManager';
-import { applyAppearance } from '../../../utils/appearanceManager';
-import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../utils/gridFit';
+} from '../../../infra/fontSizeManager';
+import { applyAppearance } from '../../../infra/appearanceManager';
+import { DEFAULT_THEME, saveFontSizePref, saveThemePref } from '../../../infra/prefs';
+import { DEFAULT_SIZE_POLICY, sameSizePolicy } from '../../../domain/gridFit';
 import { PINNABLE } from '../../../domain/pins';
-import type { PaneId } from '../../../domain/ids';
 import {
   disablePush,
   enablePush,
   onNotificationFocus,
   readPushState,
   type PushState,
-} from '../../../utils/pushNotifications';
+} from '../../../infra/pushNotifications';
 
 export const uiPrefsActions = {
   uiPrefs_applyTheme: act(({ event, context, enqueue }) => {
@@ -44,35 +32,23 @@ export const uiPrefsActions = {
     // tmuxy.conf pins it: the config's theme stays, whatever asked.
     if (context.pinnedOptions.includes(PINNABLE.theme)) return;
     applyTheme(event.name, context.themeMode);
-    saveThemeToStorage(event.name, context.themeMode);
+    saveThemePref(event.name, context.themeMode);
     enqueue(assign({ themeName: event.name }));
     // The theme is the session's, on every transport: tmux holds it, and
     // every other client watching — a phone, the desktop app — is sent it
     // (THEME_REV_CHANGED). localStorage only paints the next load's first
     // frame before the backend has answered.
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme',
-        args: { name: event.name },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_theme', args: { name: event.name } })));
   }),
 
   uiPrefs_applyThemeMode: act(({ event, context, enqueue }) => {
     if (event.type !== 'SET_THEME_MODE') return;
     if (context.pinnedOptions.includes(PINNABLE.themeMode)) return;
     applyThemeMode(event.mode);
-    saveThemeToStorage(context.themeName, event.mode);
+    saveThemePref(context.themeName, event.mode);
     enqueue(assign({ themeMode: event.mode }));
     // The session's, as the theme is (uiPrefs_applyTheme).
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_theme_mode',
-        args: { mode: event.mode },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_theme_mode', args: { mode: event.mode } })));
   }),
 
   // This device's notifications on or off. The permission prompt has to come
@@ -111,7 +87,7 @@ export const uiPrefsActions = {
     // notifications stand, and let a tapped one bring its pane forward.
     if (context.pushState === 'unknown') {
       void readPushState().then((state) => self.send({ type: 'PUSH_STATE', state }));
-      onNotificationFocus((paneId) => self.send({ type: 'FOCUS_PANE', paneId: paneId as PaneId }));
+      onNotificationFocus((paneId) => self.send({ type: 'SELECT_PANE', paneId }));
     }
     const sizePolicy = event.appearance?.size ?? DEFAULT_SIZE_POLICY;
     if (!sameSizePolicy(sizePolicy, context.sizePolicy)) {
@@ -128,19 +104,8 @@ export const uiPrefsActions = {
     if (event.cssVars) applyCssVars(event.cssVars);
     enqueue(
       assign({
-        animationsAllowed: event.appearance?.animations ?? true,
-        cursorBlink: event.appearance?.cursorBlink ?? true,
-        sendAsk: event.appearance?.sendAsk ?? true,
-        notifyAllowed: event.appearance?.notify ?? true,
+        ...appearancePrefs(event.appearance),
         processIcons: event.icons ?? {},
-        transparency: event.appearance?.transparency ?? true,
-        tabOverviewCols: event.appearance?.tabOverviewCols ?? 3,
-        gestureFlags: {
-          swipeTabs: event.appearance?.gestureSwipeTabs ?? true,
-          pinchZoom: event.appearance?.gesturePinchZoom ?? true,
-          pinchOverview: event.appearance?.gesturePinchOverview ?? true,
-        },
-        nativeMenus: event.appearance?.nativeMenus ?? true,
         pinnedOptions: event.pinned ?? [],
       }),
     );
@@ -150,7 +115,7 @@ export const uiPrefsActions = {
     // frame with. The theme is applied HERE: a page that never ran main.tsx's
     // startup apply (a story) would otherwise have no stylesheet.
     applyTheme(event.theme, event.mode);
-    saveThemeToStorage(event.theme, event.mode);
+    saveThemePref(event.theme, event.mode);
     enqueue(assign({ themeName: event.theme, themeMode: event.mode }));
   }),
 
@@ -162,13 +127,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.cursorBlink)) return;
     const enabled = !context.cursorBlink;
     enqueue(assign({ cursorBlink: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_cursor_blink',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_cursor_blink', args: { enabled } })));
   }),
 
   uiPrefs_toggleSendAsk: act(({ event, context, enqueue }) => {
@@ -176,13 +135,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.sendAsk)) return;
     const enabled = !context.sendAsk;
     enqueue(assign({ sendAsk: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_send_ask',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_send_ask', args: { enabled } })));
   }),
 
   // The desktop app answers with fresh theme settings, which repaint the
@@ -192,13 +145,7 @@ export const uiPrefsActions = {
     if (context.pinnedOptions.includes(PINNABLE.transparency)) return;
     const enabled = !context.transparency;
     enqueue(assign({ transparency: enabled }));
-    enqueue(
-      sendTo('tmux', {
-        type: 'INVOKE' as const,
-        cmd: 'set_transparency',
-        args: { enabled },
-      }),
-    );
+    enqueue(sendTo('tmux', invokeEvent({ cmd: 'set_transparency', args: { enabled } })));
   }),
 
   // The list is also how a theme that went away is noticed: a plugin's theme
@@ -210,7 +157,7 @@ export const uiPrefsActions = {
     const gone = event.themes.length > 0 && !event.themes.some((t) => t.name === context.themeName);
     if (gone) {
       applyTheme('default', context.themeMode);
-      saveThemeToStorage('default', context.themeMode);
+      saveThemePref(DEFAULT_THEME.theme, context.themeMode);
       enqueue(assign({ themeName: 'default' }));
     }
   }),
@@ -253,7 +200,7 @@ export const uiPrefsActions = {
   uiPrefs_increaseFontSize: act(({ context, enqueue }) => {
     const newSize = increaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
-    saveFontSizeToStorage(newSize);
+    saveFontSizePref(newSize);
     enqueue(assign({ baseFontSize: newSize }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
@@ -261,14 +208,14 @@ export const uiPrefsActions = {
   uiPrefs_decreaseFontSize: act(({ context, enqueue }) => {
     const newSize = decreaseFontSize(context.baseFontSize);
     applyFontSize(newSize);
-    saveFontSizeToStorage(newSize);
+    saveFontSizePref(newSize);
     enqueue(assign({ baseFontSize: newSize }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),
 
   uiPrefs_resetFontSize: act(({ enqueue }) => {
     applyFontSize(DEFAULT_FONT_SIZE);
-    saveFontSizeToStorage(DEFAULT_FONT_SIZE);
+    saveFontSizePref(DEFAULT_FONT_SIZE);
     enqueue(assign({ baseFontSize: DEFAULT_FONT_SIZE }));
     enqueue(sendTo('size', { type: 'REMEASURE' as const }));
   }),

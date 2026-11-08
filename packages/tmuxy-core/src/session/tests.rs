@@ -2,32 +2,6 @@ use std::path::Path;
 
 use super::*;
 
-/// Every helper under `packages/tmuxy-cli/bin/tmuxy/` must be in the bundled list, or the
-/// packaged app ships a `tmuxy-cli` that dispatches to a file that was
-/// never mirrored to the data dir's `bin/` (the tree sidebar shipped that
-/// way once: `tmuxy widget tree` died with "No such file or directory").
-#[test]
-fn every_helper_script_is_bundled() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tmuxy-cli/bin/tmuxy");
-    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
-        .expect("bin/tmuxy readable")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .map(|e| format!("tmuxy/{}", e.file_name().to_string_lossy()))
-        .collect();
-    on_disk.sort();
-    let mut bundled: Vec<String> = BUNDLED_BIN_SCRIPTS
-        .iter()
-        .map(|(rel, _)| rel.to_string())
-        .filter(|rel| rel.starts_with("tmuxy/"))
-        .collect();
-    bundled.sort();
-    assert_eq!(
-        on_disk, bundled,
-        "packages/tmuxy-cli/bin/tmuxy/* and BUNDLED_BIN_SCRIPTS disagree"
-    );
-}
-
 #[test]
 fn the_server_command_is_published_quoted_with_its_subcommand() {
     assert_eq!(
@@ -87,7 +61,7 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     let _ = std::fs::remove_dir_all(&root);
     let home = root.join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let layout = config::Layout {
+    let layout = crate::paths::Layout {
         config: home.join(".config/tmuxy"),
         data: root.join("data"),
         state: root.join("state"),
@@ -101,45 +75,129 @@ fn refresh_launcher_if_installed_heals_stale_wrapper_without_creating_a_new_one(
     std::fs::write(&debug_exe, "").unwrap();
 
     // On a host that never ran the GUI, no wrapper exists and none is created.
-    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    heal_wrapper_in(&layout, &installed_exe, true);
     assert!(!wrapper.exists());
     assert!(!launcher.exists());
 
-    // Once installed (or left behind by an older build pointing at ~/.config/tmuxy/launcher),
-    // refresh_launcher_if_installed updates both the wrapper and the state dir's launcher.
+    // Once installed by an older build — the mark in its header, a body
+    // that derives the state dir in the shell — a CLI start updates both
+    // the wrapper and the state dir's launcher.
     std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
     std::fs::write(
         &wrapper,
-        "#!/bin/sh\nLAUNCHER_FILE=$HOME/.config/tmuxy/launcher\n",
+        format!("#!/bin/sh\n{WRAPPER_MARK}\nLAUNCHER_FILE=\"$HOME/.config/tmuxy/launcher\"\n"),
     )
     .unwrap();
 
-    refresh_launcher_if_installed_in(&layout, &installed_exe);
+    heal_wrapper_in(&layout, &installed_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", installed_exe.display())
     );
-    assert!(std::fs::read_to_string(&wrapper)
-        .unwrap()
-        .contains("LAUNCHER_FILE=\"$STATE_DIR/launcher\""));
+    assert_eq!(
+        std::fs::read_to_string(&wrapper).unwrap(),
+        launcher_wrapper(&launcher)
+    );
 
     // When both the wrapper and the recorded target are healthy, running
     // another binary (such as `target/debug/tmuxy` in a test) leaves the
     // installed launcher alone; only a missing target or a full GUI launch
     // (`refresh_launcher_in`) replaces it.
-    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    heal_wrapper_in(&layout, &debug_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", installed_exe.display())
     );
 
     std::fs::remove_file(&installed_exe).unwrap();
-    refresh_launcher_if_installed_in(&layout, &debug_exe);
+    heal_wrapper_in(&layout, &debug_exe, true);
     assert_eq!(
         std::fs::read_to_string(&launcher).unwrap(),
         format!("{}\n", debug_exe.display())
     );
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The wrapper runs the binary its launcher file names, with the arguments
+/// it was given — from a state dir whose path a shell would split.
+#[cfg(unix)]
+#[test]
+fn the_wrapper_execs_the_recorded_binary() {
+    let root = std::env::temp_dir().join(format!("tmuxy launcher's {}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let launcher = root.join("launcher");
+    std::fs::write(&launcher, "/bin/echo\n").unwrap();
+    let wrapper = root.join("tmuxy");
+    std::fs::write(&wrapper, launcher_wrapper(&launcher)).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg(&wrapper)
+        .args(["pane", "list"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "pane list\n");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A tmuxy run with another state dir — a test's server, a build pointed
+/// elsewhere — never points the user's shorthand at its own launcher; a file
+/// without tmuxy's mark, or a symlink the user made, is never replaced.
+#[test]
+fn a_file_without_the_mark_or_from_another_state_dir_is_left_alone() {
+    let root = std::env::temp_dir().join(format!("tmuxy-launcher-other-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = root.join("home");
+    let layout = crate::paths::Layout {
+        config: home.join(".config/tmuxy"),
+        data: root.join("data"),
+        state: root.join("test-state"),
+        home,
+    };
+    let wrapper = layout.home.join(".local/bin/tmuxy");
+    std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+    let exe = root.join("tmuxy");
+    std::fs::write(&exe, "").unwrap();
+
+    // Marked, stale, and not this process's to heal: its state dir is not
+    // the one the user's shorthand belongs to.
+    let stale = launcher_wrapper(&root.join("users-state/launcher"));
+    std::fs::write(&wrapper, &stale).unwrap();
+    refresh_launcher_if_installed_in(&layout, &exe);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), stale);
+
+    // The user's own script under that name carries no mark of tmuxy's and
+    // is never touched, whatever it says.
+    let users_own = "#!/bin/sh\nLAUNCHER_FILE=\"$STATE_DIR/launcher\"\nexec /opt/my-tmuxy \"$@\"\n";
+    std::fs::write(&wrapper, users_own).unwrap();
+    heal_wrapper_in(&layout, &exe, true);
+    assert_eq!(std::fs::read_to_string(&wrapper).unwrap(), users_own);
+    assert!(!layout.state.join("launcher").exists());
+
+    // Marked and stale, under the state dir the shorthand belongs to: rewritten.
+    std::fs::write(&wrapper, &stale).unwrap();
+    heal_wrapper_in(&layout, &exe, true);
+    assert_eq!(
+        std::fs::read_to_string(&wrapper).unwrap(),
+        launcher_wrapper(&layout.state.join("launcher"))
+    );
+
+    // A checkout's CLI, linked by hand, survives even a GUI launch.
+    std::fs::remove_file(&wrapper).unwrap();
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&exe, &wrapper).unwrap();
+        refresh_launcher_in(&layout, &exe);
+        assert!(std::fs::symlink_metadata(&wrapper)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -270,32 +328,14 @@ fn a_theme_supports_the_modes_whose_blocks_declare_something() {
     }
 }
 
+/// An older build's file has no such key: the choice is simply unmade, and
+/// reading it does not fail.
 #[test]
-fn managed_state_serde_roundtrips() {
-    let state = ManagedState {
-        theme: Some("dracula".into()),
-        theme_mode: Some("dark".into()),
-        cursor_blink: Some(false),
-        send_ask: Some(false),
-        transparency: Some(false),
-        use_tmux_conf: Some(true),
-    };
-    let json = serde_json::to_string(&state).unwrap();
-    let parsed: ManagedState = serde_json::from_str(&json).unwrap();
-    assert_eq!(parsed.theme.as_deref(), Some("dracula"));
-    assert_eq!(parsed.theme_mode.as_deref(), Some("dark"));
-    assert_eq!(parsed.cursor_blink, Some(false));
-    assert_eq!(parsed.send_ask, Some(false));
-    assert_eq!(parsed.transparency, Some(false));
-    assert_eq!(parsed.use_tmux_conf, Some(true));
-
-    // An older build's file has no such key; the choice is simply unmade.
-    // `use_tmux_conf` unset must read as OFF rather than as "no opinion" —
-    // sourcing someone's config is not a thing to start doing on an upgrade.
+fn a_managed_state_file_missing_a_key_reads_it_as_unset() {
     let old: ManagedState = serde_json::from_str(r#"{"theme":"nord"}"#).unwrap();
+    assert_eq!(old.theme.as_deref(), Some("nord"));
     assert_eq!(old.cursor_blink, None);
     assert_eq!(old.use_tmux_conf, None);
-    assert!(!old.use_tmux_conf.unwrap_or(false));
 }
 
 #[test]
@@ -362,7 +402,16 @@ bind x set -g @tmuxy-theme-mode dark
         vec!["@tmuxy-theme", "@tmuxy-send-ask", "@tmuxy-transparency"]
     );
     assert!(pinned_options_in(DEFAULT_USER_CONF).is_empty());
-    assert_eq!(MANAGED_OPTIONS.len(), 5);
+}
+
+/// tmux runs `set-o` as `set-option`, and its words are the grammar's: a
+/// reader that matched the verb's spelling missed both pins.
+#[test]
+fn a_pin_is_read_by_the_command_grammar() {
+    assert_eq!(
+        pinned_options_in("set-o -g @tmuxy-theme nord\nset-opt -g @tmuxy-send-ask off\n"),
+        vec!["@tmuxy-theme", "@tmuxy-send-ask"]
+    );
 }
 
 /// `-t` takes an argument, which is a target and not the option's name,
@@ -463,6 +512,19 @@ fn an_ssh_destination_is_a_user_and_host_and_nothing_else() {
     ] {
         assert!(!is_ssh_destination(bad), "{bad}");
     }
+}
+
+/// A port after the host is ssh's `-p`; a colon inside an IPv6 address, or
+/// one followed by no port number, is part of the destination.
+#[test]
+fn a_destinations_port_is_split_off_and_an_ipv6_address_is_left_whole() {
+    assert_eq!(
+        split_ssh_port("felipe@prod:2222"),
+        ("felipe@prod", Some(2222))
+    );
+    assert_eq!(split_ssh_port("host"), ("host", None));
+    assert_eq!(split_ssh_port("::1"), ("::1", None));
+    assert_eq!(split_ssh_port("host:x"), ("host:x", None));
 }
 
 #[test]

@@ -1,5 +1,9 @@
 use super::*;
 
+fn settings_json(output: &str) -> serde_json::Value {
+    serde_json::to_value(parse_settings(output)).unwrap()
+}
+
 #[test]
 fn display_theme_name_title_cases_hyphenated_stems() {
     assert_eq!(display_theme_name("tokyo-night"), "Tokyo Night");
@@ -7,8 +11,7 @@ fn display_theme_name_title_cases_hyphenated_stems() {
     assert_eq!(display_theme_name(""), "");
 }
 
-/// What tmux prints for `settings_query` when these options are set and
-/// the rest are not: a `name=` line each, blank lines dropped the way the
+/// What tmux prints for `settings_query`, blank lines dropped the way the
 /// control-mode reply drops them.
 fn printed(set: &[(&str, &str)]) -> String {
     SETTINGS_OPTIONS
@@ -23,8 +26,6 @@ fn printed(set: &[(&str, &str)]) -> String {
         .collect()
 }
 
-/// One round trip reads every option by name; an unset one is the
-/// default, and shifts nothing.
 #[test]
 fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
     let query = settings_query();
@@ -35,7 +36,7 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
         );
     }
 
-    let settings = parse_settings(&printed(&[
+    let settings = settings_json(&printed(&[
         (tmux_options::THEME, "nord"),
         (tmux_options::OPACITY, "0.5"),
         (tmux_options::BLUR, "off"),
@@ -60,12 +61,12 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
 
     // A fresh config sets no theme: the theme is the default, not the
     // opacity that happens to be printed next.
-    let fresh = parse_settings("@tmuxy-opacity=0.7\n@tmuxy-active-pane-opacity=1\n");
+    let fresh = settings_json("@tmuxy-opacity=0.7\n@tmuxy-active-pane-opacity=1\n");
     assert_eq!(fresh["theme"], DEFAULT_THEME);
     assert_eq!(fresh["appearance"]["opacity"], 0.7);
     assert_eq!(fresh["appearance"]["transparency"], true);
 
-    let empty = parse_settings("");
+    let empty = settings_json("");
     assert_eq!(empty["theme"], DEFAULT_THEME);
     assert_eq!(
         empty["appearance"],
@@ -74,9 +75,6 @@ fn settings_are_read_in_one_query_and_unset_options_take_the_defaults() {
     assert_eq!(empty["cssVars"], serde_json::json!({}));
 }
 
-/// The `show-options -g` lines after the settings carry the CSS
-/// variables: one per `@tmuxy-css-*` option, unquoted, and only those a
-/// browser can take as one declaration.
 #[test]
 fn css_variable_options_are_read_from_the_global_options() {
     let output = format!(
@@ -86,7 +84,7 @@ fn css_variable_options_are_read_from_the_global_options() {
          @tmuxy-opacity 0.5\nstatus-right \"%H:%M\"\n",
         printed(&[(tmux_options::THEME, "nord")])
     );
-    let settings = parse_settings(&output);
+    let settings = settings_json(&output);
     assert_eq!(settings["theme"], "nord");
     // The `show-options` echo of a settings option has no `=`: not a value.
     assert_eq!(
@@ -104,9 +102,6 @@ fn css_variable_options_are_read_from_the_global_options() {
     assert!(settings_query().ends_with("show-options -g"));
 }
 
-/// The theme is a stylesheet path and the mode one of three words; anything
-/// else is the default. A CSS variable cannot comment out the ones after it
-/// or fetch from the network.
 #[test]
 fn a_theme_mode_or_css_value_that_is_not_one_falls_back_or_is_dropped() {
     let output = format!(
@@ -118,7 +113,7 @@ fn a_theme_mode_or_css_value_that_is_not_one_falls_back_or_is_dropped() {
             (tmux_options::THEME_MODE, "dark\" onload=\"x"),
         ])
     );
-    let settings = parse_settings(&output);
+    let settings = settings_json(&output);
     assert_eq!(settings["theme"], DEFAULT_THEME);
     assert_eq!(settings["mode"], DEFAULT_MODE);
     assert_eq!(
@@ -126,12 +121,11 @@ fn a_theme_mode_or_css_value_that_is_not_one_falls_back_or_is_dropped() {
         serde_json::json!({ "f": "calc(1px + 2px)" })
     );
     assert_eq!(
-        parse_settings(&printed(&[(tmux_options::THEME_MODE, "auto")]))["mode"],
+        settings_json(&printed(&[(tmux_options::THEME_MODE, "auto")]))["mode"],
         "auto"
     );
 }
 
-/// Every option the app reads is documented where the user edits it.
 #[test]
 fn the_config_readme_documents_every_option() {
     let readme = include_str!("../../assets/config-README.md");
@@ -141,11 +135,9 @@ fn the_config_readme_documents_every_option() {
             "{option} is undocumented"
         );
     }
-    assert!(readme.contains(&format!("`{CSS_VAR_PREFIX}<variable>`")));
+    assert!(readme.contains(&format!("`{}<variable>`", tmux_options::CSS_VAR_PREFIX)));
 }
 
-/// The value goes into a control-mode command line: quoted so `;` stays
-/// literal, and refused if it carries a line break.
 #[test]
 fn an_option_value_cannot_end_the_command_line() {
     assert_eq!(option_value("nord").unwrap(), "'nord'");
@@ -167,9 +159,6 @@ fn parse_count_accepts_whole_numbers_and_caps_them() {
     assert_eq!(parse_count("", 3, 12), 3);
 }
 
-/// Config beats menu state: a menu change leaves an option the user's
-/// tmuxy.conf pins as the file has it, and one made only of pinned options is
-/// refused with the reason, not dropped without a word.
 #[test]
 fn a_menu_change_skips_what_tmuxy_conf_pins() {
     let pinned = [tmux_options::THEME];
@@ -190,4 +179,59 @@ fn a_menu_change_skips_what_tmuxy_conf_pins() {
         unpinned(&[(tmux_options::CURSOR_BLINK, "off")], &pinned).unwrap(),
         vec![(tmux_options::CURSOR_BLINK, "off")]
     );
+}
+
+fn shipped_defaults() -> Vec<(&'static str, &'static str)> {
+    include_str!("../../assets/tmuxy.defaults.conf")
+        .lines()
+        .filter_map(|line| line.strip_prefix("set -g @tmuxy-"))
+        .filter_map(|rest| rest.split_once(' '))
+        .map(|(name, value)| (name, value.trim()))
+        .collect()
+}
+
+/// What the app falls back to for an unset appearance option is what
+/// tmuxy.defaults.conf sets it to, and what the config README's table says:
+/// three copies of each value, held to one.
+#[test]
+fn the_fallbacks_are_the_shipped_defaults_and_the_readmes() {
+    let shipped = shipped_defaults();
+    let value_of = |option: &str| {
+        shipped
+            .iter()
+            .find(|(name, _)| Some(*name) == option.strip_prefix("@tmuxy-"))
+            .map(|(_, value)| *value)
+    };
+    let appearance: Vec<(&str, &str)> = SETTINGS_OPTIONS
+        .iter()
+        .filter(|o| ![tmux_options::THEME, tmux_options::THEME_MODE].contains(o))
+        .map(|o| {
+            (
+                *o,
+                value_of(o).unwrap_or_else(|| panic!("{o} is not in tmuxy.defaults.conf")),
+            )
+        })
+        .collect();
+    assert_eq!(
+        settings_json(&printed(&appearance))["appearance"],
+        serde_json::to_value(Appearance::default()).unwrap()
+    );
+
+    let readme = include_str!("../../assets/config-README.md");
+    for option in SETTINGS_OPTIONS {
+        let expected = match option {
+            o if o == tmux_options::THEME => DEFAULT_THEME,
+            o if o == tmux_options::THEME_MODE => DEFAULT_MODE,
+            o => value_of(o).unwrap(),
+        };
+        let row = readme
+            .lines()
+            .find(|l| l.starts_with(&format!("| `{option}`")))
+            .unwrap_or_else(|| panic!("{option} has no row"));
+        assert_eq!(
+            row.split('|').nth(2).map(str::trim),
+            Some(expected),
+            "{option}"
+        );
+    }
 }

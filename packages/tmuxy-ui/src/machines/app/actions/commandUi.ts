@@ -1,15 +1,6 @@
-/**
- * Action implementations for the commandUi slice (a root-level `on` block).
- *
- * Owns commandMode, statusMessage, prefixActive, keyTable, keysViewOpen,
- * renamingPaneId.
- *
- * A submitted command is raised as SEND_TMUX_COMMAND: it is a string the
- * user typed, parsed and routed like a binding (see ../dispatch.ts).
- */
-
 import { assign, cancel, raise } from 'xstate';
 import { act, assignCtx } from '../actionTypes';
+import { TmuxOp } from '../../../domain/commands';
 import { STATUS_MESSAGE_DURATION, STATUS_MESSAGE_CLEAR_ID } from '../helpers';
 
 const utf8 = new TextEncoder();
@@ -59,8 +50,16 @@ export const commandUiActions = {
     event.type === 'RENAME_PANE' ? { renamingPaneId: event.paneId } : {},
   ),
 
-  /** The field closed, committed or not. */
-  commandUi_paneRenameEnd: assignCtx(() => ({ renamingPaneId: null })),
+  /** The field closed: retitled (a title), or left as it was (null). */
+  commandUi_renamePaneCommit: act(({ event, enqueue }) => {
+    if (event.type !== 'RENAME_PANE_COMMIT') return;
+    enqueue(assign({ renamingPaneId: null }));
+    if (!event.title) return;
+    enqueue.raise({
+      type: 'DISPATCH_OP',
+      op: TmuxOp.SetPaneTitle({ paneId: event.paneId, title: event.title }),
+    });
+  }),
 
   commandUi_setPrefixActive: assignCtx(({ event }) => {
     if (event.type !== 'PREFIX_MODE_CHANGE') return {};
@@ -106,9 +105,8 @@ export const commandUiActions = {
 
     if (!finalCommand.trim()) return;
 
-    // The same path as a key binding or a menu item: the intercepts
-    // (copy-mode, nested command-prompt, tab/group nav)
-    // and the store's optimistic prediction.
+    // The same path as a key binding or a menu item (../dispatch.ts): the
+    // intercepts and the store's optimistic prediction.
     enqueue(raise({ type: 'SEND_TMUX_COMMAND', command: finalCommand }));
   }),
 
@@ -132,9 +130,6 @@ export const commandUiActions = {
     );
   }),
 
-  // The delayed CLEAR_STATUS_MESSAGE raise is cancelled and re-scheduled by id
-  // whenever a new message is shown, so whatever reaches here is the current
-  // message's own expiry — no timestamp guard needed.
   commandUi_clearStatusMessage: assignCtx({
     statusMessage: null,
   }),

@@ -1,40 +1,23 @@
 /**
- * SidebarColumn — the chrome both sidebars share.
- *
- * A sidebar is a full-height, fixed-width column holding ONE REAL TMUX PANE,
- * broken out into its own tagged window exactly the way a float is (see
- * `OpenSidebar` in domain/commands.ts). The left column runs `tmuxy widget tree`, the right
- * a shell; everything else about them — width, focus cue, the pane rendering
- * below — is the same, and lives here.
- *
- * An open column is docked: a real flex sibling of the pane area, whatever
- * the window's size. (A closed one can peek over the panes for a hover — see
- * Sidebar.tsx — at the same width, so its pane needs no other size.) Because the pane container flexes into the remaining
- * width, its ResizeObserver reports the reduced size and tmux re-tiles the
- * panes to fit; panes never render underneath a sidebar. The column carries no
- * header of its own — its title lives in the app header, aligned to the same
- * divider. It opens and shuts at once.
- *
- * Geometry is a contract with the backend: `apply_client_size`
- * (tmuxy-core/src/control_mode/monitor.rs) sizes a `sidebar-*` window to
- * `sidebar_dock::size`, so the column here must be drawn at exactly
- * LEFT/RIGHT_SIDEBAR_COLS × targetRows cells or the pane would wrap at a width
- * the UI doesn't render.
+ * Geometry is a contract with the backend: `size_windows`
+ * (tmuxy-core/src/control_mode/monitor_core/sizing.rs) sizes a `sidebar-*`
+ * window to `sidebar_dock::cols`, so the column must be drawn at exactly that
+ * many cells (LEFT/RIGHT_SIDEBAR_COLS by default) or the pane would wrap at a
+ * width the UI doesn't render.
  */
 
 import { memo, useCallback, useMemo, type CSSProperties } from 'react';
-import { TerminalPane } from './TerminalPane';
+import { TerminalPane } from './terminal/TerminalPane';
 import { SidebarTree } from './SidebarTree';
 import { useAppSelector } from '../machines/appHooks';
 import { selectSidebarCellMetrics } from '../machines/selectors/layout';
-import { cellMetricsStyle } from '../utils/cellMetrics';
+import { cellMetricsStyle } from '../infra/dom/cellMetrics';
 import { SidebarResizeHandle } from './SidebarResizeHandle';
 import type { TmuxPane } from '../domain/client';
 
 interface SidebarColumnProps {
-  /** Which edge the column docks to; drives the border and focus cue side. */
   side: 'left' | 'right';
-  /** Column width in pixels, derived from the cell grid by the caller. */
+  /** px */
   width: number;
   focused: boolean;
   /** The column's pane, or null while its window is still being broken out. */
@@ -43,7 +26,6 @@ interface SidebarColumnProps {
   startFailed: boolean;
   /** Shown over the panes for a hover, not docked beside them (useSidebarPeek). */
   peek?: boolean;
-  /** Focus request from a click anywhere in the column. */
   onFocus: () => void;
   /** The failure state's close button. */
   onClose: () => void;
@@ -69,9 +51,6 @@ export const SidebarColumn = memo(function SidebarColumn({
     [onFocus],
   );
 
-  // The dock's terminal runs in the sidebar font, on a cell grid scaled to it
-  // (selectSidebarCellMetrics): the font and the --cell-w / --cell-gap every
-  // cell-addressed box reads are scoped to this column.
   const dock = useAppSelector(selectSidebarCellMetrics);
   const cellVars =
     side === 'right'
@@ -109,12 +88,6 @@ export const SidebarColumn = memo(function SidebarColumn({
   );
 });
 
-/**
- * The panel-outline glyph that marks a sidebar, with the controlled edge filled
- * in. Shared by the header toggles and the overlay header's close button, so
- * "the thing that opens this" and "the thing that closes it" read as one
- * control.
- */
 export function SidebarGlyph({ side }: { side: 'left' | 'right' }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor">
@@ -132,23 +105,12 @@ export function SidebarGlyph({ side }: { side: 'left' | 'right' }) {
   );
 }
 
-/** What each column's pane runs — shown when the pane failed to come up. */
 const START_COMMAND = { left: 'tmuxy widget tree', right: 'the default shell' } as const;
 
 /**
- * Render a sidebar's pane.
- *
- * The LEFT column is the tree by definition: a `sidebar-left` window IS the
- * tree, so `SidebarTree` is rendered directly instead of detecting the `tree`
- * widget from the pane's screen text. (Detection depended on the marker line
- * `__TMUXY_WIDGET__:tree` fitting on one row; below 22 columns it wrapped and
- * the column fell back to a raw terminal.) The registered widget is for a
- * `tmuxy widget tree` run in an ordinary pane.
- *
- * The RIGHT column is a terminal pane with the same interaction layer a tiled
- * pane has — wheel and drag enter client-side copy mode, right-click selects a
- * word, touch scrolls — minus the header (a sidebar's title lives in the app
- * header, and in overlay layout in its own header above).
+ * A `sidebar-left` window IS the tree, so `SidebarTree` is rendered directly
+ * instead of waiting for the `tree` widget's marker to reach the screen; the
+ * registered widget is for a `tmuxy widget tree` run in an ordinary pane.
  */
 function SidebarPane({
   side,
@@ -193,15 +155,13 @@ function SidebarPane({
         </div>
       );
     }
-    // The window is being broken out — one round trip, not a failure state.
     return <div className="sidebar-placeholder">starting…</div>;
   }
 
   if (side === 'left') return <SidebarTree focused={focused} />;
 
   return (
-    // Height is pinned to the row count the backend sized the pane to, so the
-    // rendered grid and tmux's idea of the pane can't drift apart.
+    // Pinned to the row count the backend sized the pane to.
     <div
       className="sidebar-terminal"
       style={{ height: pane.height * dock.lineHeight }}

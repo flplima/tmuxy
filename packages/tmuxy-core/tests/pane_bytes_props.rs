@@ -12,7 +12,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use proptest::prelude::*;
-use tmuxy_core::control_mode::{decode_octal, ImageParser, OscParser, Parser};
+use tmuxy_core::control_mode::{decode_octal, ImageParser, Parser};
 use tmuxy_core::layout;
 
 /// Escape a byte string the way tmux control mode does: everything below
@@ -30,7 +30,6 @@ fn tmux_escape(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// What a pane writes: any byte, valid UTF-8 or not.
 fn escapable_bytes() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), 0..64)
 }
@@ -171,24 +170,26 @@ proptest! {
         prop_assert_eq!(carried, bytes);
     }
 
-    /// The OSC decoder strips sequences out of the vt100 stream. Arbitrary
-    /// bytes must not panic, and it must never invent bytes: what it passes
-    /// through is a subset of what it was given.
+    /// The emulator reads OSC 8 links and OSC 66 sizes into its cells.
+    /// Arbitrary bytes, with link and size openers spliced in, must not panic
+    /// it or the extraction that reads the cells back.
     #[test]
-    fn osc_parser_survives_arbitrary_bytes(chunks in prop::collection::vec(pane_bytes(), 1..6)) {
-        let mut parser = OscParser::new();
-        parser.set_viewport_height(24);
-        let mut fed = 0usize;
-        let mut emitted = 0usize;
+    fn emulator_survives_arbitrary_bytes(
+        chunks in prop::collection::vec(pane_bytes(), 1..6),
+        opener in prop::sample::select(vec![
+            &b"\x1b]8;;https://example.com\x07"[..],
+            &b"\x1b]8;id=1;"[..],
+            &b"\x1b]66;s=2;"[..],
+            &b"\x1b]66;w=2;"[..],
+            &b"\x1b]0;"[..],
+        ]),
+    ) {
+        let mut parser = vt100::Parser::new(24, 80, 0);
         for chunk in &chunks {
-            fed += chunk.len();
-            let out = parser.process(chunk);
-            emitted += out.bytes.len();
-            for (start, end, _) in &out.links {
-                prop_assert!(start < end && *end <= out.bytes.len());
-            }
+            parser.process(opener);
+            parser.process(chunk);
         }
-        prop_assert!(emitted <= fed, "OSC parser emitted more bytes than it was fed");
+        let _ = tmuxy_core::extract_cells_from_screen(parser.screen());
     }
 
     /// The image decoders read a length-prefixed, base64-carrying payload out
@@ -280,32 +281,28 @@ proptest! {
     }
 }
 
-/// A runaway OSC sequence must not be buffered forever: past the cap the
-/// parser gives up on framing and emits the bytes, so a program printing
-/// `ESC ] …` and never terminating it cannot grow the process without bound.
+/// A runaway OSC sequence must not swallow the output after it: the next
+/// escape ends it, and ordinary text after it still reaches the screen.
 #[test]
-fn an_unterminated_osc_sequence_does_not_buffer_without_bound() {
-    let mut parser = OscParser::new();
-    parser.set_viewport_height(24);
+fn text_after_an_unterminated_osc_sequence_reaches_the_screen() {
+    let mut parser = vt100::Parser::new(24, 80, 0);
     let chunk = {
         let mut c = vec![0x1b, b']', b'0', b';'];
         c.extend(std::iter::repeat_n(b'A', 4096));
         c
     };
-    // 32 chunks ≈ 128 KiB, twice the 64 KiB pending cap.
     for _ in 0..32 {
         parser.process(&chunk);
     }
-    // The parser has recovered: ordinary text after the runaway still reaches
-    // the terminal instead of disappearing into the pending buffer.
-    let out = parser.process(b"\x07hello");
+    parser.process(b"\x07hello");
     assert!(
-        out.bytes.windows(5).any(|w| w == b"hello"),
-        "text after an unterminated OSC sequence never reached vt100"
+        parser.screen().contents().contains("hello"),
+        "text after an unterminated OSC sequence never reached the screen"
     );
 }
 
-/// The same bound for the image decoder, whose cap is 8 MiB.
+/// An image escape must not be buffered forever: the image decoder gives up
+/// on framing past its 8 MiB cap.
 #[test]
 fn an_unterminated_image_escape_does_not_buffer_without_bound() {
     let mut parser = ImageParser::new();

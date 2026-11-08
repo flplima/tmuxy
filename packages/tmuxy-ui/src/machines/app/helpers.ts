@@ -1,67 +1,36 @@
-/**
- * Helper functions for the app machine
- */
-
-import { assign, sendTo } from 'xstate';
-import { groupMembers } from '../../domain/client';
+import { raise } from 'xstate';
+import { groupMembers, type PaneGroup, type TmuxPane, type TmuxWindow } from '../../domain/client';
 import { isModelPaneId, type GroupId, type PaneId, type WindowId } from '../../domain/ids';
-import type { DrawerDirection, FloatBackdrop, FloatPaneState, PaneGroup } from '../types/domain';
-import type { TmuxPane, TmuxWindow } from '../../domain/client';
+import type {
+  DrawerDirection,
+  FloatBackdrop,
+  FloatPaneState,
+  KeyboardOwner,
+} from '../types/domain';
 import type { Ctx, EnqueueAction } from './actionTypes';
-import { fitGridCell, fixedGridSize, type GridCell } from '../../utils/gridFit';
-
-/** The surfaces that can hold the keyboard away from the tiled panes. */
-export type KeyboardSurface = 'left' | 'right' | 'float';
+import { fitGridCell, fixedGridSize, type GridCell } from '../../domain/gridFit';
+import { gridExtent } from '../../domain/paneGeometry';
 
 /**
- * Take the keyboard back from a surface, when it holds it: the focus flag
- * here and the keyboard actor's record of it, which is what re-aims the next
- * keystroke. Exactly one surface holds the keyboard, so whatever takes it —
- * a pane click, a group tab, the other column — releases the others through
- * this; a column that vanished or was hidden releases itself the same way.
+ * Hand the keyboard to `owner`. Exactly one surface holds it, so taking it is
+ * all a surface does: the one that had it lets go by the same step. The
+ * keyboard slice makes the change, and the keyboard actor follows it.
  */
-export function releaseKeyboard(context: Ctx, enqueue: EnqueueAction, surface: KeyboardSurface) {
-  if (surface === 'left') {
-    if (!context.leftSidebarFocused) return;
-    enqueue(assign({ leftSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_LEFT_SIDEBAR_FOCUSED' as const, focused: false }));
-  } else if (surface === 'right') {
-    if (!context.rightSidebarFocused) return;
-    enqueue(assign({ rightSidebarFocused: false }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_RIGHT_SIDEBAR_FOCUSED' as const, paneId: null }));
-  } else {
-    if (!context.focusedFloatPaneId) return;
-    enqueue(assign({ focusedFloatPaneId: null }));
-    enqueue(sendTo('keyboard', { type: 'UPDATE_FOCUSED_FLOAT' as const, paneId: null }));
-  }
+export function takeKeyboard(enqueue: EnqueueAction, owner: KeyboardOwner) {
+  enqueue(raise({ type: 'TAKE_KEYBOARD' as const, owner }));
 }
 
 /**
- * The grid's extent in cells: the far edges of the panes in the active
- * window — what the client draws and sizes its viewport against. Every
- * other window's panes (hidden group members, floats, sidebars, a tab left
- * at an older size) live in their own layouts and must not count, or the
- * client compares its viewport with a size it can never reach and asks tmux
- * for a resize on every update. Falls back to every pane when the active
- * window has none, and to the server's own numbers when there are no panes.
+ * Give the keyboard back to the panes if `from` holds it: a column that was
+ * hidden or vanished, a float that closed, a peek that ended.
  */
-export function gridExtent(
-  panes: ReadonlyArray<Pick<TmuxPane, 'windowId' | 'x' | 'y' | 'width' | 'height'>>,
-  activeWindowId: WindowId | null,
-  fallback: { cols: number; rows: number },
-): { cols: number; rows: number } {
-  const inWindow = activeWindowId ? panes.filter((p) => p.windowId === activeWindowId) : [];
-  const extent = inWindow.length > 0 ? inWindow : panes;
-  if (extent.length === 0) return fallback;
-  return {
-    cols: Math.max(...extent.map((p) => p.x + p.width)),
-    rows: Math.max(...extent.map((p) => p.y + p.height)),
-  };
+export function releaseKeyboard(enqueue: EnqueueAction, from: KeyboardOwner['kind']) {
+  enqueue(raise({ type: 'RELEASE_KEYBOARD' as const, from }));
 }
 
 /**
  * The grid's cell for this context: the measured cell, fitted to the window
- * when `@tmuxy-size` sized it for someone else (utils/gridFit.ts). A fixed
+ * when `@tmuxy-size` sized it for someone else (domain/gridFit.ts). A fixed
  * size fits the grid it asks for, even before tmux has applied it; the
  * phone layout keeps its own cut cell.
  */
@@ -98,10 +67,8 @@ export function fittedGridCell(
 
 export const STATUS_MESSAGE_DURATION = 5000;
 
-// Shared id for the delayed CLEAR_STATUS_MESSAGE raise. Re-scheduling with the
-// same id (after cancel) means a newer status message restarts the window
-// instead of the previous message's timer clearing it early — the actor owns
-// the timer, so it is cancelled automatically when the machine stops.
+// The delayed CLEAR_STATUS_MESSAGE raise's id: a newer message cancels and
+// re-schedules it, so the previous message's timer never clears it early.
 export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
 
 /**
@@ -109,6 +76,34 @@ export const STATUS_MESSAGE_CLEAR_ID = 'statusMessageClear';
  * object when every pane is still alive, so an unchanged record keeps its
  * identity.
  */
+/**
+ * `prev` when `next` holds the same entries (each a flat record, an array
+ * field compared item by item), else `next`: a rebuilt record that changed
+ * nothing keeps its identity, so what reads it does not re-render.
+ */
+export function keepIfSame<K extends string, V extends object>(
+  prev: Record<K, V>,
+  next: Record<K, V>,
+): Record<K, V> {
+  const keys = Object.keys(next) as K[];
+  if (keys.length !== Object.keys(prev).length) return next;
+  const same = (a: unknown, b: unknown) =>
+    a === b ||
+    (Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, i) => item === b[i]));
+  for (const key of keys) {
+    const was = prev[key] as Record<string, unknown> | undefined;
+    const is = next[key] as Record<string, unknown>;
+    if (!was) return next;
+    const fields = Object.keys(is);
+    if (fields.length !== Object.keys(was).length) return next;
+    if (!fields.every((f) => same(was[f], is[f]))) return next;
+  }
+  return prev;
+}
+
 export function keepLivePanes<V>(
   record: Record<PaneId, V>,
   live: ReadonlySet<PaneId>,
@@ -164,8 +159,6 @@ export function scrollViewsIn(
 }
 
 /**
- * Build pane groups from panes.
- *
  * Group membership is intrinsic to each pane via `@tmuxy-group-id` (e.g. `g5`) —
  * the visible member (a real pane in the active session) and each hidden member
  * (a stub emitted from the stash session) all carry the same id. A group is any
@@ -186,11 +179,9 @@ export function buildGroupsFromPanes(panes: TmuxPane[]): Record<GroupId, PaneGro
 }
 
 /**
- * Build float pane states from float-typed windows.
- * Float metadata (drawer, backdrop, no-header) is sourced from @tmuxy-float-*
- * options on the window; each float window contains exactly one pane.
+ * Float metadata (drawer, backdrop, no-header) comes from the window's
+ * `@tmuxy-float-*` options; each float window holds exactly one pane.
  */
-
 export function buildFloatPanesFromWindows(
   windows: TmuxWindow[],
   panes: TmuxPane[],
@@ -205,7 +196,6 @@ export function buildFloatPanesFromWindows(
   for (const window of windows) {
     if (window.windowType !== 'float') continue;
 
-    // A float window contains exactly one pane.
     const pane = panes.find((p) => p.windowId === window.id);
     if (!pane) continue;
     const paneId = pane.tmuxId;

@@ -1,19 +1,10 @@
 /**
- * TabStripScroll — the ‹ › pair that pages an overflowing tab strip.
+ * The strip's scrollbar is hidden, which leaves a mouse without a wheel no way
+ * to reach the tabs past the edge. Each button is disabled at its end rather
+ * than hidden, so reaching an edge does not shuffle the buttons beside it.
  *
- * With more tabs than fit, the strip scrolls sideways with its scrollbar
- * hidden, which leaves a mouse without a wheel and a trackpad-less desktop no
- * way to reach the tabs past the edge. These two buttons page it by exactly
- * one strip-width at a time, the way a pager should, and the browser clamps
- * the last page to whatever is left.
- *
- * They appear only when there is something to scroll to, and each is disabled
- * at its own end — kept in place rather than hidden, so the pair does not
- * shuffle the buttons beside it every time you reach an edge.
- *
- * The strip belongs to WindowTabs; this reads it out of the DOM rather than
- * threading a ref through the status bar, because what it needs is precisely
- * the scroll geometry the browser owns.
+ * The strip belongs to WindowTabs; this reads it out of the DOM, since what it
+ * needs is the scroll geometry the browser owns.
  */
 
 import { useCallback, useLayoutEffect, useState } from 'react';
@@ -76,7 +67,6 @@ export function TabStripScroll() {
     });
   };
 
-  // Nothing to reach in either direction: every tab is already on screen.
   if (!reach.left && !reach.right) return null;
 
   return (

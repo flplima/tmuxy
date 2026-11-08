@@ -24,6 +24,32 @@ export interface V86Emulator {
   destroy?: () => Promise<void>;
   /** v86's ScreenAdapter — present once a `screen_container` was supplied. */
   screen_adapter?: { pause(): void; continue(): void };
+  /** The emulator's internals; `restoreSnapshot` sets the guest's TSC through them. */
+  v86: { cpu: V86Cpu };
+}
+
+interface V86Cpu {
+  /** The guest's TSC, as [low, high] words, once `store_current_tsc` wrote it. */
+  current_tsc: Uint32Array;
+  store_current_tsc(): void;
+  set_tsc(low: number, high: number): void;
+}
+
+/**
+ * Rewind the machine to `snapshot`, its clock included. v86's `set_tsc` takes
+ * the new offset from a TSC reading the old offset is already subtracted
+ * from, so only a machine whose offset is zero lands on the TSC it is given:
+ * a second restore on one emulator put the guest's TSC 99s behind the time
+ * its restored kernel had read last, and the guest's clock stood still until
+ * it caught up (a `sleep 1` slept for a minute and a half). Setting the TSC
+ * to its own current value first brings the offset back to zero.
+ */
+export async function restoreSnapshot(emu: V86Emulator, snapshot: ArrayBuffer): Promise<void> {
+  const { cpu } = emu.v86;
+  cpu.store_current_tsc();
+  cpu.set_tsc(cpu.current_tsc[0], cpu.current_tsc[1]);
+  // restore_state consumes the buffer; hand it a copy.
+  await emu.restore_state(snapshot.slice(0));
 }
 
 export function createDetachedScreen(): HTMLElement {
@@ -34,15 +60,12 @@ export function createDetachedScreen(): HTMLElement {
 }
 
 /**
- * Construct WITHOUT `initial_state` and WITHOUT autostart: v86 does NOT
- * zstd-decompress an `initial_state` URL (it skips decompression for that
- * resource specifically — build/libv86 `f.url.endsWith(".zst") && "initial_state"
- * !== f.name`), so handing it the .zst fed raw compressed bytes to
- * restore_state, which failed and silently fell back to a full kernel cold
- * boot (~30s, and flaky). Instead we replicate v86's own initial_state
- * sequence — init → restore_state → run — but restore the snapshot OURSELVES
- * from correctly-inflated bytes (fetchGuestSnapshot: .gz via DecompressionStream,
- * or the raw .bin), the same path the warm reset() already uses.
+ * Constructed without `initial_state` and without autostart: v86 does not
+ * decompress an `initial_state` URL (build/libv86: `f.url.endsWith(".zst") &&
+ * "initial_state" !== f.name`), so restore_state got compressed bytes and
+ * silently fell back to a ~30s cold boot. The caller replays v86's own
+ * sequence — init → restore_state → run — with bytes `fetchGuestSnapshot`
+ * inflated.
  */
 export async function createV86Emulator(
   screen: HTMLElement,
@@ -104,7 +127,7 @@ export async function fetchGuestSnapshot(): Promise<ArrayBuffer> {
  * Enqueue as UTF-8: v86's serial0_send writes one byte per JS char
  * (charCode & 0xFF), so multibyte characters (CJK from IME composition,
  * emoji in pasted text) must be expanded to their UTF-8 bytes here — and
- * the FIFO pacing must count BYTES, not UTF-16 units.
+ * the pacing must count bytes, not UTF-16 units.
  */
 export function encodeUtf8SerialBytes(cmd: string): string {
   const text = cmd.endsWith('\n') ? cmd : `${cmd}\n`;

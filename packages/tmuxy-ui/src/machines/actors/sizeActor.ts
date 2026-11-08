@@ -1,14 +1,12 @@
 /**
- * Size Actor - Manages window resize and container size observation
- *
- * Factory pattern: createSizeActor(measureFn) => fromCallback(...)
- * Replaces useWindowResize + useContainerSize hooks.
+ * The size actor: the window, the observed container and the measured cell,
+ * turned into the size this client asks tmux for.
  */
 
 import { fromCallback, type AnyActorRef } from 'xstate';
-import { calculateTargetSize } from '../../utils/layout';
+import { calculateTargetSize } from '../../infra/dom/targetSize';
 import { CHAR_HEIGHT } from '../../constants/layout';
-import type { CellMetrics } from '../../utils/cellMetrics';
+import type { CellMetrics } from '../../infra/dom/cellMetrics';
 import {
   PHONE_COLS,
   PHONE_ROWS,
@@ -16,12 +14,14 @@ import {
   phoneLandscapeCell,
   phoneMediaQuery,
   rootFontPx,
-} from '../../utils/phoneLayout';
+} from '../../infra/dom/phoneLayout';
 
 export type SizeActorEvent =
   | { type: 'OBSERVE_CONTAINER'; element: HTMLElement }
-  | { type: 'CONNECTED' }
-  /** Send the size again even if unchanged: what the machine asks tmux for has changed. */
+  /**
+   * Send the size again even if unchanged: the connection is new, or what the
+   * machine asks tmux for has changed.
+   */
   | { type: 'RESEND_SIZE' }
   | { type: 'REMEASURE' };
 
@@ -31,7 +31,7 @@ export interface SizeActorInput {
 
 /**
  * Measures the terminal font inside `host` (the observed pane container once
- * it exists, `document.body` before that) — see utils/cellMetrics.ts.
+ * it exists, `document.body` before that) — see infra/dom/cellMetrics.ts.
  */
 export interface MeasureFn {
   (host?: HTMLElement): CellMetrics;
@@ -60,14 +60,13 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
     let lastCols = 0;
     let lastRows = 0;
 
-    // Track container dimensions from ResizeObserver
     let containerWidth: number | undefined;
     let containerHeight: number | undefined;
     // The element the grid renders in; measurements happen inside it so any
     // inherited property that changes the advance is part of the measurement.
     let measureHost: HTMLElement | undefined;
 
-    // The phone layout (utils/phoneLayout.ts): the cell is whatever fits 80
+    // The phone layout (infra/dom/phoneLayout.ts): the cell is whatever fits 80
     // columns across the container, and the window asked for is fixed.
     const query = options.phoneLayout === undefined ? phoneMediaQuery() : null;
     let phone = options.phoneLayout ?? query?.matches ?? false;
@@ -133,7 +132,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
 
     sendCharSize();
 
-    // Re-measure; only propagate (and re-derive cols/rows) when the cell changed.
     const remeasure = () => {
       const next = measure();
       if (next.cellWidth === metrics.cellWidth && next.cellGap === metrics.cellGap) return;
@@ -144,10 +142,9 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
       updateTargetSize();
     };
 
-    // Re-measure after fonts finish loading (initial measurement may use fallback font)
+    // The first measurement may have used a fallback font.
     document.fonts.ready.then(remeasure);
 
-    // Calculate and send target size using container dimensions if available
     const updateTargetSize = () => {
       const { cols, rows } = phone
         ? { cols: PHONE_COLS, rows: PHONE_ROWS }
@@ -172,7 +169,6 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
       if (phone) sendCharSize();
     };
 
-    // Debounced window resize
     const handleResize = () => {
       if (!bodyObserved) screenChanged(window.innerWidth, window.innerHeight);
       if (resizeTimeout) clearTimeout(resizeTimeout);
@@ -230,8 +226,7 @@ export function createSizeActor(measureFn: MeasureFn, options: SizeActorOptions 
           bodyObserver.observe(body);
         }
       }
-      if (event.type === 'CONNECTED' || event.type === 'RESEND_SIZE') {
-        // Force re-send size on reconnection, or under a new size policy
+      if (event.type === 'RESEND_SIZE') {
         lastCols = 0;
         lastRows = 0;
         updateTargetSize();

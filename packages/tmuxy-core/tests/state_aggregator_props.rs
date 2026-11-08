@@ -1,20 +1,10 @@
 //! Property-based tests for the `StateAggregator` state machine.
-//!
-//! These run as an integration test so they can use a clean `cfg(test)` profile
-//! without contending with the lib's `#[allow(clippy::unwrap_used)]` tests
-//! module on the same source file.
-//!
-//! Each property drives the aggregator with synthetic event sequences and
-//! asserts an invariant that *must* hold regardless of input ordering. The
-//! aggregator has no tokio/async dependencies, so these properties exercise
-//! it purely through `step`/`step_at` and `tick`, the entry points the
-//! runtime uses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use proptest::prelude::*;
 use std::collections::HashSet;
-use tmuxy_core::control_mode::{ChangeType, ControlModeEvent, SideEffect, StateAggregator};
+use tmuxy_core::control_mode::{Batch, ChangeType, ControlModeEvent, SideEffect, StateAggregator};
 use tmuxy_core::{PaneId, WindowId};
 
 mod common_aggregator_props;
@@ -60,55 +50,57 @@ fn the_seam_events_reach_every_effect_of_a1() {
         }
     }
     for kind in [
-        "AdoptUntaggedWindows",
-        "StoreImages",
-        "WriteClipboard",
-        "SendTmuxCommand",
-        "CommandReply",
-        "RefreshAfterWindowAdd",
-        "RefreshPanes",
-        "ResumePane",
-        "EmitState",
+        "Send(WindowSetup)",
+        "Notify(Images)",
+        "Notify(Clipboard)",
+        "Send(Own)",
+        "Reply",
+        "Send(WindowRelist)",
+        "Send(PaneRefresh)",
+        "Send(Resume)",
+        "Emit",
     ] {
         assert!(seen.contains(kind), "no event reached {kind}: {seen:?}");
     }
 }
 
 proptest! {
-    /// `step` must never panic on any sequence of synthetic events.
-    /// The aggregator wraps vt100 in a panic guard (`safe_process` in
-    /// `state.rs`), so even adversarially-malformed payloads should be
-    /// contained.
+    /// `step` must never panic, whatever tmux and the panes send: nothing
+    /// can catch one. The release profile is `panic = "abort"`, so a panic
+    /// ends the whole server or desktop app, and in the browser it traps the
+    /// wasm module. The events start from an attached session's panes, so
+    /// output, captures and resizes down to a 0-cell side all reach the
+    /// emulator.
     #[test]
-    fn step_never_panics(events in prop::collection::vec(any_event_strategy(), 1..50)) {
-        let mut agg = StateAggregator::new();
-        for ev in events {
-            let _ = agg.step(ev);
+    fn step_never_panics(runs in prop::collection::vec(emulator_event_strategy(), 1..40)) {
+        let mut agg = seeded_aggregator();
+        for ev in runs.into_iter().flatten() {
+            let _ = agg.step(signed(&agg, ev));
         }
     }
 
-    /// After processing a sequence of events, the aggregator's reported
-    /// window count must equal the number of distinct windows it has seen
-    /// minus those that were closed. This catches double-counts in the
-    /// add/close bookkeeping that earlier hand-rolled tests didn't.
+    /// The window count is the windows added and not closed since: an add
+    /// of a window already there is one window, and a close of one that does
+    /// not exist is a no-op, not an error.
     #[test]
     fn window_count_matches_add_close_delta(
         adds in prop::collection::vec(prop::sample::select(vec!["@0", "@1", "@2", "@3"]), 0..10),
         closes in prop::collection::vec(prop::sample::select(vec!["@0", "@1", "@2", "@3"]), 0..10),
     ) {
         let mut agg = StateAggregator::new();
-        // Apply adds first, then closes — the order matters because closing
-        // a non-existent window is a no-op, not an error.
         for w in &adds {
             agg.step(ControlModeEvent::WindowAdd { window_id: w.parse().unwrap() });
         }
-        let after_adds = agg.to_tmux_state().windows.len();
+        let added: HashSet<&str> = adds.iter().copied().collect();
+        prop_assert_eq!(agg.to_tmux_state().windows.len(), added.len());
         for w in &closes {
             agg.step(ControlModeEvent::WindowClose { window_id: w.parse().unwrap() });
         }
-        let after_closes = agg.to_tmux_state().windows.len();
-        // Sanity: closes can only ever reduce the window count.
-        prop_assert!(after_closes <= after_adds);
+        let closed: HashSet<&str> = closes.iter().copied().collect();
+        prop_assert_eq!(
+            agg.to_tmux_state().windows.len(),
+            added.difference(&closed).count()
+        );
     }
 
     /// Settling is a sticky state — arming it and then clearing it must
@@ -124,13 +116,12 @@ proptest! {
         for ev in events {
             let _ = agg.step_at(ev, t0);
         }
-        // Settling remains armed while events flow.
         prop_assert!(agg.is_settling());
         agg.clear_settling();
         prop_assert!(!agg.is_settling());
     }
 
-    /// State-delta consistency: every `EmitState` effect must carry a non-None
+    /// State-delta consistency: every `Emit` effect must carry a non-None
     /// change_type that matches the step's overall change_type. Catches the
     /// regression where a refactor of `step` drops the change-type plumbing
     /// and the monitor's throttle policy starts treating layout changes as
@@ -143,19 +134,19 @@ proptest! {
         for ev in events {
             let result = agg.step(ev);
             for effect in &result.effects {
-                if let SideEffect::EmitState { change } = effect {
-                    prop_assert_ne!(change.clone(), ChangeType::None,
-                        "EmitState must carry a real change type");
-                    prop_assert_eq!(change.clone(), result.change_type.clone(),
-                        "EmitState change must match step's reported change_type");
+                if let SideEffect::Emit(change) = effect {
+                    prop_assert_ne!(*change, ChangeType::None,
+                        "Emit must carry a real change type");
+                    prop_assert_eq!(*change, result.change_type,
+                        "Emit change must match step's reported change_type");
                 }
             }
         }
     }
 
     /// Window-add ↔ capture-pane reconciliation: every WindowAdd step must
-    /// emit RefreshAfterWindowAdd, and that effect type must arrive BEFORE
-    /// any EmitState in the same step (so the monitor issues list-panes
+    /// emit the window re-list, and that effect type must arrive BEFORE
+    /// any Emit in the same step (so the monitor issues list-panes
     /// before tmux can race a layout-change emission). Catches a regression
     /// where the SideEffect ordering documented in `state::SideEffect` gets
     /// inverted.
@@ -174,14 +165,14 @@ proptest! {
             window_id: window_id.parse().unwrap(),
         });
         let refresh_idx = result.effects.iter().position(|e|
-            matches!(e, SideEffect::RefreshAfterWindowAdd));
+            matches!(e, SideEffect::Send { batch: Batch::WindowRelist, .. }));
         let emit_idx = result.effects.iter().position(|e|
-            matches!(e, SideEffect::EmitState { .. }));
+            matches!(e, SideEffect::Emit(_)));
         prop_assert!(refresh_idx.is_some(),
-            "WindowAdd must emit RefreshAfterWindowAdd");
+            "WindowAdd must emit the window re-list");
         if let (Some(r), Some(e)) = (refresh_idx, emit_idx) {
             prop_assert!(r < e,
-                "RefreshAfterWindowAdd ({}) must precede EmitState ({}) in effect order",
+                "the window re-list ({}) must precede Emit ({}) in effect order",
                 r, e);
         }
     }
@@ -222,16 +213,14 @@ proptest! {
         let mut agg = StateAggregator::new();
         let unique: HashSet<PaneId> = pane_ids.iter().cloned().collect();
         let queued = agg.queue_captures(&pane_ids);
-        // First call queues each distinct id exactly once.
         prop_assert_eq!(queued.len(), unique.len(),
             "first queue should match the number of distinct ids");
-        // Second call queues nothing — the queue already has them.
         let requeued = agg.queue_captures(&pane_ids);
         prop_assert!(requeued.is_empty(),
             "re-queueing the same ids should be a no-op");
     }
 
-    /// When window emissions are suppressed, no SideEffect::EmitState should
+    /// When window emissions are suppressed, no SideEffect::Emit should
     /// fire for window/layout events. Mirrors the settling-window behaviour
     /// the monitor relies on to batch compound-command intermediates.
     #[test]
@@ -251,7 +240,7 @@ proptest! {
         for w in &window_ids {
             let result = agg.step_at(ControlModeEvent::WindowClose { window_id: w.clone() }, t0);
             let has_emit = result.effects.iter().any(|e|
-                matches!(e, SideEffect::EmitState { .. }));
+                matches!(e, SideEffect::Emit(_)));
             prop_assert!(!has_emit,
                 "WindowClose under suppression must not emit; got effects: {:?}",
                 result.effects);
@@ -263,10 +252,9 @@ proptest! {
     }
 
     /// Settling timer end-to-end: regardless of how many window-typed events
-    /// arrive inside the settling window, `tick(now)` past the deadline must
-    /// (a) clear `is_settling` and (b) emit at most one consolidated
-    /// `EmitState`. This is the property that was previously untestable
-    /// because the timing lived on the monitor's `RunState`.
+    /// arrive inside the settling window, none of them emits, and `tick(now)`
+    /// past the deadline clears `is_settling` (it returns at most one
+    /// consolidated emission by its type).
     #[test]
     fn settling_window_emits_at_most_once_and_clears(
         // Up to 12 window-typed events inside the settling window. We seed
@@ -276,7 +264,6 @@ proptest! {
             prop::sample::select(vec!["@0", "@1", "@2", "@3"]).prop_map(|w| w.parse::<WindowId>().unwrap()),
             0..12,
         ),
-        // Per-event time offset inside the settling window.
         offsets in prop::collection::vec(0u64..400, 0..12),
     ) {
         let mut agg = StateAggregator::new();
@@ -300,7 +287,7 @@ proptest! {
                 t0 + std::time::Duration::from_millis(*off),
             );
             prop_assert!(
-                !result.effects.iter().any(|e| matches!(e, SideEffect::EmitState { .. })),
+                !result.effects.iter().any(|e| matches!(e, SideEffect::Emit(_))),
                 "a window event inside the settling window escaped: {:?}",
                 result.effects
             );
@@ -308,16 +295,10 @@ proptest! {
 
         // Advance to well past the safety ceiling and tick once.
         let post_deadline = t0 + std::time::Duration::from_secs(2);
-        let effects = agg.tick(post_deadline);
+        agg.tick(post_deadline);
 
         prop_assert!(!agg.is_settling(),
             "tick past deadline must clear settling");
-
-        let emit_count = effects.iter().filter(|e|
-            matches!(e, SideEffect::EmitState { .. })).count();
-        prop_assert!(emit_count <= 1,
-            "at most one consolidated EmitState per settling window; got {}",
-            emit_count);
     }
 }
 
@@ -333,6 +314,8 @@ fn hostile_block() -> impl Strategy<Value = String> {
             "TMUXY_RPY_END",
             "TMUXY_BUF_BEGIN",
             "TMUXY_BUF_END",
+            "TMUXY_LS_BEGIN",
+            "TMUXY_LS_END",
         ])
     };
     prop_oneof![
@@ -354,19 +337,21 @@ proptest! {
     #[test]
     fn a_capture_lands_on_its_pane_whatever_the_pane_shows(content in hostile_block()) {
         let mut agg = seeded_aggregator();
+        // The seed's own steps sent %1's capture, and asked for it again
+        // while it was in flight (the list, then the window focus): once
+        // the block lands as %1's, that second capture follows it.
         let pane: PaneId = "%1".parse().unwrap();
-        prop_assert_eq!(agg.queue_captures(std::slice::from_ref(&pane)), vec![pane.clone()]);
         agg.step(signed(&agg, response("TMUXY_CAP_BEGIN 1")));
         let landed = agg.step(response(&content));
+        prop_assert_eq!(landed.change_type, ChangeType::Output, "the block is a capture");
+        let follow_up = format!("capture-pane -t {pane} ");
         prop_assert!(
-            matches!(landed.change_type, ChangeType::PaneOutput { ref pane_id } if *pane_id == pane),
-            "the block is %1's capture: {:?}", landed.change_type
+            landed.effects.iter().any(|e| matches!(e,
+                SideEffect::Send { batch: Batch::PaneRefresh, commands }
+                    if commands.iter().any(|c| c.contains(&follow_up)))),
+            "the block was %1's capture, so %1 is free for the next: {:?}", landed.effects
         );
         agg.step(signed(&agg, response("TMUXY_CAP_END")));
-        prop_assert_eq!(
-            agg.queue_captures(std::slice::from_ref(&pane)), vec![pane],
-            "the capture is no longer pending, so the pane can be captured again"
-        );
     }
 
     /// A13: a reply is everything between its own markers. No block a pane
@@ -384,7 +369,7 @@ proptest! {
         let mut replies = Vec::new();
         for block in blocks {
             for effect in agg.step(block).effects {
-                if let SideEffect::CommandReply { id, output, error } = effect {
+                if let SideEffect::Reply { id, output, error } = effect {
                     replies.push((id, output, error));
                 }
             }

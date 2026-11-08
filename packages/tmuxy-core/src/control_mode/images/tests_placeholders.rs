@@ -1,6 +1,3 @@
-//! Kitty Unicode placeholders, tmux passthrough chunking, and the cost
-//! bounds on both.
-
 use super::*;
 use base64::Engine;
 
@@ -152,7 +149,7 @@ fn placeholder_scan_runs_only_when_a_placement_can_change() {
 }
 
 /// A pane printing placeholder images in a loop remembers a bounded number
-/// of kitty ids, the oldest going first (SEC-22).
+/// of kitty ids, the oldest going first.
 #[test]
 fn kitty_id_map_is_bounded() {
     let mut parser = ImageParser::new();

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Sourced by packages/tmuxy-cli/bin/tmuxy-cli — `pane run`, `pane wait` and
-# `pane capture`: a program in a pane as a script sees it, with an exit status
-# to wait for instead of a screen to poll.
 
 # How often a waited-on pane is looked at. tmux emits no notification a
 # browser-side client could relay, and a read-only `display-message` is cheap.
@@ -9,7 +6,6 @@ WAIT_POLL_INTERVAL=0.15
 
 _wait_nap() { sleep "$WAIT_POLL_INTERVAL" 2>/dev/null || sleep 1; }
 
-# A duration (`90`, `90s`, `10m`, `2h`) in seconds; a bad one is a usage error.
 _duration_seconds() {
   local value="$1" n unit
   case "$value" in
@@ -24,8 +20,6 @@ _duration_seconds() {
   esac
 }
 
-# The answer to a wait: the program's status as the exit code, and as JSON.
-# Args: $1=pane id, $2=status
 _wait_done() {
   if [ "$JSON_OUT" = true ]; then
     local ok=false
@@ -101,7 +95,7 @@ cmd_pane_run() {
   # status — tmux's own `pane_dead_status` needs remain-on-exit set before
   # the program can exit, which a fast one does before any second command.
   local dir
-  dir=$(mktemp -d /tmp/tmuxy-run.XXXXXX)
+  dir=$(mktemp -d "${TMPDIR:-/tmp}/tmuxy-run.XXXXXX")
   {
     echo '#!/bin/bash'
     # Each word quoted for the shell again: `sh -c "echo a; sleep 1"` is one
@@ -126,7 +120,7 @@ cmd_pane_run() {
   out=$(_run_safe "splitw$CALLER_T $flags -P -F '##{pane_id}' $(shquote "bash $dir/run.sh")")
   pane_id=$(echo "$out" | grep -o '%[0-9]*' | tail -1 || true)
   [ -n "$pane_id" ] || _fail "$EXIT_FAILED" "tmux created no pane"
-  [ -z "$label" ] || _run_safe "set-option -p -t $pane_id @tmuxy-label $(shquote "$label")"
+  [ -z "$label" ] || _run_safe "set-option -p -t $pane_id $OPT_PANE_LABEL $(shquote "$label")"
 
   if ! $wait; then
     if [ "$JSON_OUT" = true ]; then
@@ -138,14 +132,17 @@ cmd_pane_run() {
   fi
 
   [ "$JSON_OUT" = true ] || echo "$pane_id"
-  local status
+  local status rc
   while :; do
     if [ -f "$dir/status" ]; then
       status=$(cat "$dir/status")
       $keep_open || rm -rf "$dir"
       _wait_done "$pane_id" "${status:-1}"
     fi
-    if ! _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1; then
+    rc=0
+    _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+    _exit_if_no_server "$rc"
+    if [ "$rc" -ne 0 ]; then
       rm -rf "$dir"
       _fail "$EXIT_FAILED" "$pane_id closed before the command reported its status"
     fi
@@ -182,10 +179,11 @@ EOF
     seconds="$(_duration_seconds "$for")" || exit $?
     deadline=$(($(date +%s) + seconds))
   fi
-  local pane_id
+  local pane_id rc=0
   pane_id="$(_resolve_target "$target")" || exit $?
-  _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 \
-    || _fail "$EXIT_TARGET" "no such pane: $target"
+  _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $target"
   # Kept open once the program exits, or its status would die with it.
   _run_safe "set-option -p -t $(shquote "$pane_id") remain-on-exit on"
 
@@ -240,7 +238,8 @@ EOF
     content=$(printf '%s\n' "$content" | awk '{ sub(/[ \t]+$/, ""); line[NR] = $0; if ($0 != "") last = NR } END { for (i = 1; i <= last; i++) print line[i] }')
   fi
   if [ "$format" = html ]; then
-    content=$(printf '%s\n' "$content" | awk -f "$SCRIPTS_DIR/capture-html")
+    find_server_cmd || exit 1
+    content=$(printf '%s\n' "$content" | "${SERVER_CMD[@]}" capture-html) || exit $?
   fi
   if [ "$JSON_OUT" = true ]; then
     printf '{"content":%s,"format":"%s","paneId":%s}\n' "$(json_string "$content")" "$format" "$(json_string "$PANE_ID")"

@@ -1,30 +1,33 @@
-import type { SequencedAdapter } from '../driver';
+import type { SequencedDriver } from '../driver';
 import { EventHub } from '../../eventHub';
 import { TransportEvent, type DriverEvent } from '../events';
-import {
-  ClipboardEvent,
-  DetachedEvent,
-  KeyBindings,
-  LogEvent,
-  MessageFrame,
-  ThemeSettings,
-  TmuxMessageEvent,
-} from '../../../domain/wire';
-import { Schema } from 'effect';
-import { TmuxOp, toTmuxCommand } from '../../../domain/commands';
-import { StateSequencer, type StreamPosition } from '../stateSequencer';
+import { BACKEND_COMMANDS, backendCall, type BackendCall } from '../../../domain/backendCalls';
+import type { PaneId } from '../../../domain/ids';
+import { StateSequencer } from '../stateSequencer';
 import { decodeEvent } from '../wireDecode';
-import { KeyBatcher } from '../keyBatching';
-import { latencyTracker } from '../../latencyTracker';
-import { tracer } from '../../tracer';
-import { tauriSchemeUrl } from '../../../utils/platform';
+import {
+  HOST_EVENT_NAMES,
+  receiveHostEvent,
+  type HostEventHooks,
+  type HostEventName,
+} from '../hostEvents';
+import { tauriSchemeUrl } from '../../platform';
 
-// ============================================
-// Tauri Adapter
-// ============================================
+/**
+ * Every client command goes to the desktop's one `dispatch` IPC command as
+ * the `{ cmd, args }` the web build POSTs to `/commands`; only window chrome
+ * has IPC commands of its own (`infra/desktopWindow.ts`, `infra/guiWindows.ts`).
+ * IPC has no header to carry a trace `action_id`, so the client's legs of a
+ * command are traced and the host's are not joined to them.
+ */
+async function dispatch(call: BackendCall): Promise<unknown> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke('dispatch', { request: call });
+}
 
-export class TauriAdapter implements SequencedAdapter {
+export class TauriAdapter implements SequencedDriver {
   readonly enumeratesSessions = true;
+  readonly answersQueries = true;
   private connected = false;
   private reconnectingState = false;
   private unlistenFns: (() => void)[] = [];
@@ -33,170 +36,65 @@ export class TauriAdapter implements SequencedAdapter {
 
   /**
    * The client's copy of the state the stream stage sequences. The Tauri event
-   * channel has no ring-buffer replay, so the stage's get_initial_state
-   * refetch on a gap is the only recovery path on this transport.
+   * channel has no ring-buffer replay, so the stage's full-state refetch on a
+   * gap is the only recovery path on this transport.
    */
   readonly sequencer = new StateSequencer();
-
-  // Keyboard batching
-  private keyBatcher: KeyBatcher | null = null;
-  /** Per-instance counter for minting trace action ids (docs/TRACING.md).
-   * Client-only on Tauri: IPC has no header to carry it to the backend the way
-   * the web `X-Action-Id` does, so this correlates the client-side legs and
-   * keeps the two adapters symmetric. */
-  private traceActionSeq = 0;
 
   async connect(): Promise<void> {
     try {
       const { listen } = await import('@tauri-apps/api/event');
-      const { invoke } = await import('@tauri-apps/api/core');
 
-      // Initialize key batcher. The flushed batches MUST go through the same
-      // serial queue as run_tmux_command: tauri::invoke spawns each call as its
-      // own task with no cross-command ordering, so an unqueued keystroke batch
-      // can overtake a queued mutation (or another batch) and land out of order
-      // — the exact reordering the serial queue exists to prevent (HttpAdapter
-      // routes its batches through sendQueue for the same reason).
-      this.keyBatcher = new KeyBatcher((cmd, args) => {
-        latencyTracker.markInput();
-        const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
-        tracer.event({ layer: 'adapter', name: 'send', kind: 'keys', action_id: actionId });
-        this.inFlight++;
-        this.sendQueue = this.sendQueue.then(async () => {
-          try {
-            await invoke(cmd, args);
-          } catch {
-            // Ignore errors for fire-and-forget batched commands
-          } finally {
-            this.inFlight--;
+      // The monitor runs in this process, so its tmux connection is the link: it is down
+      // from a `reconnecting` until the next state arrives, and a state is
+      // the ONLY signal that a deliberate detach has ended (the monitor
+      // parks, and a user reconnect revives it with nothing in between).
+      const hooks: HostEventHooks = {
+        'state-update': () => {
+          const wasDown = !this.connected || this.reconnectingState;
+          this.connected = true;
+          if (wasDown) {
+            this.reconnectingState = false;
+            this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
           }
-        });
-      });
-
-      // Every event payload is decoded against its schema; a handler only
-      // ever sees one that matched.
-      const on = async <A, I>(
-        name: string,
-        schema: Schema.Schema<A, I>,
-        handle: (payload: A) => void,
-      ): Promise<void> => {
-        const decode = decodeEvent(schema, name);
-        const unlisten = await listen<unknown>(name, (event) => {
-          const payload = decode(event.payload);
-          if (payload !== null) handle(payload);
-        });
-        this.unlistenFns.push(unlisten);
-      };
-
-      // State updates (full or delta), decoded and sequenced by the stream stage.
-      const unlistenState = await listen<unknown>('tmux-state-update', (event) => {
-        this.events.emit({ _tag: 'StateReceived', payload: event.payload });
-
-        // A successful state update means we're connected — and is the ONLY
-        // signal that a deliberate detach has ended. The detach path leaves
-        // both flags false (see the `tmux-detached` listener), the monitor
-        // parks, and a user reconnect revives it with no `tmux-error` in
-        // between; gating the recovery notice on `reconnectingState` alone
-        // therefore never fired, and the app stayed blurred behind the
-        // detached overlay over a perfectly live connection.
-        const wasDown = !this.connected || this.reconnectingState;
-        this.connected = true;
-        if (wasDown) {
+        },
+        reconnecting: () => {
+          this.connected = false;
+          if (!this.reconnectingState) {
+            this.reconnectingState = true;
+            this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
+          }
+        },
+        fatal: () => {
+          this.connected = false;
           this.reconnectingState = false;
-          this.events.emit(TransportEvent.Reconnection({ reconnecting: false }));
-        }
-      });
-      this.unlistenFns.push(unlistenState);
-
-      await on('tmux-keybindings', KeyBindings, (keybindings) =>
-        this.events.emit(TransportEvent.KeyBindings({ keybindings })),
-      );
-
-      // Theme + appearance, re-pushed after the config is sourced
-      await on('tmux-theme-settings', ThemeSettings, (settings) =>
-        this.events.emit(TransportEvent.ThemeSettings({ settings })),
-      );
-
-      // A stylesheet under the config dir was saved: fetch the CSS again.
-      const unlistenCss = await listen('tmux-css-changed', () =>
-        this.events.emit(TransportEvent.CssChanged()),
-      );
-      this.unlistenFns.push(unlistenCss);
-
-      // Streaming connection-time progress (each command + output)
-      await on('tmux-log', LogEvent, (payload) =>
-        this.events.emit(TransportEvent.Log({ kind: payload.kind, message: payload.message })),
-      );
-
-      // OSC 52 clipboard write requests from terminal applications, forwarded
-      // by monitor.rs. Mirrored into the system clipboard by the tmux actor.
-      // Without this the desktop app silently drops every terminal clipboard
-      // write (HttpAdapter has the same listener).
-      await on('tmux-clipboard', ClipboardEvent, (payload) =>
-        this.events.emit(TransportEvent.Clipboard({ paneId: payload.pane_id, text: payload.text })),
-      );
-
-      // `display-message` output, forwarded by monitor.rs (HttpAdapter has
-      // the same listener).
-      await on('tmux-message', TmuxMessageEvent, (payload) =>
-        this.events.emit(TransportEvent.Message({ text: payload.text })),
-      );
-
-      // Backend gave up reconnecting — terminal state, no further events.
-      await on('tmux-fatal', MessageFrame, (payload) => {
-        this.connected = false;
-        this.reconnectingState = false;
-        this.events.emit(TransportEvent.Fatal({ message: payload.message }));
-      });
-
-      // The connection ended with tmux's own reason. A deliberate detach is
-      // NOT a failure: clearing `reconnectingState` here is what stops the
-      // adapter presenting it as a retry.
-      await on('tmux-detached', DetachedEvent, (payload) => {
-        this.connected = false;
-        this.reconnectingState = false;
-        this.events.emit(TransportEvent.Detached({ reason: payload.reason ?? null }));
-      });
-
-      // Errors (emitted by monitor.rs on connection failure), a bare message.
-      await on('tmux-error', Schema.String, (message) => {
-        this.events.emit(TransportEvent.Error({ message }));
-
-        // A dropped connection, a failed first attempt and a failed retry
-        // all leave the adapter retrying.
-        this.connected = false;
-        this.reconnectingState = true;
-        this.events.emit(TransportEvent.Reconnection({ reconnecting: true }));
-      });
+        },
+        // A deliberate detach is NOT a failure: clearing `reconnectingState`
+        // here is what stops the adapter presenting it as a retry.
+        detached: () => {
+          this.connected = false;
+          this.reconnectingState = false;
+        },
+      };
+      const receive = (name: HostEventName, raw: unknown): void => {
+        const published = receiveHostEvent(name, raw, hooks);
+        if (published) this.events.emit(published);
+      };
+      for (const name of HOST_EVENT_NAMES) {
+        const unlisten = await listen<unknown>(name, (event) => receive(name, event.payload));
+        this.unlistenFns.push(unlisten);
+      }
 
       this.connected = true;
 
-      // The desktop runs the server in-process, so the host name is asked
-      // for rather than read off a greeting.
-      const hostname = await invoke<string>('host_name').catch(() => '');
-      this.events.emit(
-        TransportEvent.ConnectionInfo({ defaultShell: 'bash', hostname: hostname || null }),
-      );
-
-      // Action tracing (docs/TRACING.md): ask the local backend whether it is
-      // recording; only then ship our events to it over IPC.
-      tracer.setServerEnabled(!!(await invoke<boolean>('trace_enabled')));
-      tracer.setSink((events) => {
-        void import('@tauri-apps/api/core').then(({ invoke: inv }) =>
-          inv('record_trace', { events }).catch(() => {}),
-        );
-      });
-      // Backfill keybindings: the backend's first `tmux-keybindings` event
-      // can fire before this listener is attached (especially on a fresh
-      // launch where the WebView is still booting). Without this fetch the
-      // prefix indicator stays hidden and prefix/root bindings are empty,
-      // so prefix-key and Ctrl+hjkl silently no-op.
-      const snapshot = decodeEvent(
-        Schema.NullOr(KeyBindings),
-        'get_keybindings_snapshot',
-      )(await invoke<unknown>('get_keybindings_snapshot'));
-      if (snapshot) {
-        this.events.emit(TransportEvent.KeyBindings({ keybindings: snapshot }));
+      // The greeting: who this client is, and the bindings when the monitor
+      // has read them — the events it sent before this webview listened.
+      const greeting = decodeEvent(
+        BACKEND_COMMANDS.greeting.result,
+        'greeting',
+      )(await dispatch(backendCall('greeting', {})));
+      for (const { event, data } of greeting ?? []) {
+        if ((HOST_EVENT_NAMES as string[]).includes(event)) receive(event as HostEventName, data);
       }
     } catch (e) {
       this.events.emit(TransportEvent.Error({ message: 'Failed to connect to Tauri' }));
@@ -209,108 +107,23 @@ export class TauriAdapter implements SequencedAdapter {
       unlisten();
     }
     this.unlistenFns = [];
-
-    if (this.keyBatcher) {
-      this.keyBatcher.destroy();
-      this.keyBatcher = null;
-    }
-
     this.connected = false;
     this.reconnectingState = false;
     this.sequencer.reset();
   }
 
-  // Serial queue for mutating commands so they reach the Tauri executor in
-  // issue order. Same rationale as HttpAdapter: tauri::invoke spawns each
-  // command as its own task, so two commands have no ordering guarantee on
-  // their way to the monitor. A `split-window -h` racing past a
-  // `select-window -t @B` would split the previous tab.
-  private sendQueue: Promise<void> = Promise.resolve();
-  /** Commands chained onto the queue and not yet answered, the running one included. */
-  private inFlight = 0;
-
-  async invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-    const { invoke } = await import('@tauri-apps/api/core');
-
-    // Answered raw: the stream stage decodes and adopts it.
-    if (cmd === 'get_initial_state') return invoke<T>(cmd, args);
-
-    // Check if this is a send-keys command that should be batched
-    if (this.keyBatcher?.intercept(cmd, args)) {
-      return Promise.resolve(undefined as T);
-    }
-
-    // Non-send-keys command: flush all pending batches first to preserve ordering
-    this.keyBatcher?.flushAll();
-
-    if (cmd === 'run_tmux_command') {
-      latencyTracker.markInput();
-      const actionId = tracer.isEnabled() ? this.nextActionId() : undefined;
-      tracer.event({ layer: 'adapter', name: 'send', kind: 'command', action_id: actionId });
-      let resolveOuter!: (value: T | PromiseLike<T>) => void;
-      let rejectOuter!: (reason: unknown) => void;
-      const outer = new Promise<T>((res, rej) => {
-        resolveOuter = res;
-        rejectOuter = rej;
-      });
-      this.inFlight++;
-      this.sendQueue = this.sendQueue.then(async () => {
-        try {
-          const result = await invoke<T>(cmd, args);
-          resolveOuter(result);
-        } catch (err) {
-          rejectOuter(err);
-        } finally {
-          this.inFlight--;
-        }
-      });
-      return outer;
-    }
-
-    return invoke(cmd, args);
-  }
-
-  pendingCommands(): number {
-    return this.inFlight + (this.keyBatcher?.hasPending() ? 1 : 0);
-  }
-
-  streamPosition(): StreamPosition {
-    return this.sequencer.position();
-  }
-
-  /**
-   * Read from tmux (see TmuxAdapter.query) — straight to the Tauri command
-   * rather than onto `sendQueue`: it is answered in-band on the monitor's
-   * connection, so the sessions poll can't delay window ops and needs no
-   * ordering from here.
-   */
-  async query(command: string): Promise<string> {
-    const { invoke } = await import('@tauri-apps/api/core');
-    return invoke<string>('query_tmux', { command });
+  send(call: BackendCall): Promise<unknown> {
+    return dispatch(call);
   }
 
   /** Bumped per staged page, so each one is a new URL and the frame reloads. */
   private previewVersion = 0;
 
-  /** Stage a preview pane's page; its frame loads it from `tmuxypreview:`. */
-  async stagePreview(paneId: string, html: string): Promise<string> {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('stage_preview', { paneId, html });
+  async stagePreview(paneId: PaneId, html: string): Promise<string> {
+    await dispatch(backendCall('stage_preview', { paneId, html }));
     return tauriSchemeUrl(
       'tmuxypreview',
       `/${paneId.replace(/^%/, '')}?v=${++this.previewVersion}`,
     );
-  }
-
-  /** Mint a per-instance action id (e.g. `a-t-17`); the `t` marks the Tauri
-   * transport so ids don't collide with the web adapter's `a-<conn>-n`. */
-  private nextActionId(): string {
-    this.traceActionSeq += 1;
-    return `a-t-${this.traceActionSeq}`;
-  }
-
-  async switchSession(newSession: string): Promise<void> {
-    const command = toTmuxCommand(TmuxOp.SwitchClient({ session: newSession }));
-    await this.invoke<void>('run_tmux_command', { command });
   }
 }

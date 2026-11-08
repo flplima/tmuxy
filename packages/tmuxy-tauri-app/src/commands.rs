@@ -3,223 +3,80 @@ mod helpers;
 pub mod window_size;
 
 use serde_json::Value;
-use tauri::{Manager, State};
-use tmuxy_core::transport::{self, to_json};
+use tauri::Manager;
+use tmuxy_core::host::{ClientCommand, HostCtx, SessionRuntime};
 use tmuxy_core::CommandError;
 
-use crate::monitor::KeyBindingsState;
+use crate::monitor::Monitor;
 use crate::titlebar;
-use crate::windows;
+use crate::windows::{self, GuiWindow};
 
-pub(crate) use helpers::is_openable_url;
-use helpers::{open_path, query_via_monitor, resize_via_monitor, route_query, wait_for_monitor};
+use helpers::open_with_system;
 
-use tmuxy_core::session::session_name as get_session;
-
-#[tauri::command]
-pub async fn get_initial_state(
-    window: tauri::WebviewWindow,
-    cols: Option<u32>,
-    rows: Option<u32>,
-) -> Result<Value, CommandError> {
-    let state = windows::monitor_for(&window)?;
-    // Resize if dimensions provided
-    if let (Some(c), Some(r)) = (cols, rows) {
-        resize_via_monitor(&state, c, r).await;
-
-        // Cache the viewport size so the FIRST `new-window` after startup sizes
-        // the broken-out window to match the viewport. Otherwise `last_client_size`
-        // stays None until a later resize fires `set_client_size`, and a tab
-        // created before that inherits the half-width post-`splitw` size or the
-        // 200x50 control-mode PTY default — appearing too small until the user
-        // resizes the OS window. The SSE server populates client sizes here too.
-        if let Ok(mut cached) = state.last_client_size.write() {
-            *cached = Some((c, r));
-        }
-    }
-
-    // The monitor's own picture of the session — the same state its `Full`
-    // broadcast carries, at the size just asked for. The monitor starts with
-    // the app, before the webview can listen, so that broadcast is gone by
-    // the time the frontend asks.
-    let tx = wait_for_monitor(&state).await?;
-    to_json(
-        transport::initial_state_for_size(&tx, cols.zip(rows)).await?,
-        "state",
-    )
+struct DesktopCtx {
+    app: tauri::AppHandle,
+    window: GuiWindow,
+    monitor: Monitor,
 }
 
-#[tauri::command]
-pub async fn set_client_size(
-    window: tauri::WebviewWindow,
-    cols: u32,
-    rows: u32,
-) -> Result<(), CommandError> {
-    let state = windows::monitor_for(&window)?;
-    let (cols, rows) = tmuxy_core::client_size::clamp_client_size(cols, rows);
-    // Cache the size so the next run_tmux_command("new-window") can size
-    // the broken-out window to match the viewport. Without this the new
-    // window inherits the half-width post-`splitw` size and looks tiny.
-    if let Ok(mut size) = state.last_client_size.write() {
-        *size = Some((cols, rows));
+impl HostCtx for DesktopCtx {
+    fn runtime(&self) -> &SessionRuntime {
+        &self.monitor.runtime
     }
-    resize_via_monitor(&state, cols, rows).await;
-    Ok(())
+
+    fn client(&self) -> Option<u64> {
+        Some(0)
+    }
+
+    fn switches_servers(&self) -> bool {
+        true
+    }
+
+    async fn connect(&self, target: crate::monitor::ConnectTarget) -> Result<(), CommandError> {
+        crate::monitor::request_reconnect(&self.app, &self.window, target).await;
+        Ok(())
+    }
+
+    /// Not a plain `detach-client`: the monitor has to be told this was
+    /// deliberate, or its loop treats the ended connection as a flap and
+    /// reattaches, dropping the user back into the session they just left.
+    async fn detach(&self) -> Result<(), CommandError> {
+        self.monitor.detach().await;
+        Ok(())
+    }
+
+    /// The webview never opens `target="_blank"` anchors on its own (a
+    /// new-window request is denied), so a link clicked in a pane is opened
+    /// here.
+    fn open_url(&self, url: &str) -> Result<(), CommandError> {
+        open_with_system(std::ffi::OsStr::new(url))
+    }
+
+    fn open_path(&self, path: &std::path::Path) -> Result<(), CommandError> {
+        open_with_system(path.as_os_str())
+    }
 }
 
+/// Every client command the page sends, for the window it came from
+/// (`tmuxy_core::host::handle`). The request is `{ cmd, args }`, the body
+/// the web build POSTs to `/commands`.
 #[tauri::command]
-pub async fn run_tmux_command(
+pub async fn dispatch(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    command: String,
-) -> Result<(), CommandError> {
+    request: Value,
+) -> Result<Value, CommandError> {
+    let cmd = ClientCommand::from_value(request)
+        .map_err(|e| CommandError::invalid(format!("invalid command payload: {e}")))?;
     let entry = windows::entry_for(&window)?;
-    let session = entry.session();
-    let state = entry.monitor;
-    // Routed, written and — after a `source-file` — followed by fresh copies
-    // of the settings it may have changed, as the web server does it.
-    let tx = state.connected_tx()?;
-    let size = state.last_client_size.read().ok().and_then(|g| *g);
-    let run = transport::run_client_command(&tx, &command, &session, size, || {
-        crate::monitor::emit_config_settings(&app, &state)
-    });
-    windows::scoped(&window, run).await
-}
-
-/// Run a tmux command and return what it printed — the one way the frontend
-/// reads from tmux. Same connection as a mutation; only reads route
-/// (`route_query`), a mutation goes through `run_tmux_command`. The reply is
-/// the command's own output (`RunCommandWithReply`), and an `%error` from
-/// tmux comes back as an error of kind `tmux`; a refused command as
-/// `forbidden`.
-#[tauri::command]
-pub async fn query_tmux(
-    window: tauri::WebviewWindow,
-    command: String,
-) -> Result<String, CommandError> {
-    let entry = windows::entry_for(&window)?;
-    let Some(routed) = route_query(&command) else {
-        return Err(CommandError::forbidden("a query only reads"));
+    let ctx = DesktopCtx {
+        app,
+        monitor: entry.monitor()?,
+        window: entry,
     };
-    query_via_monitor(&entry.monitor, &routed).await
-}
-
-/// Fetch a range of scrollback cells for copy mode — the web server's
-/// `get_scrollback_cells`, through this window's monitor.
-#[tauri::command]
-pub async fn get_scrollback_cells(
-    window: tauri::WebviewWindow,
-    pane_id: String,
-    start: i64,
-    end: i64,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    transport::scrollback_cells(&tx, &pane_id, start, end).await
-}
-
-/// A `preview` pane's document or a resource it links — the web server's
-/// `read_preview`, authorised by tmux through this window's monitor.
-#[tauri::command]
-pub async fn read_preview(
-    window: tauri::WebviewWindow,
-    pane_id: String,
-    path: Option<String>,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::preview::read_preview(&tx, &pane_id, path).await
-}
-
-/// Stage a `preview` pane's composed page for its frame, which loads it from
-/// the `tmuxypreview:` scheme — the web server's `POST /api/preview/{pane}`.
-#[tauri::command]
-pub async fn stage_preview(
-    window: tauri::WebviewWindow,
-    pages: tauri::State<'_, tmuxy_core::preview::PreviewPages>,
-    pane_id: String,
-    html: String,
-) -> Result<(), CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::preview::stage_page(&tx, &pages, pane_id, html).await
-}
-
-/// The theme name, mode and appearance, read over this window's monitor —
-/// waiting for one that is still connecting, since the webview asks at start.
-#[tauri::command]
-pub async fn get_theme_settings(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    let tx = wait_for_monitor(&windows::monitor_for(&window)?).await?;
-    tmuxy_core::theme::get_theme_settings(&tx).await
-}
-
-#[tauri::command]
-pub async fn set_theme(
-    window: tauri::WebviewWindow,
-    name: String,
-    mode: Option<String>,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_theme(&tx, &name, mode.as_deref()).await
-}
-
-#[tauri::command]
-pub async fn set_cursor_blink(
-    window: tauri::WebviewWindow,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_cursor_blink(&tx, enabled).await
-}
-
-#[tauri::command]
-pub async fn set_send_ask(window: tauri::WebviewWindow, enabled: bool) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_send_ask(&tx, enabled).await
-}
-
-/// `@tmuxy-transparency`, from View ▸ Enable Window Transparency (macOS).
-/// The settings are pushed straight after, so every window repaints its
-/// surfaces and its blur follows without waiting for a config reload.
-#[tauri::command]
-pub async fn set_transparency(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    enabled: bool,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_transparency(&tx, enabled).await?;
-    crate::monitor::emit_theme_settings(&app, &tx).await;
-    Ok(())
-}
-
-/// `@tmuxy-gesture-swipe-tabs` as the page sees it (docs/DESKTOP.md): the
-/// shell claims a two-finger slide only while this is on.
-#[tauri::command]
-pub fn set_swipe_tabs(enabled: bool) {
-    crate::gestures::set_swipe_tabs(enabled);
-}
-
-#[tauri::command]
-pub async fn set_theme_mode(
-    window: tauri::WebviewWindow,
-    mode: String,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    tmuxy_core::theme::set_theme_mode(&tx, &mode).await
-}
-
-#[tauri::command]
-pub async fn get_themes_list() -> Result<Value, CommandError> {
-    Ok(tmuxy_core::theme::get_themes_list())
-}
-
-/// Git worktree context for the sidebar tree, discovered from the cwd of
-/// every pane on the socket (read through tmux, never supplied by the page).
-#[tauri::command]
-pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    windows::scoped(&window, transport::git_worktrees_json(&tx)).await
+    // In the window's own tmux target, so every read the command makes
+    // reaches the server the window is attached to.
+    windows::scoped(&window, tmuxy_core::host::handle(cmd, &ctx)).await
 }
 
 /// The status bar is the window's title bar; it reports its rendered height
@@ -241,141 +98,6 @@ pub fn titlebar_double_click(
         .map_err(|e| CommandError::unavailable(e.to_string()))
 }
 
-/// Return the most recent `tmux-keybindings` payload, or null if the monitor
-/// hasn't broadcast one yet. The frontend calls this on connect to recover
-/// from the race where the backend emits before the WebView's listener is
-/// attached.
-#[tauri::command]
-pub fn get_keybindings_snapshot(
-    state: State<'_, KeyBindingsState>,
-) -> Option<transport::KeyBindings> {
-    state.0.read().ok().and_then(|guard| guard.clone())
-}
-
-/// List the saved servers (localhost plus any added via `tmuxy connect`), read
-/// fresh from `servers.json` in the state dir, along with the id of the server
-/// the app is currently attached to. Powers the sidebar server picker — a
-/// desktop-only surface; the web build always uses its launch socket.
-#[tauri::command]
-pub async fn list_servers(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    let servers = tmuxy_core::servers::read_servers();
-    let current =
-        windows::scoped(&window, async { tmuxy_core::servers::current_server_id() }).await;
-    Ok(serde_json::json!({
-        "servers": servers,
-        "currentId": current,
-    }))
-}
-
-/// The sessions that have a snapshot to be rebuilt from (`session_snapshot`).
-#[tauri::command]
-pub async fn list_snapshots(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
-    windows::scoped(&window, transport::list_snapshots_json()).await
-}
-
-/// The invocation token a plugin's menu action opens with, holding the
-/// selected text (`plugins::invoke::prepare`).
-#[tauri::command]
-pub async fn prepare_plugin_action(
-    window: tauri::WebviewWindow,
-    plugin: String,
-    action: String,
-    pane_id: String,
-    selection: Option<String>,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    let prepare = transport::prepare_plugin_action_json(plugin, action, pane_id, selection);
-    windows::scoped(&window, prepare).await
-}
-
-/// A URL clicked in a pane that a plugin's link handler may take.
-#[tauri::command]
-pub async fn open_link(
-    window: tauri::WebviewWindow,
-    url: String,
-    pane_id: String,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    windows::scoped(&window, transport::open_plugin_link_json(url, pane_id)).await
-}
-
-/// Text clicked in a pane: a plugin's text handler may take it.
-#[tauri::command]
-pub async fn open_text(
-    window: tauri::WebviewWindow,
-    pane_id: String,
-    line: String,
-    column: usize,
-) -> Result<Value, CommandError> {
-    let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    windows::scoped(
-        &window,
-        transport::open_plugin_text_json(pane_id, line, column),
-    )
-    .await
-}
-
-/// Rebuild a session from its latest snapshot through this window's
-/// control-mode client, the way the web server does. Refused when the session
-/// is already running.
-#[tauri::command]
-pub async fn restore_session(
-    window: tauri::WebviewWindow,
-    session: String,
-) -> Result<(), CommandError> {
-    let tx = windows::monitor_for(&window)?.connected_tx()?;
-    windows::scoped(&window, transport::restore_named(&session, &tx)).await
-}
-
-/// Reconnect the desktop app to a saved server by id: resolve it from
-/// servers.json and ask the monitor to retarget its socket, SSH tunnel, and
-/// session live (no relaunch). Routes through the same [`request_reconnect`]
-/// path as `tmuxy connect <socket>`.
-///
-/// [`request_reconnect`]: crate::monitor::request_reconnect
-#[tauri::command]
-pub async fn connect_server(
-    window: tauri::WebviewWindow,
-    id: String,
-    session: Option<String>,
-) -> Result<(), CommandError> {
-    let state = windows::monitor_for(&window)?;
-    let server = tmuxy_core::servers::find_server(&id)
-        .ok_or_else(|| CommandError::invalid(format!("unknown server '{id}'")))?;
-    let (socket, ssh) = server.connect_env();
-    let session = session
-        .or_else(|| server.session.clone())
-        .unwrap_or_else(get_session);
-    if !tmuxy_core::session::is_safe_session_name(&session) {
-        return Err(CommandError::invalid(format!(
-            "'{session}' is not a session name"
-        )));
-    }
-    let _ = tmuxy_core::servers::touch_server(&id, Some(&session));
-    crate::monitor::request_reconnect(
-        &state,
-        crate::monitor::ConnectTarget {
-            socket,
-            session,
-            ssh,
-        },
-    )
-    .await;
-    Ok(())
-}
-
-/// Detach this client, leaving the tmux server and every session running.
-///
-/// Not a plain `detach-client`: the monitor has to be told this was deliberate
-/// or its loop treats the ended connection as a flap and reattaches, dropping
-/// the user back into the session they just left.
-#[tauri::command]
-pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), CommandError> {
-    let state = windows::monitor_for(&window)?;
-    crate::monitor::request_detach(&state).await;
-    Ok(())
-}
-
 /// Leave the app (Quit, where the menu is the app's own rather than the
 /// platform's). tmux keeps every session.
 #[tauri::command]
@@ -395,7 +117,6 @@ pub fn set_window_style(window: tauri::WebviewWindow, style: String) -> Result<(
     Ok(())
 }
 
-/// The style this window is in, as its slug — what the in-app menu ticks.
 #[tauri::command]
 pub fn get_window_style(window: tauri::WebviewWindow) -> String {
     crate::window_style::slug_of(
@@ -410,103 +131,4 @@ pub fn get_window_style(window: tauri::WebviewWindow) -> String {
 #[tauri::command]
 pub fn restart_app(app: tauri::AppHandle) {
     app.restart()
-}
-
-/// Whether local action tracing is active on this desktop backend
-/// (docs/TRACING.md). The frontend tracer ships events only when this is true.
-#[tauri::command]
-pub fn trace_enabled() -> bool {
-    tmuxy_core::trace::is_enabled()
-}
-
-/// The machine's host name, for the status line's host label
-/// (`tmuxy_server::host_name`): the desktop app runs the server in-process,
-/// so there is no greeting to carry it.
-#[tauri::command]
-pub fn host_name() -> String {
-    tmuxy_server::host_name()
-}
-
-/// Everything the Debug menu needs to render itself
-/// (`transport::trace_settings_json`).
-#[tauri::command]
-pub fn get_trace_settings() -> Value {
-    transport::trace_settings_json()
-}
-
-/// Turn tracing on or off and remember the choice. Returns the state actually
-/// in force, which is `false` for an `enabled: true` request that the kill
-/// switch refuses — the caller renders the answer, never its own request.
-#[tauri::command]
-pub fn set_trace_enabled(enabled: bool) -> bool {
-    tmuxy_core::trace::set_enabled(enabled)
-}
-
-/// Set the level (`shape` | `labeled` | `full`) and remember it; the level in
-/// force.
-#[tauri::command]
-pub fn set_trace_level(level: String) -> String {
-    transport::set_trace_level(&level).to_string()
-}
-
-/// Open the trace file in the OS default handler. Desktop-only by nature: the
-/// file lives on the machine running the backend.
-#[tauri::command]
-pub fn open_trace_file() -> Result<(), CommandError> {
-    let path = tmuxy_core::trace::trace_path()
-        .ok_or_else(|| CommandError::unavailable("no trace file path could be resolved"))?;
-    if !path.exists() {
-        return Err(CommandError::unavailable(format!(
-            "{} does not exist yet",
-            path.display()
-        )));
-    }
-    open_path(&path)
-}
-
-/// Open a web link in the user's default browser.
-///
-/// The desktop webview never opens `target="_blank"` anchors on its own (a
-/// new-window request is denied), so a click on an OSC 8 or auto-detected link
-/// in a pane used to do nothing on the desktop. The frontend routes link clicks
-/// here instead. Only web schemes are accepted: a pane can print any text, so
-/// `file:` and custom schemes stay out.
-#[tauri::command]
-pub fn open_url(url: String) -> Result<(), CommandError> {
-    let url = url.trim();
-    if !is_openable_url(url) {
-        return Err(CommandError::forbidden(format!(
-            "refusing to open {url:?}: only http(s) and mailto links"
-        )));
-    }
-    #[cfg(target_os = "macos")]
-    let mut cmd = std::process::Command::new("open");
-    #[cfg(target_os = "linux")]
-    let mut cmd = std::process::Command::new("xdg-open");
-    // Not `cmd /C start`: cmd.exe parses `&`, `|` and `%VAR%` in its
-    // arguments, and a link's query string is full of `&`.
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        let mut c = std::process::Command::new("rundll32.exe");
-        c.arg("url.dll,FileProtocolHandler");
-        c
-    };
-    cmd.arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| CommandError::unavailable(format!("could not open {url}: {e}")))
-}
-
-/// Ingest a batch of client trace events into the shared NDJSON file. **Fails
-/// closed**: dropped entirely when tracing is off, regardless of what the
-/// frontend believes. Every event is re-sanitized by `record_client_event`
-/// before it reaches the file, so no terminal content can slip through.
-#[tauri::command]
-pub fn record_trace(events: Vec<serde_json::Map<String, Value>>) {
-    if !tmuxy_core::trace::is_enabled() {
-        return;
-    }
-    for obj in events.into_iter().take(1000) {
-        tmuxy_core::trace::record_client_event(obj);
-    }
 }

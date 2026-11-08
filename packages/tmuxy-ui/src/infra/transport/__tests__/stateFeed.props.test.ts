@@ -27,7 +27,7 @@ import { makeSequencedTransport } from '../stateFeed';
 import { TmuxTransport } from '../TmuxTransport';
 import { type DriverEvent, type TransportEvent } from '../events';
 import { StateSequencer } from '../stateSequencer';
-import type { SequencedAdapter } from '../driver';
+import type { SequencedDriver } from '../driver';
 
 const win = (k: number) => ({
   id: `@${k}`,
@@ -103,15 +103,15 @@ function modelDriver() {
     return current();
   };
   const pending: Array<{ resolve: (raw: unknown) => void; reject: (e: Error) => void }> = [];
-  const driver: SequencedAdapter = {
+  const driver: SequencedDriver = {
     events,
     sequencer,
     connect: async () => {},
     disconnect: () => {},
-    invoke: <T>(cmd: string) => {
-      if (cmd !== 'get_initial_state') return Promise.resolve(null as T);
-      return new Promise<T>((resolve, reject) => {
-        pending.push({ resolve: (raw) => resolve(raw as T), reject });
+    send: (call) => {
+      if (call.cmd !== 'get_initial_state') return Promise.resolve(null);
+      return new Promise((resolve, reject) => {
+        pending.push({ resolve, reject });
       });
     },
   };
@@ -130,9 +130,7 @@ function openFeed() {
     Effect.gen(function* () {
       const events = yield* Scope.extend((yield* TmuxTransport).subscribe, yield* Scope.make());
       yield* Effect.forkDaemon(Stream.runForEach(events, (e) => Effect.sync(() => seen.push(e))));
-      yield* Effect.flatMap(TmuxTransport, (t) =>
-        t.invoke('set_client_size', { cols: 80, rows: 24 }),
-      );
+      yield* Effect.flatMap(TmuxTransport, (t) => t.setClientSize({ cols: 80, rows: 24 }));
     }),
   );
   let pushed = 0;

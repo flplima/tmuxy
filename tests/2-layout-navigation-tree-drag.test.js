@@ -4,7 +4,8 @@
 
 const fs = require('fs');
 const {
-  createTestContext,
+  sidebarShown,
+  describeE2E,
   waitForPaneCount,
   waitForWindowCount,
   typeInTerminal,
@@ -17,19 +18,14 @@ const {
   createWindowKeyboard,
   waitForShellPrompt,
   waitForCondition,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers/layout-helpers');
 
 // ==================== Scenario 11b: Rename field keeps its paste ====================
 
-describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view', {}, (ctx) => {
   test('prefix p: the PANE chip, x closes a pane and returns to normal → prefix t: the TAB chip, c opens a tab and returns to normal → prefix s docks the tree → prefix S docks the terminal → prefix ? lists PANE', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -90,22 +86,21 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
     );
 
     // A column, and the grid of the tab in view.
-    const column = (side) =>
-      page.evaluate((s) => {
-        const el = document.querySelector(`.sidebar-column-${s}`);
-        if (!el) return null;
-        const box = el.getBoundingClientRect();
-        const grid = [...document.querySelectorAll('.pane-layout-item')]
-          .filter((p) => !p.classList.contains('pane-window-hidden'))
-          .map((p) => p.getBoundingClientRect());
-        return {
-          left: box.left,
-          right: box.right,
-          width: box.width,
-          gridLeft: Math.min(...grid.map((g) => g.left)),
-          gridRight: Math.max(...grid.map((g) => g.right)),
-        };
-      }, side);
+    const column = async (side) => {
+      const box = await page.evaluate(
+        (s) => document.querySelector(`.sidebar-column-${s}`)?.getBoundingClientRect().toJSON(),
+        side,
+      );
+      if (!box) return null;
+      const grid = (await shownPanes(page, GRID_PANE)).map((p) => p.box);
+      return {
+        left: box.left,
+        right: box.right,
+        width: box.width,
+        gridLeft: Math.min(...grid.map((g) => g.left)),
+        gridRight: Math.max(...grid.map((g) => g.right)),
+      };
+    };
 
     // prefix s: the tree opens docked, the grid starting where it ends.
     await openSidebarKeyboard(page, 'left');
@@ -154,21 +149,14 @@ describe('Scenario 11c: PANE and TAB modes, the sidebar keys and the keys view',
   }, 180000);
 });
 
-describe('Scenario 6k: A coding agent’s state on its tree row', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6k: A coding agent’s state on its tree row', {}, (ctx) => {
   test('an agent’s hooks show it working → it finishes while the user is in another pane → idle, its process icon back', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
     // Two panes: the agent's on top, the one the user moves to below.
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2);
-    const activePane = () => ctx.page.evaluate(() => window.app.getSnapshot().context.activePaneId);
+    const activePane = () => ctx.page.evaluate(() => window.app?.view().activePaneId);
     const otherPane = await activePane();
     await navigatePaneKeyboard(ctx.page, 'up');
     await waitForCondition(
@@ -203,8 +191,7 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
     );
     // Open the tree with its key — unless an earlier test left it open, when
     // the same key would free it to overlay the panes.
-    const treeOpen = () =>
-      ctx.page.evaluate(() => window.app.getSnapshot().context.leftSidebarOpen === true);
+    const treeOpen = () => sidebarShown(ctx.page, 'left');
     if (!(await treeOpen())) await openSidebarKeyboard(ctx.page, 'left');
     await waitForCondition(ctx.page, treeOpen, 15000, 'the tree to open');
 
@@ -280,150 +267,167 @@ describe('Scenario 6k: A coding agent’s state on its tree row', () => {
   }, 120000);
 });
 
-describe('Scenario 6m: Dragging in the tree moves panes between tabs and reorders tabs', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
-  const tabRows = (page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll('.sidebar-tree-tab[data-window-id]')].map((el) => {
-        const r = el.getBoundingClientRect();
-        return { id: el.dataset.windowId, x: r.x, y: r.y, w: r.width, h: r.height };
-      }),
-    );
-  /** The tree's rows top to bottom: `tab:@n` and `pane:%n`. */
-  const treeOrder = (page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll('.sidebar-tree [role="treeitem"]')].map((el) =>
-        el.dataset.windowId ? `tab:${el.dataset.windowId}` : `pane:${el.dataset.paneId}`,
-      ),
-    );
-
-  test('a pane row dropped on another tab joins it there → a tab row dragged above another reorders the strip and the tree alike', async () => {
-    if (ctx.skipIfNotReady()) return;
-    await ctx.setupPage();
-    await waitForShellPrompt(ctx.page);
-
-    // Tab 1 with two panes (so moving one does not close it), then tab 2.
-    const firstWindowId = await ctx.page.evaluate(
-      () => window.app.getSnapshot().context.activeWindowId,
-    );
-    await splitPaneKeyboard(ctx.page, 'horizontal');
-    await waitForPaneCount(ctx.page, 2);
-    const movedPaneId = await ctx.page.evaluate(
-      () => window.app.getSnapshot().context.activePaneId,
-    );
-    await createWindowKeyboard(ctx.page);
-    await waitForWindowCount(ctx.page, 2);
-    const secondWindowId = await ctx.page.evaluate(
-      () => window.app.getSnapshot().context.activeWindowId,
-    );
-    expect(secondWindowId).not.toBe(firstWindowId);
-
-    await openSidebarKeyboard(ctx.page, 'left');
-    await ctx.page.waitForSelector(`[data-testid="tree-tab-${secondWindowId}"]`, {
-      timeout: 20000,
-    });
-    await ctx.page.waitForSelector(`[data-testid="tree-pane-${movedPaneId}"]`, { timeout: 20000 });
-
-    // Step 1: drag the pane row onto the other tab's row. The browser's own
-    // drag-and-drop, as the row is `draggable`.
-    await ctx.page.dragAndDrop(
-      `[data-testid="tree-pane-${movedPaneId}"]`,
-      `[data-testid="tree-tab-${secondWindowId}"]`,
-    );
-    // The tree lists it under tab 2 — and keeps it there while tmux answers.
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const order = await treeOrder(ctx.page);
-        const tab = order.indexOf(`tab:${secondWindowId}`);
-        const pane = order.indexOf(`pane:${movedPaneId}`);
-        return (
-          tab !== -1 && pane > tab && !order.slice(tab + 1, pane).some((r) => r.startsWith('tab:'))
-        );
-      },
-      10000,
-      'the tree to list the dropped pane under the other tab',
-    );
-    // tmux moved it, and tab 2 (now current) shows two panes in the grid.
-    await waitForCondition(
-      ctx.page,
-      async () => {
-        const out = String(await ctx.session.query("list-panes -a -F '#{pane_id}\t#{window_id}'"));
-        return out.split('\n').some((l) => l === `${movedPaneId}\t${secondWindowId}`);
-      },
-      10000,
-      'tmux to report the pane in the other window',
-    );
-    await waitForPaneCount(ctx.page, 2);
-    // The count can reach two before the moved pane is laid out at its size.
-    await waitForCondition(
-      ctx.page,
-      () =>
-        ctx.page.evaluate((id) => {
-          const el = document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`);
-          if (!el) return false;
+describeE2E(
+  'Scenario 6m: Dragging in the tree moves panes between tabs and reorders tabs',
+  {},
+  (ctx) => {
+    const tabRows = (page) =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.sidebar-tree-tab[data-window-id]')].map((el) => {
           const r = el.getBoundingClientRect();
-          return r.width > 50 && r.height > 20;
-        }, movedPaneId),
-      10000,
-      'the moved pane to be laid out in the other tab',
-    );
-
-    // Step 2: drag tab 2's row above tab 1's. Mid-drag the row rides with the
-    // pointer and tab 1 carries the drop bar; the drop reorders.
-    const rowsBefore = await tabRows(ctx.page);
-    expect(rowsBefore.map((r) => r.id)).toEqual([firstWindowId, secondWindowId]);
-    const [rowOne, rowTwo] = rowsBefore;
-    await ctx.page.mouse.move(rowTwo.x + rowTwo.w / 2, rowTwo.y + rowTwo.h / 2);
-    await ctx.page.mouse.down();
-    await ctx.page.mouse.move(rowOne.x + rowOne.w / 2, rowOne.y + 2, { steps: 8 });
-    await waitForCondition(
-      ctx.page,
-      () =>
-        ctx.page.evaluate(
-          ([one, two]) =>
-            document
-              .querySelector(`[data-testid="tree-tab-${two}"]`)
-              ?.classList.contains('is-dragging') &&
-            document
-              .querySelector(`[data-testid="tree-tab-${one}"]`)
-              ?.classList.contains('is-drop-before'),
-          [firstWindowId, secondWindowId],
+          return { id: el.dataset.windowId, x: r.x, y: r.y, w: r.width, h: r.height };
+        }),
+      );
+    /** The tree's rows top to bottom: `tab:@n` and `pane:%n`. */
+    const treeOrder = (page) =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.sidebar-tree [role="treeitem"]')].map((el) =>
+          el.dataset.windowId ? `tab:${el.dataset.windowId}` : `pane:${el.dataset.paneId}`,
         ),
-      3000,
-      'the lifted tab row and the drop bar',
-    );
-    const lifted = (await tabRows(ctx.page)).find((r) => r.id === secondWindowId);
-    expect(lifted.y).toBeLessThan(rowTwo.y - 10);
-    await ctx.page.mouse.up();
+      );
 
-    await waitForCondition(
-      ctx.page,
-      async () => (await tabRows(ctx.page))[0]?.id === secondWindowId,
-      8000,
-      'the dragged tab row to become the first',
-    );
-    const tmuxOrder = String(await ctx.session.query("list-windows -F '#{window_id}'"))
-      .split('\n')
-      .filter((id) => [firstWindowId, secondWindowId].includes(id));
-    expect(tmuxOrder).toEqual([secondWindowId, firstWindowId]);
-    // The strip agrees with the tree.
-    expect(
-      await ctx.page.evaluate(() =>
-        [...document.querySelectorAll('.tab-list .tab-name[data-window-id]')].map(
-          (el) => el.dataset.windowId,
-        ),
-      ),
-    ).toEqual([secondWindowId, firstWindowId]);
-    expect(
-      await ctx.page.evaluate(() =>
-        document.querySelector('.sidebar-tree .is-dragging, .sidebar-tree .is-drop-before'),
-      ),
-    ).toBeNull();
-  }, 120000);
-});
+    test('a pane row dropped on another tab joins it there → a tab row dragged above another reorders the strip and the tree alike', async () => {
+      await ctx.setupPage();
+      await waitForShellPrompt(ctx.page);
+
+      // Tab 1 with two panes (so moving one does not close it), then tab 2.
+      const firstWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
+      await splitPaneKeyboard(ctx.page, 'horizontal');
+      await waitForPaneCount(ctx.page, 2);
+      const movedPaneId = await ctx.page.evaluate(() => window.app?.view().activePaneId);
+      await createWindowKeyboard(ctx.page);
+      await waitForWindowCount(ctx.page, 2);
+      const secondWindowId = await ctx.page.evaluate(() => window.app?.view().activeTabId);
+      expect(secondWindowId).not.toBe(firstWindowId);
+
+      await openSidebarKeyboard(ctx.page, 'left');
+      await ctx.page.waitForSelector(`[data-testid="tree-tab-${secondWindowId}"]`, {
+        timeout: 20000,
+      });
+      await ctx.page.waitForSelector(`[data-testid="tree-pane-${movedPaneId}"]`, {
+        timeout: 20000,
+      });
+
+      // Step 1: drag the pane row onto the other tab's row. The browser's own
+      // drag-and-drop, as the row is `draggable`.
+      await ctx.page.dragAndDrop(
+        `[data-testid="tree-pane-${movedPaneId}"]`,
+        `[data-testid="tree-tab-${secondWindowId}"]`,
+      );
+      // The tree lists it under tab 2 — and keeps it there while tmux answers.
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const order = await treeOrder(ctx.page);
+          const tab = order.indexOf(`tab:${secondWindowId}`);
+          const pane = order.indexOf(`pane:${movedPaneId}`);
+          return (
+            tab !== -1 &&
+            pane > tab &&
+            !order.slice(tab + 1, pane).some((r) => r.startsWith('tab:'))
+          );
+        },
+        10000,
+        'the tree to list the dropped pane under the other tab',
+      );
+      // tmux moved it, and tab 2 (now current) shows two panes in the grid.
+      await waitForCondition(
+        ctx.page,
+        async () => {
+          const out = String(
+            await ctx.session.query("list-panes -a -F '#{pane_id}\t#{window_id}'"),
+          );
+          return out.split('\n').some((l) => l === `${movedPaneId}\t${secondWindowId}`);
+        },
+        10000,
+        'tmux to report the pane in the other window',
+      );
+      await waitForPaneCount(ctx.page, 2);
+      // The count can reach two before the moved pane is laid out at its size.
+      await waitForCondition(
+        ctx.page,
+        () =>
+          ctx.page.evaluate((id) => {
+            const el = document.querySelector(`.pane-layout-item[data-pane-id="${id}"]`);
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            return r.width > 50 && r.height > 20;
+          }, movedPaneId),
+        10000,
+        'the moved pane to be laid out in the other tab',
+      );
+
+      // Step 2: drag tab 2's row above tab 1's. Mid-drag the row rides with the
+      // pointer and tab 1 carries the drop bar; the drop reorders.
+      const rowsBefore = await tabRows(ctx.page);
+      expect(rowsBefore.map((r) => r.id)).toEqual([firstWindowId, secondWindowId]);
+      const [rowOne, rowTwo] = rowsBefore;
+      await ctx.page.mouse.move(rowTwo.x + rowTwo.w / 2, rowTwo.y + rowTwo.h / 2);
+      await ctx.page.mouse.down();
+      await ctx.page.mouse.move(rowOne.x + rowOne.w / 2, rowOne.y + 2, { steps: 8 });
+      await waitForCondition(
+        ctx.page,
+        () =>
+          ctx.page.evaluate(
+            ([one, two]) =>
+              document
+                .querySelector(`[data-testid="tree-tab-${two}"]`)
+                ?.classList.contains('is-dragging') &&
+              document
+                .querySelector(`[data-testid="tree-tab-${one}"]`)
+                ?.classList.contains('is-drop-before'),
+            [firstWindowId, secondWindowId],
+          ),
+        3000,
+        'the lifted tab row and the drop bar',
+      );
+      const lifted = (await tabRows(ctx.page)).find((r) => r.id === secondWindowId);
+      expect(lifted.y).toBeLessThan(rowTwo.y - 10);
+      await ctx.page.mouse.up();
+
+      await waitForCondition(
+        ctx.page,
+        async () => (await tabRows(ctx.page))[0]?.id === secondWindowId,
+        8000,
+        'the dragged tab row to become the first',
+      );
+      // The row moves on the store's prediction; tmux's own order follows once
+      // the move has run, which a loaded machine reaches later.
+      const tmuxOrder = async () =>
+        String(await ctx.session.query("list-windows -F '#{window_id}'"))
+          .split('\n')
+          .filter((id) => [firstWindowId, secondWindowId].includes(id))
+          .join(' ');
+      await waitForCondition(
+        ctx.page,
+        async () => (await tmuxOrder()) === `${secondWindowId} ${firstWindowId}`,
+        8000,
+        async () => `tmux to order the tabs as the tree does (last: ${await tmuxOrder()})`,
+      );
+      // The strip agrees with the tree once tmux's own report of the move has
+      // reached the client, a round trip after tmux ran it, and the drag's marks are gone.
+      const stripOrder = () =>
+        ctx.page.evaluate(() =>
+          [...document.querySelectorAll('.tab-list .tab-name[data-window-id]')]
+            .map((el) => el.dataset.windowId)
+            .join(' '),
+        );
+      await waitForCondition(
+        ctx.page,
+        async () => (await stripOrder()) === `${secondWindowId} ${firstWindowId}`,
+        8000,
+        async () => `the strip to order the tabs as tmux does (last: ${await stripOrder()})`,
+      );
+      await waitForCondition(
+        ctx.page,
+        () =>
+          ctx.page.evaluate(
+            () =>
+              !document.querySelector('.sidebar-tree .is-dragging, .sidebar-tree .is-drop-before'),
+          ),
+        5000,
+        'the drag marks to clear from the tree',
+      );
+    }, 120000);
+  },
+);

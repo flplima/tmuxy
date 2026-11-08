@@ -17,41 +17,29 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, execFileSync } = require('child_process');
-const { WORKSPACE_ROOT } = require('./config');
-const { waitForServer } = require('./browser');
-const { serverBinary } = require('./server-binary');
+const { execFileSync } = require('child_process');
+const { TMUXY_CLI } = require('./config');
+const { startExtraServer } = require('./extra-server');
 const { tmuxRunAsOperator } = require('./cli');
+const { tmuxEnv } = require('./tmux-socket');
 
-const TMUXY_CLI = path.join(WORKSPACE_ROOT, 'packages/tmuxy-cli/bin/tmuxy-cli');
-
-/** The environment every process on the isolated socket runs with. */
+/**
+ * The environment every process on the isolated socket runs with: its own
+ * config, data and home dirs beside the state dir, and snapshots on, which is
+ * what this server is for. In the developer's own data dir the installed app
+ * rewrites the scripts with ITS build's copies on every `tmuxy` it answers,
+ * so the panes would run an older build's scripts, not the ones under test.
+ */
 function isolatedEnv({ socket, stateDir }) {
-  const env = { ...process.env, TMUX_SOCKET: socket, TMUXY_STATE_DIR: stateDir };
-  delete env.TMUX;
-  delete env.TMUX_PANE;
-  // A suite run from inside tmuxy inherits the binary the RUNNING tmuxy
-  // published, and the CLI's server verbs would run that build instead of
-  // the one under test.
-  delete env.TMUXY_SERVER_BIN;
-  delete env.TMUXY_SERVER_SUBCOMMAND;
-  // The shared suite's server runs with both off (helpers/tmux-socket.js, and
-  // the CI job's env); this server exists to do exactly those two things.
-  delete env.TMUXY_NO_SNAPSHOT;
-  delete env.TMUXY_NO_RESTORE;
-  // A config dir and a data dir of its own, beside the state dir (`start`
-  // fills the one; the server mirrors its bundled scripts into the other).
-  // In the developer's own data dir the installed app rewrites the scripts
-  // with ITS build's copies on every `tmuxy` it answers (an agent hook, say),
-  // so the panes would run an older build's scripts, not the ones under test.
-  env.XDG_CONFIG_HOME = configHome(stateDir);
-  env.TMUXY_DATA_DIR = path.join(path.dirname(stateDir), 'data');
-  return env;
-}
-
-/** The isolated server's config home, beside its state dir. */
-function configHome(stateDir) {
-  return path.join(path.dirname(stateDir), 'config');
+  const root = path.dirname(stateDir);
+  return tmuxEnv({
+    socket,
+    state: stateDir,
+    configHome: path.join(root, 'config'),
+    data: path.join(root, 'data'),
+    home: path.join(root, 'home'),
+    snapshots: true,
+  });
 }
 
 /**
@@ -64,7 +52,7 @@ function configHome(stateDir) {
 function isolatedServer({ port, socket, stateDir }) {
   const env = isolatedEnv({ socket, stateDir });
   const url = `http://localhost:${port}`;
-  let child = null;
+  let stopServer = null;
 
   const cli = (args, opts = {}) => {
     try {
@@ -88,27 +76,19 @@ function isolatedServer({ port, socket, stateDir }) {
     cli,
     async start(extraArgs = []) {
       fs.mkdirSync(stateDir, { recursive: true });
-      // A pane's `tmuxy` is the CLI under test.
-      const config = path.join(configHome(stateDir), 'tmuxy');
-      fs.mkdirSync(config, { recursive: true });
-      fs.writeFileSync(path.join(config, 'launcher'), TMUXY_CLI);
-      const stderr = fs.openSync(path.join(stateDir, `server-${Date.now()}.stderr.log`), 'w');
-      child = spawn(serverBinary(), ['--port', String(port), '--no-auth', ...extraArgs], {
-        cwd: WORKSPACE_ROOT,
-        stdio: ['ignore', 'ignore', stderr],
+      stopServer = await startExtraServer(
+        port,
+        ['--no-auth', ...extraArgs],
         env,
-      });
-      // The child holds its own copy; keeping ours open is an open handle
-      // that stops jest from exiting.
-      fs.closeSync(stderr);
-      await waitForServer(url, 60000);
+        path.join(stateDir, `server-${Date.now()}.stderr.log`),
+      );
     },
     async stop() {
-      if (!child) return;
-      const exited = new Promise((resolve) => child.once('exit', resolve));
-      child.kill('SIGTERM');
-      await Promise.race([exited, new Promise((r) => setTimeout(r, 10000))]);
-      child = null;
+      if (!stopServer) return;
+      const stopping = stopServer;
+      stopServer = null;
+      if (!(await stopping()))
+        throw new Error(`the server on ${url} did not exit on SIGTERM\n${this.serverLog()}`);
     },
     /**
      * A tmux command the person at the keyboard would run, past `tmuxy run`'s
@@ -181,8 +161,7 @@ function comparable(shape) {
     windows: shape.windows.map((w) => ({
       ...w,
       layout: layoutTree(w.layout),
-      // A restore offers what was running rather than running it, so what
-      // was a `command` before comes back as an `offer` (checked apart).
+      // `offer` is checked apart.
       panes: w.panes.map(({ command, offer, ...pane }) => pane),
     })),
     // The group's member parked out of view comes back parked, in its group.
@@ -190,4 +169,4 @@ function comparable(shape) {
   };
 }
 
-module.exports = { isolatedServer, shapeOf, layoutTree, comparable };
+module.exports = { isolatedServer, shapeOf, comparable };

@@ -12,8 +12,8 @@ on:
   # Callable as a job, so another workflow can make a real `needs:` dependency
   # on this suite. `Build App` calls it on the TAG ref: the artifacts that
   # become a release are then gated on the same tests, for the same ref —
-  # every test, including the [nightly] tier a push skips (docs/TESTS.md
-  # § Tiers).
+  # every test, including the [nightly] tier a push skips
+  # (docs/TESTS-LAYERS.md § Tiers).
   workflow_call:
     inputs:
       e2e-tier:
@@ -38,15 +38,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The lint gate, step by step. WHAT is checked lives in bin/lint-gate — the
+  # same list the pre-commit and pre-push hooks run — and so does the list of
+  # steps: the job asks the gate for it, so a step added there runs here too.
+  # Each runs even after one fails, and a red run names every failed step.
   lint:
-    uses: ./.github/workflows/ci-lint.yml
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          rust: guest
+
+      - uses: ./.github/actions/install-linux-deps
+
+      - name: Lint gate
+        run: |
+          failed=""
+          for step in $(bin/lint-gate steps); do
+            echo "::group::bin/lint-gate check $step"
+            bin/lint-gate check "$step" || failed="$failed $step"
+            echo "::endgroup::"
+          done
+          for step in $failed; do
+            echo "::error title=lint-gate $step::bin/lint-gate check $step failed"
+          done
+          [ -z "$failed" ]
 
   # What this push touched, for the jobs below that need not run on every
   # push: the desktop build, the v86 probe, the Mac cargo test and the
   # dependency audit each skip a push that changed nothing they cover, and the
   # [nightly] E2E tier runs only for a push that edited the web suites. The
-  # rules are bin/ci/ci-changes.mjs (tested from the UI package); a base this
+  # rules are bin/ci/ci-changes.mjs (tested beside it); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
+  #
+  # The same job composes the E2E matrix for this run's tier, from
+  # tests/e2e-suites.json via bin/ci/e2e-plan.mjs: on a push the suites a
+  # [nightly] test does not fill, each with a jest name pattern that skips
+  # the tagged tests; on a tag build (`e2e-tier: full`) every suite and every
+  # test. A push that edited the web suites also gets the [nightly] tier.
   changes:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -56,50 +89,36 @@ jobs:
       macos-rust: ${{ steps.changes.outputs.macos-rust }}
       audit: ${{ steps.changes.outputs.audit }}
       nightly-e2e: ${{ steps.changes.outputs.nightly-e2e }}
+      suites: ${{ steps.plan.outputs.suites }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: changes
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node bin/ci/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
+      - id: plan
+        env:
+          TIER: ${{ inputs.e2e-tier || 'commit' }}
+          WITH_NIGHTLY: ${{ steps.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
+        run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
   # The frontend bundle and the test server, each built ONCE and handed to
-  # every job that needs them. They used to be rebuilt inside each of the e2e
-  # matrix entries — the same two builds a dozen times over, for the largest
-  # share of this workflow's runner minutes.
-  #
-  # Two jobs so the desktop job, which only needs the dist, starts as soon as
-  # the frontend is built rather than after the server too. The server job
-  # still waits for the dist: the server embeds it at compile time
-  # (rust-embed in tmuxy-server/src/server.rs), and the E2E suites hit the
+  # every job that needs them. Two jobs so the desktop job, which only needs
+  # the dist, starts as soon as the frontend is built. The server job still
+  # waits for the dist: the server embeds it at compile time (rust-embed in
+  # tmuxy-server/src/server/lifecycle.rs), and the E2E suites hit the
   # embedded copy.
   #
   # Every consumer runs on ubuntu-26.04, so one linux-x86_64 binary serves
-  # them all. Artifacts do not carry the executable bit; consumers chmod it.
+  # them all.
   build-frontend:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
-
-      - uses: ./.github/actions/install-node-modules
-
-      - name: Build frontend
-        run: npm run build -w tmuxy-ui
-
-      - name: Upload frontend dist
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
-          if-no-files-found: error
-          retention-days: 1
+      - uses: ./.github/actions/build-frontend
 
   # The `ci` profile (Cargo.toml): release optimisation without the fat-LTO,
   # single-codegen-unit link that is most of the release build's minute and
@@ -107,83 +126,87 @@ jobs:
   # `target/release/` path its consumers expect.
   build-server:
     runs-on: ubuntu-26.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     needs: build-frontend
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: ./.github/actions/build-server
         with:
-          toolchain: stable
+          profile: ci
 
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+  demo-build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
 
-      - name: Download frontend dist
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
+          rust: none
+      # That the site compiles. Without `prebuild`, which stages the v86
+      # guest's assets for the page to load at runtime: building those is
+      # Deploy Demo's, and a compile check has no use for them.
+      - name: Build demo
+        run: npm run build --ignore-scripts -w tmuxy-demo
 
-      - name: Build server (ci profile)
-        run: cargo build --profile ci -p tmuxy-server
+  unit-tests:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
 
-      - name: Upload server binary
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          name: tmuxy-server-release
-          path: target/ci/tmuxy-server
-          if-no-files-found: error
-          retention-days: 1
+          rust: none
+      - name: Vitest
+        run: npm test
 
-  node-checks:
-    uses: ./.github/workflows/ci-node-checks.yml
+  cli-tests:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Rust for the one suite that builds a real binary: the guests'
+      # tmuxy-verbs (tests/cli/cli-guest-verbs.test.js).
+      - uses: ./.github/actions/setup-node-rust
+      - name: CLI suite
+        run: npm run test:cli
 
   # macOS is the primary user platform, and every test job above runs on Linux
   # only — a macOS-only bug (feab950) reached a release because nothing on CI
   # ever executed this code on a Mac.
   #
   # Only the platform-SENSITIVE suites: the CLI (shell, paths, PATH lookup) and
-  # cargo test (a real `tmux -CC` against Homebrew's tmux). Vitest ran here too
-  # and was dropped — it is pure JS logic with no platform surface, already
-  # covered by `node-checks / unit-tests`.
+  # cargo test (a real `tmux -CC` against Homebrew's tmux).
   #
   # The CLI suite runs on every push: it is cheap and the shell is where the
   # platform shows. The Rust suite runs only when the push touches the code
-  # that has a macOS branch — the desktop app, the pty spawn in
-  # `control_mode/connection.rs`, the CLI scripts, the Cargo manifests — and
-  # always on a tag build. A Mac minute costs ten Linux ones, and the ~500
+  # that has a macOS branch — the desktop app, the pty spawn of `tmux -CC`,
+  # the CLI scripts, any Rust file with a `target_os = "macos"`, the Cargo
+  # manifests (`macos-rust` in bin/ci/ci-changes.mjs) — and always on a tag
+  # build. A Mac minute costs ten Linux ones, and the ~500
   # platform-neutral tests are run on Linux per commit already; build-app.yml
-  # runs the whole suite on a Mac daily and on every tag as the net.
+  # runs the whole suite on a Mac daily as the net.
   macos-tests:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 15
     needs: changes
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
+      - uses: ./.github/actions/setup-node-rust
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      # The five tmuxy-core integration tests drive a real `tmux -CC`.
+      # The tmuxy-core integration tests drive a real `tmux -CC`.
       # Homebrew's tmux, not a source build: this job exists to catch macOS
       # platform differences, and brew's is what macOS users actually run.
       - name: Install tmux
         run: |
           brew list tmux >/dev/null 2>&1 || brew install tmux
           tmux -V
-
-      - name: Install npm dependencies
-        run: npm ci
 
       - name: CLI suite
         run: npm run test:cli
@@ -193,70 +216,44 @@ jobs:
         if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: mkdir -p packages/tmuxy-ui/dist
 
-      # Only when the push touched the code with a macOS branch (the `changes`
-      # job's list), and always on a tag build.
       - name: Cargo test
         if: needs.changes.outputs.macos-rust == 'true' || startsWith(github.ref, 'refs/tags/')
         run: cargo test --workspace
 
   rust-tests:
-    uses: ./.github/workflows/ci-rust-tests.yml
-
-  # The E2E matrix for this run's tier, from tests/e2e-suites.json: on a push
-  # the suites a [nightly] test does not fill, each with a jest name pattern
-  # that skips the tagged tests; on a tag build (`e2e-tier: full`) every suite
-  # and every test. A tiny job of its own so the list is data a script can
-  # test, and so the list and the patterns are composed in one place
-  # (bin/ci/e2e-plan.mjs) rather than once per matrix entry here.
-  # A push that edited the web suites also gets the [nightly] tier, on one
-  # more runner (the `changes` job decides).
-  plan:
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    needs: changes
-    outputs:
-      suites: ${{ steps.plan.outputs.suites }}
+    timeout-minutes: 45
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - id: plan
-        env:
-          TIER: ${{ inputs.e2e-tier || 'commit' }}
-          WITH_NIGHTLY: ${{ needs.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
-        run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
-  # E2E + snapshot suites run in parallel — one matrix entry per suite,
-  # one runner per suite. Previously these were serial inside a single
-  # job (~10 min total); matrix puts walltime at max-of-suites.
+      - uses: ./.github/actions/setup-node-rust
+        with:
+          install-npm: 'false'
+
+      - uses: ./.github/actions/install-linux-deps
+
+      - uses: ./.github/actions/install-tmux
+
+      - name: Frontend dist placeholder
+        run: mkdir -p packages/tmuxy-ui/dist
+
+      - name: Cargo test
+        run: cargo test --workspace
+
   e2e:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
-    needs: [plan, build-server]
+    needs: [changes, build-server]
     strategy:
       fail-fast: false
       matrix:
-        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
+        suite: ${{ fromJSON(needs.changes.outputs.suites) }}
     name: e2e (${{ matrix.suite.name }})
 
-    # The suite's own tmux socket, for the server started below as much as for
-    # the tests: the two are the halves of every round trip, so a server on a
-    # different socket makes every test fail at "session not found". Matches
-    # DEFAULT_SOCKET in tests/helpers/tmux-socket.js — the tests pin it
-    # themselves, this is what puts the server on it too.
+    # The suite's own socket, port, wait scale and snapshot policy are set by
+    # start-test-server, for the server and for every step after it.
     env:
-      TMUX_SOCKET: tmuxy-test
-      # And the suite's own port, for the same reason — matches DEFAULT_PORT in
-      # tests/helpers/config.js, which is where the tests look for the server.
-      TMUXY_PORT: 9100
-      # Every wait budget in the suite is a number measured on a laptop; a
-      # runner is slower and shared, so it gets twice as long for each. This
-      # cannot turn a failing test green, only stop a slow one failing.
-      TMUXY_WAIT_SCALE: '2'
-      # The shared server neither saves nor rebuilds sessions (see tmuxEnv in
-      # tests/helpers/tmux-socket.js): a session re-made under a name a test
-      # used before must come up empty. The snapshot suite starts a server of
-      # its own with both cleared.
-      TMUXY_NO_SNAPSHOT: '1'
-      TMUXY_NO_RESTORE: '1'
       # The server log is printed when a shard fails. Each client's size is
       # what decides a pane's size, and a pane too small to show a prompt
       # looks exactly like a shell that never started.
@@ -269,13 +266,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # The server arrives as an artifact from `build-server`, and nothing
+      # else in this job compiles.
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
+          rust: none
 
-      # No Rust toolchain here any more: the release server arrives as an
-      # artifact from `build-server`, and nothing else in this job compiles.
       # The runner image's apt index is used as it is; a refresh is ~10s on
       # every runner, and only needed when the image's lists have gone stale.
       - name: Install system dependencies
@@ -283,61 +279,34 @@ jobs:
           APT_ATTEMPTS=1 bin/ci/apt-get install -y --no-install-recommends fzf neovim \
             || { bin/ci/apt-get update && bin/ci/apt-get install -y --no-install-recommends fzf neovim; }
 
-      # 3.7a, except for the entry that runs the smoke suites on the tmux
-      # Ubuntu ships (3.4): two product bugs were 3.4-only and the nightly
-      # matrix was the first to see them.
+      # The pin (bin/toolchain), except for the entry that runs the smoke
+      # suites on the tmux Ubuntu ships (3.4): two product bugs were 3.4-only
+      # and the nightly matrix was the first to see them.
       - uses: ./.github/actions/install-tmux
         with:
-          version: ${{ matrix.suite.tmux || '3.7a' }}
-
-      - uses: ./.github/actions/install-node-modules
+          version: ${{ matrix.suite.tmux }}
 
       - uses: ./.github/actions/install-chromium
 
-      # Only the WebKit suite; every other entry would pay the download for a
-      # browser it never launches.
       - uses: ./.github/actions/install-webkit
         if: matrix.suite.webkit
 
-      - name: Download frontend dist
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      - uses: ./.github/actions/start-test-server
         with:
-          name: frontend-dist
-          path: packages/tmuxy-ui/dist
-
-      - name: Download server binary
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: tmuxy-server-release
-          path: target/release
-
-      # Artifacts do not preserve the executable bit.
-      - name: Make the server executable
-        run: chmod +x target/release/tmuxy-server
-
-      # Put the `tmuxy` CLI on PATH so panes spawned by the server (a widget,
-      # a float's command) resolve it — mirrors brew/AppImage installs.
-      - name: Link tmuxy CLI onto PATH
-        run: sudo ln -sf "$GITHUB_WORKSPACE/packages/tmuxy-cli/bin/tmuxy-cli" /usr/local/bin/tmuxy
-
-      # With the environment the helpers resolve (tests/helpers/server-env.js),
-      # as jest.setup.js starts one: the suite's own config, data and state
-      # dirs, so a plugin or theme a test installs is one the server sees.
-      - name: Start server
-        run: |
-          eval "$(node tests/helpers/server-env.js)"
-          TMUXY_TRACE_LEVEL=labeled ./target/release/tmuxy-server --port "$TMUXY_PORT" \
-            --trace "$TMUXY_E2E_TRACE" 2>/tmp/tmuxy-server.log &
-          bin/ci/wait-for-server "http://localhost:$TMUXY_PORT"
+          e2e: 'true'
+          trace: ${{ env.TMUXY_E2E_TRACE }}
 
       # No --forceExit: it masked leaked handles by killing the process before
       # jest could report them.
       - name: Run ${{ matrix.suite.name }}
         env:
           SUITE_PATH: ${{ matrix.suite.path }}
-          # The tier's lookahead plus this suite's shard filter, composed by
+          # The tier's jest name pattern, composed by
           # bin/ci/e2e-plan.mjs; empty when every test in the file is wanted.
           SUITE_PATTERN: ${{ matrix.suite.pattern }}
+          # The runner that installs WebKit fails a WebKit suite that cannot
+          # launch it, instead of reporting it as not run.
+          TMUXY_E2E_REQUIRE_WEBKIT: ${{ matrix.suite.webkit && '1' || '' }}
         run: |
           set -o pipefail
           npx jest "$SUITE_PATH" ${SUITE_PATTERN:+--testNamePattern "$SUITE_PATTERN"} 2>&1 | tee /tmp/jest-output.log
@@ -365,21 +334,12 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # Interaction latency. Drives the handful of things a user does constantly
-  # (type, move between panes, split, zoom, switch tab) through the real
-  # keyboard path and records how long each takes to become visible.
-  #
-  # The gate is the RATIO of each interaction to the keystroke round trip
-  # measured in the same run — a loaded runner inflates both, so the ratio is
-  # what survives GitHub's noise. The raw milliseconds are uploaded as an
-  # artifact and diffed against the committed per-platform baseline for trend
-  # only; they never fail the build. See docs/PERFORMANCE.md.
   # Storybook probes. Both jobs drive stories in a real Chromium against a
   # `storybook dev` server — dev (not static) on purpose: no build step, and
   # stories compile on demand.
-  # Two runners, each a stride of the story list (PROBE_SHARD): with the
-  # nightly tier gone the probe was still the longest job on every push, and
-  # a second runner's setup (~90s) is cheaper than the half it takes over.
+  # Two runners, each a stride of the story list (PROBE_SHARD): the probe is
+  # the longest job on a push, and a second runner's setup (~90s) is cheaper
+  # than the half it takes over.
   storybook-probe:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -392,42 +352,23 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/storybook-probe-setup
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: ./.github/actions/install-node-modules
-
-      - uses: ./.github/actions/install-chromium
-
-      # The v86 staticDirs point at gitignored dirs; non-v86 stories never
-      # fetch from them, but Storybook refuses to start if they're missing.
-      - name: Create placeholder v86 asset dirs
-        run: mkdir -p packages/tmuxy-ui/v86-assets packages/tmuxy-wasm/pkg
-
-      - name: Start Storybook (dev server)
-        run: |
-          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/ci/wait-for-server http://localhost:6006/index.json 180000
+          storybook-log: /tmp/storybook.log
 
       # The per-commit tier: stories tagged `nightly` (frame-sampled
       # animations, render-count budgets, language sweeps) run in the nightly
       # v86 workflow's deterministic job instead. The axe accessibility pass
-      # runs here too: it used to be nightly-only while every blocking rule
-      # was quarantined, and five of the next thirteen probe misses were
-      # accessibility regressions nobody saw until the morning.
+      # runs here too: when it was nightly-only, five of thirteen probe misses
+      # were accessibility regressions nobody saw until the morning.
       - name: Probe deterministic stories
         env:
           PROBE_TIER: commit
           PROBE_SHARD: ${{ matrix.shard }}
-        run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          npm run test-storybook -w tmuxy-ui
+        run: npm run test-storybook -w tmuxy-ui
 
-      # A screenshot, a DOM dump and the real stack for every story that
-      # failed — the probe used to report only `playFunctionThrewException`,
-      # which nobody could act on.
+      # A screenshot, a DOM dump and the real stack for every failed story:
+      # the test runner itself reports only `playFunctionThrewException`.
       - name: Probe failure artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -448,78 +389,25 @@ jobs:
     # job): the E2E suites, the server, the desktop crate, prose.
     needs: changes
     if: needs.changes.outputs.v86 == 'true'
-    # Only the blocking GATE (three optimistic-UX stories the pane-stability
-    # review promoted once the correlation fixes proved stable) runs per
-    # commit. The full ~110-story sweep used to run here too, behind a
-    # step-level continue-on-error — 20 minutes on the critical path producing
-    # a result nobody was obliged to read. It moved to nightly-v86.yml, where
-    # a failure opens an issue and the per-story timings are kept.
+    # Only the blocking GATE (the stories tagged `gate`) runs per commit; the
+    # full sweep (~20 minutes) is nightly-v86.yml's, where a failure opens an
+    # issue and the per-story timings are kept.
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # The guest kernel/BIOS + pre-booted machine snapshot come from cache
+      # unless something the guest is built from changed (the v86-guest action).
+      - uses: ./.github/actions/storybook-probe-setup
         with:
-          node-version: 22
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          # wasm32 for tmuxy-wasm; i686-musl for the guest tmuxy-group binary
-          # that build-v86-snapshot.mjs cross-compiles on a cache miss.
-          targets: wasm32-unknown-unknown,i686-unknown-linux-musl
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      # The CLI and the crate must agree EXACTLY on the bindgen schema, so the
-      # version is read from the lockfile (bin/wasm-bindgen-version) rather
-      # than written here.
-      - name: Read the wasm-bindgen version from Cargo.lock
-        id: wasm-bindgen
-        run: echo "version=$(bin/wasm-bindgen-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Install wasm-bindgen CLI
-        uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
-        with:
-          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
-
-      - uses: ./.github/actions/install-node-modules
-
-      - name: Build tmuxy-wasm
-        run: npm run build:wasm
-
-      # The guest kernel/BIOS + pre-booted machine snapshot. Rebuilt only when
-      # the build scripts or the baked-in tmuxy CLI/config change.
-      - name: Cache v86 guest assets
-        id: v86-assets-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: packages/tmuxy-ui/v86-assets
-          key: ${{ runner.os }}-v86-assets-${{ hashFiles('packages/tmuxy-ui/scripts/build-v86-snapshot.mjs', 'packages/tmuxy-ui/scripts/fetch-v86-image.mjs', 'packages/tmuxy-cli/bin/tmuxy-cli', 'packages/tmuxy-cli/bin/tmuxy/**', 'packages/tmuxy-core/assets/tmuxy.defaults.conf', 'packages/tmuxy-core/assets/tmuxy.essentials.conf') }}
-
-      - name: Build v86 guest assets (cache miss)
-        if: steps.v86-assets-cache.outputs.cache-hit != 'true'
-        run: |
-          bin/ci/apt-get update && bin/ci/apt-get install -y --no-install-recommends zstd
-          npm run fetch:v86-image -w tmuxy-ui
-          npm run build:v86-snapshot -w tmuxy-ui
-
-      - uses: ./.github/actions/install-chromium
-
-      - name: Start Storybook (dev server)
-        run: |
-          npm run storybook -w tmuxy-ui -- --ci --quiet 2>/tmp/storybook.log &
-          bin/ci/wait-for-server http://localhost:6006/index.json 180000
+          v86: 'true'
+          storybook-log: /tmp/storybook.log
 
       - name: Gate stories (blocking)
-        run: |
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node -e "console.log(require('playwright').chromium.executablePath())")"
-          npm run test-storybook:v86 -w tmuxy-ui -- 6006 split-optimistic-timeline split-rejected-rollback resize-pane-drag
+        run: PROBE_TIER=gate npm run test-storybook:v86 -w tmuxy-ui -- 6006
 
-      # A screenshot, a DOM dump and the real stack for every story that
-      # failed — the probe used to report only `playFunctionThrewException`,
-      # which nobody could act on.
+      # A screenshot, a DOM dump and the real stack for every failed story:
+      # the test runner itself reports only `playFunctionThrewException`.
       - name: Probe failure artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -533,16 +421,8 @@ jobs:
         if: failure()
         run: tail -200 /tmp/storybook.log
 
-  # The packaged desktop app: built ONCE, then both desktop suites run against
-  # that one binary.
-  #
-  # These were two jobs — `tauri-e2e` (debug build, WebdriverIO suite) and
-  # `desktop-smoke` (release build, launch smoke test). They installed the same
-  # WebKitGTK/Xvfb apt set, shared the same tauri-driver and tmux 3.7a caches,
-  # and compiled the Tauri app twice between them, for the two jobs that
-  # between them produced most of this workflow's failures.
-  #
-  # The smoke test runs FIRST and brings its own tauri-driver up and down; the
+  # The desktop app, built ONCE for both desktop suites. The smoke test runs
+  # FIRST and brings its own tauri-driver up and down; the
   # jest suite then starts its own on the same port.
   desktop:
     runs-on: ubuntu-26.04
@@ -555,47 +435,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
-          cache: npm
+      - uses: ./.github/actions/setup-node-rust
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
+      - uses: ./.github/actions/install-desktop-test-deps
 
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
-      - name: Install system dependencies
-        run: |
-          bin/ci/apt-get update
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev \
-            webkitgtk-webdriver xvfb x11-utils
-
-      # Match the `e2e` job's tmux version (3.7a — the devcontainer / v86
-      # guest / docs/TMUX.md target). Ubuntu's apt ships tmux 3.4, which has a
-      # race where the initial auto-adopt of `@tmuxy-window-type=tab` gets
-      # clobbered by an in-flight list-windows response under the load the
-      # Ctx/Tower Tauri path puts on the CC stream at startup.
+      # Match the `e2e` job's tmux version (the pin in bin/toolchain, the
+      # devcontainer's and docs/TMUX.md's target). Ubuntu's apt ships tmux
+      # 3.4, which has a race where the initial auto-adopt of
+      # `@tmuxy-window-type=tab` gets clobbered by an in-flight list-windows
+      # response under the load the Tauri app puts on the control-mode stream
+      # at startup.
       - uses: ./.github/actions/install-tmux
-
-      # `cargo install tauri-driver` compiles from source on every run
-      # (~2 min). Pinned so the cache key describes exactly what is in it.
-      - name: Cache tauri-driver
-        id: tauri-driver-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.cargo/bin/tauri-driver
-          key: ${{ runner.os }}-tauri-driver-2.0.6
-
-      - name: Install tauri-driver (cache miss)
-        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked --force
-
-      - uses: ./.github/actions/install-node-modules
 
       - name: Download frontend dist
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -609,19 +459,11 @@ jobs:
       # release build is still exercised daily and on every tag by
       # build-app.yml, and the desktop latency measurement that does need it
       # lives in nightly-perf.yml.
-      # Reuses the frontend-dist artifact from build-frontend instead of rebuilding.
       - name: Build Tauri app (debug)
         run: npx tauri build --debug --no-bundle --config '{"build":{"beforeBuildCommand":""}}'
         working-directory: packages/tmuxy-tauri-app
 
-      - name: Start Xvfb
-        run: |
-          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          echo "XVFB_PID=$!" >> "$GITHUB_ENV"
-          for i in $(seq 1 20); do
-            xdpyinfo -display :99 >/dev/null 2>&1 && break
-            sleep 0.25
-          done
+      - uses: ./.github/actions/start-xvfb
 
       - name: Run smoke test
         env:
@@ -629,7 +471,7 @@ jobs:
         run: |
           tauri-driver --port 4444 &
           DRIVER_PID=$!
-          sleep 2
+          bin/ci/wait-for-server http://localhost:4444/status
 
           node tests/smoke/smoke-test.js target/debug/tmuxy
           RESULT=$?
@@ -663,17 +505,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
+          install-npm: 'false'
 
       - name: npm audit (production dependencies, high and above)
         run: npm audit --omit=dev --audit-level=high
-
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
 
       - uses: taiki-e/install-action@68a389c788b2cd04016ce8c80ee23b80d2ab3d68 # v2
         with:
@@ -682,17 +519,23 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
-  # Where the run's time went, on the run's summary page: jobs, steps and the
-  # slowest tests, read back from the logs by bin/ci/ci-timing.mjs. Runs after
-  # everything else whatever their result, and never fails the run itself.
-  timing:
+  # The one check the ruleset on main requires. Runs after every other job
+  # whatever their result, and fails when any of them failed or was
+  # cancelled; a job the `changes` filter skipped counts as passed. So a
+  # shard or a gated job can be added, merged or renamed without touching
+  # branch protection. It also writes where the run's time went on the run's
+  # summary page: jobs, steps and the slowest tests, read back from the logs
+  # by bin/ci/ci-timing.mjs.
+  ci:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     if: always()
     needs:
       [
         lint,
-        node-checks,
+        demo-build,
+        unit-tests,
+        cli-tests,
         macos-tests,
         rust-tests,
         e2e,
@@ -710,3 +553,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node bin/ci/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: node bin/ci/ci-gate.mjs

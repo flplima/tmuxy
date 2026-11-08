@@ -1,20 +1,15 @@
 /**
- * VgaMirror — shows the RAW tmux TUI behind a v86 story.
- *
- * The guest's tmux server already serves tmuxy's control-mode client on the
- * serial line. This attaches a SECOND, ordinary client on the guest's VGA text
- * console (/dev/tty1) and displays v86's own rendering of that console: rows
- * of coloured spans painted by the emulator's ScreenAdapter (see
- * `V86Engine.getScreen`). What you see is tmux drawing itself — borders,
- * pane-border-status line, status bar, cursor — with no tmuxy code in the
- * path, which makes it the reference to compare the React rendering against.
+ * Shows the raw tmux TUI behind a v86 story: a second, ordinary tmux client
+ * on the guest's VGA text console (/dev/tty1), as v86's ScreenAdapter paints
+ * it. No tmuxy code is in that path, so it is the reference to compare the
+ * React rendering against.
  *
  * The client is read-only (`-r`) and excluded from window sizing
  * (`-f ignore-size`), so it never steals input or resizes the window the
  * tmuxy control client sized. The guest VGA console is a fixed 80x25
- * terminal; the tmux window the tmuxy client drives is 64x20, which tmux
- * draws top-left and leaves the rest of the console blank — the side-mode CSS
- * crops the screen to that 64x20 window so the panel reads as a 64x20 console
+ * terminal; the tmux window the tmuxy client drives is smaller
+ * (TmuxViewFrame.tsx), which tmux draws top-left and leaves the rest of the
+ * console blank — the side-mode CSS crops the screen to that window
  * (see tmuxView.css). A snapshot reset rewinds the guest and drops the client,
  * so it is re-attached on every engine `ready`.
  *
@@ -53,14 +48,10 @@ export class VgaMirror {
   mount(host: HTMLElement, options: VgaMirrorOptions = {}): void {
     this.host = host;
     this.alignTo = options.alignTo ?? null;
-    // Reveal the console (reparent the shared screen into the visible DOM, start
-    // painting, start realigning) ONLY once the engine is booted, and (re)attach
-    // the read-only VGA client on every attach. Reparenting the screen_container
-    // into a VISIBLE tree BEFORE a cold boot makes v86 lay out and paint the
-    // console every frame while it restores the snapshot, which slows the guest
-    // enough that the app's bounded attach window elapses before tmux answers —
-    // the story then boots to a bare 0-pane shell. Deferring keeps a cold boot
-    // as fast (detached, unpainted screen) as a no-mirror story.
+    // Revealed only once the engine is booted: a screen_container in a visible
+    // tree during a cold boot makes v86 paint the console every frame while it
+    // restores the snapshot, slow enough that the app's bounded attach window
+    // elapses before tmux answers and the story boots to a bare 0-pane shell.
     this.offReady = this.engine.onReady(() => {
       this.reveal();
       this.attach();
@@ -71,8 +62,6 @@ export class VgaMirror {
     }
   }
 
-  /** Idempotently reparent the shared screen into the panel and start painting +
-   *  realigning. Runs once the engine is booted (see `mount`). */
   private reveal(): void {
     if (this.revealed || !this.host) return;
     this.revealed = true;

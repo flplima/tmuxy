@@ -8,10 +8,10 @@
 
 use std::path::{Path, PathBuf};
 
+use super::is_sha;
 use super::lockfile::{EntrySource, Lockfile};
-use super::{is_sha, Dirs};
+use crate::paths::Layout;
 
-/// What a collection did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Collected {
     pub removed: Vec<PathBuf>,
@@ -19,7 +19,6 @@ pub struct Collected {
     pub busy: Vec<PathBuf>,
 }
 
-/// Whether a directory name is a checkout (`<name>@<sha>`).
 fn is_checkout_name(name: &str) -> bool {
     name.split_once('@')
         .is_some_and(|(plugin, sha)| super::is_valid_name(plugin) && is_sha(sha))
@@ -27,10 +26,10 @@ fn is_checkout_name(name: &str) -> bool {
 
 /// Remove every checkout the lockfile does not name and no process uses,
 /// and stale staging leftovers.
-pub fn collect(dirs: &Dirs) -> Collected {
+pub fn collect(dirs: &Layout) -> Collected {
     let mut collected = Collected::default();
     let Ok(lock) = Lockfile::load(dirs) else {
-        // An unreadable lockfile names nothing we could keep: remove nothing.
+        // An unreadable lockfile would keep nothing: remove nothing.
         return collected;
     };
     let keep: std::collections::HashSet<PathBuf> = lock
@@ -41,7 +40,7 @@ pub fn collect(dirs: &Dirs) -> Collected {
             _ => None,
         })
         .collect();
-    let Ok(entries) = std::fs::read_dir(dirs.root()) else {
+    let Ok(entries) = std::fs::read_dir(dirs.plugins_root()) else {
         return collected;
     };
     let candidates: Vec<PathBuf> = entries
@@ -65,8 +64,8 @@ pub fn collect(dirs: &Dirs) -> Collected {
 }
 
 /// Clear what a crashed or abandoned launch left: staging checkouts and
-/// invocation tokens. Run when a server starts.
-pub fn clear_transient(dirs: &Dirs) {
+/// invocation tokens.
+pub fn clear_transient(dirs: &Layout) {
     let _ = std::fs::remove_dir_all(dirs.staging());
     let _ = std::fs::remove_dir_all(dirs.run_dir());
 }
@@ -75,7 +74,7 @@ pub fn clear_transient(dirs: &Dirs) {
 /// ran left its token, an update its staging checkout, and a replaced
 /// commit's checkout goes once nothing runs from it.
 pub fn on_start() {
-    let dirs = Dirs::current();
+    let dirs = Layout::current();
     clear_transient(&dirs);
     collect(&dirs);
 }

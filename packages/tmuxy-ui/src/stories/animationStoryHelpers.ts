@@ -1,21 +1,5 @@
 import { expect, within, waitFor } from 'storybook/test';
-
-export interface AppActor {
-  send: (event: unknown) => void;
-  getSnapshot: () => {
-    context: {
-      activePaneId: string | null;
-      enableAnimations: boolean;
-      floatPanes: Record<string, { paneId: string }>;
-    };
-  };
-}
-
-export function getApp(): AppActor {
-  const app = (window as unknown as { app?: AppActor }).app;
-  if (!app) throw new Error('window.app actor is not available — is the app mounted?');
-  return app;
-}
+import { DEFAULT_APPEARANCE } from '../domain/tmuxyConstants.gen';
 
 export type Canvas = ReturnType<typeof within>;
 
@@ -43,7 +27,6 @@ export async function waitForPaneCount(
   );
 }
 
-/** Resolve once the app has settled and re-enabled layout animations. */
 export async function waitForAnimationsEnabled(layout: HTMLElement, timeout = 6000): Promise<void> {
   await waitFor(
     () => {
@@ -71,14 +54,8 @@ export function alphaOf(color: string): number {
   return 1;
 }
 
-export const APPEARANCE = {
-  opacity: 0.7,
-  activePaneOpacity: 1,
-  inactivePaneOpacity: 0.7,
-  activeTextOpacity: 1,
-  inactiveTextOpacity: 0.7,
-  blur: false,
-};
+/** The shipped appearance, with no macOS blur behind a story. */
+export const APPEARANCE = { ...DEFAULT_APPEARANCE, blur: false };
 
 /**
  * The commit that moves the boxes must carry the gate — that is what
@@ -108,7 +85,6 @@ export function watchResizingGate(layout: HTMLElement): {
   };
 }
 
-/** Sample every rAF frame to check whether any lifecycle classes appear on `layout`. */
 export function watchLifecycleClasses(layout: HTMLElement): {
   sawLifecycle: () => boolean;
   stop: () => void;
@@ -149,14 +125,12 @@ export function assertGatesDeclareFocusCue(layout: HTMLElement, canvasElement: H
   }
 }
 
-/** One stepped point of the focus cue: how far through the fade, and both values there. */
 export interface FocusCueStep {
   progress: number;
   text: number;
   surface: number;
 }
 
-/** What `stepFocusCueOnElement` found when `target` turned active. */
 export interface FocusCueRun {
   steps: FocusCueStep[];
   /** The two transitions' timing, so a story can assert they share one clock. */
@@ -171,21 +145,13 @@ const timingOf = (t: CSSTransition | undefined) => {
 };
 
 /**
- * The focus cue of ONE pinned element — the pane about to gain focus — read
- * deterministically. When `target` gains `pane-active`, a MutationObserver
- * callback (before the next frame, so before any of the fade has run) finds
- * the two CSS transitions the cue is made of — the surface's
- * `background-color` on the pane and the text's `opacity` on its terminal —
- * pauses them, and steps both through `points` evenly spaced moments of their
- * own duration, reading the two values at each.
- *
- * Sampling real frames instead missed the fade about one run in ten: a frame
- * that lands late sees the transition already over, and "the text faded"
- * found no sample mid-way. Stepping cannot miss it, and a surface that
- * hard-flips has no transition to step at all, which the run reports.
+ * Pauses the focus cue's two transitions (the surface's `background-color`,
+ * the text's `opacity`) as `target` turns active, before any frame, and steps
+ * them. Sampling real frames missed the fade about one run in ten: a late
+ * frame sees the transition already over. A surface that hard-flips has no
+ * transition to step, which the run reports.
  */
 export function stepFocusCueOnElement(target: HTMLElement, points = 11): Promise<FocusCueRun> {
-  // The text dim lives on the pane's terminal, not its header.
   const content = target.querySelector<HTMLElement>('.pane-content')!;
   return new Promise((resolve) => {
     const observer = new MutationObserver(() => {

@@ -1,14 +1,15 @@
 //! Opening an action's surface: the one tmux command list per surface, run
-//! through `tmux run-shell` (`job`).
+//! through `tmux run-shell` (`run_shell`).
 
 use std::path::{Path, PathBuf};
 
 use super::super::manifest::{Dim, Size, Surface};
 use super::super::registry::{resolve_command, Registry};
-use super::super::{Dirs, PluginError, Result};
+use super::super::{PluginError, Result};
 use super::token::{is_pane_id, status_path, token_path, PaneInfo, Token, Trigger};
+use crate::float::{free_index, Backdrop, Float};
+use crate::paths::Layout;
 
-/// What `tmuxy plugin action` was asked to do.
 #[derive(Debug, Clone)]
 pub struct OpenRequest {
     pub plugin: String,
@@ -22,7 +23,6 @@ pub struct OpenRequest {
     pub wait: bool,
 }
 
-/// What [`open`] did.
 #[derive(Debug, Clone)]
 pub struct Opened {
     pub token: String,
@@ -31,7 +31,6 @@ pub struct Opened {
     pub surface: Surface,
 }
 
-/// Where a surface opens: the target pane and what tmux says about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
     pub pane: String,
@@ -43,19 +42,18 @@ pub struct Target {
     pub free_index: u32,
 }
 
-/// The default size of a float or popup, when the manifest names none.
 const DEFAULT_FLOAT: Size = Size {
     width: Some(Dim::Percent(80)),
     height: Some(Dim::Percent(70)),
 };
 
 /// The one tmux command list (`;` as its own argument) that opens `surface`
-/// on `target`, running `run` in `root`, and prints the new pane's id.
+/// on `target`, running `run` in `root`, and prints the new pane's id. A
+/// float or popup is [`crate::float::Float`]'s list.
 ///
 /// `split-window` without `-d` makes the new pane the current one for the
-/// commands after it in the same list, so the untargeted `break-pane` and
-/// `resize-pane -Z` act on it — the rule `bin/tmuxy/float-create` builds a
-/// float with, which also keeps the intermediate split from ever being drawn.
+/// commands after it in the same list, so the untargeted `resize-pane -Z`
+/// and `break-pane` act on it.
 pub fn surface_argv(
     surface: Surface,
     size: Option<Size>,
@@ -64,6 +62,29 @@ pub fn surface_argv(
     run: &str,
     name: &str,
 ) -> Vec<String> {
+    if matches!(surface, Surface::Float | Surface::Popup) {
+        let size = size.unwrap_or(DEFAULT_FLOAT);
+        let fit = |dim: Option<Dim>, default: Option<Dim>, cells: u32| {
+            dim.or(default)
+                .map(|d| d.resolve(cells))
+                .unwrap_or(1)
+                .min(cells.max(1))
+        };
+        let popup = surface == Surface::Popup;
+        return Float {
+            from_pane: Some(target.pane.clone()),
+            cwd: Some(root.display().to_string()),
+            command: Some(run.to_string()),
+            at: format!("{}:{}", target.session_id, target.free_index),
+            parent_window: Some(target.window.clone()),
+            width: Some(fit(size.width, DEFAULT_FLOAT.width, target.window_width)),
+            height: Some(fit(size.height, DEFAULT_FLOAT.height, target.window_height)),
+            drawer: None,
+            backdrop: popup.then_some(Backdrop::Dim),
+            no_header: popup,
+        }
+        .argv();
+    }
     let mut argv: Vec<String> = vec!["split-window".into()];
     if surface == Surface::Split {
         argv.push("-h".into());
@@ -78,68 +99,18 @@ pub fn surface_argv(
         "#{pane_id}".into(),
         run.to_string(),
     ]);
-    let mut then = |cmd: &[&str]| {
-        argv.push(";".into());
-        argv.extend(cmd.iter().map(|s| s.to_string()));
-    };
     match surface {
-        Surface::Split => {}
-        Surface::Zoomed => then(&["resize-pane", "-Z"]),
-        Surface::Tab => then(&["break-pane", "-n", name]),
-        Surface::Float | Surface::Popup => {
-            let at = format!("{}:{}", target.session_id, target.free_index);
-            let size = size.unwrap_or(DEFAULT_FLOAT);
-            let width = size
-                .width
-                .or(DEFAULT_FLOAT.width)
-                .map(|d| d.resolve(target.window_width))
-                .unwrap_or(1)
-                .min(target.window_width.max(1))
-                .to_string();
-            let height = size
-                .height
-                .or(DEFAULT_FLOAT.height)
-                .map(|d| d.resolve(target.window_height))
-                .unwrap_or(1)
-                .min(target.window_height.max(1))
-                .to_string();
-            then(&["break-pane", "-d", "-n", "float", "-t", &at]);
-            then(&["set-option", "-w", "-t", &at, "@tmuxy-window-type", "float"]);
-            then(&[
-                "set-option",
-                "-w",
-                "-t",
-                &at,
-                "@tmuxy-float-parent",
-                &target.window,
-            ]);
-            then(&["set-option", "-w", "-t", &at, "@tmuxy-float-width", &width]);
-            then(&[
-                "set-option",
-                "-w",
-                "-t",
-                &at,
-                "@tmuxy-float-height",
-                &height,
-            ]);
-            if surface == Surface::Popup {
-                then(&["set-option", "-w", "-t", &at, "@tmuxy-float-noheader", "1"]);
-                then(&["set-option", "-w", "-t", &at, "@tmuxy-float-bg", "dim"]);
-            }
-            then(&["resize-pane", "-t", &at, "-x", &width]);
-            then(&["resize-pane", "-t", &at, "-y", &height]);
-            // break-pane took the caller's active pane away; give it back,
-            // as float-create does.
-            then(&["select-pane", "-t", &target.pane]);
-        }
+        Surface::Zoomed => argv.extend([";", "resize-pane", "-Z"].map(String::from)),
+        Surface::Tab => argv.extend([";", "break-pane", "-n", name].map(String::from)),
+        _ => {}
     }
     argv
 }
 
-/// The new pane's command: this build's binary running `plugin exec`, every
-/// word single-quoted. Only the binary's path is free text, and a path with
-/// `#` is refused rather than escaped: tmux format-expands what it hands the
-/// shell, and the escape is not the same on every version.
+/// The new pane's command: this build's binary running `plugin exec`, as a
+/// shell line. Only the binary's path is free text, and a path with `#` is
+/// refused rather than escaped: tmux format-expands what it hands the shell,
+/// and the escape is not the same on every version.
 pub fn exec_command_line(
     exe: &Path,
     subcommand: Option<&str>,
@@ -153,13 +124,10 @@ pub fn exec_command_line(
             "tmuxy's binary path {exe:?} contains '#', which tmux would expand"
         )));
     }
-    let quote = |w: &str| format!("'{}'", w.replace('\'', r"'\''"));
-    let mut words = vec![quote(&exe)];
-    if let Some(sub) = subcommand {
-        words.push(quote(sub));
-    }
-    words.extend(["plugin", "exec", name, action, token].map(quote));
-    Ok(format!("exec {}", words.join(" ")))
+    let mut argv = vec![exe.as_str()];
+    argv.extend(subcommand);
+    argv.extend(["plugin", "exec", name, action, token]);
+    Ok(format!("exec {}", crate::argv::shell_line(&argv)))
 }
 
 /// This build's binary and the subcommand its server verbs sit under.
@@ -176,7 +144,6 @@ fn tmux(argv: &[String]) -> Result<String> {
     crate::session::tmux_output(argv).map_err(|e| PluginError::Invalid(e.to_string()))
 }
 
-/// What tmux says about `pane`: the surface's target and the context.
 fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
     let out = tmux(&[
         "display-message".into(),
@@ -216,24 +183,10 @@ fn describe_pane(pane: &str) -> Result<(Target, PaneInfo)> {
     Ok((target, info))
 }
 
-/// The lowest window index not in use, scanning up from the lowest one, as
-/// `float-create`'s `free_window_index` does.
-pub fn free_index(listing: &str) -> u32 {
-    let used: std::collections::BTreeSet<u32> = listing
-        .lines()
-        .filter_map(|l| l.trim().parse().ok())
-        .collect();
-    let mut i = used.iter().next().copied().unwrap_or(0);
-    while used.contains(&i) {
-        i += 1;
-    }
-    i
-}
-
 /// Open an action's surface. The reads run as they are; the command list
-/// that creates the pane runs inside `tmux run-shell` (`job`), so this is
+/// that creates the pane runs inside `tmux run-shell` (`run_shell`), so this is
 /// safe to call from a plain process with control mode attached.
-pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
+pub fn open(dirs: &Layout, request: &OpenRequest) -> Result<Opened> {
     if !is_pane_id(&request.pane) {
         return Err(PluginError::Invalid(format!(
             "{:?} is not a pane id",
@@ -288,11 +241,11 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
         &run,
         &plugin.name,
     );
-    let out = match super::super::job::run(dirs, &argv) {
+    let out = match crate::run_shell::tmux(dirs, &argv) {
         Ok(out) => out,
         Err(e) => {
             let _ = std::fs::remove_file(token_path(dirs, &id));
-            return Err(e);
+            return Err(e.into());
         }
     };
     let pane = out
@@ -327,49 +280,56 @@ pub fn open(dirs: &Dirs, request: &OpenRequest) -> Result<Opened> {
 
 /// Say on the target pane's status line that a menu launch failed, and where
 /// to look.
-pub fn notify_failure(dirs: &Dirs, pane: &str, plugin: &str, error: &str) {
+pub fn notify_failure(dirs: &Layout, pane: &str, plugin: &str, error: &str) {
     if !is_pane_id(pane) {
         return;
     }
     let text: String = format!("plugin {plugin}: {error} (tmuxy plugin log {plugin})")
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .replace('#', "##");
-    let _ = super::super::job::run(
+        .collect::<String>();
+    let text = crate::argv::format_literal(&text);
+    let _ = crate::run_shell::tmux(
         dirs,
         &["display-message".into(), "-t".into(), pane.into(), text],
     );
 }
 
 /// Wait for the command a token launched to exit, and return its status
-/// (`tmuxy plugin action --wait`). A pane that closed without one (killed
-/// before its command started) is a failure, status 1.
-pub fn wait(dirs: &Dirs, token_id: &str, pane: Option<&str>) -> i32 {
+/// (`tmuxy plugin action --wait`). A pane that closed or whose process
+/// died without writing one (killed before its command started, a status
+/// file that could not be written) is a failure, status 1.
+pub fn wait(dirs: &Layout, token_id: &str, pane: &str) -> i32 {
     let path = status_path(dirs, token_id);
+    let read_status = || {
+        let code = std::fs::read_to_string(&path).ok()?.trim().parse().ok()?;
+        let _ = std::fs::remove_file(&path);
+        Some(code)
+    };
     for tick in 0u64.. {
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(code) = text.trim().parse() {
-                let _ = std::fs::remove_file(&path);
-                return code;
-            }
+        if let Some(code) = read_status() {
+            return code;
         }
         if tick % 20 == 19 {
-            if let Some(pane) = pane {
-                let alive = tmux(&[
-                    "display-message".into(),
-                    "-p".into(),
-                    "-t".into(),
-                    pane.into(),
-                    "#{pane_id}".into(),
-                ])
-                .is_ok_and(|out| out.trim() == pane);
-                if !alive && !path.exists() {
-                    return 1;
-                }
+            let answer = tmux(&[
+                "display-message".into(),
+                "-p".into(),
+                "-t".into(),
+                pane.into(),
+                "#{pane_id} #{pane_dead}".into(),
+            ]);
+            if !pane_running(answer.as_deref().unwrap_or(""), pane) {
+                return read_status().unwrap_or(1);
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     1
+}
+
+/// Whether `display-message -p '#{pane_id} #{pane_dead}'` says `pane` still
+/// runs its process. A pane kept open after its process exited
+/// (`remain-on-exit`) is dead: nothing in it will write a status.
+pub fn pane_running(answer: &str, pane: &str) -> bool {
+    answer.trim() == format!("{pane} 0")
 }

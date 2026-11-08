@@ -49,28 +49,23 @@ export const TabSubmenuKeybindings: Story = {
     </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
-    // The button is in the story; the menu is a floating surface portalled out
-    // of it (components/floating), so its items are queried on the document.
+    // The menu is portalled out of the story, so its items are queried on the document.
     const canvas = within(canvasElement);
     const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
 
-    // Every top-level submenu is there.
     for (const label of ['Pane', 'Tab', 'Session', 'View', 'Debug']) {
       expect(menu.getByRole('menuitem', { name: label })).toBeInTheDocument();
     }
     await userEvent.click(menu.getByRole('menuitem', { name: 'Tab' }));
 
-    // Keybinding labels come from the bindings tmux reported on connect, not
-    // from hardcoded strings: the recorded config's `c` opens the new tab in
-    // the pane's directory (`new-window -c "#{pane_current_path}"`), and is
-    // still New Tab.
+    // Key labels come from the bindings tmux reported on connect: the recorded
+    // config binds `c` to `new-window -c "#{pane_current_path}"`, still New Tab.
     const newTab = await waitFor(() => menu.getByRole('menuitem', { name: /new tab/i }));
     const keyLabel = newTab.querySelector('.menu-keybinding');
     expect(keyLabel).not.toBeNull();
     expect(keyLabel!.textContent).toBe('ctrl+a c');
 
-    // With a single window, tab navigation is disabled.
     expect(menu.getByRole('menuitem', { name: /next tab/i })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -85,25 +80,19 @@ export const ThemeSubmenu: Story = {
     </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
-    // The button is in the story; the menu is a floating surface portalled out
-    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
     const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
     await userEvent.click(menu.getByRole('menuitem', { name: 'View' }));
     await userEvent.click(await waitFor(() => menu.getByRole('menuitem', { name: 'Theme' })));
 
-    // The modes are checkbox items: exactly one of them is checked, the one
-    // the page is in.
     const dark = await waitFor(() => menu.getByRole('menuitemcheckbox', { name: /dark mode/i }));
     const light = menu.getByRole('menuitemcheckbox', { name: /light mode/i });
     expect(menu.getByRole('menuitemcheckbox', { name: /system/i })).toBeInTheDocument();
     const checked = [dark, light].filter((el) => el.getAttribute('aria-checked') === 'true');
     expect(checked).toHaveLength(1);
 
-    // And the check is drawn, not only announced: a mark in the checked
-    // item's leading column, none in the other's — whose label still starts
-    // where the checked one's does.
+    // The check is drawn, not only announced.
     const mark = (el: HTMLElement) => el.querySelector('.menu-item-lead [data-icon="check"]');
     const unchecked = checked[0] === dark ? light : dark;
     const box = mark(checked[0])?.getBoundingClientRect();
@@ -120,12 +109,8 @@ export const ThemeSubmenu: Story = {
 };
 
 /**
- * Debug submenu — the local action trace and nothing else (docs/TRACING.md).
- *
- * The switch is the gate: with tracing off there is no level to pick and no
- * file worth opening, so every item below it is disabled. Flipping it on has
- * to unlock them, which is the interaction this covers — a menu that renders
- * the right items but never re-enables them looks identical in a static check.
+ * Debug submenu: with tracing off every item under the switch is disabled, and
+ * turning it on re-enables them.
  */
 export const DebugTraceControls: Story = {
   render: () => (
@@ -134,8 +119,6 @@ export const DebugTraceControls: Story = {
     </FixtureProvider>
   ),
   play: async ({ canvasElement }) => {
-    // The button is in the story; the menu is a floating surface portalled out
-    // of it (components/floating), so its items are queried on the document.
     const canvas = within(canvasElement);
     const menu = within(document.body);
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
@@ -151,7 +134,6 @@ export const DebugTraceControls: Story = {
     const levelItem = (name: string) => menu.getByRole('menuitemradio', { name });
     const copyPath = () => menu.getByRole('menuitem', { name: /copy trace.ndjson path/i });
 
-    // Everything the switch gates starts disabled.
     for (const name of levels) {
       expect(levelItem(name)).toHaveAttribute('aria-disabled', 'true');
     }
@@ -168,7 +150,6 @@ export const DebugTraceControls: Story = {
         'true',
       ),
     );
-    // An enabled item carries no aria-disabled at all.
     for (const name of levels) {
       expect(levelItem(name)).not.toHaveAttribute('aria-disabled', 'true');
     }
@@ -177,7 +158,6 @@ export const DebugTraceControls: Story = {
     expect(levelItem('Shape')).toHaveAttribute('aria-checked', 'true');
     expect(levelItem('Full')).toHaveAttribute('aria-checked', 'false');
 
-    // Picking a level is exclusive — the previous one clears.
     await userEvent.click(levelItem('Full'));
     await userEvent.click(canvas.getByRole('button', { name: /menu/i }));
     await userEvent.click(menu.getByRole('menuitem', { name: 'Debug' }));

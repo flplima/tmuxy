@@ -1,13 +1,4 @@
-//! The manifest sections that point at an action or extend the app:
-//! `[[link_handlers]]`, `[[keys]]`, `[[settings]]`, `depends` and
-//! `[[themes]]`, as plain types, and the limits their validation
-//! (`super::validate`) holds them to.
-
-use std::collections::BTreeMap;
-
 use serde::Serialize;
-
-// ── Validated ───────────────────────────────────────────────────────────
 
 /// A `[[link_handlers]]` entry: links in pane output that open an action.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,9 +160,6 @@ pub struct Theme {
     pub file: String,
 }
 
-// ── Limits ──────────────────────────────────────────────────────────────
-
-/// The longest text pattern or path regex a manifest may carry.
 pub const MAX_PATTERN_CHARS: usize = 256;
 
 /// A pattern compiled with bounded memory: `regex` matches in linear time,
@@ -236,12 +224,4 @@ pub fn normalize_key(key: &str) -> Option<String> {
         out.push_str(name);
         out
     })
-}
-
-/// The settings with their defaults, for the gate and `config`.
-pub fn defaults(settings: &[Setting]) -> BTreeMap<String, SettingValue> {
-    settings
-        .iter()
-        .filter_map(|s| s.default.clone().map(|d| (s.key.clone(), d)))
-        .collect()
 }

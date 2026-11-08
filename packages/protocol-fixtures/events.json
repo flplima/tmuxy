@@ -1,0 +1,132 @@
+[
+  {
+    "data": {
+      "connection_id": 3,
+      "default_shell": "zsh",
+      "hostname": "gaphs04",
+      "trace_enabled": true
+    },
+    "event": "connection-info"
+  },
+  {
+    "data": {
+      "message": "unknown command: frobnicate"
+    },
+    "event": "tmux-error"
+  },
+  {
+    "data": {
+      "message": "Failed to connect to control mode: no server (attempt 1 of 5)"
+    },
+    "event": "reconnecting"
+  },
+  {
+    "data": {
+      "prefix_bindings": [
+        {
+          "command": "new-window",
+          "description": "new window",
+          "key": "c",
+          "repeat": false
+        }
+      ],
+      "prefix_key": "C-b",
+      "repeat_time_ms": 300,
+      "root_bindings": [
+        {
+          "command": "select-pane -L",
+          "description": "pane left",
+          "key": "M-Left",
+          "repeat": true
+        }
+      ],
+      "tables": {
+        "pane": [
+          {
+            "command": "kill-pane \\; switch-client -T pane",
+            "description": "kill-pane \\; switch-client -T pane",
+            "key": "x",
+            "repeat": false
+          }
+        ]
+      }
+    },
+    "event": "keybindings"
+  },
+  {
+    "data": {
+      "appearance": {
+        "activePaneOpacity": 1.0,
+        "activeTextOpacity": 1.0,
+        "animations": true,
+        "blur": true,
+        "cursorBlink": true,
+        "gesturePinchOverview": true,
+        "gesturePinchZoom": true,
+        "gestureSwipeTabs": true,
+        "inactivePaneOpacity": 0.7,
+        "inactiveTextOpacity": 0.7,
+        "nativeMenus": true,
+        "notify": true,
+        "opacity": 0.7,
+        "sendAsk": true,
+        "size": {
+          "cols": 120,
+          "mode": "fixed",
+          "rows": 40
+        },
+        "tabOverviewCols": 3,
+        "transparency": true
+      },
+      "cssVars": {
+        "term-red": "#ff0000"
+      },
+      "icons": {
+        "claude": "*",
+        "codex": "data:image/svg+xml;base64,PHN2Zy8+"
+      },
+      "mode": "dark",
+      "pinned": [
+        "@tmuxy-opacity"
+      ],
+      "theme": "nord"
+    },
+    "event": "theme-settings"
+  },
+  {
+    "data": null,
+    "event": "css-changed"
+  },
+  {
+    "data": {
+      "kind": "command",
+      "message": "tmux has-session -t tmuxy"
+    },
+    "event": "log"
+  },
+  {
+    "data": {
+      "message": "tmux exited and will not be retried"
+    },
+    "event": "fatal"
+  },
+  {
+    "data": {
+      "reason": "detached"
+    },
+    "event": "detached"
+  },
+  {
+    "data": {
+      "pane_id": "%2",
+      "text": "copied"
+    },
+    "event": "clipboard"
+  },
+  {
+    "data": {
+      "text": "build done"
+    },
+    "event": "tmux-message"
+  }
+]

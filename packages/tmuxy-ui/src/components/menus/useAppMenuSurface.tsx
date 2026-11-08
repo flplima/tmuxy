@@ -1,16 +1,15 @@
 /**
- * What the application menu needs beyond its spec, shared by the hamburger
- * and the native menu bar: the dispatch with the surface's own verbs (the
- * dialogs, the clipboard, the desktop window verbs that answer with the OS),
- * the Window submenu's fetched lists, and the dialogs themselves.
+ * What the application menu needs beyond its spec, shared by the hamburger and
+ * the native menu bar.
  */
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '../Modal';
 import { useAppSend, useAppActor, useAppSelector } from '../../machines/appHooks';
-import { isTauri } from '../../utils/platform';
-import { copyAppState, type ClipboardReport } from '../../utils/copyAppState';
+import { isTauri } from '../../infra/platform';
+import { copyAppState, type ClipboardReport } from './copyAppState';
+import { writeClipboard } from '../../infra/clipboard';
 import {
   closeGuiWindow,
   focusGuiWindow,
@@ -19,24 +18,20 @@ import {
   newGuiWindow,
   quitApp,
   setWindowStyle,
-  type GuiWindowInfo,
-  type WindowStyleSlug,
-} from '../../utils/guiWindows';
-import { windowMenuSpec } from '../../domain/menus/windowMenu';
-import type { AppMenuOptions } from '../../domain/menus/appMenu';
-import type { MenuEnv, MenuNode } from '../../domain/menus/spec';
-import { useMenuDispatch, type MenuDispatch } from './SpecMenu';
+} from '../../infra/guiWindows';
+import type { GuiWindowInfo, WindowStyleSlug } from '../../domain/guiWindows';
+import { windowMenuSpec } from './specs/windowMenu';
+import type { AppMenuOptions } from './specs/appMenu';
+import type { MenuEnv } from '../../domain/menus/spec';
+import { useMenuDispatch, type AppMenuDispatch } from './SpecMenu';
 import { useWidgetMenuItems } from '../widgets/usePaneWidget';
-import { activeCloseTarget } from './menuActions';
+import { op, type AppMenuNode, type MenuLocal } from './specs/actions';
+import { TmuxOp } from '../../domain/commands';
 import './AppMenu.css';
 
 export interface AppMenuSurface {
-  dispatch: MenuDispatch;
-  /** What the spec builders take: the active pane's widget items and the Window submenu. */
+  dispatch: AppMenuDispatch;
   options: AppMenuOptions;
-  /** Re-read the Window submenu's lists (windows come and go from other windows). */
-  refreshWindows: () => void;
-  /** The dialogs the menu opens, rendered at the body so they cover the page. */
   dialogs: ReactNode;
 }
 
@@ -44,15 +39,11 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   const send = useAppSend();
   const actor = useAppActor();
   const activePaneId = useAppSelector((c) => c.activePaneId);
-  const focusedFloatPaneId = useAppSelector((c) => c.focusedFloatPaneId);
   const sessionName = useAppSelector((c) => c.sessionName);
   const tracePath = useAppSelector((c) => c.traceSettings?.path ?? null);
-  // Widgets contribute their own items for whichever pane is active, the same
-  // section the pane's ⋮ menu shows.
   const widgetItems = useWidgetMenuItems(activePaneId);
 
-  // The desktop's Window submenu: both lists are read on demand rather than
-  // held, since windows come and go from other windows and the style is the
+  // Read on demand: other windows open and close windows, and the style is the
   // OS's answer.
   const [windows, setWindows] = useState<GuiWindowInfo[]>([]);
   const [style, setStyle] = useState<WindowStyleSlug>('normal');
@@ -63,7 +54,6 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
   }, []);
   useEffect(refreshWindows, [refreshWindows]);
 
-  // The dialog the menu opens: it asks before a destructive act.
   const [confirmKill, setConfirmKill] = useState(false);
 
   const report: ClipboardReport = {
@@ -71,27 +61,32 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     onFailed: (text) => send({ type: 'NOTIFY', text }),
   };
 
-  const dispatch = useMenuDispatch({
-    closeTarget: activeCloseTarget(activePaneId, focusedFloatPaneId),
-    onLocal: (id) => {
-      if (id === 'confirm-kill-session') setConfirmKill(true);
-      else if (id === 'debug-copy-state') copyAppState(actor.getSnapshot().context, report);
-      else if (id === 'trace-copy-path') copyTracePath(tracePath, report);
-      else if (id === 'window-refresh') refreshWindows();
-      else if (id === 'window-new') newGuiWindow();
-      else if (id === 'window-close') closeGuiWindow();
-      else if (id === 'quit') quitApp();
-      else if (id.startsWith('window-style:')) {
-        const slug = id.slice('window-style:'.length) as WindowStyleSlug;
-        setWindowStyle(slug);
-        setStyle(slug);
-      } else if (id.startsWith('window-focus:'))
-        focusGuiWindow(Number(id.slice('window-focus:'.length)));
-    },
-  });
+  const onLocal = (local: MenuLocal) => {
+    switch (local.verb) {
+      case 'confirm-kill-session':
+        return setConfirmKill(true);
+      case 'copy-app-state':
+        return copyAppState(actor.getSnapshot().context, report);
+      case 'copy-trace-path':
+        return copyTracePath(tracePath, report);
+      case 'window-refresh':
+        return refreshWindows();
+      case 'window-new':
+        return newGuiWindow();
+      case 'window-close':
+        return closeGuiWindow();
+      case 'quit':
+        return quitApp();
+      case 'window-style':
+        setWindowStyle(local.slug);
+        return setStyle(local.slug);
+      case 'window-focus':
+        return focusGuiWindow(local.index);
+    }
+  };
+  const dispatch = useMenuDispatch({ onLocal });
 
-  // OS windows are the desktop app's to manage; a browser tab has none.
-  const windowMenu: MenuNode | undefined = isTauri()
+  const windowMenu: AppMenuNode | undefined = isTauri()
     ? windowMenuSpec(env, { windows, style })
     : undefined;
 
@@ -113,7 +108,7 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
                 className="is-destructive"
                 onClick={() => {
                   setConfirmKill(false);
-                  dispatch({ kind: 'action', id: 'session-kill' });
+                  dispatch(op(TmuxOp.KillSession({ name: null })));
                 }}
               >
                 Kill Session
@@ -125,21 +120,15 @@ export function useAppMenuSurface(env: MenuEnv): AppMenuSurface {
     </>
   );
 
-  return { dispatch, options: { widgetItems, windowMenu }, refreshWindows, dialogs };
+  return { dispatch, options: { widgetItems, windowMenu }, dialogs };
 }
 
-/**
- * Put the trace file's path on the clipboard. The path itself is the useful
- * thing to hand around (`tmuxy trace`, `jq`, an editor); the file can be
- * hundreds of MB, so this never copies its contents.
- */
 function copyTracePath(path: string | null, report: ClipboardReport): void {
   if (!path) {
     report.onFailed('No trace file path available');
     return;
   }
-  navigator.clipboard.writeText(path).then(
-    () => report.onCopied(`Copied ${path}`),
-    (e: unknown) => report.onFailed(`Clipboard write failed: ${String(e)}`),
+  void writeClipboard(path, null).then((ok) =>
+    ok ? report.onCopied(`Copied ${path}`) : report.onFailed('Clipboard write failed'),
   );
 }

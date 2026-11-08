@@ -1,9 +1,3 @@
-/**
- * Additional HTTP driver tests covering error frames, fatal recovery on
- * session switch, non-JSON error responses, tmux command refusals, network
- * online hints, and invalid state-update frames.
- */
-
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Cause, Effect, Exit, ManagedRuntime, Option, Schedule, Stream } from 'effect';
 import { HttpTransportLive } from '../../layers';
@@ -32,7 +26,6 @@ describe('HttpAdapter commands and recovery', () => {
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
     await first;
 
-    // Drop: onerror closes ES1, marks disconnected; the fiber schedules a reopen.
     const es1 = MockEventSource.instances[0];
     es1.onerror?.(new Event('error'));
     expect(es1.closed).toBe(true);
@@ -43,11 +36,10 @@ describe('HttpAdapter commands and recovery', () => {
     const a = adapter.connect();
     const b = adapter.connect();
 
-    // Exactly one NEW stream opens (total 2); ES1 stays closed.
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(2));
+    const es2 = await stream(1);
     expect(openStreams().length).toBe(1);
 
-    MockEventSource.instances[1].emit('connection-info', { data: { connection_id: 2 } });
+    es2.emit('connection-info', { data: { connection_id: 2 } });
     await Promise.all([a, b]);
     expect(adapter.isConnected()).toBe(true);
     expect(openStreams().length).toBe(1);
@@ -90,8 +82,8 @@ describe('HttpAdapter commands and recovery', () => {
     (await stream(0)).emit('fatal', { data: { message: 'dead session' } });
     await expect(p).rejects.toThrow('dead session');
 
-    // Pre-fix, switchSession left this.fatal set and connect() rejected forever,
-    // so recovering by switching to a live session needed a page reload.
+    // A fatal that survived switchSession made connect() reject forever, so
+    // recovering by switching to a live session needed a page reload.
     const switchP = adapter.switchSession('other');
     const newEs = await stream(1);
     expect(newEs.url).toContain('session=other');
@@ -101,7 +93,7 @@ describe('HttpAdapter commands and recovery', () => {
     adapter.disconnect();
   });
 
-  it('invoke surfaces the HTTP status when an error response body is not JSON', async () => {
+  it('a call surfaces the HTTP status when an error response body is not JSON', async () => {
     const adapter = new HttpAdapter();
     const c = adapter.connect();
     (await stream(0)).emit('connection-info', { data: { connection_id: 1 } });
@@ -117,7 +109,7 @@ describe('HttpAdapter commands and recovery', () => {
         json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON')),
       }),
     );
-    await expect(adapter.invoke('get_themes_list')).rejects.toThrow('HTTP 502');
+    await expect(adapter.send({ cmd: 'get_themes_list', args: {} })).rejects.toThrow('HTTP 502');
     adapter.disconnect();
   });
 
@@ -223,8 +215,7 @@ describe('HttpAdapter commands and recovery', () => {
       runtime.runPromise(Effect.flatMap(TmuxTransport, f));
 
     const connected = call((t) => t.connect);
-    await vi.waitFor(() => expect(MockEventSource.instances.length).toBe(1));
-    const es = MockEventSource.instances[0];
+    const es = await stream(0);
     es.emit('connection-info', { data: { connection_id: 1 } });
     await connected;
 
@@ -259,7 +250,7 @@ describe('HttpAdapter commands and recovery', () => {
       total_width: 80,
       total_height: 24,
     };
-    const initial = call((t) => t.invoke('get_initial_state', { cols: 80, rows: 24 }));
+    const initial = call((t) => t.fetchState({ cols: 80, rows: 24 }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     answer({ ok: true, json: async () => ({ result: baseState }) });
     await initial;

@@ -1,54 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { pid, wid } from '../../test/wire';
+import { modelPane } from '../../test/model';
 import {
   getTabText,
   getTabLabel,
   getTabIcon,
   isSvgIcon,
   paneRowLines,
-  paneWidgetName,
   splitLeadingEmoji,
   splitTitleIcon,
   tabIcon,
 } from '../paneTabDisplay';
 import type { TmuxPane } from '../../domain/client';
 import type { PaneContent } from '../../domain/wireCells';
-import { registerWidget } from '../widgets/registry';
+import { previewWidget } from '../widgets/preview/definition';
 
-registerWidget('preview', { component: () => null, icon: 'D' });
 const screen = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 
-const pane = (over: Partial<TmuxPane> = {}): TmuxPane => ({
-  id: 0,
-  tmuxId: pid('%0'),
-  windowId: wid('@0'),
-  content: [],
-  cursorX: 0,
-  cursorY: 0,
-  width: 80,
-  height: 24,
-  x: 0,
-  y: 0,
-  active: false,
-  command: 'zsh',
-  title: '',
-  // The monitor pins pane-border-format to a single space, so this arrives
-  // blank-but-not-empty on every real pane.
-  borderTitle: ' ',
-  inMode: false,
-  copyCursorX: 0,
-  copyCursorY: 0,
-  alternateOn: false,
-  mouseAnyFlag: false,
-  paused: false,
-  historySize: 0,
-  selectionPresent: false,
-  selectionStartX: 0,
-  selectionStartY: 0,
-  cursorShape: 0,
-  cursorHidden: false,
-  ...over,
-});
+const pane = (over: Partial<TmuxPane> = {}): TmuxPane =>
+  // The monitor pins pane-border-format to a single space, so the border
+  // title arrives blank-but-not-empty on every real pane.
+  modelPane(pid('%0'), wid('@0'), { command: 'zsh', borderTitle: ' ', ...over });
 
 describe('getTabText', () => {
   it('shows the title the app announced over OSC 0/2, not the process name', () => {
@@ -112,9 +84,7 @@ describe('splitTitleIcon', () => {
 describe('the icon an application announces', () => {
   it('replaces our guess rather than sitting beside it', () => {
     const claude = pane({ command: '2.1.251', title: '\u273b claude' });
-    // One icon, and it is the app's own.
     expect(getTabIcon(claude)).toBe('\u273b');
-    // ...and the title no longer carries it, so it is drawn once.
     expect(getTabLabel(claude)).toBe('claude');
   });
 
@@ -129,7 +99,6 @@ describe('the icon an application announces', () => {
     // freshly started pane is `claude` here even before it announces a title.
     const icon = getTabIcon(pane({ command: 'claude', title: '\u273b claude' }));
     expect(icon && isSvgIcon(icon)).toBe(true);
-    // The row does not say `claude` twice once the title arrives.
     expect(paneRowLines(pane({ command: 'claude', title: '\u273b claude' }))).toEqual({
       process: 'claude',
       title: '',
@@ -144,14 +113,12 @@ describe('the icon an application announces', () => {
 
   it('wears the icon the config gives a process, over every other', () => {
     const custom = { claude: '*', zsh: 'data:image/svg+xml;base64,PHN2Zy8+' };
-    expect(
-      getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, undefined, custom),
-    ).toBe('*');
-    expect(getTabIcon(pane({ command: 'ZSH' }), undefined, undefined, custom)).toBe(custom.zsh);
-    // A name the map does not hold, even one every object has, is not in it.
-    expect(getTabIcon(pane({ command: 'constructor' }), undefined, undefined, custom)).toBe(
-      '\ue795',
+    expect(getTabIcon(pane({ command: 'claude', title: '\u273b claude' }), undefined, custom)).toBe(
+      '*',
     );
+    expect(getTabIcon(pane({ command: 'ZSH' }), undefined, custom)).toBe(custom.zsh);
+    // A name the map does not hold, even one every object has, is not in it.
+    expect(getTabIcon(pane({ command: 'constructor' }), undefined, custom)).toBe('\ue795');
   });
 
   it('leaves the plain title alone for the places that draw no icon', () => {
@@ -161,8 +128,6 @@ describe('the icon an application announces', () => {
 
 describe('paneRowLines', () => {
   it('puts what is RUNNING on the first line and what it is SHOWING on the second', () => {
-    // The two halves truncate at different rates — a process name is short and
-    // stable, a title is a path — which is why they get a line each.
     expect(paneRowLines(pane({ command: 'nvim', title: 'nvim styles.css' }))).toEqual({
       process: 'nvim',
       title: 'nvim styles.css',
@@ -174,8 +139,6 @@ describe('paneRowLines', () => {
   });
 
   it('draws no second line when the title would only repeat the process', () => {
-    // A column of plain shells stays compact rather than reserving a blank
-    // line under each one.
     expect(paneRowLines(pane({ command: 'zsh', title: '' }))).toEqual({
       process: 'zsh',
       title: '',
@@ -187,8 +150,6 @@ describe('paneRowLines', () => {
   });
 
   it('takes the icon off the title, which is drawn in its own place', () => {
-    // The row already draws the app's glyph beside the label; leaving it in
-    // the text would show it twice.
     expect(paneRowLines(pane({ command: '2.1.251', title: '\u273b claude' }))).toEqual({
       process: '2.1.251',
       title: 'claude',
@@ -196,8 +157,6 @@ describe('paneRowLines', () => {
   });
 
   it('gives copy mode the title line and keeps the process visible', () => {
-    // Copy mode is a state of the PANE, not the program in it — which is
-    // still worth seeing while you scroll it.
     expect(paneRowLines(pane({ command: 'nvim', inMode: true }))).toEqual({
       process: 'nvim',
       title: '[COPY MODE]',
@@ -205,20 +164,17 @@ describe('paneRowLines', () => {
   });
 
   it('names a pane showing a widget by the widget, with the widget’s icon', () => {
-    // `tmuxy open` sleeps in the shell it was typed in: the tree says what the
-    // pane shows, the way its header does, not `bash`.
+    // `tmuxy open` sleeps in the shell it was typed in.
     const preview = pane({
       command: 'bash',
       title: 'notes.md',
       paneWidget: 'preview',
       content: screen('__TMUXY_WIDGET__:preview', '/tmp/notes.md'),
     });
-    const widget = paneWidgetName(preview);
-    expect(widget).toBe('preview');
-    expect(paneRowLines(preview, widget)).toEqual({ process: 'preview', title: 'notes.md' });
-    expect(getTabIcon(preview, widget)).toBe('D');
+    expect(paneRowLines(preview)).toEqual({ process: 'preview', title: 'notes.md' });
+    expect(getTabIcon(preview)).toBe(previewWidget.icon);
     // A tag left over a live shell (no marker on screen) is the shell again.
-    expect(paneWidgetName({ ...preview, content: screen('$ ls') })).toBeUndefined();
+    expect(paneRowLines({ ...preview, content: screen('$ ls') }).process).toBe('bash');
   });
 
   it('names an unknown process rather than leaving the line empty', () => {

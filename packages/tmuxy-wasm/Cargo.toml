@@ -18,6 +18,8 @@ wasm-bindgen = "0.2"
 serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
 base64.workspace = true
+# tmuxy-core's tokens draw from `crypto.getRandomValues` in the browser.
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [lints]
 workspace = true

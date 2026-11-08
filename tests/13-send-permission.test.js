@@ -11,9 +11,9 @@
  * to send and allows it without leaving the agent's pane.
  */
 
-const path = require('path');
 const {
-  createTestContext,
+  TMUXY_CLI,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForTerminalText,
@@ -22,20 +22,13 @@ const {
   waitForPaneCount,
   waitForCondition,
 } = require('./helpers');
-
-const TMUXY_CLI = path.resolve(__dirname, '../packages/tmuxy-cli/bin/tmuxy-cli');
+const { tmuxPane, tmuxPanes } = require('./helpers/tmux-read');
 
 /** The pane that holds the keyboard, and the other pane of the tab. */
 async function panesOfTab(page) {
-  return page.evaluate(() => {
-    const { panes, activePaneId, activeWindowId } = window.app.getSnapshot().context;
-    const here = panes.find((p) => p.tmuxId === activePaneId);
-    const inTab = panes.filter((p) => p.windowId === (here?.windowId ?? activeWindowId));
-    return {
-      here: activePaneId,
-      there: inTab.find((p) => p.tmuxId !== activePaneId)?.tmuxId ?? null,
-    };
-  });
+  const here = await page.evaluate(() => window.app.view().activePaneId);
+  const inTab = tmuxPanes(tmuxPane(here).windowId);
+  return { here, there: inTab.find((p) => p.id !== here)?.id ?? null };
 }
 
 /** Run a command line in a pane, giving it the keyboard first. */
@@ -113,13 +106,7 @@ async function headerMark(page, paneId) {
   }, paneId);
 }
 
-describe('Scenario: tmuxy pane send asks before typing into another pane', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}, (ctx) => {
   /** Two shells side by side, the keyboard in the first. */
   async function twoPanes() {
     await ctx.setupPage();
@@ -134,7 +121,6 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
   }
 
   test('a send into the pane beside you is allowed with Cmd+Enter, a second one declined with a click, a long one shown whole', async () => {
-    if (ctx.skipIfNotReady()) return;
     const { page } = ctx;
     const { here, there } = await twoPanes();
     const targetScope = `[data-pane-id="${there}"]`;
@@ -224,7 +210,6 @@ describe('Scenario: tmuxy pane send asks before typing into another pane', () =>
   }, 180000);
 
   test('@tmuxy-send-ask off and @tmuxy-send-allow skip the question, and the target is left unread', async () => {
-    if (ctx.skipIfNotReady()) return;
     const { page } = ctx;
     const { here, there } = await twoPanes();
     const targetScope = `[data-pane-id="${there}"]`;

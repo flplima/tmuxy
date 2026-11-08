@@ -1,5 +1,4 @@
-/* The keys view (`prefix ?`): the config's bindings, table by table, on the
-   same blurred scrim a question on a pane uses — text on the scrim, no card. */
+/* The keys view (`prefix ?`). */
 
 .keys-view {
   position: absolute;

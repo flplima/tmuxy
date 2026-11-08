@@ -1,15 +1,8 @@
 /**
- * FloatPane stories, over a recording of real tmux.
- *
- * The floats are the ones `tmuxy pane float` opened in a pane
- * (`fixtures/scenarios/float-variants.ts`): every drawer edge, every
- * backdrop, a float with no header and one sized in columns. What tmux holds
- * of each is its window's `@tmuxy-float-*` tags, and these stories assert
- * what the app draws from them.
- *
- * A float's overlay is rendered inside the pane container, not portaled to the
- * body, so its backdrop dims the tab's content and leaves the sidebars, the tab
- * strip and the status line alone.
+ * Over a recording of real tmux (`fixtures/scenarios/float-variants.ts`): the
+ * floats `tmuxy pane float` opened, every drawer edge and backdrop, one with no
+ * header and one sized in columns. tmux holds each as its window's
+ * `@tmuxy-float-*` tags; these stories assert what the app draws from them.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -63,7 +56,6 @@ export const MultipleFloats: Story = {
       { timeout: 8000 },
     );
 
-    // Each drawer slides in onto its own edge of the tab.
     const tab = document.querySelector('.pane-container')!.getBoundingClientRect();
     const near = (a: number, b: number) => Math.abs(a - b) <= 1;
     await waitFor(
@@ -75,26 +67,23 @@ export const MultipleFloats: Story = {
       },
       { timeout: 8000 },
     );
-    // ...and runs the whole length of it, padding included.
+    // Padding included.
     expect(near(box('%2').height, tab.height), 'left drawer spans the tab').toBe(true);
     expect(near(box('%3').width, tab.width), 'bottom drawer spans the tab').toBe(true);
     expect(near(box('%4').height, tab.height), 'right drawer spans the tab').toBe(true);
     expect(near(box('%5').width, tab.width), 'top drawer spans the tab').toBe(true);
 
-    // The float opened later stacks over the one opened before it.
-    const z = FLOAT_OVERLAYS.map(([pane]) => Number(overlay(pane)!.style.zIndex));
+    const z = FLOAT_OVERLAYS.map(([pane]) => Number(getComputedStyle(overlay(pane)!).zIndex));
     for (let i = 1; i < z.length; i++) {
       expect(z[i], `${FLOAT_OVERLAYS[i][0]} over ${FLOAT_OVERLAYS[i - 1][0]}`).toBeGreaterThan(
         z[i - 1],
       );
     }
 
-    // The backdrops: dim by default, none and blur where asked.
     expect(backdrop('%1').className).toBe('modal-backdrop');
     expect(backdrop('%2')).toHaveClass('modal-backdrop-none');
     expect(backdrop('%3')).toHaveClass('modal-backdrop-blur');
 
-    // The header: on the default float, gone from the `--hide-header` one.
     const header = overlay('%1')!.querySelector('.pane-header');
     expect(header).not.toBeNull();
     expect(header!.getBoundingClientRect().height).toBeGreaterThan(0);

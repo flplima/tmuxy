@@ -1,6 +1,5 @@
-/* Tab list — sits over the pane grid, between the two sidebar clusters. Tabs
-   pack to the left at their natural width; whatever is left of the strip is
-   plain header, which on the desktop drags the OS window. */
+/* Whatever the tabs leave of the strip is plain header, which on the desktop
+   drags the OS window. */
 .tab-list {
   display: flex;
   align-items: center;
@@ -8,8 +7,6 @@
   gap: var(--spacing-md);
   flex: 1;
   min-width: 0;
-  /* With more tabs than fit, the strip scrolls sideways (scrollbar hidden)
-     rather than squeezing every label down to a digit. */
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -20,8 +17,6 @@
   display: none;
 }
 
-/* Tab: label plus its own close button, sized to its content. Long names are
-   capped and ellipsised so one tab cannot push the others out of the strip. */
 .tab-name {
   display: inline-flex;
   align-items: center;
@@ -29,14 +24,10 @@
   flex: 0 0 auto;
   max-width: 32ch;
   min-width: 0;
-  /* An inactive tab is quiet by colour, not by opacity: --text-quiet is the
-     quietest tier that still reads at 4.5:1 on the chrome. */
+  /* Quiet by colour, not opacity: --text-quiet still reads at 4.5:1 on the chrome. */
   color: var(--text-quiet);
   font-family: var(--font-mono);
-  /* The chrome's small text, in a tab as tall as it was at the pane font: that
-     font's line box (FiraCode's normal line height, 1.27em) and the padding
-     around it. The smaller name sits in the middle with more room above and
-     below, and the strip keeps its height. */
+  /* As tall as a tab at the pane font: FiraCode's normal line height is 1.27em. */
   font-size: var(--tmuxy-small-font-size);
   box-sizing: border-box;
   height: calc(var(--tmuxy-font-size, 15px) * 1.27 + 2 * var(--spacing-lg));
@@ -56,10 +47,7 @@
   white-space: nowrap;
 }
 
-/* The tab's mark: its icon (the emoji its name starts with, else its circled
-   position ➊ ➋ …), or the state of its busiest pane. A size up from the name,
-   in a box of its own so a state glyph and a numeral take the same room, and
-   in the tab's own colour — the theme says which tab is active, not the mark. */
+/* A box of its own, so a state glyph and a numeral take the same room. */
 .tab-mark {
   display: inline-flex;
   align-items: center;
@@ -70,16 +58,9 @@
   line-height: 1;
 }
 
-/* A tab's state flags — stacked panes, a zoomed pane. Quiet next to the
-   name: they say what the tab is doing, they are not controls.
-
-   Each sits in a box of its own rather than flowing as text. An icon glyph is
-   drawn to fill a cell, but its ADVANCE is what the layout gets, and for the
-   Nerd Font icons those are not the same number: the stacked-panes glyph
-   paints a third wider than it advances and dips below the baseline, so as
-   plain inline text it ran into whatever came next and lost its bottom edge.
-   A box sized to the ink, with the glyph centred in it, draws all of it and
-   takes exactly the room it looks like it takes. */
+/* A box sized to the ink rather than inline text: the layout gets a glyph's
+   advance, and the Nerd Font stacked-panes glyph paints a third wider than it
+   advances and dips below the baseline. */
 .tab-flag {
   display: inline-flex;
   align-items: center;
@@ -99,23 +80,18 @@
 }
 
 .tab-name:hover,
-/* Its picture is up: the tab it belongs to keeps the lit look the pointer
-   gave it, so the card is visibly ABOUT that tab even once the pointer has
-   moved onto the card itself. */
+/* The previewed tab stays lit once the pointer moves onto its card. */
 .tab-name.is-previewing {
   background-color: var(--bg-medium);
   color: var(--text-primary);
 }
 
-/* Active tab: the theme's accent, and no filled pill. */
 .tab-name-active,
 .tab-name-active:hover,
 .tab-name-active.is-previewing {
   color: var(--theme-accent);
 }
 
-/* A tab being dragged rides with the pointer above its neighbours, with no
-   hover transition to trail it. */
 .tab-name.is-dragging {
   position: relative;
   z-index: 1;
@@ -125,14 +101,10 @@
   transition: none;
 }
 
-/* A neighbour sliding out of the dragged tab's way, or back: the order the
-   drop would make, shown as it is being made. */
 .tab-name.is-making-way {
   transition: transform 120ms ease-out;
 }
 
-/* Where the dragged tab would land: a bar on the leading edge of the tab it
-   would precede, or on the trailing edge of the last tab. */
 .tab-name.is-drop-before {
   box-shadow: -6px 0 0 -2px var(--accent-green);
 }
@@ -141,20 +113,13 @@
   box-shadow: 6px 0 0 -2px var(--accent-green);
 }
 
-/* A lone tab keeps the active tab's look and sits where every other tab sits:
-   at the left of the strip, directly after the sidebar toggle. It carries no
-   close button and, on the desktop, drags the window
-   like the empty header around it (StatusBar leaves it out of the control
-   list) — which is also why it takes no hover background: a lone tab is not a
-   thing you switch to, so offering the affordance of one only muddies the
-   drag handle it actually is. */
+/* A lone tab is not a thing you switch to: on the desktop it drags the window
+   (StatusBar leaves it out of the control list), so it takes no hover. */
 .tab-list-single .tab-name:hover {
   background-color: transparent;
 }
 
-/* Dropping a dragged pane on the strip. The tab under the pointer states that
-   it would take the pane — the same brightening the active tab uses, plus an
-   outline, since a background tab has no other way to stand out. */
+/* The outline, since a background tab has no other way to stand out. */
 .tab-name.is-pane-drop-target {
   background-color: var(--bg-medium);
   outline: 1px solid var(--term-white);
@@ -162,8 +127,6 @@
   opacity: 1;
 }
 
-/* Past the last tab: the pane would become a tab of its own. Dashed, because
-   this tab does not exist yet. */
 .tab-new-drop {
   display: inline-flex;
   align-items: center;

@@ -16,7 +16,6 @@ pub const MIN_TMUX_VERSION: (u32, u32) = (3, 2);
 const INSTALL_HINT: &str =
     "macOS: brew install tmux · Debian/Ubuntu: sudo apt install tmux · Fedora: sudo dnf install tmux";
 
-/// Why tmuxy cannot start on this machine's tmux.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TmuxCheckError {
     NotFound {
@@ -77,8 +76,7 @@ pub fn parse_version(output: &str) -> Option<(u32, u32)> {
     Some((major.parse().ok()?, minor.parse().ok()?))
 }
 
-/// Judge a `tmux -V` line against [`MIN_TMUX_VERSION`]. A build that reports
-/// no number is given the benefit of the doubt.
+/// A build that reports no number is given the benefit of the doubt.
 fn judge(binary: &str, output: &str) -> Result<String, TmuxCheckError> {
     let line = output.trim().to_string();
     match parse_version(&line) {

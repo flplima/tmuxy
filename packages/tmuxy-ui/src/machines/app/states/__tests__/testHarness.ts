@@ -1,33 +1,22 @@
 /**
- * Test harness for isolating a single state slice.
- *
- * Mounts a minimal machine that contains just the state's on: handlers and
- * its action/guard implementations, with the full AppMachineContext + Event
- * types so type-narrowing inside handlers still works.
- *
- * Usage:
- *   const actor = mountState(uiPrefsState, uiPrefsActions, uiPrefsGuards);
- *   actor.send({ type: 'SET_THEME', name: 'dracula' });
- *   expect(actor.getSnapshot().context.themeName).toBe('dracula');
+ * Mounts one state slice — its `on` handlers and their actions — in a minimal
+ * machine typed with the full AppMachineContext and events, with no-op actors
+ * under the ids the slices send to.
  */
 
-import { createActor, fromCallback, setup } from 'xstate';
-import type { AnyEventObject, AnyStateMachine, Actor } from 'xstate';
+import {
+  createActor,
+  fromCallback,
+  setup,
+  type AnyEventObject,
+  type AnyStateMachine,
+  type Actor,
+} from 'xstate';
 import { createInitialContext } from '../../context';
+import type { act, assignCtx } from '../../actionTypes';
 import type { AppMachineContext } from '../../../types/context';
 import type { AllAppMachineEvents } from '../../../types/events';
 
-// Helper-file `vi.mock` is NOT auto-hoisted by Vitest; mocks only work
-// when declared inside test files. Tests requiring stubbed side-effect
-// modules should declare their own vi.mock at the top of the .test.ts file.
-
-/**
- * No-op stub actor — swallows any event sent to 'tmux', 'keyboard', 'size'
- * so handlers that use sendTo('tmux', ...) don't crash the test machine.
- *
- * Tests that need to assert on actor sends can replace these via the
- * `extraActors` option below.
- */
 const stubActor = fromCallback<{ type: string }>(() => () => {});
 
 export interface MountOptions {
@@ -35,10 +24,12 @@ export interface MountOptions {
   extraActors?: Record<string, ReturnType<typeof fromCallback>>;
 }
 
-export function mountState<TActions extends Record<string, unknown>>(
+/** What a slice's actions are: the app machine's own action creators. */
+type SliceActions = Record<string, ReturnType<typeof act> | ReturnType<typeof assignCtx>>;
+
+export function mountState(
   stateConfig: { on: Record<string, { actions: string }> },
-  actions: TActions,
-  guards: Record<string, unknown> = {},
+  actions: SliceActions,
   overrideContext: Partial<AppMachineContext> = {},
   options: MountOptions = {},
 ): Actor<AnyStateMachine> {
@@ -54,10 +45,7 @@ export function mountState<TActions extends Record<string, unknown>>(
       size: stubActor,
       ...(options.extraActors ?? {}),
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    actions: actions as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    guards: guards as any,
+    actions,
   }).createMachine({
     context: { ...createInitialContext(), ...overrideContext },
     initial: 'active',
@@ -83,9 +71,6 @@ export function mountState<TActions extends Record<string, unknown>>(
   return createActor(machine).start() as Actor<AnyStateMachine>;
 }
 
-/**
- * Send an event and return the resulting context for a fluent assert style.
- */
 export function sendAndGetContext(
   actor: Actor<AnyStateMachine>,
   event: AnyEventObject,

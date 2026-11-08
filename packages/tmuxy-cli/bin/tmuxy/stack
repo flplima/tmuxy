@@ -1,28 +1,12 @@
 #!/bin/bash
-# Collapsible panes (zellij-style stacks), at the window's first level.
-#
-#   stack new <pane_id>    Turn the pane's window collapsible and add a new
-#                          first-level row below (a full-width horizontal
-#                          split). The backend then keeps only the row holding
-#                          the active pane expanded; every other first-level
-#                          row collapses to one line per pane (the header).
-#   stack off <window_id>  Turn the feature off. The backend evens the
-#                          first-level rows back out.
-#   stack toggle <window_id>
-#                          Turn it on for the rows the window already has, or
-#                          off if it is already on. Unlike `new` this adds no
-#                          pane: it is the switch on its own.
-#
-# The flag is the @tmuxy-collapsible window option (docs/TMUX.md). Everything
-# that reshapes the window lives in tmuxy-core (`layout.rs`,
-# `collapsible_layout_commands`): it reacts to the option, to focus changes and
-# to layout changes, and only ever touches the first level — panes nested
-# inside a row keep their proportions, so navigating among them changes
-# nothing.
+# Collapsible panes (zellij-style stacks). The flag is the @tmuxy-collapsible
+# window option (docs/TMUX-TAGS.md). tmuxy-core reshapes the window around it
+# (`layout.rs`, `collapsible_layout_commands`): only the first-level row holding
+# the active pane stays expanded, every other first-level row collapses to its
+# headers, and panes nested inside a row keep their proportions.
 set -euo pipefail
 source "${0%/*}/_lib"
 
-COLLAPSIBLE_OPT="@tmuxy-collapsible"
 CMD="${1:-}"
 
 case "$CMD" in
@@ -30,21 +14,21 @@ case "$CMD" in
     PANE_ID="${2:?pane id required}"
     WID=$(pane_window "$PANE_ID")
     cwd=$(_tmux display-message -t "$PANE_ID" -p '#{pane_current_path}')
-    _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
+    _tmux set-option -w -t "$WID" "$OPT_COLLAPSIBLE" 1
     # -f: the new pane spans the full window width, i.e. it is a first-level
     # row of the window rather than a split of whatever pane was active.
     _tmux split-window -v -f -t "$PANE_ID" -c "$cwd"
     ;;
   off)
     WID="${2:?window id required}"
-    _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
+    _tmux set-option -u -w -t "$WID" "$OPT_COLLAPSIBLE"
     ;;
   toggle)
     WID="${2:?window id required}"
-    if [ "$(_tmux show-options -wqv -t "$WID" "$COLLAPSIBLE_OPT")" = "1" ]; then
-      _tmux set-option -u -w -t "$WID" "$COLLAPSIBLE_OPT"
+    if [ "$(_tmux show-options -wqv -t "$WID" "$OPT_COLLAPSIBLE")" = "1" ]; then
+      _tmux set-option -u -w -t "$WID" "$OPT_COLLAPSIBLE"
     else
-      _tmux set-option -w -t "$WID" "$COLLAPSIBLE_OPT" 1
+      _tmux set-option -w -t "$WID" "$OPT_COLLAPSIBLE" 1
     fi
     ;;
   *)

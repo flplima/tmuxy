@@ -117,4 +117,16 @@ describe('tmuxy agent', () => {
       "tmux -L tmuxy set-option -p -u -t '%3' @tmuxy-pane-state",
     ]);
   });
+
+  // Core reads the exact word: `needs_input` written to tmux would show no
+  // question, send no push and never be cleared by the screen corrector.
+  test.each(['needs_input', 'Needs-Input', 'working|idle', 'busy'])(
+    'pane state %j is a bad command line and writes nothing',
+    (word) => {
+      const { exitCode, stderr, tmuxCalls } = runCLI(['pane', 'state', word, '%3']);
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain(`unknown pane state '${word}'`);
+      expect(tmuxCalls).toEqual([]);
+    },
+  );
 });

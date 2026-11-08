@@ -1,17 +1,5 @@
-/**
- * Animation integration stories for floats, drawers, focus cues, swaps, and config gates,
- * over states recorded from real tmux.
- *
- * Coverage:
- *  - OpenFloat            `tmuxy pane float`: an overlay runs `float-appear`
- *  - OpenDrawer           `tmuxy pane float --left`: the `slide-in-left` keyframe
- *  - FocusCueNeverHardFlips  switching panes fades surface + text on one clock,
- *                         under every layout-suppression gate
- *  - SwapPanes            the same two nodes trade boxes in one gated commit, never
- *                         drawn between them; the gate releases after (BUG-6)
- *  - ConfigAnimationsOff  `@tmuxy-animations off`: a split lands in place, no
- *                         morph, and a resize arrives in one frame
- */
+// Float, drawer, focus-cue, swap and config-gate animations over states
+// recorded from real tmux.
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within, waitFor, userEvent } from 'storybook/test';
@@ -22,10 +10,10 @@ import moves from './fixtures/gen/side-by-side-moves.json';
 import {
   LayoutMutationRecorder,
   observeChildList,
+  wait,
   waitForCssAnimation,
 } from './animationObservers';
 import {
-  getApp,
   paneNodes,
   getPaneLayout,
   waitForPaneCount,
@@ -37,6 +25,7 @@ import {
   assertGatesDeclareFocusCue,
   stepFocusCueOnElement,
 } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 
 const meta: Meta<typeof FixtureApp> = {
   title: 'Scenarios/Animations Tabs & Groups',
@@ -56,9 +45,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Every pane's box, once per painted frame, from before `act` until `ms` after it. */
 async function sampleFrames(
   canvasElement: HTMLElement,
   act: () => void,
@@ -83,19 +69,13 @@ async function sampleFrames(
   return frames;
 }
 
-/** Type `command` at the prompt of the focused pane and run it, as a user does. */
 async function runInPane(canvasElement: HTMLElement, command: string): Promise<void> {
   await waitForPaneCount(within(canvasElement), 1);
   await waitFor(() => expect(document.activeElement?.tagName).toBe('INPUT'));
   await userEvent.keyboard(`${command}{Enter}`);
 }
 
-/** tmux's answer once the typed command runs: the state it recorded for it. */
 const ON_ENTER = (to: string) => [{ match: /^send-keys -t %0 Enter$/, to }];
-
-// ---------------------------------------------------------------------------
-// Open float — overlay lands in the pane container, float-appear keyframe runs
-// ---------------------------------------------------------------------------
 
 export const OpenFloat: Story = {
   args: { fixture: asFixture(floats), start: 'one', transitions: ON_ENTER('float') },
@@ -117,17 +97,13 @@ export const OpenFloat: Story = {
     try {
       await runInPane(canvasElement, 'tmuxy pane float');
 
-      // The keyframe ran for real...
       await animationFired;
-      // ...and the overlay node was inserted into the pane container.
       await waitFor(() => expect(overlays.added.length).toBeGreaterThanOrEqual(1), {
         timeout: 1000,
       });
       const overlay = document.querySelector('.modal-overlay') as HTMLElement;
       expect(overlay).toHaveClass('float-modal');
 
-      // The backdrop dims the tab's content and nothing else: it fills the pane
-      // container exactly, and the tab strip above it stays uncovered.
       const backdrop = overlay.querySelector('.modal-backdrop') as HTMLElement;
       const box = backdrop.getBoundingClientRect();
       const container = paneContainer.getBoundingClientRect();
@@ -142,10 +118,6 @@ export const OpenFloat: Story = {
     }
   },
 };
-
-// ---------------------------------------------------------------------------
-// Open drawer — slide-in keyframe on an edge-docked float
-// ---------------------------------------------------------------------------
 
 export const OpenDrawer: Story = {
   args: { fixture: asFixture(floats), start: 'float-closed', transitions: ON_ENTER('drawer') },
@@ -180,10 +152,6 @@ export const OpenDrawer: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Focus cue — surface alpha and text dim must move on one clock
-// ---------------------------------------------------------------------------
-
 export const FocusCueNeverHardFlips: Story = {
   tags: ['nightly'],
   args: { transitions: [{ match: /^select-pane -t %0$/, to: 'left-active' }] },
@@ -202,10 +170,9 @@ export const FocusCueNeverHardFlips: Story = {
     const layout = getPaneLayout(canvasElement);
     await waitForAnimationsEnabled(layout);
 
-    // The appearance opacities are published from tmux options by the running
-    // app; Storybook mounts no such actor, so they are unset here and both the
-    // dim and the surface alpha collapse to their fallbacks. Set the shipped
-    // defaults so there is a cue to observe at all.
+    // The running app publishes the appearance opacities from tmux options;
+    // Storybook mounts no such actor, so set the shipped defaults or there is
+    // no cue to observe.
     const root = document.documentElement;
     const appearance: [string, string][] = [
       ['--active-pane-opacity', '1'],
@@ -215,8 +182,6 @@ export const FocusCueNeverHardFlips: Story = {
     ];
     appearance.forEach(([k, v]) => root.style.setProperty(k, v));
 
-    // The cue must be live first: the vars resolved into a translucent
-    // surface on the inactive pane.
     await waitFor(() => {
       const inactive = layout.querySelector<HTMLElement>('.pane-layout-item:not(.pane-active)');
       expect(inactive).not.toBeNull();
@@ -230,11 +195,10 @@ export const FocusCueNeverHardFlips: Story = {
     const target = paneNodes(canvasElement).find((p) => p !== before);
     expect(target).toBeDefined();
 
-    // Armed before the click, so it steps the fade before any frame of it runs.
     const cue = stepFocusCueOnElement(target!);
 
-    // Click the terminal, as a user does: the pane's mouse handler is there,
-    // and a click on the outer `.pane-layout-item` never reaches it.
+    // On the terminal: the pane's mouse handler is there, and a click on the
+    // outer `.pane-layout-item` never reaches it.
     const hit =
       target!.querySelector<HTMLElement>('.terminal-line') ??
       target!.querySelector<HTMLElement>('.terminal-content') ??
@@ -243,19 +207,17 @@ export const FocusCueNeverHardFlips: Story = {
     await waitFor(() => expect(target!.classList.contains('pane-active')).toBe(true));
     const run = await cue;
 
-    // Both halves are transitions on one clock; a hard flip has none.
     expect(run.surface, 'the surface hard-flipped: no background-color transition').not.toBeNull();
     expect(run.text, 'the text hard-flipped: no opacity transition').not.toBeNull();
     expect(run.surface).toEqual(run.text);
 
-    // The two agree at every point; a hard flip is a gap of ~0.30.
+    // A hard flip is a gap of ~0.30.
     const worst = run.steps.reduce((m, s) => Math.max(m, Math.abs(s.text - s.surface)), 0);
     expect(
       worst,
       `surface alpha and text opacity diverged: ${JSON.stringify(run.steps)}`,
     ).toBeLessThanOrEqual(0.05);
 
-    // ...and it really fades: from the dim to full, rising at every point.
     const dim = parseFloat(getComputedStyle(root).getPropertyValue('--inactive-text-opacity'));
     expect(run.steps[0].text).toBeCloseTo(dim, 2);
     expect(run.steps[run.steps.length - 1].text).toBeCloseTo(1, 2);
@@ -267,10 +229,6 @@ export const FocusCueNeverHardFlips: Story = {
     appearance.forEach(([k]) => root.style.removeProperty(k));
   },
 };
-
-// ---------------------------------------------------------------------------
-// Swap — the same two nodes trade boxes in one commit, and the gate releases
-// ---------------------------------------------------------------------------
 
 export const SwapPanes: Story = {
   args: { transitions: [{ match: /^swap-pane -U$/, to: 'swapped' }] },
@@ -300,14 +258,11 @@ export const SwapPanes: Story = {
     const lifecycle = watchLifecycleClasses(layout);
     const recorder = new LayoutMutationRecorder(layout);
     try {
-      // The active pane is the split's new one (right); `-U` swaps it with the
-      // pane before it, so both exchange places.
       const frames = await sampleFrames(canvasElement, () => {
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${rightPane.id}` });
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: `select-pane -t ${rightPane.id}` });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'swap-pane -U' });
       });
 
-      // Same nodes, sides exchanged; nothing entered or left.
       await waitFor(
         () => {
           const after = new Map(
@@ -318,7 +273,6 @@ export const SwapPanes: Story = {
         },
         { timeout: 2000 },
       );
-      // Every frame has both panes parked on one of the two starting columns.
       const lefts = before.map((b) => b.left);
       for (const shot of frames) {
         for (const box of shot.values()) {
@@ -332,7 +286,6 @@ export const SwapPanes: Story = {
       lifecycle.stop();
       expect(lifecycle.sawLifecycle()).toBe(false);
 
-      // The gate is for that commit only: animations are back for the next thing.
       await waitFor(
         () => {
           expect(layout.classList.contains('pane-layout-resizing')).toBe(false);
@@ -351,13 +304,8 @@ export const SwapPanes: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Config off — `@tmuxy-animations off` draws a split in place and snaps a resize
-// ---------------------------------------------------------------------------
-
-/** `@tmuxy-animations` as tmuxy.conf pushes it with the appearance. */
 const pushAnimations = (animations: boolean) =>
-  getApp().send({
+  storyApp().send({
     type: 'THEME_SETTINGS_RECEIVED',
     theme: 'default',
     mode: 'dark',
@@ -398,18 +346,14 @@ export const ConfigAnimationsOff: Story = {
     layout.addEventListener('transitionstart', onTransitionStart);
     const lifecycle = watchLifecycleClasses(layout);
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
       await waitForPaneCount(canvas, 2);
-      // Give any morph that was going to start its chance, then check nothing did.
       await wait(400);
       lifecycle.stop();
 
       expect(lifecycle.sawLifecycle()).toBe(false);
-      // Colour transitions (the focus cue) are allowed under the gate; no
-      // geometry moved on a clock.
       const GEOMETRY = ['left', 'top', 'width', 'height', 'transform'];
       expect(starts.filter((p) => GEOMETRY.includes(p))).toEqual([]);
-      // Nor is any geometry declared on one (the box-shadow and colours may be).
       for (const node of paneNodes(canvasElement)) {
         const style = getComputedStyle(node);
         const durations = style.transitionDuration.split(', ');
@@ -422,17 +366,15 @@ export const ConfigAnimationsOff: Story = {
       const ovY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
       expect(Math.min(ovX, ovY)).toBeLessThanOrEqual(1);
 
-      // The resize lands in one step: `%0` moved, and took exactly two widths.
       const frames = await sampleFrames(canvasElement, () => {
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t %0' });
-        getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -t %0 -R 8' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'select-pane -t %0' });
+        storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'resize-pane -t %0 -R 8' });
       });
       expect(frames.filter((shot) => !shot.has('%0')).length, '%0 went undrawn').toBe(0);
       const widths = frames.map((shot) => Math.round(shot.get('%0')!.width));
       expect(widths[widths.length - 1] - widths[0]).toBeGreaterThan(4);
       expect(new Set(widths).size).toBe(2);
 
-      // Back on: the config's re-push lifts the gate once the app has settled.
       pushAnimations(true);
       await waitForAnimationsEnabled(layout);
       expect(canvasElement.querySelector('.app-container.app-no-animations')).toBeNull();

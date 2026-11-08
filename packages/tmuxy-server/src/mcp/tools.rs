@@ -1,20 +1,4 @@
-//! The MCP tools: one per CLI command an agent drives tmuxy with, each the
-//! same operation over the session's control-mode connection.
-//!
-//! | Tool             | Same as                      | Changes things? |
-//! | ---------------- | ---------------------------- | --------------- |
-//! | `status`         | `tmuxy --json`               | no              |
-//! | `pane_list`      | `tmuxy pane list --all`      | no              |
-//! | `tab_list`       | `tmuxy tab list`             | no              |
-//! | `pane_capture`   | `tmuxy pane capture`         | no              |
-//! | `pane_wait_for`  | a `pane capture` loop        | no              |
-//! | `pane_split`     | `tmuxy pane split`           | yes             |
-//! | `pane_send_keys` | `tmuxy pane send -t`         | yes             |
-//! | `pane_float`     | `tmuxy pane float`           | yes             |
-//! | `tab_create`     | `tmuxy tab create`           | yes             |
-//! | `open_preview`   | `tmuxy open <file>`          | yes             |
-//! | `pane_kill`      | `tmuxy pane kill`            | yes             |
-//!
+//! Each tool is the CLI command of the same name (the table in docs/MCP.md).
 //! An agent acts beside the user, so nothing here moves the user's focus:
 //! a split, a tab and a float open without taking the keyboard.
 
@@ -30,8 +14,8 @@ mod schemas;
 
 #[cfg(test)]
 pub(super) use open::{
-    float_command, float_create_args, preview_path, split_command, tab_command, FloatArgs,
-    FloatPosition, SplitDirection, TabArgs,
+    float_command, preview_path, split_command, tab_command, FloatArgs, FloatPosition,
+    SplitDirection, TabArgs,
 };
 use open::{open_preview, pane_float, pane_kill, pane_send_keys, pane_split, tab_create};
 #[cfg(test)]
@@ -164,7 +148,6 @@ pub(super) const TOOLS: &[Tool] = &[
     },
 ];
 
-/// The tools a client sees, as `tools/list` answers them.
 pub(super) fn listed(read_only: bool) -> Vec<Value> {
     TOOLS
         .iter()
@@ -187,7 +170,6 @@ pub(super) fn listed(read_only: bool) -> Vec<Value> {
         .collect()
 }
 
-/// The tool a `tools/call` names, if this endpoint offers it.
 pub(super) fn find(name: &str, read_only: bool) -> Option<&'static Tool> {
     TOOLS
         .iter()
@@ -231,7 +213,6 @@ fn args<T: for<'de> Deserialize<'de>>(arguments: &Value) -> Result<T, CommandErr
         .map_err(|e| CommandError::invalid(format!("invalid arguments: {e}")))
 }
 
-/// A timeout an agent gave, in whole seconds, held to `max`.
 fn timeout(seconds: Option<u64>, default: Duration, max: Duration) -> Duration {
     seconds.map_or(default, Duration::from_secs).min(max)
 }

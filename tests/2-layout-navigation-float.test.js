@@ -3,7 +3,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   delay,
   runCommand,
   waitForPaneCount,
@@ -26,15 +26,8 @@ const {
 
 // ==================== Scenario 6: Float Pane Lifecycle ====================
 
-describe('Scenario 6: Float Pane Lifecycle', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6: Float Pane Lifecycle', { snapshot: true }, (ctx) => {
   test('CLI float → visually visible → centred in the container, again after a resize → header structure → auto-focus → type command → output visible → input isolation → close button → background restored → Escape, backdrop and exit close too', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // The float is opened from the right half of a split, so a float anchored
@@ -159,11 +152,11 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
       15000,
       'float pane shell prompt to render',
     );
-    // Type directly — the keyboard actor routes to focusedFloatPaneId.
-    // Do NOT click the float's [role="log"] — it triggers FOCUS_PANE which
+    // Type directly — the keyboard goes to the float that holds it.
+    // Do NOT click the float's [role="log"] — it triggers SELECT_PANE which
     // selects the background pane, breaking input isolation.
-    // Wait for the keyboard actor to receive the UPDATE_FOCUSED_FLOAT event
-    // (async message from XState, may lag behind context update).
+    // Wait for the keyboard actor to aim at the float (it follows the
+    // machine's keyboard owner after the context has it).
     await waitForKeyboardTarget(ctx.page, 'focused-float');
     await ctx.page.bringToFront();
     const TOKEN = 'FLOAT_VIS_' + Date.now();
@@ -192,14 +185,16 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
 
     // Step 5: Input-focus isolation. Full DOM-level isolation (token must
     // NOT appear in the background pane) cannot be asserted under CDP:
-    // headless keyboard events can race UPDATE_FOCUSED_FLOAT and leak to
+    // headless keyboard events can race the float taking the keyboard and leak to
     // activePaneId — a harness artifact, not a product bug. What IS stable
     // and meaningful: typing must not steal focus away from the float.
     const focusAfterTyping = await ctx.page.evaluate(() => {
-      const c = window.app?.getSnapshot()?.context;
+      const keys = window.app?.view().keyboardTarget;
       return {
-        focusedFloat: c?.focusedFloatPaneId ?? null,
-        floatIds: Object.keys(c?.floatPanes ?? {}),
+        focusedFloat: keys?.kind === 'float' ? keys.paneId : null,
+        floatIds: [...document.querySelectorAll('.float-container[data-pane-id]')]
+          .filter((el) => el.getBoundingClientRect().width > 0)
+          .map((el) => el.dataset.paneId),
       };
     });
     expect(focusAfterTyping.focusedFloat).not.toBeNull();
@@ -228,7 +223,7 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
     expect(closeClicked).toBe(true);
     await waitForNoModal(ctx.page);
 
-    // Step 8: focusedFloatPaneId cleared, and the background pane wears the
+    // Step 8: no float holds the keyboard, and the background pane wears the
     // active marker again — the one visual cue that says where typing goes.
     expect(await focusedFloatPaneId(ctx.page)).toBeNull();
     await waitForCondition(
@@ -290,15 +285,8 @@ describe('Scenario 6: Float Pane Lifecycle', () => {
 
 // ==================== Scenario 22: Float fzf Workflow ====================
 
-describe('Scenario 22: Float fzf Workflow', () => {
-  const ctx = createTestContext({ snapshot: true });
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 22: Float fzf Workflow', { snapshot: true }, (ctx) => {
   test('Float opens fzf → user selects item → result returned to shell [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Background pane is operational
@@ -313,9 +301,7 @@ describe('Scenario 22: Float fzf Workflow', () => {
     await verifyFloatVisible(ctx.page);
 
     // Get the float pane ID for capture-pane verification
-    const floatPaneId = await ctx.page.evaluate(
-      () => window.app?.getSnapshot()?.context?.focusedFloatPaneId,
-    );
+    const floatPaneId = await focusedFloatPaneId(ctx.page);
     expect(floatPaneId).toBeTruthy();
 
     // Synchronise on the float's own prompt, using the shared predicate rather

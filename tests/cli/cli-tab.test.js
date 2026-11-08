@@ -33,8 +33,6 @@ describe('CLI tab subcommands', () => {
       });
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
-      // Only the two real tabs survive; the float and sidebar windows
-      // are filtered out so the tree view never lists tmuxy's own chrome.
       expect(parsed).toEqual(LIST_WINDOWS_JSON);
     });
 
@@ -51,38 +49,39 @@ describe('CLI tab subcommands', () => {
         { id: '@0', index: 0, name: 'build, "test"', panes: 2, active: true },
       ]);
     });
+
+    // A name can hold any byte (`tmux rename-window $'\e[31mred'`): JSON
+    // forbids a raw control character, so it is escaped, as a verb's answer
+    // escapes it — the name comes back whole.
+    test('--json keeps a window name holding a control character, escaped', () => {
+      const { stdout, exitCode } = runCLI(['tab', 'list', '--json'], {
+        env: { MOCK_TMUX_LIST_WINDOWS: '@0\t0\t\x1b[31mred\t1\t1\ttab' },
+      });
+      expect(exitCode).toBe(0);
+      expect(JSON.parse(stdout)).toEqual([
+        { id: '@0', index: 0, name: '\x1b[31mred', panes: 1, active: true },
+      ]);
+    });
   });
 
+  // The tab itself is the server binary's `new-tab` verb
+  // (packages/tmuxy-verbs/src/run_cli.rs; the command list is tmuxy-core's
+  // `tmux_command::NewTab`).
   describe('tab create', () => {
-    test('creates tab (no name)', () => {
-      const { exitCode, tmuxCalls } = runCLI(['tab', 'create']);
+    test.each([
+      [['tab', 'create'], 'new-tab --'],
+      [['tab', 'create', 'my-tab'], 'new-tab -- my-tab'],
+      [['tab', 'create', 'my-tab', '--json'], 'new-tab --json -- my-tab'],
+    ])('%j hands the name to the new-tab verb', (args, verb) => {
+      const { stdout, exitCode, tmuxCalls } = runCLI(args);
       expect(exitCode).toBe(0);
-      // Routes through run-shell with a compound splitw+breakp command so
-      // it doesn't crash tmux 3.5a when control mode is attached. The
-      // set-option tags the new window as a managed tab so the frontend
-      // picks it up on the next list-windows refresh.
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -P -F '##{window_id}'",
-      ]);
+      expect(tmuxCalls).toHaveLength(0);
+      expect(stdout.trim()).toBe(`mock-server-started ${verb}`);
     });
 
-    test('creates tab with name', () => {
-      const { exitCode, tmuxCalls } = runCLI(['tab', 'create', 'my-tab']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual([
-        'run-shell',
-        "tmux -L tmuxy splitw \\; breakp -t '#{session_id}:' -n 'my-tab' -P -F '##{window_id}'",
-      ]);
-    });
-
-    test('creates tab --json outputs tabId JSON', () => {
-      const { stdout, exitCode, tmuxCalls } = runCLI(['tab', 'create', 'test-json', '--json']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(JSON.parse(stdout)).toHaveProperty('tabId');
+    test('a name that looks like a flag is a bad command line', () => {
+      const { exitCode } = runCLI(['tab', 'create', '-x']);
+      expect(exitCode).toBe(2);
     });
   });
 

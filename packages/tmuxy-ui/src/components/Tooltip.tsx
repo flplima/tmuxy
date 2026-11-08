@@ -1,19 +1,13 @@
 /**
- * Tooltip — the app's own, in place of the browser's `title`.
+ * In place of the browser's `title`, which waits about a second, cannot be
+ * styled and never appears for a keyboard user.
  *
- * A native tooltip waits about a second, ignores the theme, cannot be styled
- * and never appears for a keyboard user. This one follows the theme's
- * surfaces and the app's own transition speed, opens on hover or focus, and
- * closes on leave, blur, press, Escape or scroll.
+ * It clones its single child rather than wrapping it: a wrapper would break
+ * every `>` selector the stylesheets aim at these buttons. The trigger's box
+ * comes from the event, so a child that already holds a ref keeps it.
  *
- * It clones its single child rather than wrapping it: a wrapper element would
- * sit in the DOM between a parent and its child and quietly break every
- * `>` selector the stylesheets aim at these buttons. Nothing but event
- * handlers is added, and the trigger's own box comes from the event, so a
- * child that already holds a ref keeps it.
- *
- * The label repeats what the trigger's `aria-label` already says, so it is
- * hidden from assistive technology rather than announced twice.
+ * The label repeats the trigger's `aria-label`, so it is hidden from
+ * assistive technology rather than announced twice.
  */
 
 import {
@@ -29,26 +23,12 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { surfacePortalTarget } from './floating/useFloatingSurface';
 import './Tooltip.css';
 
-/** How long the pointer has to rest before the tooltip opens. */
 export const TOOLTIP_DELAY_MS = 400;
 
-/** Distance between the trigger's edge and the tooltip. */
 const GAP_PX = 6;
-
-/**
- * Where the tooltip is rendered: out of the trigger's subtree, so no pane's
- * `overflow: hidden` clips it and no transformed ancestor becomes its
- * containing block — but still inside the app's own element, so the
- * `@tmuxy-animations off` gate on it reaches the tooltip too. The chrome is
- * not there in a story that mounts one component on its own; the body will
- * do, and positioning is identical either way (a fixed box is placed against
- * the viewport, and neither element transforms).
- */
-function portalTarget(): HTMLElement {
-  return document.querySelector<HTMLElement>('.app-container') ?? document.body;
-}
 
 interface TriggerProps {
   onPointerEnter?: PointerEventHandler<HTMLElement>;
@@ -59,14 +39,13 @@ interface TriggerProps {
 }
 
 interface TooltipProps {
-  /** What the tooltip says. Nothing renders when it is empty. */
+  /** Nothing renders when it is empty. */
   label: ReactNode;
   /** Preferred side. Flips when the viewport has no room for it. */
   placement?: 'top' | 'bottom';
   children: ReactElement<TriggerProps>;
 }
 
-/** Run the child's own handler, then ours. */
 function chain<E>(theirs: ((e: E) => void) | undefined, ours: (e: E) => void) {
   return (e: E) => {
     theirs?.(e);
@@ -92,9 +71,6 @@ export function Tooltip({ label, placement = 'bottom', children }: TooltipProps)
     setAnchor(el.getBoundingClientRect());
   }, []);
 
-  // Placed once per opening, from the tooltip's real size: it flips to the
-  // other side of the trigger when the viewport has no room, and is kept
-  // clear of both edges.
   useLayoutEffect(() => {
     const tip = tipRef.current;
     if (!anchor || !tip) return;
@@ -109,9 +85,8 @@ export function Tooltip({ label, placement = 'bottom', children }: TooltipProps)
     setAt({ left, top: Math.max(GAP_PX, top) });
   }, [anchor, placement]);
 
-  // Anything that moves the trigger out from under the tooltip closes it:
-  // its position was measured once, and chasing the trigger would cost a
-  // layout read on every frame of a scroll.
+  // Anything that moves the trigger closes it: chasing the trigger would cost
+  // a layout read on every frame of a scroll.
   useEffect(() => {
     if (!anchor) return;
     const onKey = (e: KeyboardEvent) => {
@@ -167,7 +142,7 @@ export function Tooltip({ label, placement = 'bottom', children }: TooltipProps)
           >
             {label}
           </div>,
-          portalTarget(),
+          surfacePortalTarget(),
         )}
     </>
   );

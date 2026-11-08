@@ -19,8 +19,13 @@ describe('CLI pane subcommands', () => {
       });
       expect(exitCode).toBe(0);
       expect(tmuxCalls).toHaveLength(1);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toEqual(LIST_PANES_JSON);
+      const { args } = tmuxCalls[0];
+      const columns = args[args.indexOf('-F') + 1].split('\t').length;
+      expect(LIST_PANES_OUTPUT.split('\n').map((row) => row.split('\t').length)).toEqual([
+        columns,
+        columns,
+      ]);
+      expect(JSON.parse(stdout)).toEqual(LIST_PANES_JSON);
     });
 
     test('lists panes --all --json', () => {
@@ -53,13 +58,6 @@ describe('CLI pane subcommands', () => {
         'run-shell',
         "tmux -L tmuxy splitw -h -P -F '##{pane_id}'",
       ]);
-    });
-
-    test('--help still prints usage without splitting', () => {
-      const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'split', '--help']);
-      expect(exitCode).toBe(0);
-      expect(stdout).toContain('Usage: tmuxy pane split');
-      expect(tmuxCalls).toHaveLength(0);
     });
 
     test('splits pane -v (vertical)', () => {
@@ -128,7 +126,6 @@ describe('CLI pane subcommands', () => {
       expect(tmuxCalls).toHaveLength(0);
     });
 
-    // A word is a label: with no pane labeled or titled so, nothing happens.
     test('a label naming no pane is exit 3, and selects nothing', () => {
       const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'select', 'badarg']);
       expect(exitCode).toBe(3);
@@ -199,7 +196,7 @@ describe('CLI pane subcommands', () => {
     // the CLI asks first, with the server's own preference: an attached
     // real session over an idle one, and never the stash.
     test('resolves the attached real session, skipping the stash', () => {
-      const { exitCode, paneResolution, tmuxCalls } = runCLI(['tab', 'create'], {
+      const { exitCode, paneResolution, tmuxCalls } = runCLI(['pane', 'break'], {
         env: { MOCK_TMUX_CALLER_PANES: '0\\t__tmuxy_stash\\t%7\\n0\\tidle\\t%3\\n1\\tmain\\t%0' },
       });
       expect(exitCode).toBe(0);
@@ -209,12 +206,12 @@ describe('CLI pane subcommands', () => {
       // run-shell hands it none of its own — and the break names its session
       // rather than trusting tmux's "current" one.
       expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args[1]).toMatch(/^TMUX_PANE=%0 tmux -L tmuxy splitw /);
-      expect(tmuxCalls[0].args[1]).toContain("breakp -t '#{session_id}:'");
+      expect(tmuxCalls[0].args[1]).toMatch(/^TMUX_PANE=%0 tmux -L tmuxy breakp /);
+      expect(tmuxCalls[0].args[1]).toContain("breakp -s %0 -t '#{session_id}:'");
     });
 
     test('a pane of its own is never second-guessed', () => {
-      const { paneResolution } = runCLI(['tab', 'create'], {
+      const { paneResolution } = runCLI(['pane', 'break'], {
         env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%4' },
       });
       expect(paneResolution).toBeNull();
@@ -243,22 +240,6 @@ describe('CLI pane subcommands', () => {
       expect(tmuxCalls[0].args).toContain('capture-pane');
     });
 
-    test('captures specific pane', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'capture', '%5']);
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls).toHaveLength(1);
-      expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-t', '%5']);
-    });
-
-    test('captures with --json', () => {
-      const { stdout, exitCode } = runCLI(['pane', 'capture', '--json'], {
-        env: { MOCK_TMUX_CAPTURE: 'test content' },
-      });
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(stdout);
-      expect(parsed).toEqual({ content: 'test content', format: 'text', paneId: '' });
-    });
-
     test('captures specific pane with --json', () => {
       const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'capture', '%2', '--json'], {
         env: { MOCK_TMUX_CAPTURE: 'pane 2 content' },
@@ -271,111 +252,39 @@ describe('CLI pane subcommands', () => {
     });
   });
 
-  describe('pane send', () => {
-    test('sends keys', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'send', 'ls', 'Enter'], {
-        env: { TMUX_SOCKET: 'tmuxy', TMUX_PANE: '%1', MOCK_TMUX_PANE_PID: String(process.pid) },
-      });
-      expect(exitCode).toBe(0);
-      expect(tmuxCalls.find((call) => call.args[0] === 'run-shell').args).toEqual([
-        'run-shell',
-        "TMUX_PANE=%1 tmux -L tmuxy send-keys -t '%1' -- 'ls' 'Enter'",
-      ]);
-    });
-
-    test('errors with no keys', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'send']);
-      expect(exitCode).toBe(2);
-      expect(stderr).toContain('keys required');
-      expect(tmuxCalls).toHaveLength(0);
-    });
-  });
-
-  describe('pane paste', () => {
+  /**
+   * Both hand their keys to the server binary's `send` verb (`cli-send.test.js`),
+   * which strips a paste's controls and asks before typing into another pane
+   * (`packages/tmuxy-verbs/src/send_cli/tests.rs`).
+   */
+  describe('pane send and paste', () => {
     const IN_PANE_1 = {
       TMUX_SOCKET: 'tmuxy',
       TMUX_PANE: '%1',
       MOCK_TMUX_PANE_PID: String(process.pid),
     };
 
-    test('pastes text into the caller’s own pane', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', 'hello world'], { env: IN_PANE_1 });
+    test('send hands its keys to the send verb', () => {
+      const { exitCode, stdout } = runCLI(['pane', 'send', 'ls', 'Enter'], { env: IN_PANE_1 });
       expect(exitCode).toBe(0);
-      // load-buffer first (per-PID buffer name), then run-shell pasteb
-      const load = tmuxCalls.findIndex((call) => call.args[0] === 'load-buffer');
-      expect(tmuxCalls[load].args[0]).toBe('load-buffer');
-      expect(tmuxCalls[load].args[1]).toBe('-b');
-      expect(tmuxCalls[load].args[2]).toMatch(/^tmuxy-cli-paste-\d+$/);
-      expect(tmuxCalls[load].args[3]).toBe('-');
-      const bufName = tmuxCalls[load].args[2];
-      expect(tmuxCalls[load + 1].args).toEqual([
-        'run-shell',
-        `TMUX_PANE=%1 tmux -L tmuxy pasteb -p -d -b ${bufName} -t '%1'`,
-      ]);
+      expect(stdout).toMatch(/mock-server-started send --target %1 .* -- ls Enter/);
     });
 
-    /** A paste into another pane is a send: the same question, first. */
-    test('asks before pasting into another pane, and pastes nothing on no', () => {
-      const { exitCode, tmuxCalls } = runCLI(['pane', 'paste', '-t', '%3', 'rm -rf dist'], {
-        env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' },
+    test('paste hands its text, as one argument, to the send verb', () => {
+      const { exitCode, stdout } = runCLI(['pane', 'paste', '-t', '%3', 'hello', 'world'], {
+        env: IN_PANE_1,
       });
-      expect(exitCode).toBe(1);
-      const lines = tmuxCalls.map((call) => call.args.join(' '));
-      expect(lines.some((line) => line.includes('@tmuxy-ask '))).toBe(true);
-      expect(lines.some((line) => line.includes('pasteb'))).toBe(false);
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/mock-server-started send --target %3 .* --paste -- hello world$/m);
     });
 
-    /**
-     * Any spelling of the end marker would end a bracketed paste early and
-     * run what follows it, so the text loses every control but tab, LF and
-     * CR, without appending an extra trailing newline.
-     */
     test.each([
-      ['markers nested in each other', 'a\x1b[20\x1b[201~1~\nid', 'a[20[201~1~\nid'],
-      ['a zero-padded parameter', 'echo safe\x1b[0201~; id', 'echo safe[0201~; id'],
-      ['the 8-bit C1 CSI', 'echo safe\u009b201~; id', 'echo safe201~; id'],
-      ['C0, DEL and C1 among the kept tab, CR and LF', 'a\x01\x07\t\x7f\r\u0085\nb', 'a\t\r\nb'],
-      // © and NBSP are C2 A9 and C2 A0 in UTF-8: the C1 lead byte, kept.
-      ['CJK, accents and emoji', '中文 é © Â 😀  ok', '中文 é © Â 😀  ok'],
-    ])('pastes %s without its controls', (_name, text, pasted) => {
-      const buffer = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-paste-')), 'buffer');
-      const { exitCode } = runCLI(['pane', 'paste', text], {
-        env: { ...IN_PANE_1, MOCK_TMUX_BUFFER_FILE: buffer },
-      });
-      expect(exitCode).toBe(0);
-      expect(fs.readFileSync(buffer, 'utf8')).toBe(pasted);
-    });
-
-    test('a text of nothing but controls pastes nothing and asks nothing', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(
-        ['pane', 'paste', '-t', '%3', '\x1b\x07\u009b\x7f'],
-        { env: IN_PANE_1 },
-      );
-      expect(exitCode).toBe(0);
-      expect(stderr).toContain('nothing to paste');
-      const lines = tmuxCalls.map((call) => call.args.join(' '));
-      expect(lines.some((line) => /load-buffer|pasteb|@tmuxy-ask /.test(line))).toBe(false);
-    });
-
-    /** The question shows what would land, not the text before the filter. */
-    test('the question into another pane carries the text without its controls', () => {
-      const { exitCode, tmuxCalls } = runCLI(
-        ['pane', 'paste', '-t', '%3', 'echo safe\u009b201~;\tid 中文'],
-        { env: { ...IN_PANE_1, MOCK_TMUX_ANSWER: 'no' } },
-      );
-      expect(exitCode).toBe(1);
-      const write = tmuxCalls
-        .map((call) => call.args.join(' '))
-        .find((line) => /@tmuxy-ask '/.test(line));
-      const encoded = write.match(/@tmuxy-ask '([A-Za-z0-9+/=]*)'/)[1];
-      const payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
-      expect(payload.keys).toEqual(['echo safe201~;\tid 中文']);
-    });
-
-    test('errors with no text', () => {
-      const { stderr, exitCode, tmuxCalls } = runCLI(['pane', 'paste']);
+      [['pane', 'send'], 'keys required'],
+      [['pane', 'paste'], 'text required'],
+    ])('%j with nothing to type is a usage error', (args, message) => {
+      const { stderr, exitCode, tmuxCalls } = runCLI(args);
       expect(exitCode).toBe(2);
-      expect(stderr).toContain('text required');
+      expect(stderr).toContain(message);
       expect(tmuxCalls).toHaveLength(0);
     });
   });

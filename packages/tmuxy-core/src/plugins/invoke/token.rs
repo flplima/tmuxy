@@ -7,7 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use super::super::registry::Registry;
-use super::super::{private_dir, random_hex, Dirs, PluginError, Result};
+use super::super::{private_dir, PluginError, Result};
+use crate::paths::Layout;
 
 /// A token older than this is refused: it belongs to a launch that failed.
 const TOKEN_TTL_SECS: u64 = 600;
@@ -52,7 +53,6 @@ pub struct PaneInfo {
     pub session: String,
 }
 
-/// An invocation token's file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Token {
@@ -85,7 +85,6 @@ fn now() -> u64 {
         .unwrap_or_default()
 }
 
-/// A pane id as tmux names one.
 pub fn is_pane_id(pane: &str) -> bool {
     pane.strip_prefix('%')
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
@@ -98,16 +97,16 @@ pub(super) fn is_token_id(id: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-pub(super) fn token_path(dirs: &Dirs, id: &str) -> PathBuf {
+pub(super) fn token_path(dirs: &Layout, id: &str) -> PathBuf {
     dirs.run_dir().join(format!("{id}.json"))
 }
 
 /// Where `exec` leaves the command's exit status, for `action --wait`.
-pub fn status_path(dirs: &Dirs, id: &str) -> PathBuf {
+pub fn status_path(dirs: &Layout, id: &str) -> PathBuf {
     dirs.run_dir().join(format!("{id}.status"))
 }
 
-pub(super) fn selection_path(dirs: &Dirs, id: &str) -> PathBuf {
+pub(super) fn selection_path(dirs: &Layout, id: &str) -> PathBuf {
     dirs.run_dir().join(format!("{id}.selection"))
 }
 
@@ -127,14 +126,13 @@ impl Token {
         }
     }
 
-    /// Write it under a fresh id, owner-only.
-    pub fn create(&self, dirs: &Dirs) -> Result<String> {
-        let id = random_hex()?;
+    pub fn create(&self, dirs: &Layout) -> Result<String> {
+        let id = crate::random::token();
         self.write(dirs, &id)?;
         Ok(id)
     }
 
-    pub(super) fn write(&self, dirs: &Dirs, id: &str) -> Result<()> {
+    pub(super) fn write(&self, dirs: &Layout, id: &str) -> Result<()> {
         private_dir(&dirs.run_dir())?;
         let json = serde_json::to_vec(self).map_err(|e| PluginError::Invalid(e.to_string()))?;
         let path = token_path(dirs, id);
@@ -143,7 +141,7 @@ impl Token {
     }
 
     /// Read a token without consuming it.
-    pub fn read(dirs: &Dirs, id: &str) -> Result<Token> {
+    pub fn read(dirs: &Layout, id: &str) -> Result<Token> {
         if !is_token_id(id) {
             return Err(PluginError::Invalid(format!(
                 "{id:?} is not an invocation token"
@@ -169,7 +167,7 @@ impl Token {
     }
 
     /// Read a token and delete it: each one launches one command.
-    pub fn take(dirs: &Dirs, id: &str) -> Result<Token> {
+    pub fn take(dirs: &Layout, id: &str) -> Result<Token> {
         let token = Token::read(dirs, id)?;
         let _ = std::fs::remove_file(token_path(dirs, id));
         Ok(token)
@@ -180,7 +178,7 @@ impl Token {
 /// it (the selection never touches a command line) and the client names it in
 /// `TmuxOp.PluginAction`.
 pub fn prepare(
-    dirs: &Dirs,
+    dirs: &Layout,
     plugin: &str,
     action: &str,
     pane: &str,

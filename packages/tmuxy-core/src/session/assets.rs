@@ -1,163 +1,17 @@
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
-use super::config::{is_symlink, write_generated, Layout};
+use super::config::{is_symlink, write_generated};
+use crate::paths::Layout;
 
-/// Bundled theme CSS files, embedded at compile time. Mirrored to the data
-/// dir's `themes/` on every launch by [`ensure_themes`], for whoever reads
-/// them there (a user about to copy one, an agent, `grep`), and served from
-/// the bundle by [`resolve_user_css`] unless the user's config dir has a theme
-/// of the same name, which shadows the built-in on purpose.
-pub(super) const BUNDLED_THEMES: &[(&str, &str)] = &[
-    (
-        "catppuccin.css",
-        include_str!("../../../tmuxy-ui/public/themes/catppuccin.css"),
-    ),
-    (
-        "default.css",
-        include_str!("../../../tmuxy-ui/public/themes/default.css"),
-    ),
-    (
-        "dracula.css",
-        include_str!("../../../tmuxy-ui/public/themes/dracula.css"),
-    ),
-    (
-        "fallout.css",
-        include_str!("../../../tmuxy-ui/public/themes/fallout.css"),
-    ),
-    (
-        "gruvbox.css",
-        include_str!("../../../tmuxy-ui/public/themes/gruvbox.css"),
-    ),
-    (
-        "nord.css",
-        include_str!("../../../tmuxy-ui/public/themes/nord.css"),
-    ),
-    (
-        "solarized.css",
-        include_str!("../../../tmuxy-ui/public/themes/solarized.css"),
-    ),
-    (
-        "tokyonight.css",
-        include_str!("../../../tmuxy-ui/public/themes/tokyonight.css"),
-    ),
-];
-
-/// Bundled CLI dispatcher and helper scripts, embedded at compile time and
-/// mirrored to the data dir's `bin/` on launch by [`ensure_bin_scripts`].
-///
-/// These power the noun-verb CLI (`tmuxy pane list`) and the in-config
-/// `command-alias` entries that drive Ctrl+hjkl pane navigation, pane
-/// groups, etc. The .app bundle's working directory at launch is `/`, and an
-/// AppImage's mount point changes on every launch, so the config and the UI
-/// name them by the data dir the chain publishes, `$TMUXY_DATA_DIR/bin/…`
-/// (`DATA_DIR_ENV`).
-pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
-    (
-        "tmuxy-cli",
-        include_str!("../../../tmuxy-cli/bin/tmuxy-cli"),
-    ),
-    (
-        "tmuxy/_lib",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/_lib"),
-    ),
-    (
-        "tmuxy/_contract",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/_contract"),
-    ),
-    (
-        "tmuxy/cli-commands.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-commands.sh"),
-    ),
-    (
-        "tmuxy/cli-config.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-config.sh"),
-    ),
-    (
-        "tmuxy/cli-info.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-info.sh"),
-    ),
-    (
-        "tmuxy/cli-pane.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-pane.sh"),
-    ),
-    (
-        "tmuxy/cli-pane-run.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-pane-run.sh"),
-    ),
-    (
-        "tmuxy/cli-mcp.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-mcp.sh"),
-    ),
-    (
-        "tmuxy/cli-plugin.sh",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/cli-plugin.sh"),
-    ),
-    (
-        "tmuxy/capture-html",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/capture-html"),
-    ),
-    (
-        "tmuxy/send",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/send"),
-    ),
-    (
-        "tmuxy/agent-hook",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/agent-hook"),
-    ),
-    (
-        "tmuxy/float-create",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/float-create"),
-    ),
-    (
-        "tmuxy/nav",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/nav"),
-    ),
-    (
-        "tmuxy/reap-orphan-shells",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/reap-orphan-shells"),
-    ),
-    (
-        "tmuxy/pane-group",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/pane-group"),
-    ),
-    (
-        "tmuxy/pane-group-tab",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/pane-group-tab"),
-    ),
-    (
-        "tmuxy/paste-synced",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/paste-synced"),
-    ),
-    (
-        "tmuxy/stack",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/stack"),
-    ),
-    (
-        "tmuxy/session-connect",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/session-connect"),
-    ),
-    (
-        "tmuxy/session-switch",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/session-switch"),
-    ),
-    (
-        "tmuxy/session-names.json",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/session-names.json"),
-    ),
-    (
-        "tmuxy/tmuxy-widget",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget"),
-    ),
-    (
-        "tmuxy/tmuxy-widget-preview",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-preview"),
-    ),
-    (
-        "tmuxy/tmuxy-widget-tree",
-        include_str!("../../../tmuxy-cli/bin/tmuxy/tmuxy-widget-tree"),
-    ),
-];
+// Generated by build.rs: `BUNDLED_THEMES` (`tmuxy-ui/public/themes/`) and
+// `BUNDLED_BIN_SCRIPTS` (`tmuxy-cli/bin/`). The themes are mirrored to the data
+// dir for whoever reads them there (a user about to copy one, an agent,
+// `grep`). The scripts are mirrored because the .app bundle's working
+// directory at launch is `/` and an AppImage's mount point changes on every
+// launch, so the config and the UI name them as `$TMUXY_DATA_DIR/bin/…`
+// (`DATA_DIR_ENV`).
+include!(concat!(env!("OUT_DIR"), "/bundled.rs"));
 
 /// The first line of every built-in theme file in the data dir: the file is
 /// the app's, refreshed on every launch like `tmuxy.defaults.conf`, so an edit
@@ -165,9 +19,8 @@ pub(super) const BUNDLED_BIN_SCRIPTS: &[(&str, &str)] = &[
 pub(super) const BUILT_IN_THEME_HEADER: &str =
     "/* Generated by tmuxy and rewritten on every launch. To customize it, copy it into ~/.config/tmuxy/themes/: a new name adds a theme, the same name replaces this one. */\n";
 
-/// Ensure the data dir's `themes/` holds the bundled theme CSS files, each
-/// rewritten to this build's copy. Returns the path to that directory. The
-/// user's own themes are in the config dir, which this never writes.
+/// Mirror the bundled themes into the data dir's `themes/`. The user's own
+/// themes are in the config dir, which this never writes.
 pub fn ensure_themes() -> PathBuf {
     let themes_dir = Layout::current().builtin_themes();
     ensure_themes_in(&themes_dir);
@@ -273,10 +126,7 @@ pub fn theme_modes(css: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// The mirrored scripts' directory: the data dir's `bin/`. The in-config
-/// `run-shell "bash $TMUXY_DATA_DIR/bin/tmuxy/nav …"` calls and the
-/// `tmuxy <subcommand>` shell wrapper reach them there, independent of the
-/// .app bundle's working directory.
+/// The mirrored scripts' directory: the data dir's `bin/`.
 pub fn bin_dir() -> PathBuf {
     Layout::current().bin()
 }
@@ -286,8 +136,12 @@ pub fn bin_dir() -> PathBuf {
 const GENERATED_SCRIPT_LINE: &str =
     "# Generated by tmuxy and rewritten on every launch: an edit here is lost.\n";
 
-/// A bundled script as it is mirrored: marked generated under its shebang.
+/// What the CLI dispatcher holds where its version goes: the copy mirrored
+/// into the data dir has this build's.
+const VERSION_PLACEHOLDER: &str = "@TMUXY_VERSION@";
+
 fn mirrored_script(content: &str) -> String {
+    let content = &content.replace(VERSION_PLACEHOLDER, env!("CARGO_PKG_VERSION"));
     match content.split_once('\n') {
         Some((shebang, rest)) if shebang.starts_with("#!") => {
             format!("{shebang}\n{GENERATED_SCRIPT_LINE}{rest}")
@@ -297,16 +151,14 @@ fn mirrored_script(content: &str) -> String {
 }
 
 /// Mirror the bundled CLI dispatcher and helper scripts to the data dir's
-/// `bin/`. Rewritten on every launch — these are not user-editable; upgrades
-/// must ship their own helpers without leaving stale copies behind. Returns
-/// the bin directory path.
+/// `bin/`, rewritten on every launch: they are not user-editable.
 pub fn ensure_bin_scripts() -> PathBuf {
     ensure_bin_scripts_in(&Layout::current())
 }
 
 pub(super) fn ensure_bin_scripts_in(layout: &Layout) -> PathBuf {
     let bin = layout.bin();
-    if let Err(e) = std::fs::create_dir_all(bin.join("tmuxy")) {
+    if let Err(e) = std::fs::create_dir_all(layout.scripts()) {
         warn!(dir = ?bin, error = %e, "could not create bin/tmuxy dir");
         return bin;
     }

@@ -1,13 +1,12 @@
 //! The `@tmuxy-css-*` options: each sets one CSS variable on the page over
 //! the theme file.
 
-use super::CSS_VAR_PREFIX;
+use crate::constants::tmux_options::CSS_VAR_PREFIX;
 use crate::session;
 
 /// A `show-options -g` line's value as tmux printed it: single-quoted
 /// (literal), double-quoted, or bare — and in the last two a backslash
-/// escapes the character after it (`\$`, `\#`, `\~`, `\\`, `\"`). Only
-/// `\"` and `\\` were undone, so an icon of `'$'` reached the page as `\$`.
+/// escapes the character after it (`\$`, `\#`, `\~`, `\\`, `\"`).
 pub(super) fn unquote(value: &str) -> String {
     let value = value.trim();
     if let Some(inner) = value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
@@ -51,9 +50,7 @@ fn a_value_reads_back_as_set_whichever_way_tmux_printed_it() {
     }
 }
 
-/// The `--name: value` pairs among `show-options -g` lines, as
-/// `{ "name": "value" }` with the `--` dropped. tmux prints a value in double
-/// quotes when it has to, escaping `"` and `\`. A name that could end a
+/// `{ "name": "value" }`, the `--` dropped. A name that could end a
 /// declaration, or a value that could start another rule, is left out: the
 /// client writes these into one style rule, one declaration each.
 pub(super) fn parse_css_vars<'a>(

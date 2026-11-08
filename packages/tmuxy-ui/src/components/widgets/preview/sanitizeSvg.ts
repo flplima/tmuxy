@@ -1,24 +1,18 @@
 /**
  * Turn a mermaid-rendered SVG string into a node that cannot run anything.
  *
- * Markdown is rendered in the APP's own origin, not in
- * the sandboxed iframe a page gets, so anything that executes here can POST
- * tmux commands exactly as the app does. Mermaid draws in a frame of its own
- * (`drawMermaid.ts`) and sanitizes each label it draws, and this is not a
- * claim that it does so badly — it is that mermaid has had bypasses before
- * and the blast radius on this side of the boundary is a shell. So what comes
- * back is treated as hostile, and only what a diagram is drawn with is kept:
+ * Markdown is rendered in the APP's own origin, not in the sandboxed iframe a
+ * page gets, so anything that executes here can POST tmux commands exactly as
+ * the app does. Mermaid draws in a frame of its own (`drawMermaid.ts`) and
+ * sanitizes each label, but it has had bypasses before and the blast radius on
+ * this side of the boundary is a shell. So what comes back is treated as
+ * hostile, and only what a diagram is drawn with is kept:
  *
- * - **`DOMParser` with `text/html`** builds the tree in an inert document.
- *   Nothing in it runs while it is being parsed, unlike assigning to
- *   `innerHTML`, where a `<script>` still does not execute but an inline
- *   handler on a rendered element very much does. `text/html` and not
- *   `image/svg+xml`: the latter is a STRICT XML parse, and mermaid's real
- *   output is not well-formed XML — it puts HTML in its labels (`<br>`,
- *   `&nbsp;`), so strict parsing rejected the whole diagram and the story
- *   asserting `.widget-mermaid svg` got null. The HTML parser is as lenient as
- *   `innerHTML` about that while still being inert, which is the property that
- *   matters here.
+ * - **`DOMParser` with `text/html`** builds the tree in an inert document:
+ *   nothing in it runs while it is parsed, unlike `innerHTML`, where an inline
+ *   handler on a rendered element does. Not `image/svg+xml`: that is a strict
+ *   XML parse, and mermaid's output is not well-formed XML (it puts HTML such as
+ *   `<br>` and `&nbsp;` in its labels), so the whole diagram was rejected.
  * - **Elements are allowed by name and namespace, not refused by name.** Out
  *   of a label, an element stays only when it is SVG (`SVG_TAGS`: shapes,
  *   text, paint servers, filter effects); anything else goes with what is in

@@ -1,19 +1,9 @@
-/**
- * App - Main application component
- *
- * Composes the main layout: StatusBar, PaneLayout, TmuxStatusBar — or, on a
- * phone, the whole 80 × 25 terminal and the key row over a bar and the bottom
- * view (the menu, the tree, the side pane); held sideways, the tree, the
- * terminal and the side pane side by side over the keys.
- * All state is accessed via hooks - no prop drilling.
- */
-
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
-import { StatusBar } from './components/StatusBar';
+import { StatusBar, type RenderTabline } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
-import { isTauri } from './utils/platform';
-import { usePluginLinks } from './hooks/usePluginLinks';
+import { isTauri } from './infra/platform';
+import { usePluginLinks } from './components/terminal/usePluginLinks';
 import { TmuxStatusBar } from './components/TmuxStatusBar';
 import { PaneLayout } from './components/PaneLayout';
 import { Pane } from './components/Pane';
@@ -21,7 +11,7 @@ import { FloatContainer } from './components/FloatPane';
 import { KeysView } from './components/KeysView';
 import { Sidebar } from './components/Sidebar';
 import { TabOverview } from './components/TabOverview';
-import { GestureStage } from './components/GestureStage';
+import { GestureStage } from './components/gestures/GestureStage';
 import { ConnectionOverlay, type ConnectionOverlayMode } from './components/ConnectionOverlay';
 import { SessionList } from './components/SessionList';
 import { useAppSelector, useAppSend, useAppState, useAppConfig } from './machines/appHooks';
@@ -43,22 +33,38 @@ import {
   selectCursorBlink,
   selectSidebarFocused,
 } from './machines/selectors/ui';
-import { cellMetricsStyle } from './utils/cellMetrics';
-import { useSelectionRows } from './hooks/useSelectionRows';
+import { selectSidebarHoldsKeyboard } from './machines/selectors/keyboard';
+import { cellMetricsStyle } from './infra/dom/cellMetrics';
+import { useSelectionRows } from './components/terminal/useSelectionRows';
 import { latencyTracker } from './infra/latencyTracker';
 import { PerfHud } from './components/PerfHud';
-import { SmoothCursor } from './components/SmoothCursor';
+import { SmoothCursor } from './components/terminal/SmoothCursor';
 import { Snackbar } from './components/Snackbar';
-import { KeyRow } from './components/KeyRow';
-import { useCursorInView, usePhoneZoomScroll, useVisualViewport } from './hooks/usePhoneViewport';
-import { PHONE_COLS } from './utils/phoneLayout';
+import { KeyRow } from './components/phone/KeyRow';
+import {
+  useCursorInView,
+  usePhoneZoomScroll,
+  useVisualViewport,
+} from './components/phone/usePhoneViewport';
+import {
+  PHONE_COLS,
+  PHONE_LANDSCAPE_KEYS,
+  PHONE_ROWS,
+  PHONE_STATUS_HEIGHT,
+} from './infra/dom/phoneLayout';
 import { PHONE_CONTAINER_PADDING } from './constants/layout';
-import { PhoneBottomView } from './components/PhoneBottomView';
-import { PhoneDivider } from './components/PhoneDivider';
-import { PhoneDock } from './components/PhoneDock';
-import { PhoneLeftSide } from './components/PhoneLeftSide';
+import { PhoneBottomView } from './components/phone/PhoneBottomView';
+import { PhoneDivider } from './components/phone/PhoneDivider';
+import { PhoneDock } from './components/phone/PhoneDock';
+import { PhoneLeftSide } from './components/phone/PhoneLeftSide';
 
-export type RenderTabline = (props: { children: ReactNode }) => ReactNode;
+/** The phone layout's geometry, for styles/phone.css. */
+const PHONE_GRID_STYLE = {
+  '--phone-rows': PHONE_ROWS,
+  '--phone-container-padding': `${PHONE_CONTAINER_PADDING}px`,
+  '--phone-status-row': `${PHONE_STATUS_HEIGHT}px`,
+  '--phone-landscape-keys': `${PHONE_LANDSCAPE_KEYS}px`,
+} as CSSProperties;
 
 /** The phone's terminal type, scoped to the terminal so the chrome keeps its own. */
 function gridTypeStyle(type: { fontSize: number; rowHeight: number } | null): CSSProperties {
@@ -71,7 +77,6 @@ function gridTypeStyle(type: { fontSize: number; rowHeight: number } | null): CS
 }
 
 function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
-  // Select minimal state needed at App level
   const panes = useAppSelector(selectPreviewPanes);
   const error = useAppSelector(selectError);
   const fatalError = useAppSelector(selectFatalError);
@@ -89,7 +94,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const landscape = useAppSelector(selectPhoneLandscape);
   const gridType = useAppSelector(selectGridType);
   const charWidth = useAppSelector((ctx) => ctx.charWidth);
-  // Where the cursor is, for the phone terminal to keep it in view.
   const cursorKey = useAppSelector((ctx) => {
     const pane = ctx.panes.find((p) => p.tmuxId === ctx.activePaneId);
     return pane ? `${pane.tmuxId} ${pane.y} ${pane.cursorY} ${pane.inMode}` : '';
@@ -101,10 +105,10 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const phoneZoomed = useAppSelector(selectPhoneZoomed);
   const phoneZoomAt = useAppSelector((ctx) => ctx.phoneZoomAt);
   const phoneCollapsed = useAppSelector((ctx) => ctx.phoneCollapsed);
-  // The side pane holds the keyboard: with the phone's keyboard up the
-  // terminal above folds away, the keys staying (styles/phone.css).
+  // While the side pane types, the terminal above folds away and the keys
+  // stay (styles/phone.css).
   const dockTyping = useAppSelector(
-    (ctx) => ctx.phoneBottomView === 'dock' && ctx.rightSidebarFocused,
+    (ctx) => ctx.phoneBottomView === 'dock' && selectSidebarHoldsKeyboard(ctx, 'right'),
   );
   useVisualViewport(phone);
   useCursorInView(ptyRef, phone, cursorKey, phoneZoomed ? zoomRef : null);
@@ -114,12 +118,9 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   useSelectionRows();
   usePluginLinks();
 
-  // The container being observed. Switching to or from the phone layout
-  // mounts it somewhere else, and the new element is observed in its place.
   const observedRef = useRef<HTMLDivElement | null>(null);
   const appContainerRef = useRef<HTMLDivElement>(null);
 
-  // Use callback ref to observe container when it mounts
   const containerRef = useCallback(
     (element: HTMLDivElement | null) => {
       if (element && element !== observedRef.current) {
@@ -130,7 +131,6 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     [send],
   );
 
-  // Focus gating: when requireFocus is set, track clicks inside/outside container
   useEffect(() => {
     if (!requireFocus) return;
 
@@ -147,25 +147,18 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     return () => document.removeEventListener('mousedown', handleMouseDown, true);
   }, [requireFocus, send]);
 
-  // Ready when connected, have panes, AND container is measured
   const isReady = !isConnecting && panes.length > 0 && containerSize.width > 0;
 
-  // Once we've been ready, keep the pane layout mounted through transient
-  // empty-pane states (e.g., window create/switch/kill cycles where
-  // activeWindowId changes before new panes arrive). This prevents the
-  // layout from being unmounted and replaced with a loading div for ~55ms.
+  // Stays mounted through the empty-pane frames of a window create/switch/kill,
+  // where activeWindowId changes before the new panes arrive.
   const hasBeenReadyRef = useRef(false);
   if (isReady) hasBeenReadyRef.current = true;
   const showLayout = isReady || hasBeenReadyRef.current;
 
-  // What covers the pane area while nothing live is on it: a fatal (the
-  // backend gave up) wins, then a detach, then the first connection. The
-  // layout, once shown, stays mounted underneath as the blurred last
-  // snapshot — even through a fatal, so a Retry has something to come back to.
-  // A dropped channel (`reconnecting`) covers nothing: the panes keep their
-  // last frame and the snackbar corner says so once the drop has lasted
-  // (ReconnectNotice); presenting a drop as a wall is the thing comparable
-  // clients get wrong.
+  // The layout stays mounted under the overlay as the blurred last snapshot,
+  // even through a fatal, so a Retry has something to come back to. A dropped
+  // channel (`reconnecting`) covers nothing: the panes keep their last frame
+  // and ReconnectNotice says so once the drop has lasted.
   const overlayMode: ConnectionOverlayMode | null =
     fatalError != null ? 'fatal' : isDetached ? 'detached' : !showLayout ? 'connecting' : null;
   const retry = useCallback(() => window.location.reload(), []);
@@ -173,27 +166,19 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
   const paneContainer = (
     <div
       ref={containerRef}
-      // While the Tab Overview is open the live pane grid is FLIP-scaled
-      // into its slot (custom properties set by TabOverview, applied by
-      // the `.tab-overview-open .pane-layout` rule). A trackpad gesture in
-      // progress is drawn the same way, by GestureStage.
       className={`pane-container${tabOverviewOpen ? ' tab-overview-open' : ''}`}
       // A grid fitted to a window sized for someone else (`@tmuxy-size`)
-      // carries its own font here; the phone's is on its terminal below.
+      // carries its own font.
       style={{ position: 'relative', ...(phone ? {} : gridTypeStyle(gridType)) }}
     >
       {showLayout && (
         <>
           <PaneLayout>{(pane) => <Pane paneId={pane.tmuxId} />}</PaneLayout>
-          {/* Trackpad slides and pinches, applied to this container per step */}
           <GestureStage />
-          {/* Float panes overlay - renders above tiled panes */}
           <FloatContainer />
-          {/* The "all tabs" view, over panes and floats alike */}
           <TabOverview />
         </>
       )}
-      {/* Every binding, table by table (prefix ?) */}
       {showLayout && <KeysView />}
       {overlayMode && (
         <ConnectionOverlay
@@ -204,30 +189,19 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           log={log}
           onRetry={retry}
         >
-          {/* Detached: the way back in, the session switcher's list over the
-              blurred session the user stepped out of. */}
           <SessionList />
         </ConnectionOverlay>
       )}
     </div>
   );
 
-  // The phone layout, upright: the terminal and the key row on top, the bar
-  // and the bottom view under them — the app menu, every tab and pane, or the
-  // side pane, picked by the tab bar along its top or a sideways swipe
-  // (PhoneBottomView). The bar zooms the terminal or folds it and the keys
-  // away (PhoneDivider). Held sideways, the tree (or the menu) on the left,
-  // the terminal in the middle, the side pane on the right, the keys along
-  // the bottom. No tab strip: the tree lists the tabs and a slide on the
-  // terminal switches them.
+  // No tab strip on a phone: the tree lists the tabs, a slide on the terminal
+  // switches them. Upright, the bar under the keys zooms the terminal or
+  // folds it and the keys away (PhoneDivider).
   const phoneKeys = showLayout && <KeyRow />;
-  // The terminal at the phone's cell: the grid, then tmux's status line
-  // under it, one picture. Sideways, it is as wide as its 80 columns. Zoomed
-  // (`phoneZoom` past 1: the bar or a double tap) the picture
-  // is scaled in the browser: the viewport around it is the scaled height and
-  // scrolls sideways, the terminal box scrolls up and down when that does not
-  // fit (a keyboard up, or held sideways), and both are scrolled to the point
-  // a double tap hit, then to the cursor as it moves.
+  // The grid and tmux's status line are one picture: zoomed (`phoneZoom`
+  // past 1) it is scaled in the browser inside a viewport that scrolls
+  // sideways, and the terminal box scrolls up and down when it does not fit.
   const phonePty = (
     <div
       ref={ptyRef}
@@ -268,28 +242,22 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
     </>
   );
 
-  // Always render .app-container so containerRef is attached and ResizeObserver
-  // starts measuring immediately, preventing a layout flash on first pane render.
   return (
     <div
       ref={appContainerRef}
       className={`app-container has-smooth-cursor${sidebarFocused ? ' has-sidebar-focus' : ''}${
         sidebarPeek ? ' has-sidebar-peek' : ''
       }${cursorBlink ? ' app-cursor-blink' : ''}${animationsAllowed ? '' : ' app-no-animations'}`}
-      // Publish the measured cell grid (--cell-w / --cell-gap) to every
-      // terminal text run and cell-addressed box below — see utils/cellMetrics.ts.
       style={cellMetricsStyle(cellMetrics) as React.CSSProperties}
     >
       {!phone && <StatusBar renderTabline={renderTabline} />}
       {isTauri() && <NativeMenuBar />}
       <div
         className={`app-body${phone ? ' app-body-phone' : ''}${landscape ? ' is-landscape' : ''}${dockTyping ? ' is-dock-typing' : ''}${phoneCollapsed && !landscape ? ' is-collapsed' : ''}`}
+        style={phone ? PHONE_GRID_STYLE : undefined}
       >
-        {/* Sidebars: fixed-width, full-height columns when open, each holding
-            one real tmux pane. As flex siblings they shrink the pane container,
-            whose ResizeObserver then reports the reduced width so tmux re-tiles
-            the panes into the space that's left — never under a sidebar. Left is
-            the tree widget, right the pinned terminal. */}
+        {/* Flex siblings of the pane container: an open sidebar shrinks it, so
+            tmux re-tiles the panes into what is left, never under a sidebar. */}
         {showLayout && !phone && <Sidebar side="left" />}
         {phone ? phoneBody : paneContainer}
         {showLayout && !phone && <Sidebar side="right" />}
@@ -299,13 +267,8 @@ function App({ renderTabline }: { renderTabline?: RenderTabline } = {}) {
           home indicator (standalone.css says why). */}
       {phone && <div className="edge-band edge-band-top" aria-hidden="true" />}
       {phone && <div className="edge-band edge-band-bottom" aria-hidden="true" />}
-      {/* First run: what this is and what it can do, before anything is typed. */}
-      {/* Errors, top-right, over everything but the cursor. */}
       <Snackbar />
-      {/* The cursor itself: one overlay gliding between the panes' anchors. */}
       <SmoothCursor />
-      {/* Dev-only latency overlay; mounted only when enabled via ?perf /
-          localStorage so it and its store subscription cost nothing otherwise. */}
       {latencyTracker.isEnabled() && <PerfHud />}
     </div>
   );

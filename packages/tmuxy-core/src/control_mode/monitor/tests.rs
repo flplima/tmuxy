@@ -1,8 +1,10 @@
 use super::*;
+use crate::constants::tmux_formats::{self, RowBuilder, TmuxList, WindowColumn};
 use crate::control_mode::state::{
     Markers, BUFFER_BEGIN_MARKER, BUFFER_END_MARKER, CAPTURE_BEGIN_MARKER, CAPTURE_END_MARKER,
-    REPLY_BEGIN_MARKER, REPLY_END_MARKER,
+    LIST_BEGIN_MARKER, LIST_END_MARKER, REPLY_BEGIN_MARKER, REPLY_END_MARKER,
 };
+use crate::PaneId;
 
 /// One log of everything that leaves the monitor, in the order it left:
 /// the commands the link sends and what the emitter is handed, so an
@@ -59,7 +61,13 @@ async fn a_message_reaches_the_emitter_alone() {
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
-    let markers = monitor.aggregator.markers().clone();
+    let markers = monitor.core.aggregator().markers().clone();
+    // Sent by the client, fire-and-forget: `display-message 'hi
+    // #{session_name}'`, and `show-messages` typed at the prompt.
+    let [hi, shown] = ["display-message 'hi #{session_name}'", "show-messages"].map(|c| {
+        let sent = monitor.core.command(c, None, Instant::now());
+        sent.reply_id().expect("wrapped").to_string()
+    });
     let events = [
         ControlModeEvent::Message {
             text: "build done".to_string(),
@@ -67,28 +75,19 @@ async fn a_message_reaches_the_emitter_alone() {
         ControlModeEvent::Message {
             text: String::new(),
         },
-        // `display-message 'hi #{session_name}'` sent by the client.
-        marked(&markers, REPLY_BEGIN_MARKER, "4"),
+        marked(&markers, REPLY_BEGIN_MARKER, &hi),
         response("%message hi tmuxy"),
-        marked(&markers, REPLY_END_MARKER, "4"),
-        // `show-messages` typed at the prompt.
-        marked(&markers, REPLY_BEGIN_MARKER, "5"),
+        marked(&markers, REPLY_END_MARKER, &hi),
+        marked(&markers, REPLY_BEGIN_MARKER, &shown),
         response("Mon Nov  2 12:00:00 2026 client-1 message: hi tmuxy\n\n"),
-        marked(&markers, REPLY_END_MARKER, "5"),
+        marked(&markers, REPLY_END_MARKER, &shown),
     ];
     let count = events.len();
     monitor.connection.events.extend(events);
-    for id in [4, 5] {
-        monitor.pending_replies.insert(
-            id,
-            (ReplyWaiter::ReportFailure, tokio::time::Instant::now()),
-        );
-    }
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
     for _ in 0..count {
-        let event = monitor.connection.recv().await;
-        assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        assert!(step(&mut monitor, &emitter, &mut rs).await);
     }
     assert_eq!(
         *log.lock().unwrap(),
@@ -108,18 +107,31 @@ async fn a_message_reaches_the_emitter_alone() {
     );
 }
 
+/// The next event, run through the core and dispatched, as the loop does.
+async fn step<E: StateEmitter>(
+    monitor: &mut TmuxMonitor<Scripted>,
+    emitter: &E,
+    rs: &mut RunState,
+) -> bool {
+    let event = monitor.connection.recv().await.expect("a scripted event");
+    let actions = monitor.core.step(event, Instant::now());
+    monitor.dispatch(emitter, rs, actions).await
+}
+
 /// A link that logs every command in the order it was sent.
 struct Scripted {
     events: std::collections::VecDeque<ControlModeEvent>,
     sent: Log,
 }
 impl ControlLink for Scripted {
-    async fn send_command(&mut self, cmd: &str) -> Result<(), TmuxError> {
-        self.sent.lock().unwrap().push(cmd.to_string());
-        Ok(())
-    }
-    async fn send_commands_batch(&mut self, commands: &[String]) -> Result<(), TmuxError> {
-        self.sent.lock().unwrap().extend(commands.iter().cloned());
+    async fn send_commands<S: AsRef<str> + Sync>(
+        &mut self,
+        commands: &[S],
+    ) -> Result<(), TmuxError> {
+        self.sent
+            .lock()
+            .unwrap()
+            .extend(commands.iter().map(|c| c.as_ref().to_string()));
         Ok(())
     }
     async fn recv(&mut self) -> Option<ControlModeEvent> {
@@ -137,9 +149,9 @@ fn rank(entry: &str) -> u8 {
         0
     } else if entry == "<images>" || entry.starts_with("<clipboard") {
         1
-    } else if entry == tmux_formats::LIST_PANES_CMD
-        || entry == tmux_formats::LIST_WINDOWS_CMD
-        || entry == tmux_formats::LIST_STASH_PANES_CMD
+    } else if TmuxList::ALL
+        .iter()
+        .any(|list| entry.contains(&format!(" ; {} ; ", list.command())))
     {
         3
     } else if entry.contains("capture-pane") {
@@ -160,8 +172,6 @@ fn marked(markers: &Markers, name: &str, arg: &str) -> ControlModeEvent {
 
 fn response(output: &str) -> ControlModeEvent {
     ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success: true,
     }
@@ -186,19 +196,41 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         sent: std::sync::Arc::clone(&log),
     };
     let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
-    let markers = monitor.aggregator.markers().clone();
+    let markers = monitor.core.aggregator().markers().clone();
     let title = tmux_formats::PANE_TITLE_SUBSCRIPTION_NAME;
+    let (reply_tx, mut reply_rx) = oneshot::channel();
+    let asked = monitor
+        .core
+        .command("display-message -p ok", Some(reply_tx), Instant::now());
+    let id = asked
+        .reply_id()
+        .expect("a caller's command is wrapped")
+        .to_string();
     let events = [
         // Two panes the monitor knows, as the initial sync leaves them,
         // the second in copy mode so a paste buffer is worth reading.
         ControlModeEvent::WindowAdd {
             window_id: "@0".parse().unwrap(),
         },
+        marked(&markers, LIST_BEGIN_MARKER, TmuxList::Panes.name()),
         response(
             "%0,0,0,0,80,12,0,0,1,sleep,,0,,,,@0, ,0,0,0,,,,0,,,,,,,\n\
              %1,1,0,13,80,11,0,0,0,sleep,,1,0,0,0,@0, ,0,0,0,,,,0,,,,,,,",
         ),
-        response("@0,0,1,tab,,,,,,,,,,,0,shell\n"),
+        marked(&markers, LIST_END_MARKER, ""),
+        marked(&markers, LIST_BEGIN_MARKER, TmuxList::Windows.name()),
+        response(&format!(
+            "{}\n",
+            RowBuilder::<WindowColumn>::new()
+                .set(WindowColumn::WindowId, "@0")
+                .set(WindowColumn::Index, 0)
+                .set(WindowColumn::Active, 1)
+                .set(WindowColumn::WindowType, "tab")
+                .set(WindowColumn::Zoomed, 0)
+                .set(WindowColumn::Name, "shell")
+                .build()
+        )),
+        marked(&markers, LIST_END_MARKER, ""),
         // The session is on @0. The captures this asks for its panes are
         // the ones the list already queued: %0's is captured once more when
         // that lands, %1's (in copy mode, polled) is not. Nothing is emitted
@@ -227,9 +259,9 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
             window_id: "@1".parse().unwrap(),
         },
         // A reply block: resolved in the monitor, nothing sent.
-        marked(&markers, REPLY_BEGIN_MARKER, "4"),
+        marked(&markers, REPLY_BEGIN_MARKER, &id),
         response("ok\n"),
-        marked(&markers, REPLY_END_MARKER, "4"),
+        marked(&markers, REPLY_END_MARKER, &id),
         // An inline image: stored, the output's emission deferred.
         ControlModeEvent::Output {
             pane_id: "%0".parse().unwrap(),
@@ -263,16 +295,10 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
     ];
     let count = events.len();
     monitor.connection.events.extend(events);
-    let (reply_tx, mut reply_rx) = oneshot::channel();
-    monitor.pending_replies.insert(
-        4,
-        (ReplyWaiter::Caller(reply_tx), tokio::time::Instant::now()),
-    );
     let emitter = Recording(std::sync::Arc::clone(&log));
     let mut rs = RunState::new(&monitor.config, Instant::now());
     for _ in 0..count {
-        let event = monitor.connection.recv().await;
-        assert!(monitor.on_control_event(&emitter, &mut rs, event).await);
+        assert!(step(&mut monitor, &emitter, &mut rs).await);
     }
 
     let log = log.lock().unwrap().clone();
@@ -297,15 +323,15 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
     }
     // Each multi-effect step, named, so the check above is not vacuous.
     let ranks_of = |step: &[&String]| step.iter().map(|c| rank(c)).collect::<Vec<_>>();
-    // Steps are numbered by event: the window focus change is the 4th,
-    // the pane focus change the 14th, the window add the 15th, the reply's
-    // three blocks the 16th to 18th, the image the 19th, the OSC 52 the
-    // 20th, the title change the 21st, the pause the 22nd, the yank the 23rd
-    // and its read the 24th to 26th, the window close the 27th.
-    let window_add = &steps[15];
+    // Steps are numbered by event: the window focus change is the 8th,
+    // the pane focus change the 18th, the window add the 19th, the reply's
+    // three blocks the 20th to 22nd, the image the 23rd, the OSC 52 the
+    // 24th, the title change the 25th, the pause the 26th, the yank the 27th
+    // and its read the 28th to 30th, the window close the 31st.
+    let window_add = &steps[19];
     let first_list = window_add
         .iter()
-        .position(|c| *c == tmux_formats::LIST_PANES_CMD)
+        .position(|c| rank(c) == 3)
         .unwrap_or_else(|| panic!("no re-list after the window add: {window_add:?}"));
     assert!(
         first_list > 0 && rank(window_add[0]) == 0,
@@ -316,7 +342,7 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         Some("<emit>"),
         "the window add should emit after its re-list: {window_add:?}"
     );
-    for reply_step in &steps[16..19] {
+    for reply_step in &steps[20..23] {
         assert!(reply_step.is_empty(), "a reply block sent {reply_step:?}");
     }
     let reply = reply_rx
@@ -324,44 +350,77 @@ async fn a_step_sends_its_effects_commands_in_effect_order() {
         .expect("the reply block resolved its waiter");
     assert_eq!((reply.output.as_str(), reply.error), ("ok\n", None));
     assert_eq!(
-        steps[19].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[23].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<images>"],
         "an inline image should reach the emitter alone, its emission deferred"
     );
     assert_eq!(
-        steps[20].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
+        steps[24].iter().map(|c| c.as_str()).collect::<Vec<_>>(),
         ["<clipboard %0 hello world>"],
         "an OSC 52 write should reach the emitter with the pane that asked"
     );
-    let refresh = &steps[21];
+    let refresh = &steps[25];
     assert_eq!(
         ranks_of(refresh),
         [3, 3, 4],
         "the pane refresh should re-list before it captures: {refresh:?}"
     );
-    let pause = &steps[22];
+    let pause = &steps[26];
     assert_eq!(
         ranks_of(pause),
-        [5, 6],
-        "a pause should answer with the resume, then its emission: {pause:?}"
+        [5],
+        "a pause should answer with the resume alone: {pause:?}"
     );
-    let yank = &steps[23];
+    let yank = &steps[27];
     assert!(
         ranks_of(yank) == [2] && yank[0].contains("show-buffer"),
         "a yank should send the buffer read alone: {yank:?}"
     );
     assert_eq!(
-        steps[24..27]
+        steps[28..31]
             .iter()
             .map(|s| s.iter().map(|c| c.as_str()).collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         [vec![], vec!["<clipboard buffer yanked>"], vec![]],
         "the buffer read should hand its content to the clipboard, once"
     );
-    let window_close = &steps[27];
+    let window_close = &steps[31];
     assert_eq!(
         window_close.last().map(|c| c.as_str()),
         Some("<emit>"),
         "the window close should end on its emission: {window_close:?}"
     );
+}
+
+/// M4: a window is told to stop sizing itself before the monitor sizes it.
+/// tmux will not keep a `resizew` on a window still set to size itself to
+/// the latest client — it applies ours and then puts its own back — and the
+/// options are per WINDOW, so they are set on each window as it is first
+/// seen, in the step's own effects, ahead of the client-size pass.
+#[tokio::test]
+async fn a_window_is_told_to_stop_sizing_itself_before_it_is_sized() {
+    let log: Log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (_tx, rx) = mpsc::channel(1);
+    let link = Scripted {
+        events: [ControlModeEvent::WindowAdd {
+            window_id: "@3".parse().unwrap(),
+        }]
+        .into(),
+        sent: std::sync::Arc::clone(&log),
+    };
+    let mut monitor = TmuxMonitor::over(link, MonitorConfig::default(), rx);
+    monitor.core.set_client_size(41, 29);
+    let emitter = Recording(std::sync::Arc::clone(&log));
+    let mut rs = RunState::new(&monitor.config, Instant::now());
+    assert!(step(&mut monitor, &emitter, &mut rs).await);
+
+    let log = log.lock().unwrap().clone();
+    let at = |wanted: &str| {
+        log.iter()
+            .position(|c| c == wanted)
+            .unwrap_or_else(|| panic!("{wanted:?} was not sent: {log:?}"))
+    };
+    let resize = at("resizew -t @3 -x 41 -y 29");
+    assert!(at("set-option -w -t @3 window-size manual") < resize);
+    assert!(at("set-option -w -t @3 aggressive-resize off") < resize);
 }

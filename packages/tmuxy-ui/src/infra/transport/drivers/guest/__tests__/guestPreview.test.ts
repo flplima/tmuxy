@@ -1,8 +1,4 @@
-/**
- * `read_preview` on the in-browser guests: tmux names the file a pane may
- * preview and a run-shell reads it, under the server's rules. The query here
- * plays tmux.
- */
+/** The query here plays tmux. */
 import { describe, expect, it } from 'vitest';
 import { readGuestPreview } from '../guestPreview';
 
@@ -41,6 +37,21 @@ describe('readGuestPreview', () => {
       mime: 'image/png',
       data: 'iVBORw0K',
     });
+  });
+
+  it('reads a resource larger than one shell argument a chunk at a time', async () => {
+    const full = 'A'.repeat(64_000);
+    const asked: string[] = [];
+    const query = async (command: string) => {
+      asked.push(command);
+      if (command.startsWith('display-message')) return 'preview\n/root/notes/a.md\n';
+      return command.includes('skip=0 ') ? full : 'QUJD\n';
+    };
+    await expect(readGuestPreview(query, '%3', 'big.png')).resolves.toEqual({
+      mime: 'image/png',
+      data: `${full}QUJD`,
+    });
+    expect(asked.slice(1).map((c) => /skip=(\d+)/.exec(c)?.[1])).toEqual(['0', '1']);
   });
 
   it('single-quotes shell arguments even when a path contains tabs and backticks', async () => {

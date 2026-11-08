@@ -1,5 +1,5 @@
 /**
- * The phone's mic key (components/KeyRow.tsx, utils/dictation.ts): a tap
+ * The phone's mic key (components/phone/KeyRow.tsx, infra/dictation.ts): a tap
  * listens, the key lit while it does, and what was heard is typed into the
  * active pane as the phone keyboard types. No headless browser has a
  * microphone or a recogniser, so the story stands one in that hears what it

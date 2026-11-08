@@ -1,80 +1,88 @@
-/**
- * PaneTab - Individual tab inside a PaneHeader tablist.
- */
-
 import { memo, type ReactNode } from 'react';
 import { getTabLabel } from './paneTabDisplay';
 import { PaneIcon } from './PaneIcon';
 import { PaneStateMark } from './PaneStateMark';
-import { paneStateFor } from '../utils/paneState';
+import { paneStateFor } from '../domain/paneState';
 import { InlineRename } from './InlineRename';
 import type { TmuxPane } from '../domain/client';
 
-export const PaneTab = memo(function PaneTab({
-  pane,
-  isSelectedTab,
-  isActivePane,
-  titleOverride,
-  widgetName,
-  renaming,
-  onRenameEnd,
-  onClick,
-  onContextMenu,
-  controls,
-  dropMark,
-  dragging,
-}: {
-  pane: TmuxPane;
+interface PaneTabInteraction {
   isSelectedTab: boolean;
-  isActivePane: boolean;
-  titleOverride?: string;
-  widgetName?: string;
-  /** This pane's title is being edited in place. */
   renaming: boolean;
-  /** The new title, or null if the edit was abandoned. */
+  /** null when the edit was abandoned. */
   onRenameEnd: (name: string | null) => void;
 
   onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   /**
-   * The member's own ⋮ and ✕, drawn at the right of ITS share of the header.
-   * A group's header is divided between its members, so a single pair of
-   * buttons at the far right would have belonged to whichever member happened
-   * to be showing — and there is no way to tell that by looking. Null for an
-   * ungrouped pane, whose buttons stay at the header's own right edge.
+   * The member's own ⋮ and ✕, in its share of a group's header: one pair at
+   * the far right would belong to whichever member happened to be showing.
+   * Null for an ungrouped pane.
    */
   controls: ReactNode;
   /** Where a pane being dragged over this header would land, against this tab. */
   dropMark: 'onto' | 'before' | 'after' | null;
-  /** This member is the pane being dragged. */
   dragging: boolean;
-}) {
+}
+
+type PaneTabProps = {
+  pane: TmuxPane;
+  isActivePane: boolean;
+  titleOverride?: string;
+} & (
+  | PaneTabInteraction
+  /** A picture of the tab (TabShot): drawn the same, but nothing to press. */
+  | { still: true }
+);
+
+export const PaneTab = memo(function PaneTab(props: PaneTabProps) {
+  const { pane, isActivePane, titleOverride } = props;
   const text = getTabLabel(pane, titleOverride);
-  // What the pane is doing takes the icon's place while it is anything but idle.
   const state = paneStateFor(pane);
 
+  const face =
+    state !== 'idle' ? (
+      <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
+    ) : (
+      <PaneIcon
+        pane={pane}
+        titleOverride={titleOverride}
+        className="pane-tab-icon pane-tab-icon-static"
+      />
+    );
+
+  if ('still' in props) {
+    return (
+      <div className={`pane-tab${isActivePane ? ' pane-tab-active' : ''}`}>
+        {face}
+        <span className="pane-tab-title">{text}</span>
+      </div>
+    );
+  }
+
+  const {
+    isSelectedTab,
+    renaming,
+    onRenameEnd,
+    onClick,
+    onContextMenu,
+    controls,
+    dropMark,
+    dragging,
+  } = props;
   return (
     <div
       className={`pane-tab ${isActivePane ? 'pane-tab-active' : ''} ${isSelectedTab ? 'pane-tab-selected' : ''} ${dropMark ? `pane-tab-drop-${dropMark}` : ''} ${dragging ? 'pane-tab-dragging' : ''}`}
       onClick={onClick}
       onContextMenu={onContextMenu}
       role="tab"
-      // The strip's one tab stop is the tab it shows.
+      // Roving tabindex: the strip's one tab stop is the tab it shows.
       tabIndex={isSelectedTab ? 0 : -1}
       aria-selected={isSelectedTab}
       aria-label={`Pane ${pane.tmuxId}`}
       data-pane-tab={pane.tmuxId}
     >
-      {state !== 'idle' ? (
-        <PaneStateMark state={state} className="pane-tab-icon pane-tab-state" />
-      ) : (
-        <PaneIcon
-          pane={pane}
-          widgetName={widgetName}
-          titleOverride={titleOverride}
-          className="pane-tab-icon pane-tab-icon-static"
-        />
-      )}
+      {face}
       {renaming ? (
         <InlineRename
           className="pane-tab-input"

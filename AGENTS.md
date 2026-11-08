@@ -24,27 +24,29 @@ See [docs/TRACING.md](docs/TRACING.md) for unified cross-layer action tracing in
 See [docs/CI-TRIAGE.md](docs/CI-TRIAGE.md) for the failing-CI-job → local-command map.
 See [docs/ARCHITECTURE-INDEX.md](docs/ARCHITECTURE-INDEX.md) for where a given concern lives in the tree.
 
+A companion doc (`TMUX-TAGS.md`, `TESTS-E2E.md`, …) is linked from its parent; [docs/README.md](docs/README.md) is the full index.
+
 ## CLI Usage
 
-The `tmuxy` CLI is a noun-verb dispatcher at `packages/tmuxy-cli/bin/tmuxy-cli`, symlinked as `~/.local/bin/tmuxy`.
+The `tmuxy` CLI is a noun-verb dispatcher at `packages/tmuxy-cli/bin/tmuxy-cli`; the `tmuxy` on `PATH` (`~/.local/bin/tmuxy`) is the wrapper the app writes to reach it (`tmuxy-core/src/session/launcher.rs`).
 All mutating commands route through `tmux run-shell` for safety with control mode.
 
 Run `tmuxy --help`, `tmuxy <command> --help`, or `tmuxy <command> <subcommand> --help` for details.
 
 ## Running it
 
-| Want              | Do                                                                                                                 | Notes                                                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| The dev server    | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev-server run` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev`                                                                  |
-| A one-off server  | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing                                                                                |
-| Drive the app     | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                                       |
-| The trace         | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md)                                                                    |
-| Server logs       | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                                       |
-| Disk (`target/`)  | Nothing: `bin/trim-target` cleans it once a day when it passes 20 GB                                               | Run by the pre-push hook and `bin/dev-server run`; `TMUXY_TARGET_MAX_GB` sets the cap, `--now` skips the daily throttle                     |
+| Want             | Do                                                                                                                 | Notes                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| The dev server   | `npm start`, `npm stop`, `npm restart`, `npm logs`                                                                 | `bin/dev-server run` = `cargo watch` + Vite HMR, port `9000`, tmux socket `tmuxy-dev`                                                  |
+| A one-off server | `cargo run -p tmuxy-server -- --port 9000 --no-auth --dev`                                                         | No watcher — what to reach for when `cargo watch` is missing; its sessions start in `$HOME` unless `TMUXY_START_DIR` names a directory |
+| Drive the app    | `agent-browser --session <slug> open http://localhost:9000`                                                        | See its own skill for the command set                                                                                                  |
+| The trace        | `jq` / `grep` over `~/.local/state/tmuxy/trace.ndjson` (macOS: `~/Library/Application Support/tmuxy/trace.ndjson`) | On by default in a dev build; see [docs/TRACING.md](docs/TRACING.md)                                                                   |
+| Server logs      | `npm logs` (`bin/dev-server`), or the server's own stderr                                                          | `RUST_LOG` filters it                                                                                                                  |
+| Disk (`target/`) | Nothing: `bin/trim-target` cleans it once a day when it passes 20 GB                                               | Run by the pre-push hook and `bin/dev-server run`; `TMUXY_TARGET_MAX_GB` sets the cap, `--now` skips the daily throttle                |
 
 **Three sockets, never mixed:** a released build serves `tmuxy`, the dev server
-`tmuxy-dev`, the E2E suite `tmuxy-test`. A change of socket is a change of
-server, which is how a test run cannot disturb the session you are working in.
+`tmuxy-dev`, the E2E suite `tmuxy-test`, so a test run cannot disturb the
+session you work in.
 
 Everything an agent needs on top of `npm ci` and a Rust toolchain is
 `bin/install-dev-tools`, shared by the devcontainer image and the cloud agent's
@@ -61,16 +63,14 @@ runner so neither can drift from the other.
 
 One `.devcontainer/` serves `bin/devcontainer` (plain Docker), VS Code Dev
 Containers and GitHub Codespaces. **Never hardcode the workspace path** — every
-script derives the repo root from its own location, because Codespaces picks the
-path and ignores a custom `workspaceMount`. Anything essential must stay out of
-`runArgs` (Codespaces ignores it). Shared start-up work belongs in
-`.devcontainer/setup.sh`, which all hosts run.
+script derives the repo root from its own location, since Codespaces picks the
+path and ignores `workspaceMount`; nothing essential goes in `runArgs` (ignored
+there too). Shared start-up work is `.devcontainer/setup.sh`, which all hosts run.
 
-Copilot's cloud agent uses none of this: it is an ephemeral runner that
-bootstraps from `.github/workflows/copilot-setup-steps.yml` (custom images and
-`devcontainer.json` are not supported there). Both hosts call
-`bin/install-dev-tools` for the tooling on top, which is the only place that
-list lives — add a tool there, not in one of them.
+Copilot's cloud agent uses none of this: an ephemeral runner bootstrapped by
+`.github/workflows/copilot-setup-steps.yml` (no custom image or
+`devcontainer.json` there). Both call `bin/install-dev-tools` for the tooling on
+top — the only place that list lives; add a tool there.
 
 ## Coding Guidelines
 
@@ -88,7 +88,7 @@ list lives — add a tool there, not in one of them.
 
 Use short command forms: `splitw`, `selectp`, `killp`, `resizep`, etc. **Exception:** `neww` crashes tmux 3.5a — always use `splitw ; breakp` instead (the server rewrites this automatically).
 
-UI code never writes a tmux command string: it builds a `TmuxOp` (`packages/tmuxy-ui/src/domain/commands.ts`, where `toTmuxCommand` is the only place command syntax and script paths are spelled) and dispatches it. On the wire, mutations go out as `run_tmux_command` (fire-and-forget, resolves `null` on every transport) and reads as `query` — answered in-band on the same connection (`RunCommandWithReply`) — both through the `TmuxTransport` service (`packages/tmuxy-ui/src/infra/transport/`). Never add a subprocess or shell path for a client command; the routing policy is `packages/tmuxy-core/src/command_router.rs` and both transports must call it. See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
+UI code never writes a tmux command string: it builds a `TmuxOp` (`packages/tmuxy-ui/src/domain/commands.ts`, where `toTmuxCommand` is the only place command syntax and script paths are spelled) and dispatches it. On the wire, mutations go out as `run_tmux_command` (fire-and-forget, resolves `null` on every transport) and reads as `query_tmux` — answered in-band on the same connection (`RunCommandWithReply`) — both through the `TmuxTransport` service (`packages/tmuxy-ui/src/infra/transport/`). Never add a subprocess or shell path for a client command; the routing policy is `packages/tmuxy-core/src/command_router.rs` and both transports must call it. See [docs/DATA-FLOW.md](docs/DATA-FLOW.md) for the SSE/HTTP protocol details.
 
 ## Test Guidelines
 
@@ -104,7 +104,7 @@ Key rules:
 
 ## Testing & Bug Fixes (Critical)
 
-**ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** Do not skip, ignore, or defer broken tests. If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit tests, E2E tests, linting errors, type errors, and any other validation failures.
+**ALWAYS fix any test failure or bug you encounter, even if it is unrelated to your current task or predates your changes.** If CI is red, make it green before moving on. A failing test is never "someone else's problem" — if you see it, you own it. This applies to unit and E2E tests, lint and type errors alike.
 
 **NEVER commit skipped tests** (`it.skip`, `test.skip`, `describe.skip`, `xit`, `xtest`, `xdescribe`). If a test is failing, either fix the test, fix the underlying bug, or ask the user whether to remove the test entirely. ESLint enforces this via `jest/no-disabled-tests` (error) — the pre-commit hook and CI will reject skipped tests.
 
@@ -113,8 +113,8 @@ Key rules:
 A broken build on `main` stops everyone. If CI turns red on `main`:
 
 1. **Fix or quarantine within 24 hours**: Either land a fix, revert the offending commit, or quarantine the failing test within a day. Never leave `main` red.
-2. **Never build features on a red main**: If `main` is red, fixing CI takes precedence over any new feature work.
-3. **Quarantine is explicit and bounded**: For Storybook probes, use the bounded quarantine file (`packages/tmuxy-ui/scripts/probe-quarantine.json`) with an issue reference and an ISO expiry date. Never skip a test without tracking.
+2. **Never build features on a red main**: fixing CI comes before any feature work.
+3. **Quarantine is explicit and bounded**: a Storybook probe goes in `packages/tmuxy-ui/scripts/probe-quarantine.json` with an issue reference and an ISO expiry. Never skip a test without tracking.
 
 ### Bug-Fix Commit Tagging: Missed-By Layer
 
@@ -127,7 +127,7 @@ Tag every bug-fix commit (`🐛`) with the test layer that should have caught th
 
 ### Bug-Fix Commit Tagging: Invariant
 
-A bug on a seam between layers — the aggregator's effect order, the server stream, the client's sequencer or model, session restore — broke a promise one layer makes to another. Those promises are listed in [docs/INVARIANTS.md](docs/INVARIANTS.md), each with the test that holds it. A bug-fix commit on a seam cites the row it violated, or adds one:
+A bug on a seam between layers — effect order, the server stream, the client's sequencer or model, session restore — broke a promise one layer makes to another. [docs/INVARIANTS.md](docs/INVARIANTS.md) lists them, each with the test that holds it; a bug-fix commit on a seam cites the row it violated, or adds one:
 
 - Format: `🐛 <description> [missed-by: <layer>] [invariant: <id>]`
 - An existing id means the claim was written down but its enforcer let the bug through: strengthen that row's test (an ordering or liveness row wants a property or interleaving test, not one more scripted run) and keep the row's `Enforced by` cell current.
@@ -136,7 +136,7 @@ A bug on a seam between layers — the aggregator's effect order, the server str
 
 Before wrapping up a task, run the local check that mirrors CI's lint job and the unit tests:
 
-- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test -- --run`
+- `npm run check:fast` — `bin/lint-gate check` (the one list of what is formatted, linted, type-checked and clippy'd; the pre-push hook and CI's `lint` job run the same) followed by `npm test`
 
 The rest of the map, for when a change reaches further:
 
@@ -151,21 +151,24 @@ The rest of the map, for when a change reaches further:
 
 ### Before pushing: run the CI jobs your change touches
 
-The lint gate above is the floor, not the bar. **Before `git push`, run the local
-equivalent of every CI job your diff can break** — the ones it touches, not all of
-them. `npm run check:full` is for a change that reaches everywhere; reaching for it
-by default wastes twenty minutes, and reaching for nothing ships a red main.
+The lint gate is the floor, not the bar. **Before `git push`, run the local
+equivalent of every CI job your diff can break** — those it touches, not all.
+`npm run check:full` is for a change that reaches everywhere; by default it wastes
+twenty minutes, and running nothing ships a red main.
 
 Work out the set from what you changed:
 
 | Changed                                     | Also run before pushing                                                                                    |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/tmuxy-ui/src/**` (app code)       | `npm test -- --run`, and the E2E suites covering the feature                                               |
+| `packages/tmuxy-ui/src/**` (app code)       | `npm test`, and the E2E suites covering the feature                                                        |
 | `packages/tmuxy-ui/src/stories/**`          | `npm run test-storybook -w tmuxy-ui` (add `test-storybook:v86` for a `v86`-tagged story)                   |
 | `tests/**`                                  | the suites you edited, **plus** any other suite sharing their helpers                                      |
 | `packages/tmuxy-core/**`, `tmuxy-server/**` | `cargo test --workspace`, `cargo clippy … -D warnings`, and the E2E suites for the behaviour               |
 | a `constants.rs` tmux format string         | `cargo test --workspace` **and** E2E — the format is parsed at runtime, so no unit test sees a field shift |
 | `packages/tmuxy-cli/**`                     | `npm run test:cli`                                                                                         |
+| `packages/tmuxy-verbs/**`                   | `npm run test:cli` and `cargo test -p tmuxy-verbs`                                                         |
+| `packages/tmuxy-wasm/**`                    | `npm run test-storybook:v86`                                                                               |
+| a generated file (`gen/`, shared constants) | `cargo test -p tmuxy-core --test generated_constants` (rewrite with `UPDATE_GENERATED=1`)                  |
 | `packages/tmuxy-tauri-app/**`               | `npm run test:tauri`                                                                                       |
 | perf harnesses, `tests/perf/**`             | `npm run perf:interactions` + `npm run perf:compare`                                                       |
 
@@ -176,19 +179,19 @@ directions: use it to pick checks before a push, not only to triage a red one.
 **"It passed locally" is weak evidence for anything timing-sensitive.** A CI runner
 is slower than a dev machine, so a wait that assumes something has already happened
 passes here and fails there. When a test polls for state, treat "not ready yet" as
-_keep waiting_, never as _done_ — and never bound a loop by a constant that encodes
-how fast the machine is, or by a magic number that happens to match today's layout.
-A local pass cannot rule this class of bug out; only the shape of the wait can.
+_keep waiting_, never as _done_, and never bound a loop by a constant that encodes
+how fast the machine is or what today's layout looks like. Only the shape of the
+wait rules this class of bug out.
 
 ## Documentation
 
-The `docs/` directory contains architectural and design documentation. **Review relevant docs before and after working on a task** — they provide critical context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md`, and `COPY-MODE.md`).
+**Review the relevant docs before and after a task** — they carry the context (especially `TMUX.md`, `STATE-MANAGEMENT.md`, `DATA-FLOW.md` and `COPY-MODE.md`).
 
 - **Before starting**: read docs related to the area you're changing. Flag any misalignment between the docs and the user's request before proceeding.
 - **After finishing**: if your changes affect behavior described in docs, suggest updates to the user.
-- **No project-specific code in docs**: docs should describe architecture, protocols, and conventions in prose and tables — not inline code snippets from the codebase. Code is fragile and changes constantly; docs that embed it go stale immediately. Reference file paths instead (e.g., "see `tmuxy-server/src/state.rs`").
+- **Prose and tables, no code, under 20,000 bytes**: a doc describes architecture, protocols and conventions and names file paths (e.g. `tmuxy-server/src/state.rs`); it never embeds code from the codebase, which goes stale at once. Every `docs/*.md` is capped at 20,000 bytes (`wc -c`) by the policy check — past it, move a section into a companion doc and leave a pointer.
 - **Use ASCII diagrams, not Mermaid**: diagrams in docs should use plain ASCII art inside fenced code blocks. Mermaid requires a renderer and is not universally supported by all markdown viewers or AI agents.
-- **One instruction file**: this `AGENTS.md` is the only one. Rules that apply to one folder live in that folder's `README.md` — read it before working there: [tests/README.md](tests/README.md) (E2E, copy mode and scrollback), [packages/tmuxy-ui/README.md](packages/tmuxy-ui/README.md) (React + XState), [packages/tmuxy-cli/README.md](packages/tmuxy-cli/README.md) (the shipped CLI and its scripts).
+- **One instruction file**: this `AGENTS.md` is the only one. Rules that apply to one folder live in that folder's `README.md` (a package's, `tests/`'s) — read it before working there.
 
 ## Git
 

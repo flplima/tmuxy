@@ -17,7 +17,7 @@ export function wide(c: string): CellLine {
   return [{ c }, { c: ' ' }];
 }
 
-/** Boxes are pinned to whole cells; allow a quarter-pixel of rounding. */
+/** Boxes are pinned to whole cells; allow 0.05px of rounding. */
 export const CELL_TOLERANCE = 0.05;
 
 export function spanWithText(canvasElement: HTMLElement, needle: string): HTMLElement {
@@ -38,13 +38,10 @@ export const ICON = '';
 export const CURSOR_LINE = { bg: 237 };
 
 /**
- * The component and play function have to be looking at the SAME
- * typeface. A canvas answers from the faces the document has already
- * loaded and never fetches one itself, so both `glyphFit` and the probe
- * below can measure the fallback font while the page is laid out in the
- * real one — and they can do it at different moments, which is how the
- * branch below ended up disagreeing with the DOM. Asking for the face this
- * glyph needs, and waiting for it, takes the moment out of the question.
+ * A canvas answers from the faces the document has already loaded and never
+ * fetches one itself, so `glyphFit` and this probe can measure the fallback
+ * font while the page is laid out in the real one, at different moments.
+ * Waiting for the face this glyph needs keeps both on the same typeface.
  */
 export async function measureGlyphNaturalInk(
   canvasElement: HTMLElement,

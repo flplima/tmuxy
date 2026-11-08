@@ -1,17 +1,8 @@
-/**
- * copyMode state — the `on` slice for client-side copy mode.
- *
- * Owns context field: copyModeStates.
- *
- * Spread into states.idle.on (not the machine root) — copy mode events
- * only fire when connected and idle, never during connecting.
- *
- * Action implementations live in ../actions/copyMode.ts (with the shared
- * copyModeExitTimes Map and COPY_MODE_REENTRY_COOLDOWN constant).
- */
+/** copyMode state — client-side copy mode (docs/COPY-MODE.md). */
 
 export const copyModeState = {
   on: {
+    COPY_SELECTION: { actions: 'copyMode_copySelection' },
     ENTER_COPY_MODE: { actions: 'copyMode_enter' },
     EXIT_COPY_MODE: { actions: 'copyMode_exit' },
     ENTER_SCROLL_MODE: { actions: 'copyMode_enterScroll' },

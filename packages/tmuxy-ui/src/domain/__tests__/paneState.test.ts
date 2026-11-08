@@ -1,0 +1,117 @@
+import { describe, expect, it } from 'vitest';
+import { pid, wid } from '../../test/wire';
+import { PANE_STATES } from '../tmuxyConstants.gen';
+import {
+  PANE_STATE_TIER,
+  aggregatePaneState,
+  circledNumber,
+  tabPaneStates,
+  readPaneState,
+  paneStateFor,
+  type PaneStateName,
+} from '../paneState';
+
+describe('readPaneState', () => {
+  it('takes every state in the vocabulary', () => {
+    for (const state of PANE_STATES) {
+      expect(readPaneState(state)).toBe(state);
+    }
+  });
+
+  it('reads a word core does not know as idle, near-misses included', () => {
+    // Core's `PaneStateName::parse` takes the exact word, and the push
+    // notification and the screen corrector go by it: a tab that read
+    // `needs_input` as a question would be the only one to.
+    for (const word of [
+      'queued-sandbox-creation',
+      'needs_input',
+      'needs input',
+      'needsinput',
+      'Needs-Input',
+      ' working ',
+    ]) {
+      expect(readPaneState(word)).toBe('idle');
+    }
+  });
+
+  it('treats an unset or blank option as idle', () => {
+    expect(readPaneState(undefined)).toBe('idle');
+    expect(readPaneState(null)).toBe('idle');
+    expect(readPaneState('')).toBe('idle');
+  });
+});
+
+describe('paneStateFor', () => {
+  it('reports what the pane declared', () => {
+    expect(paneStateFor({ paneState: 'working' })).toBe('working');
+    // Failure is declared too, not derived from an exit status.
+    expect(paneStateFor({ paneState: 'error' })).toBe('error');
+  });
+
+  it('is idle for a pane that never declared anything', () => {
+    expect(paneStateFor({ paneState: null })).toBe('idle');
+    expect(paneStateFor({ paneState: undefined })).toBe('idle');
+  });
+
+  it('lets a pending question outrank whatever the pane declared', () => {
+    // A pane asking whether to allow a send IS waiting on the user, whatever
+    // it last said about itself — and the tree has to point at the tab holding it.
+    const asking = btoa(JSON.stringify({ token: 't', caller: 'claude', keys: ['ls'] }));
+    expect(paneStateFor({ paneState: 'working', paneAsk: asking })).toBe('needs-input');
+    expect(paneStateFor({ paneState: 'idle', paneAsk: asking })).toBe('needs-input');
+    // An unreadable option is not a question: it must not pin a pane to
+    // needs-input with no overlay to explain why.
+    expect(paneStateFor({ paneState: 'working', paneAsk: 'garbage' })).toBe('working');
+  });
+});
+
+describe('aggregatePaneState', () => {
+  const roll = (...states: PaneStateName[]) => aggregatePaneState(states);
+
+  it('answers idle for a tab with no panes', () => {
+    expect(roll()).toBe('idle');
+  });
+
+  it('surfaces the question over the failure', () => {
+    // A tab holding both a blocked agent and a failed command reads as
+    // needs-input: the error is already over, the question still blocks.
+    expect(roll('error', 'needs-input')).toBe('needs-input');
+  });
+
+  it('ranks the whole vocabulary by attention', () => {
+    expect(roll('idle', 'working')).toBe('working');
+    expect(roll('working', 'unread')).toBe('unread');
+    expect(roll('unread', 'error')).toBe('error');
+    expect(roll('idle', 'idle')).toBe('idle');
+  });
+
+  it('keeps the tier order strictly descending in urgency', () => {
+    const tiers = PANE_STATES.map((s) => PANE_STATE_TIER[s]);
+    expect(tiers).toEqual([...tiers].sort((a, b) => a - b));
+    expect(new Set(tiers).size).toBe(PANE_STATES.length);
+  });
+});
+
+describe('tabPaneStates', () => {
+  it('rolls each tab up to its most attention-worthy pane, a question ahead of work', () => {
+    const panes = [
+      { tmuxId: pid('%1'), windowId: wid('@1'), paneState: 'working' },
+      { tmuxId: pid('%2'), windowId: wid('@1'), paneState: 'needs-input' },
+      { tmuxId: pid('%3'), windowId: wid('@2'), paneState: 'working' },
+      { tmuxId: pid('%4'), windowId: wid('@3'), paneState: 'idle' },
+    ];
+    const states = tabPaneStates([wid('@1'), wid('@2'), wid('@3')], panes);
+    expect(states.get(wid('@1'))).toEqual({ count: 2, state: 'needs-input' });
+    expect(states.get(wid('@2'))?.state).toBe('working');
+    // An agent that finished is idle, so its tab draws nothing for it.
+    expect(states.get(wid('@3'))?.state).toBe('idle');
+  });
+});
+
+describe('circledNumber', () => {
+  it('circles one to twenty, and writes the rest plainly', () => {
+    expect([1, 2, 10].map(circledNumber)).toEqual(['➊', '➋', '➓']);
+    expect([11, 20].map(circledNumber)).toEqual(['⓫', '⓴']);
+    expect(circledNumber(21)).toBe('21');
+  });
+});

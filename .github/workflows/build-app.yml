@@ -1,44 +1,32 @@
-name: Build App
+name: build app
 
 # Tags publish. The daily run is the safety net: `desktop` in lint-and-tests
 # already proves per-commit that the Linux release binary builds and launches,
 # so what is left for this workflow to catch is macOS and arm64 breakage and
 # the installer/bundle paths (DMG, AppImage, .deb, the upgrade path) — real
-# risks, but ones a day of latency is fine for. It used to run on every push
-# to main, putting a 3-platform build and notarization behind every commit.
+# risks, but ones a day of latency is fine for.
 #
-# Everything that PUBLISHES (release, bump-cask, bump-formula, verify) is
-# gated on a tag ref, so a scheduled run builds and smoke-tests only.
+# The one job that PUBLISHES, `release`, is gated on a tag, so a scheduled
+# run builds and smoke-tests only. What a tag publishes is a PRE-release;
+# promoting it is what bumps the brew tap (publish-brew.yml).
 on:
   push:
     tags: ['v*']
-  # Promoting a pre-release to a release is what puts a build in front of brew
-  # users. A tag push builds and publishes the assets as a PRE-release and
-  # stops there; `gh release edit <tag> --prerelease=false --latest` fires this
-  # event, and only then are the tap files bumped. See §Release-candidate soak
-  # in .agents/skills/release/SKILL.md.
-  release:
-    types: [released]
   schedule:
     # 06:30 UTC — after the three nightlies, so they do not contend for runners.
     - cron: '30 6 * * *'
   workflow_dispatch:
 
 # Read-only by default. Only `release` writes to this repository (it creates
-# the GitHub Release); the tap bumps push with their own token. Every other
+# the GitHub Release). Every other
 # job runs build scripts from npm and crates.io, and none of them needs a token
 # that can push a commit or a tag.
 permissions:
   contents: read
 
 jobs:
-  # The full test suite, run against the TAG ref itself.
-  #
-  # `lint and tests` triggers on pushes to main and on pull requests, so a tag
-  # push used to run nothing but this workflow: the artifacts that became a
-  # release had never been tested as tagged. The release skill's CI gate checks
-  # the version-bump *sha*, which is close but not the same thing and is not
-  # structural — a `needs:` is.
+  # The full test suite, run against the TAG ref itself: `lint and tests`
+  # triggers on pushes to main and on pull requests, never on a tag.
   #
   # `workflow_call` rather than adding `push: tags` to lint-and-tests.yml: a
   # separate tag-triggered run is a different run that `release` cannot depend
@@ -46,9 +34,9 @@ jobs:
   # dependency is enforced by Actions itself, and a red suite leaves the tag
   # with no GitHub Release and no tap bump at all.
   tests:
-    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'release'
+    if: startsWith(github.ref, 'refs/tags/')
     uses: ./.github/workflows/lint-and-tests.yml
-    # The called workflow's `timing` job reads the run's job logs, which
+    # The called workflow's `ci` job reads the run's job logs, which
     # needs `actions: read` — and a reusable workflow may only ask for what
     # its caller grants, or the WHOLE run fails at start-up (even with this
     # job skipped off a tag). A dispatched build on main died that way.
@@ -60,9 +48,6 @@ jobs:
       e2e-tier: full
 
   build:
-    # A promotion re-publishes nothing: the assets it hands to brew are the
-    # ones this job already built for the tag.
-    if: github.event_name != 'release'
     strategy:
       fail-fast: false
       matrix:
@@ -108,43 +93,33 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      # node_modules by its own `npm ci` below, after the Linux packages.
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
-          cache: npm
+          rust-targets: ${{ matrix.rust-targets }}
+          install-npm: 'false'
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          targets: ${{ matrix.rust-targets }}
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-
+      # With their recommended packages, as every release so far was built.
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
         run: |
           bin/ci/apt-get update
-          bin/ci/apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev librsvg2-dev
+          # shellcheck disable=SC2046 # one package per word
+          bin/ci/apt-get install -y $(bin/toolchain packages webkit-dev)
 
-      # `npm ci` (not `npm install`): the release build must use exactly the
-      # locked dependency tree, not whatever the ranges resolve to today.
       - run: npm ci
 
-      # The Rust suite on a Mac, against Homebrew's tmux: daily and on every
-      # tag, here, because the per-commit `macos-tests` job only runs it when
-      # a push touches macOS-specific code (lint-and-tests.yml). macOS minutes
-      # cost ten Linux ones, and the ~500 platform-neutral tests are already
-      # run on Linux per commit; this is the net under the path filter.
+      # The Rust suite on a Mac, against Homebrew's tmux, daily: the
+      # per-commit `macos-tests` job only runs it when a push touches
+      # macOS-specific code (lint-and-tests.yml), and macOS minutes cost ten
+      # Linux ones. On a tag, the `tests` job above runs it (macos-tests runs
+      # cargo test on every tag), so it is not run twice.
       - name: Cargo test (macOS)
-        if: matrix.platform == 'macos'
+        if: matrix.platform == 'macos' && !startsWith(github.ref, 'refs/tags/')
         run: |
           brew list tmux >/dev/null 2>&1 || brew install tmux
           mkdir -p packages/tmuxy-ui/dist
           cargo test --workspace
-
-      # --- Build ---
 
       # Notarization wants the App Store Connect key as a file, and secrets are
       # strings — so materialise it and hand the CLI its path. Skipped (with the
@@ -182,14 +157,10 @@ jobs:
       # quarantined, and Gatekeeper assesses the image before anything inside
       # it: `spctl` rejects it with `source=Unnotarized Developer ID` and the
       # user gets the "cannot be opened" dialog on the thing they just
-      # downloaded. Verified on alpha.67 and alpha.68 alike, so this was never
-      # right rather than newly broken.
-      #
-      # Submitting the image too, and stapling the ticket INTO it, is what
-      # makes the direct-download path match what the signing section of the
-      # release skill already promises. Homebrew is unaffected either way (the
-      # cask strips the quarantine attribute) — this is for the person who
-      # clicks the asset on the releases page.
+      # downloaded. So the image is submitted too, and the ticket stapled INTO
+      # it. Homebrew is unaffected either way (the cask strips the quarantine
+      # attribute) — this is for the person who clicks the asset on the
+      # releases page.
       - name: Notarize and staple the DMG itself (macOS)
         if: env.NOTARIZE == 'true'
         env:
@@ -218,31 +189,16 @@ jobs:
         if: always() && env.NOTARIZE == 'true'
         run: rm -rf "$HOME/private_keys"
 
-      # --- Smoke Test (Linux + macOS) ---
-      # Both platforms use WebdriverIO for full GUI verification: launch app,
-      # type a command, verify output appears in the terminal UI.
-      # Linux: tauri-driver (WebKitGTK driver) + Xvfb
-      # macOS: tauri-webdriver (embeds WebDriver in the app via plugin)
+      # GUI smoke test drivers. Linux: tauri-driver (WebKitGTK's driver) under
+      # Xvfb. macOS has no WebKit driver, so tauri-webdriver proxies W3C
+      # WebDriver to a plugin embedded in a debug build.
 
-      - name: Install smoke test deps (Linux)
+      - uses: ./.github/actions/install-desktop-test-deps
         if: matrix.platform == 'linux'
-        run: |
-          bin/ci/apt-get install -y --no-install-recommends \
-            libevent-dev libncurses-dev bison webkit2gtk-driver xvfb x11-utils
-
-      - name: Cache tauri-driver (Linux)
-        if: matrix.platform == 'linux'
-        id: tauri-driver-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cargo/bin/tauri-driver
-          key: ${{ matrix.os }}-tauri-driver-2.0.6
+          cache-key-namespace: ${{ matrix.os }}
 
-      - name: Install tauri-driver (Linux, cache miss)
-        if: matrix.platform == 'linux' && steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --version 2.0.6 --locked --force
-
-      # The same source-built 3.7a as lint-and-tests.yml rather than
+      # The same source-built pinned tmux as lint-and-tests.yml rather than
       # ubuntu-22.04's apt 3.2a, keyed per runner image so the 22.04 and arm
       # builds link their own libevent.
       - uses: ./.github/actions/install-tmux
@@ -266,48 +222,37 @@ jobs:
         run: npx tauri build --debug --no-bundle --features webdriver
         working-directory: packages/tmuxy-tauri-app
 
+      - uses: ./.github/actions/start-xvfb
+        if: matrix.platform == 'linux'
+
       - name: Run smoke test (Linux)
         if: matrix.platform == 'linux'
+        env:
+          DISPLAY: ':99'
+          BINARY: ${{ matrix.binary }}
         run: |
-          # Start virtual display
-          Xvfb :99 -screen 0 1280x720x24 -ac -nolisten tcp &
-          XVFB_PID=$!
-          export DISPLAY=:99
-
-          # Wait for display
-          for i in $(seq 1 20); do
-            xdpyinfo -display :99 >/dev/null 2>&1 && break
-            sleep 0.25
-          done
-
-          # Start tauri-driver
           tauri-driver --port 4444 &
           DRIVER_PID=$!
-          sleep 2
+          bin/ci/wait-for-server http://localhost:4444/status
 
-          # Run smoke test
-          node tests/smoke/smoke-test.js "${{ matrix.binary }}"
+          node tests/smoke/smoke-test.js "$BINARY"
           RESULT=$?
 
-          # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
-          kill $XVFB_PID 2>/dev/null || true
+          kill "$XVFB_PID" 2>/dev/null || true
 
           exit $RESULT
 
       - name: Run smoke test (macOS)
         if: matrix.platform == 'macos'
         run: |
-          # Start tauri-webdriver (proxies W3C WebDriver to the embedded plugin)
           tauri-webdriver --port 4444 &
           DRIVER_PID=$!
-          sleep 2
+          bin/ci/wait-for-server http://localhost:4444/status
 
-          # Run smoke test using the debug binary (has webdriver plugin)
           node tests/smoke/smoke-test.js target/debug/tmuxy
           RESULT=$?
 
-          # Cleanup
           kill $DRIVER_PID 2>/dev/null || true
 
           exit $RESULT
@@ -336,10 +281,7 @@ jobs:
       # Everything above runs `target/release/tmuxy` (or the debug build),
       # which is not what any user installs. These steps exercise the DMG, the
       # AppImage and the .deb themselves — the bundle layout, the bundled
-      # resources and, for the .deb, its declared dependencies. They are an
-      # extra layer on top of tests/smoke/smoke-test.js, not a replacement:
-      # that one drives the GUI, these one prove the package is installable
-      # and launchable.
+      # resources and, for the .deb, its declared dependencies.
 
       - name: Smoke-test the shipped DMG (macOS)
         if: matrix.platform == 'macos'
@@ -375,8 +317,7 @@ jobs:
       # Signing and notarization are silent no-ops when the Apple secrets are
       # absent (see the env block above), so an unsigned DMG looks identical in
       # the logs. On a tag that is a release nobody can install without the
-      # Gatekeeper dialog — assert it, and fail. No continue-on-error, no
-      # `|| true`: a release that cannot be verified is not a release.
+      # Gatekeeper dialog, so it fails here.
       - name: Assert the DMG is signed, notarized and stapled (macOS, tags)
         if: matrix.platform == 'macos' && startsWith(github.ref, 'refs/tags/')
         run: |
@@ -415,8 +356,7 @@ jobs:
           # quarantines. Asserted with the `open` context and the primary
           # signature — the same assessment Gatekeeper makes on a mount — so a
           # DMG that carries no ticket of its own fails here rather than
-          # greeting a user with "cannot be opened". This is the check that was
-          # missing when alpha.67 and alpha.68 shipped an unnotarized image.
+          # greeting a user with "cannot be opened".
           echo "--- the DMG itself ---"
           set +e
           spctl -a -vvv -t open --context context:primary-signature "$DMG" \
@@ -537,9 +477,6 @@ jobs:
             ' | tee "${RUNNER_TEMP}/deb-install.txt"
           grep -q '^tmuxy ' "${RUNNER_TEMP}/deb-install.txt"
 
-      # --- Collect & Upload Artifacts ---
-      # Linux uploads .deb and .AppImage as separate artifacts
-
       - name: Upload AppImage
         if: matrix.platform == 'linux'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -564,8 +501,6 @@ jobs:
           path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
-  # --- Release (only on tag push, after all builds + smoke tests pass) ---
-
   # --- Upgrade path: the previous release, replaced by this build ---
   #
   # The bug class here is f1905d7 (a stopping server deleted the pid file of
@@ -575,8 +510,8 @@ jobs:
   # build that is already installed and running is replaced by a new one, which
   # is exactly the sequence no other job performs.
   #
-  # Runs on every push, not only tags, so a regression surfaces before the tag
-  # rather than at it. With no previous release published (the very first tag,
+  # Runs on the daily build too, not only tags, so a regression surfaces before
+  # the tag rather than at it. With no previous release published (the very first tag,
   # or a fork) the job says so and passes.
   upgrade-path:
     needs: build
@@ -586,9 +521,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: ./.github/actions/setup-node-rust
         with:
-          node-version: 22
+          rust: none
+          install-npm: 'false'
 
       # The AppImage is the desktop app, and it links the GUI stack even when
       # all it is asked to do is `server` — without these it dies with
@@ -613,7 +549,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # The newest published release that is not the tag being built.
           PREV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 \
                    --json tagName,isDraft \
                    --jq '[.[] | select(.isDraft | not) | .tagName]
@@ -633,7 +568,11 @@ jobs:
         if: steps.previous.outputs.tag != ''
         env:
           TMUX_SOCKET: tmuxy-upgrade
-          PORT: '9123'
+          # The default port (tmuxy_core::constants::DEFAULT_SERVER_PORT), as
+          # a user runs it: it is the port whose pid file an older build named
+          # differently, so a takeover on it is the one that proves the new
+          # build finds the old server by its port.
+          PORT: '9000'
         run: |
           set -euo pipefail
           export APPIMAGE_EXTRACT_AND_RUN=1
@@ -654,7 +593,6 @@ jobs:
             return 1
           }
 
-          # $1 = how many seconds to keep looking, $2 = pattern, $3 = file.
           wait_for_line() {
             for _ in $(seq 1 "$1"); do
               grep -q "$2" "$3" && return 0
@@ -703,10 +641,9 @@ jobs:
             || { echo "the tab never got a stream from the old build"; \
                  cat "${RUNNER_TEMP}/sse.log"; exit 1; }
 
-          # 3. The new build takes over: its own binary stops the running
-          #    server through the pid file, then binds the same port. Started
-          #    immediately, with no sleep — f1905d7 was a race between the
-          #    old server's exit and the new server's pid file.
+          # 3. The new build takes over. Started immediately, with no sleep:
+          #    f1905d7 was a race between the old server's exit and the new
+          #    server's pid file.
           "$NEW" server --port "$PORT" stop | tee "${RUNNER_TEMP}/stop.txt"
           grep -q 'Sent SIGTERM' "${RUNNER_TEMP}/stop.txt" \
             || { echo "the new build did not recognise the running server"; exit 1; }
@@ -752,8 +689,8 @@ jobs:
           [ -n "$NEW_PID" ] && [ "$OLD_PID" != "$NEW_PID" ] \
             || { echo "pid file still names the old server ($OLD_PID)"; exit 1; }
 
-          # 5. The open tab recovers: the stream it reconnects to delivers a
-          #    fresh snapshot rather than hanging on "Connecting…" (722bd14).
+          # 5. The open tab recovers rather than hanging on "Connecting…"
+          #    (722bd14).
           for _ in $(seq 1 30); do
             if [ "$(grep -c '^open 200' "${RUNNER_TEMP}/sse.log")" -ge 2 ] \
                && [ "$(grep -c 'event:[[:space:]]*connection-info' "${RUNNER_TEMP}/sse.log")" -ge 2 ]; then
@@ -791,7 +728,7 @@ jobs:
 
   release:
     needs: [build, tests, upgrade-path]
-    if: startsWith(github.ref, 'refs/tags/') && github.event_name != 'release'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -809,14 +746,12 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
 
-          # Flatten all platform artifacts into one directory
           mkdir -p release-assets
           find all-artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.dmg' \) \
             -exec cp {} release-assets/ \;
 
           ls -lh release-assets/
 
-          # Create release with all assets
           # PRE-release, deliberately. The tap is not bumped from here, so
           # nothing reaches a `brew upgrade` until a human has used the build
           # and promoted it — which is the whole point of the soak. Promote
@@ -825,400 +760,3 @@ jobs:
             --title "tmuxy $TAG" \
             --notes "Release candidate — not yet promoted to brew. Install the asset for your platform below to try it; \`brew upgrade\` still serves the last promoted build until this one is promoted." \
             --prerelease
-
-  # --- Bump Homebrew Cask (only on tag push, after release publishes) ---
-  #
-  # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-  # `brew install --cask flplima/tap/tmuxy`. The DMG is signed and notarized
-  # (see the Apple secrets on the build job), and Homebrew's `binary` stanza
-  # links `tmuxy.app/Contents/MacOS/tmuxy` into `$(brew --prefix)/bin/tmuxy`.
-  # Requires the HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on
-  # flplima/homebrew-tap).
-
-  bump-cask:
-    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
-    # stops; `gh release edit <tag> --prerelease=false --latest` fires
-    # `release: released` and runs this. Forgetting to promote leaves users on
-    # the last good build, which is the failure mode we want.
-    if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 15
-    steps:
-      # The PUBLISHED bytes, not the build's artifacts. The tap's sha256 has to
-      # describe what a user actually downloads, and hashing the release asset
-      # is the only way that cannot drift — `verify-release` check 3 exists
-      # because the two used to be computed from different files.
-      # The tag reaches the script through the environment, never spliced into
-      # it: `${{ }}` in a `run:` is pasted in before bash parses the line.
-      - name: Download the published DMG
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          mkdir -p dmg
-          gh release download "$TAG" \
-            --repo "$REPO" --pattern '*.dmg' --dir dmg
-
-      - name: Compute version + sha256
-        id: meta
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
-            exit 1
-          fi
-          DMG=$(ls dmg/*.dmg | head -1)
-          SHA=$(sha256sum "$DMG" | awk '{print $1}')
-          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
-          echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
-          echo "Bumping cask: v$VERSION sha256=$SHA from $(basename "$DMG")"
-
-      - name: Push updated cask to flplima/homebrew-tap
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          SHA256: ${{ steps.meta.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::Invalid VERSION '$VERSION'" >&2
-            exit 1
-          fi
-          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "::error::Invalid SHA256 '$SHA256'" >&2
-            exit 1
-          fi
-          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
-            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
-          cd tap
-          mkdir -p Casks
-
-          # Pushes an updated Casks/tmuxy.rb to flplima/homebrew-tap so users can
-          # `brew install --cask flplima/tap/tmuxy`. It is the cask that would
-          # go to Homebrew/homebrew-cask, byte for byte, so every release proves
-          # it: `verify-brew-cask` runs `brew style` and `brew audit --new` on
-          # it. The `binary` stanza links the app's executable, which is the
-          # full CLI, into `$(brew --prefix)/bin/tmuxy`. `zap` lists what the
-          # app writes: its config, the `~/.local/bin/tmuxy` launcher it
-          # refreshes on every start, and its Library folders.
-          cat > Casks/tmuxy.rb <<'CASK'
-          cask "tmuxy" do
-            version "__VERSION__"
-            sha256 "__SHA256__"
-
-            url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_universal.dmg"
-            name "tmuxy"
-            desc "Desktop UI for tmux"
-            homepage "https://tmuxy.sh/"
-
-            livecheck do
-              url :url
-              strategy :github_latest
-            end
-
-            depends_on formula: "tmux"
-            depends_on :macos
-
-            app "tmuxy.app"
-            binary "#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
-
-            zap trash: [
-              "~/.config/tmuxy",
-              "~/.local/share/tmuxy",
-              "~/.local/bin/tmuxy",
-              "~/Library/Application Support/com.tmuxy.app",
-              "~/Library/Application Support/tmuxy",
-              "~/Library/Caches/com.tmuxy.app",
-              "~/Library/WebKit/com.tmuxy.app",
-            ]
-          end
-          CASK
-
-          sed -i "s/__VERSION__/${VERSION}/g" Casks/tmuxy.rb
-          sed -i "s/__SHA256__/${SHA256}/g"  Casks/tmuxy.rb
-
-          git config user.name  "tmuxy-cask-bumper[bot]"
-          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
-          git add Casks/tmuxy.rb
-
-          if git diff --staged --quiet; then
-            echo "Cask already at v${VERSION}; nothing to push."
-          else
-            git commit -m "chore: bump tmuxy to v${VERSION}"
-            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
-          fi
-
-  # --- Bump Homebrew Formula (only on tag push, after the cask is pushed) ---
-  #
-  # Homebrew casks are macOS-only; Linux Homebrew installs from formulae.
-  # This pushes a Formula/tmuxy.rb to flplima/homebrew-tap so Linux users can
-  # `brew install flplima/tap/tmuxy`. The formula installs the release
-  # AppImage as the `tmuxy` binary. Runs after bump-cask (not in parallel) so
-  # the two jobs don't race pushing to the same tap repo.
-
-  bump-formula:
-    needs: bump-cask
-    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
-    # stops; `gh release edit <tag> --prerelease=false --latest` fires
-    # `release: released` and runs this. Forgetting to promote leaves users on
-    # the last good build, which is the failure mode we want.
-    if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 15
-    steps:
-      # Same as the cask: hash what was published, not what was built.
-      - name: Download the published AppImages
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          mkdir -p appimage-amd64 appimage-arm64
-          gh release download "$TAG" --repo "$REPO" \
-            --pattern '*amd64.AppImage' --dir appimage-amd64
-          gh release download "$TAG" --repo "$REPO" \
-            --pattern '*aarch64.AppImage' --dir appimage-arm64
-
-      - name: Compute version + sha256
-        id: meta
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          VERSION="${TAG#v}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
-            exit 1
-          fi
-          AMD=$(ls appimage-amd64/*.AppImage | head -1)
-          ARM=$(ls appimage-arm64/*.AppImage | head -1)
-          SHA_AMD=$(sha256sum "$AMD" | awk '{print $1}')
-          SHA_ARM=$(sha256sum "$ARM" | awk '{print $1}')
-          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
-          echo "sha256_amd=$SHA_AMD"   >> "$GITHUB_OUTPUT"
-          echo "sha256_arm=$SHA_ARM"   >> "$GITHUB_OUTPUT"
-          echo "Bumping formula: v$VERSION amd64=$SHA_AMD arm64=$SHA_ARM"
-
-      - name: Push updated formula to flplima/homebrew-tap
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          SHA256_AMD: ${{ steps.meta.outputs.sha256_amd }}
-          SHA256_ARM: ${{ steps.meta.outputs.sha256_arm }}
-        run: |
-          set -euo pipefail
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
-            echo "::error::Invalid VERSION '$VERSION'" >&2
-            exit 1
-          fi
-          if ! [[ "$SHA256_AMD" =~ ^[0-9a-f]{64}$ && "$SHA256_ARM" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "::error::Invalid SHA256 digest" >&2
-            exit 1
-          fi
-          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
-            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
-          cd tap
-          mkdir -p Formula
-
-          # Single-quoted heredoc so bash leaves Ruby `#{version}` interpolation
-          # untouched. Placeholders sed-replaced below.
-          cat > Formula/tmuxy.rb <<'FORMULA'
-          class Tmuxy < Formula
-            desc "Web-based tmux interface"
-            homepage "https://github.com/flplima/tmuxy"
-            version "__VERSION__"
-
-            depends_on :linux
-            depends_on "tmux"
-
-            on_arm do
-              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_aarch64.AppImage"
-              sha256 "__SHA256_ARM__"
-            end
-
-            on_intel do
-              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_amd64.AppImage"
-              sha256 "__SHA256_AMD__"
-            end
-
-            def install
-              bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
-            end
-
-            # The applications-menu entry cannot be installed from here:
-            # Homebrew 6 sandboxes post_install with a read-only $HOME, and
-            # Homebrew's own share/applications is not on XDG_DATA_DIRS. The
-            # app registers itself on launch instead (see
-            # packages/tmuxy-tauri-app/src/desktop.rs).
-            def caveats
-              <<~EOS
-                Run `tmuxy` once to add it to your applications menu.
-                Set TMUXY_NO_DESKTOP_ENTRY=1 to skip that.
-              EOS
-            end
-
-            # `assert_path_exists` only proved a file landed — it would pass on
-            # a truncated download, an AppImage for the wrong arch, or a build
-            # that cannot start. This runs the thing: version out of the binary
-            # that was installed, then the server serving its page on a free
-            # port. APPIMAGE_EXTRACT_AND_RUN because `brew test` has no FUSE.
-            test do
-              assert_path_exists bin/"tmuxy"
-
-              ENV["APPIMAGE_EXTRACT_AND_RUN"] = "1"
-              assert_match "tmuxy #{version}", shell_output("#{bin}/tmuxy --version")
-
-              port = free_port
-              # `spawn` wants Strings; `bin/"tmuxy"` is a Pathname.
-              pid = spawn((bin/"tmuxy").to_s, "server", "--port", port.to_s)
-              begin
-                page = nil
-                20.times do
-                  sleep 1
-                  # `|| true` so a connection refused while the server is still
-                  # binding is a retry, not an exception. The assert below is
-                  # what decides the test.
-                  page = shell_output("curl -fsS http://127.0.0.1:#{port}/ || true")
-                  break if page.include?("<html")
-                end
-                assert_match "<html", page.to_s
-              ensure
-                Process.kill "TERM", pid
-                Process.wait pid
-              end
-            end
-          end
-          FORMULA
-
-          sed -i "s/__VERSION__/${VERSION}/g"      Formula/tmuxy.rb
-          sed -i "s/__SHA256_AMD__/${SHA256_AMD}/g" Formula/tmuxy.rb
-          sed -i "s/__SHA256_ARM__/${SHA256_ARM}/g" Formula/tmuxy.rb
-
-          git config user.name  "tmuxy-cask-bumper[bot]"
-          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
-          git add Formula/tmuxy.rb
-
-          if git diff --staged --quiet; then
-            echo "Formula already at v${VERSION}; nothing to push."
-          else
-            git commit -m "chore: bump tmuxy formula to v${VERSION}"
-            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
-          fi
-
-  # --- Verify the published install path (only on tag push, after the bumps) ---
-  #
-  # Everything above verifies bytes we built. This verifies what a user gets:
-  # a clean macOS runner with no tmuxy on it, installing the cask straight from
-  # the tap the job above just pushed, and then running it. It is the only step
-  # that exercises the whole chain — release assets reachable, cask sha256
-  # matching the published DMG, Homebrew's `binary` symlink landing on PATH,
-  # and CLI subcommands working without the `launcher` file the app records.
-  #
-  # It runs AFTER the tap is bumped, so it cannot prevent a bad cask from being
-  # published — it tells you within minutes that the published one is bad,
-  # which is the difference between a same-hour fix and a user bug report.
-  verify-brew-cask:
-    needs: [bump-cask, bump-formula]
-    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
-    # stops; `gh release edit <tag> --prerelease=false --latest` fires
-    # `release: released` and runs this. Forgetting to promote leaves users on
-    # the last good build, which is the failure mode we want.
-    if: github.event_name == 'release' && github.event.action == 'released'
-    runs-on: macos-26
-    timeout-minutes: 30
-
-    steps:
-      - name: Refuse to start with tmuxy already present
-        run: |
-          set -euo pipefail
-          test ! -e /Applications/tmuxy.app
-          test ! -e "$(brew --prefix)/bin/tmuxy"
-          test ! -e "$HOME/.local/bin/tmuxy"
-
-      # The cask the bump job pushed seconds ago; brew's tap clone can serve a
-      # cached ref, so fetch before installing.
-      - name: Install the cask from flplima/homebrew-tap
-        run: |
-          set -euo pipefail
-          brew tap flplima/tap
-          git -C "$(brew --repository flplima/tap)" fetch --depth 1 origin HEAD
-          git -C "$(brew --repository flplima/tap)" reset --hard FETCH_HEAD
-          brew install --cask flplima/tap/tmuxy
-
-      - name: The installed CLI reports the tag's version and runs subcommands without launcher
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-          command -v tmuxy
-          VERSION_LINE=$(tmuxy --version)
-          echo "$VERSION_LINE"
-          EXPECTED="tmuxy ${TAG#v}"
-          [ "$VERSION_LINE" = "$EXPECTED" ] || {
-            echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
-          test ! -f "$HOME/Library/Application Support/tmuxy/launcher"
-          tmuxy agent status
-          tmuxy session snapshots
-
-      - name: The installed build serves its page
-        env:
-          PORT: '9124'
-        run: |
-          set -euo pipefail
-          tmuxy server --port "$PORT" > "${RUNNER_TEMP}/brew-server.log" 2>&1 &
-          for _ in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${PORT}/" | grep -qi '<html'; then
-              SERVED=1
-              break
-            fi
-            sleep 1
-          done
-          [ "${SERVED:-}" = 1 ] || {
-            echo "the brew-installed build never served its page"
-            cat "${RUNNER_TEMP}/brew-server.log"; exit 1; }
-          tmuxy server --port "$PORT" status | grep -q 'Server is running'
-          tmuxy server --port "$PORT" stop
-
-      # The tap's cask is the one Homebrew/homebrew-cask would take, so it is
-      # held to that repo's checks on every release: a release that drifts from
-      # them is found here, not in a review months later.
-      - name: The cask passes Homebrew's own checks
-        # `brew audit --online` asks the GitHub API about the repo. Without a
-        # token it shares the runner IP's anonymous limit, which other jobs on
-        # GitHub's macOS fleet use up: v0.1.2's audit failed twice on that alone.
-        env:
-          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          brew style --cask flplima/tap/tmuxy
-          brew audit --cask --new --strict --online flplima/tap/tmuxy
-          brew livecheck --cask flplima/tap/tmuxy
-
-      - name: Uninstalling with --zap leaves nothing behind
-        run: |
-          set -euo pipefail
-          brew uninstall --zap --cask flplima/tap/tmuxy
-          for path in \
-            /Applications/tmuxy.app \
-            "$(brew --prefix)/bin/tmuxy" \
-            "$HOME/.config/tmuxy" \
-            "$HOME/.local/share/tmuxy" \
-            "$HOME/.local/bin/tmuxy" \
-            "$HOME/Library/Application Support/com.tmuxy.app" \
-            "$HOME/Library/Application Support/tmuxy" \
-            "$HOME/Library/Caches/com.tmuxy.app" \
-            "$HOME/Library/WebKit/com.tmuxy.app"; do
-            if [ -e "$path" ]; then echo "left behind: $path"; exit 1; fi
-          done
-
-      - name: Server logs (debug)
-        if: failure()
-        run: tail -200 "${RUNNER_TEMP}/brew-server.log" 2>/dev/null || true

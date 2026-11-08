@@ -8,12 +8,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tracing::{error, warn};
 
-/// Port for Vite dev server
-pub const VITE_PORT: u16 = 9001;
+pub const VITE_PORT: u16 = tmuxy_core::constants::DEV_VITE_PORT;
 
-/// Vite's process group, killed with the server.
 pub struct ViteChild {
-    #[cfg_attr(not(unix), allow(dead_code))]
     pgid: i32,
 }
 
@@ -28,7 +25,7 @@ impl ViteChild {
     }
 }
 
-/// Hop-by-hop headers that must not be forwarded by a proxy.
+/// Hop-by-hop headers a proxy must not forward (RFC 9110 §7.6.1).
 const HOP_BY_HOP: &[&str] = &[
     "connection",
     "keep-alive",
@@ -40,10 +37,8 @@ const HOP_BY_HOP: &[&str] = &[
     "upgrade",
 ];
 
-/// One client for every proxied request, so connections to Vite are reused.
 static PROXY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
 
-/// Drop the headers that describe one hop rather than the message.
 fn without_hop_by_hop(headers: &HeaderMap) -> HeaderMap {
     let mut headers = headers.clone();
     for name in HOP_BY_HOP {
@@ -69,27 +64,49 @@ pub async fn proxy_to_vite(req: Request) -> Response {
         Ok(resp) => {
             let status = resp.status();
             let headers = without_hop_by_hop(resp.headers());
-            let body = resp.bytes().await.unwrap_or_default();
-            let mut response = Response::new(Body::from(body));
-            *response.status_mut() = status;
-            *response.headers_mut() = headers;
-            response
+            match resp.bytes().await {
+                Ok(body) => {
+                    let mut response = Response::new(Body::from(body));
+                    *response.status_mut() = status;
+                    *response.headers_mut() = headers;
+                    response
+                }
+                Err(e) => bad_gateway(&e),
+            }
         }
-        Err(e) => {
-            warn!(error = %e, "dev proxy error");
-            Response::builder()
-                .status(axum::http::StatusCode::BAD_GATEWAY)
-                .body(Body::from(format!("Proxy error: {}", e)))
-                .unwrap_or_else(|_| Response::new(Body::empty()))
-        }
+        Err(e) => bad_gateway(&e),
     }
 }
 
-/// Start Vite (`npm run dev -w tmuxy-ui`) from the workspace root, its output
-/// relayed line by line under the `[vite]` label.
+/// Vite did not answer, or its answer broke off: never an empty page under
+/// Vite's status.
+fn bad_gateway(e: &reqwest::Error) -> Response {
+    warn!(error = %e, "dev proxy error");
+    Response::builder()
+        .status(axum::http::StatusCode::BAD_GATEWAY)
+        .body(Body::from(format!("Proxy error: {e}")))
+        .unwrap_or_else(|_| Response::new(Body::empty()))
+}
+
+/// The npm workspace Vite runs in: the nearest ancestor of the cwd whose
+/// package.json declares "workspaces" (a package's own does not).
+fn workspace_root() -> Option<std::path::PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    cwd.ancestors()
+        .find(|dir| {
+            std::fs::read_to_string(dir.join("package.json"))
+                .is_ok_and(|json| json.contains("\"workspaces\""))
+        })
+        .map(std::path::Path::to_path_buf)
+}
+
+/// Vite, from the checkout, and once it listens on [`VITE_PORT`].
 pub async fn spawn_vite() -> Option<ViteChild> {
     let label = "vite";
-    let workspace_root = crate::state::find_workspace_root();
+    let Some(workspace_root) = workspace_root() else {
+        error!("--dev runs Vite from a checkout, and none is above the current directory");
+        return None;
+    };
 
     let mut cmd = Command::new("npm");
     cmd.args(["run", "dev", "-w", "tmuxy-ui"])
@@ -163,5 +180,27 @@ pub async fn spawn_vite() -> Option<ViteChild> {
         }
     });
 
+    wait_until_listening().await;
     Some(ViteChild { pgid })
+}
+
+/// How long Vite may take to listen before the server starts without it,
+/// warning, and every request is a 502 until it does.
+const VITE_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+async fn wait_until_listening() {
+    let deadline = tokio::time::Instant::now() + VITE_START_TIMEOUT;
+    while tokio::net::TcpStream::connect(("localhost", VITE_PORT))
+        .await
+        .is_err()
+    {
+        if tokio::time::Instant::now() >= deadline {
+            warn!(
+                port = VITE_PORT,
+                "Vite is not listening yet; starting without it"
+            );
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }

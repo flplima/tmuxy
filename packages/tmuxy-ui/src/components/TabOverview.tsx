@@ -1,41 +1,14 @@
-/**
- * TabOverview — the Safari-style "all tabs" view (ctrl+0, prefix w).
- *
- * Opening it zooms the current tab's pane grid OUT into a slot in a grid of
- * every tab; picking a slot zooms that tab back IN and makes it current.
- *
- *  - Each slot is a card: a header row with the tab's strip number and name
- *    and a ✕ that closes the tab, then a frame drawing the tab's pane layout
- *    to scale, each pane box showing the pane's screen as it was when the
- *    it was a second ago (useTabStill, so a tab that keeps printing does not
- *    churn its thumbnail every frame). The current tab's
- *    frame is the FLIP target: the live `.pane-layout` is scaled into it
- *    (see the CSS custom properties set on `.pane-container`).
- *  - The trailing slot is a dashed "+" that creates a tab.
- *  - Each row holds `@tmuxy-tab-overview-cols` cards (tmuxy.conf, default 3).
- *    A grid taller than the view scrolls, keeping the keyboard cursor's card
- *    on screen, and the live grid rides its card as the cards scroll.
- *  - Keyboard while open: arrows / hjkl move, Enter opens, Delete / x closes
- *    the selected tab, 1–9 open the Nth tab, Escape or ctrl+0 leaves. The
- *    overview owns the keyboard: nothing reaches tmux.
- *  - Drag a slot to reorder (a mouse drags after a few pixels, a finger after
- *    a long press); the drop goes to tmux as a `move-window`.
- *
- * State (open flag, keyboard cursor) lives in the app machine; the drag is
- * transient pointer state and stays here.
- */
-
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAppSend, useAppSelector, useAppSelectorShallow } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes, selectContainerSize, selectCharSize } from '../machines/selectors/layout';
 import { selectTabOverviewCols } from '../machines/selectors/ui';
-import { overviewSlots, stillPanes } from '../utils/tabOverview';
-import { LogProfiler } from '../utils/renderLog';
+import { overviewSlots, stillPanes } from '../domain/tabOverview';
+import { LogProfiler } from './renderLog';
 import { TabOverviewSlots } from './TabOverviewSlot';
-import { useTabStill } from '../hooks/useTabStill';
-import { useReorderDrag } from '../hooks/useReorderDrag';
-import { nudgeCursorAnchor } from './cursorAnchor';
+import { useTabStill } from './useTabStill';
+import { useReorderDrag } from './useReorderDrag';
+import { nudgeCursorAnchor } from './terminal/cursorAnchor';
 import type { WindowId } from '../domain/ids';
 
 export const TabOverview = memo(function TabOverview() {
@@ -50,26 +23,20 @@ export const TabOverview = memo(function TabOverview() {
 
 function TabOverviewInner() {
   const send = useAppSend();
-  // A viewer picks a tab here and nothing else: no reorder, no close, no new tab.
   const selected = useAppSelector((ctx) => ctx.tabOverviewSelected);
   const activeWindowId = useAppSelector((ctx) => ctx.activeWindowId);
   const windows = useAppSelectorShallow(selectVisibleWindows);
   const livePanes = useAppSelectorShallow(selectPanes);
-  // Re-read once a second: following the panes live makes a tab that keeps
-  // printing churn its card on every frame of output, and freezing them when
-  // the overview opens makes the cards go stale while you look at them.
   const snapshot = useTabStill(livePanes, true);
   const { charWidth, charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const cols = useAppSelector(selectTabOverviewCols);
-  // Read by the activate helpers, which are stable callbacks: they must see
-  // the slots of the render the click happened in, not the ones they closed
-  // over when they were created.
+  // The activate helpers are stable callbacks: they must see the slots of the
+  // render the click happened in, not the ones they closed over.
   const slotsRef = useRef<ReturnType<typeof overviewSlots>>([]);
   /**
-   * The card the user picked, while the grid is still being moved onto it.
-   * Set on activate, and the FLIP target follows it instead of the active
-   * tab's card until the overview closes a frame later.
+   * The card the user picked: the FLIP target follows it instead of the
+   * active tab's card until the overview closes a frame later.
    */
   const [opening, setOpening] = useState<{ index: number; windowId: WindowId } | null>(null);
   const slots = useMemo(
@@ -77,15 +44,13 @@ function TabOverviewInner() {
     [windows, livePanes, snapshot],
   );
   slotsRef.current = slots;
-  // A frame's pixel box, so each pane's still can be scaled from its cell
-  // size into its share of the frame. Every frame has the same size (one grid
-  // track, one aspect ratio), so one measurement serves them all.
+  // Every frame has the same size (one grid track, one aspect ratio), so one
+  // measurement serves them all.
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  // The grid wraps, so a drop reads the nearest row first; the drop goes to
-  // tmux as a `move-window`.
+  // The grid wraps, so a drop reads the nearest row first.
   const reorder = useReorderDrag({
     containerRef: gridRef,
     cardSelector: '.tab-overview-slot[data-window-id]',
@@ -94,15 +59,12 @@ function TabOverviewInner() {
     onReorder: (windowId, toIndex) => send({ type: 'REORDER_TAB', windowId, toIndex }),
   });
   const { dragging } = reorder;
-  // The grid's scroll offset: the current tab's frame moves with it, so the
-  // live grid has to be re-aimed on every scroll.
+  // The current tab's frame scrolls, so the live grid is re-aimed on every scroll.
   const [scrollTop, setScrollTop] = useState(0);
   const measuredScrollRef = useRef(0);
 
-  // ---- keep the keyboard cursor's card on screen ------------------------------
-  // It starts on the current tab, which in a long grid can sit below the fold.
-  // Only the grid scrolls: scrollIntoView would also move the overflow-hidden
-  // ancestors the live grid is positioned in.
+  // Not scrollIntoView: it would also scroll the overflow-hidden ancestors the
+  // live grid is positioned in.
   useLayoutEffect(() => {
     const grid = gridRef.current;
     const card = grid?.querySelector<HTMLElement>(`#tab-overview-slot-${selected}`);
@@ -114,15 +76,10 @@ function TabOverviewInner() {
     else if (c.bottom > g.bottom - pad) grid.scrollTop += c.bottom - (g.bottom - pad);
   }, [selected, cols]);
 
-  // ---- FLIP: scale the live pane grid into the current tab's frame ----------
-  // Measured after layout so the grid's real slot geometry is known. The
-  // numbers go on `.pane-container` as custom properties; the CSS applies them
-  // to `.pane-layout` while the container carries `tab-overview-open`.
-  //
-  // While the CURRENT tab's card is being dragged, the grid must ride along
-  // with it: the frame's measured box already includes the card's drag
-  // translate, so re-measuring on every drag move is enough — with the
-  // grid's own 200ms transition switched off, or it would trail the pointer.
+  // FLIP: scale the live pane grid into the current tab's frame. While the
+  // current tab's card is dragged, the frame's measured box already includes
+  // the drag translate, so re-measuring on every move is enough — with the
+  // grid's own transition off, or it would trail the pointer.
   const draggingActive = dragging?.windowId === activeWindowId ? dragging : null;
   const dragOffset = draggingActive ? `${draggingActive.dx},${draggingActive.dy}` : '';
   useLayoutEffect(() => {
@@ -217,18 +174,10 @@ function TabOverviewInner() {
   }, [opening, send]);
 
   /**
-   * Open the tab in slot `index`, growing the grid out of THAT slot.
-   *
-   * The FLIP target normally follows the ACTIVE tab's card, so opening a
-   * different tab grew the grid out of the card belonging to the tab being
-   * left — the thing that expanded came from the wrong side of the screen,
-   * which reads as a jump rather than as the card you clicked opening.
-   *
-   * Recording which card was picked re-points the target at it. The move has
-   * to be committed and painted before the overview closes, or the browser
-   * coalesces the two into one style change and the grow starts from wherever
-   * the grid was parked; so the measurement runs in the layout effect below
-   * with the transition off, and the close waits a frame.
+   * Grows the grid out of THAT slot, not the active tab's card. The move onto
+   * it has to be committed and painted before the overview closes, or the
+   * browser coalesces the two into one style change and the grow starts from
+   * wherever the grid was parked.
    */
   const activateSlot = useCallback(
     (index: number) => {
@@ -243,7 +192,6 @@ function TabOverviewInner() {
     [send],
   );
 
-  // ---- keyboard: the overview owns every key while it is open ---------------
   const stateRef = useRef({ slots, selected, send, activateSlot });
   stateRef.current = { slots, selected, send, activateSlot };
   useEffect(() => {
@@ -336,7 +284,6 @@ function TabOverviewInner() {
       aria-label="All tabs"
       data-testid="tab-overview"
       onClick={(e) => {
-        // The backdrop (anything outside a card) dismisses.
         if (e.target === e.currentTarget || e.target === gridRef.current) {
           send({ type: 'CLOSE_TAB_OVERVIEW' });
         }

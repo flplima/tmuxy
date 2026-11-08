@@ -7,17 +7,18 @@
  *
  * Some ops never reach tmux — the client is the one that shows a command
  * prompt, a status message or copy mode. Tab and group navigation take the
- * optimistic paths a click takes (`SELECT_TAB`, `SELECT_PANE_GROUP_TAB`), and
+ * paths a click takes (`SELECT_TAB`, `SELECT_PANE`), and
  * horizontal navigation can cross into a sidebar. Everything else goes to the
  * store, which predicts it and sends it.
  */
 
-import { assign, sendTo } from 'xstate';
-import { act, type Ctx, type Enqueue } from './actionTypes';
-import { TmuxOp, type TmuxOpOf } from '../../domain/commands';
-import { isLayoutChange, isMultiStep } from '../../domain/opTraits';
-import { isPlaceholderId, type PaneId, type WindowId } from '../../domain/ids';
-import { parseCommandToOp, stripPin } from '../../domain/store/parseCommand';
+import { sendTo } from 'xstate';
+import { act, type Ctx, type Enqueue, type EnqueueAction } from './actionTypes';
+import { TmuxOp } from '../../domain/commands';
+import { selectWindowTarget, stripTabs } from '../../domain/windows';
+import { isMultiStep } from '../../domain/opTraits';
+import { realId, type PaneId, type WindowId } from '../../domain/ids';
+import { parseCommandToOp, tabPosition } from '../../domain/store/parseCommand';
 import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
 
 /**
@@ -26,11 +27,7 @@ import { getActivePaneInGroup } from '../selectors/panesAndSidebars';
  * so the command falls back to tmux's own current one instead of failing.
  */
 function activeTargets(context: Ctx): { windowId: WindowId | null; paneId: PaneId | null } {
-  const { activeWindowId, activePaneId } = context;
-  return {
-    windowId: activeWindowId && !isPlaceholderId(activeWindowId) ? activeWindowId : null,
-    paneId: activePaneId && !isPlaceholderId(activePaneId) ? activePaneId : null,
-  };
+  return { windowId: realId(context.activeWindowId), paneId: realId(context.activePaneId) };
 }
 
 /**
@@ -56,27 +53,6 @@ function bindActiveTargets(op: TmuxOp, context: Ctx): TmuxOp {
     default:
       return op;
   }
-}
-
-/**
- * The window a tab-navigation op lands on, or null when it is not one the
- * strip shows or is already the current one (so SELECT_TAB has nothing to do).
- */
-function tabNavTarget(target: TmuxOpOf<'SelectWindow'>['target'], context: Ctx): WindowId | null {
-  if (!context.activeWindowId) return null;
-  const visible = context.windows.filter((w) => w.windowType === 'tab');
-  let window;
-  if (target === 'next' || target === 'previous') {
-    const current = visible.findIndex((w) => w.id === context.activeWindowId);
-    if (current === -1) return null;
-    const step = target === 'next' ? 1 : -1;
-    window = visible[(current + step + visible.length) % visible.length];
-  } else if (typeof target === 'number') {
-    window = visible.find((w) => w.index === target);
-  } else {
-    window = visible.find((w) => w.id === target);
-  }
-  return window && window.id !== context.activeWindowId ? window.id : null;
 }
 
 /**
@@ -113,27 +89,30 @@ function groupStepTarget(direction: 'next' | 'prev', wrap: boolean, context: Ctx
 function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): boolean {
   // Leaving a focused column always works, even when the pane underneath
   // happens to be in a group; nav further outward has nowhere to go.
-  if (context.leftSidebarFocused) {
-    if (direction === 'R') enqueue.raise({ type: 'BLUR_LEFT_SIDEBAR' });
-    return true;
-  }
-  if (context.rightSidebarFocused) {
-    if (direction === 'L') enqueue.raise({ type: 'BLUR_RIGHT_SIDEBAR' });
+  const owner = context.keyboardOwner.kind;
+  if (owner === 'left' || owner === 'right') {
+    if (direction === (owner === 'left' ? 'R' : 'L')) {
+      enqueue.raise({ type: 'BLUR_SIDEBAR', side: owner });
+    }
     return true;
   }
   const member = groupStepTarget(direction === 'L' ? 'prev' : 'next', false, context);
   if (member) {
-    enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId: member });
+    enqueue.raise({ type: 'SELECT_PANE', paneId: member });
     return true;
   }
   const pane = context.panes.find((p) => p.tmuxId === context.activePaneId);
   if (!pane) return false;
-  if (direction === 'L' && context.leftSidebarOpen && pane.x === 0) {
-    enqueue.raise({ type: 'FOCUS_LEFT_SIDEBAR' });
+  if (direction === 'L' && context.sidebars.left.open && pane.x === 0) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'left' });
     return true;
   }
-  if (direction === 'R' && context.rightSidebarOpen && pane.x + pane.width >= context.totalWidth) {
-    enqueue.raise({ type: 'FOCUS_RIGHT_SIDEBAR' });
+  if (
+    direction === 'R' &&
+    context.sidebars.right.open &&
+    pane.x + pane.width >= context.totalWidth
+  ) {
+    enqueue.raise({ type: 'FOCUS_SIDEBAR', side: 'right' });
     return true;
   }
   return false;
@@ -159,11 +138,10 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       });
       return;
     case 'SelectWindow': {
-      // Shares the optimistic flip and lastActivePaneByWindow bookkeeping
-      // with a click on the tab.
-      const windowId = tabNavTarget(op.target, context);
-      if (windowId) {
-        enqueue.raise({ type: 'SELECT_TAB', windowId });
+      // Shares what a click on the tab does (the scroll views it leaves).
+      const window = selectWindowTarget(op.target, context.windows, context.activeWindowId);
+      if (window) {
+        enqueue.raise({ type: 'SELECT_TAB', windowId: window.id });
         return;
       }
       break;
@@ -178,7 +156,7 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
       // gets, so `<prefix> -` and friends don't lag the visible state.
       const paneId = groupStepTarget(op.direction, true, context);
       if (paneId) {
-        enqueue.raise({ type: 'SELECT_PANE_GROUP_TAB', paneId });
+        enqueue.raise({ type: 'SELECT_PANE', paneId });
         return;
       }
       break;
@@ -191,14 +169,20 @@ function routeOp(op: TmuxOp, wire: string | undefined, context: Ctx, enqueue: En
   // but the active-pane swap it ends with can still trigger a CSS transition;
   // the next model update re-enables animations. Splits are not suppressed:
   // PaneLayout's enter/shift lifecycle owns the split morph.
-  if (isMultiStep(op)) enqueue(assign({ enableAnimations: false }));
-  // Lets a re-tile's transient active-pane changes be ignored.
-  if (isLayoutChange(op)) enqueue(assign({ lastLayoutCommandTime: Date.now() }));
+  if (isMultiStep(op)) enqueue.raise({ type: 'SUPPRESS_ANIMATIONS' });
 
-  // The store applies the op's predicted patch synchronously (this machine
-  // sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it back if the
-  // send fails.
-  enqueue(sendTo('tmuxStore', { type: 'DISPATCH_OP' as const, op, command: wire }));
+  toStore(enqueue, op, wire);
+}
+
+/**
+ * Hand a routed op to the store, which applies its predicted patch at once
+ * (this machine sees it on the next TMUX_MODEL_UPDATE), sends it, and rolls it
+ * back if the send fails. The one way an op reaches the store: `routeOp`'s
+ * last step, and the actions that are themselves where an op is routed to
+ * (a tab click, a pane click). Anything else raises DISPATCH_OP.
+ */
+export function toStore(enqueue: EnqueueAction, op: TmuxOp, wire?: string) {
+  enqueue(sendTo('tmuxStore', { type: 'STORE_DISPATCH' as const, op, wire }));
 }
 
 /**
@@ -257,10 +241,8 @@ export const dispatchActions = {
     // `select-window -t <N>`: N is the visual tab position, not a tmux index
     // (chrome windows consume indices), so it names the window by ID —
     // never its index, which is stale whenever tmux has renumbered.
-    const position = stripPin(command).match(/^select-window\s+-t\s+(\d+)$/);
-    const positioned = position
-      ? context.windows.filter((w) => w.windowType === 'tab')[Number(position[1]) - 1]
-      : undefined;
+    const position = tabPosition(command);
+    const positioned = position !== null ? stripTabs(context.windows)[position - 1] : undefined;
     if (positioned) {
       routeOp(TmuxOp.SelectWindow({ target: positioned.id }), undefined, context, enqueue);
       return;

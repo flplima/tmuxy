@@ -1,22 +1,16 @@
 /**
- * FloatPane - Centered floating pane or edge-docked drawer
- *
- * Regular float: centered on screen with backdrop
- * Drawer (--left/--right/--top/--bottom): slides from edge, full height or width
- * Backdrop: --bg dim (default), blur, or none
- * Header: hidden with --hide-header
- * Clicking backdrop, pressing Esc, or clicking × all close (kill) the float
- * Green border on all sides when active
+ * A float centred over the tab, or a drawer docked to an edge. The backdrop,
+ * Esc and × all close the float, which kills its pane.
  */
 
 import React, { useCallback } from 'react';
-import { Modal } from './Modal';
-import { Terminal } from './Terminal';
+import { Modal, MODAL_HEADER_HEIGHT } from './Modal';
+import './FloatPane.css';
+import { Terminal } from './terminal/Terminal';
 import { PaneHeader } from './PaneHeader';
 import { AskOverlay } from './AskOverlay';
 import { OfferBanner } from './OfferBanner';
-import { getWidget } from './widgets/registry';
-import { usePaneWidgetInfo, type PaneWidgetInfo } from './widgets/usePaneWidgetInfo';
+import { paneWidgetOf } from './widgets/registry';
 import { getTabText } from './paneTabDisplay';
 import { useAppSend, useAppSelector } from '../machines/appHooks';
 import {
@@ -25,40 +19,37 @@ import {
   selectPhoneLayout,
 } from '../machines/selectors/layout';
 import { selectVisibleFloats } from '../machines/selectors/panesAndSidebars';
-import { LogProfiler } from '../utils/renderLog';
-import { focusKeyboardInput } from '../utils/mobileKeyboard';
+import { selectFocusedFloat } from '../machines/selectors/keyboard';
+import { LogProfiler } from './renderLog';
+import { focusKeyboardInput } from '../infra/dom/mobileKeyboard';
 import { CONTAINER_PADDING_BOTTOM, containerPaddingX } from '../constants/layout';
 import type { FloatPaneState } from '../machines/types/domain';
 import type { TmuxPane } from '../domain/client';
 
 interface FloatPaneProps {
   floatState: FloatPaneState;
-  zIndex?: number;
+  /** Its place among the visible floats, lowest first. */
+  stack: number;
 }
 
-export function FloatPane({ floatState, zIndex = 1001 }: FloatPaneProps) {
+export function FloatPane({ floatState, stack }: FloatPaneProps) {
   return (
     <LogProfiler id={`FloatPane:${floatState.paneId}`}>
-      <FloatPaneInner floatState={floatState} zIndex={zIndex} />
+      <FloatPaneInner floatState={floatState} stack={stack} />
     </LogProfiler>
   );
 }
 
-function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
+function FloatPaneInner({ floatState, stack }: FloatPaneProps) {
   const send = useAppSend();
   const pane = useAppSelector((ctx) =>
     ctx.panes.find((p: TmuxPane) => p.tmuxId === floatState.paneId),
   );
-  const focusedFloatPaneId = useAppSelector((ctx) => ctx.focusedFloatPaneId);
-  const isFocused = focusedFloatPaneId === floatState.paneId;
-  // A float can hold a widget too — the session switcher opens as one. Same
-  // classification the tiled panes use, so a marker never renders as text.
-  const widgetInfo = usePaneWidgetInfo(pane?.content, pane?.paneWidget);
+  const isFocused = useAppSelector((ctx) => selectFocusedFloat(ctx) === floatState.paneId);
   const { charHeight } = useAppSelector(selectCharSize);
   const { width: containerWidth, height: containerHeight } = useAppSelector(selectContainerSize);
   const paddingX = containerPaddingX(useAppSelector(selectPhoneLayout));
 
-  // A float is a tmux window: a viewer cannot close one, only look at it.
   const handleClose = useCallback(() => {
     send({ type: 'CLOSE_FLOAT', paneId: floatState.paneId });
   }, [send, floatState.paneId]);
@@ -66,7 +57,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      send({ type: 'FOCUS_PANE', paneId: floatState.paneId });
+      send({ type: 'SELECT_PANE', paneId: floatState.paneId });
       focusKeyboardInput(floatState.paneId);
     },
     [send, floatState.paneId],
@@ -76,11 +67,12 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
 
   const title = getTabText(pane);
   const { drawer, backdrop, hideHeader } = floatState;
-  const headerHeight = hideHeader ? 0 : 28;
+  // A drawer's header is the modal's (`.modal-header`, Modal.css); a float's
+  // is its pane header, one terminal row (`--pane-header-height`).
+  const headerHeight = hideHeader ? 0 : drawer ? MODAL_HEADER_HEIGHT : charHeight;
 
-  // Drawer mode: dock to edge with full span on the perpendicular axis. A
-  // drawer is placed in the overlay, which covers the pane container's padding
-  // too, so it spans that box — the measured container is its content box.
+  // The overlay covers the pane container's padding box while the measured
+  // container is its content box, so a drawer adds the padding back to span it.
   if (drawer) {
     const isHorizontal = drawer === 'left' || drawer === 'right';
     const spanWidth = containerWidth + paddingX * 2;
@@ -112,7 +104,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
         onClose={handleClose}
         title={title}
         width={floatWidth}
-        zIndex={zIndex}
+        stack={stack}
         className={`drawer drawer-${drawer}`}
         containerStyle={containerStyle}
         backdrop={backdrop}
@@ -124,19 +116,13 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
           style={{ width: floatWidth, height: terminalHeight }}
           onClick={handleClick}
         >
-          <FloatBody
-            pane={pane}
-            widgetInfo={widgetInfo}
-            isFocused={isFocused}
-            terminalRows={terminalRows}
-          />
+          <FloatBody pane={pane} isFocused={isFocused} terminalRows={terminalRows} />
         </div>
       </Modal>
     );
   }
 
-  // Regular float, centred on the container's content box — the box the grid
-  // fills. The overlay spans the padding box, so the side padding is added back.
+  // Centred on the content box the grid fills; the overlay spans the padding box.
   const terminalRows = Math.floor(floatState.height / charHeight);
   const floatWidth = floatState.width;
   const floatHeight = floatState.height + headerHeight;
@@ -149,7 +135,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       onClose={handleClose}
       title={title}
       width={floatWidth}
-      zIndex={zIndex}
+      stack={stack}
       className="float-modal"
       containerStyle={{ left, top, width: floatWidth, height: floatHeight }}
       backdrop={backdrop}
@@ -157,9 +143,7 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
       closable
     >
       <div
-        // A float can be marked too (`prefix m` in it, then `join-pane -s`
-        // from elsewhere), and it wears the mark the same way a tiled pane
-        // does: the badge in its header, the accent wash over its content.
+        // A float can be marked too (`prefix m` in it, then `join-pane -s`).
         className={`float-container${pane.marked ? ' pane-marked' : ''}`}
         onClick={handleClick}
         tabIndex={-1}
@@ -169,15 +153,8 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
           <PaneHeader paneId={floatState.paneId} isFloat onFloatClose={handleClose} />
         )}
         <div className="float-content" style={{ height: floatState.height }}>
-          <FloatBody
-            pane={pane}
-            widgetInfo={widgetInfo}
-            isFocused={isFocused}
-            terminalRows={terminalRows}
-          />
-          {/* A float is a pane like any other, so `tmuxy pane send -t` can hang a
-              question on it — and it is drawn over the tab, so leaving it out
-              would put a question on screen with no way to answer it. */}
+          <FloatBody pane={pane} isFocused={isFocused} terminalRows={terminalRows} />
+          {/* `tmuxy pane send -t` can hang a question on a float too. */}
           <AskOverlay paneId={pane.tmuxId} />
           <OfferBanner paneId={pane.tmuxId} />
         </div>
@@ -187,29 +164,24 @@ function FloatPaneInner({ floatState, zIndex = 1001 }: FloatPaneProps) {
 }
 
 /**
- * What a float draws inside its content box: the widget its pane declared, or
- * the terminal.
- *
- * Deliberately NOT `WidgetPane`. That wraps the widget in its own
- * `pane-wrapper` at `height: 100%` with its own `PaneHeader` — but a float
- * already draws a header and sizes its body itself, so reusing it would give
- * the float two headers and a box fighting the float's fixed height.
+ * The widget its pane shows (the session switcher opens as a float), or the
+ * terminal. Not `WidgetPane`: that adds its own `PaneHeader` and a
+ * `height: 100%` wrapper, which would give the float two headers and a box
+ * fighting the float's fixed height.
  */
 function FloatBody({
   pane,
-  widgetInfo,
   isFocused,
   terminalRows,
 }: {
   pane: TmuxPane;
-  widgetInfo: PaneWidgetInfo;
   isFocused: boolean;
   terminalRows: number;
 }) {
-  const definition = widgetInfo ? getWidget(widgetInfo.widgetName) : undefined;
-  if (widgetInfo && definition) {
-    const WidgetComponent = definition.component;
-    return <WidgetComponent paneId={pane.tmuxId} lines={widgetInfo.contentLines} />;
+  const widget = paneWidgetOf(pane);
+  if (widget) {
+    const WidgetComponent = widget.definition.component;
+    return <WidgetComponent paneId={pane.tmuxId} lines={widget.lines} />;
   }
   return (
     <Terminal
@@ -231,12 +203,8 @@ function FloatBody({
 }
 
 /**
- * FloatContainer - the floats of the tab the user is on.
- *
- * Renders inline inside .pane-container, so each float's backdrop dims that
- * tab's content and nothing else. A float belongs to the tab it was opened over
- * (`selectVisibleFloats`), so switching tabs takes it off screen and coming back
- * brings it up again.
+ * The floats of the tab the user is on: a float belongs to the tab it was
+ * opened over, so switching tabs takes it off screen.
  */
 export function FloatContainer() {
   const visibleFloats = useAppSelector(selectVisibleFloats);
@@ -246,7 +214,7 @@ export function FloatContainer() {
   return (
     <>
       {visibleFloats.map((floatState, index) => (
-        <FloatPane key={floatState.paneId} floatState={floatState} zIndex={1001 + index} />
+        <FloatPane key={floatState.paneId} floatState={floatState} stack={1 + index} />
       ))}
     </>
   );

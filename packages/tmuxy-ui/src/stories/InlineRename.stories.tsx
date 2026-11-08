@@ -1,13 +1,7 @@
 /**
  * Renaming a tab or a pane where it is, over states recorded from real tmux.
- *
- * Both used to hand you tmux's command prompt at the bottom of the window,
- * which asks you to type a new name a long way from the thing being named.
- * The label turns into a field instead, holding what it already says with the
- * text selected, so typing replaces it and Enter is the only key you need.
- *
- * Committing on blur rather than discarding is deliberate: clicking away is
- * what people do when they think they are finished.
+ * Blur commits rather than discards: clicking away is what people do when they
+ * think they are finished.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -37,7 +31,6 @@ function field(): HTMLInputElement | null {
   return document.querySelector<HTMLInputElement>('[data-testid="inline-rename"]');
 }
 
-/** Open a context menu on `el` and click the item whose text matches. */
 async function menuAction(el: HTMLElement, label: RegExp): Promise<void> {
   await userEvent.pointer({ keys: '[MouseRight]', target: el });
   const body = within(document.body);
@@ -48,7 +41,6 @@ function tabLabels(canvasElement: HTMLElement): HTMLElement[] {
   return [...canvasElement.querySelectorAll<HTMLElement>('.tab-name[data-window-id]')];
 }
 
-/** The names the tab strip shows, each in a label with a box the user can see. */
 function shownTabNames(canvasElement: HTMLElement): string[] {
   return [...canvasElement.querySelectorAll<HTMLElement>('.tab-name-label')]
     .filter((t) => {
@@ -57,10 +49,6 @@ function shownTabNames(canvasElement: HTMLElement): string[] {
     })
     .map((t) => t.textContent?.trim() ?? '');
 }
-
-// ---------------------------------------------------------------------------
-// A tab, renamed in its own button — Enter commits, Escape leaves it alone
-// ---------------------------------------------------------------------------
 
 export const RenameATabInItsButton: Story = {
   args: {
@@ -97,11 +85,9 @@ export const RenameATabInItsButton: Story = {
       expect(el, 'no rename field appeared').not.toBeNull();
       return el!;
     });
-    // It is IN the tab, not at the bottom of the window.
     expect(tab.contains(input)).toBe(true);
     const box = input.getBoundingClientRect();
     expect(Math.abs(box.top - before.top)).toBeLessThan(before.height);
-    // It opens holding the current name, selected, so typing replaces it.
     expect(input.value).toBe('alpha');
     expect(input.selectionStart).toBe(0);
     expect(input.selectionEnd).toBe('alpha'.length);
@@ -114,7 +100,6 @@ export const RenameATabInItsButton: Story = {
     });
     expect(field()).toBeNull();
 
-    // Escape: the field goes, and the name stays what it was.
     const bravo = tabLabels(canvasElement).find((t) => t.textContent?.includes('bravo'))!;
     await menuAction(bravo, /rename tab/i);
     await waitFor(() => expect(field()).not.toBeNull());
@@ -125,10 +110,6 @@ export const RenameATabInItsButton: Story = {
     expect(shownTabNames(canvasElement)).toEqual(expect.arrayContaining(['charlie', 'bravo']));
   },
 };
-
-// ---------------------------------------------------------------------------
-// A pane, renamed on its own title
-// ---------------------------------------------------------------------------
 
 export const RenameAPaneOnItsTitle: Story = {
   args: {
@@ -161,7 +142,6 @@ export const RenameAPaneOnItsTitle: Story = {
       expect(el, 'no rename field appeared').not.toBeNull();
       return el!;
     });
-    // In the pane's own header, where the title is.
     expect(header.contains(input)).toBe(true);
     expect(input.value.length).toBeGreaterThan(0);
 

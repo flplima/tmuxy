@@ -1,19 +1,8 @@
 #!/bin/bash
-# Shared helpers for tmuxy shell scripts.
-#
-# Window typing is sourced from the @tmuxy-window-type window option, with
-# values: float | sidebar-left | sidebar-right. A window
-# without @tmuxy-window-type is a tab.
-#
-# Pane groups are tmuxy-core's (`tmuxy_core::groups`): the pane-group script
-# hands its arguments to the server binary's `group` verb (`group_verb`).
-
-# The session hidden pane-group members are parked in. Kept out of every session
-# picker/tree (matches tmuxy-core `STASH_SESSION`).
-STASH_SESSION="__tmuxy_stash"
+source "${BASH_SOURCE[0]%/*}/_options"
 
 # Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
-# (session::config_dir, paths::data_dir, paths::state_dir):
+# (paths::config_dir, paths::data_dir, paths::state_dir):
 #   config — the user's (tmuxy.conf, custom.css, themes/): safe to symlink.
 #   data   — what the app mirrors from its bundle: defaults, themes, bin/.
 #   state  — this machine's: menu choices, launcher, servers.json, pid files.
@@ -73,28 +62,26 @@ tmuxy_state_dir() {
   fi
 }
 
+# The scripts' directory, which is this file's own, whoever sources it.
 # Resolved with parameter expansion, not `dirname`. These scripts run from
 # `run-shell` on a keypress, and every external binary is another process
 # spawn — tens of milliseconds on macOS, felt latency for something the shell
 # does for free. The `cd`+`pwd` fork survives only for the relative-path case,
 # which `run-shell` and `tmuxy-cli` never produce.
-_dir="${0%/*}"
-[ "$_dir" = "$0" ] && _dir="."
+_dir="${BASH_SOURCE[0]%/*}"
+[ "$_dir" = "${BASH_SOURCE[0]}" ] && _dir="."
 case "$_dir" in
   /*) SCRIPTS_DIR="$_dir" ;;
   *) SCRIPTS_DIR="$(cd "$_dir" && pwd)" ;;
 esac
 
-# Derive TMUX_SOCKET from TMUX env var if not already set.
-# Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9" — extract
-# the socket name (basename of the path before the first comma). Outside any
-# tmux, fall back to the dedicated `tmuxy` socket (never the user's default
-# tmux server).
+# Inside run-shell, TMUX is e.g. "/tmp/tmux-1000/tmuxy-dev,110,9". Outside any
+# tmux, the dedicated `tmuxy` socket, never the user's default tmux server.
 if [ -z "${TMUX_SOCKET:-}" ] && [ -n "${TMUX:-}" ]; then
   _path="${TMUX%%,*}"
   TMUX_SOCKET="${_path##*/}"
 fi
-TMUX_SOCKET="${TMUX_SOCKET:-tmuxy}"
+TMUX_SOCKET="${TMUX_SOCKET:-$DEFAULT_TMUX_SOCKET}"
 export TMUX_SOCKET
 # A TMUX_SOCKET containing a slash is a full socket path (-S); otherwise a
 # socket name in tmux's default directory (-L).
@@ -115,8 +102,6 @@ fi
 # so a side-installed tmux is used end to end), else the one on PATH.
 TMUX_BIN="${TMUX_BIN:-tmux}"
 
-# The same binary as one word of a line run-shell hands a shell: bare when it
-# plainly is one, `shquote`d otherwise.
 tmux_word() {
   if [[ "$TMUX_BIN" =~ ^[A-Za-z0-9._/@+-]+$ ]]; then
     printf '%s' "$TMUX_BIN"
@@ -171,18 +156,20 @@ _run_shell() {
 # tmux server on 3.5a — run-shell executes them in the server's own context.
 # Takes ONE pre-built tmux command string; interpolate user-supplied values
 # with `shquote` so spaces, quotes and `#` survive the trip.
-#
-# The inner tmux is a client of its own, and run-shell hands it no pane: a
-# target-less `send-keys` or `breakp` in there resolves to whichever session
-# tmux touched last, not the caller's. So the caller's pane rides along as the
-# inner client's TMUX_PANE, which tmux reads for an unattached client the way
-# it reads it for a shell in a pane.
 _run_safe() {
-  # The socket is a name or a path from the environment: bare when it is
-  # plainly one word, quoted for the shell otherwise.
   local socket="$TMUX_SOCKET"
   [[ "$socket" =~ ^[A-Za-z0-9._/@+-]+$ ]] || socket="$(shquote "$socket")"
-  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
+  _run_as_caller "$(tmux_word) $TMUX_SOCKET_FLAG $socket $*"
+}
+
+# `_run_shell` a command line for the caller's pane. A tmux client in there
+# is one of its own, and run-shell hands it no pane: a target-less
+# `send-keys` or `breakp` resolves to whichever session tmux touched last,
+# not the caller's. So the caller's pane rides along as TMUX_PANE, which tmux
+# reads for an unattached client the way it reads it for a shell in a pane
+# (the verbs' `run_shell::tmux_as` does the same).
+_run_as_caller() {
+  _run_shell "${TMUX_PANE:+TMUX_PANE=$TMUX_PANE }$1"
 }
 
 # Quote arguments for interpolation into a `_run_safe` command string. Each
@@ -204,29 +191,24 @@ shquote() {
   printf '%s' "${out# }"
 }
 
-# The exit codes, `_fail`/`_die_usage`, JSON answers and `_resolve_target`
-# live in `_contract`, sourced here so every script that has `_lib` has them.
-# Beside THIS file: SCRIPTS_DIR is `$0`'s directory, which is tmuxy-cli's own
-# when it is the one sourcing.
-source "${BASH_SOURCE[0]%/*}/_contract"
+source "$SCRIPTS_DIR/_contract"
 
-# --- The server binary -----------------------------------------------------
+# --- The verbs binary ------------------------------------------------------
 #
-# Sets SERVER_CMD to the command that runs a server verb (`session`, `group`,
-# `tree`, …) of the right build, or fails with a message:
-#   1. TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND): what the running tmuxy
-#      published to its tmux server's global environment, which run-shell
-#      hands every script — the build actually serving this socket. Without
-#      it the bundled copies under the data dir's bin/, which sit nowhere near
-#      a build tree, could only guess.
-#   2. tmuxy-server on PATH.
-#   3. A cargo build beside these scripts (a checkout's bin/tmuxy).
-#   4. The desktop app the `tmuxy` shorthand launches, whose server verbs are
-#      `tmuxy server <verb>`.
+# Set SERVER_CMD to the command that runs a Rust verb (tmuxy-verbs `Verb`):
+# every CLI command written in Rust goes through here, on any host.
+#
+# TMUXY_SERVER_BIN (+ TMUXY_SERVER_SUBCOMMAND) is what the running tmuxy
+# published to its tmux server's global environment, which run-shell hands
+# every script: the build actually serving this socket. Without it the bundled
+# copies under the data dir's bin/, which sit nowhere near a build tree, could
+# only guess. The desktop app's server verbs are `tmuxy server <verb>`. Last
+# comes `tmuxy-verbs`, the verbs without the server, which is what the
+# in-browser guests ship: there a verb that needs the server answers as not
+# available, under the CLI's contract.
 find_server_cmd() {
   # The repo root in a dev tree, where these scripts are packages/tmuxy-cli/bin/tmuxy.
-  local root="${SCRIPTS_DIR%/*}/../../.." launcher
-  launcher="$(tmuxy_state_dir)/launcher"
+  local root="${SCRIPTS_DIR%/*}/../../.."
   if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ]; then
     SERVER_CMD=("$TMUXY_SERVER_BIN" ${TMUXY_SERVER_SUBCOMMAND:+"$TMUXY_SERVER_SUBCOMMAND"})
   elif command -v tmuxy-server &>/dev/null; then
@@ -235,35 +217,34 @@ find_server_cmd() {
     SERVER_CMD=("$root/target/debug/tmuxy-server")
   elif [ -x "$root/target/release/tmuxy-server" ]; then
     SERVER_CMD=("$root/target/release/tmuxy-server")
-  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
-    SERVER_CMD=("$(cat "$launcher")" server)
-  elif [ -x "/Applications/tmuxy.app/Contents/MacOS/tmuxy" ]; then
-    SERVER_CMD=("/Applications/tmuxy.app/Contents/MacOS/tmuxy" server)
+  elif find_desktop_cmd; then
+    SERVER_CMD=("$DESKTOP_CMD" server)
+  elif command -v tmuxy-verbs &>/dev/null; then
+    SERVER_CMD=(tmuxy-verbs)
   else
     echo "Error: tmuxy-server binary not found. Run 'cargo build -p tmuxy-server' first." >&2
     return 1
   fi
 }
 
-# Run a pane-group operation: the pane-group script is its name, and keeps
-# its arguments, output and exit status. TMUXY_SCRIPTS_DIR names the
-# directory whose `pane-group close` a member's pane-died hook runs.
-# Args: $1=verb, then the script's own arguments
-group_verb() {
-  find_group_cmd || exit 1
-  TMUXY_SCRIPTS_DIR="$SCRIPTS_DIR" exec "${GROUP_CMD[@]}" "$@"
+# Set DESKTOP_CMD to the desktop app's binary: the one serving this socket
+# when it is the desktop app (it publishes its verbs as `<bin> server`), else
+# the installed app the launcher file names (written on every launch).
+find_desktop_cmd() {
+  local launcher
+  launcher="$(tmuxy_state_dir)/launcher"
+  if [ -n "${TMUXY_SERVER_BIN:-}" ] && [ -x "$TMUXY_SERVER_BIN" ] && [ "${TMUXY_SERVER_SUBCOMMAND:-}" = server ]; then
+    DESKTOP_CMD="$TMUXY_SERVER_BIN"
+  elif [ -f "$launcher" ] && [ -x "$(cat "$launcher")" ]; then
+    DESKTOP_CMD="$(cat "$launcher")"
+  else
+    return 1
+  fi
 }
 
-# Set GROUP_CMD to the command that runs a pane-group verb: the standalone
-# tmuxy-group binary where it is installed (the v86 guest ships the operations
-# that way, having no server), else the server's `group` subcommand.
-find_group_cmd() {
-  if command -v tmuxy-group &>/dev/null; then
-    GROUP_CMD=(tmuxy-group)
-    return
-  fi
-  find_server_cmd || return 1
-  GROUP_CMD=("${SERVER_CMD[@]}" group)
+group_verb() {
+  find_server_cmd || exit 1
+  "${SERVER_CMD[@]}" group "$@"
 }
 
 # --- Cross-process mutex ---------------------------------------------------
@@ -275,13 +256,8 @@ find_group_cmd() {
 # back to a whole second rather than failing under `set -e`.
 _lock_nap() { sleep 0.05 2>/dev/null || sleep 1; }
 
-# Take the lock for a directory, blocking until it is free.
-# Args: $1=directory to lock within
 _lock_acquire() {
   local lock="$1/.lock" owner tries=0
-  # A `.lock` left as a FILE is from the flock era, when the lock was an fd
-  # onto a file of that name; it would block mkdir forever.
-  [ -f "$lock" ] && rm -f "$lock"
   while :; do
     if mkdir "$lock" 2>/dev/null; then
       # Between this mkdir and the pid landing, a waiter that watched the
@@ -328,32 +304,36 @@ _lock_acquire() {
   done
 }
 
-# Release the lock for a directory. Safe to call when not held.
-# Args: $1=directory to unlock within
 _lock_release() {
   rm -rf "$1/.lock" 2>/dev/null || true
 }
 
-# Get the window type set on a window via @tmuxy-window-type.
-# Args: $1=window_id (e.g., @5)
-# Output: float|sidebar-left|sidebar-right  (empty for a tab)
+# Output: float|sidebar-left|sidebar-right, empty for a tab.
 window_type() {
-  _tmux show-options -wqv -t "$1" @tmuxy-window-type 2>/dev/null
+  _tmux show-options -wqv -t "$1" "$OPT_WINDOW_TYPE" 2>/dev/null
 }
 
-# The window id of a sidebar column, if that column currently exists.
-# Args: $1=left|right
-# Output: window id (e.g. @7), or empty.
+# The window type of the sidebar on side $1 (left|right), in SIDEBAR_TYPE.
+_sidebar_type() {
+  if [ "$1" = left ]; then
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_LEFT"
+  else
+    SIDEBAR_TYPE="$WINDOW_TYPE_SIDEBAR_RIGHT"
+  fi
+}
+
 sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t { print $1; exit }'
 }
 
-# The same, only while the column is on screen: a closed column keeps its
-# window, hidden (`@tmuxy-sidebar-hidden`), and is nowhere to move to.
+# A closed sidebar column keeps its window, hidden (`@tmuxy-sidebar-hidden`),
+# and is nowhere to move to.
 shown_sidebar_window() {
-  _tmux list-windows -F '#{window_id} #{@tmuxy-window-type} #{?@tmuxy-sidebar-hidden,hidden,shown}' 2>/dev/null \
-    | awk -v t="sidebar-$1" '$2 == t && $3 == "shown" { print $1; exit }'
+  _sidebar_type "$1"
+  _tmux list-windows -F "#{window_id} #{$OPT_WINDOW_TYPE} #{?$OPT_SIDEBAR_HIDDEN,hidden,shown}" 2>/dev/null \
+    | awk -v t="$SIDEBAR_TYPE" '$2 == t && $3 == "shown" { print $1; exit }'
 }
 
 # Ask the connected clients to move keyboard focus somewhere no tmux command
@@ -368,7 +348,7 @@ shown_sidebar_window() {
 # Args: $1=left|right|panes
 request_focus() {
   _tmux set-option -t "$(_tmux display-message -p '#{session_name}')" \
-    @tmuxy-focus-request "$1" 2>/dev/null || true
+    "$OPT_FOCUS_REQUEST" "$1" 2>/dev/null || true
   # tmux emits no control-mode notification for a user option, so left alone
   # the request would sit until the backend's next window event or idle
   # heartbeat (15 s). Poke a window event out of tmux instead: renaming a
@@ -376,12 +356,15 @@ request_focus() {
   # and nothing else — chrome windows are not tabs, so no label changes and
   # automatic-rename was never on for them. The backend re-lists windows on
   # the event and the client sees the request within a round trip.
-  local target_side="$1" poke_win
-  [ "$target_side" = "panes" ] && target_side="left"
-  poke_win=$(sidebar_window "$target_side")
-  [ -n "$poke_win" ] || poke_win=$(sidebar_window right)
+  local side="$1" poke_win
+  [ "$side" = "panes" ] && side="left"
+  poke_win=$(sidebar_window "$side")
+  if [ -z "$poke_win" ]; then
+    side=right
+    poke_win=$(sidebar_window right)
+  fi
   if [ -n "$poke_win" ]; then
-    _run_safe "rename-window -t $poke_win __sidebar-$(window_type "$poke_win" | sed 's/^sidebar-//')"
+    _run_safe "rename-window -t $poke_win $SIDEBAR_WINDOW_PREFIX$side"
   fi
 }
 
@@ -403,22 +386,15 @@ reap_pids() {
   done
 }
 
-# Get a pane's window ID
 pane_window() {
   _tmux display-message -t "$1" -p '#{window_id}'
-}
-
-# Force a list-panes refresh (so server pushes new state to clients)
-refresh_panes() {
-  _tmux list-panes -s -F '#{pane_id},#{pane_index},#{pane_left},#{pane_top},#{pane_width},#{pane_height},#{cursor_x},#{cursor_y},#{pane_active},#{pane_current_command},#{pane_title},#{pane_in_mode},#{copy_cursor_x},#{copy_cursor_y},#{window_id}' > /dev/null 2>&1
 }
 
 # The name for a session the user did not name: an adjective and a noun from
 # session-names.json (the UI draws from the same lists, in
 # tmuxy-ui/src/domain/sessionNames.ts), like `drifting-cedar`, that no session
-# on the server and no snapshot has. The pairs are tried from a random one
-# onward, so a number is added only once every pair is taken. awk reads the
-# lists, one word per line, since jq is not a dependency of the CLI.
+# on the server and no snapshot has. awk reads the lists, since jq is not a
+# dependency of the CLI.
 memorable_session_name() {
   local file="$SCRIPTS_DIR/session-names.json" taken word
   local adjectives=() nouns=()
@@ -446,8 +422,7 @@ memorable_session_name() {
   echo "$base-$n"
 }
 
-# Whether a name is one of the newline-separated names: a pattern match, not a
-# grep per candidate, since there can be a thousand candidates.
+# A pattern match, not a grep per candidate: there can be a thousand.
 _name_taken() {
   case $'\n'"$2"$'\n' in
     *$'\n'"$1"$'\n'*) return 0 ;;
@@ -455,7 +430,6 @@ _name_taken() {
   return 1
 }
 
-# The words of one list in session-names.json, one per line.
 _session_words() {
   awk -v list="\"$1\"" '
     index($0, list) { on = 1; next }

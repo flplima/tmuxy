@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use super::lockfile::{Entry, EntrySource, Lockfile};
 use super::manifest::{Action, CliVerb, Manifest};
-use super::{Dirs, PluginError, Result, RESERVED_VERBS, USER_PLUGIN};
+use super::{PluginError, Result, RESERVED_VERBS, USER_PLUGIN};
+use crate::paths::Layout;
 
-/// How a plugin got here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Kind {
     /// Fetched from a repository, pinned to a commit.
@@ -19,7 +19,6 @@ pub enum Kind {
     User,
 }
 
-/// A plugin that loaded.
 #[derive(Debug, Clone)]
 pub struct Installed {
     pub name: String,
@@ -44,12 +43,6 @@ pub struct Registry {
     pub broken: Vec<Broken>,
 }
 
-impl Installed {
-    pub fn is_user(&self) -> bool {
-        self.kind == Kind::User
-    }
-}
-
 /// A plugin verb that never runs, and what runs in its place.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Shadowed {
@@ -60,8 +53,7 @@ pub struct Shadowed {
     pub by: Option<String>,
 }
 
-/// Where an entry's plugin lives.
-pub fn entry_root(dirs: &Dirs, entry: &Entry) -> Result<(PathBuf, Kind)> {
+pub fn entry_root(dirs: &Layout, entry: &Entry) -> Result<(PathBuf, Kind)> {
     match entry.source()? {
         EntrySource::Repo { source, sha } => {
             let mut root = dirs.checkout(&entry.name, &sha);
@@ -119,15 +111,15 @@ fn load_one(name: &str, root: PathBuf, kind: Kind) -> std::result::Result<Instal
 
 impl Registry {
     /// Every plugin: the user's first, then the lockfile's in its order.
-    pub fn load(dirs: &Dirs) -> Result<Registry> {
+    pub fn load(dirs: &Layout) -> Result<Registry> {
         let lock = Lockfile::load(dirs)?;
         let mut registry = Registry::default();
-        if dirs.user_manifest().is_file() {
+        if dirs.user_plugin_manifest().is_file() {
             match load_one(USER_PLUGIN, dirs.config.clone(), Kind::User) {
                 Ok(p) => registry.plugins.push(p),
                 Err(reason) => registry.broken.push(Broken {
                     name: USER_PLUGIN.into(),
-                    source: dirs.user_manifest().display().to_string(),
+                    source: dirs.user_plugin_manifest().display().to_string(),
                     reason,
                 }),
             }
@@ -152,7 +144,6 @@ impl Registry {
         self.plugins.iter().find(|p| p.name == name)
     }
 
-    /// The plugin of that name, or why there is none.
     pub fn require(&self, name: &str) -> Result<&Installed> {
         if let Some(p) = self.get(name) {
             return Ok(p);

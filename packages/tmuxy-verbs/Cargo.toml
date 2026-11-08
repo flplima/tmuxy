@@ -1,0 +1,44 @@
+[package]
+name = "tmuxy-verbs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The tmuxy verbs that serve nothing: plugins, snapshots, agents, pane groups, floats, sends, config, trace files"
+
+[lints]
+workspace = true
+
+# `tmuxy-verbs <verb>`: the verbs without the web server, for a machine that
+# has no tmuxy-server. The in-browser guests (i686-musl) ship it built with
+# --no-default-features.
+[[bin]]
+name = "tmuxy-verbs"
+path = "src/main.rs"
+
+[features]
+default = ["native"]
+# The verbs on tmuxy-core's async transport: snapshots, plugins, agents, the
+# agent guide, trace files and the servers list. Without it a binary carries
+# pane groups, floats, tabs, `run`, sends and the config files, and answers
+# any other verb as not available.
+native = ["tmuxy-core/native"]
+
+[dependencies]
+tmuxy-core = { path = "../tmuxy-core", default-features = false, features = ["cli"] }
+serde.workspace = true
+# preserve_order: `tmuxy agent install` rewrites the user's own agent
+# settings, which must keep the order they were written in.
+serde_json = { workspace = true, features = ["preserve_order"] }
+tokio = { workspace = true }
+tracing.workspace = true
+clap.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -9,19 +9,17 @@
  * what its shell prints next.
  */
 
-const path = require('path');
 const {
-  createTestContext,
-  delay,
+  waitForSettled,
+  TMUXY_CLI,
+  describeE2E,
   typeInTerminal,
   pressEnter,
   waitForShellPrompt,
   waitForCondition,
   waitForTerminalText,
-  DELAYS,
 } = require('./helpers');
-
-const TMUXY_CLI = path.resolve(__dirname, '..', 'packages/tmuxy-cli/bin/tmuxy-cli');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** Widget panes drawn with a real box, not merely mounted. */
 function visibleWidgetPanes(page) {
@@ -34,15 +32,20 @@ function visibleWidgetPanes(page) {
   );
 }
 
-describe('Scenario: only a pane that asked for a widget draws one', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
+/**
+ * No widget, after a forged marker: tmux holds no `@tmuxy-pane-widget` for
+ * the pane, and with the app caught up (the marker came before the line just
+ * seen, in the same stream) none is drawn.
+ */
+async function expectNoWidget(page) {
+  const paneId = await page.evaluate(() => window.app.view().activePaneId);
+  expect(tmuxExec(`show-options -pqv -t ${paneId} @tmuxy-pane-widget`)).toBe('');
+  await waitForSettled(page);
+  expect(await visibleWidgetPanes(page)).toBe(0);
+}
 
+describeE2E('Scenario: only a pane that asked for a widget draws one', {}, (ctx) => {
   test('a marker printed by the shell draws no widget; the real widget does, and its exit closes the door again', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     await waitForShellPrompt(ctx.page);
 
@@ -53,9 +56,7 @@ describe('Scenario: only a pane that asked for a widget draws one', () => {
     await typeInTerminal(ctx.page, `printf '__TMUXY_WIDGET__:tree\\nFORGED_DONE_${stamp}\\n'`);
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, `FORGED_DONE_${stamp}`, 15000);
-    // The metadata sync that would carry an authorisation has had time to land.
-    await delay(DELAYS.SYNC);
-    expect(await visibleWidgetPanes(ctx.page)).toBe(0);
+    await expectNoWidget(ctx.page);
 
     // 2. The real thing, in the same pane.
     await typeInTerminal(ctx.page, `clear; ${TMUXY_CLI} widget tree`);
@@ -81,7 +82,6 @@ describe('Scenario: only a pane that asked for a widget draws one', () => {
     await typeInTerminal(ctx.page, `printf '__TMUXY_WIDGET__:tree\\nFORGED_AGAIN_${stamp}\\n'`);
     await pressEnter(ctx.page);
     await waitForTerminalText(ctx.page, `FORGED_AGAIN_${stamp}`, 15000);
-    await delay(DELAYS.SYNC);
-    expect(await visibleWidgetPanes(ctx.page)).toBe(0);
+    await expectNoWidget(ctx.page);
   }, 120000);
 });

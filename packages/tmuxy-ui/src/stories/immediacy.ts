@@ -1,35 +1,19 @@
 /**
- * Immediacy probe — the reusable "was it optimistic?" assertion.
- *
- * Measures how many animation frames elapse between arming the probe (done
- * just before dispatching an input) and the first matching DOM mutation
- * inside a scope. Optimistic UI must paint within a couple of frames of the
- * input event — long before any server / emulator round-trip could possibly
- * land — so a small frame count is direct evidence the update came from the
- * client-side prediction, not from tmux.
- *
- * Frame counting is driven by requestAnimationFrame on the client, so the
- * measurement is independent of how slow the backend (or the v86 emulator)
- * is. Pure DOM — no Storybook / testing-library imports.
+ * "Was it optimistic?": frames between arming the probe (just before an
+ * input) and the first matching DOM mutation. A paint within a couple of
+ * frames is long before any server or emulator round trip could land, so it
+ * came from the client's prediction. Counted in frames, so the measurement
+ * does not depend on how slow the backend is.
  */
 
 export interface PaintProbe {
-  /** Frames elapsed when the first matching mutation was seen; null until then. */
+  /** Null until the first matching mutation. */
   readonly framesToFirstPaint: number | null;
-  /**
-   * Resolve with the frame count once the first matching mutation lands.
-   * Rejects if the paint arrives after `maxFrames` or not at all within
-   * `timeoutMs`.
-   */
+  /** Rejects if the paint arrives after `maxFrames`, or not within `timeoutMs`. */
   wait(maxFrames?: number, timeoutMs?: number): Promise<number>;
   stop(): void;
 }
 
-/**
- * Arm a probe on `scope`. Every subsequent DOM mutation in the subtree is
- * matched against `matches` (default: any mutation); the frame counter starts
- * immediately.
- */
 export function armPaintProbe(
   scope: Element,
   matches: (rec: MutationRecord) => boolean = () => true,
@@ -103,10 +87,6 @@ export function armPaintProbe(
   };
 }
 
-/**
- * Matcher factory: a mutation that adds an element matching `selector`
- * (directly or in the added subtree).
- */
 export function addsElement(selector: string): (rec: MutationRecord) => boolean {
   return (rec) =>
     rec.type === 'childList' &&

@@ -1,5 +1,3 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 mod cli;
 mod commands;
 #[cfg(target_os = "linux")]
@@ -31,7 +29,6 @@ fn main() {
     use std::io::IsTerminal;
 
     match args.first().map(|s| s.as_str()) {
-        // No args: in terminal or inside tmux session, run CLI info; otherwise GUI
         None => {
             if std::env::var("TMUX").is_ok() || std::io::stdout().is_terminal() {
                 cli::run_cli(vec!["info".to_string()]);
@@ -55,7 +52,6 @@ fn main() {
 /// What this binary runs itself rather than handing to the shell dispatcher.
 #[derive(Debug, PartialEq, Eq)]
 enum AppCommand {
-    /// The desktop window.
     Gui,
     /// The web server (delegates to tmuxy-server).
     Server,
@@ -84,20 +80,14 @@ mod tests {
         words.iter().map(|w| w.to_string()).collect()
     }
 
-    /// The dispatcher's nouns used to be listed here as well, and the copy
-    /// went stale: `tree`, `cleanup` and `config` were "unknown command"
-    /// from the desktop binary.
+    /// Every word the app does not run itself is the dispatcher's. A copy of
+    /// the dispatcher's nouns here went stale once: `tree`, `cleanup` and
+    /// `config` were "unknown command" from the desktop binary.
     #[test]
-    fn every_dispatcher_noun_is_forwarded() {
-        for noun in [
-            "pane", "tab", "session", "widget", "nav", "run", "info", "skill", "cleanup", "config",
-            "--json", "-j",
-        ] {
-            assert_eq!(app_command(&args(&[noun, "x"])), None, "{noun}");
+    fn any_other_word_goes_to_the_dispatcher() {
+        for word in ["pane", "--json", "no-such-noun"] {
+            assert_eq!(app_command(&args(&[word, "x"])), None, "{word}");
         }
-        assert_eq!(app_command(&args(&["connect"])), None);
-        assert_eq!(app_command(&args(&["connect", "other-socket"])), None);
-        assert_eq!(app_command(&args(&["no-such-noun"])), None);
     }
 
     #[test]

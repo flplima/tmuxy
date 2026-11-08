@@ -39,16 +39,10 @@ pub(crate) fn apply_blur(window: &tauri::WebviewWindow, blur: bool) {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn apply_blur(_window: &tauri::WebviewWindow, _blur: bool) {}
 
-/// Build a webview window from code so its transparency settings can react to
-/// runtime env (TMUXY_OPAQUE_WINDOW=1 → opaque + decorated).
-///
-/// Defaults match the previous tauri.conf.json values exactly so production
-/// behavior is unchanged: transparent webview, hidden macOS title with the
-/// traffic lights centred on the status bar. The opaque branch removes both —
-/// needed when running under Xvfb-style displays that lack a compositor.
-///
-/// Every GUI window is built here, the first one and the ones the Window menu
-/// opens alike, so a second window is the same kind of window as the first.
+/// Built from code so `TMUXY_OPAQUE_WINDOW=1` can make it opaque and
+/// decorated: a transparent webview needs a compositor, which Xvfb-style
+/// displays lack. Every GUI window is built here, so a second window is the
+/// same kind of window as the first.
 pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     app: &M,
     label: &str,
@@ -96,29 +90,14 @@ pub(crate) fn build_window<M: Manager<tauri::Wry>>(
     Ok(window)
 }
 
-/// The per-window set-up that is not the builder's: the native blur behind it,
-/// the platform hint the layout reads, and the menu refresh that keeps the
-/// Window menu describing whichever window has focus.
+/// The per-window set-up that is not the builder's: the native blur behind
+/// it, and the registry's watch for its close.
 pub(crate) fn configure_window(window: &tauri::WebviewWindow) {
     // Blur is on by default (`@tmuxy-blur`). A window opens before its
     // monitor has sourced the config, so it starts with the default and
-    // `monitor::emit_theme_settings` puts it where the live value says once
-    // the config is read.
+    // the window's sink puts it where the live value says once the config is
+    // read (`monitor::TauriSink::appearance`).
     apply_blur(window, true);
-
-    // Tell the frontend which platform we're on so it can adjust layout
-    // (e.g., hide hamburger menu on macOS, add traffic light spacing)
-    let platform = if cfg!(target_os = "macos") {
-        "macos"
-    } else if cfg!(target_os = "windows") {
-        "windows"
-    } else {
-        "linux"
-    };
-    let _ = window.eval(format!(
-        "document.documentElement.setAttribute('data-platform', '{}')",
-        platform
-    ));
 
     // The registry follows the window out of existence, and (for a window that
     // has a session of its own) takes that session with it.
@@ -158,7 +137,10 @@ pub(super) fn handle_tmuxypreview(
     let Ok(pane) = tmuxy_core::PaneId::parse(&format!("%{number}")) else {
         return not_found();
     };
-    let Some(page) = app.state::<tmuxy_core::preview::PreviewPages>().page(&pane) else {
+    let Some(page) = app
+        .state::<std::sync::Arc<tmuxy_core::preview::PreviewPages>>()
+        .page(&pane)
+    else {
         return not_found();
     };
     let mut builder = tauri::http::Response::builder().status(tauri::http::StatusCode::OK);

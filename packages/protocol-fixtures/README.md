@@ -10,31 +10,37 @@ When the two drift, neither suite notices — the `history_size` field was on th
 wire and absent from the decoder for exactly that reason. These files are the
 shared artefact that makes the drift visible.
 
-| File                          | Shape                                                                                                         |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `get_initial_state.json`      | The 200 body of `POST /commands` for `get_initial_state` — the `CommandResponse` envelope around a full state |
-| `sse_state_update_full.json`  | The `state-update` SSE frame carrying a full snapshot                                                         |
-| `sse_state_update_delta.json` | The `state-update` SSE frame carrying a delta, including pane/window removals and sparse content              |
-| `sse_frames.json`             | Every other SSE frame, one per `SseEvent` variant                                                             |
-| `command_errors.json`         | The `/commands` error bodies a client has to render: `{ error, kind }`, one of each kind                      |
+| File                            | Shape                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `get_initial_state.json`        | The 200 body of `POST /commands` for `get_initial_state` — the `{ result }` envelope around a full state       |
+| `event_state_update_full.json`  | The `state-update` event carrying a full snapshot                                                              |
+| `event_state_update_delta.json` | The `state-update` event carrying a delta, including pane/window removals and sparse content                   |
+| `events.json`                   | Every other event, one per `HostEvent` variant: `{ event, data }`, the SSE frame and the Tauri event's payload |
+| `command_requests.json`         | One request per client command, `{ cmd, args }` with every optional argument given, as both hosts receive it   |
+| `command_results.json`          | Every answer of every client command, by its wire name, as both hosts answer it                                |
+| `command_errors.json`           | The error bodies a client has to render: `{ error, kind }`, one of each kind                                   |
 
 Each state and delta populates **every** field, so nothing is skipped by
 `skip_serializing_if` and hidden from the decoder.
 
 ## Who reads them
 
-- **Rust** (`packages/tmuxy-server/src/sse.rs`, `mod protocol_fixtures`) asserts
+- **Rust** (`packages/tmuxy-core/src/host/protocol_fixtures.rs`) asserts
   the committed file is byte-for-byte what the live types emit today. A Rust
   field renamed, added or removed turns `cargo test` red.
 - **TypeScript** (`packages/tmuxy-ui/src/infra/transport/__tests__/protocolFixtures.test.ts`)
   decodes the same files through the Effect schemas and `deltaProtocol`, and
-  asserts no key in a fixture is dropped on the way through. A field the Rust
-  side sends and the schema does not model turns `vitest` red.
+  asserts no key in a fixture is dropped on the way through. Every event is
+  read through the one table both adapters listen with (`hostEvents.ts`), so
+  an event no client listens for turns `vitest` red too, as does a field the
+  Rust side sends and the schema does not model. Every request and answer is
+  read through the client's one command table (`domain/backendCalls.ts`): a
+  command or an argument one side has and the other lacks fails there.
 
 ## Regenerating
 
 ```sh
-UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-server protocol_fixtures
+UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-core protocol_fixtures
 ```
 
 Review the diff: a change here is a wire-format change, and the TypeScript side

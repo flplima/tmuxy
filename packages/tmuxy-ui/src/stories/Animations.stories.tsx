@@ -1,29 +1,7 @@
 /**
- * Animation integration stories.
- *
- * These drive the full TmuxyApp over states recorded from real tmux and verify that the
- * DOM mutations + CSS animations behind each layout/float transition actually
- * fire — using MutationObservers (and, for floats, a real `animationstart`
- * listener) rather than only asserting the post-animation end state.
- *
- * Coverage:
- *  - SplitPane            split runs the enter morph: the new pane transitions
- *                         from the source pane's pre-split box into place
- *  - SlowSplitOptimistic  optimistic placeholder node appears before a slow ack
- *  - SplitRejectedRollback optimistic node is inserted, then removed on reject
- *  - ClosePane            killed pane goes at once; the survivor grows into it
- *                         under the growing survivor, then its node is removed
- *
- * What "animation exercised" means here: a CSS transition can't be observed
- * by a MutationObserver directly, but its `transitionstart` events and the
- * mutations it animates between *can* (a node inserted/removed, an inline
- * `style`/`class` rewrite). Splits and kills run the PaneLayout enter/leave lifecycle
- * (`pane-entering` / `pane-shifting` / `pane-leaving`), asserted via
- * `transitionstart` plus bounding-rect sampling.
- *
- * Stories execute in real Chromium via `scripts/probe-stories.mjs`, so the
- * CSS animations and MutationObservers run for real and a throw in `play`
- * fails the probe.
+ * Layout and float animations over states recorded from real tmux, checked
+ * through MutationObservers and `transitionstart` (a CSS transition cannot be
+ * observed by a MutationObserver directly) rather than only the end state.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -33,12 +11,12 @@ import { asFixture } from './fixtures/FixtureAdapter';
 import panes from './fixtures/gen/panes.json';
 import { LayoutMutationRecorder, wait } from './animationObservers';
 import {
-  getApp,
   paneNodes,
   getPaneLayout,
   waitForPaneCount,
   waitForAnimationsEnabled,
 } from './animationStoryHelpers';
+import { storyApp } from './storyApp';
 
 /** A split answered with the two panes tmux drew; a kill with the one left. */
 const SPLIT = [{ match: /^split-window\b/, to: 'side-by-side' }];
@@ -61,10 +39,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-// ---------------------------------------------------------------------------
-// Split — a pane node is inserted and the survivor re-lays-out
-// ---------------------------------------------------------------------------
-
 export const SplitPane: Story = {
   tags: ['nightly'],
   parameters: {
@@ -83,11 +57,8 @@ export const SplitPane: Story = {
     const layout = getPaneLayout(canvasElement);
     await waitForAnimationsEnabled(layout);
 
-    // transitionstart bubbles — record which properties actually started
-    // transitioning on the entering pane. A paint-aligned rAF sampler
-    // records the entering pane's rect + opacity each frame (transitionstart
-    // handlers can be dispatched late under load — rAF sampling is immune to
-    // that).
+    // transitionstart handlers can be dispatched late under load; the rAF
+    // sampler is immune to that.
     const enterStarts = new Set<string>();
     const onTransitionStart = (e: Event) => {
       const t = e.target as HTMLElement;
@@ -97,12 +68,10 @@ export const SplitPane: Story = {
     };
     layout.addEventListener('transitionstart', onTransitionStart);
 
-    // What box and opacity the new pane was GIVEN, read the moment its node
-    // lands. A per-frame sampler can miss that frame entirely on a loaded
-    // machine and then compare two frames of an already-finished morph, which
-    // is what made this story flaky; a MutationObserver callback runs right
-    // after the commit that inserted the node, so the FLIP-rewound start state
-    // is what it reads, however few frames the machine paints.
+    // Read the moment the node lands: a per-frame sampler can miss that frame
+    // on a loaded machine and compare two frames of a finished morph (what made
+    // this flaky); a MutationObserver callback runs right after the commit, so
+    // it reads the FLIP-rewound start state.
     let entering: HTMLElement | null = null;
     let enterStart: { area: number; opacity: number } | null = null;
     const enterObserver = new MutationObserver(() => {
@@ -134,26 +103,19 @@ export const SplitPane: Story = {
 
     const recorder = new LayoutMutationRecorder(layout);
     try {
-      // SEND_TMUX_COMMAND routes through TmuxStore (optimistic predict → cmd →
-      // reconcile); the new pane node is inserted as part of that patch.
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
       await waitForPaneCount(canvas, 2);
       await waitFor(
         () => {
-          // A new pane node was inserted AND a sibling was re-laid-out.
           expect(recorder.addedPaneIds.size).toBeGreaterThanOrEqual(1);
           expect(recorder.geometryRewrites).toBeGreaterThan(0);
-          // The enter morph actually ran: geometry + opacity transitions
-          // started on the .pane-entering node.
           expect(enterStarts.has('opacity')).toBe(true);
           expect(enterStarts.has('width') || enterStarts.has('left')).toBe(true);
         },
         { timeout: 8000 },
       );
 
-      // The morph settles: lifecycle classes drop off and the two panes are
-      // visibly tiled, no longer overlapping.
       await waitFor(
         () => {
           expect(
@@ -163,10 +125,8 @@ export const SplitPane: Story = {
         { timeout: 8000 },
       );
 
-      // Per the sketch: the new pane starts at (≈) the source pane's full
-      // pre-split box, transparent, and converges to its half-box — so
-      // the box it was given is materially larger than the one it settled in,
-      // and it started translucent.
+      // The new pane starts at about the source pane's pre-split box,
+      // transparent, and converges to its half.
       expect(enterStart, 'the entering pane was never seen').not.toBeNull();
       const settledArea = (() => {
         const r = entering!.getBoundingClientRect();
@@ -195,10 +155,6 @@ export const SplitPane: Story = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Slow split — the optimistic placeholder node appears before the slow ack
-// ---------------------------------------------------------------------------
-
 export const SlowSplitOptimistic: Story = {
   args: { commandDelayMs: 400 },
   parameters: {
@@ -216,9 +172,8 @@ export const SlowSplitOptimistic: Story = {
 
     const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
-      // Optimistic placeholder is inserted immediately — long before the 400ms ack.
       await waitFor(
         () => {
           expect(recorder.addedPaneIds.size).toBe(1);
@@ -226,14 +181,12 @@ export const SlowSplitOptimistic: Story = {
         { timeout: 200 },
       );
 
-      // It must not flicker away while the backend is still processing.
       for (let i = 0; i < 6; i++) {
         expect(paneNodes(canvasElement).length).toBe(2);
         expect(recorder.removedPaneIds.size).toBe(0);
         await wait(40);
       }
 
-      // After the ack, still two panes (now from the reconciled server state).
       await wait(300);
       await waitForPaneCount(canvas, 2);
     } finally {
@@ -241,10 +194,6 @@ export const SlowSplitOptimistic: Story = {
     }
   },
 };
-
-// ---------------------------------------------------------------------------
-// Rejected split — optimistic node is inserted, then removed (rollback)
-// ---------------------------------------------------------------------------
 
 export const SplitRejectedRollback: Story = {
   args: {
@@ -266,9 +215,8 @@ export const SplitRejectedRollback: Story = {
 
     const recorder = new LayoutMutationRecorder(getPaneLayout(canvasElement));
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: 'split-window -h' });
 
-      // Optimistic insertion lands first.
       await waitFor(
         () => {
           expect(recorder.addedPaneIds.size).toBeGreaterThanOrEqual(1);
@@ -276,7 +224,6 @@ export const SplitRejectedRollback: Story = {
         { timeout: 400 },
       );
 
-      // Rejection rolls it back: the inserted pane node is removed again.
       await waitFor(
         () => {
           expect(recorder.removedPaneIds.size).toBeGreaterThanOrEqual(1);
@@ -285,7 +232,6 @@ export const SplitRejectedRollback: Story = {
       );
       await waitForPaneCount(canvas, 1);
 
-      // The same pane id that was optimistically added is the one removed.
       const added = [...recorder.addedPaneIds];
       expect(added.some((id) => recorder.removedPaneIds.has(id))).toBe(true);
     } finally {
@@ -293,10 +239,6 @@ export const SplitRejectedRollback: Story = {
     }
   },
 };
-
-// ---------------------------------------------------------------------------
-// Close — the killed pane goes at once; the survivor grows into the space
-// ---------------------------------------------------------------------------
 
 export const ClosePane: Story = {
   tags: ['nightly'],
@@ -317,7 +259,7 @@ export const ClosePane: Story = {
     const layout = getPaneLayout(canvasElement);
     await waitForAnimationsEnabled(layout);
 
-    const activeId = getApp().getSnapshot().context.activePaneId;
+    const activeId = storyApp().view().activePaneId;
     expect(activeId).toBeTruthy();
     const survivorId = paneNodes(canvasElement)
       .map((n) => n.dataset.paneId as string)
@@ -326,8 +268,6 @@ export const ClosePane: Story = {
       .find((n) => n.dataset.paneId === survivorId)!
       .getBoundingClientRect();
 
-    // Paint-aligned samples: how wide the survivor is drawn, and whether the
-    // killed pane is ever drawn again after the model let it go.
     const widths: number[] = [];
     let sawKilledNode = false;
     let sampling = true;
@@ -341,10 +281,9 @@ export const ClosePane: Story = {
       if (sampling) requestAnimationFrame(sampleFrame);
     };
 
-    // Whether the survivor's box was put on a clock, which is the claim here.
-    // A paint-aligned sampler can miss a 180ms growth entirely on a loaded
-    // runner, so the transition itself is what is asserted; the samples are
-    // kept for the negative check, where missing frames only make it weaker.
+    // A paint-aligned sampler can miss a 180ms growth on a loaded runner, so
+    // the transition itself is asserted; the samples serve the negative check,
+    // where missing frames only make it weaker.
     const grewOnAClock = new Set<string>();
     const onTransitionStart = (e: Event) => {
       const target = e.target as HTMLElement;
@@ -356,7 +295,7 @@ export const ClosePane: Story = {
 
     const recorder = new LayoutMutationRecorder(layout);
     try {
-      getApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
+      storyApp().send({ type: 'SEND_TMUX_COMMAND', command: `kill-pane -t ${activeId}` });
       requestAnimationFrame(sampleFrame);
 
       await waitForPaneCount(canvas, 1);
@@ -367,16 +306,12 @@ export const ClosePane: Story = {
         },
         { timeout: 2000 },
       );
-      // Let the growth finish, then stop sampling.
       await wait(500);
       sampling = false;
 
-      // Nothing of the closed pane was drawn after it went: no shrinking
-      // ghost, no fade, no leftover node.
       expect(sawKilledNode).toBe(false);
       expect(canvasElement.querySelector('.pane-leaving')).toBeNull();
 
-      // The survivor grew, and did it on a clock rather than in one frame.
       const grown = widths[widths.length - 1];
       expect(grown).toBeGreaterThan(survivorBefore.width + 10);
       expect(

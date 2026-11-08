@@ -7,28 +7,9 @@
  * "starting…". Sidebars are therefore targeted by their fixed, unique name.
  */
 import { describe, expect, it } from 'vitest';
-import { placeholderPaneId, type WindowId } from '../../../../domain/ids';
-import { pid, wid } from '../../../../test/wire';
-import { freeWindowIndex } from '../groupsAndFloats';
+import { placeholderPaneId } from '../../../../domain/ids';
+import { pid } from '../../../../test/wire';
 import { TmuxOp, toTmuxCommand } from '../../../../domain/commands';
-import type { TmuxWindow } from '../../../../domain/client';
-
-const tab = (id: WindowId, index: number): TmuxWindow => ({
-  id,
-  index,
-  name: 'felipe',
-  active: index === 1,
-  windowType: 'tab',
-  floatParent: null,
-  floatWidth: null,
-  floatHeight: null,
-  floatDrawer: null,
-  floatBg: null,
-  floatNoheader: false,
-  sidebarCols: null,
-  sidebarHidden: false,
-  zoomed: false,
-});
 
 describe('chrome window creation', () => {
   it('targets a sidebar by its fixed name, never by a guessed index', () => {
@@ -69,19 +50,5 @@ describe('chrome window creation', () => {
       TmuxOp.OpenSidebar({ side: 'left', splitFrom: placeholderPaneId('pane_1') }),
     );
     expect(cmd.startsWith("split-window '$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree'")).toBe(true);
-  });
-
-  it('still names a free index up front for a float, which has no fixed name', () => {
-    const windows = [tab(wid('@0'), 1), tab(wid('@2'), 2), tab(wid('@9'), 4)];
-    const cmd = toTmuxCommand(
-      TmuxOp.OpenFloat({
-        name: 'session',
-        run: 'tmuxy session switch --float',
-        index: freeWindowIndex(windows),
-        splitFrom: null,
-      }),
-    );
-    expect(cmd).toContain('break-pane -d -n session -t :3');
-    expect(cmd).toContain('set-option -w -t :3 @tmuxy-window-type float');
   });
 });

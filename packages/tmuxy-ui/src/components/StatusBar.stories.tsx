@@ -43,7 +43,6 @@ export const WithCustomTabline: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const tab = await waitFor(() => canvas.getAllByRole('tab')[0], { timeout: 5000 });
-    // The embedder's chrome is drawn, on the bar's row, ahead of the tabs.
     const lights = canvas.getByTestId('traffic-lights').getBoundingClientRect();
     const first = tab.getBoundingClientRect();
     expect(lights.width).toBeGreaterThan(0);

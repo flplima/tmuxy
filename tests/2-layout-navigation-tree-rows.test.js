@@ -9,7 +9,7 @@
  */
 
 const {
-  createTestContext,
+  describeE2E,
   openSidebarKeyboard,
   createWindowKeyboard,
   splitPaneKeyboard,
@@ -74,15 +74,8 @@ const foldSamples = (page, chevron) =>
 const between = (heights, a, b) =>
   heights.filter((h) => h > Math.min(a, b) + 0.5 && h < Math.max(a, b) - 0.5);
 
-describe('Scenario 6h: the tree’s rows', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6h: the tree’s rows', {}, (ctx) => {
   test('the current tab wears a rounded band inside the column → a hovered row brightens → a chevron folds a tab’s panes away and back, out of reach while folded → in one step under reduced motion', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 

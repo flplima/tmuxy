@@ -1,14 +1,10 @@
 /**
- * gestures state - trackpad slides and pinches (see actors/gestureActor.ts).
- *
- * Owns context fields: gesture.
+ * gestures state - trackpad slides and pinches (see gestures/gestureActor.ts).
  *
  * Every event here is spread into the machine root: a gesture only draws on
  * the pane area, and it commits through events (SELECT_TAB, ZOOM_PANE,
  * TOGGLE_TAB_OVERVIEW, TAB_OVERVIEW_ACTIVATE) that the states handling them
  * already gate on a live connection.
- *
- * Action implementations live in ../actions/gestures.ts.
  */
 
 export const gesturesGlobalEvents = {

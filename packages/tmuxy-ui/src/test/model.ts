@@ -1,11 +1,13 @@
-/**
- * Test fixtures for driving the app machine with a client model: panes,
- * windows and the TMUX_MODEL_UPDATE that carries them.
- */
-
 import type { TmuxPane, TmuxWindow } from '../domain/client';
+import type { CellLine } from '../domain/wireCells';
 import type { PaneId, WindowId } from '../domain/ids';
-import type { TmuxClientModel, TmuxSnapshot } from '../domain/store/types';
+import { recomputeDerived } from '../domain/store/model';
+import {
+  EMPTY_SNAPSHOT,
+  type PendingOp,
+  type TmuxClientModel,
+  type TmuxSnapshot,
+} from '../domain/store/types';
 
 /** A pane of `windowId`, `width`×`height` cells at the window's origin. */
 export const modelPane = (
@@ -34,7 +36,6 @@ export const modelPane = (
   copyCursorY: 0,
   alternateOn: false,
   mouseAnyFlag: false,
-  paused: false,
   historySize: 0,
   selectionPresent: false,
   selectionStartX: 0,
@@ -64,11 +65,15 @@ export const modelWindow = (
   ...overrides,
 });
 
-/** A model update carrying `panes` and `windows`, with nothing optimistic in flight. */
+/**
+ * A model update carrying `panes` and `windows`, sized to the active pane,
+ * with `ops` in flight (none unless given).
+ */
 export const modelUpdate = (
   panes: TmuxPane[],
   windows: TmuxWindow[],
-  active: { paneId: PaneId; windowId: WindowId },
+  active: { paneId: PaneId | null; windowId: WindowId },
+  extra: { ops?: PendingOp[]; sessionName?: string } = {},
 ) => {
   const activePane = panes.find((p) => p.tmuxId === active.paneId);
   const snapshot: TmuxSnapshot = {
@@ -78,16 +83,35 @@ export const modelUpdate = (
     activeWindowId: active.windowId,
     totalWidth: activePane?.width ?? 80,
     totalHeight: activePane?.height ?? 24,
-    sessionName: 'main',
+    sessionName: extra.sessionName ?? 'main',
     focusRequest: '',
     pluginsRev: '',
     themeRev: '',
   };
   const model: TmuxClientModel = {
     committed: snapshot,
-    ops: [],
+    ops: extra.ops ?? [],
     derived: snapshot,
     paneKeyOverrides: {},
   };
   return { type: 'TMUX_MODEL_UPDATE' as const, model };
 };
+
+/** The `sidebars` field with the named columns open (and nothing starting). */
+export const sidebarsOpen = (open: { left?: boolean; right?: boolean }) => ({
+  left: { open: open.left ?? false, starting: false, startFailed: false },
+  right: { open: open.right ?? false, starting: false, startFailed: false },
+});
+
+/** A model holding `snapshot` as committed, with no op pending. */
+export function modelFromSnapshot(snapshot: TmuxSnapshot): TmuxClientModel {
+  return recomputeDerived({
+    committed: snapshot,
+    ops: [],
+    derived: EMPTY_SNAPSHOT,
+    paneKeyOverrides: {},
+  });
+}
+
+/** A row of cells reading `text`, one character a cell. */
+export const cellLine = (text: string): CellLine => [...text].map((c) => ({ c }));

@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::tmux_formats::{Row, StashColumn};
 use crate::{GroupId, PaneContent, PaneId, TmuxPane, TmuxState, TmuxWindow, WindowId};
 
 /// Prepare capture-pane bytes for vt100: strip the trailing newline (which
@@ -16,67 +17,18 @@ pub fn normalize_capture_bytes(content: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Does this line look like a `list-panes` record (`%<digits>,...`)?
-///
-/// tmux pane ids are always `%` followed by digits, and `LIST_PANES_CMD` puts
-/// `#{pane_id}` first, so a genuine record always starts that way.
-pub(super) fn is_list_panes_line(line: &str) -> bool {
-    line.trim_start()
-        .split_once(',')
-        .is_some_and(|(id, _)| PaneId::parse(id).is_ok())
-}
-
-/// The process name to show for a pane, given tmux's `#{pane_current_command}`.
-///
-/// tmux reads that field from the kernel's `p_comm`, which is the resolved
-/// executable's file name — not the name of the symlink that was invoked. A
-/// launcher that pins its version by directory, as Claude Code does
-/// (`~/.local/share/claude/versions/2.1.280`), therefore reports a bare version
-/// string, and every surface that names the process by its command (the sidebar
-/// tree, the pane tabs, the CLI) shows `2.1.280` where the user
-/// expects `claude`.
-///
-/// Normalising here rather than per surface means the backend state is the one
-/// place that has to know about it. The only pattern claimed is a command that
-/// is *entirely* a dotted version number, which no real executable is called.
+/// Normalised once, in the backend state, so no surface shows Claude Code's
+/// version number where `#{pane_current_command}` should read `claude`
+/// ([`crate::program::program_name`]).
 pub(super) fn normalize_pane_command(command: &str) -> String {
-    if is_version_string(command) {
-        return "claude".to_string();
-    }
-    command.to_string()
+    crate::program::program_name(command).to_string()
 }
 
-/// Is this string nothing but a dotted run of digits (`2.1.280`, `0.9`)?
-fn is_version_string(value: &str) -> bool {
-    let mut parts = value.split('.');
-    let mut count = 0;
-    for part in &mut parts {
-        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
-            return false;
-        }
-        count += 1;
-    }
-    count >= 2
-}
-
-/// Literal sentinel prefixed on every `LIST_STASH_PANES_CMD` row so a stash
-/// response routes to the stash-member handler and never reaches the
-/// active-session pane/window parsers (a stash row carries a `@<id>` window id
-/// that would otherwise trip the list-windows loop).
-const STASH_MEMBER_PREFIX: &str = "stashmember,";
-
-pub(super) fn is_stash_member_line(line: &str) -> bool {
-    line.trim_start().starts_with(STASH_MEMBER_PREFIX)
-}
-
-/// A HIDDEN pane-group member living in the stash session — just enough to
-/// render its tab in a group strip. Emitted as a lightweight `TmuxPane` stub.
 #[derive(Debug, Clone)]
 pub(super) struct StashMember {
     /// The pane's window in the stash session (never the attached session's
     /// active window, so the frontend treats the emitted stub as hidden).
     pub(super) window_id: WindowId,
-    /// `@tmuxy-group-id` value tying it to its group.
     pub(super) group_id: GroupId,
     /// `@tmuxy-group-pos`, when the group has been reordered.
     pub(super) group_pos: Option<u32>,
@@ -84,10 +36,8 @@ pub(super) struct StashMember {
     pub(super) title: String,
 }
 
-/// Build the wire stub for a hidden group member. It has no rendered content or
-/// geometry — the frontend only reads its id, group id, command, and title to
-/// draw the member's tab; its content streams in via a real pane once the user
-/// swaps it into view.
+/// The frontend reads only a stub's id, group, command and title, to draw the
+/// member's tab; its content streams once it is swapped into view.
 fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
     TmuxPane {
         id: 0,
@@ -112,7 +62,6 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         alternate_on: false,
         mouse_any_flag: false,
         marked: false,
-        paused: false,
         history_size: 0,
         selection_present: false,
         selection_start_x: 0,
@@ -120,8 +69,6 @@ fn stash_member_stub(pane_id: &PaneId, member: &StashMember) -> TmuxPane {
         images: Vec::new(),
         cursor_shape: 0,
         cursor_hidden: false,
-        // A stash member is a hidden stub, not a running pane: it reports no
-        // state of its own until it is swapped into view as a real pane.
         pane_state: None,
         pane_ask: None,
         pane_widget: None,
@@ -188,20 +135,17 @@ impl StateAggregator {
         self.suppress_window_emissions = true;
     }
 
-    /// Current settling deadline, if armed. Callers (the monitor) use this to
-    /// compute a wakeup; expiry is processed by `tick(now)`.
+    /// When to wake for `tick(now)`, while settling is armed.
     pub fn settling_deadline(&self) -> Option<Instant> {
         self.settling_until
     }
 
-    /// Whether settling is currently armed. Lets the monitor decide if it
-    /// should enable the settling-wakeup branch in its select loop.
     pub fn is_settling(&self) -> bool {
         self.settling_until.is_some()
     }
 
-    /// Clear settling without firing an emit. Used by the monitor when a
-    /// `RunCommand` send fails so we don't leave the aggregator suppressed.
+    /// Clear settling without firing an emit (a settling command that could
+    /// not be sent).
     pub fn clear_settling(&mut self) {
         self.settling_until = None;
         self.settling_started = None;
@@ -209,17 +153,10 @@ impl StateAggregator {
         self.suppress_window_emissions = false;
     }
 
-    /// On window/layout events during settling, extend the debounce deadline
-    /// but never past the safety ceiling. Called internally from `step`.
-    pub(super) fn maybe_extend_settling(&mut self, change: &ChangeType, now: Instant) {
-        if self.settling_until.is_none() {
-            return;
-        }
-        let is_window_event = matches!(
-            change,
-            ChangeType::Window | ChangeType::PaneLayout | ChangeType::PaneFocus
-        );
-        if !is_window_event {
+    /// A structural change during settling pushes the deadline out by the
+    /// debounce, never past `SETTLING_MAX` from the first such change.
+    pub(super) fn maybe_extend_settling(&mut self, change: ChangeType, now: Instant) {
+        if self.settling_until.is_none() || !change.is_structural() {
             return;
         }
         if self.settling_awaiting_first_event {
@@ -231,45 +168,27 @@ impl StateAggregator {
         self.settling_until = Some(debounced.min(max_deadline));
     }
 
-    /// Rebuild the hidden pane-group member map from a `LIST_STASH_PANES_CMD`
-    /// response. Row shape: `stashmember,<pane>,<window>,<group-id>,<cmd>,<title>`
-    /// (title is free text and last). Members without a group id are ignored.
     pub(super) fn rebuild_stash_members(&mut self, output: &str) {
         let mut members = HashMap::new();
-        for line in output.lines() {
-            if !is_stash_member_line(line) {
-                continue;
-            }
-            let parts: Vec<&str> = line.trim_start().splitn(7, ',').collect();
-            if parts.len() < 7 {
-                continue;
-            }
+        for row in output.lines().filter_map(Row::<StashColumn>::parse) {
             let (Ok(pane_id), Ok(window_id), Ok(group_id)) = (
-                PaneId::parse(parts[1].trim()),
-                WindowId::parse(parts[2].trim()),
-                GroupId::parse(parts[3].trim()),
+                PaneId::parse(row.field(StashColumn::PaneId)),
+                WindowId::parse(row.field(StashColumn::WindowId)),
+                GroupId::parse(row.field(StashColumn::GroupId)),
             ) else {
                 continue;
             };
-            // Same guard as a visible pane's title (see is_graphics_payload).
             // A parked member streams no content, so its tab label is tmux's
             // `pane_title` and nothing else — which is exactly where a Kitty
-            // graphics probe lands when tmux reads the APC as a title. Without
-            // this the strip labelled the member `Ga=q,f=32,s=1,…` while the
-            // visible pane running the same program was labelled properly.
-            let title = parts[6].to_string();
+            // graphics probe lands when tmux reads the APC as a title.
             members.insert(
                 pane_id,
                 StashMember {
                     window_id,
                     group_id,
-                    group_pos: parts[4].trim().parse().ok(),
-                    command: normalize_pane_command(parts[5]),
-                    title: if is_graphics_payload(&title) {
-                        String::new()
-                    } else {
-                        title
-                    },
+                    group_pos: row.parse_field(StashColumn::GroupPos),
+                    command: normalize_pane_command(&row.text(StashColumn::Command)),
+                    title: shown_title(row.text(StashColumn::Title)),
                 },
             );
         }
@@ -277,31 +196,21 @@ impl StateAggregator {
     }
 
     /// Whether `to_tmux_state` would describe the session in full: the
-    /// initial list-panes and list-windows have been parsed and no
-    /// capture-pane refill is on its way — a snapshot taken mid-refill would
-    /// carry the blank panes a reset parser holds until capture-pane answers.
+    /// initial list-panes and list-windows have been parsed and no capture is
+    /// on its way — a snapshot taken before would carry the blank panes a new
+    /// (or moved) pane's emulator holds until capture-pane answers.
     pub fn initial_state_ready(&self) -> bool {
         self.panes_synced && self.windows_synced && self.pending_captures.is_empty()
     }
 
-    /// Convert current state to TmuxState for the frontend.
     pub fn to_tmux_state(&mut self) -> TmuxState {
         let active_window = self.active_window_id.as_ref();
 
-        // Send panes from every window in the session. The frontend filters
-        // by activeWindowId via selectVisiblePanes, so panes from inactive
-        // windows live harmlessly in context.panes[] — and that cache is
-        // what makes SELECT_TAB feel instant: the optimistic activeWindowId
-        // flip can render the target tab without waiting for the server
-        // round-trip. Hidden pane-group and float windows ride along on the
-        // same code path (no special-casing needed once the active-window
-        // filter is gone).
-        // Tmux stores `pane.active` per window — every window has its own
-        // active pane. Collapse to a session-wide single active pane so the
-        // frontend can treat `pane.active` as a uniqueness flag (used by
-        // keyboard routing, optimistic-prediction lookups, focus indicators).
-        // Without this collapse, multiple panes report active=true and any
-        // downstream code that assumes "at most one active pane" misbehaves.
+        // Every window's panes go out: the frontend filters them
+        // (`selectVisiblePanes`), and holding them is what lets a tab switch
+        // render before the server answers. tmux keeps an active pane per
+        // window; the frontend treats `active` as unique (keyboard routing,
+        // predictions, focus), so only the active window's stays active.
         let mut panes: Vec<TmuxPane> = self
             .panes
             .values_mut()
@@ -312,13 +221,11 @@ impl StateAggregator {
             })
             .collect();
 
-        // Append the hidden pane-group members parked in the stash session as
-        // lightweight stubs, so a group's tab strip can render every member even
-        // though only the visible one is a real pane in this session. Prune
-        // members whose group no longer has a visible pane here (the group was
-        // dissolved, or its tab was closed wholesale) — those are orphans, not
-        // tabs. The stub's stash `window_id` is never the active window, so
-        // `selectVisiblePanes` keeps it out of the layout automatically.
+        // The stash members, as stubs a group's tab strip draws. A member
+        // whose group has no pane here any more (dissolved, or its tab
+        // closed wholesale) is an orphan, not a tab. A stub's stash window
+        // is never the active one, so `selectVisiblePanes` keeps it out of
+        // the layout.
         let active_group_ids: HashSet<&GroupId> = self
             .panes
             .values()
@@ -332,13 +239,11 @@ impl StateAggregator {
 
         let windows: Vec<TmuxWindow> = self.windows.values().map(|w| w.to_tmux_window()).collect();
 
-        // The grid's size is the ACTIVE window's extent — what the client
-        // draws and sizes its viewport against. Every other window is in the
-        // list too (hidden group members, floats, sidebars, a tab left at an
-        // older size), each in its own layout; a max over all of them told
-        // the client the grid was as tall as the tallest hidden window, so it
-        // asked for a resize on every update and, waiting for a size that
-        // could never come, kept its layout animations off for good.
+        // The grid's size is the ACTIVE window's extent, what the client sizes
+        // its viewport against. A max over every window (hidden group
+        // members, floats, a tab left at an older size) made the client ask
+        // for a resize on every update and, waiting for a size that never
+        // came, keep its layout animations off for good.
         let in_active_window = |p: &&TmuxPane| active_window.is_none_or(|w| p.window_id == *w);
         let extent = |f: fn(&TmuxPane) -> u32, fallback: u32| {
             panes
@@ -352,12 +257,14 @@ impl StateAggregator {
         let total_width = extent(|p| p.x + p.width, 80);
         let total_height = extent(|p| p.y + p.height, 24);
 
-        // Find the active pane ID from the active window
-        // (each window has its own active pane, we want the one in the active window)
+        // The active pane is the active window's: each window has its own,
+        // and a window whose panes are not listed yet has none to name.
+        // Naming another window's sent the keys typed into a tab just
+        // opened to a pane of a hidden one; with none named, a client's keys
+        // go to tmux's current pane.
         let active_pane_id = panes
             .iter()
-            .find(|p| p.active && active_window == Some(&p.window_id))
-            .or_else(|| panes.iter().find(|p| p.active))
+            .find(|p| p.active && in_active_window(p))
             .map(|p| p.tmux_id.clone());
 
         TmuxState {

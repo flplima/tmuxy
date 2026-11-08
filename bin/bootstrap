@@ -15,7 +15,8 @@ echo "[bootstrap] Installing npm dependencies"
 npm ci
 
 echo "[bootstrap] Ensuring Rust targets"
-rustup target add wasm32-unknown-unknown i686-unknown-linux-musl >/dev/null
+# shellcheck disable=SC2046 # one target per word
+rustup target add $(bin/toolchain rust-targets) >/dev/null
 
 echo "[bootstrap] Ensuring frontend dist placeholder"
 mkdir -p packages/tmuxy-ui/dist

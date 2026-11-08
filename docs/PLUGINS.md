@@ -22,8 +22,8 @@ context JSON, exit codes) is listed in [PLUGIN-API.md](PLUGIN-API.md).
 **unsandboxed, as you, with the tmux socket**: they can read and type into
 every pane (see [SECURITY.md](SECURITY.md)). Nothing tmuxy sets in the
 environment or in a pane option can confine them, so tmuxy does not pretend
-to. Herdr, Neovim and VS Code make the same call; only Zellij sandboxes, at
-the cost of a WASM runtime.
+to. Neovim and VS Code make the same call; only Zellij sandboxes, at the
+cost of a WASM runtime.
 
 What tmuxy does guarantee:
 
@@ -69,14 +69,20 @@ menu = "pane"                             # "app" | "pane" | "selection", or lea
 surface = "popup"                         # "split" | "tab" | "float" | "popup" | "zoomed"
 size = { width = "80%", height = 30 }     # float and popup only; numbers are cells
 command = ["bin/open", "--port", "9222"]  # an argv inside the plugin, never a shell line
+platforms = ["macos"]                     # this action only here; leave out for the plugin's own list
 
 [[cli]]
 verb = "devtools"                         # `tmuxy plugin devtools …`, run in the caller's shell
 description = "Attach DevTools to a URL"
 command = ["bin/cli"]
+platforms = ["linux"]                     # likewise, per verb
 ```
 
-Unknown keys are errors, the file is capped at 64 KiB, and `tmuxy plugin
+`platforms` on `[plugin]` is where the plugin runs at all; on an action or a
+`[[cli]]` verb it hides that one entry elsewhere (`runs_on` in
+`tmuxy-core/src/plugins/manifest.rs`): the menus, key bindings, link handlers
+and `tmuxy plugin action` see only what runs on this platform, and an empty
+list is an error. Unknown keys are errors, the file is capped at 64 KiB, and `tmuxy plugin
 check <dir>` reports every problem with its line (`tmuxy-plugin.toml:12:1:
 unknown field 'surfce'`).
 
@@ -115,6 +121,7 @@ id = "artifact"
 match = "url"                              # a URL on one of these hosts…
 hosts = ["claude.ai"]                      # lowercase; punycode for an international name
 path_regex = "/public/artifacts/[A-Za-z0-9-]+"   # …whose whole path matches
+schemes = ["https"]                        # the default; "http" only with localhost hosts
 action = "open"
 
 [[link_handlers]]
@@ -152,9 +159,10 @@ argument (the argv `tmuxy plugin action <plugin>:<id> -- <url>` gives it),
 and the link is `link` in its context. Pane output is untrusted,
 so the client only pre-selects (a URL whose host a plugin declares, a click on
 plain text when some plugin has text handlers) and the server decides. A URL
-is checked as parsed, never as a string: `https` only (`http` and explicit
-`ports` only for `localhost`), no `user@`, the exact host, the path regex
-matched whole. A text pattern runs in Rust's linear-time `regex` over the one
+is checked as parsed, never as a string: the handler's `schemes` (`https` when
+left out; `http` and explicit `ports` only for `localhost` hosts —
+`tmuxy-core/src/plugins/manifest/validate.rs`), no `user@`, the exact host, the path regex matched
+whole. A text pattern runs in Rust's linear-time `regex` over the one
 line clicked, never as a regex in the page, so a pattern cannot freeze the UI
 whatever a pane prints. Adding **Shift** goes straight to the browser. The
 first handler in install order (your own plugin first) wins.

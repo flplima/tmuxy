@@ -1,4 +1,6 @@
+use super::test_pane::sent;
 use super::*;
+use crate::constants::tmux_formats::{PaneColumn, RowBuilder, TmuxList, WindowColumn};
 use crate::ids::test_ids::{pid, wid};
 use crate::TmuxPane;
 
@@ -10,9 +12,10 @@ fn a_capture_refill_keeps_a_hidden_cursor_hidden() {
     let mut pane = PaneState::new(pid("%1"), 40, 10);
     pane.process_output(b"\x1b[?25lhello");
     assert!(pane.cursor_hidden);
-    pane.reset_and_process_capture(b"hello");
+    pane.apply_capture(b"hello");
+    pane.process_output(b"!");
     assert!(
-        pane.terminal.screen().hide_cursor(),
+        sent(&mut pane).cursor_hidden,
         "the rebuilt parser lost the hidden cursor"
     );
 }
@@ -37,11 +40,7 @@ fn a_resize_mid_frame_does_not_spill_the_frame_as_text() {
         !text.contains("GgoAAAANSUhEUg"),
         "the frame's tail reached the grid as text: {text:?}"
     );
-    assert_eq!(
-        pane.image_parser.placements.len(),
-        1,
-        "the frame was placed"
-    );
+    assert_eq!(sent(&mut pane).images.len(), 1, "the frame was placed");
 }
 
 #[test]
@@ -52,21 +51,20 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     pane.process_output(
         b"line0\r\nline1\r\n\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07",
     );
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, 2);
+    assert_eq!(sent(&mut pane).images.len(), 1);
+    assert_eq!(sent(&mut pane).images[0].row, 2);
 
     // Scrolling the pane by 5 lines (7 newlines reach row 9 + 5 scroll) shifts
     // the placement from row 2 to row -3 (into scrollback history).
     for _ in 0..12 {
         pane.process_output(b"\r\n");
     }
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, -3);
+    assert_eq!(sent(&mut pane).images.len(), 1);
+    assert_eq!(sent(&mut pane).images[0].row, -3);
 
-    // Zooming/resizing on the primary screen preserves placements.
     pane.resize(80, 24);
     assert_eq!(
-        pane.image_parser.placements.len(),
+        sent(&mut pane).images.len(),
         1,
         "primary-screen placement must survive pane zoom/resize"
     );
@@ -74,16 +72,16 @@ fn inline_images_scroll_with_content_and_survive_primary_screen_resize() {
     // On the alternate screen, resize clears placements so the full-screen
     // application's SIGWINCH redraw starts clean.
     pane.process_output(b"\x1b[?1049h\x1b]1337;File=inline=1;width=10;height=3:iVBORw0KGgo=\x07");
-    assert_eq!(pane.image_parser.placements.len(), 1);
+    assert_eq!(sent(&mut pane).images.len(), 1);
     pane.resize(40, 10);
     assert!(
-        pane.image_parser.placements.is_empty(),
+        sent(&mut pane).images.is_empty(),
         "alt-screen placement is retired on resize"
     );
     // Leaving the alternate screen restores the primary-screen placement.
     pane.process_output(b"\x1b[?1049l");
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    assert_eq!(pane.image_parser.placements[0].row, -3);
+    assert_eq!(sent(&mut pane).images.len(), 1);
+    assert_eq!(sent(&mut pane).images[0].row, -3);
 }
 
 /// A capture rebuilds the screen from what tmux shows now; the rows that
@@ -101,7 +99,7 @@ fn a_capture_keeps_the_history_that_scrolled_off_before_it() {
         "80 lines on a 10-row screen leave history: {before}"
     );
 
-    pane.reset_and_process_capture(
+    pane.apply_capture(
         b"line 71\nline 72\nline 73\nline 74\nline 75\nline 76\nline 77\nline 78\nline 79\n",
     );
 
@@ -172,8 +170,8 @@ pub(super) fn tmux_pane(id: &str) -> TmuxPane {
     pane.build_tmux_pane().expect("placed")
 }
 
-/// Manually seat a pane in the aggregator so handle_output() processes it
-/// (handle_output rejects panes that haven't been seen in list-panes).
+/// A pane seated in `window_id`, as if list-panes had placed it: output for
+/// an unplaced pane is not processed.
 pub(super) fn seed_pane(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
     let mut pane = PaneState::new(pid(pane_id), 80, 24);
     pane.window_id = Some(wid(window_id));
@@ -187,9 +185,41 @@ pub(super) fn mark_initial_sync_done(agg: &mut StateAggregator) {
     agg.windows_synced = true;
 }
 
-/// A LIST_PANES_CMD row for `pane_id` in `window_id`, active, 80x24, with
-/// the copy-mode column set from `in_mode` — the one source of a pane's
-/// `in_mode` (see `PaneModeChanged`).
+/// A list-panes row as tmux prints one: `pane_id` in `window_id`, active,
+/// 80x24 at the origin, a zsh with 100 rows of history, in no mode.
+pub(super) fn pane_row_builder(pane_id: &str, window_id: &str) -> RowBuilder<PaneColumn> {
+    use PaneColumn::*;
+    [
+        PaneIndex,
+        Left,
+        Top,
+        CursorX,
+        CursorY,
+        Mode,
+        CopyCursorX,
+        CopyCursorY,
+        ScrollPosition,
+        AlternateOn,
+        MouseAnyFlag,
+        Marked,
+        SelectionPresent,
+        SelectionStartX,
+        SelectionStartY,
+    ]
+    .into_iter()
+    .fold(RowBuilder::new(), |row, column| row.set(column, 0))
+    .set(PaneId, pane_id)
+    .set(WindowId, window_id)
+    .set(Width, 80)
+    .set(Height, 24)
+    .set(Active, 1)
+    .set(Command, "zsh")
+    .set(HistorySize, 100)
+}
+
+/// A list-panes row for `pane_id` in `window_id` (see `pane_row_builder`),
+/// with the copy-mode column set from `in_mode` — the one source of a
+/// pane's `in_mode` (see `PaneModeChanged`).
 pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String {
     pane_row_in_mode(pane_id, window_id, u8::from(in_mode))
 }
@@ -197,16 +227,54 @@ pub(super) fn pane_row(pane_id: &str, window_id: &str, in_mode: bool) -> String 
 /// A list-panes row with the mode column as tmux expands `PANE_MODE_FLAG`:
 /// 0 for no mode, 1 for copy mode, 2 for view mode.
 pub(super) fn pane_row_in_mode(pane_id: &str, window_id: &str, mode: u8) -> String {
-    format!(
-        // id,idx,x,y,w,h,cx,cy,active,command,title,MODE,copy_x,copy_y,scroll,WIN,border,alt,mouse,marked,sel,sx,sy,hist,gid,pos,state,ask,widget,restore,plugins_rev
-        "{pane_id},0,0,0,80,24,0,0,1,zsh,,{mode},0,0,0,{window_id},,0,0,0,0,0,0,100,,,,,,,\n",
-    )
+    pane_row_builder(pane_id, window_id)
+        .set(PaneColumn::Mode, mode)
+        .build()
+}
+
+/// A list-windows row as tmux prints one: `window_id` at `index`, named
+/// `name`, every `@tmuxy-*` option unset, not zoomed.
+pub(super) fn window_row(
+    window_id: &str,
+    index: u32,
+    active: bool,
+    name: &str,
+) -> RowBuilder<WindowColumn> {
+    RowBuilder::new()
+        .set(WindowColumn::WindowId, window_id)
+        .set(WindowColumn::Index, index)
+        .set(WindowColumn::Active, u8::from(active))
+        .set(WindowColumn::Zoomed, 0)
+        .set(WindowColumn::Name, name)
+}
+
+/// The three blocks of `agg`'s own marked `list`, answered with `rows`.
+pub(super) fn list_blocks(
+    agg: &StateAggregator,
+    list: TmuxList,
+    rows: &str,
+) -> [ControlModeEvent; 3] {
+    [
+        response(&marked(agg, LIST_BEGIN_MARKER, list.name()), true),
+        response(rows, true),
+        response(&marked(agg, LIST_END_MARKER, ""), true),
+    ]
+}
+
+/// Step `agg` through its own marked `list`, answered with `rows`, and
+/// return what the rows' block did.
+pub(super) fn listed(agg: &mut StateAggregator, list: TmuxList, rows: &str) -> StepResult {
+    let [begin, body, end] = list_blocks(agg, list, rows);
+    agg.step(begin);
+    let result = agg.step(body);
+    agg.step(end);
+    result
 }
 
 /// Put `pane_id` in copy mode the way tmux reports it: a list-panes reply
 /// with the copy-mode column set.
 pub(super) fn enter_copy_mode(agg: &mut StateAggregator, pane_id: &str, window_id: &str) {
-    agg.process_event(response(&pane_row(pane_id, window_id, true), true));
+    listed(agg, TmuxList::Panes, &pane_row(pane_id, window_id, true));
     assert!(agg.panes[pane_id].in_mode, "{pane_id} is in copy mode");
 }
 
@@ -262,54 +330,42 @@ fn the_grid_size_is_the_active_windows_extent() {
     assert_eq!((state.total_width, state.total_height), (80, 43));
 }
 
-/// Empty command acks MUST keep reporting a Full change.
-///
-/// This pins the revert of an attempted optimization (empty acks →
-/// `ChangeType::None`): the frontend's pane-group swap convergence rides
-/// on ack-driven emissions, and silencing them routed the first
-/// post-click keystroke to the stale pane (7-regression group-click
-/// E2E). Do not silence empty acks until command completions are
-/// marker-routed and can be classified exactly.
+/// An ack is not news: the empty block of a keystroke, or of any command
+/// sent without a marker, changes nothing tmux will not announce itself,
+/// so it neither rebuilds the state nor re-runs the layout pass.
 #[test]
-fn empty_command_ack_still_emits_full_change() {
+fn an_unmarked_ack_changes_nothing() {
     let mut agg = StateAggregator::new();
     seed_pane(&mut agg, "%0", "@0");
-
-    let r = agg.process_event(ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
-        output: String::new(),
-        success: true,
-    });
-    assert!(r.state_changed, "empty ack must still emit");
-    assert!(matches!(r.change_type, ChangeType::Full));
+    for success in [true, false] {
+        let r = agg.step(response("", success));
+        assert!(r.effects.is_empty(), "an ack emitted {:?}", r.effects);
+        assert_eq!(r.change_type, ChangeType::None);
+    }
 }
 
 /// Arbitrary command output must not be mistaken for list-panes records.
 ///
-/// `RunCommand` output flows through the same response channel, so a line
-/// that merely contains a `%` and a comma used to be fed to the pane
-/// parser and could conjure ghost panes.
+/// A command's output arrives on the same channel as the list replies, so a
+/// line holding a `%` and a comma could conjure ghost panes. Only a block a
+/// list marker names is read as rows, even rows shaped like this session's.
 #[test]
 fn non_list_panes_output_does_not_create_panes() {
     let mut agg = StateAggregator::new();
     let before = agg.panes.len();
 
     agg.process_event(ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         // Shapes that pass the old `contains('%') && contains(',')` sniff.
         output: "100% done, thanks\ncpu: 3%, mem: 40%\n[%foo,bar]".to_string(),
         success: true,
     });
+    agg.step(response(&pane_row("%9", "@0", false), true));
 
     assert_eq!(agg.panes.len(), before, "no ghost panes may be created");
 }
 
 pub(super) fn response(output: &str, success: bool) -> ControlModeEvent {
     ControlModeEvent::CommandResponse {
-        timestamp: 0,
-        command_num: 0,
         output: output.to_string(),
         success,
     }
@@ -350,7 +406,7 @@ fn reply_markers_collect_the_blocks_between_them() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 7, output, error: None }] if output == "HELLO\n"
+            [SideEffect::Reply { id: 7, output, error: None }] if output == "HELLO\n"
         ),
         "got {:?}",
         end.effects
@@ -373,7 +429,7 @@ fn a_command_lists_blocks_stay_on_their_own_lines() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 9, output, error: None }]
+            [SideEffect::Reply { id: 9, output, error: None }]
                 if output == "C-a\nbind-key -T prefix Space next-layout"
         ),
         "got {:?}",
@@ -392,7 +448,7 @@ fn a_failed_block_fails_the_reply_and_still_closes_it() {
     assert!(
         matches!(
             &end.effects[..],
-            [SideEffect::CommandReply { id: 3, error: Some(msg), .. }]
+            [SideEffect::Reply { id: 3, error: Some(msg), .. }]
                 if msg == "can't find window: @999"
         ),
         "the reply carries tmux's message: {:?}",
@@ -410,7 +466,7 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
     let before = agg.panes.len();
 
     agg.step(response(&marked(&agg, REPLY_BEGIN_MARKER, "9"), true));
-    // Two rows in LIST_PANES_CMD shape for panes of some other session.
+    // Two rows in `TmuxList::Panes` shape for panes of some other session.
     let rows = "%40,0,0,0,80,24,0,0,1,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n\
                     %41,1,0,0,80,24,0,0,0,zsh,,0,0,0,0,@20,,0,0,0,0,0,10\n";
     let body = agg.step(response(rows, true));
@@ -423,7 +479,7 @@ fn a_query_between_markers_never_reaches_the_pane_parser() {
     );
     assert!(matches!(
         &end.effects[..],
-        [SideEffect::CommandReply { id: 9, output, error: None }] if output.contains("%41,")
+        [SideEffect::Reply { id: 9, output, error: None }] if output.contains("%41,")
     ));
 }
 
@@ -437,39 +493,13 @@ fn a_mismatched_end_marker_fails_the_stale_reply() {
     let end = agg.step(response(&marked(&agg, REPLY_END_MARKER, "2"), true));
     assert!(matches!(
         &end.effects[..],
-        [SideEffect::CommandReply {
+        [SideEffect::Reply {
             id: 1,
             error: Some(_),
             ..
         }]
     ));
     assert!(agg.reply_in_flight.is_none());
-}
-
-/// Unmarked responses keep today's behaviour: they fall through to the
-/// pane/window parsers and report a Full change.
-#[test]
-fn unmarked_responses_still_fall_through() {
-    let mut agg = StateAggregator::new();
-    seed_pane(&mut agg, "%0", "@0");
-    let r = agg.step(response("", true));
-    assert!(r.effects.iter().any(|e| matches!(
-        e,
-        SideEffect::EmitState {
-            change: ChangeType::Full
-        }
-    )));
-}
-
-#[test]
-fn is_list_panes_line_matches_only_real_pane_records() {
-    assert!(is_list_panes_line("%0,1,0,0,80,24"));
-    assert!(is_list_panes_line("%12,3,"));
-    assert!(!is_list_panes_line("100% done, thanks"));
-    assert!(!is_list_panes_line("%foo,bar"));
-    assert!(!is_list_panes_line("%0"));
-    assert!(!is_list_panes_line("x%0,1"));
-    assert!(!is_list_panes_line(""));
 }
 
 #[test]
@@ -497,8 +527,9 @@ fn kitty_tmux_passthrough_placeholders_render_as_an_image() {
         !text.contains('\u{10eeee}'),
         "placeholders stay out of text"
     );
-    assert_eq!(pane.image_parser.placements.len(), 1);
-    let placement = &pane.image_parser.placements[0];
+    let images = sent(&mut pane).images;
+    assert_eq!(images.len(), 1);
+    let placement = &images[0];
     assert_eq!((placement.row, placement.col), (0, 0));
     assert_eq!((placement.width_cells, placement.height_cells), (2, 2));
     assert!(pane.image_store.contains_key(&placement.id));

@@ -1,72 +1,11 @@
-/**
- * Integration tests for the Effect-managed TmuxStore.
- *
- * These cover the bridge points the XState layer relies on:
- *  - subscribe → notified on local dispatch and server reconcile
- *  - dispatch → derived snapshot updates synchronously
- *  - dispatch → adapter rejection rolls back the op
- *  - reconcile → committed advances, matched ops drop
- */
-
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { makeTmuxStore } from '../TmuxStore';
-import { OP_ACKED_STALE_TIMEOUT_MS } from '../../../domain/store/types';
+import { OP_ACKED_STALE_TIMEOUT_MS, type TmuxClientModel } from '../../../domain/store/types';
 import { parseCommandToOp } from '../../../domain/store/parseCommand';
 import { TmuxOp } from '../../../domain/commands';
-import type { ServerState, ServerStateEncoded } from '../../../domain/wire';
-import { pid, wid, wireState } from '../../../test/wire';
+import type { ServerState } from '../../../domain/wire';
+import { pid, wid, wireSession, wireState } from '../../../test/wire';
 import { fakeTransport } from '../../../test/transport';
-import type { TmuxClientModel } from '../../../domain/store/types';
-
-function blankServerState(over: Partial<ServerStateEncoded> = {}): ServerState {
-  return wireState({
-    session_name: 'tmuxy',
-    active_window_id: wid('@0'),
-    active_pane_id: pid('%0'),
-    panes: [
-      {
-        id: 0,
-        tmux_id: pid('%0'),
-        window_id: wid('@0'),
-        content: [],
-        cursor_x: 0,
-        cursor_y: 0,
-        width: 80,
-        height: 24,
-        x: 0,
-        y: 0,
-        active: true,
-        command: 'bash',
-        title: '',
-        border_title: '',
-        in_mode: false,
-        copy_cursor_x: 0,
-        copy_cursor_y: 0,
-        alternate_on: false,
-        mouse_any_flag: false,
-        paused: false,
-        history_size: 0,
-        selection_present: false,
-        selection_start_x: 0,
-        selection_start_y: 0,
-        cursor_shape: 0,
-        cursor_hidden: false,
-      },
-    ],
-    windows: [
-      {
-        id: wid('@0'),
-        index: 0,
-        name: 'main',
-        active: true,
-        window_type: 'tab',
-      },
-    ],
-    total_width: 80,
-    total_height: 24,
-    ...over,
-  });
-}
 
 describe('TmuxStore (integration)', () => {
   it('subscribe fires on initial state, local dispatch, and reconcile', async () => {
@@ -77,15 +16,12 @@ describe('TmuxStore (integration)', () => {
     const unsub = store.subscribe((m) => {
       snaps.push(m);
     });
-    // Subscribing fires once synchronously with the current model.
     expect(snaps).toHaveLength(1);
 
-    // Server snapshot arrives → committed updates → notify fires.
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
     expect(snaps.length).toBeGreaterThanOrEqual(2);
     expect(snaps[snaps.length - 1].committed.panes).toHaveLength(1);
 
-    // Local optimistic dispatch — patch applies sync.
     fake.setNextResult({ kind: 'ok', value: undefined });
     const before = snaps.length;
     fake.runtime.runFork(store.dispatch(parseCommandToOp('split-window -h')));
@@ -99,9 +35,8 @@ describe('TmuxStore (integration)', () => {
   it('dispatch rolls back the op on TmuxError', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
-    // First, prime the model with a single pane in committed state.
     expect(store.getModel().committed.panes).toHaveLength(1);
 
     fake.setNextResult({
@@ -114,7 +49,6 @@ describe('TmuxStore (integration)', () => {
     );
     expect(exit._tag).toBe('Failure');
 
-    // After rollback: derived === committed, no pending ops.
     const m = store.getModel();
     expect(m.ops).toHaveLength(0);
     expect(m.derived.panes).toEqual(m.committed.panes);
@@ -124,26 +58,23 @@ describe('TmuxStore (integration)', () => {
   it('reconcile drops matched ops and surfaces rollback entries for stale ones', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
-    // Dispatch a split. The adapter says ok; the store applies + awaits.
     fake.setNextResult({ kind: 'ok', value: undefined });
     const exit = await fake.runtime.runPromiseExit(
       store.dispatch(parseCommandToOp('split-window -h')),
     );
     expect(exit._tag).toBe('Success');
 
-    // Before reconcile, the optimistic placeholder is still in derived.
     expect(store.getModel().derived.panes).toHaveLength(2);
     expect(store.getModel().ops).toHaveLength(1);
 
-    // Now server confirms with a real second pane.
     store.reconcile(
-      blankServerState({
+      wireSession({
         panes: [
-          ...blankServerState().panes,
+          ...wireSession().panes,
           {
-            ...blankServerState().panes[0],
+            ...wireSession().panes[0],
             tmux_id: pid('%1'),
             x: 41,
             width: 39,
@@ -162,17 +93,14 @@ describe('TmuxStore (integration)', () => {
   it('TransportError surfaces as OpTransportError and rolls back', async () => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
-    // Plain string rejection → classified as TransportError in the
-    // adapter → wrapped as OpTransportError in the store.
     fake.setNextResult({ kind: 'reject', error: 'network down' });
     const exit = await fake.runtime.runPromiseExit(
       store.dispatch(parseCommandToOp('split-window -h')),
     );
     expect(exit._tag).toBe('Failure');
     if (exit._tag === 'Failure') {
-      // Either Cause.fail or Cause.die — we just care no op remains.
       expect(store.getModel().ops).toHaveLength(0);
     }
   });
@@ -185,11 +113,11 @@ describe('TmuxStore (integration)', () => {
   ])('%s sends nothing and records no op', async (_name, op) => {
     const fake = fakeTransport();
     const store = makeTmuxStore();
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
     const before = store.getModel();
 
     const exit = await fake.runtime.runPromiseExit(store.dispatch(op));
-    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { command: ' \n\t' }));
+    const blank = await fake.runtime.runPromiseExit(store.dispatch(op, { wire: ' \n\t' }));
 
     expect(exit._tag).toBe('Success');
     expect(blank._tag).toBe('Success');
@@ -215,7 +143,7 @@ describe('rollback reporting', () => {
     store.subscribeRollbacks((entries) => {
       for (const e of entries) reported.push(`${e.op._tag}:${e.reason}`);
     });
-    store.reconcile(blankServerState());
+    store.reconcile(wireSession());
 
     fake.setNextResult({ kind: 'ok', value: undefined });
     const exit = await fake.runtime.runPromiseExit(
@@ -254,5 +182,45 @@ describe('notify granularity', () => {
     );
     expect(notifies).toBe(1);
     unsubscribe();
+  });
+});
+
+describe('what the predictions read', () => {
+  // Three tabs, one pane each; `active` names the tab in front.
+  function threeTabs(active: 0 | 1 | 2): ServerState {
+    const base = wireSession();
+    const [pane] = base.panes;
+    const [window] = base.windows;
+    return {
+      ...base,
+      active_window_id: wid(`@${active}`),
+      active_pane_id: pid(`%${active}`),
+      panes: [0, 1, 2].map((n) => ({
+        ...pane,
+        id: n,
+        tmux_id: pid(`%${n}`),
+        window_id: wid(`@${n}`),
+        active: n === active,
+      })),
+      windows: [0, 1, 2].map((n) => ({
+        ...window,
+        id: wid(`@${n}`),
+        index: n,
+        name: `w${n}`,
+        active: n === active,
+      })),
+    };
+  }
+
+  it('the store learns which tab was used last from its own snapshots', () => {
+    const fake = fakeTransport();
+    const store = makeTmuxStore();
+    store.reconcile(threeTabs(0));
+    store.reconcile(threeTabs(2));
+    store.reconcile(threeTabs(1));
+
+    fake.runtime.runFork(store.dispatch(TmuxOp.KillWindow({ windowId: wid('@1') })));
+    // tmux lands on the last tab used (@2), not the one before by index (@0).
+    expect(store.getModel().derived.activeWindowId).toBe(wid('@2'));
   });
 });

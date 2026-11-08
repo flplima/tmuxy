@@ -1,0 +1,75 @@
+/* The pane's own cursor stays as SmoothCursor's anchor (and what tests
+   measure) but is not painted. */
+.has-smooth-cursor .terminal-cursor {
+  visibility: hidden;
+}
+
+.smooth-cursor {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  /* Above every surface that can hold the keyboard (floats, the Tab Overview),
+     under the connection overlay. */
+  z-index: var(--z-cursor);
+  opacity: 0;
+}
+
+/* The smear: clipped per frame to the four gliding corners. */
+.smooth-cursor-shape {
+  position: absolute;
+  inset: 0;
+  background: var(--cursor-bg);
+  will-change: clip-path;
+}
+
+.smooth-cursor.is-copy .smooth-cursor-shape {
+  background: var(--cursor-copy-bg);
+}
+
+/* Painted once the block has arrived; mid-flight the pane's own glyph shows through. */
+.smooth-cursor-char {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--cursor-text);
+  white-space: pre;
+  overflow: hidden;
+  opacity: 0;
+}
+
+/* Dark on the accent block, which is a light colour in every theme. */
+.smooth-cursor.is-copy .smooth-cursor-char {
+  color: var(--term-black);
+}
+
+/* Blinks only when `@tmuxy-cursor-blink` (the app container) and the pane's
+   DECSCUSR shape (`is-blinking`) agree. Its own layer: the glide writes the
+   root's and the glyph's opacity every frame. step-end is a terminal caret's
+   hard on/off, not a fade. */
+.smooth-cursor-blink {
+  position: absolute;
+  inset: 0;
+}
+
+.app-cursor-blink .smooth-cursor.is-blinking .smooth-cursor-blink {
+  animation: smooth-cursor-blink 1.06s step-end infinite;
+}
+
+@keyframes smooth-cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* A cursor that winks in and out is exactly the repetitive motion this asks to
+   be spared. */
+@media (prefers-reduced-motion: reduce) {
+  .app-cursor-blink .smooth-cursor.is-blinking .smooth-cursor-blink {
+    animation: none;
+  }
+}

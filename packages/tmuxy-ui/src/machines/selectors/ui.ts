@@ -1,12 +1,9 @@
 import type { AppMachineContext } from '../types/context';
-import type { GitRepository, LogEntry, SessionTreeNode } from '../types/domain';
+import type { LogEntry } from '../types/domain';
+import type { GitRepository, SessionTreeNode } from '../../domain/servers';
 import type { KeyBindings } from '../../domain/wire';
 import type { WindowId } from '../../domain/ids';
 import { selectVisibleWindows } from './panesAndSidebars';
-
-// ============================================
-// Session & Connection Selectors
-// ============================================
 
 export function selectSessions(context: AppMachineContext): SessionTreeNode[] {
   return context.sessions;
@@ -36,10 +33,6 @@ export function selectKeyBindings(context: AppMachineContext): KeyBindings | nul
   return context.keybindings;
 }
 
-// ============================================
-// Animation & Gesture Selectors
-// ============================================
-
 /** Layout animations right now: settled after a change, and allowed by the config. */
 export function selectEnableAnimations(context: AppMachineContext): boolean {
   return context.enableAnimations && context.animationsAllowed;
@@ -52,7 +45,7 @@ export function selectAnimationsAllowed(context: AppMachineContext): boolean {
 
 /** Whether the keyboard is in one of the sidebar columns rather than the panes. */
 export function selectSidebarFocused(context: AppMachineContext): boolean {
-  return context.leftSidebarFocused || context.rightSidebarFocused;
+  return context.keyboardOwner.kind === 'left' || context.keyboardOwner.kind === 'right';
 }
 
 /** The config's `@tmuxy-cursor-blink` switch. */
@@ -101,10 +94,6 @@ export function selectPaneKeyOverrides(context: AppMachineContext): Record<strin
   return context.paneKeyOverrides;
 }
 
-// ============================================
-// Command Mode, Notifications & Focus Selectors
-// ============================================
-
 export function selectCommandMode(context: AppMachineContext) {
   return context.commandMode;
 }
@@ -137,16 +126,6 @@ export function selectBindingOwnsKey(context: AppMachineContext, key: string): b
 /** The sticky key table in force (`pane`, `tab`), or null. */
 export function selectKeyTable(context: AppMachineContext): string | null {
   return context.keyTable;
-}
-
-/**
- * The keyboard is somewhere other than the tiled panes: a focused float, the
- * dock or the tree take it without changing tmux's active pane.
- */
-export function selectKeyboardElsewhere(context: AppMachineContext): boolean {
-  return (
-    Boolean(context.focusedFloatPaneId) || context.leftSidebarFocused || context.rightSidebarFocused
-  );
 }
 
 /**

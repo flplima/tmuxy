@@ -1,13 +1,8 @@
 /**
- * The Plugins submenus, over a recording of real tmux with one pane.
- *
- * The recording's tmux has no plugins installed, and a recorded transport
- * answers no queries, so the inventory the machine would read from
- * `@tmuxy-plugins` is handed to it as the read would (`PLUGINS_RECEIVED`).
- * What is under test is the menus: an installed plugin's items appear, under
- * its name, and choosing one sends `tmuxy plugin action` for the pane the menu
- * is about. Opening the action's surface in real tmux is the E2E suite's
- * (`tests/17-plugins.test.js`).
+ * The recording's tmux has no plugins and a recorded transport answers no
+ * queries, so the `@tmuxy-plugins` inventory is handed to the machine as the
+ * read would (`PLUGINS_RECEIVED`). Opening the action's surface in real tmux
+ * is `tests/17-plugins.test.js`.
  */
 
 import { useEffect, useState } from 'react';
@@ -15,7 +10,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { PaneContextMenu } from './PaneContextMenu';
 import { FixtureProvider } from '../stories/FixtureHarness';
-import { asFixture, type FixtureAdapter } from '../stories/fixtures/FixtureAdapter';
+import { asFixture, adapterHolder } from '../stories/fixtures/FixtureAdapter';
 import panes from '../stories/fixtures/gen/panes.json';
 import { PaneId } from '../domain/ids';
 import { useAppSend } from '../machines/appHooks';
@@ -41,12 +36,7 @@ const PLUGINS: PluginInfo[] = [
   },
 ];
 
-let adapter: FixtureAdapter | null = null;
-const keepAdapter = (a: FixtureAdapter) => {
-  adapter = a;
-};
-
-/** The pane menu as a right-click opens it, once the inventory is in. */
+const held = adapterHolder();
 function Host({ plugins }: { plugins: PluginInfo[] }) {
   const send = useAppSend();
   const [open, setOpen] = useState(true);
@@ -73,7 +63,7 @@ type Story = StoryObj<typeof Host>;
 
 export const PaneMenuRunsAPluginAction: Story = {
   render: () => (
-    <FixtureProvider height={440} fixture={PANES} start="one" onAdapterReady={keepAdapter}>
+    <FixtureProvider height={440} fixture={PANES} start="one" onAdapterReady={held.keep}>
       <Host plugins={PLUGINS} />
     </FixtureProvider>
   ),
@@ -93,11 +83,11 @@ export const PaneMenuRunsAPluginAction: Story = {
     expect(box.width).toBeGreaterThan(40);
     expect(box.height).toBeGreaterThan(10);
 
-    const sentBefore = adapter!.commands.length;
+    const sentBefore = held.adapter!.commands.length;
     await userEvent.click(open);
     await waitFor(() => expect(canvas.getByTestId('ctx-state')).toHaveTextContent('closed'));
     await waitFor(() =>
-      expect(adapter!.commands.slice(sentBefore)).toContain(
+      expect(held.adapter!.commands.slice(sentBefore)).toContain(
         'run-shell -b "\\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" plugin action artifacts:open' +
           ' --pane %0 --trigger menu >/dev/null 2>&1"',
       ),

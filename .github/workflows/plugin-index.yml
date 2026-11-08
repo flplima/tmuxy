@@ -1,4 +1,4 @@
-name: Plugin Index
+name: plugin index
 
 # The plugin index (docs/PLUGINS.md, "The index"): every public repository
 # with the topic `tmuxy-plugin` whose manifests pass `tmuxy plugin check`,
@@ -25,11 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: ./.github/actions/setup-node-rust
         with:
-          toolchain: stable
-
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+          install-npm: 'false'
 
       # The checker is main's: the installer that reads the index is at
       # least as strict as the one that built it. The server embeds the
@@ -38,10 +36,6 @@ jobs:
         run: |
           mkdir -p packages/tmuxy-ui/dist
           cargo build --release -p tmuxy-server
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version: 22
 
       - name: Build the index
         env:

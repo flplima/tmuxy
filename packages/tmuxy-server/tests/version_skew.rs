@@ -1,7 +1,7 @@
 //! Version skew: the combinations a release actually produces.
 //!
 //! tmuxy ships roughly every three days, and an upgrade is never atomic. Three
-//! skews follow from that and none of them had a test:
+//! skews follow from that:
 //!
 //!   1. **An old tab against a new server.** The server serves the frontend, so
 //!      upgrading it does not reload a tab someone already has open. That tab
@@ -142,7 +142,7 @@ fn shipped_payloads() -> Vec<(&'static str, serde_json::Value)> {
 fn every_shipped_payload_still_decodes() {
     for (name, payload) in shipped_payloads() {
         let body = serde_json::to_vec(&payload).expect("payload serializes");
-        let decoded = tmuxy_server::ClientCommand::decode(&body);
+        let decoded = tmuxy_core::host::ClientCommand::decode(&body);
         assert!(
             decoded.is_ok(),
             "a shipped tab's `{name}` payload no longer decodes: {:?}\n\
@@ -170,7 +170,7 @@ fn a_tab_that_omits_newer_fields_is_still_understood() {
     for payload in minimal {
         let body = serde_json::to_vec(&payload).expect("payload serializes");
         assert!(
-            tmuxy_server::ClientCommand::decode(&body).is_ok(),
+            tmuxy_core::host::ClientCommand::decode(&body).is_ok(),
             "the minimal form of {payload} must decode — a newly added field has to \
              be #[serde(default)] or Option, or it is a breaking change for open tabs",
         );
@@ -189,7 +189,7 @@ fn a_command_the_server_does_not_know_is_refused_not_fatal() {
         json!({ "cmd": "set_client_size", "args": { "cols": "wide", "rows": 30 } }), // wrong type
     ] {
         let encoded = serde_json::to_vec(&body).expect("payload serializes");
-        let decoded = tmuxy_server::ClientCommand::decode(&encoded);
+        let decoded = tmuxy_core::host::ClientCommand::decode(&encoded);
         assert!(
             decoded.is_err(),
             "{body} should be refused rather than silently matched to something else",
@@ -202,8 +202,8 @@ fn a_command_the_server_does_not_know_is_refused_not_fatal() {
 /// a body that is not JSON at all has to come back as the FIRST error.
 #[test]
 fn a_body_that_is_not_json_is_refused() {
-    assert!(tmuxy_server::ClientCommand::decode(b"not json at all").is_err());
-    assert!(tmuxy_server::ClientCommand::decode(b"").is_err());
+    assert!(tmuxy_core::host::ClientCommand::decode(b"not json at all").is_err());
+    assert!(tmuxy_core::host::ClientCommand::decode(b"").is_err());
 }
 
 // ===========================================================================
@@ -282,6 +282,5 @@ fn every_tag_the_cli_writes_is_one_the_core_reads() {
 // released build serves `tmuxy`, the dev server `tmuxy-dev`, the E2E suite
 // `tmuxy-test`). The piece of it that is pure logic — that each server's pid
 // file is its own, so `tmuxy server stop` cannot read one server's bookkeeping
-// and signal another — is pinned in `server.rs`'s own test module, next to the
-// private function that decides it:
-// `two_servers_on_different_ports_do_not_share_a_pid_file`.
+// and signal another — is pinned in `server/tests.rs`, beside the private
+// function that decides it: `each_port_owns_its_own_pid_file`.

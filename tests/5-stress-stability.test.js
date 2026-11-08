@@ -6,13 +6,12 @@
  */
 
 const {
-  createTestContext,
-  delay,
+  describeE2E,
   runCommand,
   waitForPaneCount,
   waitForWindowCount,
-  withConsistencyChecks,
-  verifyDomSizes,
+  GlitchDetector,
+  assertScreenMatchesTmux,
   splitPaneKeyboard,
   navigatePaneKeyboard,
   swapPaneKeyboard,
@@ -22,20 +21,14 @@ const {
   assertLayoutInvariants,
   waitForSettled,
   waitForLayoutSettled,
-  DELAYS,
+  shownPanes,
+  GRID_PANE,
 } = require('./helpers');
 
 // ==================== Scenario 17: Large Output Perf ====================
 
-describe('Scenario 17: Large Output Perf', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 17: Large Output Perf', {}, (ctx) => {
   test('yes|head-500 → seq 1 2000 → scrollback → verify responsive', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Rapid output (yes | head -500)
@@ -62,32 +55,14 @@ describe('Scenario 17: Large Output Perf', () => {
 
 // ==================== Scenario 18: Rapid Operations ====================
 
-describe('Scenario 18: Rapid Operations', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 18: Rapid Operations', {}, (ctx) => {
   test('Split×4 → kill×3 → split-close-split → 6 panes → 4 windows → swap', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
-    // Step 1: Rapid splits ×4 (wait for each split to complete via XState)
+    // Step 1: Rapid splits ×4, each waited for on screen.
     async function splitAndWait(direction, expectedCount) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        await splitPaneKeyboard(ctx.page, direction);
-        const waitTime = 10000 + attempt * 5000;
-        const ok = await waitForPaneCount(ctx.page, expectedCount, waitTime);
-        if (ok) return;
-        const tmuxCount = await ctx.session.getPaneCount();
-        if (tmuxCount >= expectedCount) {
-          await waitForPaneCount(ctx.page, expectedCount, 5000);
-          return;
-        }
-        await delay(DELAYS.SYNC);
-      }
-      expect(await ctx.session.getPaneCount()).toBe(expectedCount);
+      await splitPaneKeyboard(ctx.page, direction);
+      await waitForPaneCount(ctx.page, expectedCount, 10000);
     }
     await splitAndWait('horizontal', 2);
     await splitAndWait('vertical', 3);
@@ -102,17 +77,15 @@ describe('Scenario 18: Rapid Operations', () => {
     expect(await ctx.session.getPaneCount()).toBe(2);
 
     // Step 3: Split-close-split
-    const result = await withConsistencyChecks(
-      ctx,
-      async () => {
-        await splitPaneKeyboard(ctx.page, 'horizontal');
-        await killPaneKeyboard(ctx.page);
-        await splitPaneKeyboard(ctx.page, 'vertical');
-      },
-      { operationType: 'split' },
-    );
+    const detector = new GlitchDetector(ctx.page);
+    await detector.start();
+    await splitPaneKeyboard(ctx.page, 'horizontal');
+    await killPaneKeyboard(ctx.page);
+    await splitPaneKeyboard(ctx.page, 'vertical');
+    const glitches = await detector.stop();
+    await assertScreenMatchesTmux(ctx.page, { label: 'split-close-split' });
     expect(await ctx.session.getPaneCount()).toBe(3);
-    expect(result.glitch.summary.nodeFlickers).toBeLessThanOrEqual(4);
+    expect(glitches.summary.nodeFlickers).toBeLessThanOrEqual(4);
 
     // Kill to reset
     await killPaneKeyboard(ctx.page);
@@ -135,8 +108,7 @@ describe('Scenario 18: Rapid Operations', () => {
     await splitPaneKeyboard(ctx.page, 'vertical');
     await waitForPaneCount(ctx.page, 6, 10000);
     expect(await ctx.session.getPaneCount()).toBe(6);
-    const sizeResult = await verifyDomSizes(ctx.page);
-    expect(sizeResult.valid).toBe(true);
+    await assertScreenMatchesTmux(ctx.page, { label: 'Scenario 18 6-pane grid' });
 
     // Layout invariants on 6-pane grid
     await assertLayoutInvariants(ctx.page, { label: 'Scenario 18 6-pane grid' });
@@ -164,22 +136,15 @@ describe('Scenario 18: Rapid Operations', () => {
     await swapPaneKeyboard(ctx.page, 'down');
     const panesAfterSwap = await ctx.session.getPaneInfo();
     expect(
-      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].y !== panesBefore[0].y,
+      panesAfterSwap[0].id !== firstPaneIdBefore || panesAfterSwap[0].top !== panesBefore[0].top,
     ).toBe(true);
   }, 240000);
 });
 
 // ==================== Scenario 20: Glitch Detection ====================
 
-describe('Scenario 20: Glitch Detection', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 20: Glitch Detection', {}, (ctx) => {
   test('Split H + detect → split V + detect → resize + detect → click focus + detect [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Horizontal split with glitch detection
@@ -230,18 +195,12 @@ describe('Scenario 20: Glitch Detection', () => {
 
     // Step 4: Click focus with glitch detection
     await ctx.startGlitchDetection({ scope: '.pane-container' });
-    const paneInfo = await ctx.page.evaluate(() => {
-      const panes = document.querySelectorAll('.pane-layout-item');
-      return Array.from(panes).map((p) => {
-        const r = p.getBoundingClientRect();
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      });
-    });
-    if (paneInfo.length >= 2) {
-      await ctx.page.mouse.click(paneInfo[1].x, paneInfo[1].y);
-      await waitForSettled(ctx.page);
-      await waitForLayoutSettled(ctx.page);
-    }
+    const panes = await shownPanes(ctx.page, GRID_PANE);
+    expect(panes).toHaveLength(2);
+    const { box } = panes[1];
+    await ctx.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await waitForSettled(ctx.page);
+    await waitForLayoutSettled(ctx.page);
     // Click focus triggers CSS layout transitions, causing size jumps
     const clickResult = await ctx.assertNoGlitches({ operation: 'split', sizeJumps: 30 });
   }, 180000);

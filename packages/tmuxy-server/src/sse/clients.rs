@@ -1,35 +1,35 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use tmuxy_core::client_size::SizePolicy;
-use tmuxy_core::control_mode::{MonitorCommand, MonitorConfig};
+use tmuxy_core::host::session_exists;
 use tmuxy_core::session::SessionName;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, warn};
 
-use super::{may_create_session, start_monitoring, SessionRejection, MAX_AUTO_CREATED_SESSIONS};
+use super::{start_monitoring, SessionRejection, MAX_AUTO_CREATED_SESSIONS};
 use crate::state::{AppState, SessionConnections};
 
-/// `tmuxy_core::session::session_exists` off the async worker threads (it
-/// runs a synchronous `has-session`, which would otherwise block a tokio
-/// worker). Used by the monitor loop, before its own connection is attached.
-/// A name outside the session alphabet names no session.
-pub(super) async fn session_exists(session: &str) -> bool {
-    let Some(name) = SessionName::parse(session) else {
-        return false;
-    };
-    tokio::task::spawn_blocking(move || tmuxy_core::session::session_exists(&name).unwrap_or(false))
-        .await
-        .unwrap_or(false)
-}
-
-/// The monitor settings this server watches `session` with.
-pub(super) fn monitor_config(session: &str, create_session: bool) -> MonitorConfig {
-    MonitorConfig {
-        session: session.to_string(),
-        create_session,
-        working_dir: Some(crate::state::session_start_dir()),
-        ..Default::default()
+pub(super) fn ensure_monitor(
+    state: &Arc<AppState>,
+    session: &str,
+    conns: &mut SessionConnections,
+    create: bool,
+) {
+    if conns.monitored() {
+        return;
     }
+    if conns.monitor_handle.take().is_some() {
+        warn!(%session, "monitor died, restarting");
+    }
+    let monitor_session = session.to_string();
+    let monitor_state = Arc::clone(state);
+    let runtime = Arc::clone(&conns.runtime);
+    runtime.set_connecting();
+    // Not the `AppState` JoinSet: the deferred cleanup shuts down one
+    // session through this handle.
+    conns.monitor_handle = Some(tokio::spawn(async move {
+        start_monitoring(runtime, monitor_session, monitor_state, create).await;
+    }));
+    info!(%session, create, "started monitor");
 }
 
 /// Explicitly ensure `session` exists (and has a running monitor), enforcing
@@ -40,15 +40,14 @@ pub(super) async fn ensure_session(
 ) -> Result<(), SessionRejection> {
     let _guard = state.session_create_lock.lock().await;
 
+    if state
+        .sessions
+        .read()
+        .await
+        .get(session)
+        .is_some_and(SessionConnections::monitored)
     {
-        let sessions = state.sessions.read().await;
-        if sessions
-            .get(session)
-            .and_then(|c| c.monitor_handle.as_ref())
-            .is_some_and(|h| !h.is_finished())
-        {
-            return Ok(());
-        }
+        return Ok(());
     }
 
     let exists_in_tmux = session_exists(session).await;
@@ -60,7 +59,7 @@ pub(super) async fn ensure_session(
                 .into_iter()
                 .collect();
         known.extend(state.sessions.read().await.keys().cloned());
-        if !known.contains(session) && !may_create_session(known.len()) {
+        if !known.contains(session) && known.len() >= MAX_AUTO_CREATED_SESSIONS {
             warn!(
                 target: "tmuxy_server::sse",
                 %session,
@@ -73,33 +72,27 @@ pub(super) async fn ensure_session(
 
     let needs_idle_guard = {
         let mut sessions = state.sessions.write().await;
-        let session_conns = sessions
+        let conns = sessions
             .entry(session.to_string())
-            .or_insert_with(SessionConnections::new);
-        let needs_monitor = session_conns
-            .monitor_handle
-            .as_ref()
-            .is_none_or(|h| h.is_finished());
-        if needs_monitor {
-            session_conns.monitor_handle = None;
-            session_conns.monitor_command_tx = None;
-            let monitor_session = session.to_string();
-            let monitor_state = Arc::clone(state);
-            let monitor_broadcast = Arc::clone(&session_conns.broadcast);
-            let create = !exists_in_tmux;
-            session_conns.monitor_handle = Some(tokio::spawn(async move {
-                start_monitoring(monitor_broadcast, monitor_session, monitor_state, create).await;
-            }));
-            info!(%session, create, "started monitor from ensure_session");
-        }
-        session_conns.connections.is_empty()
+            .or_insert_with(|| SessionConnections::new(session, state));
+        ensure_monitor(state, session, conns, !exists_in_tmux);
+        conns.connections.is_empty()
     };
 
     if needs_idle_guard {
-        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(5)).await;
+        schedule_idle_monitor_cleanup(state, session, FIRST_CLIENT_GRACE).await;
     }
     Ok(())
 }
+
+/// How long a monitor started for a client waits for that client to
+/// register its stream before it stops: the request that started it
+/// (`ensure_session`) is not the stream, which a browser opens next.
+const FIRST_CLIENT_GRACE: Duration = Duration::from_secs(5);
+
+/// How long a session's monitor outlives its last client: a page reload
+/// reconnects within a few seconds, onto the same monitor.
+const LAST_CLIENT_GRACE: Duration = Duration::from_secs(2);
 
 /// How long an agent on `/mcp` keeps a session's monitor up after its last
 /// call when no browser is watching. Long enough for an agent that thinks
@@ -120,8 +113,7 @@ pub(crate) async fn monitor_for_agent(
         .read()
         .await
         .get(session.as_str())
-        .and_then(|conns| conns.monitor_handle.as_ref())
-        .is_some_and(|handle| !handle.is_finished());
+        .is_some_and(SessionConnections::monitored);
     if !running {
         if !session_exists(session).await {
             return Err(tmuxy_core::CommandError::invalid(format!(
@@ -132,225 +124,74 @@ pub(crate) async fn monitor_for_agent(
             .await
             .map_err(|rejection| tmuxy_core::CommandError::unavailable(rejection.message()))?;
     }
-    if let Some(conns) = state.sessions.write().await.get_mut(session.as_str()) {
+    hold_for_agent(state, session).await;
+    state.monitor_tx(session).await
+}
+
+pub(crate) async fn hold_for_agent(state: &Arc<AppState>, session: &str) {
+    if let Some(conns) = state.sessions.write().await.get_mut(session) {
         conns.agent_hold_until = Some(tokio::time::Instant::now() + AGENT_HOLD);
     }
-    super::server_commands::wait_for_monitor(state, session).await
 }
 
 /// The viewport size a freshly created window should be resized to, or `None`
 /// when there is none yet (no client has reported one and the size is not
-/// fixed). Feeds `executor`'s shared rewrite so the Tauri app and this server
-/// can't drift on the rewrite shape.
+/// fixed).
 pub(crate) async fn new_window_client_size(
     state: &Arc<AppState>,
     session: &str,
 ) -> Option<(u32, u32)> {
-    let sessions = state.sessions.read().await;
-    sessions.get(session).and_then(|s| s.size())
+    state
+        .runtime(session)
+        .await
+        .and_then(|runtime| runtime.size())
 }
 
-/// Apply a client's viewport: record it, and size tmux by the session's
-/// `@tmuxy-size` policy over every client watching. A report is a use of the
-/// client when the size is new, so it is also the one a `latest` session
-/// follows.
-#[instrument(skip(state), fields(%session))]
-pub(super) async fn set_client_size(
+/// The client a request names by its `X-Connection-Id`, when it is one of
+/// the session's open streams. Without an id one caller's viewport cannot be
+/// told from another's, and a size kept for an id no stream owns would never
+/// be removed: it would pin the session's size for every real client until
+/// they all left.
+pub(super) async fn open_client(
     state: &Arc<AppState>,
     session: &str,
     conn_id: Option<u64>,
-    cols: u32,
-    rows: u32,
-) {
-    // Without an id we cannot tell one caller's viewport from another's, and
-    // guessing would corrupt the size computation for every real client.
-    let Some(conn_id) = conn_id else {
-        warn!(
-            cols,
-            rows, "ignoring client size without an x-connection-id header"
-        );
-        return;
-    };
-    let (cols, rows) = tmuxy_core::client_size::clamp_client_size(cols, rows);
-    debug!(%session, conn_id, cols, rows, "client set size");
-    {
-        let mut sessions = state.sessions.write().await;
-        let Some(session_conns) = sessions.get_mut(session) else {
-            return;
-        };
-        // A size counts only for a stream that is open: nothing would ever
-        // remove one for an id no stream owns, and it would pin the session's
-        // size for every real client until they all left.
-        if !session_conns.connections.contains(&conn_id) {
-            warn!(%session, conn_id, "ignoring client size for a connection with no open stream");
-            return;
-        }
-        // Only a new size is a use of the client. A client whose grid is not
-        // its own size reports the same one again on every update, and
-        // counting that made two clients take a `latest` session from each
-        // other on every frame.
-        let previous = session_conns.client_sizes.insert(conn_id, (cols, rows));
-        if previous != Some((cols, rows)) {
-            session_conns.latest_client = Some(conn_id);
-        }
+) -> Option<u64> {
+    let conn_id = conn_id?;
+    let open = state
+        .sessions
+        .read()
+        .await
+        .get(session)
+        .is_some_and(|conns| conns.connections.contains(&conn_id));
+    if !open {
+        warn!(%session, conn_id, "ignoring a client with no open stream");
     }
-    apply_session_size(state, session).await;
+    open.then_some(conn_id)
 }
 
-/// A client sent a command: it is the one used last. Under `latest` that
-/// moves the session to its viewport.
-pub(super) async fn note_client_activity(
-    state: &Arc<AppState>,
-    session: &str,
-    conn_id: Option<u64>,
-) {
-    let Some(conn_id) = conn_id else { return };
-    let moved = {
-        let sessions = state.sessions.read().await;
-        sessions
-            .get(session)
-            .is_some_and(|s| s.latest_client != Some(conn_id) && s.connections.contains(&conn_id))
-    };
-    if !moved {
-        return;
-    }
-    let follow = {
-        let mut sessions = state.sessions.write().await;
-        let Some(session_conns) = sessions.get_mut(session) else {
-            return;
-        };
-        session_conns.latest_client = Some(conn_id);
-        session_conns.size_policy == SizePolicy::Latest
-    };
-    if follow {
-        apply_session_size(state, session).await;
-    }
-}
-
-/// The config was read: keep its `@tmuxy-size`, and resize when it changed.
-pub(super) async fn set_size_policy(state: &Arc<AppState>, session: &str, policy: SizePolicy) {
-    let changed = {
-        let mut sessions = state.sessions.write().await;
-        let Some(session_conns) = sessions.get_mut(session) else {
-            return;
-        };
-        let changed = session_conns.size_policy != policy;
-        session_conns.size_policy = policy;
-        changed
-    };
-    if changed {
-        debug!(%session, ?policy, "size policy changed");
-        apply_session_size(state, session).await;
-    }
-}
-
-/// Resize tmux to the size the session's policy picks, unless that is what
-/// was sent last — which stops a feedback loop between clients of different
-/// sizes. What reached tmux is remembered as `last_resize`, which is also
-/// what a client's first state is held back for (`initial_state_for_size`).
-pub(super) async fn apply_session_size(state: &Arc<AppState>, session: &str) {
-    let (size, command_tx) = {
-        let sessions = state.sessions.read().await;
-        let Some(session_conns) = sessions.get(session) else {
-            return;
-        };
-        let Some(size) = session_conns.size() else {
-            return;
-        };
-        if session_conns.last_resize == Some(size) {
-            return;
-        }
-        debug!(%session, sizes = ?session_conns.client_sizes, ?size, policy = ?session_conns.size_policy, "sizing session");
-        // `last_resize` is NOT written here. It is the record of a size that
-        // reached tmux, and it is only known below whether one did: a monitor
-        // that has not registered its command channel yet means the resize is
-        // dropped, and marking it applied made every later attempt
-        // short-circuit on the check above — the client's size lost for the
-        // life of the session, with the window left at the control-mode PTY's
-        // 200x50 while the client drew 41 columns.
-        (size, session_conns.monitor_command_tx.clone())
-    };
-
-    let (cols, rows) = size;
-    let delivered = match command_tx {
-        Some(tx) => match tx.send(MonitorCommand::ResizeWindow { cols, rows }).await {
-            Ok(_) => {
-                trace!("resize command sent via monitor");
-                true
-            }
-            // The monitor has gone; the next one sizes the session from the
-            // client sizes it is given, so this one is asked for again rather
-            // than run behind its back.
-            Err(e) => {
-                warn!(error = %e, "monitor channel closed, resize not sent");
-                false
-            }
-        },
-        None => {
-            // The monitor is still connecting. Leaving `last_resize` unset is
-            // the whole point: the next client size — or the same one again —
-            // has to be able to try, or this size never arrives.
-            debug!("no monitor channel yet, leaving the size to be asked again");
-            false
-        }
-    };
-    if delivered {
-        let mut sessions = state.sessions.write().await;
-        if let Some(session_conns) = sessions.get_mut(session) {
-            session_conns.last_resize = Some(size);
-        }
-    }
-}
-
-/// Remove a connection and resize tmux to the clients still watching
 pub(super) async fn cleanup_connection(state: &Arc<AppState>, session: &str, conn_id: u64) {
-    let (resize, needs_deferred_cleanup) = {
+    let (runtime, last_left) = {
         let mut sessions = state.sessions.write().await;
-
-        let mut resize = false;
-        let mut deferred = false;
-
-        if let Some(session_conns) = sessions.get_mut(session) {
-            // Remove this connection
-            session_conns.connections.retain(|&id| id != conn_id);
-            let had_size = session_conns.client_sizes.remove(&conn_id).is_some();
-            if session_conns.latest_client == Some(conn_id) {
-                session_conns.latest_client = None;
-            }
-
-            if session_conns.connections.is_empty() {
-                // Don't immediately kill the monitor — a page reload will reconnect
-                // within a few seconds. Defer cleanup to give new clients a chance.
-                info!(%session, "last client disconnected, deferring monitor cleanup (2s grace period)");
-                deferred = true;
-            } else {
-                resize = had_size;
-            }
-        }
-
-        (resize, deferred)
+        let Some(conns) = sessions.get_mut(session) else {
+            return;
+        };
+        conns.connections.retain(|&id| id != conn_id);
+        (Arc::clone(&conns.runtime), conns.connections.is_empty())
     };
-
-    // Defer monitor cleanup: wait `grace`, then check if clients connected.
-    // Tracked in `AppState::join_set` so the grace-period sleep doesn't survive
-    // server shutdown.
-    if needs_deferred_cleanup {
-        schedule_idle_monitor_cleanup(state, session, Duration::from_secs(2)).await;
-        return;
-    }
-
-    // Size the session to the clients still watching.
-    if resize {
-        apply_session_size(state, session).await;
+    runtime.client_left(conn_id).await;
+    if last_left {
+        info!(%session, grace = ?LAST_CLIENT_GRACE, "last client disconnected, deferring monitor cleanup");
+        schedule_idle_monitor_cleanup(state, session, LAST_CLIENT_GRACE).await;
     }
 }
 
-/// Wait `grace`, and if `session` still has no attached SSE connections, shut
-/// down its monitor and remove its map entry. A client that registers during
-/// the wait retires the guard (`SessionConnections::register`): the guard
-/// scheduled when that client leaves again is the one that counts, so a
-/// reload inside an older guard's grace is not cut short by it. An agent's
-/// hold (`SessionConnections::agent_hold_until`) is waited out the same way.
+const MONITOR_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// A client that registers during the wait retires the guard
+/// (`SessionConnections::register`): the guard scheduled when that client
+/// leaves again is the one that counts, so a reload inside an older guard's
+/// grace is not cut short by it.
 pub(super) async fn schedule_idle_monitor_cleanup(
     state: &Arc<AppState>,
     session: &str,
@@ -374,7 +215,7 @@ pub(super) async fn schedule_idle_monitor_cleanup(
             // An agent's hold (`agent_hold_until`) outlasting the grace sends
             // the guard back to sleep for what is left of it: the hold is
             // extended by every call, and this guard is the one that ends it.
-            let (cmd_tx, monitor_handle) = loop {
+            let stopped = loop {
                 tokio::select! {
                     _ = tokio::time::sleep(grace) => {}
                     _ = shutdown.cancelled() => {
@@ -384,15 +225,15 @@ pub(super) async fn schedule_idle_monitor_cleanup(
                 }
                 let mut sessions = state.sessions.write().await;
                 let Some(session_conns) = sessions.get_mut(&session) else {
-                    break (None, None);
+                    break None;
                 };
                 if session_conns.idle_guard_gen != generation {
                     debug!(%session, "a client came and went during grace period, leaving it to the newer guard");
-                    break (None, None);
+                    break None;
                 }
                 if !session_conns.connections.is_empty() {
                     debug!(%session, "client connected during grace period, keeping monitor alive");
-                    break (None, None);
+                    break None;
                 }
                 if let Some(left) = session_conns.agent_hold_remaining(tokio::time::Instant::now()) {
                     debug!(%session, ?left, "an agent still holds the monitor, waiting for it");
@@ -400,30 +241,22 @@ pub(super) async fn schedule_idle_monitor_cleanup(
                     continue;
                 }
                 info!(%session, "no clients connected after grace period, stopping monitor");
-                let handle = session_conns.monitor_handle.take();
-                let tx = session_conns.monitor_command_tx.take();
-                sessions.remove(&session);
-                break (tx, handle);
+                break sessions.remove(&session);
             };
 
-            if let Some(handle) = monitor_handle {
-                if handle.is_finished() {
-                    debug!("monitor task already finished (session was killed)");
-                } else if let Some(ref tx) = cmd_tx {
-                    info!("sending graceful shutdown to monitor");
-                    let _ = tx.send(MonitorCommand::Shutdown).await;
-                    for _ in 0..20 {
-                        if handle.is_finished() {
-                            break;
-                        }
-                        tokio::time::sleep(Duration::from_millis(100)).await;
-                    }
-                    if !handle.is_finished() {
-                        warn!("monitor task still running after graceful shutdown (not aborting)");
-                    } else {
-                        debug!("monitor task finished gracefully");
-                    }
-                }
+            let Some(conns) = stopped else { return };
+            let Some(handle) = conns.monitor_handle else {
+                return;
+            };
+            if handle.is_finished() {
+                debug!("monitor task already finished (session was killed)");
+                return;
+            }
+            info!("sending graceful shutdown to monitor");
+            conns.runtime.shut_down_connection().await;
+            match tokio::time::timeout(MONITOR_STOP_TIMEOUT, handle).await {
+                Ok(_) => debug!("monitor task finished gracefully"),
+                Err(_) => warn!("monitor task still running after graceful shutdown (not aborting)"),
             }
         })
         .await;

@@ -5377,8 +5377,10 @@ dependencies = [
  "criterion",
  "dirs",
  "flate2",
+ "getrandom 0.4.3",
  "icy_sixel",
  "libc",
+ "nix",
  "png 0.18.1",
  "proptest",
  "pty-process",
@@ -5393,14 +5395,6 @@ dependencies = [
  "url",
  "vt100",
  "web-time",
-]
-
-[[package]]
-name = "tmuxy-group"
-version = "0.1.4"
-dependencies = [
- "clap",
- "tmuxy-core",
 ]
 
 [[package]]
@@ -5434,12 +5428,11 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tmuxy-core",
- "tmuxy-group",
+ "tmuxy-verbs",
  "tokio",
  "tokio-util",
  "tower",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5472,10 +5465,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmuxy-verbs"
+version = "0.1.4"
+dependencies = [
+ "base64 0.22.1",
+ "clap",
+ "dirs",
+ "libc",
+ "serde",
+ "serde_json",
+ "tmuxy-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tmuxy-wasm"
 version = "0.1.4"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.4.3",
  "serde",
  "serde-wasm-bindgen",
  "tmuxy-core",

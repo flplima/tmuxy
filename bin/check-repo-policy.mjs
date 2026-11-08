@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkDocPaths } from './ci/doc-paths.mjs';
 import { checkFileTokenLimit } from './ci/file-token-limit.mjs';
+import { checkInvariantEnforcers } from './ci/invariant-enforcers.mjs';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const errors = [];
@@ -64,6 +66,20 @@ function checkControlModeEnforcement() {
         }
         re.lastIndex = 0;
       }
+    }
+  }
+}
+
+// The E2E suites verify through the DOM, not the tmux CLI (docs/TESTS.md):
+// eslint.config.mjs bans these calls in the interaction helpers and the test
+// files, and a config that stops banning one has weakened a rule.
+function checkEslintBans() {
+  const config = fs.readFileSync(path.join(root, 'eslint.config.mjs'), 'utf8');
+  for (const banned of ['tmuxExec', 'tmuxRun', 'tmuxCmd', 'execSync']) {
+    if (!config.includes(`callee.name='${banned}'`)) {
+      addError(
+        `[eslint] eslint.config.mjs must ban ${banned} (no-restricted-syntax): tests verify via the DOM, not the tmux CLI. See docs/TESTS.md.`,
+      );
     }
   }
 }
@@ -159,8 +175,7 @@ function checkDocsToScriptsConsistency() {
     for (const name of Object.keys(pkg.scripts || {})) scripts.add(name);
   }
 
-  // Every doc, not a hand-kept four: a path a doc names is checked wherever
-  // the doc is, so a renamed file is caught by the doc that still names it.
+  // Every doc, so a renamed file is caught by the doc that still names it.
   const commandDocs = [
     'AGENTS.md',
     'CONTRIBUTING.md',
@@ -178,23 +193,6 @@ function checkDocsToScriptsConsistency() {
     'npm run check:full',
   ];
 
-  // A path a doc names may be one the build makes — a wasm `pkg`, a `dist`,
-  // the probe's artifacts. Those exist on the machine that wrote the doc and
-  // not in a fresh checkout, so existence is asked only of paths git tracks:
-  // anything .gitignore lists is taken as generated.
-  const ignored = fs
-    .readFileSync(path.join(root, '.gitignore'), 'utf8')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#') && !line.startsWith('!') && !line.includes('*'))
-    .map((line) => line.replace(/^\//, '').replace(/\/$/, ''));
-  const gitignored = (rel) =>
-    ignored.some((entry) =>
-      entry.includes('/')
-        ? rel === entry || rel.startsWith(`${entry}/`)
-        : rel.split('/').includes(entry),
-    );
-
   for (const docPath of commandDocs) {
     const full = path.join(root, docPath);
     const content = fs.readFileSync(full, 'utf8');
@@ -203,27 +201,6 @@ function checkDocsToScriptsConsistency() {
       const scriptName = match[1];
       if (!scripts.has(scriptName)) {
         addError(`[docs] ${docPath} references missing npm script: ${scriptName}`);
-      }
-    }
-
-    const inlineCode = content.match(/`[^`]+`/g) || [];
-    for (const tokenRaw of inlineCode) {
-      const token = tokenRaw.slice(1, -1).trim();
-      if (!token.includes('/')) continue;
-      if (token.includes(' ')) continue;
-      if (token.includes('*') || token.includes('..') || token.includes('://')) continue;
-      if (
-        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|\.agents)\//.test(
-          token,
-        ) &&
-        !['AGENTS.md', 'Cargo.lock', 'package.json'].includes(token)
-      ) {
-        continue;
-      }
-      const cleaned = token.replace(/[),.:;]+$/, '');
-      const candidate = path.join(root, cleaned);
-      if (!gitignored(cleaned) && !fs.existsSync(candidate)) {
-        addError(`[docs] ${docPath} references missing path: ${cleaned}`);
       }
     }
   }
@@ -270,10 +247,10 @@ const BLIND_WAIT_CEILING = {
   // the helper, so this is the number that matters most.
   'tests/helpers': 0,
   // Test bodies. Each one affects a single test.
-  tests: 11,
+  tests: 3,
   // Stories over real tmux wait on it instead (src/stories/tmuxBarrier.ts).
   'v86 stories': 0,
-  stories: 15,
+  stories: 14,
 };
 
 /** The source with comments and string/template literals blanked out, offsets kept. */
@@ -406,10 +383,14 @@ function checkBlindWaitRatchet() {
 }
 
 checkControlModeEnforcement();
+checkEslintBans();
 checkWorkflowInvariants();
 checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
 checkFileTokenLimit(root, addError);
+checkInvariantEnforcers(root, addError);
+// Paths and job names the docs quote; --worktree counts untracked files as present.
+checkDocPaths(root, addError, { worktree: process.argv.includes('--worktree') });
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');

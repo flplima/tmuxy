@@ -1,40 +1,24 @@
 /**
- * Axis-B latency HUD — a dev-only overlay reading `latencyTracker`.
- *
- * Shows the input→paint round-trip distribution, outstanding (pending) inputs,
- * the applied-update rate, and the worst recent inter-update gap (the stall
- * signal). This is what you watch while driving the app over a link to
- * compare transports.
- *
- * Only mounted when `latencyTracker.isEnabled()` (via `?perf` / localStorage),
- * so it — and the store subscription below — cost nothing in production.
- *
- * Store notifications are coalesced to one animation frame so a heavy-output
- * burst can't storm React re-renders and distort the numbers being measured.
+ * Axis-B latency HUD (docs/PERFORMANCE.md), mounted only when
+ * `latencyTracker.isEnabled()` (`?perf` / localStorage). While it is mounted,
+ * the tracker's notifications are coalesced to one animation frame so an
+ * output burst cannot storm React re-renders and distort the numbers being
+ * measured.
  */
 
 import { useSyncExternalStore } from 'react';
 import { latencyTracker, type LatencySnapshot } from '../infra/latencyTracker';
 
-let rafPending = false;
-const hudListeners = new Set<() => void>();
-
-latencyTracker.subscribe(() => {
-  if (rafPending) return;
-  rafPending = true;
-  const raf =
-    typeof requestAnimationFrame !== 'undefined'
-      ? requestAnimationFrame
-      : (cb: FrameRequestCallback) => setTimeout(() => cb(0), 16);
-  raf(() => {
-    rafPending = false;
-    hudListeners.forEach((l) => l());
-  });
-});
-
 function subscribe(cb: () => void): () => void {
-  hudListeners.add(cb);
-  return () => hudListeners.delete(cb);
+  let framePending = false;
+  return latencyTracker.subscribe(() => {
+    if (framePending) return;
+    framePending = true;
+    requestAnimationFrame(() => {
+      framePending = false;
+      cb();
+    });
+  });
 }
 
 function getSnapshot(): LatencySnapshot {

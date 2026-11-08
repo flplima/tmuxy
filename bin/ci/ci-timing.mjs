@@ -6,7 +6,7 @@
  *   bin/ci/ci-timing.mjs <run-id>             print it
  *   bin/ci/ci-timing.mjs <run-id> --summary   markdown, for $GITHUB_STEP_SUMMARY
  *
- * The run's own `timing` job writes the summary onto every run, so the
+ * The run's own `ci` job writes the summary onto every run, so the
  * question "what got slower?" has an answer on the run page rather than a
  * green tick. Needs `gh` with access to the repository (GH_TOKEN on a runner).
  */

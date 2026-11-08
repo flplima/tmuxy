@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createActor, type AnyActorRef } from 'xstate';
 import { createSizeActor } from '../sizeActor';
-import { PHONE_LANDSCAPE_KEYS, PHONE_STATUS_HEIGHT } from '../../../utils/phoneLayout';
+import { PHONE_LANDSCAPE_KEYS, PHONE_STATUS_HEIGHT } from '../../../infra/dom/phoneLayout';
 
 class RecordingObserver {
   static live = new Set<RecordingObserver>();

@@ -83,14 +83,8 @@ fn a_pid_file_written_with_a_trailing_newline_still_matches_its_owner() {
 
 /// Version skew, case 3 (see `tests/version_skew.rs`): two servers running
 /// at once must not share a pid file, or stopping the second stops the
-/// first.
-///
-/// They are the normal state of a dev machine — a released build on
-/// `tmuxy`, the dev server on `tmuxy-dev`, the test suite on `tmuxy-test`
-/// — and each writes its pid so `tmuxy server stop` and `status` can find
-/// it. One shared file would mean the second server's write silently
-/// replaces the first's, after which `stop` signals whichever pid was
-/// written last, on whatever port the user asked about.
+/// first. They are the normal state of a dev machine — a released build on
+/// `tmuxy`, the dev server on `tmuxy-dev`, the test suite on `tmuxy-test`.
 #[test]
 fn each_port_owns_its_own_pid_file() {
     let default = pid_file_path(DEFAULT_PORT);
@@ -99,9 +93,11 @@ fn each_port_owns_its_own_pid_file() {
     assert_ne!(other, pid_file_path(9999));
     // Stable, or a server cannot find the file it wrote itself.
     assert_eq!(default, pid_file_path(DEFAULT_PORT));
-    // The default port keeps the historical name, which `stop` and every
-    // existing install already look for.
-    assert_eq!(default.file_name().unwrap(), "tmuxy.pid");
+    // One name for every port, the default one included.
+    assert_eq!(
+        default.file_name().unwrap(),
+        format!("tmuxy-{DEFAULT_PORT}.pid").as_str()
+    );
     assert_eq!(
         other.file_name().unwrap(),
         format!("tmuxy-{}.pid", DEFAULT_PORT + 1).as_str()
@@ -146,7 +142,7 @@ fn a_routable_address_needs_a_password_or_no_auth() {
     );
 }
 
-/// SEC-15: the allowed list was kept only on a loopback bind, so
+/// The allowed list used to be kept only on a loopback bind, so
 /// `--allowed-host` (and `TMUXY_ALLOWED_HOSTS`) silently did nothing on the
 /// routable bind that actually needed it, where every other `Host` should
 /// answer 403.
@@ -182,7 +178,7 @@ fn allowed_hosts_ride_along_on_a_loopback_bind() {
 fn served_app(password: Option<&str>) -> axum::Router {
     let app = crate::state::api_routes(loopback(vec![]))
         .fallback(serve_embedded)
-        .with_state(Arc::new(AppState::new()));
+        .with_state(Arc::new(AppState::default()));
     with_optional_auth(app, password.map(str::to_string), loopback(vec![]))
 }
 
@@ -209,11 +205,8 @@ fn probe(target: &str, auth: Option<&str>) -> axum::http::Request<axum::body::Bo
             axum::http::HeaderValue::from_str(value).unwrap(),
         );
     }
-    // The auth layer rate-limits per peer address, so it extracts
-    // `ConnectInfo` — which the server populates via
+    // The auth layer extracts `ConnectInfo`, which the server populates via
     // `into_make_service_with_connect_info` and a bare `oneshot` does not.
-    // Without it every probe would 500 on a missing extension rather than
-    // exercise the gate.
     request
         .extensions_mut()
         .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((
@@ -356,7 +349,6 @@ async fn with_no_password_the_layer_is_not_installed() {
     assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
-/// The value of one directive in a policy, `None` when it is absent.
 fn directive<'a>(policy: &'a str, name: &str) -> Option<&'a str> {
     policy.split(';').map(str::trim).find_map(|d| {
         d.strip_prefix(name)
@@ -454,7 +446,7 @@ async fn the_dev_frontend_is_served_under_the_framing_rules() {
 #[tokio::test]
 async fn a_preview_page_keeps_its_own_policy_and_can_be_framed_by_the_app() {
     use tower::ServiceExt;
-    let state = Arc::new(AppState::new());
+    let state = Arc::new(AppState::default());
     state
         .preview_pages
         .stage(

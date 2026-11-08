@@ -8,7 +8,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import { SplashScreen } from './SplashScreen';
-import type { AttachChoice } from '../utils/splashWindow';
+import type { AttachChoice } from '../infra/splashWindow';
 
 const SESSIONS = [
   { name: 'tmuxy', windows: 4, attached: true },

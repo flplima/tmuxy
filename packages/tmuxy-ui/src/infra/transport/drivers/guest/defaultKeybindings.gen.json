@@ -1,0 +1,428 @@
+{
+  "_generated": [
+    "Generated from tmuxy-core by packages/tmuxy-core/tests/generated_constants.rs; do not edit.",
+    "Rewrite with UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants"
+  ],
+  "keybindings": {
+    "prefix_key": "C-a",
+    "repeat_time_ms": 300,
+    "prefix_bindings": [
+      {
+        "key": "-",
+        "command": "split-window -v",
+        "description": "Split pane horizontally",
+        "repeat": false
+      },
+      {
+        "key": "|",
+        "command": "split-window -h",
+        "description": "Split pane vertically",
+        "repeat": false
+      },
+      {
+        "key": "\\",
+        "command": "split-window -h",
+        "description": "Split pane vertically",
+        "repeat": false
+      },
+      {
+        "key": "\"",
+        "command": "split-window -v",
+        "description": "Split pane horizontally",
+        "repeat": false
+      },
+      {
+        "key": "%",
+        "command": "split-window -h",
+        "description": "Split pane vertically",
+        "repeat": false
+      },
+      {
+        "key": "c",
+        "command": "new-window",
+        "description": "Create new window",
+        "repeat": false
+      },
+      {
+        "key": "H",
+        "command": "resize-pane -L 5",
+        "description": "Resize pane",
+        "repeat": true
+      },
+      {
+        "key": "J",
+        "command": "resize-pane -D 5",
+        "description": "Resize pane",
+        "repeat": true
+      },
+      {
+        "key": "K",
+        "command": "resize-pane -U 5",
+        "description": "Resize pane",
+        "repeat": true
+      },
+      {
+        "key": "L",
+        "command": "resize-pane -R 5",
+        "description": "Resize pane",
+        "repeat": true
+      },
+      {
+        "key": "p",
+        "command": "switch-client -T pane",
+        "description": "switch-client -T pane",
+        "repeat": false
+      },
+      {
+        "key": "t",
+        "command": "switch-client -T tab",
+        "description": "switch-client -T tab",
+        "repeat": false
+      },
+      {
+        "key": "=",
+        "command": "tmuxy-pane-group-add",
+        "description": "tmuxy-pane-group-add",
+        "repeat": false
+      },
+      {
+        "key": ">",
+        "command": "swap-pane -D",
+        "description": "swap-pane -D",
+        "repeat": false
+      },
+      {
+        "key": "<",
+        "command": "swap-pane -U",
+        "description": "swap-pane -U",
+        "repeat": false
+      },
+      {
+        "key": "n",
+        "command": "next-window",
+        "description": "Next window",
+        "repeat": false
+      },
+      {
+        "key": "x",
+        "command": "kill-pane",
+        "description": "kill-pane",
+        "repeat": false
+      },
+      {
+        "key": "&",
+        "command": "kill-window",
+        "description": "Close window",
+        "repeat": false
+      },
+      {
+        "key": "o",
+        "command": "select-pane -t :.+",
+        "description": "Select pane",
+        "repeat": false
+      },
+      {
+        "key": "z",
+        "command": "resize-pane -Z",
+        "description": "Toggle pane fullscreen",
+        "repeat": false
+      },
+      {
+        "key": "Up",
+        "command": "select-pane -U",
+        "description": "Select pane",
+        "repeat": false
+      },
+      {
+        "key": "Down",
+        "command": "select-pane -D",
+        "description": "Select pane",
+        "repeat": false
+      },
+      {
+        "key": "Left",
+        "command": "select-pane -L",
+        "description": "Select pane",
+        "repeat": false
+      },
+      {
+        "key": "Right",
+        "command": "select-pane -R",
+        "description": "Select pane",
+        "repeat": false
+      },
+      {
+        "key": "[",
+        "command": "copy-mode",
+        "description": "Enter copy mode",
+        "repeat": false
+      },
+      {
+        "key": "Space",
+        "command": "next-layout",
+        "description": "Cycle through pane layouts",
+        "repeat": false
+      },
+      {
+        "key": "0",
+        "command": "select-window -t :=0",
+        "description": "Select window",
+        "repeat": false
+      },
+      {
+        "key": "1",
+        "command": "select-window -t :=1",
+        "description": "Select window",
+        "repeat": false
+      },
+      {
+        "key": "2",
+        "command": "select-window -t :=2",
+        "description": "Select window",
+        "repeat": false
+      }
+    ],
+    "root_bindings": [
+      {
+        "key": "C-h",
+        "command": "tmuxy-nav-left",
+        "description": "tmuxy-nav-left",
+        "repeat": false
+      },
+      {
+        "key": "C-j",
+        "command": "tmuxy-nav-down",
+        "description": "tmuxy-nav-down",
+        "repeat": false
+      },
+      {
+        "key": "C-k",
+        "command": "tmuxy-nav-up",
+        "description": "tmuxy-nav-up",
+        "repeat": false
+      },
+      {
+        "key": "C-l",
+        "command": "tmuxy-nav-right",
+        "description": "tmuxy-nav-right",
+        "repeat": false
+      },
+      {
+        "key": "C-Left",
+        "command": "tmuxy-nav-left",
+        "description": "tmuxy-nav-left",
+        "repeat": false
+      },
+      {
+        "key": "C-Right",
+        "command": "tmuxy-nav-right",
+        "description": "tmuxy-nav-right",
+        "repeat": false
+      },
+      {
+        "key": "C-Up",
+        "command": "tmuxy-nav-up",
+        "description": "tmuxy-nav-up",
+        "repeat": false
+      },
+      {
+        "key": "C-Down",
+        "command": "tmuxy-nav-down",
+        "description": "tmuxy-nav-down",
+        "repeat": false
+      },
+      {
+        "key": "C-Tab",
+        "command": "next-window",
+        "description": "Next window",
+        "repeat": false
+      },
+      {
+        "key": "C-S-Tab",
+        "command": "previous-window",
+        "description": "Previous window",
+        "repeat": false
+      }
+    ],
+    "tables": {
+      "pane": [
+        {
+          "key": "h",
+          "command": "tmuxy-nav-left",
+          "description": "tmuxy-nav-left",
+          "repeat": false
+        },
+        {
+          "key": "j",
+          "command": "tmuxy-nav-down",
+          "description": "tmuxy-nav-down",
+          "repeat": false
+        },
+        {
+          "key": "k",
+          "command": "tmuxy-nav-up",
+          "description": "tmuxy-nav-up",
+          "repeat": false
+        },
+        {
+          "key": "l",
+          "command": "tmuxy-nav-right",
+          "description": "tmuxy-nav-right",
+          "repeat": false
+        },
+        {
+          "key": "H",
+          "command": "resize-pane -L 5",
+          "description": "Resize pane",
+          "repeat": false
+        },
+        {
+          "key": "J",
+          "command": "resize-pane -D 5",
+          "description": "Resize pane",
+          "repeat": false
+        },
+        {
+          "key": "K",
+          "command": "resize-pane -U 5",
+          "description": "Resize pane",
+          "repeat": false
+        },
+        {
+          "key": "L",
+          "command": "resize-pane -R 5",
+          "description": "Resize pane",
+          "repeat": false
+        },
+        {
+          "key": "-",
+          "command": "split-window -v",
+          "description": "Split pane horizontally",
+          "repeat": false
+        },
+        {
+          "key": "|",
+          "command": "split-window -h",
+          "description": "Split pane vertically",
+          "repeat": false
+        },
+        {
+          "key": "x",
+          "command": "kill-pane",
+          "description": "kill-pane",
+          "repeat": false
+        },
+        {
+          "key": "z",
+          "command": "resize-pane -Z",
+          "description": "Toggle pane fullscreen",
+          "repeat": false
+        },
+        {
+          "key": ">",
+          "command": "swap-pane -D",
+          "description": "swap-pane -D",
+          "repeat": false
+        },
+        {
+          "key": "<",
+          "command": "swap-pane -U",
+          "description": "swap-pane -U",
+          "repeat": false
+        },
+        {
+          "key": "b",
+          "command": "break-pane",
+          "description": "Convert pane to window",
+          "repeat": false
+        }
+      ],
+      "tab": [
+        {
+          "key": "h",
+          "command": "previous-window",
+          "description": "Previous window",
+          "repeat": false
+        },
+        {
+          "key": "l",
+          "command": "next-window",
+          "description": "Next window",
+          "repeat": false
+        },
+        {
+          "key": "c",
+          "command": "new-window",
+          "description": "Create new window",
+          "repeat": false
+        },
+        {
+          "key": "x",
+          "command": "kill-window",
+          "description": "Close window",
+          "repeat": false
+        },
+        {
+          "key": ",",
+          "command": "command-prompt -I \"#W\" \"rename-window -- \\\"%%%\\\"\"",
+          "description": "Enter command mode",
+          "repeat": false
+        },
+        {
+          "key": "1",
+          "command": "select-window -t 1",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "2",
+          "command": "select-window -t 2",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "3",
+          "command": "select-window -t 3",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "4",
+          "command": "select-window -t 4",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "5",
+          "command": "select-window -t 5",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "6",
+          "command": "select-window -t 6",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "7",
+          "command": "select-window -t 7",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "8",
+          "command": "select-window -t 8",
+          "description": "Select window",
+          "repeat": false
+        },
+        {
+          "key": "9",
+          "command": "select-window -t 9",
+          "description": "Select window",
+          "repeat": false
+        }
+      ]
+    }
+  }
+}

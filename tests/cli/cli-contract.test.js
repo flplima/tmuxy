@@ -77,6 +77,15 @@ describe('label targets', () => {
     '\\n',
   );
 
+  // tmux seeds every untitled pane's title with the host name, so a raw
+  // `#{pane_title}` made the host name a label of every such pane: the title
+  // is read as the app sets it, the seed filtered out.
+  test('a title is read without the host name tmux seeds it with', () => {
+    const { tmuxCalls } = runCLI(['pane', 'kill', 'logs'], { env: { MOCK_TMUX_LABELS: LABELS } });
+    const listing = tmuxCalls.find((c) => c.args[0] === 'list-panes');
+    expect(listing.args.join(' ')).toContain('#{?#{==:#{pane_title},#{host}},,#{pane_title}}');
+  });
+
   test('a label naming one pane is that pane', () => {
     const { exitCode, tmuxCalls, stdout } = runCLI(['pane', 'kill', 'logs', '--json'], {
       env: { MOCK_TMUX_LABELS: LABELS },
@@ -138,12 +147,12 @@ describe('label targets', () => {
       env: {
         ...IN_PANE_1,
         MOCK_TMUX_LABELS: LABELS,
-        MOCK_TMUX_ANSWER: 'yes',
         MOCK_TMUX_PANE_ID: '%5',
       },
     });
     expect(sent.exitCode).toBe(0);
-    expect(runShells(sent.tmuxCalls).some((l) => l.includes("send-keys -t '%5'"))).toBe(true);
+    // The resolved pane is what the server binary's `send` verb types into.
+    expect(sent.stdout).toMatch(/mock-server-started send --target %5 /);
 
     const none = runCLI(['pane', 'send', '-t', 'nope', 'ls'], {
       env: { ...IN_PANE_1, MOCK_TMUX_LABELS: LABELS },
@@ -174,10 +183,6 @@ describe('the caller’s pane is the target', () => {
     [['pane', 'zoom'], 'resizep -Z -t %1'],
     [['pane', 'resize', '-U', '5'], 'resizep -t %1 -U 5'],
     [['pane', 'break'], "breakp -s %1 -t '#{session_id}:' -P -F '##{window_id}'"],
-    [
-      ['tab', 'create', 'x'],
-      "splitw -t %1 \\; breakp -t '#{session_id}:' -n 'x' -P -F '##{window_id}'",
-    ],
     [
       ['tab', 'kill'],
       `killw -t %1 \\; run-shell 'bash ${path.resolve(__dirname, '../../packages/tmuxy-cli/bin/tmuxy')}/pane-group gc'`,
@@ -235,7 +240,7 @@ describe('pane run', () => {
     expect(stdout.trim()).toBe('%99');
     const [split, label] = runShells(tmuxCalls);
     expect(split).toMatch(
-      /^TMUX_PANE=%1 tmux -L tmuxy splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash \/tmp\/tmuxy-run\.[^/]+\/run\.sh'$/,
+      /^TMUX_PANE=%1 tmux -L tmuxy splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash [^']*\/tmuxy-run\.[^/]+\/run\.sh'$/,
     );
     expect(label).toBe("TMUX_PANE=%1 tmux -L tmuxy set-option -p -t %99 @tmuxy-label 'logs'");
   });
@@ -247,7 +252,8 @@ describe('pane run', () => {
     );
     expect(exitCode).toBe(0);
     const [split] = runShells(tmuxCalls);
-    const wrapper = /'bash (\/tmp\/tmuxy-run\.[^/]+\/run\.sh)'/.exec(split)[1];
+    // Under $TMPDIR (macOS: /var/folders/…/T/), never a fixed /tmp.
+    const wrapper = /'bash ([^']*\/tmuxy-run\.[^/]+\/run\.sh)'/.exec(split)[1];
     const script = fs.readFileSync(wrapper, 'utf8');
     fs.rmSync(path.dirname(wrapper), { recursive: true, force: true });
     expect(script).toContain('sh -c echo\\ hello\\ from\\ logs\\;\\ sleep\\ 300');
@@ -324,15 +330,24 @@ describe('pane capture', () => {
     expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-J', '-e', '-t', '%2']);
   });
 
-  test('--format html turns colours into spans and escapes the text', () => {
-    const { stdout, exitCode } = runCLI(['pane', 'capture', '--format', 'html'], {
-      env: { MOCK_TMUX_CAPTURE: '\x1b[1;31mFAIL\x1b[0m <a> \x1b[38;5;208mx\x1b[39m' },
+  // The HTML itself is tmuxy-core's (capture_html, with its tests); the guest
+  // suite runs it for real (cli-guest-verbs.test.js).
+  test('--format html hands the colour capture to the server binary and prints its answer', () => {
+    const capture = '\x1b[1;31mFAIL\x1b[0m <a>';
+    const { stdout, exitCode, tmuxCalls } = runCLI(['pane', 'capture', '--format', 'html'], {
+      env: { MOCK_TMUX_CAPTURE: capture },
     });
     expect(exitCode).toBe(0);
-    expect(stdout).toContain('<pre class="tmuxy-capture">');
-    expect(stdout).toContain('<span class="bold fg-1">FAIL</span> &lt;a&gt; ');
-    expect(stdout).toContain('<span class="fg-208">x</span>');
-    expect(stdout).toContain('</pre>');
+    expect(tmuxCalls[0].args).toEqual(['capture-pane', '-p', '-e']);
+    expect(stdout).toBe(`html-of[${capture}\n]\n`);
+    const json = runCLI(['pane', 'capture', '--format', 'html', '--json'], {
+      env: { MOCK_TMUX_CAPTURE: capture },
+    });
+    expect(JSON.parse(json.stdout)).toEqual({
+      content: `html-of[${capture}\n]`,
+      format: 'html',
+      paneId: '',
+    });
   });
 
   test('--json carries the format', () => {
@@ -350,12 +365,10 @@ describe('--json on every command', () => {
     [['pane', 'swap', '%0', '%1'], { ok: true, src: '%0', dst: '%1' }],
     [['pane', 'zoom'], { ok: true }],
     [['pane', 'break'], { ok: true, tabId: '@99' }],
-    [['tab', 'create'], { ok: true, tabId: '@99' }],
     [['tab', 'kill', '@2'], { ok: true, tabId: '@2' }],
     [['tab', 'rename', 'x'], { ok: true, name: 'x' }],
     [['tab', 'layout', 'tiled'], { ok: true, layout: 'tiled' }],
     [['nav', 'left'], { ok: true, direction: 'left' }],
-    [['run', 'display-message', 'hi'], { ok: true, status: 0, stdout: '' }],
     [['--version'], { ok: true, version: expect.stringMatching(/^\d+\.\d+\.\d+/) }],
   ])('%j --json', (args, expected) => {
     const { stdout, exitCode } = runCLI([...args, '--json']);
@@ -363,11 +376,12 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual(expected);
   });
 
-  test('pane state and send answer with the pane', () => {
+  /** `pane send`'s own answer is the `send` verb's, asked for with `--json`. */
+  test('pane state answers with the pane, and send asks its verb for JSON', () => {
     const state = runCLI(['pane', 'state', 'working', '--json'], { env: IN_PANE_1 });
     expect(JSON.parse(state.stdout)).toEqual({ ok: true, paneId: '%1', state: 'working' });
     const send = runCLI(['pane', 'send', 'ls', '--json'], { env: IN_PANE_1 });
-    expect(JSON.parse(send.stdout)).toEqual({ ok: true, paneId: '%1', sent: true });
+    expect(send.stdout).toMatch(/mock-server-started send --target %1 .* --json -- ls/);
   });
 
   test('a failure is one object on stdout, with the exit code', () => {
@@ -377,21 +391,27 @@ describe('--json on every command', () => {
     expect(JSON.parse(stdout)).toEqual({ ok: false, error: 'Unknown pane command: frob', code: 2 });
   });
 
-  test('run --json reports a failed tmux command without failing the parse', () => {
-    const { stdout, exitCode } = runCLI(['run', 'kill-session', '-t', 'nope', '--json'], {
-      env: { MOCK_TMUX_EXIT_CODE: '1' },
-    });
-    expect(exitCode).toBe(1);
-    expect(JSON.parse(stdout)).toEqual({ ok: false, status: 1, stdout: '' });
+  // A script's own usage errors keep the contract too.
+  test.each([
+    [['pane', 'send', '--frob', 'x'], "unknown option '--frob'"],
+    [['pane', 'send', '--timeout', 'soon', 'x'], '--timeout takes a positive'],
+    [['open', '--frob'], 'Unknown option: --frob'],
+  ])('%j --json is a bad command line, in JSON', (args, error) => {
+    const { stdout, exitCode } = runCLI([...args, '--json'], { env: IN_PANE_1 });
+    expect(exitCode).toBe(2);
+    const answer = JSON.parse(stdout);
+    expect(answer).toMatchObject({ ok: false, code: 2 });
+    expect(answer.error).toContain(error);
   });
 
-  test('session snapshots --json lists the snapshots as objects', () => {
-    const { stdout, exitCode } = runCLI(['session', 'snapshots', '--json'], {
-      env: { MOCK_SERVER_SNAPSHOTS: 'work\t2026-10-28 10:00\trunning' },
-    });
+  // A verb answers for itself: `--json` is handed on.
+  test.each([
+    [['session', 'snapshots'], 'session snapshots --json'],
+    [['session', 'save', 'work'], 'session save --json work'],
+    [['agent', 'status'], 'agent status --json'],
+  ])('%j --json asks its verb for JSON', (args, verb) => {
+    const { stdout, exitCode } = runCLI([...args, '--json']);
     expect(exitCode).toBe(0);
-    expect(JSON.parse(stdout)).toEqual([
-      { name: 'work', saved: '2026-10-28 10:00', state: 'running' },
-    ]);
+    expect(stdout.trim()).toBe(`mock-server-started ${verb}`);
   });
 });

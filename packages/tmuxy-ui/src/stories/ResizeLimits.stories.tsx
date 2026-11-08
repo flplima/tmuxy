@@ -1,18 +1,10 @@
 /**
- * Dragging a divider only as far as tmux would actually go, over a recording
- * of real tmux.
- *
- * tmux will not shrink a pane below one cell, so a drag that asks for more
- * than the panes across the line can give up is refused. Until it is, the
- * preview keeps drawing a layout that will never exist: the near pane grows
- * under the pointer while the far one bottoms out, and the two overlap. The
- * drag is therefore clamped to what the layout can give
- * (machines/resize/limits.ts), and a divider with nothing to give on either
- * side refuses the gesture outright.
- *
- * These stories drive the real pointer sequence and assert on the boxes the
- * panes actually occupy — a pane can be the right size in the model and still
- * be drawn over its neighbour.
+ * Dragging a divider only as far as tmux would go, over a recording of real
+ * tmux. tmux will not shrink a pane below one cell and refuses a drag asking
+ * for more, so until then the preview drew a layout that would never exist,
+ * the two panes overlapping; the drag is clamped (machines/resize/limits.ts).
+ * Asserted on the drawn boxes: a pane can be right in the model and still be
+ * drawn over its neighbour.
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
@@ -21,8 +13,8 @@ import { FixtureApp } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import dividerAtMinimum from './fixtures/gen/divider-at-minimum.json';
 import { waitForPaneCount } from './animationStoryHelpers';
+import { appContext } from './storyApp';
 
-/** A resize answered the way tmux answered one far past the edge: the right pane at one column. */
 const RESIZE = [{ match: /^resize-pane\b/, to: 'right-at-minimum' }];
 
 const meta: Meta<typeof FixtureApp> = {
@@ -42,22 +34,6 @@ const meta: Meta<typeof FixtureApp> = {
 export default meta;
 type Story = StoryObj<typeof FixtureApp>;
 
-interface Snap {
-  context: {
-    activeWindowId: string | null;
-    charWidth: number;
-    charHeight: number;
-    panes: Array<{ tmuxId: string; windowId: string; width: number; height: number }>;
-  };
-}
-
-function app(): Snap {
-  const a = (window as unknown as { app?: { getSnapshot(): Snap } }).app;
-  if (!a) throw new Error('window.app actor is not available — FixtureApp not mounted?');
-  return a.getSnapshot();
-}
-
-/** The drawn box of every pane in the visible tab, left-to-right, top-to-bottom. */
 function paneBoxes(canvasElement: HTMLElement): DOMRect[] {
   return [...canvasElement.querySelectorAll<HTMLElement>('.pane-layout-item[data-pane-id]')]
     .map((el) => el.getBoundingClientRect())
@@ -80,13 +56,11 @@ function centreOf(el: Element): { x: number; y: number } {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
-/** Dispatch at whatever is under the point, the way the browser does. */
 function fireAt(type: string, x: number, y: number): void {
   const target = document.elementFromPoint(x, y) ?? document.body;
   fireEvent[type as 'mouseMove'](target, { clientX: x, clientY: y });
 }
 
-/** Press the divider and haul it to (x, y) in steps. */
 async function dragDivider(divider: HTMLElement, x: number, y: number): Promise<void> {
   const from = centreOf(divider);
   fireEvent.mouseDown(divider, { clientX: from.x, clientY: from.y, button: 0, bubbles: true });
@@ -98,10 +72,6 @@ async function dragDivider(divider: HTMLElement, x: number, y: number): Promise<
 
 const waitForPanes = (count: number, canvasElement: HTMLElement) =>
   waitForPaneCount(within(canvasElement), count);
-
-// ---------------------------------------------------------------------------
-// Hauled past the end — the divider stops, nothing overlaps
-// ---------------------------------------------------------------------------
 
 export const DragStopsAtTheMinimum: Story = {
   parameters: {
@@ -125,8 +95,6 @@ export const DragStopsAtTheMinimum: Story = {
     const wall = canvasElement.getBoundingClientRect().right;
     await dragDivider(vertical, wall + 600, start.y);
 
-    // What the user sees: two panes, still side by side, neither overlapping
-    // the other, and the right one still wide enough to draw a cell.
     await waitFor(() => {
       const [left, right] = paneBoxes(canvasElement).sort((a, b) => a.left - b.left);
       expect(overlapArea(left, right)).toBe(0);
@@ -134,17 +102,15 @@ export const DragStopsAtTheMinimum: Story = {
       expect(left.right).toBeLessThanOrEqual(right.left + 2);
     });
 
-    // The model agrees: nothing went below a single column.
-    const cols = app().context.panes.map((p) => p.width);
+    const cols = appContext().panes.map((p) => p.width);
     expect(Math.min(...cols)).toBeGreaterThanOrEqual(1);
 
     fireAt('mouseUp', wall + 600, start.y);
     await new Promise((r) => setTimeout(r, 500));
-    // And the layout the engine settles on holds the same invariant — the
-    // clamp is what was sent, so the release has nothing new to correct.
+    // The clamp is what was sent, so the release has nothing to correct.
     const [left, right] = paneBoxes(canvasElement).sort((a, b) => a.left - b.left);
     expect(overlapArea(left, right)).toBe(0);
     expect(right.width).toBeGreaterThan(0);
-    expect(Math.min(...app().context.panes.map((p) => p.width))).toBeGreaterThanOrEqual(1);
+    expect(Math.min(...appContext().panes.map((p) => p.width))).toBeGreaterThanOrEqual(1);
   },
 };

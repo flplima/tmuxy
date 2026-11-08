@@ -1,21 +1,14 @@
 /**
- * Copy Mode UI Operations
- *
- * Enter/exit copy mode and paste operations via keyboard.
+ * Copy mode and paste, the way the user does them.
  */
 
 const { sendPrefixCommand } = require('./keyboard');
 
-/**
- * Enter copy mode via keyboard (Ctrl+A [)
- */
+/** Enter copy mode: `prefix [`. */
 async function enterCopyModeKeyboard(page) {
   await sendPrefixCommand(page, '[');
 }
 
-/**
- * Paste text into the terminal via a synthetic ClipboardEvent
- */
 /**
  * Paste `text` the way the browser delivers a paste: a ClipboardEvent on the
  * focused element, bubbling to the window listener. Resolves to whether the

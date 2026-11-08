@@ -1,37 +1,53 @@
-import { isPlaceholderId, type PaneId } from './ids';
-import { quote, SCRIPTS_DIR, type TmuxOpOf } from './commands';
+import { realId, type PaneId } from './ids';
+import { quote, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
+// PASTE_BUFFER: named, so a paste never replaces the buffer the user last
+// yanked, and dropped again once pasted.
+import { CLI_PATH, PASTE_BUFFER, SCRIPT_EFFECT_TAGS, SCRIPTS_DIR } from './tmuxyConstants.gen';
 
-/** The bundled CLI dispatcher, beside the scripts. */
-const CLI_PATH = '$TMUXY_DATA_DIR/bin/tmuxy-cli';
-
-/** Longest literal a single `send-keys -l` carries before the text is split. */
 const LITERAL_CHUNK_SIZE = 500;
 
-/** A name used as a target: bare when it is plainly one word, quoted otherwise. */
 export function target(name: string): string {
   return /^[\w.@%:-]+$/.test(name) ? name : quote(name);
 }
 
-/** A bundled script, run by tmux. */
 export function script(name: string, ...args: Array<string | number>): string {
   return `run-shell "${[`${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
-/** Commands run as one list (` \; ` between them). */
+/**
+ * What the backend must know of a script run: `settle` for a script that takes
+ * several tmux steps (the clients see only where it lands), `relist-windows`
+ * for one that writes `@tmuxy-*` options tmux never announces. The marker is
+ * the first word of the line `run-shell` hands the shell — an environment
+ * assignment the script ignores — and the essentials aliases' bodies carry
+ * the same word, so the monitor reads one marker whoever sent the command.
+ */
+export type ScriptEffect = keyof typeof SCRIPT_EFFECT_TAGS;
+
+export function scriptWith(
+  effect: ScriptEffect,
+  name: string,
+  ...args: Array<string | number>
+): string {
+  return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
+}
+
+/** A shell command line as one `run-shell` argument; run-shell expands `#` first. */
+export function runShell(command: string): string {
+  return `run-shell ${quote(command.replace(/#/g, '##'))}`;
+}
+
 export function list(commands: ReadonlyArray<string>): string {
   return commands.join(' \\; ');
 }
 
 /**
- * The command lines that type `text` into `target` literally, one per line.
+ * The command lines that type `text` into `to` literally, one per line.
  *
  * Control mode reads one command per line, so a newline inside a quoted
  * literal would end the `send-keys` there and run the rest of the text as tmux
- * commands of its own — `run-shell` included. Each line of text goes as its own
- * `send-keys -l` (split into chunks so no command line grows unbounded), with
- * an `Enter` between lines: what typing the text line by line does. A paste
- * goes through `pastedText` instead.
+ * commands of its own — `run-shell` included.
  *
  * `--` ends the options: without it, text starting with a dash (`-la`, or the
  * `-$` of `"line-$i"` when fast typing batches it so) is read as flags, tmux
@@ -53,19 +69,9 @@ export function literalText(to: string, text: string): string {
   return commands.join('\n');
 }
 
-/**
- * The buffer a paste travels through. Named, so a paste never replaces the
- * buffer the user last yanked, and dropped again once pasted.
- */
-const PASTE_BUFFER = 'tmuxy-paste';
-
-/** The control characters a paste keeps: tab, newline and carriage return. */
 const PASTE_CONTROLS = new Set(['\t', '\n', '\r']);
 
-/**
- * Whether `ch` is a control character a paste drops: C0 (NUL and ESC among
- * them), DEL, and C1 (U+0080–U+009F, where U+009B is CSI).
- */
+/** C0 (NUL and ESC among them), DEL, and C1 (U+0080–U+009F, where U+009B is CSI). */
 function isPasteControl(ch: string): boolean {
   const code = ch.codePointAt(0) ?? 0;
   return (code < 0x20 || (code >= 0x7f && code <= 0x9f)) && !PASTE_CONTROLS.has(ch);
@@ -75,8 +81,8 @@ function isPasteControl(ch: string): boolean {
  * `text` with every control character but tab, newline and carriage return
  * removed.
  *
- * Removing the two literal markers was not enough: a program that parses its
- * input as ECMA-48 reads `ESC [ 0201 ~`, or the C1 CSI `U+009B 201 ~`, as the
+ * Removing the two bracketed-paste markers is not enough: a program that parses
+ * its input as ECMA-48 reads `ESC [ 0201 ~`, or the C1 CSI `U+009B 201 ~`, as the
  * end of the paste just as well, and runs what follows as typed keys. Without
  * ESC and C1 nothing in the text can start an escape sequence, so no spelling
  * of the end marker survives. tmux 3.7 and later make an ESC in a pasted
@@ -91,16 +97,13 @@ export function withoutControls(text: string): string {
     .join('');
 }
 
-/** What a double-quoted tmux string may carry as itself; the rest is escaped. */
 const PLAIN_IN_DOUBLE_QUOTES = /^[A-Za-z0-9 !%&'()*+,\-./:<=>?@[\]^_`|]$/;
 
 const utf8 = new TextEncoder();
 
 /**
- * `text` as a double-quoted tmux string in which every character outside a
- * plain set is an octal byte escape (`\012` for a newline).
- *
- * The escapes cover what tmux's parser would otherwise read as syntax — the
+ * `text` as a double-quoted tmux string, every character outside a plain set
+ * an octal byte escape (`\012` for a newline). The escapes cover what tmux's parser would otherwise read as syntax — the
  * quote, `\`, `$` and `~` (expanded inside double quotes), `;`, the `#{`
  * of a format — and, above all, the newline: control mode reads one command
  * per line, so a raw one would end the command there. Non-ASCII goes as its
@@ -129,13 +132,10 @@ export function tmuxDoubleQuoted(text: string): string {
  * (`literalText`), a shell, an editor or an agent's TUI ran the first line the
  * moment its newline arrived and took the rest as fresh input.
  *
- * Control characters other than tab, newline and carriage return are removed
- * (`withoutControls`), so a clipboard cannot close the paste early, in any
- * spelling of the end marker, and have what follows read as typed keys. A
- * carriage return is kept: tmux sends each newline as one, so a lone `\r`
- * reaches the pane as the Return it already was. The text is staged in
- * chunks (`set-buffer -a` after the first) so no command line grows
- * unbounded, and `-d` drops the buffer once pasted.
+ * Control characters are removed (`withoutControls`) so a clipboard cannot
+ * close the paste early and have what follows read as typed keys. A carriage
+ * return is kept: tmux sends each newline as one, so a lone `\r` reaches the
+ * pane as the Return it already was.
  *
  * A `paste-buffer` reaches its target alone, where typed input in a window
  * with `synchronize-panes` on reaches every pane of it. So when the target is
@@ -179,33 +179,53 @@ export function mouseReport(op: TmuxOpOf<'SendMouse'>): string {
 }
 
 /**
- * The `split-window ; break-pane ; set-option` list that creates a chrome
- * window running `run` (the default shell when `null`) and tags it in one
- * shot — the list `packages/tmuxy-cli/bin/tmuxy/float-create` builds for a float.
- *
- * `at` names the new window: a float by its index (picked free up front —
- * `set-option -w` with no target would land on the session's CURRENT window,
- * which `break-pane -d` leaves unchanged), a sidebar by its fixed, unique name
- * (so the list never depends on the client's copy of the indices, which go
- * stale for a beat whenever a window closes). `splitFrom` is the pane to split,
- * so the new pane is born beside what the user sees rather than wherever tmux
- * happens to be; without one (or with a placeholder), tmux's current pane.
+ * The `split-window ; break-pane ; set-option` list that creates a sidebar
+ * column's window running `run` (the default shell when `null`) and tags it
+ * in one shot. The window is named by its fixed, unique name, so the list
+ * never depends on the client's copy of the indices, which go stale for a
+ * beat whenever a window closes. `splitFrom` is the pane to split, so the new
+ * pane is born beside what the user sees rather than wherever tmux happens to
+ * be; without one (or with a placeholder), tmux's current pane.
  */
-export function chromeWindow(
-  windowType: 'float' | 'sidebar-left' | 'sidebar-right',
+export function sidebarWindowCommand(
+  side: 'left' | 'right',
   name: string,
   run: string | null,
   splitFrom: PaneId | null,
-  index: number | null,
 ): string {
-  const at = index === null ? `:${name}` : `:${index}`;
-  // A placeholder is no target: tmux has never heard of it.
-  const from = splitFrom && !isPlaceholderId(splitFrom) ? ` -t ${splitFrom}` : '';
+  const from = realId(splitFrom) ? ` -t ${splitFrom}` : '';
   return list([
     run === null ? `split-window${from}` : `split-window${from} ${quote(run)}`,
-    index === null ? `break-pane -d -n ${name}` : `break-pane -d -n ${name} -t ${at}`,
-    `set-option -w -t ${at} @tmuxy-window-type ${windowType}`,
+    `break-pane -d -n ${name}`,
+    `set-option -w -t :${name} @tmuxy-window-type sidebar-${side}`,
   ]);
+}
+
+/**
+ * A float running `command`, made by the CLI's `pane float`: the server's
+ * `float` verb, the one builder of a float (`tmuxy-core/src/float.rs`), split
+ * from `splitFrom` so the float belongs to that pane's tab. In the background
+ * with its output dropped: the pane id `--detach` prints would open a view
+ * mode on the pane.
+ */
+export function openFloat(op: TmuxOpOf<'OpenFloat'>): string {
+  const caller = op.splitFrom && /^%\d+$/.test(op.splitFrom) ? `TMUX_PANE=${op.splitFrom} ` : '';
+  return (
+    `run-shell -b "${caller}\\"${CLI_PATH}\\" pane float --detach ` +
+    `${op.command.map(shellWordInRunShell).join(' ')} >/dev/null 2>&1"`
+  );
+}
+
+/**
+ * One word of the shell line a double-quoted `run-shell "…"` runs. The shell
+ * quoting is `quote`'s; on top of it, tmux's parser reads `\`, `"` and `$`
+ * inside its double quotes (a `\'` would reach the shell as a bare `'`, and
+ * `it's` as `its`), and run-shell expands a `#` before the shell sees it.
+ */
+function shellWordInRunShell(word: string): string {
+  return quote(word)
+    .replace(/[\\"$]/g, '\\$&')
+    .replace(/#/g, '##');
 }
 
 export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;

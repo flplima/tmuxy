@@ -9,7 +9,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::source::RepoSource;
-use super::{is_sha, is_valid_name, Dirs, PluginError, Result};
+use super::{is_sha, is_valid_name, PluginError, Result};
+use crate::paths::Layout;
 
 pub const LOCKFILE_VERSION: u32 = 1;
 
@@ -48,7 +49,6 @@ pub struct Entry {
     pub path: Option<std::path::PathBuf>,
 }
 
-/// An entry's source, checked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntrySource {
     Repo { source: RepoSource, sha: String },
@@ -108,7 +108,6 @@ impl Entry {
         }
     }
 
-    /// `owner/repo[/subdir]`, or the linked path.
     pub fn describe_source(&self) -> String {
         match (&self.repo, &self.path) {
             (Some(repo), _) => match &self.git_ref {
@@ -123,7 +122,7 @@ impl Entry {
 
 impl Lockfile {
     /// The lockfile, or an empty one when there is none yet.
-    pub fn load(dirs: &Dirs) -> Result<Lockfile> {
+    pub fn load(dirs: &Layout) -> Result<Lockfile> {
         let path = dirs.lockfile();
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
@@ -143,9 +142,8 @@ impl Lockfile {
         Ok(lock)
     }
 
-    /// Write it back, owner-only, through a temporary file so a crash never
-    /// leaves half a lockfile.
-    pub fn save(&self, dirs: &Dirs) -> Result<()> {
+    /// Write it back, owner-only; a crash never leaves half a lockfile.
+    pub fn save(&self, dirs: &Layout) -> Result<()> {
         let path = dirs.lockfile();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -156,10 +154,7 @@ impl Lockfile {
         let mut text = serde_json::to_string_pretty(&sorted)
             .map_err(|e| PluginError::Invalid(e.to_string()))?;
         text.push('\n');
-        let tmp = path.with_extension("json.tmp");
-        crate::private_files::write(&tmp, text)
-            .map_err(|e| PluginError::io(format!("writing {}", tmp.display()), e))?;
-        std::fs::rename(&tmp, &path)
+        crate::private_files::replace(&path, text)
             .map_err(|e| PluginError::io(format!("writing {}", path.display()), e))
     }
 
@@ -167,7 +162,6 @@ impl Lockfile {
         self.plugins.iter().find(|e| e.name == name)
     }
 
-    /// Add or replace the entry of that name.
     pub fn upsert(&mut self, entry: Entry) {
         self.plugins.retain(|e| e.name != entry.name);
         self.plugins.push(entry);

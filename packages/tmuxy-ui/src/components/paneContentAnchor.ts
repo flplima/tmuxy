@@ -1,25 +1,15 @@
 /**
  * Which edge of a pane its live screen hangs from while the pane's height
- * morphs.
- *
- * The live screen is sized to tmux's row count and anchored to the pane's
- * bottom edge, which keeps the prompt in view when the content outgrows the
- * box. A geometry change is a CSS transition, though, and React commits the
- * new rows together with the new box: on the transition's first frames the
- * box is still nearly the old size while the rows are already the new ones.
- * A pane growing downwards then drew its taller screen hanging off its top —
- * a 15-row pane given 30 rows showed rows 15–30, 360px above where they
- * land, and slid them down as the box caught up.
- *
- * The edge that moves less is the one to hang from: for a pane growing
- * downwards that is its top, and its rows then stay where they will end up
- * while the box opens over them. Bottom stays the default, so this only ever
- * applies while the height is in flight.
+ * morphs. The screen is anchored to the bottom edge (keeping the prompt in
+ * view), but React commits the new rows with the new box while the CSS
+ * transition still draws nearly the old one, so a pane growing downwards drew
+ * its taller screen hanging off its top and slid it down. Hanging from the
+ * edge that moves less keeps the rows where they will end up.
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import type { PaneBox } from '../constants/layout';
-import { MORPH_FALLBACK_MS } from './PaneLayoutMorph';
+import type { PaneBox } from '../domain/paneGeometry';
+import { morphFallbackMs } from './PaneLayoutMorph';
 
 export type ContentAnchor = 'top' | 'bottom';
 
@@ -31,11 +21,6 @@ export function contentAnchorFor(from: PaneBox, to: PaneBox): ContentAnchor | nu
   return topMoves <= bottomMoves ? 'top' : 'bottom';
 }
 
-/**
- * Sets `data-content-anchor="top"` on a pane whose height changes with its
- * top edge holding, before the commit is painted, and takes it off when that
- * height transition ends.
- */
 export function useMorphContentAnchor(
   containerRef: React.RefObject<HTMLElement | null>,
   boxes: ReadonlyMap<string, { box: PaneBox | null }>,
@@ -60,7 +45,7 @@ export function useMorphContentAnchor(
       const onEnd = (e: TransitionEvent) => {
         if (e.target === node && e.propertyName === 'height') release();
       };
-      const timer = window.setTimeout(() => release(), MORPH_FALLBACK_MS);
+      const timer = window.setTimeout(() => release(), morphFallbackMs(node));
       const release = () => {
         node.removeEventListener('transitionend', onEnd);
         clearTimeout(timer);

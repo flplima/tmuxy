@@ -29,23 +29,19 @@ A `TMUX_SOCKET` value containing a slash is treated as a **full socket path** (`
 
 ### Live socket switch (desktop app)
 
-The **web server** binds its socket once at process launch (from the env), so it cannot change sockets without a restart. The **desktop (Tauri) app** can switch servers live: `tmuxy connect <socket> [session]` publishes the request as two tmux global env vars (`TMUXY_CONNECT_TO`, `TMUXY_CONNECT_SESSION`) on the current server; a watcher task in the app (`packages/tmuxy-tauri-app/src/monitor.rs`, `poll_connect_requests`) reads them, sets `TMUX_SOCKET`/`TMUXY_SESSION` in-process, and drives the monitor loop to reconnect (a graceful `MonitorCommand::Shutdown` interrupts the live connection). Because every tmux call — the control-mode connection and the one-off executor commands alike — resolves its socket from the env, updating those two vars retargets the whole app. Adopting an existing server applies tmuxy's config and window-type tagging to it, so this is an explicit opt-in, distinct from the isolated default. While the app is attached to a server over SSH the watcher does not read these vars: anything on that remote host can write them, and a request from there would point this machine at a socket or an SSH destination of the remote's choosing. Switching away from a remote server goes through the app's own server picker.
+The **web server** binds its socket once at process launch (from the env), so it cannot change sockets without a restart. The **desktop (Tauri) app** can switch servers live: `tmuxy connect <socket> [session]` publishes the request as one tmux global env var on the current server, `TMUXY_CONNECT` (`tmuxy-core/src/servers/connect.rs`); a watcher in the app (`tmuxy-tauri-app/src/monitor/emitter.rs`) reads and clears it, sets the connect target (`session::set_connect_target`) and has the monitor shut its live connection down to reconnect (`tmuxy-tauri-app/src/monitor.rs`). Every tmux call — the control-mode connection and the one-off `tmux` calls alike — resolves its socket from that target, so it retargets the whole app. Adopting an existing server applies tmuxy's config and window-type tagging to it, so this is an explicit opt-in, distinct from the isolated default. While the app is attached to a server over SSH the watcher does not read the request: anything on that remote host can write them, and a request from there would point this machine at a socket or an SSH destination of the remote's choosing. Switching away from a remote server goes through the app's own server picker.
 
 ### Remote servers over SSH (desktop app)
 
-A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `servers.json` in the state dir (`tmuxy-core/src/servers.rs`; machine state, not config: an ssh host is saved as this machine reaches it); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`packages/tmuxy-cli/bin/tmuxy/session-connect`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
+A "server" in the desktop app is a tmux server tmuxy drives — the local machine or a **remote host reached over SSH**. Saved servers live in `servers.json` in the state dir (`tmuxy-core/src/servers.rs`; machine state, not config: an ssh host is saved as this machine reaches it); the sidebar footer's **server picker** lists them, and `tmuxy session connect` (`tmuxy-verbs/src/connect_cli.rs`, which the switcher's "Connect over SSH…" opens in a float) adds new ones. Attaching to a server sets `TMUX_SOCKET` and, for a remote, `TMUXY_SSH` (an ssh argv tail like `-p 2222 user@host`); the Tauri `connect_server` command routes both through the same `request_reconnect` path as a local socket switch.
 
-`TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). The local `-f <config>` flag is skipped over SSH — that path is local-only. This means the whole app (control mode + executor reads) drives the remote tmux server transparently.
+`TMUXY_SSH` is resolved centrally by `ssh_target()` / `tmux_argv(pty)` in `session.rs`: when set, every tmux invocation is wrapped as `ssh [-tt] <tail> tmux -L <socket> …` (the `-tt` pty flag is used for the `-CC` control-mode connection, omitted for one-off reads so captured output stays clean; the remote binary is bare `tmux`, resolved by the remote login shell). No path to the config chain reaches a remote tmux (`get_config_path` is empty over SSH): it is local-only. So the whole app (control mode and reads) drives the remote tmux transparently.
 
 ### The sidebar tree, and the sessions poll behind it
 
-The live state the app holds is single-session (the attached session's windows/panes), and the sidebar's **tabs→panes tree** draws exactly that: this session's tabs and their panes, from live state, never the socket's other sessions. Rows for another session had no live state behind them — no content, no geometry, nothing the tree's own keys could act on — and "which session am I on" is asked and answered in the session switcher (`components/SessionMenu.tsx`), which is where the socket's other sessions are listed.
+The live state the app holds is single-session, and the left column's tree draws exactly that: the attached session's tabs and panes. The socket's other sessions are listed in the session switcher (`components/SessionMenu.tsx`); a poll (`serversActor`, see [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md)) reads `list-windows -a` / `list-panes -a` through `query` while a tree is on screen and feeds the switcher, the tree's pane cwds and its git badges. The column itself is in [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md).
 
-A poll (`serversActor`, `tmuxy-ui/src/machines/actors/serversActor.ts`) reads `list-windows -a` / `list-panes -a` (`query`) every ~4s while a tree is on screen (the column or the phone's), and every 250 ms until its first answer, so a page load gets the cwds and branches with the first rows. It feeds the switcher's session list and the tree's git context (below), the pane cwds live state does not carry. Gated on the adapter's `enumeratesSessions`, it is inert in the single-session sandboxes (demo, v86). Switching session is `SWITCH_SESSION`; on web `switchSession` reconnects the SSE stream to the chosen session. The **server picker** (`list_servers`) remains desktop-only.
-
-A pane row is **two lines**: `%id process` with the state indicator on the first, the pane's title on the second (`components/paneTabDisplay.ts`, `paneRowLines`). They answer different questions and truncate at different rates — a process name is short and stable, while a title is a path or a command with its arguments and is the one thing in the tree that routinely outgrows a 30-column column. Sharing one line, the title pushed the state indicator around and was the half that got cut. A pane whose title adds nothing (an unset one, or one that only repeats the process) draws a single line, so a column of plain shells stays compact.
-
-The same poll gives the tree its **git context** (read for the attached session alone, the one the tree draws). Each pane row carries its `#{pane_current_path}`, and every ~15s (and on each forced refresh) the client asks the host for the worktrees those directories sit in — the `list_git_worktrees` command, served by `tmuxy-core/src/worktrees.rs` on both the web server and the desktop app. The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`) rather than from the request, so a web client can never point git at a directory of its choosing; discovery is read-only (`rev-parse --git-common-dir`, `worktree list --porcelain`), scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, skips a repository git cannot read instead of failing the whole listing, falls back to newline porcelain on a git older than 2.36, and returns nothing for an SSH-backed server (its pane paths are remote). The result is published as `repositories`; `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root (component-aware, so `/repo-copy` never matches `/repo`) and the tree shows the branch — or a detached checkout's short head — as a badge on the pane row, and on a tab row when every pane in the tab shares the worktree.
+The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root.
 
 ## Session groups: two GUI windows over one session
 
@@ -67,9 +63,9 @@ The keys stay distinct from the tab keys: `ctrl+1`…`ctrl+9` select a **tab**, 
 
 ## tmux Configuration
 
-No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). On every session connect, the monitor's initial sync (`sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`) sets `window-size manual` and `aggressive-resize off` (so multi-client viewport sizing stays under tmuxy's control), plus `allow-passthrough on`, `mouse on`, `focus-events on`, pane-border options, and title options. Settings are applied per-session rather than globally, to avoid a tmux 3.5a crash triggered by global settings under control mode.
+No manual `~/.tmux.conf` changes are required — tmuxy enforces the options it needs automatically, and by default does not read `~/.tmux.conf` at all (see [the config chain](#the-config-chain-and-where-a-users-own-tmuxconf-fits)). The monitor sets them per session on every connect, and per window as each is first listed (table below), never globally, for a tmux 3.5a crash with global settings under control mode (open whether it still holds: the chain sourced on connect sets a global window option, `pane-border-style`).
 
-OSC 8 hyperlinks are parsed by tmuxy's own control-mode parser (`tmuxy-core/src/control_mode/osc.rs`), so no `terminal-features` setting is required either.
+OSC 8 hyperlinks are read by tmuxy's own emulator (the vendored `packages/vt100`), so no `terminal-features` setting is required either.
 
 ### The config chain, and where a user's own `~/.tmux.conf` fits
 
@@ -89,9 +85,9 @@ The app builds the chain itself (`entry_conf` in `tmuxy-core/src/session/config.
 
 The entry file is rebuilt right before every use — the `-f` of a new server, the `source-file` of every connect, reload and Reload Config — from the `use-tmux-conf` choice and the user's file, so it never goes stale. Being built from this machine's state and this process's config dir, it lives in the state dir: two tmuxy processes with their own dirs (a test server beside the app) never rewrite each other's. Reload Config sends `source-file $TMUXY_ENTRY_CONF`, which a tmuxy process swaps for its own path.
 
-Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
+A `source-file` in `tmuxy.conf` whose target is missing stops tmux at that line. The config doctor (`tmuxy-core/src/session/doctor.rs`) finds those lines; `host::prepare` logs each as a warning and the web server prints them once at start. `tmuxy config doctor` lists them and exits 1; `--fix` comments each out in place and keeps a dated backup beside the file.
 
-A `tmuxy.conf` written by an older build sources `~/.config/tmuxy/tmuxy.defaults.conf` itself. The first launch of this build drops that line (see [the config directory](ARCHITECTURE.md#the-users-config-directory)); when the file is a symlink the app may not rewrite, the chain sources a generated copy with the line commented out (`tmuxy.compat.conf` in the state dir) instead, until the user removes it.
+Before any layer it publishes `TMUXY_DATA_DIR` (the data dir) and `TMUXY_ENTRY_CONF` (itself) into tmux's global environment. Every bundled script is named `$TMUXY_DATA_DIR/bin/tmuxy/…` — the essentials' aliases, the client's script commands, a restored sidebar — which tmux's parser expands in double quotes or a bare word, and a shell in single quotes, from that environment. So a data dir moved by `TMUXY_DATA_DIR` or `XDG_DATA_HOME` moves every script path, and the mirror is the same bytes anywhere. It comes first because tmux expands an alias's variable when a binding names it. `${VAR:-default}` is not used: tmux's parser rejects it in double quotes, and fish knows it nowhere.
 
 ### Menu choices, and the options `tmuxy.conf` pins
 
@@ -99,17 +95,18 @@ The menus change five options — `@tmuxy-theme`, `@tmuxy-theme-mode`, `@tmuxy-t
 
 Config beats menu state. An option the user's `tmuxy.conf` sets is **pinned**: the remembered choice is not put back over it, the menu cannot change it (the backend refuses a change made only of pinned options, and leaves a pinned one out of a mixed one), and the theme settings every client receives list it under `pinned`, so the menu greys it out and labels the item in effect "set in tmuxy.conf".
 
-The theme is the session's: each client draws the one tmux holds and hears of a pick via the `tmuxy-theme` subscription (`SUBSCRIBE_THEME_CMD`).
+The theme is the session's: each client draws the one tmux holds and hears of a pick via the `tmuxy-theme` subscription (`subscribe_theme_command`).
 
 The backend learns the pins by reading the user's file, not tmux: tmux cannot say which layer of the chain set an option. It reads the file the way tmux does — comments dropped, continued lines joined, commands split on `;`, `\;` and newlines (the command-list scanner the router uses) — and in order: a `set` or `set-option` of one of the five as a global session option (`-g`, with no `-w`, `-p` or `-s`, which name other tables the app does not read) pins it, whatever its value, and a later `-u` of it lets it go. A command in a `{ … }` block (a binding's) pins nothing, since it does not run when the file is read (`pinned_options_in` in `tmuxy-core/src/session/state.rs`). The file is read each time the settings are, so adding or removing a pin takes effect with the reload that saving the file triggers.
 
 ### What a user's config can break, and what protects it
 
-Three layers protect the app, and they cover different things:
+Four layers protect the app, covering different things:
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| `enforce_settings()` | `control_mode/monitor.rs`, every connect, per-session | `pane-border-status`/`-format`, `mouse`, `focus-events`, `allow-passthrough`, `allow-rename`, `set-titles`, `window-size manual`, `aggressive-resize off` |
+| `enforced_settings()`, and the attach's opening commands | `control_mode/monitor_core/attach.rs`, every attach, per-session | `mouse`, `focus-events`, `set-titles`, `set-clipboard off`; `window-size manual` on the current window before its first resize |
+| `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`, `allow-rename`, `allow-passthrough`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
 | `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
 
@@ -118,16 +115,16 @@ The ones that actually bite, and why each is in the essentials file rather than 
 - **`destroy-unattached on`** — a reasonable thing to have in a personal config, and fatal here. tmuxy's client is a control-mode connection that comes and goes with every page reload, so the session would be destroyed the moment a browser tab closed.
 - **`default-terminal screen-256color`** — the renderer decodes 24-bit colour from the control-mode stream; a 256-colour TERM makes every truecolour application render in the wrong palette.
 - **`history-limit 500`** — scrollback is a client-side reimplementation over tmux's history. A small limit reads to the user as "tmuxy lost my scrollback".
-- **`command-alias[100…122]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
+- **`command-alias[100…130]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
 - **`escape-time`** — a non-zero value makes Escape feel broken in vim.
 
 What is deliberately NOT protected, because protecting it would defeat the point: the prefix, the status line, `mode-keys`, `base-index`, key bindings, colours, and anything a plugin does. A user who opts in gets their own.
 
 Because the essentials come last, the user's `tmuxy.conf` cannot change them either — a larger `history-limit` set there is put back to the essentials' value. That is the price of no config being able to take the app apart; a setting that belongs to taste does not belong in the essentials.
 
-Two hazards that remain the user's to judge, and are called out in `tmuxy config use-tmux-conf --help` rather than silently handled:
+Two hazards remain the user's to judge. `tmuxy config use-tmux-conf --help` (`packages/tmuxy-cli/bin/tmuxy/cli-config.sh`) says only that the prefix, the status line and plugins then win over tmuxy's defaults; what that means in practice:
 
-- **tpm and plugins** load on tmuxy's socket too. `tmux-continuum` in particular will happily auto-save and auto-restore sessions there.
+- **tpm and plugins** load on tmuxy's socket too. A session manager such as `tmux-continuum` will auto-save and auto-restore sessions there.
 - **A status line that draws itself** may fight tmuxy's own chrome, which is cosmetic but ugly.
 
 ## Key Tables Are the Client's
@@ -137,7 +134,7 @@ control mode has no key handling to give it — so the prefix and every table
 beyond it run in the client's keyboard actor
 (`tmuxy-ui/src/machines/actors/keyboardActor.ts`), from the bindings the server
 reads with one `list-keys` and sends whole (`KeyBindings` in
-`tmuxy-core/src/transport.rs`: prefix, root, and every other table by name;
+`tmuxy-core/src/host/bindings.rs`: prefix, root, and every other table by name;
 copy mode's tables stay out, copy mode being the client's too).
 
 A binding enters a table the tmux way, with `switch-client -T <table>`

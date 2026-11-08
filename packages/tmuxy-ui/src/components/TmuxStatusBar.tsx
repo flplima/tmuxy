@@ -1,17 +1,7 @@
 /**
- * TmuxStatusBar - Bottom status bar with keybinding hints, host, and session
- *
- * Layout: [left: hints] [center: status messages] [right: host + session]
- *
- * - The left side follows the mode: normal-mode hints, or a mode's name as an
- *   inverse chip and its keys (PREFIX, COPY, and the sticky PANE and TAB
- *   tables). In a mode the host and session are hidden — the line is the
- *   mode's until it ends (statusLineHints.ts).
- * - Command mode replaces the whole bar with a full-width prompt input (like tmux prefix+:)
- * - Center shows only the client's own temporary status ("Copied …"); the raw
- *   tmux status line is NOT rendered — hardcoded hints (left) and host/session
- *   (right) stand in. tmux's `display-message` output goes to the snackbar.
- * - Host is clickable (desktop: open the connect float); session opens the session float
+ * tmux's own status line is not rendered: the hints (left) and host/session
+ * (right) stand in, the centre shows only the client's own temporary status
+ * ("Copied …"), and tmux's `display-message` output goes to the snackbar.
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
@@ -31,21 +21,17 @@ import {
   selectActivePaneCopyMode,
 } from '../machines/selectors/ui';
 import { selectGridDimensions } from '../machines/selectors/layout';
-import { formatPrefixKey } from './menus/keybindingLabel';
-import { HINT_SEPARATOR, MODE_HINTS, normalHints, type Hint } from './statusLineHints';
-import { serverHostLabel } from './paneTabDisplay';
+import { gridPixelSize } from '../domain/paneGeometry';
+import { HINT_SEPARATOR, modeHints, normalHints, type Hint } from './statusLineHints';
+import { serverHostLabel } from '../domain/servers';
 import { SessionMenu } from './SessionMenu';
-import type { KeyBindings } from '../domain/wire';
+import './TmuxStatusBar.css';
 
 function Separator() {
   return <span className="statusline-separator">{HINT_SEPARATOR}</span>;
 }
 
-/**
- * One line of hints: in a mode, its name as an inverse chip and then its
- * keys; in normal mode, the keys alone. See statusLineHints.ts for what each
- * mode says and the 80-column rule.
- */
+/** See statusLineHints.ts for what each mode says and the 80-column rule. */
 function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null }) {
   return (
     <span
@@ -65,36 +51,6 @@ function HintLine({ hints, mode }: { hints: readonly Hint[]; mode: string | null
       ))}
     </span>
   );
-}
-
-/**
- * The status line's label for directional pane nav — `ctrl+hjkl` for the default
- * bindings — or null when nothing is bound to it.
- *
- * Read from the bindings rather than written down here, because the key is
- * config: the default is Ctrl+hjkl, and a user's own `~/.tmux.conf` may move it
- * somewhere else. The four
- * directions have to share one modifier and spell one word for a single hint to
- * be honest about them; anything else is left to the keybindings view.
- */
-function navHintKey(rootBindings: KeyBindings['root_bindings']): string | null {
-  const isNav = (command: string) => command.includes('tmuxy-nav') || command.includes('tmuxy/nav');
-  const bound = new Map(
-    rootBindings.filter((b) => isNav(b.command)).map((b) => [b.key, b.command] as const),
-  );
-
-  for (const modifier of ['C', 'M']) {
-    const keys = ['h', 'j', 'k', 'l'];
-    if (keys.every((key) => bound.has(`${modifier}-${key}`))) {
-      return `${modifier === 'C' ? 'ctrl' : 'alt'}+${keys.join('')}`;
-    }
-  }
-  return null;
-}
-
-/** The keys a mode lists: its own, or none for a table the line knows nothing about. */
-function modeHints(mode: string): readonly Hint[] {
-  return MODE_HINTS[mode] ?? [];
 }
 
 function CommandModeInput({
@@ -149,7 +105,7 @@ function CommandModeInput({
 export function TmuxStatusBar() {
   const commandMode = useAppSelector(selectCommandMode);
   const statusMessage = useAppSelector(selectStatusMessage);
-  const { totalWidth, charWidth } = useAppSelector(selectGridDimensions);
+  const { totalWidth, totalHeight, charWidth, charHeight } = useAppSelector(selectGridDimensions);
   const sessionName = useAppSelector(selectSessionName);
   const servers = useAppSelectorShallow((ctx) => ctx.servers);
   const currentServerId = useAppSelector((ctx) => ctx.currentServerId);
@@ -163,9 +119,8 @@ export function TmuxStatusBar() {
   const switcherRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const gridPixelWidth = totalWidth * charWidth;
+  const gridPixelWidth = gridPixelSize(totalWidth, totalHeight, charWidth, charHeight).width;
 
-  // Command mode: full-width input replaces everything
   if (commandMode) {
     return (
       <CommandModeInput
@@ -179,11 +134,8 @@ export function TmuxStatusBar() {
 
   const hostname = serverHostLabel(servers, currentServerId, isDemo, serverHostname);
 
-  // Both ends of the status line open the same switcher (components/
-  // SessionMenu): the host and the session name are two halves of "where am
-  // I", so they answer with one menu rather than two prompts that knew nothing
-  // of each other. It hangs from the pair and opens UPWARD — the status line
-  // is the window's last row, so a menu below it would be off the screen.
+  // Host and session open the same switcher, hung from the pair; it opens
+  // upward, since the status line is the window's last row.
   const handleSwitcherClick = isDemo
     ? undefined
     : () => {
@@ -191,23 +143,12 @@ export function TmuxStatusBar() {
         setMenuOpen(!menuOpen);
       };
 
-  // Center area: only the client's own temporary status ("Copied …").
-  // The tmux status line content is not displayed — we use hardcoded hints (left)
-  // and hostname/session (right) instead.
   const centerContent = statusMessage ? (
     <pre className="tmux-status-bar-content tmux-status-message">{statusMessage.text}</pre>
   ) : null;
 
-  // The mode in force, by the table it is: a sticky table (PANE, TAB), else
-  // the prefix, else copy mode. While one is on the line is the mode's.
   const mode = keyTable ?? (prefixActive ? 'prefix' : inCopyMode ? 'copy' : null);
-  // The nav hint names whatever key is actually bound: a user's own config
-  // may move it off the default.
-  const hints = mode
-    ? modeHints(mode)
-    : keybindings
-      ? normalHints(formatPrefixKey(keybindings.prefix_key), navHintKey(keybindings.root_bindings))
-      : null;
+  const hints = mode ? modeHints(keybindings, mode) : keybindings ? normalHints(keybindings) : null;
 
   return (
     <div className="tmux-status-bar" data-testid="tmux-status-bar">

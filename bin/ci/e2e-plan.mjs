@@ -13,12 +13,11 @@
  *   bin/ci/e2e-plan.mjs full     every suite, every test — the tag build
  *
  * Each entry comes out of tests/e2e-suites.json with a `pattern` added: the
- * tier's lookahead followed by the suite's own shard filter, anchored once.
- * Composing the two here keeps the workflow to one `--testNamePattern`.
+ * tier's jest name pattern, anchored. An entry picks its files by `path`
+ * alone, so a describe title never decides which runner a test lands on.
  *
- * `plan` is exported for its test (packages/tmuxy-ui/scripts/e2e-plan.test.mjs),
- * which also holds the shard filters to the real suites: every describe block
- * of a split file lands in exactly one shard.
+ * `plan` is exported for its test (e2e-plan.test.mjs, beside it), which also
+ * holds the paths to the real files: every E2E file runs on exactly one entry.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -39,10 +38,10 @@ export const NIGHTLY_TIER = { name: 'nightly-tier', path: 'tests/', pattern: '\\
 export function plan(suites, tier, { withNightly = false } = {}) {
   const entries = suites
     .filter((suite) => tier === 'full' || suite.tier !== 'nightly')
-    .map(({ tier: _tier, filter, ...suite }) => {
-      const body = `${TIERS[tier]}${filter ?? ''}`;
-      return { ...suite, pattern: body ? `^${body}` : '' };
-    });
+    .map(({ tier: _tier, ...suite }) => ({
+      ...suite,
+      pattern: TIERS[tier] ? `^${TIERS[tier]}` : '',
+    }));
   return tier === 'commit' && withNightly ? [...entries, NIGHTLY_TIER] : entries;
 }
 

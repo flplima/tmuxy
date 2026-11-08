@@ -1,14 +1,10 @@
 //! The one routing policy for commands a client asks tmuxy to run.
 //!
-//! Both transports — the web server's `RunTmuxCommand` and `QueryTmux`
-//! handlers and the desktop app's `run_tmux_command` and `query_tmux` — call
-//! [`route_command`] or [`route_query`] and then do only mechanics with the
-//! answer (write to their monitor's command channel). The policy used to be
-//! duplicated per transport, and had drifted: the desktop ran every
-//! single-line command as an external subprocess with a session-target
-//! rewrite that overrode the frontend's window/pane pin, so a split could
-//! land on whatever tab tmux happened to be on. A policy that exists once
-//! cannot diverge.
+//! Both transports reach it through `host::command` (the `RunTmuxCommand` and
+//! `QueryTmux` client commands) and only write the answer to their monitor's
+//! command channel. A policy duplicated per transport drifts: the desktop's
+//! copy once ran single-line commands as external subprocesses with a
+//! session-target rewrite that overrode the frontend's window/pane pin.
 //!
 //! What the policy says, of every command a client sends — each control-mode
 //! line of it, and each command of each line, wherever tmux would split them,
@@ -21,11 +17,18 @@
 //!   control-mode client attached.
 //! - a blank line is left out: an empty line detaches the control-mode
 //!   client, which is the monitor's own connection.
-//! - everything else goes to control mode **byte-identical**. No target is
-//!   ever added: an untargeted command after a `select-window ; select-pane`
-//!   pin inherits the queue's current target, which is exactly what the pin
-//!   established, whereas a session target is resolved late against the
-//!   session's live current window and loses a race with any other client.
+//! - typed text holding a `#{` is cut into one `send-keys -l` per piece
+//!   (`tmux_compat::split_format_literals`): tmux 3.7a expands it.
+//! - everything else goes to control mode **byte-identical**, but for the
+//!   frontend's `\;` separators, written as the bare `;` a control-mode line
+//!   reads (here, and nowhere after). No target is ever added: an untargeted
+//!   command after a `select-window ; select-pane` pin inherits the queue's
+//!   current target, which is exactly what the pin established, whereas a
+//!   session target is resolved late against the session's live current
+//!   window and loses a race with any other client.
+//!
+//! `tmuxy run` ([`route_cli_run`], in `cli_run`) is narrower: it runs only the commands
+//! that read, arrange or close, by name, with every argument quoted.
 //!
 //! A query runs only commands that read (X6): a mutation sent as a query
 //! skipped what the mutation path does around it — the queue that keeps a
@@ -34,13 +37,14 @@
 //! this is an access boundary: a client may run any command it likes, as a
 //! mutation.
 
-use crate::control_mode::control_mode_lines;
-use crate::executor::{
-    command_verb, compound_runs, every_command, rewrite_mutating_verbs,
-    rewrite_new_window_in_compound, NEW_WINDOW, RESIZE_WINDOW,
-};
+use std::borrow::Cow;
 
-/// Where a client's command goes.
+use crate::control_mode::control_mode_lines;
+use crate::tmux_command::{self, RESIZE_WINDOW};
+
+mod cli_run;
+pub use cli_run::{route_cli_run, run_verbs, CliRun};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     /// Not run at all; the reason is for the log.
@@ -86,20 +90,40 @@ const READ_VERBS: &[&str] = &[
     "showw",
 ];
 
-/// Decide the route for a command. `size` is the viewport a freshly created
-/// window should be sized to, when one client has reported one.
+/// Why `resize-window` is never run: tmuxy sizes each window to its clients'
+/// viewports (`set_client_size`), and a resize from outside is unreliable
+/// with control mode attached (tmux ignores it).
+pub(crate) const RESIZE_WINDOW_REFUSAL: &str =
+    "resize-window is blocked — it is unreliable with control mode attached \
+     (ignored when sent externally), and tmuxy sizes windows to its clients. Use resize-pane.";
+
+fn plain_lines(command: &str) -> impl Iterator<Item = Cow<'_, str>> {
+    control_mode_lines(command).map(|line| tmux_command::parse(line).with_plain_separators())
+}
+
+/// `size` is the viewport a freshly created window should be sized to, when
+/// one client has reported one.
 pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> Route {
+    // The verb only: the full command is admitted at trace level `full`
+    // (docs/TRACING.md).
+    tracing::debug!(
+        verb = command.split_whitespace().next().unwrap_or(""),
+        command,
+        "run command"
+    );
     let mut lines = Vec::new();
-    for line in control_mode_lines(command) {
-        if compound_runs(line, &RESIZE_WINDOW) {
-            return Route::Blocked("resize-window must go through set_client_size");
+    for line in plain_lines(command) {
+        let list = tmux_command::parse(&line);
+        if list.runs(&RESIZE_WINDOW) {
+            return Route::Blocked(RESIZE_WINDOW_REFUSAL);
         }
-        let rewritten = if compound_runs(line, &NEW_WINDOW) {
-            rewrite_new_window_in_compound(line, session, size)
+        if let Some(rewritten) = list.rewrite_new_window(session, size) {
+            lines.push(rewritten);
+        } else if let Some(split) = crate::tmux_compat::split_format_literals(&list) {
+            lines.extend(split);
         } else {
-            None
-        };
-        lines.push(rewritten.unwrap_or_else(|| rewrite_mutating_verbs(line)));
+            lines.push(line.to_string());
+        }
     }
     if lines.is_empty() {
         return Route::Blocked("empty command");
@@ -107,24 +131,26 @@ pub fn route_command(command: &str, session: &str, size: Option<(u32, u32)>) -> 
     Route::ControlMode(lines.join("\n"))
 }
 
-/// Decide the route for a query: as it came when every command in it reads,
-/// refused otherwise.
+/// Refused unless every command in it reads; then as it came but for its `\;`
+/// separators.
 pub fn route_query(command: &str) -> Route {
-    let verbs: Vec<String> = control_mode_lines(command)
-        .flat_map(every_command)
-        .filter_map(|part| {
-            Some(command_verb(part))
-                .filter(|v| !v.is_empty())
-                .map(str::to_string)
-        })
-        .collect();
-    if verbs.is_empty() {
+    tracing::debug!(
+        verb = command.split_whitespace().next().unwrap_or(""),
+        "run query"
+    );
+    let lines: Vec<String> = plain_lines(command).map(Cow::into_owned).collect();
+    let lists: Vec<_> = lines.iter().map(|line| tmux_command::parse(line)).collect();
+    let mut verbs = lists.iter().flat_map(|list| list.every().map(|c| c.verb()));
+    let Some(first) = verbs.next() else {
         return Route::Blocked("empty command");
-    }
-    if !verbs.iter().all(|verb| READ_VERBS.contains(&verb.as_str())) {
+    };
+    if !std::iter::once(first)
+        .chain(verbs)
+        .all(|verb| READ_VERBS.contains(&verb))
+    {
         return Route::Blocked("a query only reads; send a mutation with run_tmux_command");
     }
-    Route::ControlMode(command.to_string())
+    Route::ControlMode(lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -135,38 +161,41 @@ mod tests {
     fn a_pinned_list_reaches_tmux_untouched() {
         // The regression: the frontend pins a split to the tab the user sees.
         // Any rewrite of the final command — a session target in particular —
-        // hands the split to whatever window tmux is on when it runs.
+        // hands the split to whatever window tmux is on when it runs. Only
+        // the frontend's separator changes, to the one control mode reads.
         let pinned =
             "select-window -t @19 \\; select-pane -t %48 \\; splitw -h -c \"#{pane_current_path}\"";
         assert_eq!(
             route_command(pinned, "tmuxy", None),
-            Route::ControlMode(pinned.to_string())
+            Route::ControlMode(pinned.replace("\\;", ";"))
         );
     }
 
+    /// A long verb is tmux's own name for the command and reaches it as
+    /// written; a `\;` inside a quoted literal is text, not a separator.
     #[test]
-    fn mutating_verbs_are_normalized_to_short_forms() {
+    fn long_verbs_and_quoted_separators_go_out_as_written() {
+        for cmd in [
+            "split-window -h",
+            "kill-pane -t %1",
+            "select-pane -t %1 ; break-pane -d",
+            "send-keys -t %1 -l -- 'a \\; b'",
+        ] {
+            assert_eq!(
+                route_command(cmd, "tmuxy", None),
+                Route::ControlMode(cmd.to_string())
+            );
+        }
+    }
+
+    /// Typed text with a `#{` reaches tmux 3.7a as pieces it cannot expand,
+    /// on every transport (tmux_compat::split_format_literals).
+    #[test]
+    fn typed_formats_are_cut_where_tmux_would_expand_them() {
         assert_eq!(
-            route_command("split-window -h", "tmuxy", None),
-            Route::ControlMode("splitw -h".to_string())
-        );
-        assert_eq!(
-            route_command("kill-pane -t %1", "tmuxy", None),
-            Route::ControlMode("killp -t %1".to_string())
-        );
-        assert_eq!(
-            route_command("kill-window -t @2", "tmuxy", None),
-            Route::ControlMode("killw -t @2".to_string())
-        );
-        assert_eq!(
-            route_command("break-pane -d", "tmuxy", None),
-            Route::ControlMode("breakp -d".to_string())
-        );
-        let pinned = "select-window -t @19 \\; select-pane -t %48 \\; split-window -h -c \"#{pane_current_path}\"";
-        assert_eq!(
-            route_command(pinned, "tmuxy", None),
+            route_command("send-keys -t %1 -l -- 'x#{pane_id}'\nsend-keys -t %1 Enter", "tmuxy", None),
             Route::ControlMode(
-                "select-window -t @19 ; select-pane -t %48 ; splitw -h -c \"#{pane_current_path}\""
+                "send-keys -t %1 -l -- 'x#'\nsend-keys -t %1 -l -- '{pane_id}'\nsend-keys -t %1 Enter"
                     .to_string()
             )
         );
@@ -233,6 +262,24 @@ mod tests {
         }
     }
 
+    /// A binding's `new-window` keeps what it named — its name, directory,
+    /// `-d` and command — in the tab it becomes; a window index has no place
+    /// in a tab and goes, and a command's own `-d` is the command's.
+    #[test]
+    fn new_window_keeps_its_name_directory_and_command() {
+        assert_eq!(
+            route_command(
+                "new-window -dt work:3 -n build -c \"#{pane_current_path}\" htop -d 2",
+                "tmuxy",
+                None
+            ),
+            Route::ControlMode(
+                "splitw -t 'tmuxy' -c '#{pane_current_path}' 'htop -d 2' ; breakp -d -n 'build' ; select-pane -t 'tmuxy'"
+                    .to_string()
+            )
+        );
+    }
+
     /// X5: a `new-window` on any line, or after a bare `;`, is rewritten like
     /// one after `\;`; the lines around it go out as they came.
     #[test]
@@ -274,7 +321,7 @@ mod tests {
                        { display-menu -x M Kill X { kill-pane } Float f { break-pane -W } }";
         assert_eq!(
             route_command(binding, "tmuxy", None),
-            Route::ControlMode(binding.to_string())
+            Route::ControlMode(binding.replace("\\;", ";"))
         );
     }
 
@@ -311,12 +358,10 @@ mod tests {
             "display-message -p caught-up",
             "display-message -p -F '#{socket_path}'",
             "display -p -t %9 \"#{pane_id}\"",
-            "show-environment -g TMUXY_SWITCH_TO",
             "list-windows -a -F '#{session_name} #{window_id}'",
             "list-panes -a -F '#{pane_id}\t#{window_id}'",
             "list-panes -t @3",
             "capture-pane -p -e -t %1 -S -10 -E 0",
-            "show-options -gqv @x \\; list-keys -T root",
         ] {
             assert_eq!(
                 route_query(query),
@@ -324,6 +369,10 @@ mod tests {
                 "{query:?}"
             );
         }
+        assert_eq!(
+            route_query("show-options -gqv @x \\; list-keys -T root"),
+            Route::ControlMode("show-options -gqv @x ; list-keys -T root".to_string())
+        );
     }
 
     /// X6: a query that would change anything — on its own, later in the

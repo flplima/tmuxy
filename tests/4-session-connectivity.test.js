@@ -6,7 +6,7 @@
 
 const os = require('os');
 const {
-  createTestContext,
+  describeE2E,
   focusPage,
   typeInTerminal,
   pressEnter,
@@ -14,49 +14,32 @@ const {
   getUIPaneCount,
   waitForPaneCount,
   splitPaneKeyboard,
-  navigateToSession,
-  waitForSessionReady,
+  openSession,
   waitForCondition,
   assertLayoutInvariants,
 } = require('./helpers');
 
 // ==================== Scenario 12: Session Reconnect ====================
 
-describe('Scenario 12: Session Reconnect', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 12: Session Reconnect', {}, (ctx) => {
   test('2 panes → reload → verify preserved → split via tmux → 3 rapid splits → UI synced', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Create 2 panes
     await splitPaneKeyboard(ctx.page, 'horizontal');
     await waitForPaneCount(ctx.page, 2);
-    // Wait for XState to reflect 2 panes
-    await ctx.page.waitForFunction(
-      () => {
-        const snap = window.app?.getSnapshot?.();
-        const panes = snap?.context?.panes || [];
-        const awId = snap?.context?.activeWindowId;
-        return panes.filter((p) => p.windowId === awId).length === 2;
-      },
-      { timeout: 5000, polling: 100 },
-    );
 
     // Step 2: Reload — wait for both DOM and XState hydration
     await ctx.page.reload({ waitUntil: 'domcontentloaded' });
     await ctx.page.waitForSelector('[role="log"]', { timeout: 15000 });
-    // Wait for XState machine to hydrate with pane data
+    // The reloaded app holds the session's panes again.
     await ctx.page.waitForFunction(
-      () => {
-        const snap = window.app?.getSnapshot?.();
-        return snap?.context?.panes?.length > 0;
+      () => (window.app?.view?.().visiblePaneIds.length ?? 0) > 0,
+      null,
+      {
+        timeout: 15000,
+        polling: 100,
       },
-      { timeout: 15000, polling: 100 },
     );
     ctx.session.setPage(ctx.page);
     // The status line says where we are: the machine's own name, which the
@@ -73,7 +56,6 @@ describe('Scenario 12: Session Reconnect', () => {
       5000,
       `the status line to name this machine (${os.hostname()})`,
     );
-    await waitForSessionReady(ctx.page, ctx.session.name, 15000);
 
     // Step 3: Verify preserved
     await waitForCondition(
@@ -112,20 +94,13 @@ describe('Scenario 12: Session Reconnect', () => {
 
 // ==================== Scenario 12b: Connection overlay and the reconnect notice ====================
 
-describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 12b: Connection overlay and the reconnect notice', {}, (ctx) => {
   // The old "Connecting to tmux…" page dumped the command log on screen and
   // unmounted the panes. Now a first load shows a placeholder + spinner, and
   // a dropped channel keeps the last frame in view, uncovered: after two
   // quiet seconds a notice in the snackbar corner says "Reconnecting…", and
   // it leaves on its own once the channel is back.
   test('reload shows no log → offline keeps the panes in view and after 2s says "Reconnecting…" in the corner → online clears it → shell still works', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -174,7 +149,6 @@ describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
       const notice = document.querySelector('[data-testid="reconnect-notice"]');
       const container = document.querySelector('.pane-container');
       return {
-        panes: document.querySelectorAll('.pane-layout-item').length,
         notice: notice.getBoundingClientRect().toJSON(),
         container: container.getBoundingClientRect().toJSON(),
         text: notice.textContent,
@@ -198,7 +172,7 @@ describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
             ?.closest('.pane-layout-item') !== null,
       };
     });
-    expect(shown.panes).toBe(2);
+    expect(await getUIPaneCount(page)).toBe(2);
     expect(shown.text).toContain('Reconnecting');
     expect(shown.text).toContain('Retry now');
     expect(shown.role).toBe('status');
@@ -230,7 +204,6 @@ describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
   // climbed: a few drops in, every reconnect waited out the 30s cap, and
   // nothing told the sleeping retry that the network was back.
   test('six drops in a row → each reconnects within seconds of the network returning → "Retry now" retries on the spot [nightly]', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
 
@@ -313,15 +286,8 @@ describe('Scenario 12b: Connection overlay and the reconnect notice', () => {
 
 // ==================== Scenario 13: Multi-Client ====================
 
-describe('Scenario 13: Multi-Client', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 13: Multi-Client', {}, (ctx) => {
   test('3 panes → page2 → both see layout', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
 
     // Step 1: Create 3-pane layout
@@ -332,10 +298,8 @@ describe('Scenario 13: Multi-Client', () => {
 
     // Step 2: Open second page
     const page2 = await ctx.browser.newPage();
-    await navigateToSession(page2, ctx.session.name);
-    // Wait for the second page to fully load and render terminals
-    // (Step 4 then waits for its three panes, which is what "loaded" means.)
-    await page2.waitForSelector('[role="log"]', { timeout: 15000 }).catch(() => {});
+    await openSession(page2, ctx.session.name);
+    await page2.waitForSelector('[role="log"]', { timeout: 15000 });
 
     // Step 3: Both see terminal
     const p1Terminal = await ctx.page.$('[role="log"]');
@@ -346,20 +310,7 @@ describe('Scenario 13: Multi-Client', () => {
     // Step 4: Second page must see the SAME 3-pane layout, not merely "a
     // terminal" (the old >= 1 assertion passed with the layout entirely
     // unsynced).
-    const uniquePaneCount = () => {
-      const ids = new Set();
-      for (const el of document.querySelectorAll('[data-pane-id]')) {
-        ids.add(el.getAttribute('data-pane-id'));
-      }
-      return ids.size;
-    };
-    await page2
-      .waitForFunction(`(${uniquePaneCount.toString()})() >= 3`, { timeout: 15000 })
-      .catch(() => {});
-    // Unique ids: each pane emits data-pane-id on both its wrapper and its
-    // inner TerminalPane, so raw element counts are 2x the pane count.
-    const p2PaneCount = await page2.evaluate(`(${uniquePaneCount.toString()})()`);
-    expect(p2PaneCount).toBe(3);
+    await waitForPaneCount(page2, 3, 15000);
 
     // Step 5: Content typed on page 1 must propagate to page 2 — the actual
     // multi-client promise. Opening page2 blurred page 1 (APP_BLUR disables

@@ -15,8 +15,7 @@
 //! handler keyed by `(pane_id, image_id)`.
 //!
 //! tmux **control mode** forwards passthrough sequences verbatim through
-//! `%output`, so we get the original bytes here even when the user is inside
-//! a tmux session (verified empirically — see docs/RICH-RENDERING.md).
+//! `%output`, so the original bytes arrive here (docs/RICH-RENDERING.md).
 
 mod kitty;
 mod kitty_placeholders;
@@ -24,19 +23,17 @@ mod sixel_and_iterm;
 
 use kitty::rgba_to_png;
 use serde::{Deserialize, Serialize};
-pub(super) use sixel_and_iterm::find_osc_end;
-use sixel_and_iterm::{
-    base64_decode, detect_mime_type, ends_pending_escape, last_terminator_start, overlaps,
-};
+pub(crate) use sixel_and_iterm::base64_decode;
+use sixel_and_iterm::find_osc_end;
+use sixel_and_iterm::{detect_mime_type, ends_pending_escape, last_terminator_start, overlaps};
 
 // `std::time::Instant::now()` panics on wasm32; web-time backs it with
-// performance.now() in the browser (the same arrangement as `state.rs`).
+// performance.now() in the browser.
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-/// Image protocol that produced this image.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ImageProtocol {
@@ -58,7 +55,6 @@ pub struct ImagePlacement {
     pub width_cells: u16,
     /// Height in terminal cells.
     pub height_cells: u16,
-    /// Which protocol produced this image.
     pub protocol: ImageProtocol,
     /// Fill the cells exactly instead of fitting inside them: iTerm2's
     /// `preserveAspectRatio=0`. A picture whose cells ARE its coordinate
@@ -68,7 +64,6 @@ pub struct ImagePlacement {
     pub stretch: bool,
 }
 
-/// Stored image blob.
 #[derive(Debug, Clone)]
 pub struct StoredImage {
     /// Raw image data (PNG, JPEG, GIF, etc.).
@@ -81,7 +76,7 @@ pub struct StoredImage {
 ///
 /// Kitty splits large payloads into chunks with `m=1` (more); the final chunk
 /// may mark `m=0` or omit `m` entirely. Subsequent chunks may omit metadata
-/// (other than `i=`/`m=`), so we cache the first chunk's transmission keys.
+/// (other than `i=`/`m=`), so the first chunk's transmission keys are kept.
 #[derive(Debug)]
 struct KittyChunked {
     /// When the transfer was opened; see `MAX_CHUNKED_AGE`.
@@ -133,9 +128,9 @@ pub struct ImageParser {
     /// its header rendered as garbage text and the image dropped.
     pending: Vec<u8>,
     /// `pending` is one escape whose terminator has been looked for and not
-    /// found. A chunk that brings no terminator either can then only extend
-    /// it, so the chunk is appended without rescanning the whole buffer —
-    /// which, over an 8 MiB image in 4 KiB chunks, was gigabytes of scanning.
+    /// found, so a chunk that brings no terminator either is appended without
+    /// rescanning the buffer: over an 8 MiB image in 4 KiB chunks, rescanning
+    /// is gigabytes.
     pending_unterminated: bool,
     /// The main screen's pictures, set aside while an application runs on the
     /// alternate screen (`Some` exactly while it does), and put back when it
@@ -143,16 +138,12 @@ pub struct ImageParser {
     main_screen_placements: Option<Vec<ImagePlacement>>,
 }
 
-/// Upper bound on a buffered incomplete image escape. Inline images can be
-/// large, so this is generous; beyond it we assume a malformed stream and stop
-/// buffering rather than grow without bound.
+/// Upper bound on a buffered incomplete image escape; past it the stream is
+/// taken as malformed and no longer buffered.
 const MAX_PENDING_IMAGE: usize = 8 * 1024 * 1024;
 
-/// Upper bound on ONE chunked Kitty transfer, assembled.
-///
-/// `MAX_PENDING_IMAGE` bounds the unparsed tail of the stream, which is a
-/// different thing: a chunked transfer (`m=1`) is assembled here, across many
-/// well-formed escapes, and nothing was watching that total.
+/// Upper bound on ONE chunked Kitty transfer, assembled across many
+/// well-formed escapes (`MAX_PENDING_IMAGE` bounds only the unparsed tail).
 const MAX_CHUNKED_IMAGE: usize = MAX_PENDING_IMAGE;
 
 /// Upper bound on a ZLIB-compressed Kitty payload once inflated, so a small
@@ -167,23 +158,19 @@ const MAX_KITTY_IMAGE_IDS: usize = 256;
 /// How many chunked transfers may be in flight at once.
 ///
 /// Each `m=1` with a fresh id opens an entry that lives until its `m=0`
-/// arrives — which a program is under no obligation to send. A loop opening
-/// ids and never finishing them grew the map for the life of the pane; past
-/// this the oldest is dropped, which costs a hostile stream its earliest
-/// transfer and a legitimate one nothing (a terminal sends one at a time).
+/// arrives, which a program is under no obligation to send. Past this the
+/// oldest is dropped: that costs a hostile stream its earliest transfer and a
+/// legitimate one nothing (a terminal sends one at a time).
 const MAX_INFLIGHT_CHUNKED: usize = 16;
 
 /// How long an unfinished chunked transfer is kept.
 ///
 /// The in-flight cap bounds how MANY transfers a pane can leave open, not for
-/// how long: sixteen half-sent images sat in memory for the life of the pane.
-/// A real transfer streams its chunks back to back, so one that has gone
-/// quiet this long is abandoned and dropped the next time any chunk arrives.
+/// how long. A real transfer streams its chunks back to back, so one quiet
+/// this long is abandoned, and dropped the next time any chunk arrives.
 const MAX_CHUNKED_AGE: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl ImageParser {
-    /// Drop every chunked transfer that has been open longer than
-    /// `MAX_CHUNKED_AGE` as of `now`.
     fn expire_stale_chunked(&mut self, now: Instant) {
         if self.kitty_chunks.is_empty() {
             return;
@@ -195,7 +182,6 @@ impl ImageParser {
     }
 }
 
-/// Result of processing raw output through the image parser.
 pub struct ImageProcessResult {
     /// Bytes with image sequences stripped (for vt100).
     pub clean_bytes: Vec<u8>,
@@ -225,17 +211,13 @@ impl ImageParser {
     /// Record a placement, replacing any already anchored at the same cell.
     ///
     /// A live preview repaints in place: it homes the cursor and sends the next
-    /// frame at the same spot, once a second. Appending each one stacked the
-    /// pane full of dead frames, and the protocol's own `a=d` only avoids that
-    /// by emptying the pane first — which, over control mode, leaves the frame
-    /// visibly missing for as long as the next one takes to arrive. Swapping
-    /// the picture at that anchor keeps exactly one frame on screen with no gap
-    /// in between.
+    /// frame at the same spot. The protocol's own `a=d` empties the pane
+    /// first, which over control mode leaves the frame visibly missing until
+    /// the next one arrives; swapping the picture at that anchor keeps exactly
+    /// one frame on screen.
     ///
-    /// Not only the same anchor: a picture drawn OVER another covers it. A
-    /// program that moves its picture — re-centring it in a pane that just
-    /// changed size — otherwise left the old one on screen beside the new,
-    /// and every resize stacked another.
+    /// Not only the same anchor: a picture drawn OVER another covers it, so a
+    /// program that re-centres its picture after a resize leaves no copy.
     fn place(&mut self, placement: ImagePlacement) {
         self.placements.retain(|p| !overlaps(p, &placement));
         self.placements.push(placement);
@@ -270,10 +252,8 @@ impl ImageParser {
 
     /// Reset for a capture-pane refill: clear in-flight transfer state but
     /// PRESERVE placements. capture-pane output never contains the original
-    /// image escapes (tmux strips them from history), so clearing placements
-    /// here would permanently erase every on-screen image each time a capture
-    /// refreshes the pane — visible as images flickering out (or, with a
-    /// periodic pane re-sync, never surviving at all).
+    /// image escapes (tmux strips them from history), so a capture cannot
+    /// bring an image back.
     pub fn reset_for_capture(&mut self) {
         self.kitty_chunks.clear();
         self.kitty_chunk_order.clear();
@@ -429,13 +409,9 @@ impl ImageParser {
                     }
                 }
 
-                // An image-capable escape (ESC ] / ESC _ / ESC P) that didn't
-                // parse AND has no terminator in the rest of the chunk is split
-                // across the %output boundary — buffer the tail and resume next
-                // call rather than leaking the torn header into vt100. (A
-                // complete-but-non-image ESC ] — e.g. OSC 8 — DOES have a
-                // terminator here, so it falls through to pass-through below and
-                // reaches the OSC parser as before.)
+                // An image-capable escape with no terminator in the rest of
+                // the chunk is split across `%output` lines: buffered, so its
+                // torn header never reaches vt100.
                 if matches!(nxt, b']' | b'_' | b'P') && !terminated_after(i + 2) {
                     let tail = &content[i..];
                     if tail.len() <= MAX_PENDING_IMAGE {

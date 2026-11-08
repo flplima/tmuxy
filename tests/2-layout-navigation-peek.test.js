@@ -9,26 +9,24 @@
  */
 
 const {
-  createTestContext,
-  navigateToSession,
-  waitForSessionReady,
+  describeE2E,
+  openSession,
   waitForCondition,
   waitForTerminalText,
   afterFrames,
 } = require('./helpers');
+const { tmuxPane } = require('./helpers/tmux-read');
+const { tmuxExec } = require('./helpers/tmux-socket');
 
 /** Where things are on screen, as the user sees them. */
-const geometry = (page) =>
-  page.evaluate(() => {
+const geometry = async (page) => {
+  const drawn = await page.evaluate(() => {
     const rect = (sel) => {
       const el = document.querySelector(sel);
       if (!el) return null;
       const r = el.getBoundingClientRect();
       return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
     };
-    const ctx = window.app?.getSnapshot()?.context;
-    const tree = ctx?.windows?.find((w) => w.windowType === 'sidebar-left');
-    const active = ctx?.panes?.find((p) => p.tmuxId === ctx.activePaneId);
     const backdrop = document.querySelector('.sidebar-peek-backdrop');
     return {
       toggle: rect('.sidebar-toggle-left'),
@@ -39,11 +37,24 @@ const geometry = (page) =>
       container: rect('.pane-container'),
       pane: rect('.pane-layout-item'),
       treeRow: rect('.sidebar-column-left.is-peek .sidebar-tree-tab'),
-      treeHidden: tree ? Boolean(tree.sidebarHidden) : null,
-      paneCols: active?.width ?? null,
-      open: ctx?.leftSidebarOpen,
+      activePaneId: window.app.view().activePaneId,
     };
   });
+  // What tmux holds: the tree's window hidden from every client, and the
+  // active pane's width in cells.
+  const session = new URL(page.url()).searchParams.get('session');
+  const tree = tmuxExec(
+    `list-windows -t ${session} -F '#{@tmuxy-window-type} #{@tmuxy-sidebar-hidden}'`,
+  )
+    .split('\n')
+    .find((line) => line.startsWith('sidebar-left'));
+  const { activePaneId, ...rest } = drawn;
+  return {
+    ...rest,
+    treeHidden: tree ? tree.split(' ')[1] === '1' : null,
+    paneCols: activePaneId ? tmuxPane(activePaneId).width : null,
+  };
+};
 
 const centre = (r) => ({ x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 });
 
@@ -58,8 +69,10 @@ async function holdsFor(page, ms, holds, what) {
   await waitForCondition(
     page,
     async () => {
-      if (!(await holds()))
-        throw new Error(`${what} stopped holding after ${Date.now() - start}ms`);
+      if (!(await holds())) {
+        const desc = typeof what === 'function' ? await what() : what;
+        throw new Error(`${desc} stopped holding after ${Date.now() - start}ms`);
+      }
       return Date.now() - start >= ms;
     },
     ms + 10000,
@@ -67,19 +80,11 @@ async function holdsFor(page, ms, holds, what) {
   );
 }
 
-describe('Scenario 6g: a closed sidebar peeks over the panes on hover', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario 6g: a closed sidebar peeks over the panes on hover', {}, (ctx) => {
   test('a rest on the tree toggle shows the tree over a dimmed, unchanged grid → it holds while the mouse is on it → leaving puts it away and the keyboard is still the pane’s → the toggle’s click docks it', async () => {
-    if (ctx.skipIfNotReady()) return;
     await ctx.setupPage();
     const page = ctx.page;
-    await navigateToSession(page, ctx.session.name);
-    await waitForSessionReady(page, ctx.session.name);
+    await openSession(page, ctx.session.name);
 
     const before = await geometry(page);
     expect(before.peek).toBeNull();
@@ -114,7 +119,7 @@ describe('Scenario 6g: a closed sidebar peeks over the panes on hover', () => {
     expect(peeking.container).toEqual(before.container);
     expect(peeking.pane).toEqual(before.pane);
     expect(peeking.paneCols).toBe(before.paneCols);
-    expect(peeking.open).toBe(false);
+    expect(peeking.docked).toBeNull();
     // The tree's window arrives hidden: no other client sees it open.
     await waitForCondition(
       page,
@@ -177,14 +182,16 @@ describe('Scenario 6g: a closed sidebar peeks over the panes on hover', () => {
       10000,
       'the tree to shut',
     );
+    let shut = null;
     await holdsFor(
       page,
       600,
       async () => {
-        const g = await geometry(page);
-        return g.docked === null && g.peek === null;
+        shut = await geometry(page);
+        return shut.docked === null && shut.peek === null;
       },
-      'the tree staying shut under the pointer',
+      () =>
+        `the tree staying shut under the pointer (docked: ${JSON.stringify(shut.docked)}, peek: ${JSON.stringify(shut.peek)})`,
     );
   }, 120000);
 });

@@ -10,9 +10,7 @@
 # Every report carries its run's URL, so an issue with no comment from this
 # run means nothing in it failed: `resolve` runs only when the run's jobs
 # passed, and still checks, because a soft failure (tmux HEAD in the matrix)
-# reports without failing its job. Without `resolve` an issue stayed open
-# after the fix landed and the next run passed, until someone closed it by
-# hand.
+# reports without failing its job.
 #
 # Needs GH_TOKEN and GH_REPO, as every gh call in a workflow does.
 set -euo pipefail

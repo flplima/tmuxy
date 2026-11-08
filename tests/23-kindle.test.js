@@ -6,7 +6,7 @@
  * what the screen shows, in a box the viewport actually holds.
  */
 
-const { createTestContext, waitForCondition, TMUXY_URL, TMUXY_CLI } = require('./helpers');
+const { describeE2E, waitForCondition, TMUXY_URL, TMUXY_CLI } = require('./helpers');
 
 /** The screen's rows, as drawn. */
 const screenRows = (page) =>
@@ -31,15 +31,8 @@ async function sendLine(page, text) {
   await page.click('.kindle-send');
 }
 
-describe('Scenario: the e-ink page at /?kindle', () => {
-  const ctx = createTestContext();
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll, ctx.hookTimeout);
-  beforeEach(ctx.beforeEach, ctx.hookTimeout);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Scenario: the e-ink page at /?kindle', {}, (ctx) => {
   test('opens from ?kindle, runs what is typed, splits, follows a tapped pane, interrupts with ^C, switches tabs', async () => {
-    if (ctx.skipIfNotReady()) return;
     const { page } = ctx;
     await page.setViewportSize({ width: 744, height: 992 });
     await page.goto(`${TMUXY_URL}/?kindle&session=${encodeURIComponent(ctx.session.name)}`, {

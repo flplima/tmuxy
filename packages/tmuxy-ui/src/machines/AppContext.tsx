@@ -15,13 +15,14 @@ import { tracer } from '../infra/tracer';
 import { createTmuxActor } from './actors/tmuxActor';
 import { createKeyboardActor } from './actors/keyboardActor';
 import { createLinkModifierActor } from './actors/linkModifierActor';
-import { createGestureActor } from './actors/gestureActor';
+import { createGestureActor } from './gestures/gestureActor';
 import { createSizeActor } from './actors/sizeActor';
 import { createServersActor } from './actors/serversActor';
 import { createTmuxStoreActor } from './actors/tmuxStoreActor';
 import { makeTmuxStore } from '../infra/store/TmuxStore';
-import { measureCellMetrics } from '../utils/cellMetrics';
-import { isTauri } from '../utils/platform';
+import { measureCellMetrics } from '../infra/dom/cellMetrics';
+import { isTauri } from '../infra/platform';
+import { selectTestView, type AppTestView } from './testView';
 import {
   AppActorContext,
   AppConfigContext,
@@ -39,12 +40,8 @@ export function AppProvider({
   transport?: Layer.Layer<TmuxTransport>;
   config?: AppConfig;
 }) {
-  // Create the runtime, store, and actors once, from the props of the first
-  // render: a provider never swaps its backend underneath a running machine.
-  // The runtime is built from the transport Layer and every actor runs its
-  // effects on it. The TmuxStore is the client model — owns optimistic patches
-  // and reconciliation; the tmuxStoreActor bridges it into XState so the
-  // appMachine context stays a passive mirror of the store's derived snapshot.
+  // Built once, from the props of the first render: a provider never swaps its
+  // backend underneath a running machine.
   const [{ runtime, store, actors }] = useState(() => {
     const runtime = makeAppRuntime(transport ?? transportForEnvironment());
     const store = makeTmuxStore();
@@ -75,8 +72,8 @@ export function AppProvider({
     }),
   );
 
-  // Expose the XState actor for E2E tests, and tap `send` so the action
-  // tracer sees every dispatched event.
+  // Expose the XState actor for E2E tests and stories (machines/testView.ts),
+  // and tap `send` so the action tracer sees every dispatched event.
   useMemo(() => {
     if (typeof window === 'undefined') return;
     const originalSend = actorRef.send.bind(actorRef);
@@ -125,11 +122,8 @@ export function AppProvider({
       await nextFrame();
       await nextFrame();
     };
-    (
-      window as unknown as {
-        app: typeof actorRef & { settled: () => boolean; caughtUp: () => Promise<void> };
-      }
-    ).app = Object.assign(actorRef, { settled, caughtUp });
+    const view = (): AppTestView => selectTestView(actorRef.getSnapshot().context);
+    window.app = Object.assign(actorRef, { settled, caughtUp, view });
   }, [actorRef, runtime, store]);
 
   return (

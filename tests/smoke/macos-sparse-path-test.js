@@ -3,25 +3,20 @@
 /**
  * macOS-specific sparse-PATH regression test.
  *
- * Validates the PATH-augmentation fix that lets Homebrew binaries resolve
- * when the parent process inherits launchd's sparse PATH (the failure mode
- * Felipe hit when launching tmuxy.app from Finder/Applications). The Linux
- * hostile-config test validates the *safety net* (bounded retry); this one
- * validates the *primary fix* (PATH actually getting augmented).
+ * Validates the PATH augmentation that lets Homebrew binaries resolve when
+ * the app inherits launchd's sparse PATH, as it does when tmuxy.app is
+ * launched from Finder.
  *
- * Setup that the CI workflow does before invoking this test:
- *   - Install /opt/homebrew/bin/tmuxy-stay-alive (a script that just sleeps
- *     forever). This binary is *only* findable via Homebrew's bin dir; no
- *     fallback in /usr/bin.
- *   - Plant a tmux.conf at $SANDBOX_HOME/.tmux.conf with
- *       set -g default-command "tmuxy-stay-alive"
+ * The CI workflow (build-app.yml) installs /opt/homebrew/bin/tmuxy-stay-alive
+ * (a script that sleeps forever) first. It is findable only through
+ * Homebrew's bin dir, with no fallback in /usr/bin. This script plants a
+ * tmuxy.conf whose `default-command` names it, then launches the binary with
+ * PATH=/usr/bin:/bin:/usr/sbin:/sbin (launchd's default) and HOME pointing at
+ * a sandbox dir.
  *
- * The script then launches the binary with PATH=/usr/bin:/bin:/usr/sbin:/sbin
- * (matching launchd's sparse default), HOME pointing at the sandbox dir.
- *
- * Pass condition: after STABLE_SECONDS, the debug log shows no FATAL and at
- * most 2 "control mode connected" lines (one is normal; >2 means we're
- * reconnect-looping, which would be exactly the macOS Finder-launch bug).
+ * Pass condition: after STABLE_SECONDS, the app's tmuxy.log shows no FATAL
+ * and at most 2 "control mode connected" lines (one is normal; more is a
+ * reconnect loop, the macOS Finder-launch bug).
  *
  * Fail condition: FATAL appears, or connect count >2, or the binary exits.
  *
@@ -55,15 +50,14 @@ const DEBUG_LOG = path.join(SANDBOX_HOME, 'Library', 'Application Support', 'tmu
 const SESSION_NAME = `tmuxy-sparse-${Date.now()}`;
 const HELPER_BIN = '/opt/homebrew/bin/tmuxy-stay-alive';
 
-// How long we let the app run before asserting the connection is stable.
-// Matches MIN_HEALTHY_DURATION (5s) in packages/tmuxy-tauri-app/src/monitor.rs — the bound
-// after which a connection counts as "long-lived" — plus headroom for any
-// reconnect attempts that might still be in flight.
+// How long the app runs before the connection is judged stable: well past
+// MIN_HEALTHY_RUN (2s, packages/tmuxy-core/src/host/supervise.rs), after which
+// a connection counts as healthy, with headroom for reconnects in flight.
 const STABLE_SECONDS = 12;
 
 // Sparse PATH that mirrors what launchd hands a Finder-launched .app.
 // No /opt/homebrew, no /usr/local/bin — so tmuxy-stay-alive is unreachable
-// without our gui.rs PATH-augmentation fix.
+// without `gui_path` (packages/tmuxy-core/src/host/prepare.rs).
 const SPARSE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 
 const HOSTILE_TMUX_CONF = `set -g default-command "tmuxy-stay-alive"
@@ -142,7 +136,6 @@ async function run() {
   });
 
   try {
-    // Let it run for STABLE_SECONDS, then inspect the log.
     for (let i = 0; i < STABLE_SECONDS; i++) {
       if (child.exitCode !== null) {
         throw new Error(
@@ -162,6 +155,7 @@ async function run() {
       );
     }
 
+    // `CONNECTED_LINE` in tmuxy-core control_mode/connection/spawn.rs.
     const connectCount = (log.match(/control mode connected successfully/g) || []).length;
     if (connectCount === 0) {
       throw new Error(

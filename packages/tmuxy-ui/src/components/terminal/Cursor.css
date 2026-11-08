@@ -1,0 +1,33 @@
+.terminal-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+  background-color: var(--cursor-bg);
+  color: var(--cursor-text);
+  font-family: var(--font-mono);
+  font-size: var(--tmuxy-font-size, 15px);
+  line-height: var(--line-height-terminal);
+  /* Same snapped advance as the rows, so the painted glyph sits exactly where
+     the line drew it. */
+  letter-spacing: var(--cell-gap, 0px);
+  white-space: pre;
+}
+
+.terminal-cursor-copy {
+  background-color: var(--cursor-copy-bg);
+  color: var(--term-black);
+}
+
+.terminal-cursor-underline {
+  background-color: transparent;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--cursor-bg);
+  text-decoration-thickness: 2px;
+}
+
+.terminal-cursor-bar {
+  background-color: transparent;
+  color: inherit;
+  border-left: 2px solid var(--cursor-bg);
+}

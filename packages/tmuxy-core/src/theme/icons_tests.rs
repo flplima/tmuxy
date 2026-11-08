@@ -1,6 +1,6 @@
 use super::*;
 
-fn icons_of(lines: &[&str]) -> Value {
+fn icons_of(lines: &[&str]) -> Map<String, Value> {
     parse(lines.iter().copied())
 }
 
@@ -26,7 +26,7 @@ fn ascii_text_or_an_svg_file_is_a_process_icon_and_anything_else_is_dropped() {
         "@tmuxy-icon-h data:x",
         "@tmuxy-icon-i/j x",
     ]);
-    let map = icons.as_object().unwrap();
+    let map = &icons;
     assert_eq!(map["claude"], "*");
     // Matched as the client matches a command: lowercased.
     assert_eq!(map["codex"], "openai.SVG");
@@ -51,7 +51,7 @@ fn an_svg_icon_is_sent_inline_and_one_that_cannot_be_read_is_dropped() {
         "@tmuxy-icon-zsh $",
     ]);
     inline_svgs(&mut icons, &dir);
-    let map = icons.as_object().unwrap();
+    let map = &icons;
     assert_eq!(
         map["agent"],
         format!("data:image/svg+xml;base64,{}", STANDARD.encode(svg))

@@ -1,19 +1,11 @@
-/**
- * TabContextMenu — the right-click menu of one tab: the tab spec without the
- * navigation items, about the tab it was opened on. Opened under the tab it
- * grew out of (the tab preview turns into it) or at the pointer.
- */
-
 import { FloatingMenu } from './floating/Menu';
-import { useAppSend, useAppSelector } from '../machines/appHooks';
-import { tabMenuSpec } from '../domain/menus/tabMenu';
+import { useAppSelector } from '../machines/appHooks';
+import { tabMenuSpec } from './menus/specs/tabMenu';
 import { renderSpec, useMenuDispatch } from './menus/SpecMenu';
-import { TmuxOp } from '../domain/commands';
 import type { WindowId } from '../domain/ids';
 import { belowElement, useNativeMenu } from './menus/useNativeMenu';
 
 interface TabContextMenuProps {
-  /** tmux window id the actions target (Close/Rename operate on this tab). */
   windowId: WindowId;
   x: number;
   y: number;
@@ -35,28 +27,11 @@ export function TabContextMenu({
   onClose,
   onRename,
 }: TabContextMenuProps) {
-  const send = useAppSend();
   const spec = useAppSelector((ctx) => tabMenuSpec(ctx, { windowId, navigation: false }));
-  const collapsible = useAppSelector((ctx) =>
-    Boolean(ctx.windows.find((w) => w.id === windowId)?.collapsible),
-  );
 
   const dispatch = useMenuDispatch({
-    onLocal: (id) => {
-      if (id === 'tab-rename') onRename();
-      // Stacked panes: a window option the backend reads (docs/TMUX.md). On,
-      // only the active pane's first-level row stays expanded; off evens the
-      // rows back out.
-      if (id === 'tab-stack-toggle') {
-        send({
-          type: 'DISPATCH_OP',
-          op: TmuxOp.SetWindowTag({
-            windowId,
-            tag: 'collapsible',
-            value: collapsible ? null : '1',
-          }),
-        });
-      }
+    onLocal: (local) => {
+      if (local.verb === 'rename') onRename();
     },
   });
 
@@ -70,12 +45,10 @@ export function TabContextMenu({
 
   return (
     <FloatingMenu
-      // One floating surface at a time: opening this puts away the tab preview
-      // it is replacing, and any other menu (components/floating).
+      // One floating surface at a time: this puts away the tab preview it replaces.
       id="tab-context-menu"
       label="Tab"
-      // Where the card was, when there was one: the menu is that card becoming
-      // something else, so it belongs under the tab rather than at the pointer.
+      // Grown out of a preview card, the menu belongs under the tab, not at the pointer.
       anchor={anchorEl ? { kind: 'element', element: anchorEl } : { kind: 'point', x, y }}
       placement={anchorEl ? { align: 'center' } : undefined}
       morphFrom={morphFrom}

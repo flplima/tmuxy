@@ -1,5 +1,7 @@
 const BASE64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 const CLIPBOARD_SELECTOR: &[u8] = b"cpqs01234567";
+/// How many `;`-separated pieces of an OSC string vte keeps.
+const MAX_OSC_PARAMS: usize = 16;
 
 pub struct WrappedScreen<CB: crate::callbacks::Callbacks = ()> {
     pub screen: crate::screen::Screen,
@@ -234,15 +236,42 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
     fn osc_dispatch(&mut self, params: &[&[u8]], _bel_terminated: bool) {
         self.last_char = None;
         match params {
-            [b"0", s] => {
-                self.callbacks.set_window_icon_name(&mut self.screen, s);
-                self.callbacks.set_window_title(&mut self.screen, s);
+            // A title is everything after the first `;`: vte splits the
+            // string at every one, and a shell titles a window with the
+            // command line it runs, `;` and all.
+            [b"0", title @ ..] if !title.is_empty() => {
+                let title = title.join(&b';');
+                self.callbacks.set_window_icon_name(&mut self.screen, &title);
+                self.callbacks.set_window_title(&mut self.screen, &title);
             }
-            [b"1", s] => {
-                self.callbacks.set_window_icon_name(&mut self.screen, s);
+            [b"1", name @ ..] if !name.is_empty() => {
+                let name = name.join(&b';');
+                self.callbacks.set_window_icon_name(&mut self.screen, &name);
             }
-            [b"2", s] => {
-                self.callbacks.set_window_title(&mut self.screen, s);
+            [b"2", title @ ..] if !title.is_empty() => {
+                let title = title.join(&b';');
+                self.callbacks.set_window_title(&mut self.screen, &title);
+            }
+            // OSC 8 ; params ; url. vte keeps no more than MAX_OSC_PARAMS
+            // pieces and drops the rest, so a URL that filled them all may
+            // have lost its tail: it opens no link rather than a wrong one.
+            [b"8", _params, url @ ..] if !url.is_empty() => {
+                if params.len() < MAX_OSC_PARAMS {
+                    self.screen.osc8(&url.join(&b';'));
+                } else {
+                    self.screen.osc8(b"");
+                }
+            }
+            // Kitty's text sizing: OSC 66 ; metadata ; text.
+            [b"66", metadata, text @ ..] if !text.is_empty() => {
+                let text = text.join(&b';');
+                if !text.is_empty() {
+                    self.screen.set_text_size(osc66_size(metadata));
+                    for c in String::from_utf8_lossy(&text).chars() {
+                        vte::Perform::print(self, c);
+                    }
+                    self.screen.set_text_size(crate::TextSize::Normal);
+                }
             }
             [b"52", ty, data] => match (ty.iter().all(|c| CLIPBOARD_SELECTOR.contains(c)), *data) {
                 (true, b"?") => {
@@ -259,6 +288,28 @@ impl<CB: crate::callbacks::Callbacks> vte::Perform for WrappedScreen<CB> {
                 self.callbacks.unhandled_osc(&mut self.screen, params);
             }
         }
+    }
+}
+
+/// The size `OSC 66` metadata (`s=<scale>:w=<width>`, either optional) asks
+/// for: a scale of 2 or more doubles the text both ways, a width of 2 or more
+/// at the normal scale only widens it.
+fn osc66_size(metadata: &[u8]) -> crate::TextSize {
+    let mut scale = 1u8;
+    let mut width = 0u8;
+    for part in String::from_utf8_lossy(metadata).split(':') {
+        if let Some(v) = part.strip_prefix("s=") {
+            scale = v.parse().unwrap_or(1);
+        } else if let Some(v) = part.strip_prefix("w=") {
+            width = v.parse().unwrap_or(0);
+        }
+    }
+    if scale >= 2 {
+        crate::TextSize::DoubleHeight
+    } else if width >= 2 {
+        crate::TextSize::DoubleWidth
+    } else {
+        crate::TextSize::Normal
     }
 }
 

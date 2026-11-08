@@ -7,29 +7,20 @@
 
 const {
   afterFrames,
-  createTestContext,
+  describeE2E,
   runCommand,
   splitPaneKeyboard,
   waitForCondition,
 } = require('./helpers');
-
+const { tmuxPane } = require('./helpers/tmux-read');
 // ==================== Detailed OSC Protocol Tests ====================
 
-describe('Category 11: OSC Protocols (Detailed)', () => {
-  const ctx = createTestContext({ snapshot: true });
-
-  beforeAll(ctx.beforeAll, ctx.hookTimeout);
-  afterAll(ctx.afterAll);
-  beforeEach(ctx.beforeEach);
-  afterEach(ctx.afterEach, ctx.hookTimeout);
-
+describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) => {
   // ====================
   // 11.1 Hyperlinks (OSC 8)
   // ====================
   describe('11.1 Hyperlinks (OSC 8)', () => {
     test('clicking an OSC 8 link opens it; an auto-detected URL opens only with the modifier', async () => {
-      if (ctx.skipIfNotReady()) return;
-
       await ctx.setupPage();
 
       // Links open through openExternalUrl (window.open on the web, the
@@ -177,10 +168,7 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       // break a long line themselves, short of the pane's edge, and indent
       // the rest — so neither row fills the pane. Its first row ends two
       // columns from the edge here, and both rows are still one link.
-      const width = await ctx.page.evaluate(() => {
-        const { panes, activePaneId } = window.app.getSnapshot().context;
-        return panes.find((p) => p.tmuxId === activePaneId).width;
-      });
+      const { width } = tmuxPane(await ctx.page.evaluate(() => window.app.view().activePaneId));
       const head = 'see https://example.com/hard/';
       const bs = width - head.length - 2;
       const hard = `https://example.com/hard/${'b'.repeat(bs)}${'c'.repeat(20)}?y=2`;
@@ -219,7 +207,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
     // happened to draw it again. A shell draws nothing again, so here it never
     // came back.
     test('a link stays a link when its pane is resized, and opens from the pane beside', async () => {
-      if (ctx.skipIfNotReady()) return;
       await ctx.setupPage();
       await ctx.page.evaluate(() => {
         window.__opened = [];
@@ -246,16 +233,12 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
       await waitForCondition(ctx.page, async () => (await prLink()) !== null, 10000, 'the link');
 
       // Side by side: the pane is half as wide, and refilled from tmux.
-      const paneWidth = () =>
-        ctx.page.evaluate(() => {
-          const { panes } = window.app.getSnapshot().context;
-          return Math.min(...panes.map((p) => p.width));
-        });
-      const before = await paneWidth();
+      const paneId = await ctx.page.evaluate(() => window.app.view().activePaneId);
+      const before = tmuxPane(paneId).width;
       await splitPaneKeyboard(ctx.page, 'vertical');
       await waitForCondition(
         ctx.page,
-        async () => (await paneWidth()) < before,
+        () => tmuxPane(paneId).width < before,
         10000,
         'the pane to be resized',
       );
@@ -286,8 +269,6 @@ describe('Category 11: OSC Protocols (Detailed)', () => {
     // label, carriage-return back over it, repaint. Nothing about the pane
     // moves, which is exactly the case that used to slip through.
     test('a link repainted over does not leave its highlight on the new text', async () => {
-      if (ctx.skipIfNotReady()) return;
-
       await ctx.setupPage();
 
       // A link on its own is an anchor — the control the rest of this test needs.

@@ -3,22 +3,42 @@
  * cells.
  *
  * The UI publishes the snapped cell width as `--cell-w` on `.app-container`
- * (tmuxy-ui/src/utils/cellMetrics.ts). Everything here converts bounding rects
+ * (tmuxy-ui/src/infra/dom/cellMetrics.ts). Everything here converts bounding rects
  * into that unit so a test can compare rendered positions with tmux's own
  * cell coordinates (`#{cursor_x}`), which is the real oracle for "does the
  * browser grid match tmux".
  */
 
-/**
- * Snapped cell width in CSS px, as published to the DOM.
- */
+const { storyModule, inPage } = require('./story-module');
+
+const { cellWidthOf, runCells } = storyModule('cellGridHelpers.ts');
+
+/** Snapped cell width in CSS px, as published to the DOM. */
 async function getCellWidth(page) {
-  const w = await page.evaluate(() => {
+  return page.evaluate(
+    inPage((cellWidth) => cellWidth(document.querySelector('.app-container')), [], [cellWidthOf]),
+  );
+}
+
+/**
+ * The grid's cell as drawn: `--cell-w`, and the height of one of the active
+ * pane's rows (of any terminal's, before a pane is active).
+ */
+async function getCellSize(page) {
+  const size = await page.evaluate(() => {
     const root = document.querySelector('.app-container');
-    return root ? parseFloat(getComputedStyle(root).getPropertyValue('--cell-w')) : NaN;
+    const row =
+      document.querySelector('.pane-active .terminal-line') ||
+      document.querySelector('.terminal-line');
+    return {
+      charWidth: root ? parseFloat(getComputedStyle(root).getPropertyValue('--cell-w')) : NaN,
+      charHeight: row ? row.getBoundingClientRect().height : NaN,
+    };
   });
-  if (!(w > 0)) throw new Error(`--cell-w not published on .app-container (got ${w})`);
-  return w;
+  if (!(size.charWidth > 0 && size.charHeight > 0)) {
+    throw new Error(`no cell drawn to measure (got ${JSON.stringify(size)})`);
+  }
+  return size;
 }
 
 /**
@@ -59,39 +79,39 @@ async function getCursorGeometry(page) {
  *   this exceeds the 1-cell box and spills into the continuation cell.
  */
 async function getRunGeometry(page, text) {
-  const geo = await page.evaluate((needle) => {
-    const content =
-      document.querySelector('.pane-active .terminal-content') ||
-      document.querySelector('.terminal-content');
-    if (!content) return null;
-    const root = document.querySelector('.app-container');
-    const cellW = parseFloat(getComputedStyle(root).getPropertyValue('--cell-w'));
-    const lines = Array.from(content.querySelectorAll('.terminal-line')).filter((l) =>
-      (l.textContent || '').includes(needle),
-    );
-    const line = lines[lines.length - 1];
-    if (!line) return null;
-    const run = Array.from(line.children).find((s) => (s.textContent || '').includes(needle));
-    if (!run) return null;
-    const l = line.getBoundingClientRect();
-    const r = run.getBoundingClientRect();
-    const range = document.createRange();
-    range.selectNodeContents(run);
-    const ink = range.getBoundingClientRect().width;
-    return {
-      text: run.textContent,
-      start: (r.left - l.left) / cellW,
-      end: (r.right - l.left) / cellW,
-      box: r.width / cellW,
-      ink: ink / cellW,
-      visible: r.width > 0 && r.height > 0,
-    };
-  }, text);
+  const geo = await page.evaluate(
+    inPage(
+      (needle, cellWidth, cellsOf) => {
+        const content =
+          document.querySelector('.pane-active .terminal-content') ||
+          document.querySelector('.terminal-content');
+        if (!content) return null;
+        const lines = Array.from(content.querySelectorAll('.terminal-line')).filter((l) =>
+          (l.textContent || '').includes(needle),
+        );
+        const line = lines[lines.length - 1];
+        const run =
+          line && Array.from(line.children).find((s) => (s.textContent || '').includes(needle));
+        if (!run) return null;
+        const cells = cellsOf(run, cellWidth(document.querySelector('.app-container')));
+        const r = run.getBoundingClientRect();
+        return {
+          text: run.textContent,
+          ...cells,
+          end: cells.start + cells.box,
+          visible: r.width > 0 && r.height > 0,
+        };
+      },
+      [text],
+      [cellWidthOf, runCells],
+    ),
+  );
   if (!geo) throw new Error(`no rendered run containing ${JSON.stringify(text)}`);
   return geo;
 }
 
 module.exports = {
+  getCellSize,
   getCellWidth,
   getCursorGeometry,
   getRunGeometry,
