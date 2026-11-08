@@ -7,12 +7,15 @@
  * key. ctrl and alt latch for the next key, from this row or the phone's own
  * keyboard; a second tap locks them. The prefix key presses the prefix the
  * bindings name as one chord; a second tap while armed cancels it, as Escape does.
+ * The mic listens until the speaker pauses and types what it heard into the
+ * pane as the phone keyboard would (`infra/dictation`); it is lit while it
+ * listens, and a second tap stops it.
  *
  * A key never takes focus: the hidden input keeps it, so the phone keyboard
  * stays up while the row is used.
  */
 
-import { memo, useMemo, useSyncExternalStore, type PointerEvent } from 'react';
+import { memo, useEffect, useMemo, useState, useSyncExternalStore, type PointerEvent } from 'react';
 import {
   getLatches,
   pressChord,
@@ -22,9 +25,9 @@ import {
   type Modifier,
 } from '../../infra/dom/keyLatch';
 import { createKeyRepeat } from './keyRepeat';
-import { toggleMobileKeyboard } from '../../infra/dom/mobileKeyboard';
+import { toggleMobileKeyboard, typeText } from '../../infra/dom/mobileKeyboard';
+import { createDictation } from '../../infra/dictation';
 import { useAppSelector, useAppSend } from '../../machines/appHooks';
-import { selectPhoneZoomed } from '../../machines/selectors/layout';
 import { selectKeyBindings, selectPrefixActive } from '../../machines/selectors/ui';
 import { keyEventInitOf } from '../../machines/actors/keyboard/keyFormatting';
 import './KeyRow.css';
@@ -35,7 +38,7 @@ type RowKey =
   | { kind: 'modifier'; label: string; modifier: Modifier; name: string }
   | { kind: 'prefix'; label: string; name: string }
   | { kind: 'keyboard'; label: string; name: string }
-  | { kind: 'zoom'; label: string; name: string };
+  | { kind: 'mic'; label: string; name: string };
 
 const KEYS: readonly RowKey[] = [
   { kind: 'key', label: 'esc', key: 'Escape', name: 'Escape' },
@@ -49,13 +52,14 @@ const KEYS: readonly RowKey[] = [
   { kind: 'key', label: '↓', key: 'ArrowDown', name: 'Down', arrow: true },
   { kind: 'key', label: '→', key: 'ArrowRight', name: 'Right', arrow: true },
   { kind: 'key', label: '⏎', key: 'Enter', name: 'Enter' },
-  { kind: 'zoom', label: 'zoom', name: 'Toggle zoom' },
+  { kind: 'mic', label: 'mic', name: 'Dictate' },
 ];
 
-function Magnifier({ zoomed }: { zoomed: boolean }) {
+/** A microphone: a capsule on a stand. */
+function Mic() {
   return (
     <svg
-      className="key-row-magnifier"
+      className="key-row-icon"
       width="18"
       height="18"
       viewBox="0 0 18 18"
@@ -65,10 +69,9 @@ function Magnifier({ zoomed }: { zoomed: boolean }) {
       strokeLinecap="round"
       aria-hidden="true"
     >
-      <circle cx="7.5" cy="7.5" r="5.25" />
-      <line x1="11.5" y1="11.5" x2="16" y2="16" />
-      <line x1="5" y1="7.5" x2="10" y2="7.5" />
-      {!zoomed && <line x1="7.5" y1="5" x2="7.5" y2="10" />}
+      <rect x="6.25" y="1.75" width="5.5" height="9" rx="2.75" />
+      <path d="M3.5 8.5a5.5 5.5 0 0 0 11 0" />
+      <line x1="9" y1="14" x2="9" y2="16.25" />
     </svg>
   );
 }
@@ -82,7 +85,17 @@ export const KeyRow = memo(function KeyRow() {
   const latches = useSyncExternalStore(subscribeLatches, getLatches);
   const send = useAppSend();
   const activePaneId = useAppSelector((ctx) => ctx.activePaneId);
-  const zoomed = useAppSelector(selectPhoneZoomed);
+  const [listening, setListening] = useState(false);
+  const dictation = useMemo(
+    () =>
+      createDictation({
+        onText: typeText,
+        onListening: setListening,
+        onError: (text) => send({ type: 'NOTIFY', kind: 'error', text }),
+      }),
+    [send],
+  );
+  useEffect(() => () => dictation.dispose(), [dictation]);
   const prefixActive = useAppSelector(selectPrefixActive);
   const prefixKey = useAppSelector(selectKeyBindings)?.prefix_key ?? DEFAULT_PREFIX;
   const repeat = useMemo(() => createKeyRepeat(pressKey), []);
@@ -98,8 +111,8 @@ export const KeyRow = memo(function KeyRow() {
       }
       case 'keyboard':
         return toggleMobileKeyboard(activePaneId);
-      case 'zoom':
-        return send({ type: 'TOGGLE_PHONE_ZOOM' });
+      case 'mic':
+        return dictation.toggle();
       default:
         return pressKey(k.key);
     }
@@ -124,8 +137,8 @@ export const KeyRow = memo(function KeyRow() {
         const pressed =
           k.kind === 'modifier'
             ? latches[k.modifier] !== 'off'
-            : k.kind === 'zoom'
-              ? zoomed
+            : k.kind === 'mic'
+              ? listening
               : k.kind === 'prefix'
                 ? prefixActive
                 : null;
@@ -151,7 +164,7 @@ export const KeyRow = memo(function KeyRow() {
             onMouseDown={(e) => e.preventDefault()}
             onClick={arrow ? undefined : () => press(k)}
           >
-            {k.kind === 'zoom' ? <Magnifier zoomed={zoomed} /> : k.label}
+            {k.kind === 'mic' ? <Mic /> : k.label}
           </button>
         );
       })}

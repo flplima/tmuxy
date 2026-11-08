@@ -9,12 +9,10 @@
  * past a threshold, the terminal and the keys fold away and the bottom view
  * takes the whole height; dragged down past it again, they come back.
  *
- * The zoom is the one a double tap or the zoom key sets (twice the size, or
- * back), so the bar moves with them. Both are kept per device
- * (infra/prefs.ts).
- */
+ * The zoom is the one a double tap sets (twice the size, or back), so the
+ * bar moves with it. Both are kept per device (infra/prefs.ts). */
 
-/** The zoom a double tap or the zoom key jumps to. */
+/** The zoom a double tap jumps to. */
 export const PHONE_ZOOM_STEP = 2;
 
 /** How far up (or back down) the bar is dragged to fold the terminal away (or back). */
@@ -62,7 +60,7 @@ export function releaseSplit(split: PhoneSplit, base: number): PhoneSplit {
   return { zoom: 1, collapsed: false };
 }
 
-/** A double tap or the zoom key: twice the size, or back to its own. */
+/** A double tap: twice the size, or back to its own. */
 export function toggleZoom(split: PhoneSplit): PhoneSplit {
   return { zoom: split.zoom > 1 ? 1 : PHONE_ZOOM_STEP, collapsed: false };
 }

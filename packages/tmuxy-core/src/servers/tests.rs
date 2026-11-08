@@ -187,9 +187,14 @@ fn enrich_and_scan_sockets_discovers_live_local_sockets_and_skips_test_sockets()
 #[test]
 fn parse_session_list_filters_out_stash_session() {
     let sep = discovery::SESSION_FIELD_SEP;
-    assert!(LIST_SESSIONS.contains(&format!(
-        "#{{session_name}}{sep}#{{session_windows}}{sep}#{{session_attached}}"
-    )));
+    assert_eq!(
+        LIST_SESSIONS_FORMAT,
+        format!("#{{session_name}}{sep}#{{session_windows}}{sep}#{{session_attached}}")
+    );
+    assert_eq!(
+        LIST_SESSIONS,
+        format!("list-sessions -F '{LIST_SESSIONS_FORMAT}'")
+    );
     let out = "main|3|1\n__tmuxy_stash|2|0\nnotes|1|0\na|b|2|0\nbroken\n";
     let sessions = parse_session_list(out);
     assert_eq!(sessions.len(), 3);

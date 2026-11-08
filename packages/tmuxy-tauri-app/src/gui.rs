@@ -159,11 +159,14 @@ pub fn run() {
             // Several GUI windows over one tmux session group, and the iTerm2
             // window styles — the in-app Window menu's side of `windows.rs`
             // (the native macOS menu bar drives them directly).
-            commands::new_window,
-            commands::focus_window,
-            commands::close_window,
+            commands::gui_windows::new_window,
+            commands::gui_windows::window_attachment,
+            commands::gui_windows::list_local_sessions,
+            commands::gui_windows::attach_window,
+            commands::gui_windows::focus_window,
+            commands::gui_windows::close_window,
             commands::quit_app,
-            commands::list_gui_windows,
+            commands::gui_windows::list_gui_windows,
             commands::set_window_style,
             commands::get_window_style,
             commands::restart_app,

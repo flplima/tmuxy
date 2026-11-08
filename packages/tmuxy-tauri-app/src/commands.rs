@@ -1,3 +1,4 @@
+pub mod gui_windows;
 mod helpers;
 pub mod window_size;
 
@@ -8,12 +9,13 @@ use tmuxy_core::CommandError;
 
 use crate::monitor::Monitor;
 use crate::titlebar;
-use crate::windows;
+use crate::windows::{self, GuiWindow};
 
 use helpers::open_with_system;
 
 struct DesktopCtx {
     app: tauri::AppHandle,
+    window: GuiWindow,
     monitor: Monitor,
 }
 
@@ -31,7 +33,7 @@ impl HostCtx for DesktopCtx {
     }
 
     async fn connect(&self, target: crate::monitor::ConnectTarget) -> Result<(), CommandError> {
-        crate::monitor::request_reconnect(&self.app, target).await;
+        crate::monitor::request_reconnect(&self.app, &self.window, target).await;
         Ok(())
     }
 
@@ -66,11 +68,15 @@ pub async fn dispatch(
 ) -> Result<Value, CommandError> {
     let cmd = ClientCommand::from_value(request)
         .map_err(|e| CommandError::invalid(format!("invalid command payload: {e}")))?;
+    let entry = windows::entry_for(&window)?;
     let ctx = DesktopCtx {
         app,
-        monitor: windows::monitor_for(&window)?,
+        monitor: entry.monitor()?,
+        window: entry,
     };
-    tmuxy_core::host::handle(cmd, &ctx).await
+    // In the window's own tmux target, so every read the command makes
+    // reaches the server the window is attached to.
+    windows::scoped(&window, tmuxy_core::host::handle(cmd, &ctx)).await
 }
 
 /// The status bar is the window's title bar; it reports its rendered height
@@ -92,52 +98,11 @@ pub fn titlebar_double_click(
         .map_err(|e| CommandError::unavailable(e.to_string()))
 }
 
-/// Open another GUI window on the same tmux session group (Window ▸ New Window).
-///
-/// The new window is a second, independent client: it shares every tab and pane
-/// with this one but keeps its own current tab, so two tabs of one session can be
-/// on screen at once. See `windows.rs`.
-#[tauri::command]
-pub fn new_window(app: tauri::AppHandle) -> Result<(), CommandError> {
-    crate::windows::open(&app)
-        .map(|_| ())
-        .map_err(CommandError::unavailable)
-}
-
-#[tauri::command]
-pub fn focus_window(app: tauri::AppHandle, index: usize) {
-    crate::windows::focus_index(&app, index);
-}
-
-#[tauri::command]
-pub fn close_window(window: tauri::WebviewWindow) -> Result<(), CommandError> {
-    window
-        .close()
-        .map_err(|e| CommandError::unavailable(e.to_string()))
-}
-
 /// Leave the app (Quit, where the menu is the app's own rather than the
 /// platform's). tmux keeps every session.
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0)
-}
-
-/// Every open GUI window, in Window-menu order, for the in-app menu to list —
-/// the native menu bar builds its own from the same registry.
-#[tauri::command]
-pub fn list_gui_windows(app: tauri::AppHandle) -> Vec<Value> {
-    let focused = windows::focused_label(&app);
-    windows::list(&app)
-        .into_iter()
-        .map(|entry| {
-            serde_json::json!({
-                "index": entry.index,
-                "title": entry.title,
-                "focused": entry.label == focused,
-            })
-        })
-        .collect()
 }
 
 /// Put this window into one of the iTerm2 window styles, by its menu slug

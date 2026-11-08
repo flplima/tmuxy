@@ -9,16 +9,29 @@
 //!
 //! The registry here is what turns a webview label back into the monitor behind
 //! it, so a `#[tauri::command]` serves the window it came from
-//! (`monitor_for`), and what the Window menu lists (`list`).
+//! (`entry_for`), and what the Window menu lists (`list`).
+//!
+//! Every window after the first opens on a splash page (`attach.rs`) that lists
+//! the sessions on this machine and takes an ssh host: picking a session joins
+//! its group, an ssh host attaches the window to that machine's tmux server.
+//! Only then does the window's monitor start, inside the window's own target
+//! (`tmuxy_core::session::scoped`), so one window can be on another machine
+//! while the rest stay here.
 //!
 //! A window's session is killed when its window closes. Killing a member of a
 //! group leaves the windows alone — they stay alive in the remaining members —
 //! so the shared panes survive, while the session nobody is looking at does not
 //! linger on the server.
 
+mod attach;
+
+use std::future::Future;
 use std::sync::{Arc, RwLock};
 
 use tauri::{AppHandle, Manager, WebviewWindow};
+use tmuxy_core::session::scoped::{self, TargetCell};
+
+pub use attach::{attach, local_sessions, Attach};
 
 use crate::monitor::{Monitor, TauriSink};
 use tmuxy_core::host::{RuntimeConfig, SessionRuntime};
@@ -28,20 +41,55 @@ pub const MAIN_LABEL: &str = "main";
 /// How many windows a digit accelerator can reach — Cmd+1…Cmd+9.
 pub const MAX_INDEXED_WINDOWS: usize = 9;
 
-/// One GUI window: its webview and the monitor feeding it, whose runtime
-/// knows the tmux session it is attached to (`tmuxy connect` can move it).
+/// One GUI window: its webview, its tmux target and the monitor feeding it,
+/// whose runtime knows the tmux session it is attached to (`tmuxy connect`
+/// can move it).
 #[derive(Clone)]
 pub struct GuiWindow {
     /// Webview window label (`main`, `win2`, …) — the `emit_to` address.
     pub label: String,
     /// 1-based position in the Window menu, and the digit that focuses it.
     pub index: usize,
-    pub monitor: Monitor,
+    /// Where this window's tmux calls go: empty for the first window, which
+    /// follows the process-wide target (`tmuxy connect`), and for a window
+    /// still on its splash page.
+    pub target: TargetCell,
+    /// The window made its session (a group member) and kills it on close.
+    owns_session: bool,
+    /// The monitor feeding the window: none while it is on its splash page.
+    pub monitor: Option<Monitor>,
 }
 
 impl GuiWindow {
+    /// The session the window is attached to; empty on its splash page.
     pub fn session(&self) -> String {
-        self.monitor.runtime.session()
+        self.monitor
+            .as_ref()
+            .map(|m| m.runtime.session())
+            .unwrap_or_default()
+    }
+
+    /// Attached to a session: the first window always, a later one once its
+    /// splash page has chosen.
+    pub fn attached(&self) -> bool {
+        self.monitor.is_some()
+    }
+
+    /// The window's monitor, or why a command cannot be served: the window is
+    /// still on its splash page.
+    pub fn monitor(&self) -> Result<Monitor, tmuxy_core::CommandError> {
+        self.monitor.clone().ok_or_else(|| {
+            tmuxy_core::CommandError::unavailable(format!(
+                "window '{}' is not attached to a session yet",
+                self.label
+            ))
+        })
+    }
+
+    /// Whether the window chose a target of its own on its splash page, which
+    /// `tmuxy connect` leaves alone.
+    pub fn has_own_target(&self) -> bool {
+        self.target.read().is_ok_and(|t| t.is_some())
     }
 }
 
@@ -93,6 +141,17 @@ impl GuiWindows {
         }
     }
 
+    /// Record what a splash window chose: the monitor now feeding it, and
+    /// whether the session is its own.
+    fn attach(&self, label: &str, monitor: Monitor, owns_session: bool) {
+        if let Ok(mut guard) = self.0.write() {
+            if let Some(entry) = guard.iter_mut().find(|w| w.label == label) {
+                entry.monitor = Some(monitor);
+                entry.owns_session = owns_session;
+            }
+        }
+    }
+
     fn remove(&self, label: &str) -> Option<GuiWindow> {
         let mut guard = self.0.write().ok()?;
         let at = guard.iter().position(|w| w.label == label)?;
@@ -116,11 +175,17 @@ pub fn lookup_image(app: &AppHandle, path: &str) -> Option<tmuxy_core::control_m
     let id: u32 = id.parse().ok()?;
     list_all(app)
         .iter()
-        .find_map(|entry| entry.monitor.runtime.image(&pane, id))
+        .filter_map(|entry| entry.monitor.as_ref())
+        .find_map(|monitor| monitor.runtime.image(&pane, id))
 }
 
 pub fn list_all<M: Manager<tauri::Wry>>(app: &M) -> Vec<GuiWindow> {
     app.state::<GuiWindows>().list()
+}
+
+/// The first window, whose target is the app's own (`tmuxy connect`).
+pub fn main_window<M: Manager<tauri::Wry>>(app: &M) -> Option<GuiWindow> {
+    app.state::<GuiWindows>().get(MAIN_LABEL)
 }
 
 pub struct MenuEntry {
@@ -155,46 +220,45 @@ pub fn focused_label<M: Manager<tauri::Wry>>(app: &M) -> String {
         .unwrap_or_else(|| MAIN_LABEL.to_string())
 }
 
-/// The base session of the group: the first window's, or `TMUXY_SESSION` before
-/// that window is registered.
-pub fn base_session(app: &AppHandle) -> String {
-    app.state::<GuiWindows>()
-        .get(MAIN_LABEL)
-        .map(|w| w.session())
-        .unwrap_or_else(tmuxy_core::session::session_name)
-}
-
-/// The monitor behind the window a command arrived from.
+/// The registry entry for the window a command arrived from.
 ///
 /// Every tmux mutation, query and scrollback fetch resolves its monitor this
 /// way, so a command from window 2 runs on window 2's client — targeting the
 /// first window's would move the wrong window's current tab.
-pub fn monitor_for(window: &WebviewWindow) -> Result<Monitor, tmuxy_core::CommandError> {
+pub fn entry_for(window: &WebviewWindow) -> Result<GuiWindow, tmuxy_core::CommandError> {
     let label = window.label();
-    window
-        .state::<GuiWindows>()
-        .get(label)
-        .map(|w| w.monitor)
-        .ok_or_else(|| {
-            tmuxy_core::CommandError::unavailable(format!("no tmux monitor for window '{label}'"))
-        })
+    window.state::<GuiWindows>().get(label).ok_or_else(|| {
+        tmuxy_core::CommandError::unavailable(format!("no tmux monitor for window '{label}'"))
+    })
 }
 
+/// Run `fut` — a command a window sent — against that window's tmux target,
+/// so a read it makes reaches the server the window is attached to.
+pub async fn scoped<F: Future>(window: &WebviewWindow, fut: F) -> F::Output {
+    match window.state::<GuiWindows>().get(window.label()) {
+        Some(entry) => scoped::with_cell(entry.target, fut).await,
+        None => fut.await,
+    }
+}
+
+/// Register the first window and start its monitor on the base session.
 pub fn open_main(app: &AppHandle) {
     let monitor = new_monitor(app, MAIN_LABEL, tmuxy_core::session::session_name());
     app.state::<GuiWindows>().add(GuiWindow {
         label: MAIN_LABEL.to_string(),
         index: 1,
-        monitor: monitor.clone(),
+        target: TargetCell::default(),
+        owns_session: false,
+        monitor: Some(monitor.clone()),
     });
     tauri::async_runtime::spawn(crate::monitor::start_monitoring_window(monitor, None));
 }
 
-/// Open another GUI window on the same tmux session group.
+/// Open another GUI window, on its splash page.
 ///
-/// Returns the new window's label. The window is built first and its monitor
-/// started after: the monitor emits to the label, so the webview has to exist to
-/// be addressed.
+/// Returns the new window's label. Nothing is attached yet: the page lists
+/// the sessions to pick from, and [`attach`] starts the window's monitor on
+/// the one picked.
 pub fn open(app: &AppHandle) -> Result<String, String> {
     let registry = app.state::<GuiWindows>();
     let index = registry.free_index();
@@ -203,26 +267,17 @@ pub fn open(app: &AppHandle) -> Result<String, String> {
             "tmuxy shows at most {MAX_INDEXED_WINDOWS} windows in the Window menu"
         ));
     }
-    let base = base_session(app);
     let label = format!("win{index}");
-    // `+`, which a safe session name may hold (`is_safe_session_name`), so
-    // the window's session is snapshotted like the first one's.
-    let session = format!("{base}+{index}");
-
     let window = crate::gui::build_window(app, &label).map_err(|e| e.to_string())?;
-    // The title is what the Window menu lists this window as, so it names the
-    // session that makes it a different view of the same tmux server.
-    let _ = window.set_title(&format!("tmuxy — {session}"));
+    let _ = window.set_title("tmuxy");
     crate::gui::configure_window(&window);
-
-    let monitor = new_monitor(app, &label, session);
     registry.add(GuiWindow {
         label: label.clone(),
         index,
-        monitor: monitor.clone(),
+        target: TargetCell::default(),
+        owns_session: false,
+        monitor: None,
     });
-    tauri::async_runtime::spawn(crate::monitor::start_monitoring_window(monitor, Some(base)));
-
     Ok(label)
 }
 
@@ -253,16 +308,16 @@ pub fn watch_for_close(window: &WebviewWindow) {
         let Some(entry) = app.state::<GuiWindows>().remove(&label) else {
             return;
         };
-        if entry.label != MAIN_LABEL {
+        if entry.owns_session && attach::main_shares_server(&entry) {
             let session = entry.session();
             // Not through the monitor's control-mode channel: that channel
             // belongs to the client being killed, and this session's own
             // `kill-session` would race its shutdown. The base session's
             // monitor is the surviving client, so route it there.
-            if let Some(main) = app.state::<GuiWindows>().get(MAIN_LABEL) {
+            if let Some(main) = main_window(&app).and_then(|main| main.monitor) {
                 tauri::async_runtime::spawn(async move {
                     crate::monitor::run_on(
-                        &main.monitor,
+                        &main,
                         &format!(
                             "kill-session -t {}",
                             tmuxy_core::tmux_quote(&tmuxy_core::session::exact_session_target(
@@ -291,7 +346,9 @@ mod tests {
         GuiWindow {
             label: label.to_string(),
             index,
-            monitor: Monitor::new(SessionRuntime::new(
+            target: TargetCell::default(),
+            owns_session: true,
+            monitor: Some(Monitor::new(SessionRuntime::new(
                 RuntimeConfig {
                     session: format!("tmuxy+{index}"),
                     preview: Arc::default(),
@@ -299,7 +356,7 @@ mod tests {
                     restore: false,
                 },
                 Arc::new(Nowhere),
-            )),
+            ))),
         }
     }
 

@@ -134,6 +134,10 @@ impl PaneState {
         self.reset(Reset::Capture);
         let normalized = normalize_capture_bytes(content);
         self.terminal.process(&normalized);
+        // `capture-pane -e` writes the screen's OSC 8 links and vt100 reads
+        // them as it does live output's; one the capture leaves open is
+        // closed here so it does not run on into later output.
+        self.terminal.process(b"\x1b]8;;\x1b\\");
         for (r, ls, prev_text) in saved_line_sizes {
             let screen = self.terminal.screen();
             let (_, cols) = screen.size();

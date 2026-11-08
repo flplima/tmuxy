@@ -24,11 +24,15 @@ that repaints in place (Claude Code, vim, htop) leaves no link on the text it
 redrew, and an erase paints none. The URLs live in a per-screen table that,
 as tmux's does, forgets the oldest past 5000 links (or 1 MiB of URLs), so a
 cell under a forgotten link reads as plain text. A colour reset (`SGR 0`)
-does not close a link. tmux strips OSC 8 from `capture-pane` history, so a
-capture refresh starts the screen without links and they come back from live
-output — a link is not restored by reloading the page. (tmuxy used to strip
-OSC 8 before vt100 and keep its own map of cells to URLs; the map had to
-follow every scroll and check the text under each mark, and still drifted.)
+does not close a link. A capture refresh, which follows every resize, reads
+the capture through the same terminal, and `capture-pane -e` writes the
+screen's OSC 8 links (tmux 3.4 and later), so a link survives the refill even
+when its program drew it before the resize landed and never draws it again; a
+link the capture leaves open is closed at its end, so it does not run on into
+later output. tmux keeps no links in the history a reload pulls in, so a link
+is not restored by reloading the page. (tmuxy used to strip OSC 8 before
+vt100 and keep its own map of cells to URLs; the map had to follow every
+scroll and check the text under each mark, and still drifted.)
 
 **Auto-detected URLs stop where a URL must.** `components/terminal/urlDetect.ts` matches the
 characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for

@@ -1,10 +1,10 @@
 /**
  * The zoom: the terminal's scale in the browser — the grid, not tmux's zoom
  * — set by the bar under the keys (PhoneDivider), which also folds the
- * terminal away, or by a double tap or the zoom key, which jump to twice the
- * size and back (domain/phoneSplit.ts). App.tsx draws it, scrolled to the
- * point a double tap hit. The split is kept per device.
- *
+ * terminal away, or by a double tap on it, which jumps to twice the size
+ * and back (domain/phoneSplit.ts). Past its own size the finger pans it.
+ * App.tsx draws it, scrolled to the point a double tap hit. The split is
+ * kept per device. *
  * The bottom view: under the keys a phone shows the app menu, the tabs/panes
  * tree or the dock — the pinned terminal the desktop keeps in its right
  * column, the same `sidebar-right` window, created the same way on first

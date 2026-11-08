@@ -409,7 +409,7 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
                     .map(|out| crate::servers::parse_session_list(&out).len()),
                 None => None,
             };
-            let list = tokio::task::spawn_blocking(move || crate::servers::list(live))
+            let list = crate::session::scoped::spawn_blocking(move || crate::servers::list(live))
                 .await
                 .map_err(|e| CommandError::unavailable(e.to_string()))?;
             to_json(list, "servers")
@@ -418,10 +418,11 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             if !ctx.switches_servers() {
                 return Err(not_here("connecting to another server"));
             }
-            let target =
-                tokio::task::spawn_blocking(move || crate::servers::connect_target(&id, session))
-                    .await
-                    .map_err(|e| CommandError::unavailable(e.to_string()))??;
+            let target = crate::session::scoped::spawn_blocking(move || {
+                crate::servers::connect_target(&id, session)
+            })
+            .await
+            .map_err(|e| CommandError::unavailable(e.to_string()))??;
             ctx.connect(target).await?;
             Ok(Value::Null)
         }

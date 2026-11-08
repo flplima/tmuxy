@@ -230,6 +230,16 @@ describeE2E(
         );
         const apple = document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute('href');
         const appleIcon = await fetch(apple);
+        const favicons = await Promise.all(
+          [...document.querySelectorAll('link[rel="icon"]')].map(async (l) => {
+            const r = await fetch(l.getAttribute('href'));
+            return {
+              href: l.getAttribute('href'),
+              status: r.status,
+              type: r.headers.get('content-type'),
+            };
+          }),
+        );
         return {
           link,
           status: res.status,
@@ -243,6 +253,7 @@ describeE2E(
             .getPropertyValue('--window-bg-rgb')
             .trim()})`,
           appleIcon: appleIcon.status,
+          favicons,
         };
       });
       expect(install.link).toBe('/manifest.webmanifest');
@@ -259,6 +270,12 @@ describeE2E(
       // The phone's own bars in the theme's window colour, not a fixed black.
       expect(install.theme).toBe(install.windowBg);
       expect(install.appleIcon).toBe(200);
+      // The rounded favicon as an ICO beside the SVG, for a browser without SVG ones.
+      expect(install.favicons.map((f) => f.href).sort()).toEqual(['/favicon.ico', '/favicon.svg']);
+      for (const icon of install.favicons) {
+        expect(icon.status).toBe(200);
+        expect(icon.type).toMatch(/^image\//);
+      }
     }, 120000);
   },
 );

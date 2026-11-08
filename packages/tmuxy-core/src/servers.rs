@@ -20,7 +20,7 @@ pub mod discovery;
 pub use discovery::{
     enrich_and_scan_sockets, is_ephemeral_test_socket, now_unix_secs, parse_session_list,
     query_local_socket_sessions, tmux_socket_dirs, touch_server, RemoteSessionInfo,
-    ServerReachability, LIST_SESSIONS,
+    ServerReachability, LIST_SESSIONS, LIST_SESSIONS_FORMAT,
 };
 
 pub const LOCALHOST_ID: &str = "localhost";

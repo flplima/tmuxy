@@ -145,9 +145,10 @@ export const PhoneKeyboardDown: Story = {
     expect(keyAt('⌨').top).toBeCloseTo(keyAt('esc').top, 0);
     expect(keyAt('←').top).toBeGreaterThanOrEqual(keyAt('esc').bottom);
     expect(keyAt('⏎').top).toBeCloseTo(keyAt('←').top, 0);
-    expect(keyAt('zoom').top).toBeCloseTo(keyAt('←').top, 0);
-    expect(keyAt('zoom').left).toBeGreaterThan(keyAt('⏎').left);
-    expect(canvasElement.querySelector('[data-key-row="zoom"] svg circle')).not.toBeNull();
+    expect(keyAt('mic').top).toBeCloseTo(keyAt('←').top, 0);
+    expect(keyAt('mic').left).toBeGreaterThan(keyAt('⏎').left);
+    // The mic key is a drawn microphone, not a glyph.
+    expect(canvasElement.querySelector('[data-key-row="mic"] svg rect')).not.toBeNull();
 
     const ctrl = canvasElement.querySelector('[data-key-row="ctrl"]') as HTMLElement;
     await userEvent.click(ctrl);
@@ -265,7 +266,7 @@ export const DoubleTapZoomsTheTerminal: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'A double tap on the terminal draws it at twice its size in a viewport that scrolls, around the point tapped — the browser’s zoom, not tmux’s: the window stays 80 × 24 and the cell measurement is untouched. The key row’s zoom key lights while it is on, and puts it back.',
+          'A double tap on the terminal draws it at twice its size in a viewport that scrolls, around the point tapped — the browser’s zoom, not tmux’s: the window stays 80 × 24 and the cell measurement is untouched. A second double tap puts it back.',
       },
     },
   },
@@ -280,7 +281,6 @@ export const DoubleTapZoomsTheTerminal: Story = {
     const log = canvasElement.querySelector('.pane-active [role="log"]')!;
     const grid = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;
-    const zoomKey = canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement;
     const at = { x: grid.left + grid.width / 2, y: grid.top + grid.height / 2 };
 
     tapAt(log, at.x, at.y);
@@ -293,12 +293,12 @@ export const DoubleTapZoomsTheTerminal: Story = {
       );
       expect(viewport.scrollWidth).toBeGreaterThan(viewport.clientWidth + 10);
       expect(viewport.scrollLeft).toBeGreaterThan(50);
-      expect(zoomKey.getAttribute('aria-pressed')).toBe('true');
     });
     expect(ctx().targetCols).toBe(80);
     expect(box(viewport).width).toBeCloseTo(grid.width, 0);
 
-    await userEvent.click(zoomKey);
+    tapAt(log, at.x, at.y);
+    tapAt(log, at.x + 2, at.y + 2);
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).toBeNull();
       expect(box(canvasElement.querySelector('.phone-pty .pane-container')).width).toBeCloseTo(

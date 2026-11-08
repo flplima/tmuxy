@@ -1,7 +1,7 @@
 /**
  * The bar between the phone's terminal and its bottom view: dragged down it
  * zooms the terminal as far as the bottom view has room, dragged up from the
- * terminal's own size it folds it away, and the zoom key shares its zoom.
+ * terminal's own size it folds it away, and a double tap shares its zoom.
  */
 
 import { describe, expect, it } from 'vitest';

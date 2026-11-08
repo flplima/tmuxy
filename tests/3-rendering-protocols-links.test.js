@@ -5,9 +5,14 @@
  * the terminal's wrap or the program's — and a link repainted over.
  */
 
-const { afterFrames, describeE2E, runCommand, waitForCondition } = require('./helpers');
+const {
+  afterFrames,
+  describeE2E,
+  runCommand,
+  splitPaneKeyboard,
+  waitForCondition,
+} = require('./helpers');
 const { tmuxPane } = require('./helpers/tmux-read');
-
 // ==================== Detailed OSC Protocol Tests ====================
 
 describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) => {
@@ -193,6 +198,66 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
         'the program-wrapped URL to be opened from its second row',
       );
       expect(await ctx.page.evaluate(() => window.__opened[3].url)).toBe(hard);
+    });
+
+    // The reported bug: Claude Code's PR link in its footer stopped opening.
+    // A split resizes the pane, and every resize is followed by a refill from
+    // tmux's capture, which carries the links (`capture-pane -e`); the refill
+    // read the capture without them, so the link stayed text until the program
+    // happened to draw it again. A shell draws nothing again, so here it never
+    // came back.
+    test('a link stays a link when its pane is resized, and opens from the pane beside', async () => {
+      await ctx.setupPage();
+      await ctx.page.evaluate(() => {
+        window.__opened = [];
+        window.open = (url) => {
+          window.__opened.push(url);
+          return null;
+        };
+      });
+
+      // As Claude Code writes it: an id, ST-terminated, closed after a reset.
+      await runCommand(
+        ctx.page,
+        'echo -e "PR \\e[4m\\e]8;id=pr1;https://ex.test/pull/177\\e\\\\#177\\e[0m\\e]8;;\\e\\\\ done"',
+        '#177 done',
+      );
+      const prLink = () =>
+        ctx.page.evaluate(() => {
+          const a = [...document.querySelectorAll('.terminal-content a.terminal-hyperlink')].find(
+            (el) => el.getAttribute('href') === 'https://ex.test/pull/177',
+          );
+          const r = a?.getBoundingClientRect();
+          return a ? { text: a.textContent, width: r.width, height: r.height } : null;
+        });
+      await waitForCondition(ctx.page, async () => (await prLink()) !== null, 10000, 'the link');
+
+      // Side by side: the pane is half as wide, and refilled from tmux.
+      const paneId = await ctx.page.evaluate(() => window.app.view().activePaneId);
+      const before = tmuxPane(paneId).width;
+      await splitPaneKeyboard(ctx.page, 'vertical');
+      await waitForCondition(
+        ctx.page,
+        () => tmuxPane(paneId).width < before,
+        10000,
+        'the pane to be resized',
+      );
+      // The new pane answering means the refill asked for before it is in.
+      await runCommand(ctx.page, 'echo AFTER_SPLIT', 'AFTER_SPLIT');
+
+      const link = await prLink();
+      expect(link).toEqual(expect.objectContaining({ text: '#177' }));
+      expect(link.width).toBeGreaterThan(0);
+      expect(link.height).toBeGreaterThan(0);
+      await ctx.page
+        .locator('.terminal-content a.terminal-hyperlink[href="https://ex.test/pull/177"]')
+        .click();
+      await waitForCondition(
+        ctx.page,
+        () => ctx.page.evaluate(() => window.__opened.includes('https://ex.test/pull/177')),
+        5000,
+        'the link to be opened',
+      );
     });
 
     // The reported bug: a long underline over unrelated text in Claude Code.

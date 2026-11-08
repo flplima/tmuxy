@@ -31,6 +31,14 @@ export function tapAt(el: Element, x: number, y: number) {
   touch(el, 'touchend', x, y);
 }
 
+/** A double tap near the active pane's top-left corner: the zoom, or back. */
+export function doubleTapTerminal(root: Element) {
+  const log = root.querySelector('.phone-pty .pane-active [role="log"]')!;
+  const r = box(log);
+  tapAt(log, r.left + 12, r.top + 12);
+  tapAt(log, r.left + 13, r.top + 13);
+}
+
 /**
  * One finger across `el` in real time: `steps` moves `stepMs` apart, so the
  * release speed the app measures is the gesture's own, not however many

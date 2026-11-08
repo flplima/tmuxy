@@ -263,10 +263,16 @@ pub fn enrich_and_scan_sockets(
 /// and the name is the first field, so a row is split from the right.
 pub(super) const SESSION_FIELD_SEP: char = '|';
 
-/// The `list-sessions` command whose rows [`parse_session_list`] reads: name,
+/// The row [`parse_session_list`] reads, as a `list-sessions -F` format: name,
 /// window count, attached clients.
-pub const LIST_SESSIONS: &str =
-    "list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}'";
+pub const LIST_SESSIONS_FORMAT: &str = "#{session_name}|#{session_windows}|#{session_attached}";
+
+/// The `list-sessions` command whose rows [`parse_session_list`] reads.
+pub const LIST_SESSIONS: &str = concat!(
+    "list-sessions -F '",
+    "#{session_name}|#{session_windows}|#{session_attached}",
+    "'"
+);
 
 /// The sessions [`LIST_SESSIONS`] printed, less tmuxy's stash. A row that does
 /// not have its three fields is skipped.

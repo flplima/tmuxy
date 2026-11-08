@@ -46,15 +46,16 @@ const CONNECT_POLL: Duration = Duration::from_secs(2);
 /// arrives. `tmuxy connect <socket> [session]` and `tmuxy session connect`
 /// write one request (`tmuxy_core::servers::connect`) into the current
 /// server's global environment; this task reads it and, when the target
-/// differs from the current server, clears it and moves every window there
+/// differs from the current server, clears it and moves the app there
 /// (`request_reconnect`). Runs for the app's lifetime.
 ///
-/// The reads and the clears ride a window's live control-mode connection —
-/// the first one that has one; with none there is nothing to read from, and
-/// nothing it could clear. Never while attached to a remote SSH tmux server:
-/// an untrusted process on that machine could otherwise redirect the local
-/// app onto a local socket, or make it open an outbound SSH connection from
-/// the user's workstation.
+/// The reads and the clears ride the first window's live control-mode
+/// connection: the one on the app's own server. A later window may be on
+/// another machine's server (`windows/attach.rs`), and with no connection
+/// there is nothing to read from, and nothing it could clear. Never while
+/// attached to a remote SSH tmux server: an untrusted process on that
+/// machine could otherwise redirect the local app onto a local socket, or
+/// make it open an outbound SSH connection from the user's workstation.
 pub async fn poll_connect_requests(app: AppHandle) {
     let mut tick = tokio::time::interval(CONNECT_POLL);
     loop {
@@ -62,10 +63,10 @@ pub async fn poll_connect_requests(app: AppHandle) {
         if tmuxy_core::session::ssh_target().is_some() {
             continue;
         }
-        let Some(tx) = crate::windows::list_all(&app)
-            .iter()
-            .find_map(|window| window.monitor.runtime.tx_now())
-        else {
+        let Some(main) = crate::windows::main_window(&app) else {
+            continue;
+        };
+        let Some(tx) = main.monitor.as_ref().and_then(|m| m.runtime.tx_now()) else {
             continue;
         };
 
@@ -89,7 +90,7 @@ pub async fn poll_connect_requests(app: AppHandle) {
         let session = session.unwrap_or_else(tmuxy_core::session::session_name);
 
         let current_ssh = tmuxy_core::session::ssh_target().map(|v| v.join(" "));
-        let current_session = crate::windows::base_session(&app);
+        let current_session = main.session();
         if socket == tmuxy_core::session::tmux_socket()
             && session == current_session
             && ssh == current_ssh
@@ -99,6 +100,7 @@ pub async fn poll_connect_requests(app: AppHandle) {
 
         request_reconnect(
             &app,
+            &main,
             ConnectTarget {
                 socket,
                 session,

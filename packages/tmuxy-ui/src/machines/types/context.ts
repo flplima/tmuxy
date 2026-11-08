@@ -117,7 +117,7 @@ export interface AppMachineContext {
   /**
    * The phone's browser-side zoom (the `phone` slice, domain/phoneSplit.ts):
    * the terminal's scale, 1 at its own size. Set by the bar between the
-   * terminal and the bottom view, a double tap or the zoom key; panned with a
+   * terminal and the bottom view, or a double tap; panned with a
    * finger when it is past 1. Kept per device.
    */
   phoneZoom: number;

@@ -198,6 +198,15 @@ export function raiseMobileKeyboard(paneId: PaneId): void {
   focusInput(paneId);
 }
 
+/**
+ * Text from somewhere other than a keyboard — the mic key's dictation — typed
+ * as the phone keyboard types it: into the pane the keyboard is for, or the
+ * pane keys go to when it is down, through the latched ctrl and alt.
+ */
+export function typeText(text: string): void {
+  onText?.(text, activePaneId);
+}
+
 export function focusMobileInput(paneId: PaneId): void {
   if (!isTouchDevice()) return;
   if (isMobileKeyboardOpen()) focusInput(paneId);

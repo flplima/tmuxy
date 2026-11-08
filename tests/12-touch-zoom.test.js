@@ -1,7 +1,7 @@
 /**
  * The phone's zoom, finger only, with the keyboard up and down.
  *
- * Zoomed by the key row's magnifier, the terminal is drawn at twice its size.
+ * Zoomed by a double tap, the terminal is drawn at twice its size.
  * Upright, the bar under the keys moves down to match and the bottom view
  * gives up the room, so every row is on screen and the view scrolls sideways
  * only, with the key row under it. Held sideways, the
@@ -19,6 +19,7 @@ const {
   phoneContext,
   typeOnVirtualKeyboard,
   keyRowCentre,
+  doubleTapTerminal,
   boxOf,
   waitForPhoneGrid,
 } = require('./helpers/phone');
@@ -47,10 +48,9 @@ const cursorInView = ({ cursor, term, keyboard }) =>
   cursor.bottom <= term.bottom + 0.5 &&
   cursor.bottom <= keyboard.top + 0.5;
 
-/** Tap the magnifier and wait for the zoom to be on (or off). */
+/** Double tap the terminal and wait for the zoom to be on (or off). */
 async function toggleZoom(page, on) {
-  const key = await keyRowCentre(page, 'zoom');
-  await page.touchscreen.tap(key.x, key.y);
+  await doubleTapTerminal(page);
   await waitForCondition(
     page,
     () =>

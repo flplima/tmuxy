@@ -6,12 +6,12 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, userEvent, waitFor } from 'storybook/test';
+import { expect, waitFor } from 'storybook/test';
 import { TmuxyApp } from '../lib';
 import { FixtureApp, FixtureProvider } from './FixtureHarness';
 import { asFixture } from './fixtures/FixtureAdapter';
 import phoneTwoTabs from './fixtures/gen/phone-two-tabs.json';
-import { box, ctx } from './phoneStoryHelpers';
+import { box, ctx, doubleTapTerminal } from './phoneStoryHelpers';
 import { mockKeyboard } from './keyboardMock';
 import { PHONE_STATUS_HEIGHT } from '../infra/dom/phoneLayout';
 
@@ -61,7 +61,7 @@ export const ZoomShowsEveryRow: Story = {
       story: { inline: false, iframeHeight: 844 },
       description: {
         story:
-          'The magnifier zooms the terminal to twice its size, its status line with it, and the bar under the keys moves down to match: the bottom view gives up the room, so every row is on screen at once and the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short and it scrolls to keep the cursor’s row in view above the keyboard.',
+          'A double tap zooms the terminal to twice its size, its status line with it, and the bar under the keys moves down to match: the bottom view gives up the room, so every row is on screen at once and the view scrolls sideways only; the key row stays under it. A keyboard coming up cuts the terminal short and it scrolls to keep the cursor’s row in view above the keyboard.',
       },
     },
   },
@@ -75,7 +75,7 @@ export const ZoomShowsEveryRow: Story = {
     );
     const before = box(canvasElement.querySelector('.phone-pty .pane-container'));
     const barBefore = box(canvasElement.querySelector('[data-testid="phone-divider"]'));
-    await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
+    doubleTapTerminal(canvasElement);
 
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull();
@@ -122,7 +122,8 @@ export const ZoomShowsEveryRow: Story = {
       putAway();
     }
 
-    await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
+    // A double tap again: back to the grid's own size, and the bar with it.
+    doubleTapTerminal(canvasElement);
     await waitFor(() => {
       expect(canvasElement.querySelector('.phone-pty.is-zoomed')).toBeNull();
       expect(box(canvasElement.querySelector('[data-testid="phone-divider"]')).top).toBeCloseTo(
@@ -156,7 +157,7 @@ export const ZoomSidewaysWithTheKeyboard: Story = {
       },
       { timeout: 8000 },
     );
-    await userEvent.click(canvasElement.querySelector('[data-key-row="zoom"]') as HTMLElement);
+    doubleTapTerminal(canvasElement);
     await waitFor(() => expect(canvasElement.querySelector('.phone-pty.is-zoomed')).not.toBeNull());
     const term = canvasElement.querySelector('.phone-pty') as HTMLElement;
     const viewport = canvasElement.querySelector('.phone-zoom-viewport') as HTMLElement;

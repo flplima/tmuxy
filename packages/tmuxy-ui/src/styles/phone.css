@@ -169,11 +169,11 @@
   inset: 0 var(--pane-container-padding-x) var(--pane-container-padding-bottom);
 }
 
-/* Zoomed (the bar, a double tap, or the key row's zoom key): the picture
+/* Zoomed (the bar, or a double tap): the picture
    drawn at `--phone-zoom` times its size — a transform, so the container
    still measures the same and tmux is told nothing. The viewport is the
    scaled picture's full height, so every row is there, and scrolls
-   sideways. When the height does not fit — a keyboard up, the zoom key past
+   sideways. When the height does not fit — a keyboard up, a double tap past
    the room the bottom view gives, or held sideways — the terminal box scrolls
    up and down, kept on the cursor's row (components/phone/usePhoneViewport.ts).
    The finger pans both: usePaneTouch.ts leaves it to the browser while zoomed. */
@@ -350,8 +350,10 @@ html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-
   overflow: hidden;
 }
 
-/* Upright the side pane is a terminal of its own on the terminal's
-   background; held sideways it is the desktop's right column, on the
+/* The side pane in the chrome's small type (PhoneDock sets the cell): the
+   box it is sized to, and the pane kept to the rows it has. It is chrome, as
+   the desktop's right column is, so it paints no ground of its own: upright
+   it shows the bottom view's, the tree's grey, and held sideways the
    window's. */
 .phone-dock {
   position: relative;
@@ -359,12 +361,11 @@ html.tmuxy-keyboard-up .app-body-phone.is-dock-typing:not(.is-landscape) .phone-
   min-height: 0;
   overflow: hidden;
   padding: 0 4px;
-  background-color: var(--term-background);
+  background-color: transparent;
 }
 
 .phone-side-right .phone-dock {
   padding: var(--spacing-lg);
-  background-color: transparent;
 }
 
 /* On the window's ground the placeholder's subtle ink is too faint to read. */

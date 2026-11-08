@@ -7,6 +7,8 @@ use tauri::AppHandle;
 use tmuxy_core::control_mode::MonitorConfig;
 use tmuxy_core::host::{self, Attempt, Ended, GaveUp, Host, HostEvent, SessionRuntime, Task};
 
+use crate::windows::GuiWindow;
+
 /// Where `tmuxy connect` points the app: a tmux socket, a session (created if
 /// missing) and the ssh host, if any. Installed through
 /// `tmuxy_core::session::set_connect_target`, which every tmux invocation —
@@ -25,9 +27,9 @@ pub struct Monitor {
 
 #[derive(Default)]
 struct Control {
-    /// The session (and the group it joins) a `tmuxy connect` moves this
-    /// window to, applied at the top of the loop's next pass.
-    pending: RwLock<Option<(String, Option<String>)>>,
+    /// The target (and the group its session joins) a `tmuxy connect` moves
+    /// this window to, applied at the top of the loop's next pass.
+    pending: RwLock<Option<(ConnectTarget, Option<String>)>>,
     /// The user asked to step away: when the connection ends the loop parks
     /// rather than reconnects. Without it a detach is indistinguishable from
     /// a flap — the loop sees a healthy connection end and reattaches,
@@ -45,15 +47,15 @@ impl Monitor {
         }
     }
 
-    /// Move this window to `session` (joining `group`'s windows when set) on
-    /// the next pass of its loop: the live connection is ended, a parked
-    /// loop woken.
-    async fn reconnect_to(&self, session: String, group: Option<String>) {
+    /// Move this window to `target` (its session joining `group`'s windows
+    /// when set) on the next pass of its loop: the live connection is ended,
+    /// a parked loop woken.
+    async fn reconnect_to(&self, target: ConnectTarget, group: Option<String>) {
         *self
             .control
             .pending
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = Some((session, group));
+            .unwrap_or_else(|e| e.into_inner()) = Some((target, group));
         // Attaching somewhere is the end of being detached — without this the
         // loop would park again the moment the new connection ended.
         self.control.detached.store(false, Ordering::SeqCst);
@@ -75,20 +77,33 @@ impl Monitor {
     }
 }
 
-/// Point the app at another tmux server. Every window moves: they are
-/// members of one session group on one server, and a window left behind
-/// would answer its one-off reads from the new server while its client sat
-/// on the old one. The first window takes the target's session; window `N`
-/// joins it as `<session>+N`.
-pub async fn request_reconnect(app: &AppHandle, target: ConnectTarget) {
+/// Point a window at another tmux server. A window that chose its target on
+/// its splash page (`windows/attach.rs`) moves alone: its target is its own.
+/// From the first window the request is the app's, and every window on the
+/// app's target moves with it — the first takes the target's session, window
+/// `N` joins it as `<session>+N` — so none is left answering its one-off
+/// reads from the new server while its client sits on the old one.
+pub async fn request_reconnect(app: &AppHandle, from: &GuiWindow, target: ConnectTarget) {
     tracing::info!(
+        window = %from.label,
         socket = %target.socket,
         session = %target.session,
         ssh = target.ssh.as_deref().unwrap_or("(local)"),
         "reconnecting"
     );
-    tmuxy_core::session::set_connect_target(target.clone());
+    if from.has_own_target() {
+        if let Some(monitor) = &from.monitor {
+            monitor.reconnect_to(target, None).await;
+        }
+        return;
+    }
     for window in crate::windows::list_all(app) {
+        let Some(monitor) = &window.monitor else {
+            continue;
+        };
+        if window.has_own_target() {
+            continue;
+        }
         let (session, group) = if window.label == crate::windows::MAIN_LABEL {
             (target.session.clone(), None)
         } else {
@@ -97,7 +112,11 @@ pub async fn request_reconnect(app: &AppHandle, target: ConnectTarget) {
                 Some(target.session.clone()),
             )
         };
-        window.monitor.reconnect_to(session, group).await;
+        let target = ConnectTarget {
+            session,
+            ..target.clone()
+        };
+        monitor.reconnect_to(target, group).await;
     }
 }
 
@@ -167,9 +186,15 @@ impl Host for DesktopHost {
             .write()
             .ok()
             .and_then(|mut g| g.take());
-        if let Some((session, group)) = pending {
-            self.monitor.runtime.set_session(session.clone());
-            self.config.session = session;
+        if let Some((target, group)) = pending {
+            // A window with a target of its own is pointed alone; the first
+            // window's target is the app's, which every tmux call outside a
+            // window's scope resolves.
+            if !tmuxy_core::session::scoped::retarget(target.clone()) {
+                tmuxy_core::session::set_connect_target(target.clone());
+            }
+            self.monitor.runtime.set_session(target.session.clone());
+            self.config.session = target.session;
             self.config.group_target = group;
         }
         Attempt::Connect(self.config.clone())
@@ -209,7 +234,8 @@ impl Host for DesktopHost {
     }
 
     async fn spawn(&self, task: Task) {
-        tauri::async_runtime::spawn(task);
+        // With the window's target: the task's reads are for its server.
+        tauri::async_runtime::spawn(tmuxy_core::session::scoped::inherit(task));
     }
 
     async fn sleep(&self, duration: Duration) {
@@ -225,7 +251,7 @@ impl host::Sessions for Windows {
     async fn runtimes(&self) -> Vec<Arc<SessionRuntime>> {
         crate::windows::list_all(&self.0)
             .into_iter()
-            .map(|window| Arc::clone(&window.monitor.runtime))
+            .filter_map(|window| window.monitor.map(|m| Arc::clone(&m.runtime)))
             .collect()
     }
 }

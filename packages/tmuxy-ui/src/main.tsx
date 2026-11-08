@@ -1,11 +1,13 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { SplashScreen } from './components/SplashScreen';
 import { AppProvider } from './machines/AppContext';
 import { applyTheme } from './infra/themeManager';
 import { loadThemePref } from './infra/prefs';
 import { isTauri } from './infra/platform';
 import { registerPushWorker } from './infra/pushNotifications';
+import { windowAttached } from './infra/splashWindow';
 import './fonts/nerd-font.css';
 import './standalone.css';
 
@@ -20,10 +22,24 @@ registerPushWorker();
 const savedTheme = loadThemePref();
 applyTheme(savedTheme.theme, savedTheme.mode);
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <AppErrorBoundary>
-    <AppProvider>
-      <App />
-    </AppProvider>
-  </AppErrorBoundary>,
-);
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+const renderApp = () =>
+  root.render(
+    <AppErrorBoundary>
+      <AppProvider>
+        <App />
+      </AppProvider>
+    </AppErrorBoundary>,
+  );
+
+// A desktop window opened from the Window menu starts on its splash page,
+// which attaches it (components/SplashScreen.tsx); the app comes up after.
+if (isTauri()) {
+  void windowAttached()
+    .catch(() => true)
+    .then((attached) =>
+      attached ? renderApp() : root.render(<SplashScreen onAttached={renderApp} />),
+    );
+} else {
+  renderApp();
+}
