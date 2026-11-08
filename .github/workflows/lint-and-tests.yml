@@ -74,6 +74,12 @@ jobs:
   # [nightly] E2E tier runs only for a push that edited the web suites. The
   # rules are bin/ci/ci-changes.mjs (tested beside it); a base this
   # checkout cannot reach — a force-push, a tag build — runs everything.
+  #
+  # The same job composes the E2E matrix for this run's tier, from
+  # tests/e2e-suites.json via bin/ci/e2e-plan.mjs: on a push the suites a
+  # [nightly] test does not fill, each with a jest name pattern that skips
+  # the tagged tests; on a tag build (`e2e-tier: full`) every suite and every
+  # test. A push that edited the web suites also gets the [nightly] tier.
   changes:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -83,12 +89,18 @@ jobs:
       macos-rust: ${{ steps.changes.outputs.macos-rust }}
       audit: ${{ steps.changes.outputs.audit }}
       nightly-e2e: ${{ steps.changes.outputs.nightly-e2e }}
+      suites: ${{ steps.plan.outputs.suites }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - id: changes
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node bin/ci/ci-changes.mjs "$BASE" >> "$GITHUB_OUTPUT"
+      - id: plan
+        env:
+          TIER: ${{ inputs.e2e-tier || 'commit' }}
+          WITH_NIGHTLY: ${{ steps.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
+        run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
 
   # The frontend bundle and the test server, each built ONCE and handed to
   # every job that needs them. Two jobs so the desktop job, which only needs
@@ -229,33 +241,14 @@ jobs:
       - name: Cargo test
         run: cargo test --workspace
 
-  # The E2E matrix for this run's tier, from tests/e2e-suites.json, composed
-  # by bin/ci/e2e-plan.mjs: on a push the suites a [nightly] test does not
-  # fill, each with a jest name pattern that skips the tagged tests; on a tag
-  # build (`e2e-tier: full`) every suite and every test. A push that edited
-  # the web suites also gets the [nightly] tier (the `changes` job decides).
-  plan:
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    needs: changes
-    outputs:
-      suites: ${{ steps.plan.outputs.suites }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - id: plan
-        env:
-          TIER: ${{ inputs.e2e-tier || 'commit' }}
-          WITH_NIGHTLY: ${{ needs.changes.outputs.nightly-e2e == 'true' && '--with-nightly' || '' }}
-        run: echo "suites=$(node bin/ci/e2e-plan.mjs "$TIER" $WITH_NIGHTLY)" >> "$GITHUB_OUTPUT"
-
   e2e:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
-    needs: [plan, build-server]
+    needs: [changes, build-server]
     strategy:
       fail-fast: false
       matrix:
-        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
+        suite: ${{ fromJSON(needs.changes.outputs.suites) }}
     name: e2e (${{ matrix.suite.name }})
 
     # The suite's own socket, port, wait scale and snapshot policy are set by
