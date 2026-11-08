@@ -9,10 +9,12 @@
 //! desktop environment scans.
 //!
 //! The write is skipped when the on-disk entry already matches byte for byte,
-//! so the steady-state cost is a single small read. Set
-//! `TMUXY_NO_DESKTOP_ENTRY` to opt out entirely.
+//! so the steady-state cost is a read of the entry and of the bundled icons,
+//! whose fingerprint the entry carries: new icons in a build of the same
+//! version are copied too. Set `TMUXY_NO_DESKTOP_ENTRY` to opt out entirely.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
+use std::hash::{DefaultHasher, Hasher};
 use std::path::{Path, PathBuf};
 
 use tmuxy_core::session::cellar_to_opt;
@@ -21,10 +23,14 @@ use tmuxy_core::session::cellar_to_opt;
 /// even when every other key is unchanged.
 const STAMP_KEY: &str = "X-Tmuxy-Version";
 
+/// The bundled icons' fingerprint, so an icon changed without a version bump
+/// still reaches the menu.
+const ICONS_KEY: &str = "X-Tmuxy-Icons";
+
 /// Keys we own. Anything else in the bundled entry (Name, Comment,
 /// Categories, ...) is carried over untouched so this stays in sync with
 /// `tauri.conf.json` instead of duplicating it.
-const OWNED_KEYS: &[&str] = &["Exec", "Icon", "StartupWMClass", STAMP_KEY];
+const OWNED_KEYS: &[&str] = &["Exec", "Icon", "StartupWMClass", STAMP_KEY, ICONS_KEY];
 
 /// Mirror the AppImage's desktop entry and icons into `$XDG_DATA_HOME`.
 ///
@@ -46,7 +52,9 @@ pub fn ensure_entry() {
     let Ok(source) = std::fs::read_to_string(&bundled) else {
         return;
     };
-    let entry = rewrite_entry(&source, &exec);
+    let theme = appdir.join("usr/share/icons/hicolor");
+    let icons = bundled_icons(&theme);
+    let entry = rewrite_entry(&source, &exec, &icons_fingerprint(&icons));
 
     let apps_dir = data_home.join("applications");
     let dest = apps_dir.join("tmuxy.desktop");
@@ -58,7 +66,7 @@ pub fn ensure_entry() {
         return;
     }
 
-    copy_icons(&appdir.join("usr/share/icons/hicolor"), &data_home);
+    copy_icons(&icons, &data_home);
 
     // Menus that cache the entry index need a nudge; those that watch the
     // directory do not, and either way a failure here is not fatal.
@@ -89,7 +97,7 @@ fn exec_path() -> Option<String> {
 }
 
 /// Rebuild the bundled entry with our keys overridden and the rest kept.
-fn rewrite_entry(source: &str, exec: &str) -> String {
+fn rewrite_entry(source: &str, exec: &str, icons: &str) -> String {
     let mut out = String::with_capacity(source.len() + 128);
 
     for line in source.lines() {
@@ -108,38 +116,55 @@ fn rewrite_entry(source: &str, exec: &str) -> String {
     out.push_str("Icon=tmuxy\n");
     out.push_str("StartupWMClass=tmuxy\n");
     out.push_str(&format!("{STAMP_KEY}={}\n", env!("CARGO_PKG_VERSION")));
+    out.push_str(&format!("{ICONS_KEY}={icons}\n"));
     out
 }
 
-/// Copy every `<size>/apps/tmuxy.*` icon out of the AppImage into the user's
-/// hicolor theme. Sizes are whatever the bundle happens to ship.
-fn copy_icons(source_theme: &Path, data_home: &Path) {
+/// Every `<size>/apps/tmuxy.*` icon in the AppImage's hicolor theme, with
+/// its size directory's name, in a stable order. Sizes are whatever the
+/// bundle happens to ship.
+fn bundled_icons(source_theme: &Path) -> Vec<(OsString, PathBuf)> {
     let Ok(sizes) = std::fs::read_dir(source_theme) else {
-        return;
+        return Vec::new();
     };
+    let mut icons: Vec<(OsString, PathBuf)> = sizes
+        .flatten()
+        .filter_map(|size| {
+            let found = std::fs::read_dir(size.path().join("apps")).ok()?;
+            Some((size.file_name(), found))
+        })
+        .flat_map(|(size, found)| {
+            found
+                .flatten()
+                .map(|icon| icon.path())
+                .filter(|path| path.file_stem() == Some(OsStr::new("tmuxy")))
+                .map(move |path| (size.clone(), path))
+        })
+        .collect();
+    icons.sort();
+    icons
+}
 
-    for size in sizes.flatten() {
-        let apps = size.path().join("apps");
-        let Ok(icons) = std::fs::read_dir(&apps) else {
+/// A digest of the icons' names and bytes: it changes when any icon does.
+fn icons_fingerprint(icons: &[(OsString, PathBuf)]) -> String {
+    let mut hasher = DefaultHasher::new();
+    for (size, path) in icons {
+        hasher.write(size.as_encoded_bytes());
+        hasher.write(path.as_os_str().as_encoded_bytes());
+        hasher.write(&std::fs::read(path).unwrap_or_default());
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+/// Copy the bundled icons into the user's hicolor theme.
+fn copy_icons(icons: &[(OsString, PathBuf)], data_home: &Path) {
+    for (size, path) in icons {
+        let Some(name) = path.file_name() else {
             continue;
         };
-
-        for icon in icons.flatten() {
-            let path = icon.path();
-            if path.file_stem() != Some(OsStr::new("tmuxy")) {
-                continue;
-            }
-            let Some(name) = path.file_name() else {
-                continue;
-            };
-
-            let dest_dir = data_home
-                .join("icons/hicolor")
-                .join(size.file_name())
-                .join("apps");
-            if std::fs::create_dir_all(&dest_dir).is_ok() {
-                let _ = std::fs::copy(&path, dest_dir.join(name));
-            }
+        let dest_dir = data_home.join("icons/hicolor").join(size).join("apps");
+        if std::fs::create_dir_all(&dest_dir).is_ok() {
+            let _ = std::fs::copy(path, dest_dir.join(name));
         }
     }
 }
@@ -161,7 +186,7 @@ mod tests {
                       Terminal=false\n\
                       Type=Application\n";
 
-        let entry = rewrite_entry(source, "/opt/tmuxy/bin/tmuxy");
+        let entry = rewrite_entry(source, "/opt/tmuxy/bin/tmuxy", "0");
         let lines: Vec<&str> = entry.lines().collect();
 
         assert_eq!(lines[0], "[Desktop Entry]");
@@ -177,8 +202,42 @@ mod tests {
     #[test]
     fn rewrite_is_stable_across_repeated_runs() {
         let source = "[Desktop Entry]\nExec=tmuxy\nName=tmuxy\nType=Application\n";
-        let once = rewrite_entry(source, "/opt/tmuxy/bin/tmuxy");
-        assert_eq!(rewrite_entry(&once, "/opt/tmuxy/bin/tmuxy"), once);
+        let once = rewrite_entry(source, "/opt/tmuxy/bin/tmuxy", "0");
+        assert_eq!(rewrite_entry(&once, "/opt/tmuxy/bin/tmuxy", "0"), once);
+    }
+
+    #[test]
+    fn a_new_icon_in_the_same_version_rewrites_the_entry_and_is_copied() {
+        let root = std::env::temp_dir().join(format!("tmuxy-icons-{}", std::process::id()));
+        let theme = root.join("appdir/usr/share/icons/hicolor");
+        let home = root.join("data");
+        std::fs::create_dir_all(theme.join("32x32/apps")).unwrap();
+        std::fs::create_dir_all(theme.join("128x128/apps")).unwrap();
+        std::fs::write(theme.join("32x32/apps/tmuxy.png"), b"old").unwrap();
+        std::fs::write(theme.join("128x128/apps/tmuxy.png"), b"old 128").unwrap();
+        std::fs::write(theme.join("128x128/apps/other.png"), b"not ours").unwrap();
+        let source = "[Desktop Entry]\nName=tmuxy\n";
+        let entry = |icons: &[(OsString, PathBuf)]| {
+            rewrite_entry(source, "/opt/tmuxy/bin/tmuxy", &icons_fingerprint(icons))
+        };
+
+        let icons = bundled_icons(&theme);
+        assert_eq!(icons.len(), 2);
+        let before = entry(&icons);
+        assert_eq!(entry(&bundled_icons(&theme)), before);
+
+        std::fs::write(theme.join("32x32/apps/tmuxy.png"), b"new").unwrap();
+        let icons = bundled_icons(&theme);
+        assert_ne!(entry(&icons), before);
+        copy_icons(&icons, &home);
+        let copied = |size: &str| {
+            std::fs::read(home.join("icons/hicolor").join(size).join("apps/tmuxy.png")).unwrap()
+        };
+        assert_eq!(copied("32x32"), b"new");
+        assert_eq!(copied("128x128"), b"old 128");
+        assert!(!home.join("icons/hicolor/128x128/apps/other.png").exists());
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
