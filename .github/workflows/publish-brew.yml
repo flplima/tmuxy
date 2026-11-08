@@ -1,0 +1,397 @@
+name: publish brew
+
+# Promoting a pre-release to a release is what puts a build in front of brew
+# users. `build app` publishes a tag's assets as a PRE-release and stops
+# there; `gh release edit <tag> --prerelease=false --latest` fires the
+# `released` event, and only then are the tap files bumped and the cask
+# verified on a clean Mac. See §Release-candidate soak in
+# .agents/skills/release/SKILL.md.
+#
+# Read-only by default: the tap bumps push with their own token
+# (HOMEBREW_TAP_TOKEN, a PAT with Contents:Write on flplima/homebrew-tap).
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: read
+
+jobs:
+  # --- Bump Homebrew Cask (on promotion) ---
+  #
+  # Requires the HOMEBREW_TAP_TOKEN secret (PAT with Contents:Write on
+  # flplima/homebrew-tap).
+  bump-cask:
+    # Only a PROMOTION reaches the tap. A tag push publishes a pre-release and
+    # stops; `gh release edit <tag> --prerelease=false --latest` fires
+    # `release: released` and runs this. Forgetting to promote leaves users on
+    # the last good build, which is the failure mode we want.
+    if: github.event.action == 'released'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      # The PUBLISHED bytes, not the build's artifacts. The tap's sha256 has to
+      # describe what a user actually downloads, and hashing the release asset
+      # is the only way that cannot drift — `verify-release` check 3 exists
+      # because the two used to be computed from different files.
+      # The tag reaches the script through the environment, never spliced into
+      # it: `${{ }}` in a `run:` is pasted in before bash parses the line.
+      - name: Download the published DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p dmg
+          gh release download "$TAG" \
+            --repo "$REPO" --pattern '*.dmg' --dir dmg
+
+      - name: Compute version + sha256
+        id: meta
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
+            exit 1
+          fi
+          DMG=$(ls dmg/*.dmg | head -1)
+          SHA=$(sha256sum "$DMG" | awk '{print $1}')
+          echo "version=$VERSION"  >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA"       >> "$GITHUB_OUTPUT"
+          echo "Bumping cask: v$VERSION sha256=$SHA from $(basename "$DMG")"
+
+      - name: Push updated cask to flplima/homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256: ${{ steps.meta.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid VERSION '$VERSION'" >&2
+            exit 1
+          fi
+          if ! [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid SHA256 '$SHA256'" >&2
+            exit 1
+          fi
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
+            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
+          cd tap
+          mkdir -p Casks
+
+          # The cask that would go to Homebrew/homebrew-cask, byte for byte, so every release proves
+          # it: `verify-brew-cask` runs `brew style` and `brew audit --new` on
+          # it. The `binary` stanza links the app's executable, which is the
+          # full CLI, into `$(brew --prefix)/bin/tmuxy`. `zap` lists what the
+          # app writes: its config, the `~/.local/bin/tmuxy` launcher it
+          # refreshes on every start, and its Library folders.
+          cat > Casks/tmuxy.rb <<'CASK'
+          cask "tmuxy" do
+            version "__VERSION__"
+            sha256 "__SHA256__"
+
+            url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_universal.dmg"
+            name "tmuxy"
+            desc "Desktop UI for tmux"
+            homepage "https://tmuxy.sh/"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on formula: "tmux"
+            depends_on :macos
+
+            app "tmuxy.app"
+            binary "#{appdir}/tmuxy.app/Contents/MacOS/tmuxy"
+
+            zap trash: [
+              "~/.config/tmuxy",
+              "~/.local/share/tmuxy",
+              "~/.local/bin/tmuxy",
+              "~/Library/Application Support/com.tmuxy.app",
+              "~/Library/Application Support/tmuxy",
+              "~/Library/Caches/com.tmuxy.app",
+              "~/Library/WebKit/com.tmuxy.app",
+            ]
+          end
+          CASK
+
+          sed -i "s/__VERSION__/${VERSION}/g" Casks/tmuxy.rb
+          sed -i "s/__SHA256__/${SHA256}/g"  Casks/tmuxy.rb
+
+          git config user.name  "tmuxy-cask-bumper[bot]"
+          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
+          git add Casks/tmuxy.rb
+
+          if git diff --staged --quiet; then
+            echo "Cask already at v${VERSION}; nothing to push."
+          else
+            git commit -m "chore: bump tmuxy to v${VERSION}"
+            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
+          fi
+
+  # --- Bump Homebrew Formula (on promotion, after the cask) ---
+  #
+  # Homebrew casks are macOS-only; Linux Homebrew installs from formulae, so
+  # the formula installs the release AppImage as `tmuxy`. After bump-cask so
+  # the two jobs don't race pushing to the same tap repo.
+  bump-formula:
+    needs: bump-cask
+    # Promotion only, as bump-cask.
+    if: github.event.action == 'released'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      # Same as the cask: hash what was published, not what was built.
+      - name: Download the published AppImages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p appimage-amd64 appimage-arm64
+          gh release download "$TAG" --repo "$REPO" \
+            --pattern '*amd64.AppImage' --dir appimage-amd64
+          gh release download "$TAG" --repo "$REPO" \
+            --pattern '*aarch64.AppImage' --dir appimage-arm64
+
+      - name: Compute version + sha256
+        id: meta
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid semantic version derived from tag '$TAG': '$VERSION'" >&2
+            exit 1
+          fi
+          AMD=$(ls appimage-amd64/*.AppImage | head -1)
+          ARM=$(ls appimage-arm64/*.AppImage | head -1)
+          SHA_AMD=$(sha256sum "$AMD" | awk '{print $1}')
+          SHA_ARM=$(sha256sum "$ARM" | awk '{print $1}')
+          echo "version=$VERSION"      >> "$GITHUB_OUTPUT"
+          echo "sha256_amd=$SHA_AMD"   >> "$GITHUB_OUTPUT"
+          echo "sha256_arm=$SHA_ARM"   >> "$GITHUB_OUTPUT"
+          echo "Bumping formula: v$VERSION amd64=$SHA_AMD arm64=$SHA_ARM"
+
+      - name: Push updated formula to flplima/homebrew-tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA256_AMD: ${{ steps.meta.outputs.sha256_amd }}
+          SHA256_ARM: ${{ steps.meta.outputs.sha256_arm }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid VERSION '$VERSION'" >&2
+            exit 1
+          fi
+          if ! [[ "$SHA256_AMD" =~ ^[0-9a-f]{64}$ && "$SHA256_ARM" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Invalid SHA256 digest" >&2
+            exit 1
+          fi
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" \
+            clone --depth 1 "https://github.com/flplima/homebrew-tap.git" tap
+          cd tap
+          mkdir -p Formula
+
+          cat > Formula/tmuxy.rb <<'FORMULA'
+          class Tmuxy < Formula
+            desc "Web-based tmux interface"
+            homepage "https://github.com/flplima/tmuxy"
+            version "__VERSION__"
+
+            depends_on :linux
+            depends_on "tmux"
+
+            on_arm do
+              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_aarch64.AppImage"
+              sha256 "__SHA256_ARM__"
+            end
+
+            on_intel do
+              url "https://github.com/flplima/tmuxy/releases/download/v#{version}/tmuxy_#{version}_amd64.AppImage"
+              sha256 "__SHA256_AMD__"
+            end
+
+            def install
+              bin.install Dir["tmuxy_*.AppImage"].first => "tmuxy"
+            end
+
+            # The applications-menu entry cannot be installed from here:
+            # Homebrew 6 sandboxes post_install with a read-only $HOME, and
+            # Homebrew's own share/applications is not on XDG_DATA_DIRS. The
+            # app registers itself on launch instead (see
+            # packages/tmuxy-tauri-app/src/desktop.rs).
+            def caveats
+              <<~EOS
+                Run `tmuxy` once to add it to your applications menu.
+                Set TMUXY_NO_DESKTOP_ENTRY=1 to skip that.
+              EOS
+            end
+
+            # `assert_path_exists` only proved a file landed — it would pass on
+            # a truncated download, an AppImage for the wrong arch, or a build
+            # that cannot start. This runs the thing: version out of the binary
+            # that was installed, then the server serving its page on a free
+            # port. APPIMAGE_EXTRACT_AND_RUN because `brew test` has no FUSE.
+            test do
+              assert_path_exists bin/"tmuxy"
+
+              ENV["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+              assert_match "tmuxy #{version}", shell_output("#{bin}/tmuxy --version")
+
+              port = free_port
+              # `spawn` wants Strings; `bin/"tmuxy"` is a Pathname.
+              pid = spawn((bin/"tmuxy").to_s, "server", "--port", port.to_s)
+              begin
+                page = nil
+                20.times do
+                  sleep 1
+                  # `|| true` so a connection refused while the server is still
+                  # binding is a retry, not an exception. The assert below is
+                  # what decides the test.
+                  page = shell_output("curl -fsS http://127.0.0.1:#{port}/ || true")
+                  break if page.include?("<html")
+                end
+                assert_match "<html", page.to_s
+              ensure
+                Process.kill "TERM", pid
+                Process.wait pid
+              end
+            end
+          end
+          FORMULA
+
+          sed -i "s/__VERSION__/${VERSION}/g"      Formula/tmuxy.rb
+          sed -i "s/__SHA256_AMD__/${SHA256_AMD}/g" Formula/tmuxy.rb
+          sed -i "s/__SHA256_ARM__/${SHA256_ARM}/g" Formula/tmuxy.rb
+
+          git config user.name  "tmuxy-cask-bumper[bot]"
+          git config user.email "tmuxy-cask-bumper@users.noreply.github.com"
+          git add Formula/tmuxy.rb
+
+          if git diff --staged --quiet; then
+            echo "Formula already at v${VERSION}; nothing to push."
+          else
+            git commit -m "chore: bump tmuxy formula to v${VERSION}"
+            git -c "http.https://github.com/.extraheader=${AUTH_HEADER}" push origin HEAD
+          fi
+
+  # --- Verify the published install path (on promotion, after the bumps) ---
+  #
+  # Everything above verifies bytes we built. This verifies what a user gets:
+  # a clean macOS runner with no tmuxy on it, installing the cask straight from
+  # the tap the job above just pushed, and then running it. It is the only step
+  # that exercises the whole chain — release assets reachable, cask sha256
+  # matching the published DMG, Homebrew's `binary` symlink landing on PATH,
+  # and CLI subcommands working without the `launcher` file the app records.
+  #
+  # It runs AFTER the tap is bumped, so it cannot prevent a bad cask from being
+  # published — it tells you within minutes that the published one is bad,
+  # which is the difference between a same-hour fix and a user bug report.
+  verify-brew-cask:
+    needs: [bump-cask, bump-formula]
+    # Promotion only, as bump-cask.
+    if: github.event.action == 'released'
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Refuse to start with tmuxy already present
+        run: |
+          set -euo pipefail
+          test ! -e /Applications/tmuxy.app
+          test ! -e "$(brew --prefix)/bin/tmuxy"
+          test ! -e "$HOME/.local/bin/tmuxy"
+
+      # The cask the bump job pushed seconds ago; brew's tap clone can serve a
+      # cached ref, so fetch before installing.
+      - name: Install the cask from flplima/homebrew-tap
+        run: |
+          set -euo pipefail
+          brew tap flplima/tap
+          git -C "$(brew --repository flplima/tap)" fetch --depth 1 origin HEAD
+          git -C "$(brew --repository flplima/tap)" reset --hard FETCH_HEAD
+          brew install --cask flplima/tap/tmuxy
+
+      - name: The installed CLI reports the tag's version and runs subcommands without launcher
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          command -v tmuxy
+          VERSION_LINE=$(tmuxy --version)
+          echo "$VERSION_LINE"
+          EXPECTED="tmuxy ${TAG#v}"
+          [ "$VERSION_LINE" = "$EXPECTED" ] || {
+            echo "brew installed '$VERSION_LINE', tag says '$EXPECTED'"; exit 1; }
+          test ! -f "$HOME/Library/Application Support/tmuxy/launcher"
+          tmuxy agent status
+          tmuxy session snapshots
+
+      - name: The installed build serves its page
+        env:
+          PORT: '9124'
+        run: |
+          set -euo pipefail
+          tmuxy server --port "$PORT" > "${RUNNER_TEMP}/brew-server.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORT}/" | grep -qi '<html'; then
+              SERVED=1
+              break
+            fi
+            sleep 1
+          done
+          [ "${SERVED:-}" = 1 ] || {
+            echo "the brew-installed build never served its page"
+            cat "${RUNNER_TEMP}/brew-server.log"; exit 1; }
+          tmuxy server --port "$PORT" status | grep -q 'Server is running'
+          tmuxy server --port "$PORT" stop
+
+      # The tap's cask is the one Homebrew/homebrew-cask would take, so it is
+      # held to that repo's checks on every release: a release that drifts from
+      # them is found here, not in a review months later.
+      - name: The cask passes Homebrew's own checks
+        # `brew audit --online` asks the GitHub API about the repo. Without a
+        # token it shares the runner IP's anonymous limit, which other jobs on
+        # GitHub's macOS fleet use up: v0.1.2's audit failed twice on that alone.
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          brew style --cask flplima/tap/tmuxy
+          brew audit --cask --new --strict --online flplima/tap/tmuxy
+          brew livecheck --cask flplima/tap/tmuxy
+
+      - name: Uninstalling with --zap leaves nothing behind
+        run: |
+          set -euo pipefail
+          brew uninstall --zap --cask flplima/tap/tmuxy
+          for path in \
+            /Applications/tmuxy.app \
+            "$(brew --prefix)/bin/tmuxy" \
+            "$HOME/.config/tmuxy" \
+            "$HOME/.local/share/tmuxy" \
+            "$HOME/.local/bin/tmuxy" \
+            "$HOME/Library/Application Support/com.tmuxy.app" \
+            "$HOME/Library/Application Support/tmuxy" \
+            "$HOME/Library/Caches/com.tmuxy.app" \
+            "$HOME/Library/WebKit/com.tmuxy.app"; do
+            if [ -e "$path" ]; then echo "left behind: $path"; exit 1; fi
+          done
+
+      - name: Server logs (debug)
+        if: failure()
+        run: tail -200 "${RUNNER_TEMP}/brew-server.log" 2>/dev/null || true

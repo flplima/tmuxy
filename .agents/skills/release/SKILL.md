@@ -158,7 +158,7 @@ That fires `release: released`, which runs `bump-cask`, `bump-formula` and
 `verify-brew-cask`. Wait for that run before step 8:
 
 ```
-gh run watch $(gh run list --workflow build-app.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch $(gh run list --workflow publish-brew.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 ```
 
 ## 8. Verify brew is ready
@@ -180,7 +180,7 @@ Exit 0 means a user running `brew update && brew upgrade --cask flplima/tap/tmux
 
 ### The official cask (Homebrew/homebrew-cask)
 
-The tap's cask is written to be the one Homebrew/homebrew-cask would take, byte for byte, so every release proves it. `verify-brew-cask` installs it on a clean runner, then holds it to that repo's checks — `brew style`, `brew audit --cask --new --strict --online`, `brew livecheck` — and uninstalls it with `--zap`, failing if any path the cask lists is left behind. A red step there is a regression in the cask: fix the generator in the `bump-cask` job of `build-app.yml`, never the tap by hand.
+The tap's cask is written to be the one Homebrew/homebrew-cask would take, byte for byte, so every release proves it. `verify-brew-cask` installs it on a clean runner, then holds it to that repo's checks — `brew style`, `brew audit --cask --new --strict --online`, `brew livecheck` — and uninstalls it with `--zap`, failing if any path the cask lists is left behind. A red step there is a regression in the cask: fix the generator in the `bump-cask` job of `publish-brew.yml`, never the tap by hand.
 
 It is not in homebrew-cask yet. A submission by the repository's owner has to clear Homebrew's self-submission bar (225 stars, 90 forks or 90 watchers — <https://docs.brew.sh/Package-Acceptance-Policy>); a user who is not a contributor may submit it at the ordinary one. Only the cask goes there: Linux stays on the tap's AppImage formula, since a homebrew-core formula named `tmuxy` would take the name from the cask and would have to build on macOS too.
 
@@ -204,7 +204,7 @@ An earlier version of this policy asked for a full working day and claimed the `
 
 ## Workflow-side changes this skill assumes
 
-These live in `.github/workflows/build-app.yml`, which this skill does not own. Keep the two in step — if you change one, say so here, and **check this table against the workflow before believing it**: a row that says a gap is open when the workflow has closed it is worse than no row at all. Every one below except the `.deb` install had landed while this table still called it missing, which is how a release came to be told by hand that CI does not check signing, when it does and had just passed.
+These live in `.github/workflows/build-app.yml` and `publish-brew.yml`, which this skill does not own. Keep the two in step — if you change one, say so here, and **check this table against the workflow before believing it**: a row that says a gap is open when the workflow has closed it is worse than no row at all. Every one below except the `.deb` install had landed while this table still called it missing, which is how a release came to be told by hand that CI does not check signing, when it does and had just passed.
 
 | # | Change | Why |
 |---|---|---|
