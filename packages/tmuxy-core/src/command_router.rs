@@ -262,6 +262,24 @@ mod tests {
         }
     }
 
+    /// A binding's `new-window` keeps what it named — its name, directory,
+    /// `-d` and command — in the tab it becomes; a window index has no place
+    /// in a tab and goes, and a command's own `-d` is the command's.
+    #[test]
+    fn new_window_keeps_its_name_directory_and_command() {
+        assert_eq!(
+            route_command(
+                "new-window -dt work:3 -n build -c \"#{pane_current_path}\" htop -d 2",
+                "tmuxy",
+                None
+            ),
+            Route::ControlMode(
+                "splitw -t 'tmuxy' -c '#{pane_current_path}' 'htop -d 2' ; breakp -d -n 'build' ; select-pane -t 'tmuxy'"
+                    .to_string()
+            )
+        );
+    }
+
     /// X5: a `new-window` on any line, or after a bare `;`, is rewritten like
     /// one after `\;`; the lines around it go out as they came.
     #[test]

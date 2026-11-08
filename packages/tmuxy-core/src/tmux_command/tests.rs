@@ -205,14 +205,17 @@ fn the_top_level_keeps_brace_blocks_whole() {
 
 /// `if-shell … { new-window }` is how tmux 3.2+ lists a conditional
 /// binding, and a window menu offers `{ new-window }` as an item: the
-/// block keeps its shape, with the rewrite in place of each `new-window`.
+/// block keeps its shape, with the rewrite in place of each `new-window`,
+/// and what the `new-window` named (its directory here) goes with it.
 #[test]
 fn the_new_window_rewrite_reaches_inside_blocks() {
     let out = parse("select-pane -t %5 \\; if-shell -F 1 { new-window -c x } { display y }")
         .rewrite_new_window("tmuxy", None);
     assert_eq!(
         out.as_deref(),
-        Some("select-pane -t %5 ; if-shell -F 1 { splitw -t 'tmuxy' ; breakp } { display y }")
+        Some(
+            "select-pane -t %5 ; if-shell -F 1 { splitw -t 'tmuxy' -c 'x' ; breakp } { display y }"
+        )
     );
     let out =
         parse("display-menu -x M \"New Pane\" p { new-pane ; join-pane } \"New Window\" w {neww}")
@@ -281,7 +284,12 @@ fn a_word_is_unquoted_as_tmux_joins_it() {
     );
     assert_eq!(unquote("plain\\ word").as_deref(), Some("plain word"));
     assert_eq!(unquote("'#{pane_id}'").as_deref(), Some("#{pane_id}"));
-    for unknown in ["$HOME", "\"$HOME\"", "~/x", "{ a }", "'open"] {
+    // tmux's own letter escapes, and the octal first digit it refuses.
+    assert_eq!(
+        unquote("\"\\e[0m\\sx\\a\"").as_deref(),
+        Some("\x1b[0m x\x07")
+    );
+    for unknown in ["$HOME", "\"$HOME\"", "~/x", "{ a }", "'open", "\"\\401\""] {
         assert_eq!(unquote(unknown), None, "{unknown}");
     }
 }
