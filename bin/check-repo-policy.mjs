@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { checkDocPaths } from './ci/doc-paths.mjs';
 import { checkFileTokenLimit } from './ci/file-token-limit.mjs';
 import { checkInvariantEnforcers } from './ci/invariant-enforcers.mjs';
 
@@ -192,23 +193,6 @@ function checkDocsToScriptsConsistency() {
     'npm run check:full',
   ];
 
-  // A path a doc names may be one the build makes — a wasm `pkg`, a `dist`,
-  // the probe's artifacts. Those exist on the machine that wrote the doc and
-  // not in a fresh checkout, so existence is asked only of paths git tracks:
-  // anything .gitignore lists is taken as generated.
-  const ignored = fs
-    .readFileSync(path.join(root, '.gitignore'), 'utf8')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#') && !line.startsWith('!') && !line.includes('*'))
-    .map((line) => line.replace(/^\//, '').replace(/\/$/, ''));
-  const gitignored = (rel) =>
-    ignored.some((entry) =>
-      entry.includes('/')
-        ? rel === entry || rel.startsWith(`${entry}/`)
-        : rel.split('/').includes(entry),
-    );
-
   for (const docPath of commandDocs) {
     const full = path.join(root, docPath);
     const content = fs.readFileSync(full, 'utf8');
@@ -217,27 +201,6 @@ function checkDocsToScriptsConsistency() {
       const scriptName = match[1];
       if (!scripts.has(scriptName)) {
         addError(`[docs] ${docPath} references missing npm script: ${scriptName}`);
-      }
-    }
-
-    const inlineCode = content.match(/`[^`]+`/g) || [];
-    for (const tokenRaw of inlineCode) {
-      const token = tokenRaw.slice(1, -1).trim();
-      if (!token.includes('/')) continue;
-      if (token.includes(' ')) continue;
-      if (token.includes('*') || token.includes('..') || token.includes('://')) continue;
-      if (
-        !/^(?:\.github|docs|bin|packages|tests|Cargo\.lock|package\.json|AGENTS\.md|\.agents)\//.test(
-          token,
-        ) &&
-        !['AGENTS.md', 'Cargo.lock', 'package.json'].includes(token)
-      ) {
-        continue;
-      }
-      const cleaned = token.replace(/[),.:;]+$/, '');
-      const candidate = path.join(root, cleaned);
-      if (!gitignored(cleaned) && !fs.existsSync(candidate)) {
-        addError(`[docs] ${docPath} references missing path: ${cleaned}`);
       }
     }
   }
@@ -426,6 +389,8 @@ checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
 checkFileTokenLimit(root, addError);
 checkInvariantEnforcers(root, addError);
+// Paths and job names the docs quote; --worktree counts untracked files as present.
+checkDocPaths(root, addError, { worktree: process.argv.includes('--worktree') });
 
 if (errors.length > 0) {
   console.error('Repo policy checks failed:\n');
