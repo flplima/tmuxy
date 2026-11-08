@@ -240,7 +240,7 @@ describe('pane run', () => {
     expect(stdout.trim()).toBe('%99');
     const [split, label] = runShells(tmuxCalls);
     expect(split).toMatch(
-      /^TMUX_PANE=%1 tmux -L tmuxy splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash \/tmp\/tmuxy-run\.[^/]+\/run\.sh'$/,
+      /^TMUX_PANE=%1 tmux -L tmuxy splitw -t %1 -h -d -l 30% -c '\/tmp\/x y' -P -F '##\{pane_id\}' 'bash [^']*\/tmuxy-run\.[^/]+\/run\.sh'$/,
     );
     expect(label).toBe("TMUX_PANE=%1 tmux -L tmuxy set-option -p -t %99 @tmuxy-label 'logs'");
   });
@@ -252,7 +252,8 @@ describe('pane run', () => {
     );
     expect(exitCode).toBe(0);
     const [split] = runShells(tmuxCalls);
-    const wrapper = /'bash (\/tmp\/tmuxy-run\.[^/]+\/run\.sh)'/.exec(split)[1];
+    // Under $TMPDIR (macOS: /var/folders/…/T/), never a fixed /tmp.
+    const wrapper = /'bash ([^']*\/tmuxy-run\.[^/]+\/run\.sh)'/.exec(split)[1];
     const script = fs.readFileSync(wrapper, 'utf8');
     fs.rmSync(path.dirname(wrapper), { recursive: true, force: true });
     expect(script).toContain('sh -c echo\\ hello\\ from\\ logs\\;\\ sleep\\ 300');
