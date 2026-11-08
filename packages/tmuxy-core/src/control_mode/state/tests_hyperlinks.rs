@@ -254,6 +254,36 @@ fn a_link_after_a_capture_refresh_is_still_recorded() {
 }
 
 #[test]
+fn a_capture_refill_keeps_the_links_tmux_captured() {
+    // Regression: a refill (after every resize) fed tmux's capture to vt100
+    // directly, and `capture-pane -e` writes the screen's OSC 8 links, which
+    // vt100 drops. Claude Code redraws its footer as the resize lands, often
+    // before it, so its PR link went dead until the next redraw.
+    let pr = "https://github.com/o/r/pull/177";
+    let footer = format!(
+        "\x1b[38;5;246mPR \x1b[4m\x1b]8;id=lvn9ef;{pr}\x1b\\#177\x1b[0m\x1b]8;;\x1b\\ \u{b7} 3 shell"
+    );
+    let mut pane = PaneState::new(pid("%1"), 60, 6);
+    pane.process_output(format!("\x1b[?1049h\x1b[3;1H{footer}").as_bytes());
+    pane.resize(40, 6);
+    assert_eq!(linked_text(&pane), vec![]);
+
+    pane.reset_and_process_capture(format!("\n\n{footer}\n\n\n\n").as_bytes());
+    assert_eq!(
+        linked_text(&pane),
+        vec![(pr.to_string(), "#177".to_string())]
+    );
+
+    // A link the capture leaves open does not run on into later output.
+    pane.reset_and_process_capture(format!("\x1b]8;;{pr}\x1b\\#177\n").as_bytes());
+    pane.process_output(b"\x1b[2;1Hplain");
+    assert_eq!(
+        linked_text(&pane),
+        vec![(pr.to_string(), "#177".to_string())]
+    );
+}
+
+#[test]
 fn links_do_not_leak_onto_the_alternate_screen() {
     // The alternate grid has its own scroll counter AND its own text, so a
     // mark taken on the normal screen must not survive the switch.

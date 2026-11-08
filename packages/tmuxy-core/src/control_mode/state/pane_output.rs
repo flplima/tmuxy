@@ -296,8 +296,14 @@ impl PaneState {
         // (validated against live characters in `OscParser::row_sizes`).
         self.osc_parser.reset_for_capture();
 
+        // `capture-pane -e` writes the screen's OSC 8 links: read them as live
+        // output's are, or every refill (one follows each resize) drops them.
+        // A link the capture leaves open does not run on into later output.
         let normalized = normalize_capture_bytes(content);
-        self.terminal.process(&normalized);
+        self.rebaseline_scroll();
+        let osc = self.osc_parser.process(&normalized);
+        self.feed_terminal(osc);
+        self.osc_parser.end_link();
         for (r, ls, prev_text) in saved_line_sizes {
             let screen = self.terminal.screen();
             let (_, cols) = screen.size();

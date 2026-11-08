@@ -128,6 +128,11 @@ impl OscParser {
         self.pending.clear();
     }
 
+    /// Close the open hyperlink, if any.
+    pub fn end_link(&mut self) {
+        self.active_hyperlink = None;
+    }
+
     /// Set the pane's visible height (rows). Enables scroll-compensation of the
     /// cell→URL map so hyperlinks keep working past the first screenful.
     pub fn set_viewport_height(&mut self, height: u32) {

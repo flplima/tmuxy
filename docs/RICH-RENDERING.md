@@ -23,9 +23,11 @@ ranges to vt100 one character at a time, marking whatever cell the cursor
 actually landed on. The marks then travel with their line, driven by the vt100
 screen's own scroll counter. (The parser used to derive coordinates from a
 private cursor it advanced on newlines and printable ASCII only — blind to every
-CSI cursor move, so the URL drifted onto unrelated text.) Because tmux strips
-OSC 8 from `capture-pane` history, the map is cleared on a capture refresh and
-repopulates from live output — a link is not restored by reloading the page.
+CSI cursor move, so the URL drifted onto unrelated text.) A capture refresh,
+which follows every resize, clears the map and reads the capture through the
+same parser: `capture-pane -e` writes the screen's OSC 8 links (tmux 3.4 and
+later), so a link survives the refill even when its program drew it before the
+resize landed and never draws it again.
 
 **A mark is only good while its text is.** Each mark also records the character
 that was under it, and the map is read back a row at a time
