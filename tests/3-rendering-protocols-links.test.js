@@ -210,9 +210,10 @@ describeE2E('Category 11: OSC Protocols (Detailed)', { snapshot: true }, (ctx) =
     // older tmux refills the pane as plain text, and the link comes back only
     // when the program draws it again (docs/RICH-RENDERING.md).
     test('a link stays a link when its pane is resized, and opens from the pane beside', async () => {
+      // Opened either way: the suite compares the page with tmux after each test.
+      await ctx.setupPage();
       const [major, minor] = (tmuxExec('-V').match(/(\d+)\.(\d+)/) ?? []).slice(1).map(Number);
       if (major === 3 && minor < 4) return;
-      await ctx.setupPage();
       await ctx.page.evaluate(() => {
         window.__opened = [];
         window.open = (url) => {
