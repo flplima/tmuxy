@@ -66,6 +66,11 @@ interface Target {
 
 /** The shape to draw for the anchor: its cell, thinned to a bar or an underline. */
 function targetOf(anchor: HTMLElement): Target | null {
+  // A pane still entering is on its way from the pane it split from to its
+  // own box: its cursor rides that slide, and following it smeared a bar
+  // across the other pane's text. Drawn once the pane is in place, flying in
+  // from where the cursor was, as any jump to another pane does.
+  if (anchor.closest('.pane-entering')) return null;
   const r = anchor.getBoundingClientRect();
   if (r.width === 0 || r.height === 0) return null;
   const clip = clipRectOf(anchor);

@@ -163,9 +163,10 @@
    is to animate exactly those commits, scoped to the panes involved.
 
    Entering pane: FLIP — PaneLayout mounts it at final geometry, then a
-   useLayoutEffect rewinds it to the source pane's pre-split box at reduced
-   opacity and restores, so this transition morphs it into place while it
-   fades in. Rendered above its sibling during the overlap.
+   useLayoutEffect rewinds it to the source pane's pre-split box, transparent,
+   and restores, so this transition morphs it into place while it fades in
+   from nothing. Rendered above its sibling during the overlap. The cursor
+   overlay waits for it to land (SmoothCursor.tsx).
 
    Shifting pane: a pre-existing pane whose box changes in the same commit
    as an enter/leave (the split source shrinking, the kill survivor

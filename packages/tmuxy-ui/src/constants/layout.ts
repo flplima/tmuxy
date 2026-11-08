@@ -97,8 +97,10 @@ export const PANE_ENTER_MS = 180;
    survivors GROW into the space it left. The pane itself is not drawn for any
    of it: closing is instant, and what animates is the space opening up. */
 export const PANE_LEAVE_MS = 160;
-// Opacity the entering pane starts from before fading in to full.
-export const PANE_ENTER_FROM_OPACITY = 0.4;
+// Opacity the entering pane starts from before fading in to full: none. It
+// starts over the whole pane it splits from, above it, so anything more
+// drew its empty ground over that pane's text for the first frame.
+export const PANE_ENTER_FROM_OPACITY = 0;
 
 /** A pane is collapsed in a stack when tmux has shrunk it to a single row. */
 export function isCollapsedPane(pane: { height: number }): boolean {
