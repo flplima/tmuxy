@@ -19,7 +19,7 @@ EXIT_NO_SERVER=4
 JSON_FAILURE_FORMAT='{"ok":false,"error":%s,"code":%s}'
 
 # What tmux says when there is no server on the socket (`session::NO_SERVER_SIGNS`).
-NO_SERVER_SIGNS=('no server running' 'error connecting to' 'No such file or directory')
+NO_SERVER_SIGNS=('no server running' 'error connecting to')
 
 # The `@tmuxy-pane-state` words tmuxy knows (`PaneStateName`): all that
 # `tmuxy pane state` takes.

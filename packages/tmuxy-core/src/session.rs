@@ -215,11 +215,7 @@ pub fn tmux_output(argv: &[String]) -> Result<String> {
 /// What tmux says when there is no server to talk to: none running on the
 /// socket, or a socket file that is gone. Generated into the CLI's `_options`
 /// for its `_no_server_in` (`tmuxy-cli/bin/tmuxy/_contract`).
-pub const NO_SERVER_SIGNS: [&str; 3] = [
-    "no server running",
-    "error connecting to",
-    "No such file or directory",
-];
+pub const NO_SERVER_SIGNS: [&str; 2] = ["no server running", "error connecting to"];
 
 /// Whether what tmux said is one of the [`NO_SERVER_SIGNS`].
 pub fn is_no_server(message: &str) -> bool {
