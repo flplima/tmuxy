@@ -519,10 +519,14 @@ jobs:
       - name: cargo audit
         run: cargo audit
 
-  # Where the run's time went, on the run's summary page: jobs, steps and the
-  # slowest tests, read back from the logs by bin/ci/ci-timing.mjs. Runs after
-  # everything else whatever their result, and never fails the run itself.
-  timing:
+  # The one check the ruleset on main requires. Runs after every other job
+  # whatever their result, and fails when any of them failed or was
+  # cancelled; a job the `changes` filter skipped counts as passed. So a
+  # shard or a gated job can be added, merged or renamed without touching
+  # branch protection. It also writes where the run's time went on the run's
+  # summary page: jobs, steps and the slowest tests, read back from the logs
+  # by bin/ci/ci-timing.mjs.
+  ci:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     if: always()
@@ -549,3 +553,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node bin/ci/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: node bin/ci/ci-gate.mjs

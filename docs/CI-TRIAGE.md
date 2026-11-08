@@ -10,7 +10,7 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 4. Re-run the smallest equivalent local check.
 5. If flaky/perf/storybook related, collect artifacts noted below.
 
-A run that is green but slow is triaged from its summary page: the `timing` job writes a table of jobs, steps and the slowest tests there, and `bin/ci/ci-timing.mjs <run-id>` prints the same locally.
+A run that is green but slow is triaged from its summary page: the `ci` job writes a table of jobs, steps and the slowest tests there, and `bin/ci/ci-timing.mjs <run-id>` prints the same locally.
 
 ## Job-to-command map
 
