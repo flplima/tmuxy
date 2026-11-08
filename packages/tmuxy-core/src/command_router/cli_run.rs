@@ -126,10 +126,25 @@ pub fn route_cli_run(words: &[String]) -> CliRun {
         ));
     }
     if NEW_WINDOW.named_by(verb) {
-        let name = words
-            .windows(2)
-            .rfind(|pair| pair[0] == "-n")
-            .map(|pair| pair[1].clone());
+        // A tab takes a name and runs a shell: anything else `new-window`
+        // takes — a directory, a window index, a command — would be dropped
+        // on the way, so it is refused rather than half done.
+        let mut name = None;
+        let mut args = words[1..].iter();
+        while let Some(word) = args.next() {
+            match word.as_str() {
+                "-d" => {}
+                "-n" => match args.next() {
+                    Some(given) => name = Some(given.clone()),
+                    None => return refused("-n needs a name"),
+                },
+                other => {
+                    return refused(&format!(
+                        "new-window takes only -n <name> here, not '{other}': a tab runs a shell, and `tmuxy pane run` runs a command"
+                    ))
+                }
+            }
+        }
         return CliRun::NewTab { name };
     }
     CliRun::Run
@@ -238,6 +253,19 @@ mod tests {
                 route_cli_run(&words(&[verb, "-x", "80"])),
                 CliRun::Refused(why) if why.starts_with("resize-window is blocked")
             ));
+        }
+        // What a tab cannot carry is refused, never dropped: a command for
+        // the new pane, a directory, a window index.
+        for line in [
+            &["new-window", "htop"][..],
+            &["neww", "-c", "/tmp"],
+            &["new-window", "-t", "work:3"],
+            &["new-window", "-n"],
+        ] {
+            assert!(
+                matches!(route_cli_run(&words(line)), CliRun::Refused(why) if why.starts_with("refused: ")),
+                "{line:?}"
+            );
         }
     }
 }
