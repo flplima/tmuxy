@@ -132,14 +132,17 @@ cmd_pane_run() {
   fi
 
   [ "$JSON_OUT" = true ] || echo "$pane_id"
-  local status
+  local status rc
   while :; do
     if [ -f "$dir/status" ]; then
       status=$(cat "$dir/status")
       $keep_open || rm -rf "$dir"
       _wait_done "$pane_id" "${status:-1}"
     fi
-    if ! _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1; then
+    rc=0
+    _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+    _exit_if_no_server "$rc"
+    if [ "$rc" -ne 0 ]; then
       rm -rf "$dir"
       _fail "$EXIT_FAILED" "$pane_id closed before the command reported its status"
     fi
@@ -176,10 +179,11 @@ EOF
     seconds="$(_duration_seconds "$for")" || exit $?
     deadline=$(($(date +%s) + seconds))
   fi
-  local pane_id
+  local pane_id rc=0
   pane_id="$(_resolve_target "$target")" || exit $?
-  _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 \
-    || _fail "$EXIT_TARGET" "no such pane: $target"
+  _tmux_read display-message -p -t "$pane_id" '#{pane_id}' >/dev/null 2>&1 || rc=$?
+  _exit_if_no_server "$rc"
+  [ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $target"
   # Kept open once the program exits, or its status would die with it.
   _run_safe "set-option -p -t $(shquote "$pane_id") remain-on-exit on"
 

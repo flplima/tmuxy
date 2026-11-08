@@ -114,9 +114,10 @@ fi
 # a typo'd pane id would otherwise block forever on an option nothing can
 # ever answer.
 TARGET="$(_resolve_target "$TARGET")" || exit $?
-if ! resolved="$(_tmux_read display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)"; then
-  _fail "$EXIT_TARGET" "no such pane: $TARGET"
-fi
+rc=0
+resolved="$(_tmux_read display-message -p -t "$TARGET" '#{pane_id}' 2>/dev/null)" || rc=$?
+_exit_if_no_server "$rc"
+[ "$rc" -eq 0 ] || _fail "$EXIT_TARGET" "no such pane: $TARGET"
 [ -n "$resolved" ] && TARGET="$resolved"
 
 # Who is asking, when the caller runs in no pane: its parent process. The

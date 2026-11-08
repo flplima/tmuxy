@@ -101,13 +101,24 @@ _tmux_read() {
   return "$status"
 }
 
+# After a `_tmux_read` run inside `$(…)` with its stderr dropped: a "no
+# server" there has answered already under --json (the JSON fd is the real
+# stdout) and exited only the subshell, so the caller would answer a second
+# time with a reason of its own. Only its text line was dropped: print that,
+# and exit with its code. Any other status is the caller's to read.
+_exit_if_no_server() {
+  [ "$1" -eq "$EXIT_NO_SERVER" ] || return 0
+  [ "$JSON_OUT" = true ] || echo "Error: no tmux server on socket '$TMUX_SOCKET'" >&2
+  exit "$EXIT_NO_SERVER"
+}
+
 # A pane to act on, from what the caller wrote: a tmux id (`%3`, `@2`, `$1`),
 # an index or a `session:window.pane` target is handed back as it is; anything
 # else is a LABEL — a pane's `@tmuxy-label` option (`tmuxy pane run --label`),
 # else its title — and must name exactly one pane. None is exit 3; several is
 # exit 3 too, with every match listed, and nothing changed.
 _resolve_target() {
-  local target="$1" rows matches count
+  local target="$1" rows matches count rc=0
   case "$target" in
     '' | %[0-9]* | @[0-9]* | \$[0-9]* | [0-9]* | *:* | *.* | '{'*)
       printf '%s' "$target"
@@ -116,7 +127,8 @@ _resolve_target() {
   esac
   # The title is the app's (APP_PANE_TITLE_FMT): tmux seeds every untitled
   # pane's title with the host name, which would otherwise name them all.
-  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null || true)"
+  rows="$(_tmux_read list-panes -a -F "#{pane_id}"$'\t'"#{$OPT_PANE_LABEL}"$'\t'"$APP_PANE_TITLE_FMT"$'\t'"#{session_name}:#{window_index}" 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $4 "\t" $2 }')"
   if [ -z "$matches" ]; then
     matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$3 == want { print $1 "\t" $4 "\t" $3 }')"

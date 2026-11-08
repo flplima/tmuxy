@@ -4,11 +4,12 @@
 # back as written; anything else is a tab NAME, which must name exactly one
 # window (exit 3 otherwise, with nothing changed).
 _resolve_tab() {
-  local target="$1" rows matches count
+  local target="$1" rows matches count rc=0
   case "$target" in
     @[0-9]* | [0-9]* | \$[0-9]* | %[0-9]* | *:* | '{'*) printf '%s' "$target"; return 0 ;;
   esac
-  rows="$(_tmux_read list-windows -a -F $'#{window_id}\t#{window_name}\t#{session_name}' 2>/dev/null || true)"
+  rows="$(_tmux_read list-windows -a -F $'#{window_id}\t#{window_name}\t#{session_name}' 2>/dev/null)" || rc=$?
+  _exit_if_no_server "$rc"
   matches="$(printf '%s\n' "$rows" | awk -F'\t' -v want="$target" '$2 == want { print $1 "\t" $3 }')"
   [ -n "$matches" ] || _fail "$EXIT_TARGET" "no tab named '$target'"
   count="$(printf '%s\n' "$matches" | wc -l | tr -d ' ')"
