@@ -192,6 +192,14 @@ const cases: Array<[TmuxOp, string]> = [
     'run-shell -b "TMUX_PANE=%1 \\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" pane float --detach ' +
       "'tmuxy' 'session' 'connect' >/dev/null 2>&1\"",
   ],
+  // A word's quote escape, `$` and `#` are read once more by tmux's double
+  // quotes and run-shell's format expansion: escaped for them, the shell gets
+  // `it's`, `$HOME` and `#1` as text.
+  [
+    TmuxOp.OpenFloat({ command: ['echo', "it's", '$HOME', '#1'], splitFrom: null }),
+    'run-shell -b "\\"$TMUXY_DATA_DIR/bin/tmuxy-cli\\" pane float --detach ' +
+      "'echo' 'it'\\\\''s' '\\$HOME' '##1' >/dev/null 2>&1\"",
+  ],
   [
     TmuxOp.OpenSidebar({ side: 'left', splitFrom: pid('%1') }),
     "split-window -t %1 '$TMUXY_DATA_DIR/bin/tmuxy/tmuxy-widget-tree' \\; break-pane -d -n __sidebar-left \\; " +

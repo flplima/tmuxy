@@ -207,8 +207,20 @@ export function openFloat(op: TmuxOpOf<'OpenFloat'>): string {
   const caller = op.splitFrom && /^%\d+$/.test(op.splitFrom) ? `TMUX_PANE=${op.splitFrom} ` : '';
   return (
     `run-shell -b "${caller}\\"${CLI_PATH}\\" pane float --detach ` +
-    `${op.command.map(quote).join(' ')} >/dev/null 2>&1"`
+    `${op.command.map(shellWordInRunShell).join(' ')} >/dev/null 2>&1"`
   );
+}
+
+/**
+ * One word of the shell line a double-quoted `run-shell "…"` runs. The shell
+ * quoting is `quote`'s; on top of it, tmux's parser reads `\`, `"` and `$`
+ * inside its double quotes (a `\'` would reach the shell as a bare `'`, and
+ * `it's` as `its`), and run-shell expands a `#` before the shell sees it.
+ */
+function shellWordInRunShell(word: string): string {
+  return quote(word)
+    .replace(/[\\"$]/g, '\\$&')
+    .replace(/#/g, '##');
 }
 
 export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;
