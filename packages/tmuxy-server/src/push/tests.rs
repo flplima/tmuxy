@@ -188,6 +188,28 @@ fn the_key_is_kept_and_the_devices_are_capped_deduped_and_private() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A key file an older build wrote (the bare 32-byte scalar) does not read:
+/// a new key is made, and the devices subscribed with the old one, which
+/// could no longer verify a push, are forgotten so they subscribe again.
+#[test]
+fn a_key_that_no_longer_reads_is_replaced_with_its_devices() {
+    let dir = scratch("old-key");
+    let store = Store::new(dir.clone());
+    store
+        .add(Browser::new().subscription("https://push.example/kept"))
+        .unwrap();
+    std::fs::write(dir.join("vapid-key"), b64url(&[7u8; 32])).unwrap();
+    let key = store.vapid_key().unwrap();
+    assert_eq!(key.public_key().len(), 65);
+    assert!(store.subscriptions().is_empty());
+    assert_eq!(
+        store.vapid_key().unwrap().public_key(),
+        key.public_key(),
+        "the new key is kept"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn only_a_push_service_subscription_is_taken() {
     let browser = Browser::new();
