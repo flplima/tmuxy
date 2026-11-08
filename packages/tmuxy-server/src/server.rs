@@ -9,6 +9,7 @@ use crate::request_guard::HostPolicy;
 use crate::state::AppState;
 
 mod lifecycle;
+mod listener;
 use lifecycle::*;
 
 #[cfg(test)]
@@ -164,11 +165,19 @@ fn resolve_allowed_hosts(flag: Vec<String>) -> Vec<String> {
 
 /// Get the process ready to serve (`tmuxy_core::host::prepare`), or stop
 /// with the reason: with no usable tmux every client would sit reconnecting
-/// to a monitor that can never attach.
+/// to a monitor that can never attach. What the user's config would fail
+/// on is said once here, on the terminal the server was started from.
 fn prepare() {
-    if let Err(e) = tmuxy_core::host::prepare::prepare() {
-        eprintln!("tmuxy server: {e}");
-        std::process::exit(1);
+    match tmuxy_core::host::prepare::prepare() {
+        Ok(prepared) => {
+            for warning in &prepared.config_warnings {
+                eprintln!("tmuxy server: config warning: {warning}");
+            }
+        }
+        Err(e) => {
+            eprintln!("tmuxy server: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

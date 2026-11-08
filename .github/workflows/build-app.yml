@@ -568,7 +568,11 @@ jobs:
         if: steps.previous.outputs.tag != ''
         env:
           TMUX_SOCKET: tmuxy-upgrade
-          PORT: '9123'
+          # The default port (tmuxy_core::constants::DEFAULT_SERVER_PORT), as
+          # a user runs it: it is the port whose pid file an older build named
+          # differently, so a takeover on it is the one that proves the new
+          # build finds the old server by its port.
+          PORT: '9000'
         run: |
           set -euo pipefail
           export APPIMAGE_EXTRACT_AND_RUN=1

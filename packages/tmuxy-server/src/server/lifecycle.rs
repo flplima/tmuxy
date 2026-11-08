@@ -179,8 +179,8 @@ pub(super) fn remove_pid_file_at(path: &std::path::Path, pid: u32) {
     }
 }
 
-fn read_pid_file(port: u16) -> Option<u32> {
-    std::fs::read_to_string(pid_file_path(port))
+fn read_pid_file_at(path: &std::path::Path) -> Option<u32> {
+    std::fs::read_to_string(path)
         .ok()
         .and_then(|s| parse_pid(&s))
 }
@@ -241,15 +241,54 @@ fn is_tmuxy_process(pid: u32) -> bool {
         .is_some_and(|out| matches_tmuxy_command(&String::from_utf8_lossy(&out.stdout)))
 }
 
-pub(super) fn stop_server(port: u16) {
-    match read_pid_file(port) {
-        Some(pid) => {
-            if !is_process_alive(pid) || !is_tmuxy_process(pid) {
-                println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port, pid);
-                return;
-            }
+/// Where the server on `port` is: a live tmuxy process named by the pid
+/// file, else the tmuxy process the OS shows listening on the port (the pid
+/// file missing, or stale: left by a build that named the file differently,
+/// or by a server that died without removing it), else nowhere. A stale pid
+/// file is removed on the way.
+enum Server {
+    Running { pid: u32, found_by_port: bool },
+    NotRunning { stale_pid: Option<u32> },
+}
 
+fn locate_server(port: u16) -> Server {
+    locate_server_at(&pid_file_path(port), port)
+}
+
+fn locate_server_at(pid_file: &std::path::Path, port: u16) -> Server {
+    let stale_pid = match read_pid_file_at(pid_file) {
+        Some(pid) if is_process_alive(pid) && is_tmuxy_process(pid) => {
+            return Server::Running {
+                pid,
+                found_by_port: false,
+            }
+        }
+        Some(pid) => {
+            remove_pid_file_at(pid_file, pid);
+            Some(pid)
+        }
+        None => None,
+    };
+    match super::listener::listening_pid(port).filter(|&pid| is_tmuxy_process(pid)) {
+        Some(pid) => Server::Running {
+            pid,
+            found_by_port: true,
+        },
+        None => Server::NotRunning { stale_pid },
+    }
+}
+
+fn found_by(found_by_port: bool) -> &'static str {
+    if found_by_port {
+        ", found by port"
+    } else {
+        ""
+    }
+}
+
+pub(super) fn stop_server(port: u16) {
+    match locate_server(port) {
+        Server::Running { pid, found_by_port } => {
             #[cfg(unix)]
             {
                 use nix::sys::signal::{self, Signal};
@@ -259,28 +298,34 @@ pub(super) fn stop_server(port: u16) {
                 };
                 match signal::kill(target, Signal::SIGTERM) {
                     Ok(_) => {
-                        println!("Sent SIGTERM to server (pid {})", pid);
+                        println!(
+                            "Sent SIGTERM to server (pid {pid}{})",
+                            found_by(found_by_port)
+                        );
                         remove_pid_file(port, pid);
                     }
                     Err(e) => error!(pid, error = %e, "failed to stop server"),
                 }
             }
         }
-        None => println!("Server is not running (no PID file found)"),
+        Server::NotRunning {
+            stale_pid: Some(pid),
+        } => println!("Server is not running (stale PID file for pid {pid})"),
+        Server::NotRunning { stale_pid: None } => {
+            println!("Server is not running (no PID file found)")
+        }
     }
 }
 
 pub(super) fn server_status(port: u16) {
-    match read_pid_file(port) {
-        Some(pid) => {
-            if is_process_alive(pid) && is_tmuxy_process(pid) {
-                println!("Server is running (pid {})", pid);
-            } else {
-                println!("Server is not running (stale PID file for pid {})", pid);
-                remove_pid_file(port, pid);
-            }
+    match locate_server(port) {
+        Server::Running { pid, found_by_port } => {
+            println!("Server is running (pid {pid}{})", found_by(found_by_port))
         }
-        None => println!("Server is not running"),
+        Server::NotRunning {
+            stale_pid: Some(pid),
+        } => println!("Server is not running (stale PID file for pid {pid})"),
+        Server::NotRunning { stale_pid: None } => println!("Server is not running"),
     }
 }
 
@@ -377,7 +422,10 @@ pub(super) async fn shutdown_signal(state: Arc<AppState>, vite: Option<dev::Vite
 
 #[cfg(test)]
 mod tests {
-    use super::{is_tmuxy_process, matches_tmuxy_command, parse_pid, titled_index_html};
+    use super::{
+        is_tmuxy_process, locate_server_at, matches_tmuxy_command, parse_pid, titled_index_html,
+        Server,
+    };
 
     #[test]
     fn titled_index_html_names_the_machine_when_the_host_is_plain() {
@@ -408,5 +456,47 @@ mod tests {
         // The cargo test binary itself (`tmuxy_server-*`) matches, whereas init (PID 1) does not.
         assert!(is_tmuxy_process(std::process::id()));
         assert!(!is_tmuxy_process(1));
+    }
+
+    /// The port is the server's identity: a pid file that is missing or
+    /// stale does not hide the server listening on the port (this process,
+    /// a tmuxy binary by name), and the stale file goes.
+    #[test]
+    fn a_server_is_found_by_its_port_when_the_pid_file_is_missing_or_stale() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let pid_file =
+            std::env::temp_dir().join(format!("tmuxy-locate-{}-{port}.pid", std::process::id()));
+        let me = std::process::id();
+
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: true } if pid == me
+        ));
+
+        std::fs::write(&pid_file, me.to_string()).unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: false } if pid == me
+        ));
+
+        // Pid 2 is kthreadd on Linux, launchd's sibling on macOS: alive, not tmuxy.
+        std::fs::write(&pid_file, "2").unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::Running { pid, found_by_port: true } if pid == me
+        ));
+        assert!(!pid_file.exists(), "the stale pid file is removed");
+
+        drop(listener);
+        std::fs::write(&pid_file, "2").unwrap();
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::NotRunning { stale_pid: Some(2) }
+        ));
+        assert!(matches!(
+            locate_server_at(&pid_file, port),
+            Server::NotRunning { stale_pid: None }
+        ));
     }
 }
