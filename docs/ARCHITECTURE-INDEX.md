@@ -12,6 +12,7 @@ Feature-to-files retrieval map for agents.
 | What tmux leaves unannounced (the re-lists behind a command), and the map of version workarounds | `packages/tmuxy-core/src/tmux_compat.rs` |
 | The monitor loop (connect, back off, give up, restore before create, autosave) and what each host does around it | `packages/tmuxy-core/src/host/supervise.rs`<br>`packages/tmuxy-core/src/host/start.rs` (start-up and shut-down beside the sessions)<br>`packages/tmuxy-core/src/host/requests.rs` (what a host answers a client's requests with)<br>`packages/tmuxy-server/src/sse/monitor.rs`<br>`packages/tmuxy-tauri-app/src/monitor.rs` |
 | The tmux config tmuxy ships (the defaults, the essentials, the user template), the code that mirrors it and builds the chain, and the pins | `packages/tmuxy-core/assets/*.conf`<br>`packages/tmuxy-core/src/session/config.rs`<br>`packages/tmuxy-core/src/paths.rs` (every file and directory) |
+| `tmuxy config doctor`: what is wrong with the user's config, and `--fix` | `packages/tmuxy-core/src/session/doctor.rs` (the checks)<br>`packages/tmuxy-verbs/src/config_cli.rs` (the `config` verb) |
 | Pane groups: membership, order and every group operation | `packages/tmuxy-core/src/groups.rs` (the rules)<br>`packages/tmuxy-verbs/src/group_cli.rs` (the `group` verb)<br>`packages/tmuxy-cli/bin/tmuxy/pane-group` (wrapper) |
 | A pane's screen as HTML (`tmuxy pane capture --format html`) | `packages/tmuxy-core/src/capture_html.rs` (the renderer, over the vt100 cells the panes are drawn from)<br>`packages/tmuxy-verbs/src/capture_cli.rs` (the `capture-html` verb)<br>`packages/tmuxy-cli/bin/tmuxy/cli-pane-run.sh` (`cmd_pane_capture`) |
 | Typed ids (pane, window, group) | `packages/tmuxy-core/src/ids.rs`<br>`packages/tmuxy-ui/src/domain/ids.ts` |
@@ -21,7 +22,10 @@ Feature-to-files retrieval map for agents.
 | The client's command table (names, argument and answer schemas) | `packages/tmuxy-ui/src/domain/backendCalls.ts`<br>`packages/tmuxy-core/src/host/command.rs`<br>`packages/protocol-fixtures/command_requests.json`, `command_results.json` |
 | The transport service, its Layers and the state stream | `packages/tmuxy-ui/src/infra/transport/` (`TmuxTransport.ts`, `commandLane.ts`, `keyBatching.ts`, `layers.ts`, `stateFeed.ts`, `drivers/`)<br>`packages/tmuxy-ui/src/infra/runtime.ts` |
 | Backend state aggregation and emit | `packages/tmuxy-core/src/control_mode/state.rs`<br>`packages/tmuxy-server/src/state.rs` |
-| SSE/HTTP server flow | `packages/tmuxy-server/src` (see docs references) |
+| SSE/HTTP server flow | `packages/tmuxy-server/src/server.rs` (the listener, the router, the frontend fallback, `tmuxy server` and its verbs)<br>`packages/tmuxy-server/src/sse.rs` and `sse/` (the `/events` stream, `/commands`, the per-session clients and monitor)<br>`packages/tmuxy-server/src/state.rs` (`AppState`, the API routes, the replay ring buffer)<br>`packages/tmuxy-server/src/request_guard.rs` (the origin and `Host` rules) |
+| Server stop and status, by port | `packages/tmuxy-server/src/server/lifecycle.rs` (the pid file, the shutdown)<br>`packages/tmuxy-server/src/server/listener.rs` (the process listening on a port, through the OS) |
+| The MCP endpoint (`/mcp`, `tmuxy mcp`) | `packages/tmuxy-server/src/mcp.rs`<br>`packages/tmuxy-cli/bin/tmuxy/cli-mcp.sh`<br>`docs/MCP.md` |
+| Web push notifications (`/api/push`, `/api/push/subscription`) | `packages/tmuxy-server/src/push.rs` (the VAPID key, subscribe and unsubscribe, delivery; the store under `push/`)<br>`packages/tmuxy-ui/src/infra/pushNotifications.ts` |
 | Frontend state machine | `packages/tmuxy-ui/src/machines` (the XState machines); the four layers of `src/` and what each may import: `packages/tmuxy-ui/README.md` |
 | CLI dispatcher and event queue | `packages/tmuxy-cli/bin/tmuxy-cli` |
 | Tauri bridge and desktop shell | `packages/tmuxy-tauri-app` |
@@ -34,12 +38,24 @@ Feature-to-files retrieval map for agents.
 | The `preview` widget: `tmuxy open`, what it may read, the sandboxed page | `packages/tmuxy-cli/bin/tmuxy/tmuxy-widget-preview` (the CLI, the pane options, the file watch)<br>`packages/tmuxy-core/src/preview.rs` (authorisation, resource rules, the page policy and store)<br>`packages/tmuxy-server/src/sse/preview.rs`, `packages/tmuxy-tauri-app/src/commands.rs` (`read_preview`, `stage_preview`, `tmuxypreview:`)<br>`packages/tmuxy-ui/src/components/widgets/preview/` (markdown, page composition, bridge)<br>`packages/tmuxy-ui/src/domain/preview.ts` |
 | The e-ink page (`/?kindle`) for browsers too old for the app | `packages/tmuxy-ui/src/kindle/` (`main.ts`, the page; `grid.ts`, the drawn grid)<br>`packages/tmuxy-ui/kindle.html`, `vite.kindle.config.ts`, `public/kindle-redirect.js`<br>`docs/ARCHITECTURE.md` § The e-ink page |
 | The phone layout: keys, the bar that zooms or folds the terminal, the bottom view, held sideways, touch | `docs/PHONE.md`<br>`packages/tmuxy-ui/src/infra/dom/phoneLayout.ts`, `domain/phoneSplit.ts`<br>`packages/tmuxy-ui/src/components/phone/` (`PhoneDivider.tsx`, `PhoneBottomView.tsx`, `PhoneLeftSide.tsx`, `PhoneDock.tsx`, `KeyRow.tsx`)<br>`packages/tmuxy-ui/src/styles/phone.css`, `machines/app/actions/phone.ts` |
+| The open-link modifier (Cmd / Ctrl held reveals and arms auto-detected URLs) | `packages/tmuxy-ui/src/machines/actors/linkModifierActor.ts` |
 | Copy mode behavior | `docs/COPY-MODE.md` + related UI files |
 | Rich rendering / OSC / image protocols | `docs/RICH-RENDERING.md` |
-| Performance harnesses | `perf`<br>`packages/tmuxy-ui/scripts` |
+| Performance harnesses | `tests/perf`<br>`packages/tmuxy-ui/scripts` |
 | E2E and helper layers | `tests`<br>`tests/helpers` |
 | Cross-layer invariants and the test holding each | `docs/INVARIANTS.md` |
 | Every network connection (listeners, outbound requests, the website's analytics) | `docs/TELEMETRY.md` |
+
+## Generated files
+
+Never edited by hand. The first column is what is committed; the last is what fails while it is stale.
+
+| File | Generated by | Stale check |
+| --- | --- | --- |
+| `packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, `packages/tmuxy-ui/src/infra/__tests__/openableUrlCases.gen.json`, `packages/tmuxy-ui/scripts/lib/guest.gen.json`, `packages/tmuxy-ui/src/infra/transport/drivers/guest/defaultKeybindings.gen.json`, `packages/tmuxy-cli/bin/tmuxy/_options` | `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants` | `packages/tmuxy-core/tests/generated_constants.rs`, one test per file |
+| `bin/ci/crate-graph.json` (the crate graph, from `cargo metadata`) | the same command | the same file's `the_crate_graph_is_cargos`; `bin/ci/crate-graph.test.mjs` reads it |
+| the JSON in `packages/protocol-fixtures/` (requests, results, errors, events) | `UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-core protocol_fixtures` | `packages/tmuxy-core/src/host/protocol_fixtures.rs`, and `packages/tmuxy-ui/src/infra/transport/__tests__/protocolFixtures.test.ts` over the same files |
+| `packages/tmuxy-ui/src/stories/fixtures/gen/` (states recorded from real tmux) | `node scripts/record-story-fixtures.mjs` from `packages/tmuxy-ui`, after `cargo build --release -p tmuxy-server` | none — `FixtureAdapter` replays whatever was last recorded |
 
 ## Related docs
 

@@ -39,13 +39,9 @@ A "server" in the desktop app is a tmux server tmuxy drives — the local machin
 
 ### The sidebar tree, and the sessions poll behind it
 
-The live state the app holds is single-session (the attached session's windows/panes), and the sidebar's **tabs→panes tree** draws exactly that: this session's tabs and their panes, from live state, never the socket's other sessions. Rows for another session had no live state behind them — no content, no geometry, nothing the tree's own keys could act on — and "which session am I on" is asked and answered in the session switcher (`components/SessionMenu.tsx`), which is where the socket's other sessions are listed.
+The live state the app holds is single-session, and the left column's tree draws exactly that: the attached session's tabs and panes. The socket's other sessions are listed in the session switcher (`components/SessionMenu.tsx`); a poll (`serversActor`, see [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md)) reads `list-windows -a` / `list-panes -a` through `query` while a tree is on screen and feeds the switcher, the tree's pane cwds and its git badges. The column itself is in [TMUX-SIDEBARS.md](TMUX-SIDEBARS.md).
 
-A poll (`serversActor`, `tmuxy-ui/src/machines/actors/serversActor.ts`) reads `list-windows -a` / `list-panes -a` (`query`) every ~4s while a tree is on screen (the column, a peek of it, or the phone's), and every 250 ms until its first answer, so a page load gets the cwds and branches with the first rows. It feeds the switcher's session list and the tree's git context (below), the pane cwds live state does not carry. Gated on the adapter's `enumeratesSessions`, it is inert in the single-session sandboxes (demo, v86). Switching session is `SWITCH_SESSION`; on web `switchSession` reconnects the SSE stream to the chosen session. The **server picker** (`list_servers`) remains desktop-only.
-
-A pane row is **two lines**: `%id process` with the state indicator on the first, the pane's title on the second (`components/paneTabDisplay.ts`, `paneRowLines`). They answer different questions and truncate at different rates — a process name is short and stable, while a title is a path or a command with its arguments and is the one thing in the tree that routinely outgrows a 30-column column. Sharing one line, the title pushed the state indicator around and was the half that got cut. A pane whose title adds nothing (an unset one, or one that only repeats the process) draws a single line, so a column of plain shells stays compact.
-
-The same poll gives the tree its **git context** (read for the attached session alone, the one the tree draws). Each pane row carries its `#{pane_current_path}`, and every ~15s (and on each forced refresh) the client asks the host for the worktrees those directories sit in — the `list_git_worktrees` command, served by `tmuxy-core/src/worktrees.rs` on both the web server and the desktop app. The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`) rather than from the request, so a web client can never point git at a directory of its choosing; discovery is read-only (`rev-parse --git-common-dir`, `worktree list --porcelain`), scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, skips a repository git cannot read instead of failing the whole listing, falls back to newline porcelain on a git older than 2.36, and returns nothing for an SSH-backed server (its pane paths are remote). The result is published as `repositories`; `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root (component-aware, so `/repo-copy` never matches `/repo`) and the tree shows the branch — or a detached checkout's short head — as a badge on the pane row, and on a tab row when every pane in the tab shares the worktree.
+The git badges come from the `list_git_worktrees` command (`tmuxy-core/src/worktrees.rs`, both transports). The host reads the pane paths from tmux itself (`list-panes -a -F '#{pane_current_path}'`), never from the request, so a web client cannot point git at a directory of its choosing; discovery is read-only, scrubs an inherited `GIT_DIR`/`GIT_WORK_TREE`, and returns nothing for an SSH-backed server, whose pane paths are remote. `tmuxy-ui/src/components/gitContext.ts` matches each cwd to the longest worktree root.
 
 ## Session groups: two GUI windows over one session
 
@@ -109,7 +105,7 @@ Four layers protect the app, covering different things:
 
 | Layer | Where | Covers |
 | --- | --- | --- |
-| `enforced_settings()` | `control_mode/monitor_core/attach.rs`, every attach, per-session | `mouse`, `focus-events`, `set-titles`, `set-clipboard off` |
+| `enforced_settings()`, and the attach's opening commands | `control_mode/monitor_core/attach.rs`, every attach, per-session | `mouse`, `focus-events`, `set-titles`, `set-clipboard off`; `window-size manual` on the current window before its first resize |
 | `window_setup_commands()` | `control_mode/state/window_state.rs`, each window when first listed | `window-size manual`, `aggressive-resize off`, `allow-rename`, `allow-passthrough`; on a tab `pane-border-status top` and a blank `pane-border-format`, on a sidebar `off` |
 | `tmuxy.essentials.conf` | sourced first and again last in the chain | the `tmuxy-*` command-aliases, `destroy-unattached off`, `exit-empty off`, `default-terminal`, `terminal-overrides`, `escape-time 0`, `history-limit` |
 | nothing | — | everything else, which is taste |
@@ -119,16 +115,16 @@ The ones that actually bite, and why each is in the essentials file rather than 
 - **`destroy-unattached on`** — a reasonable thing to have in a personal config, and fatal here. tmuxy's client is a control-mode connection that comes and goes with every page reload, so the session would be destroyed the moment a browser tab closed.
 - **`default-terminal screen-256color`** — the renderer decodes 24-bit colour from the control-mode stream; a 256-colour TERM makes every truecolour application render in the wrong palette.
 - **`history-limit 500`** — scrollback is a client-side reimplementation over tmux's history. A small limit reads to the user as "tmuxy lost my scrollback".
-- **`command-alias[100…122]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
+- **`command-alias[100…130]`** — every tmuxy binding and the whole CLI resolve through these. A config that sets the same indices silently replaces them, and nav, pane groups and stacks stop working with no error anywhere.
 - **`escape-time`** — a non-zero value makes Escape feel broken in vim.
 
 What is deliberately NOT protected, because protecting it would defeat the point: the prefix, the status line, `mode-keys`, `base-index`, key bindings, colours, and anything a plugin does. A user who opts in gets their own.
 
 Because the essentials come last, the user's `tmuxy.conf` cannot change them either — a larger `history-limit` set there is put back to the essentials' value. That is the price of no config being able to take the app apart; a setting that belongs to taste does not belong in the essentials.
 
-Two hazards that remain the user's to judge, and are called out in `tmuxy config use-tmux-conf --help` rather than silently handled:
+Two hazards remain the user's to judge. `tmuxy config use-tmux-conf --help` (`packages/tmuxy-cli/bin/tmuxy/cli-config.sh`) says only that the prefix, the status line and plugins then win over tmuxy's defaults; what that means in practice:
 
-- **tpm and plugins** load on tmuxy's socket too. `tmux-continuum` in particular will happily auto-save and auto-restore sessions there.
+- **tpm and plugins** load on tmuxy's socket too. A session manager such as `tmux-continuum` will auto-save and auto-restore sessions there.
 - **A status line that draws itself** may fight tmuxy's own chrome, which is cosmetic but ugly.
 
 ## Key Tables Are the Client's

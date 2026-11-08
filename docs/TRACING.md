@@ -27,8 +27,7 @@ The rest of this document is the design that delivers that: what a trace
 captures — a debuggable, cross-layer record of **what happened** across the
 frontend (React/XState/Effect), the Rust backend, and the Tauri shell, into
 **one local file** loadable long after the fact — where it plugs in, the boundary
-that keeps your terminal content out of it, and how to use it. All three phases
-of the plan are implemented; see [§ Using it](#using-it).
+that keeps your terminal content out of it, and how to use it ([§ Using it](#using-it)).
 
 ## Using it
 
@@ -118,10 +117,9 @@ See [TRACING-DESIGN.md](TRACING-DESIGN.md) for this section: Design.
 
 ## Safety — the redaction boundary
 
-The trace records **the shape of an action, never its content.** This is the
-line [SECURITY.md](SECURITY.md) draws (Risk #2: keystrokes and terminal output
-are the eavesdropping target; Risk #6 names an action-trace as a _wanted_ future
-capability — but only one that excludes content).
+The trace records **the shape of an action, never its content.** That is the
+line [SECURITY.md](SECURITY.md) draws: terminal content and commands are what
+an eavesdropper is after, so a record of what happened must carry neither.
 
 **Never recorded:**
 
@@ -143,8 +141,8 @@ Structural enforcements, not just discipline:
    Layer serializes only an explicit set of event types and fields; anything not
    on the list is dropped. A newly added event, or a stray `attrs` field, cannot
    leak by default — it has to be deliberately opted in. The famous terminal
-   leaks came from the vector nobody thought to blacklist (see
-   [§ Why local-only](#why-local-only-prior-art)).
+   leaks came from the vector nobody thought to blacklist
+   ([§ Why local-only](#why-local-only)).
 2. **Trace the typed variant, never the string.** Recording the `TmuxOp` /
    `MonitorCommand` variant instead of the rewritten command is content-free by
    construction, and is _also_ more robust — it survives the
@@ -184,7 +182,7 @@ command before it is written — in the trace and in the server's own debug log
 (`redact_command` in `tmuxy-core/src/trace.rs`). `full` is a local-debug escape
 hatch, not a content firehose.
 
-Name/path **hashing is salted per process** (a random seed from the OS random source, `random.rs`), so a
+Name/path **hashing is salted per process** (a salt drawn once from the OS random source, in `tmuxy-core/src/trace.rs`), so a
 hashed value can't be confirmed by hashing a guessed name and can't be correlated
 across separate trace files — at the cost of ids not being stable across runs.
 
@@ -260,62 +258,48 @@ production pays nothing.
 
 ## Where the code lives
 
-All of the below ships today; the trace file is one Rust-owned NDJSON sink that
-every layer writes into.
+The trace file is one Rust-owned NDJSON sink that every layer writes into.
 
 - **Rust** — `tmuxy_core::trace` defines the `TraceLayer` and a lossy
   background writer (mode `0600`, 64 MiB rotation), which opens the file before
   tracing says it is on. `trace::schema` (`tmuxy-core/src/trace/schema.rs`) is
   the one vocabulary: the layer of an event by its module path, the class of
   every field key, and the event and field names `tmuxy trace --check` reads.
-  One field policy (`admit`) applies it to a Rust event's fields and to a
-  client's alike; the client's own allowlist in `tracer.ts` is tested against
-  it. Registered by `tmuxy_core::logging::init_logging`, installed on the server
+  One field policy, `admit` in `tmuxy-core/src/trace.rs`, applies it to a Rust
+  event's fields and to a client's alike; the client's own allowlist in
+  `tracer.ts` is tested against it. Registered by `tmuxy_core::logging::init_logging`, installed on the server
   binary, the `tmuxy server` subcommand, and the Tauri GUI path alike. Gating and
   the `--trace` flag live in `trace::init` / `ServerArgs`. Existing spans
   (monitor `connect`/`run`, the routed commands) flow in with no new call sites.
 - **Client** — `tmuxy-ui/src/infra/tracer.ts` mirrors `latencyTracker`'s gating,
   fed from the XState `send` tap (`AppContext.tsx`) and the adapter send/apply
-  hooks, batch-shipping to `POST /trace` (web) or the `record_trace` Tauri
-  command. The server advertises `trace_enabled` in `connection-info`, the
-  ingest endpoint **fails closed** and re-sanitizes every field, and
+  hooks, batch-shipping to `POST /trace` (web) or, on the desktop, as the
+  `record_trace` backend call over the `dispatch` IPC, which
+  `tmuxy-core/src/host/command.rs` hands to the same writer. The host says in
+  its greeting whether it records (`trace_enabled` in `connection-info`), both
+  ingest paths **fail closed** and re-sanitize every field, and
   `tracer.test.ts` asserts no raw command string escapes.
 - **Correlation** — the client mints an `action_id` per command and threads it
   via the `X-Action-Id` header through `POST /commands`; the server records it,
   giving an exact request-leg join. Return-leg correlation stays heuristic on
-  `seq`/timing. `tmuxy trace` (the `trace_view` module) prints a per-action
+  `seq`/timing. `tmuxy trace` (`tmuxy-verbs/src/trace_view.rs`) prints a per-action
   summary and `--export`s Chrome-trace/Perfetto JSON.
 
-## Why local-only (prior art)
+## Why local-only
 
-tmuxy's users are tmux and CLI power users — the population most hostile to
-telemetry. Two different things get called "telemetry": **phone-home** sends data
-off your machine to a vendor (VS Code, Homebrew, JetBrains), while **local
-diagnostics** stay on the box (crash dumps — and tmuxy's trace). tmuxy does only
-the second, which is what lets the no-tracking model at the top of this document
-be true.
-
-Four lessons the design is shaped by:
-
-- **The leak arrives through the path nobody guarded.** iTerm2's worst privacy
-  failure was not telemetry — a URL-preview feature made a DNS request for
-  whatever you _hovered_, leaking passwords in cleartext, on by default, for
-  months. Hence guarding at the write site, not the source
-  ([§ Safety](#safety--the-redaction-boundary)).
-- **Scrub and hash the unavoidable.** VS Code identifies a folder by a hash of
-  its git remote rather than its name, and scrubs user paths out of stack
-  traces. Same discipline here for names, paths, and error strings.
-- **Opt-out-by-default is a trust bomb.** Homebrew silently enabled opt-out
-  analytics and met a revolt. Ours is off by default and, because nothing is
-  ever sent, needs no consent machinery at all.
-- **Document the off-switch even when collection is tiny.** Windows Terminal's
-  community demanded one regardless of volume. Ours is in [§ Gating](#gating),
-  not buried in code.
-
-The bright line all of them draw: **never add a remote reporting endpoint
-without an explicit, up-front opt-in.** If tmuxy ever wants aggregate insight it
-must be a separate, consented feature — the local trace described here stays
-local.
+tmuxy's users are tmux and CLI power users, the population most hostile to
+telemetry. Two different things get called "telemetry": **phone-home** sends
+data off your machine to a vendor; **local diagnostics** stay on the box, like
+a crash dump — and like this trace. tmuxy does only the second, which is what
+lets the no-tracking model at the top of this document be true. The lessons
+other tools learned the hard way shape the design: a leak arrives through the
+path nobody guarded, so the allowlist sits at the write site; names and paths
+are hashed and error strings scrubbed, since they are the unavoidable
+identifying fields; collection that is on by default costs trust it never
+earns back; and the off-switch is documented at the flag, not buried in code.
+The bright line: **never add a remote reporting endpoint without an explicit,
+up-front opt-in.** Aggregate insight, if tmuxy ever wants it, is a separate,
+consented feature; the local trace described here stays local.
 
 ## Related
 

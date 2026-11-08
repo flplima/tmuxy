@@ -33,7 +33,7 @@ Tmuxy is a web-based tmux interface. It provides a browser UI (or native desktop
 
 **tmuxy-server** — Axum HTTP server providing SSE streaming (with `Last-Event-Id` resync), HTTP POST command endpoints, and embedded frontend assets. Manages per-session connections, multi-client viewport sizing, and structured shutdown. Supports both production mode (embedded assets) and dev mode (`--dev` flag, proxies to Vite).
 
-**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes in-browser engines, `V86TmuxAdapter` and `CheerpXTmuxAdapter` — real tmux and bash in an x86 emulator or under CheerpX's x86-to-wasm JIT, the control-mode stream parsed by tmuxy-core compiled to wasm — which the demo site and the v86 stories run. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
+**tmuxy-ui** — React frontend using XState for all state management. Reaches the backend through the `TmuxTransport` Effect service (one Layer per transport). Includes the in-browser guests: the `GuestTmuxAdapter` driver over a `GuestEngine` — `V86Engine`, real tmux and bash in an x86 emulator, or `CheerpXEngine`, under CheerpX's x86-to-wasm JIT — with the control-mode stream parsed by tmuxy-core compiled to wasm; the demo site and the v86 stories run them. The rest of Storybook replays states recorded from real tmux (`src/stories/fixtures/`). See [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) for the XState architecture.
 
 **tmuxy-tauri-app** — Optional desktop wrapper using Tauri. Communicates via native IPC instead of HTTP, offering lower latency. Each OS window is its own client with its own monitor, in a tmux session group (see "One monitor per GUI window" in [DATA-FLOW.md](DATA-FLOW.md), which also covers the Tauri data flow).
 
@@ -113,7 +113,7 @@ The page (`tmuxy-ui/src/kindle/`) is built on its own for `chrome80` (`vite.kind
 
 5. **Delta protocol** — After the initial full state snapshot, the server sends incremental deltas (changed panes, windows) to minimize bandwidth.
 
-6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (~60fps cap), and emits immediately during low-frequency interactions for responsive typing feedback. Tunables live on `MonitorConfig`.
+6. **Adaptive throttling** — The monitor throttles state emissions during high-frequency output (~60fps cap), and emits immediately during low-frequency interactions for responsive typing feedback. The tunables are constants in `control_mode/monitor/event_loop.rs`; only the throttle interval is a `MonitorConfig` field.
 
 7. **Sans-IO core, runtime at the edges** — The state aggregator is pure: events in, typed `SideEffect`s out, no I/O of its own. The runtime executes those effects; the aggregator's time-based steps take an explicit instant, so tests can drive it without spinning a real tmux.
 

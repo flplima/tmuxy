@@ -43,11 +43,11 @@ Everything a control-mode client does between what tmux sends and what goes back
 
 Two hosts run it: the tokio `TmuxMonitor` and `tmuxy-wasm` (the in-browser guest). See `tmuxy-core/src/control_mode/monitor_core.rs`.
 
-How the core's reads (the re-lists and pane captures that refresh its picture of tmux) reach tmux is a property of the host's link, `ReadPacing` (`monitor_core/reads.rs`). The native monitor sends each read the moment it is asked for. The guest's link is an emulated UART into an emulated CPU, where a `list-panes` costs about as much to send as tmux's answer, so the wasm host paces them: one batch of reads is out at a time, closed by an empty reply-wrapped command, and what is asked for meanwhile (the re-lists of five windows opened at once, a refresh per title notification, the copy-mode poll due every 50 ms) is merged into one batch, each list and capture once, sent when tmux has answered the last. A batch tmux does not answer within `REPLY_TIMEOUT` is given up on. Invariant M12.
+How the core's reads (the re-lists and pane captures that refresh its picture of tmux) reach tmux is a property of the host's link, `ReadPacing` (`control_mode/monitor_core/reads.rs`). The native monitor sends each read the moment it is asked for. The guest's link is an emulated UART into an emulated CPU, where a `list-panes` costs about as much to send as tmux's answer, so the wasm host paces them: one batch of reads is out at a time, closed by an empty reply-wrapped command, and what is asked for meanwhile (the re-lists of five windows opened at once, a refresh per title notification, the copy-mode poll due every 50 ms) is merged into one batch, each list and capture once, sent when tmux has answered the last. A batch tmux does not answer within `REPLY_TIMEOUT` is given up on. Invariant M12.
 
 ### TmuxMonitor — the native host
 
-Connects, waits on the control-mode link, its emission timers, the core's deadline and the command channel, and runs what the core says: one dispatcher (`monitor/event_loop.rs`, `dispatch`), each action before the next (M1 in [INVARIANTS.md](INVARIANTS.md)). Its own policy is how state is emitted: output throttled under load and debounced otherwise, layout changes coalesced, everything else at once (`RunState`).
+Connects, waits on the control-mode link, its emission timers, the core's deadline and the command channel, and runs what the core says: one dispatcher (`control_mode/monitor/event_loop.rs`, `dispatch`), each action before the next (M1 in [INVARIANTS.md](INVARIANTS.md)). Its own policy is how state is emitted: output throttled under load and debounced otherwise, layout changes coalesced, everything else at once (`RunState`).
 
 The reconnect loop re-creates the monitor on disconnect: one loop, `host::supervise` in `tmuxy-core/src/host/supervise.rs` (connect, serve, back off, give up after five failures in a row, restore a snapshot before a session is created, autosave while connected), with what differs per host — who may stop it, how a session is brought into being, what giving up means — behind the `Host` trait; the command channel it publishes, and how a command waits for it, are the session's `SessionRuntime`'s that `tmuxy-server/src/sse/monitor.rs` and `tmuxy-tauri-app/src/monitor.rs` each implement. The monitor reads the system clock and hands the core the instant; the core's and `RunState`'s tests drive time themselves, without a tmux.
 
@@ -55,7 +55,7 @@ The monitor is generic over its link to tmux (`ControlLink`): the real control-m
 
 ### MonitorCommand
 
-The typed envelope external code uses to drive the monitor (resize the window, run a tmux command through control mode, gracefully shut down). See the enum in `monitor.rs`; new variants get docblocks explaining _when_ you'd send them, since the variant name alone isn't usually enough.
+The typed envelope external code uses to drive the monitor (resize the window, run a tmux command through control mode, gracefully shut down). See the enum in `control_mode/monitor.rs` (the desktop crate has a `monitor.rs` of its own, which is the host, not this); new variants get docblocks explaining _when_ you'd send them, since the variant name alone isn't usually enough.
 
 ### ControlModeConnection
 
@@ -77,7 +77,7 @@ See `tmuxy-core/src/control_mode/state.rs` and the `SideEffect` enum's docblocks
 
 The wire-shaped types the backend emits. `StateUpdate` is either a `Full` snapshot (initial sync, full resync) or a `Delta` (sequenced incremental change). The delta encoding distinguishes "no change" from "removed" so the frontend's reconciliation is unambiguous.
 
-See `tmuxy-core/src/lib.rs`. The TypeScript side is Effect Schemas in `tmuxy-ui/src/domain/wire.ts`; the TS types are derived from them and every update is decoded once where it enters the client.
+`StateUpdate` and `TmuxDelta` are `tmuxy-core/src/delta_types.rs`, `TmuxState` is `tmuxy-core/src/state_types.rs`. The TypeScript side is Effect Schemas in `tmuxy-ui/src/domain/wire.ts`; the TS types are derived from them and every update is decoded once where it enters the client.
 
 ### StateEmitter trait
 
@@ -112,7 +112,7 @@ The main state machine, defined in `tmuxy-ui/src/machines/app/appMachine.ts`. Fi
 - **`detached`** — This client detached itself (`DETACH_CLIENT`, or tmux detached it): the stream is closed on purpose and nothing reconnects until the user does; `TMUX_CONNECTED` / `TMUX_RECONNECTED` bring it back to `idle` through the same actions a first connection and a reconnect run.
 - **`disconnected`** — Terminal. Backend gave up or an explicit disconnect happened. The `ConnectionOverlay` reads `fatalError` to show the one-line reason with a Retry button (a reload) and the command/error log behind a collapsed Details disclosure; the dead layout stays underneath as the blurred backdrop. No auto-recovery; an adapter-initiated `TMUX_RECONNECTING` is still accepted, so a server that comes back later can pull the UI out of this state.
 
-Reconnection flow: the adapter (`HttpAdapter` / `TauriAdapter`) fires `onReconnection(true)` on every drop, and every failed retry counts as one. `tmuxActor` forwards this as `TMUX_RECONNECTING` and the machine transitions to `reconnecting`; once there, a further `TMUX_RECONNECTING` is the same outage and changes nothing, so the notice delay counts from the first drop and a shown notice stays shown while the retries fail. When the channel recovers, the adapter fires `onReconnection(false)` → `TMUX_RECONNECTED` → back to `idle`. Pending optimistic ops carry across reconnection: the store's `applyServerSnapshot` runs against the first post-recovery full state and reconciles or rolls back each op (stale ops older than `OP_STALE_TIMEOUT_MS` are dropped in that same pass).
+Reconnection flow: the driver (`HttpAdapter` / `TauriAdapter`, under `tmuxy-ui/src/infra/transport/drivers/`) emits a `TransportEvent.Reconnection` with `reconnecting: true` (`infra/transport/events.ts`) on every drop, and every failed retry counts as one. `tmuxActor` reads it off the transport's stream and forwards it as `TMUX_RECONNECTING`; the machine transitions to `reconnecting`, and once there a further `TMUX_RECONNECTING` is the same outage and changes nothing, so the notice delay counts from the first drop and a shown notice stays shown while the retries fail. When the channel recovers the driver emits `reconnecting: false` → `TMUX_RECONNECTED` → back to `idle`. The notice's "Retry now" is `RECONNECT_NOW`, which the actor runs as the transport's `reconnectNow`, the driver abandoning its current wait. Pending optimistic ops carry across reconnection: the store's `applyServerSnapshot` runs against the first post-recovery full state and reconciles or rolls back each op (stale ops older than `OP_STALE_TIMEOUT_MS` are dropped in that same pass).
 
 See [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md) for these sections: Machine Context; Actors; Child Machines; How the app machine is split; Domain and infrastructure.
 

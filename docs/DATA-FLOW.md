@@ -1,6 +1,6 @@
 # Data Flow
 
-This document describes how data moves through tmuxy in different deployment scenarios, covering the SSE/HTTP protocol, Tauri IPC, and real-world use cases.
+How data moves through tmuxy: the SSE/HTTP protocol, the transport service, the state and command flows, keyboard input.
 
 ## Transport: SSE/HTTP (Web Version)
 
@@ -8,14 +8,14 @@ The web client uses two HTTP endpoints on the Axum server:
 
 **`GET /events?session=<name>`** — Server-Sent Events stream (server-to-client):
 
-- `connection-info` — Connection ID, default shell, and whether the server is tracing (sent on connect)
+- `connection-info` — connection id, default shell, whether the server is tracing (on connect)
 - `keybindings` — Prefix key and all key bindings from tmux config
 - `theme-settings` — Theme name/mode, appearance (surface opacities, blur flag), the `@tmuxy-css-*` variables and `@tmuxy-icon-*` icons (SVGs inline) from tmux config, and the options the user's `tmuxy.conf` pins (`pinned`); re-sent after a `source-file`, and after the server itself sources a saved `tmuxy.conf`
 - `css-changed` — A stylesheet under the user's config dir (`themes/*.css`, `custom.css`) was saved; the client re-fetches its stylesheets and the themes list. No payload
-- `state-update` — Full state snapshots and incremental deltas (serialized JSON)
+- `state-update` — full state snapshots and deltas
 - `clipboard` — OSC 52 clipboard payloads forwarded from terminal applications
 - `tmux-message` — `{ text }`, a `display-message` tmux showed this client (its `%message` notification), shown in the snackbar. Named `tmux-message`, never `message`: that is `EventSource`'s default event type, which `onmessage` receives too. The desktop app emits the same name.
-- `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (see Reconnecting below)
+- `ping` — keepalive on an idle stream, once a second; the client times a silent link out by it (Reconnecting, below)
 - `reconnecting` — the tmux connection is being retried: logged on the web, the link going down on the desktop
 - `log`, `tmux-error`, `fatal` — Diagnostic and error notifications; `tmux-error` is never about the link. The error event is named `tmux-error`, never `error`: the browser hands a server event called `error` to `EventSource.onerror` too, and the adapter would treat every reported error as a dropped connection.
 
@@ -27,43 +27,43 @@ The web client uses two HTTP endpoints on the Axum server:
 
 **`POST /mcp?session=<name>`** — the MCP endpoint an agent drives the session through: one JSON-RPC message per request, answered with JSON. It is not the client's; see [MCP.md](MCP.md).
 
-SSE was chosen over WebSocket because: server-to-client is the dominant direction, `EventSource` has built-in browser reconnection, SSE works through all proxies/CDNs, and the standard `Last-Event-Id` mechanism gives us a clean reconnect path (see below).
+SSE rather than WebSocket: server-to-client dominates, `EventSource` reconnects on its own, SSE crosses every proxy, and `Last-Event-Id` gives a clean resync (below).
 
 ### Reconnecting
 
-The adapter reopens a dropped stream on an exponential backoff (1s, 2s, 4s … capped at 30s), and three rules keep that from turning into a long wait on a link that drops often and briefly — a laptop waking, a Wi-Fi roam:
+Two backoffs, on two links. The client reopens a dropped SSE stream on an exponential schedule, 1s doubling to a 30s cap, for as long as the page lives (`RECONNECT_SCHEDULE`, `tmuxy-ui/src/infra/transport/drivers/httpStream.ts`); the server's monitor supervisor re-attaches a dropped `tmux -CC` from 100ms doubling to 10s and gives up after five failures in a row (`tmuxy-core/src/host/supervise.rs`), which the client sees as `fatal`. Each drop the driver reports as a `TransportEvent.Reconnection` (`reconnecting: true`, then `false` once the stream is back), which the machine turns into its `reconnecting` state ([STATE-MANAGEMENT.md](STATE-MANAGEMENT.md)). Four rules keep the client's wait short on a link that drops often and briefly — a laptop waking, a Wi-Fi roam:
 
-- **The backoff belongs to one outage.** A connection that was established and then dropped starts the next one on a fresh schedule, after a short beat. One schedule for the page's whole life only climbs, and a few drops in every reconnect waited out the cap.
-- **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the overlay's _Retry now_ button (`RECONNECT_NOW` → `adapter.reconnectNow()`) all abandon the current wait and try immediately. None of them does anything while connected.
-- **A stream that comes back asks for the state again.** `TMUX_RECONNECTED` fetches the state at the client's viewport just as the first connection does: the server may have restarted and been synced by another tab, and an idle session sends nothing on its own, so without the fetch the tab keeps its last frame until a keystroke. The sequencer has reopened on the new stream, so the answer is adopted as the starting state.
-- **Silence is a drop.** The server's keepalive is a named `ping` event rather than an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
+- **The backoff belongs to one outage.** A connection that was established and then dropped starts the next on a fresh schedule, after a short beat; one schedule for the page's life only climbs, and after a few drops every reconnect waited out the cap.
+- **A reason to retry now beats the timer.** The browser's `online` event, the tab becoming visible, and the notice's _Retry now_ button (`RECONNECT_NOW` → the transport's `reconnectNow`) all abandon the current wait and try immediately. None does anything while connected.
+- **A stream that comes back asks for the state again.** `TMUX_RECONNECTED` fetches the state at the client's viewport as the first connection does: the server may have restarted and been synced by another tab, and an idle session sends nothing on its own, so without the fetch the tab keeps its last frame until a keystroke. The sequencer has reopened on the new stream, so the answer is adopted as the starting state.
+- **Silence is a drop.** The keepalive is a named `ping` event, not an SSE comment (a page never sees comments), sent whenever the stream has been idle for a second. Once a client has seen one, five seconds without any event ends the connection — a link that dies without an error is otherwise noticed minutes later, if at all. A server that sends no pings is never timed out.
 
 A stream refused before it ever opened is told from a dropped one by asking the URL again; see [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md#a-refused-stream-is-not-a-dropped-one).
 
 ### SSE resync via `Last-Event-Id`
 
-Every event the server broadcasts is tagged with a monotonic per-session sequence id (set as the SSE `id:` field). `EventSource` persists the last received id across reconnects and sends it back as the `Last-Event-Id` request header on retry. The server keeps a small ring buffer of recent events per session — the last 128, within 16 MB (`EVENT_BUFFER_SIZE`, `EVENT_BUFFER_MAX_BYTES` in `tmuxy-server/src/state.rs`) — and replays everything strictly newer than the supplied id before resuming the live stream. If the client's id is older than the buffer head (a long disconnect, or a burst of large deltas that outran the byte budget), nothing is replayed: the first live delta's `seq` does not follow the client's last one, and the sequencer refetches a full state — no client-side panic, no data corruption.
+Every event the server broadcasts carries a monotonic per-session id (the SSE `id:` field), which `EventSource` sends back as the `Last-Event-Id` header on retry. The server keeps a ring buffer of recent events per session — the last 128, within 16 MB (`EVENT_BUFFER_SIZE`, `EVENT_BUFFER_MAX_BYTES` in `tmuxy-server/src/state.rs`) — and replays everything newer than that id before resuming the live stream. An id older than the buffer head (a long disconnect, a burst of large deltas past the byte budget) replays nothing: the first live delta's `seq` does not follow the client's last, and the sequencer refetches a full state.
 
-This is independent from the delta protocol's own `seq` field: the SSE id keeps the _transport_ in sync after a reconnect; the delta `seq` keeps the _application state_ in sync after each individual update.
+This is independent from the delta protocol's own `seq`: the SSE id keeps the _transport_ in sync after a reconnect, the delta `seq` the _application state_ after each update.
 
 See [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md) for these sections: A refused stream is not a dropped one; Transport: Tauri IPC (Desktop Version); Connection Lifecycle (Tauri); Real-World Deployment Scenarios; Additional API Endpoints.
 
 ## Adapter Pattern
 
-The frontend reaches tmux through one Effect service, `TmuxTransport` (`tmuxy-ui/src/infra/transport/TmuxTransport.ts`): `connect`/`disconnect`, `invoke` for commands (fire-and-forget `run_tmux_command` among them), `query` for read-only tmux commands answered in-band on the control-mode connection — each failing with a typed `AdapterError` — and `subscribe`, one ordered `Stream` of tagged transport events (state, connection info, reconnection, keybindings, theme settings, logs, errors, fatal, detach, clipboard), so the first state never overtakes the connection info it depends on. Four Layers provide it (`layers.ts`): HTTP/SSE and Tauri IPC, which share one stream stage (`stateFeed.ts`: decode, sequence, and on a gap or an undecodable payload refetch the full state once at the last viewport the client reported), and the in-browser demo and v86 engines. Each Layer wraps a driver under `drivers/` whose events go through one generic hub (`infra/eventHub.ts`). The app builds one `ManagedRuntime` from the Layer for its environment (`infra/runtime.ts`), and the XState actors run every effect on it; tests swap in a scripted driver behind the real Layer (`src/test/transport.ts`).
+The frontend reaches tmux through one Effect service, `TmuxTransport` (`tmuxy-ui/src/infra/transport/TmuxTransport.ts`): `connect`/`disconnect`; `run(op)` for a tmux op (the fire-and-forget `run_tmux_command`); `call`/`send` for any other backend command, answered against its schema; `query(command)` for a read-only tmux command answered in-band on the control-mode connection; `reconnectNow` — each failing with a typed `AdapterError` — and `subscribe`, one ordered `Stream` of `TransportEvent`s (`events.ts`: state, connection info, `Reconnection`, keybindings, theme settings, logs, errors, fatal, detach, clipboard), so the first state never overtakes the connection info it depends on. Three Layers provide it (`layers.ts`): HTTP/SSE and Tauri IPC, which share one stream stage (`stateFeed.ts`: decode, sequence, and on a gap or an undecodable payload refetch the full state once at the last viewport the client reported), and the guest, which the demo site and the v86 stories share. Each Layer wraps a driver under `drivers/` whose events go through one generic hub (`infra/eventHub.ts`). The app builds one `ManagedRuntime` from the Layer for its environment (`infra/runtime.ts`), and the XState actors run every effect on it; tests swap in a scripted driver behind the real Layer (`src/test/transport.ts`).
 
 ## Connection Lifecycle (Web)
 
 1. Client opens SSE connection: `GET /events?session=<name>`. The stream only attaches: for a session tmux does not have it answers `404`, and the client asks for it with `ensure_session` (`POST /commands`), which creates it under the server's session cap, then opens the stream again (`probeRefusalReason` in `tmuxy-ui/src/infra/transport/drivers/httpStream.ts`)
 2. Server assigns a unique `connection_id`
 3. Server checks if a `TmuxMonitor` exists for the session:
-   - **No monitor:** Spawns a new monitor (attaches `tmux -CC` to the session), stores handle in `SessionConnections`
-   - **Has monitor:** Subscribes to the existing broadcast channel and replays from the ring buffer if the client supplied a `Last-Event-Id`
+   - **No monitor:** spawns one (attaches `tmux -CC` to the session), stored in `SessionConnections`
+   - **Has monitor:** subscribes to its broadcast channel, replaying from the ring buffer after a `Last-Event-Id`
 4. Client receives `connection-info` event with connection ID and default shell
 5. Client sends `get_initial_state` (via HTTP POST) with its viewport size (cols, rows)
-6. Server stores the client size, computes the minimum viewport across all clients, and sends a resize command through the monitor's control mode connection
-7. Client receives full state snapshot, then incremental deltas as tmux state changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for yet. It is the starting state only before the stream's first full state, after a delta sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/domain/deltaProtocol.ts`).
-8. On disconnect: server removes the client, recomputes minimum viewport, and shuts down the monitor if no clients remain
+6. Server stores the client size, computes the viewport across all clients, and resizes through the monitor's control-mode connection
+7. Client receives a full state, then deltas as tmux changes. The stream (one full state, then deltas against the server's previous emission) is the client's state from its first full state on; the `get_initial_state` answer is a separate snapshot, so once the stream is synced it only fills panes the stream has not sent content for. It is the starting state only before the stream's first full state, after a sequence gap, or on a new connection (`adoptInitialState` in `tmuxy-ui/src/domain/deltaProtocol.ts`).
+8. On disconnect: the server removes the client, recomputes the viewport, and shuts the monitor down if no client remains
 
 ## State Update Flow
 
@@ -103,11 +103,11 @@ The monitor multiplexes control-mode events with timer-driven flushes (throttle,
 
 ## Command Execution Flow
 
-Every command the client sends is a row of `tmuxy-ui/src/domain/backendCalls.ts` (name, argument schema, answer schema), held to the Rust `ClientCommand` by the protocol fixtures. It goes out as `{ cmd, args }` (`POST /commands`, the desktop's `dispatch`) and both hosts decode it into a `ClientCommand`. Mutating commands route through the monitor's control-mode connection — never through external subprocesses, because external `tmux` calls crash tmux 3.5a when a control-mode client is attached (see [TMUX.md](TMUX.md)).
+Every command the client sends is a row of `tmuxy-ui/src/domain/backendCalls.ts` (name, argument schema, answer schema), held to the Rust `ClientCommand` by the protocol fixtures. It goes out as `{ cmd, args }` (`POST /commands`, the desktop's `dispatch`) and both hosts decode it into a `ClientCommand`. Mutations route through the monitor's control-mode connection, never a subprocess: an external `tmux` call crashes tmux 3.5a while a control-mode client is attached ([TMUX.md](TMUX.md)).
 
 Reads go the same way: scrollback, key bindings, theme settings and snapshot checks are command lists answered in-band by the monitor (`control_mode::query`, answered for a client in `tmuxy-core/src/host/requests.rs`, shared by both hosts). A CLI verb changes tmux through `run-shell` (`tmuxy-core/src/run_shell.rs`).
 
-**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Both hosts implement both identically (`ClientCommand::RunTmuxCommand`, `ClientCommand::QueryTmux`), and the frontend reaches them as the transport's `run(op)` and `query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
+**Two operations, the same on every transport.** `run_tmux_command` is a mutation: it is handed to the monitor's control-mode channel fire-and-forget and resolves to `null` — the result of a control-mode command arrives later as a state event, not as the response. `query_tmux` is a read: the monitor brackets the command with marker lines, collects the `%begin…%end` blocks between them, and answers with what the command printed (`MonitorCommand::RunCommandWithReply`); a tmux `%error` rejects the call with tmux's message. A mutation is bracketed the same way, with nobody waiting for the output: when tmux answers it with `%error`, the monitor emits the message as an error event (`HostEvent::Error`, `tmux-error` on both transports), which the frontend shows in the snackbar — the only way the user learns why a split or a kill did nothing. Keystrokes (`send-keys`, pinned or not) are the exception and go out bare: one command per key, and the only way they fail is a pane that is already gone from the layout. Both hosts implement both (`ClientCommand::RunTmuxCommand`, `ClientCommand::QueryTmux`); the frontend reaches them as the transport's `run(op)` and `query(command)`. There is no subprocess path. A query runs only tmux's reads (`command_router::route_query`): a command list with anything else in it — a `run-shell`, a `kill-pane` after a `;` — is refused as `forbidden`, because a mutation belongs on the mutation path, behind the queue and the `run-shell` relay. That is not an access boundary: the same client may send it as a mutation.
 
 **Failures carry a kind.** A failed command answers `{ "error": "<message>", "kind": … }` on both transports (the HTTP body of `POST /commands`, the object a Tauri command rejects with): `tmux` when tmux itself refused it (a query answered with `%error`), `unavailable` (no monitor, session or channel; a timeout), `invalid` (a malformed payload or id) and `forbidden` (a blocked command). The client maps `tmux` to `TmuxError` and the rest to `TransportError` (`tmuxy-ui/src/infra/transport/AdapterError.ts`). See `tmuxy_core::CommandError`.
 
@@ -136,9 +136,9 @@ Frontend
 
 ## Delta Protocol
 
-After the initial full state snapshot, the server sends incremental deltas to minimize bandwidth:
+After the first full snapshot the server sends deltas:
 
-- Each delta has a `seq` number for ordering; a full state and the `get_initial_state` answer carry the `seq` they were taken at, so the delta right after either one is checked against it
+- Each delta has a `seq`; a full state and the `get_initial_state` answer carry the `seq` they were taken at, so the next delta is checked against it
 - Deltas contain only changed fields: modified panes (content, cursor, metadata), added/removed panes, added/removed windows, active pane/window changes, status line changes
 - The frontend merges deltas into its cached state via `handleStateUpdate()` in `tmuxy-ui/src/domain/deltaProtocol.ts`
 - If a delta arrives with a sequence gap, the client requests a full state resync
@@ -166,7 +166,7 @@ Step 5 cannot be decided by "no modifiers held". Keyboards compose characters th
 | macOS Option as compose key | `altKey` set, but the letter already replaced by a non-ASCII character | Option+c → `ç` |
 | AltGr third level | legacy ctrl+alt flags; only the `AltGraph` modifier state separates it from a real Ctrl+Alt chord | AltGr+Q on ABNT2 → `@` |
 
-Forwarding one of these as a tmux key name is not rejected — tmux accepts `send-keys M-ç` and delivers ESC + `ç`, an unbound meta sequence the application discards. The classifier reads a non-ASCII key under bare Alt (and any key with `AltGraph`) as text, an ASCII key under Alt as a chord, and anything under Ctrl or Cmd as a chord. IME composition bypasses keydown and sends the committed string whole on `compositionend`.
+Forwarded as a tmux key name, none is rejected — tmux accepts `send-keys M-ç` and delivers ESC + `ç`, an unbound meta sequence the application discards. The classifier reads a non-ASCII key under bare Alt (and any key with `AltGraph`) as text, an ASCII key under Alt as a chord, and anything under Ctrl or Cmd as a chord. IME composition bypasses keydown and sends the committed string whole on `compositionend`.
 
 ## Servers, Sessions and the 4-Step Connect Flow
 
@@ -176,7 +176,7 @@ A server is one tmux socket — local (`-L` / `-S` under `/tmp/tmux-$UID/`) or r
 [1. ssh / localhost] ──► [2. tmux -V] ──► [3. listing sessions] ──► [4. attach]
 ```
 
-Each stage prints `✓`, or `✗` with verbatim `ssh`/`tmux` stderr and stops (a socket with no server has none). The last stage saves the server to `servers.json` and publishes `TMUXY_CONNECT` for the desktop app ([TMUX-CONFIG.md](TMUX-CONFIG.md)).
+Each stage prints `✓`, or `✗` with verbatim `ssh`/`tmux` stderr and stops. The last saves the server to `servers.json` and publishes `TMUXY_CONNECT` for the desktop app ([TMUX-CONFIG.md](TMUX-CONFIG.md)).
 
 ---
 

@@ -2,6 +2,37 @@
 
 This directory contains architectural and design documentation for the tmuxy project. It is written for both **human developers** and **AI coding agents** (Claude Code, Copilot, etc.) that work on this codebase.
 
+## Start here
+
+**Three programs over one crate.** `packages/tmuxy-core` is the library: the control-mode parser and state aggregator, the command router, the host runtime every program embeds. Around it sit the web server `packages/tmuxy-server` (Axum: SSE out, HTTP POST in), the desktop app `packages/tmuxy-tauri-app` (the same core over Tauri IPC) and the CLI — shell scripts in `packages/tmuxy-cli/bin/tmuxy/` behind the dispatcher `packages/tmuxy-cli/bin/tmuxy-cli`, with the verbs that need Rust in `packages/tmuxy-verbs`. The browser guests are the same core with no server at all: `packages/tmuxy-wasm` (the core compiled to wasm) reading a real tmux inside v86 or CheerpX, which the demo site `packages/tmuxy-demo` and the v86 stories run.
+
+**The UI is four layers.** `packages/tmuxy-ui/src` is `domain/` (pure: wire schemas, ids, ops) → `infra/` (the transport, the store, the platform) → `machines/` (XState) → `components/` (React), and an import only points down the list; ESLint's `no-restricted-imports` holds it. The table of what each layer may import is `packages/tmuxy-ui/README.md`.
+
+**One op table.** `packages/tmuxy-ui/src/domain/commands.ts` is the only place a tmux command's syntax is spelled (`TmuxOp` → `toTmuxCommand`); UI code builds an op and dispatches it. Which commands may travel which way is `packages/tmuxy-core/src/command_router.rs`, and every transport calls it.
+
+**Generated files** are never edited by hand:
+
+| Files | Regenerate with | Stale means |
+| --- | --- | --- |
+| `packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, `packages/tmuxy-cli/bin/tmuxy/_options`, every `.gen.json`, `bin/ci/crate-graph.json` | `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants` (the full list is `packages/tmuxy-core/tests/generated_constants.rs`) | that test fails |
+| the JSON in `packages/protocol-fixtures/` | `UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-core protocol_fixtures` (`packages/protocol-fixtures/README.md`) | `tmuxy-core/src/host/protocol_fixtures.rs` fails |
+| `packages/tmuxy-ui/src/stories/fixtures/gen/` | `node scripts/record-story-fixtures.mjs` from `packages/tmuxy-ui`, against a release build of the server | nothing: the stories replay what was last recorded |
+
+**Names carry their kind:**
+
+| Pattern | Is | Example |
+| --- | --- | --- |
+| `<slice>_<verb>` | an app-machine action, prefixed with the slice whose fields it writes | `layout_selectTab` |
+| `*Live` | an Effect Layer | `HttpTransportLive` |
+| `*Actor`, `*Machine` | an XState callback actor, a child machine | `sizeActor`, `dragMachine` |
+| `select*` | a selector over machine context | `selectKeyContext` |
+| `.gen.` | generated (table above) | `tmuxyConstants.gen.ts` |
+| `_name` | a CLI file that is sourced, not a command | `_lib`, `_options`, `_contract` |
+| `*_cli.rs` | a `tmuxy-verbs` verb module | `group_cli.rs` |
+| `tests_*.rs` | the test file beside the Rust module it tests | `session/tests_doctor.rs` |
+
+**Reading order:** [ARCHITECTURE.md](ARCHITECTURE.md) → `packages/tmuxy-ui/README.md` → [ARCHITECTURE-INDEX.md](ARCHITECTURE-INDEX.md) → the doc for your area, from the guide below.
+
 ## How to Use These Docs
 
 **Before starting work:** Read the docs relevant to the area you're changing. They provide critical context about architecture, constraints, and conventions that aren't obvious from reading code alone.
@@ -23,12 +54,13 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [ARCHITECTURE.md](ARCHITECTURE.md) | High-level system overview: components, how they interact, key design decisions, file structure | Starting any work on the project; onboarding |
 | [ARCHITECTURE-WIDGETS.md](ARCHITECTURE-WIDGETS.md) | Panes that draw something other than a terminal: the widget registry, the tree and the preview | Adding or changing a widget |
 | [ARCHITECTURE-INDEX.md](ARCHITECTURE-INDEX.md) | Compact feature-to-files lookup index optimized for retrieval by AI agents | Quickly locating implementation entry points |
-| [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | Frontend XState machine (states, context, actors, child machines, selectors, React hooks) and backend Rust state (AppState, SessionConnections, TmuxMonitor, StateAggregator, MonitorCommand, StateEmitter) | Changing state handling, adding events, modifying the machine, or working on the Rust backend |
+| [STATE-MANAGEMENT.md](STATE-MANAGEMENT.md) | The backend Rust state (AppState, SessionConnections, TmuxMonitor, StateAggregator, MonitorCommand, StateEmitter) and the app machine's connection lifecycle; its context, actors and optimistic updates are the two companions below | Changing state handling, adding events, modifying the machine, or working on the Rust backend |
 | [STATE-MANAGEMENT-ACTORS.md](STATE-MANAGEMENT-ACTORS.md) | The app machine's context, its actors and child machines, and how the code is split | Adding an actor or a context field |
 | [STATE-MANAGEMENT-UPDATES.md](STATE-MANAGEMENT-UPDATES.md) | Optimistic updates (`TmuxClientModel`), read-only focus, keystroke routing, user-facing errors, React integration | Changing a prediction, a reconcile verdict or what the user sees of a failure |
 | [DATA-FLOW.md](DATA-FLOW.md) | SSE/HTTP protocol, adapter pattern, delta protocol, connection lifecycle, keyboard input flow | Working on client-server communication or the adapter layer |
 | [DATA-FLOW-DEPLOYMENTS.md](DATA-FLOW-DEPLOYMENTS.md) | The Tauri transport, real-world deployment scenarios and the extra HTTP endpoints | Deploying, or touching the desktop IPC |
 | [DESKTOP.md](DESKTOP.md) | What only the desktop app has (trackpad gestures, GUI windows, window chrome, native menus, other servers) and why | Working on the Tauri app, or wondering why the web build lacks something |
+| [PHONE.md](PHONE.md) | The phone layout: the key row, the bar that zooms or folds the terminal, the bottom view, held sideways, and what a finger does | Anything a phone shows or touches |
 
 ### tmux Integration
 
@@ -40,6 +72,14 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TMUX-CONFIG.md](TMUX-CONFIG.md) | The dedicated socket, the config chain, session groups, servers and client-side key tables | The socket, the config chain and pins, PANE/TAB modes, remote servers |
 | [TMUX-VERSION-BUGS.md](TMUX-VERSION-BUGS.md) | Version-specific tmux behaviour tmuxy depends on or works around, 3.2 to HEAD | A bug that shows on one tmux version |
 | [COPY-MODE.md](COPY-MODE.md) | Client-side copy mode reimplementation: vi keybindings, scrollback loading, selection/clipboard, entry/exit triggers, key files | Working on copy mode, scrollback, or keyboard handling during copy mode |
+
+### Extending
+
+| Document | What it covers | When to read it |
+| --- | --- | --- |
+| [PLUGINS.md](PLUGINS.md) | Plugins: the manifest, the install gate, how an action runs | Writing or installing a plugin |
+| [PLUGIN-API.md](PLUGIN-API.md) | The plugin API — the one surface that only grows (a change needs `api = 2`) | Changing anything a plugin can call |
+| [MCP.md](MCP.md) | The `/mcp` endpoint (`tmuxy mcp`) and its tools | An agent driving a session |
 
 ### Security & Constraints
 
@@ -67,6 +107,7 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 | [TRACING.md](TRACING.md) | Unified cross-layer action tracing (XState/Effect/Rust/Tauri) into one local NDJSON file: reading it, the redaction boundary | Debugging complex cross-layer issues; reporting a bug with a trace |
 | [TRACING-DESIGN.md](TRACING-DESIGN.md) | The trace file's schema, its instrumentation seams and correlation | Adding instrumentation |
 | [CI-TRIAGE.md](CI-TRIAGE.md) | Fast triage workflow for CI failures, with job-to-command mappings and artifact entry points | Investigating red GitHub Actions runs |
+| [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md) | Why the nightly story sweep kept failing, why its guest stays on v86 rather than CheerpX, and how it tells a flake from a defect | A red nightly sweep |
 
 ### Protocols & Rendering
 

@@ -20,10 +20,10 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
 
 - **The server binary's verbs answer what a script would only copy.** Every
   command whose work is tmuxy-core's — `run` and `tab create`, `session
-  connect` and `connect`, `config`, `pane send`/`paste`, `pane float`, the
+connect` and `connect`, `config`, `pane send`/`paste`, `pane float`, the
   pane groups, `agent`, `session save|restore|…`, `plugin`, `trace`, `skill`,
   `pane capture --format html` — is a `tmuxy-verbs` verb (`tmuxy-server <verb>`, the desktop app's `tmuxy
-  server <verb>`); the script resolves its target and caller and forwards.
+server <verb>`); the script resolves its target and caller and forwards.
   `--json` is handed on, and the verb answers through the contract below
   (`tmuxy_core::cli_contract`). `find_server_cmd` in `bin/tmuxy/_lib` is
   the one place a script finds the binary, on every host; the in-browser
@@ -54,6 +54,17 @@ writes it with `UPDATE_GENERATED=1`. The UI's copy is
   names the caller's pane (`CALLER_T`): tmux would otherwise resolve a
   target-less command from the CLI's unattached client to the session's
   current window, not the caller's.
+- **`tmuxy server stop` and `status` find the server by its port**: the pid
+  file is a shortcut, and when it is missing or names a dead or foreign
+  process they ask the OS which tmuxy process listens on the port (see
+  [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)).
+- **`tmuxy pane state <word>` takes only the words core knows** (the
+  `PaneStateName` list generated into `_options`, plus `clear`); any other
+  word is a usage error, exit 2, and nothing is written.
+- **`tmuxy run` allows tmux's reads** — `show-environment` and
+  `show-prompt-history` like `list-panes` or `show-options` — and the
+  arranging commands (`ARRANGE_VERBS`), and refuses the rest
+  (`route_cli_run` in `packages/tmuxy-core/src/command_router/cli_run.rs`).
 - **Tests:** `npm run test:cli` (`tests/cli/`, against mock `tmux` and
   `tmuxy-server` binaries; `cli-contract.test.js` holds the contract above,
   and `cli-guest-verbs.test.js` runs the guests' real `tmuxy-verbs`, which it

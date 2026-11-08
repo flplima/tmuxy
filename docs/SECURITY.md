@@ -19,6 +19,8 @@ It does **not** assume the user's browser is trusted: the same browser that has 
 
 If any of these assumptions are violated, the risks described below apply.
 
+**An installed plugin is inside the trust boundary.** A plugin's commands run unsandboxed, as the user, with the tmux socket — they can read and type into every pane — and nothing tmuxy sets in the environment or a pane option can confine them. The install gate is therefore the only check: what a plugin can do is shown before anything it ships runs, and the install is pinned to the commit that was shown. See [PLUGINS.md](PLUGINS.md).
+
 See [SECURITY-NETWORK.md](SECURITY-NETWORK.md) for these sections: Where the Server Listens; Cross-Origin Requests; What the App Will Load and Draw; Deployment Recommendations.
 
 See [SECURITY-CONTENT.md](SECURITY-CONTENT.md) for these sections: A Preview Reads One File; A Session Snapshot Is a Record of the Machine; Pane Output Threat Model.
@@ -142,25 +144,11 @@ An action runs with the job's token and secrets, the release build's Apple signi
 ## Upstream `tmux` Hardening Recommendations
 
 - **Prefer `tmux >= 3.7a` when `enable-sixel` is compiled in** — older `tmux <= 3.6a` builds carry an upstream `image_free` memory-safety bug in Sixel image cleanup. The repository's container image builds `tmux 3.7a`; host installations with Sixel enabled should run `3.7a` or newer.
-- **Keep `allow-passthrough` set to `off` (the default)** — leaving passthrough disabled ensures DCS/OSC sequences emitted by untrusted programs inside a pane are parsed and bounded by tmux and tmuxy rather than forwarded verbatim to an outer terminal.
+- **`allow-passthrough`** is off by default in tmux, and tmuxy turns it **on, per window** (`window_setup_commands` in `tmuxy-core/src/control_mode/state/window_state.rs`), because its image protocols (Kitty, iTerm2, Sixel) ride on it. Passthrough lets a program in a pane emit DCS/OSC sequences that tmux forwards to its client unparsed. With tmuxy that client is tmuxy-core, which parses every such payload itself and bounds it — sizes, counts, how long a transfer may stay open, the clipboard's alphabet and size — before anything reaches a browser or webview ([SECURITY-CONTENT.md](SECURITY-CONTENT.md#pane-output-threat-model)); nothing is forwarded on to an outer terminal. A terminal client attached to the same window by hand does receive the sequences, as on any server with the option on.
 
-## Future Security Improvements
+## Network Hardening
 
-Implemented:
-
-- **Loopback by default** — a routable address needs a password or `--no-auth`
-- **Optional HTTP Basic auth** — `--password` / `TMUXY_PASSWORD` gates every route
-- **Cross-origin guard** — Fetch Metadata, `Origin` and `Host` checks on every API route; no CORS headers
-- **Security headers on the app** — a `Content-Security-Policy` that keeps a preview in its frame and the app out of other sites' frames, plus `X-Frame-Options` and `nosniff`
-
-Not yet implemented, but would improve the security posture:
-
-- **Bearer token auth** — token-based auth as an alternative to Basic
-- **TLS support** — Built-in HTTPS with certificate configuration
-- **Command allowlisting** — Restrict which tmux commands clients can execute
-- **Per-client permissions** — different rights for different clients of one server
-- **Audit logging** — Log all commands and client connections
-- **Rate limiting** — command flooding (failed passwords are already rate-limited, see [Optional HTTP Basic Auth](SECURITY-NETWORK.md#optional-http-basic-auth))
+Where the server listens, the loopback default, the optional Basic auth, the cross-origin guard, the security headers on the app, and what is not done yet are in [SECURITY-NETWORK.md](SECURITY-NETWORK.md).
 
 ## Related
 

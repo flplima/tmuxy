@@ -27,13 +27,12 @@ and `Cmd+C` copies it. Only copy mode drives selection from the client, because 
 selection anchored to a cursor the keyboard moves. Panes whose application tracks the mouse are
 deliberately left unselectable: there the drag belongs to the application and is forwarded as SGR.
 Where the browser owns the drag, the pane does not take the hidden keyboard input's focus on the
-press: focusing an input collapses the page's selection, so a drag across text selected nothing. The
-keyboard actor hands focus to the input on the release instead, and only if nothing was selected.
-While the browser holds a selection on the live screen, the screen holds still
-(`components/terminal/useHeldWhileSelected.ts`): the live grid reuses row nodes by screen index, so output
-that scrolled the screen slid other text under the highlight and `Cmd+C` copied the wrong lines.
-The program keeps running; the pane catches up the moment the selection collapses. The scroll
-view needs none of this — its rows are keyed by absolute line.
+press — focusing an input collapses the page's selection — and the keyboard actor hands focus to the
+input on the release instead, only if nothing was selected. While the browser holds a selection on
+the live screen, the screen holds still (`components/terminal/useHeldWhileSelected.ts`): the live
+grid reuses row nodes by screen index, so output that scrolls would slide other text under the
+highlight. The program keeps running; the pane catches up the moment the selection collapses. The
+scroll view needs none of this — its rows are keyed by absolute line.
 
 **Select all is the client's selection, in either view.** `Cmd+A` (`Ctrl+Shift+A` off macOS) selects a
 pane's whole scrollback — opening the scroll view on a pane that has no view yet, since there is
@@ -81,7 +80,8 @@ carries on to tmux.
 
 Copy mode is **per-pane**: `TerminalPane` reads `copyModeStates[paneId]` and renders `ScrollbackTerminal`
 when present, otherwise the live `Terminal`. State for a pane is pruned when the pane leaves copy mode or
-is closed — the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` owns that pruning.
+is closed — `reconcilePaneMode` (`machines/app/actions/copyMode/scrollback.ts`), run from the model update
+(`machines/app/actions/layout/modelUpdate.ts`) on every state the server sends, owns that pruning.
 
 ## Entry and Exit
 
@@ -100,41 +100,42 @@ is closed — the `TMUX_STATE_UPDATE` reconciliation in `appMachine.ts` owns tha
 
 **Copy mode — entry and exit:**
 
-- `prefix + [` — the `copy-mode` command is intercepted in `appMachine` and raised as `ENTER_COPY_MODE`
+- `prefix + [` — the `copy-mode` command is intercepted in `machines/app/dispatch.ts` and raised as `ENTER_COPY_MODE`
   (the original command still forwards to tmux, which flips `in_mode`).
-- A pane reported `in_mode` by tmux (e.g. a CLI `copy-mode`, a custom binding) — the `TMUX_STATE_UPDATE`
-  reconciliation initializes a client copy-mode state and fetches its full history.
-- `q` / `Escape` / `y` — handled by tmux's `copy-mode-vi` bindings; the pane leaves `in_mode` and the
-  reconciliation drops the client state.
+- A pane reported `in_mode` by tmux (e.g. a CLI `copy-mode`, a custom binding) — `reconcilePaneMode`
+  initializes a client copy-mode state and fetches its full history.
+- `q` / `Escape` / `y` — handled by tmux's `copy-mode-vi` bindings; the pane leaves `in_mode` and
+  `reconcilePaneMode` drops the client state.
 - Scrolling back to the bottom of history with no active selection — `copyMode_scroll` auto-exits.
   A selection holds the view open — copy mode's own, or the browser's in the scroll view, which
   the scroll event reports (`nativeSelection`) since only the component can see it.
 - A 2-second re-entry cooldown (`COPY_MODE_REENTRY_COOLDOWN`) prevents a stale `in_mode` flag from
   immediately re-opening copy mode after an exit.
 
-The mouse never opens copy mode. A wheel gesture opening a mode with a cursor and vi keys is what
-this split exists to undo.
+No mouse gesture opens copy mode: a wheel gesture opening a mode with a cursor and vi keys is what
+this split exists to undo. The one pointer path in is a phone's touch-hold (`components/terminal/usePaneTouch.ts`), which
+selects the word under the finger and needs copy mode's own selection to do it.
 
 ## Scrollback loading
 
 Row indices are absolute: a row's index is `history_size + <tmux offset>`. A view can open before tmux
 has reported the pane's real `history_size` (it starts near zero), so every response carries the size
 it was answered with and rows already merged are re-keyed by the difference
-(`shiftScrollbackRows`) before the new chunk lands. Without that the screen rows sit on top of the
-oldest history, and a copy of the whole scrollback comes back with its tail at the front.
+(`shiftScrollbackRows`) before the new chunk lands; otherwise the screen rows would sit on top of
+the oldest history.
 
 History is loaded lazily as structured cells, never as a client-maintained scrollback buffer of live
 output. On entry the client fetches the full backlog; as the user scrolls, `getNeededChunk` requests
 200-line chunks around the viewport and `mergeScrollbackChunk` merges them into the `lines` map
 (tracked by `loadedRanges`). Rows that exist but aren't loaded yet render as dim placeholders.
 
-The fetch is a single transport call — `call('get_scrollback_cells', { paneId, start, end })` —
-implemented per transport:
+The fetch is a single transport call — `call('get_scrollback_cells', { paneId, start, end })`:
 
-- **HTTP/SSE server** — `ClientCommand::GetScrollbackCells` runs `capture-pane -p -e -S start -E end`
-  and parses it with `parse_scrollback_to_cells` (`tmuxy-server/src/sse.rs`, `tmuxy-core`).
-- **Tauri desktop** — the `get_scrollback_cells` command mirrors the same capture + parse
-  (`tmuxy-tauri-app/src/commands.rs`).
+- **HTTP/SSE server and Tauri desktop** — both forward `ClientCommand::GetScrollbackCells` to
+  `tmuxy_core::host::handle` (`tmuxy-core/src/host/command.rs`), whose `scrollback_cells`
+  (`host/requests.rs`) runs one in-band query — the pane's width and `history_size` and a
+  `capture-pane -p -e -S start -E end` in the same command list, so they describe the same
+  moment — and parses the text with `parse_scrollback_to_cells`.
 - **Fully client-side (v86, CheerpX)** — there is no server, so `GuestEngine.captureScrollback` runs the same
   `capture-pane` over the in-browser control connection (a reply the wasm core correlates, as the
   native monitor does) and hands the raw text to the core's `parse_scrollback` (a wasm export
@@ -142,8 +143,8 @@ implemented per transport:
 
 ## Keyboard
 
-Copy-mode vi keybindings are reimplemented client-side in `copyModeKeys.ts` (`handleCopyModeKey`). While
-a pane is in copy mode, `keyboardActor.ts` calls `preventDefault()` on every keydown and dispatches
+Copy-mode vi keybindings are reimplemented client-side in `domain/copyModeKeys.ts` (`handleCopyModeKey`). While
+a pane is in copy mode, `machines/actors/keyboardActor.ts` calls `preventDefault()` on every keydown and dispatches
 `COPY_MODE_KEY`; the `copyMode_key` action resolves it to cursor motion, selection, page/word/line
 motions, yank, or exit against the pane's `CopyModeState`. Supported keys include `h`/`j`/`k`/`l` (+
 arrows), `0`/`$`, `w`/`b`/`e`, `H`/`M`/`L`, `gg`/`G`, `Ctrl-u`/`Ctrl-d`/`Ctrl-b`/`Ctrl-f`, `Space`/`v`
@@ -187,13 +188,11 @@ lives on a row, and a full-screen application is sent rows. `onScroll` reports t
 via `COPY_MODE_SCROLL`. Mouse-tracking applications (`mouse_any_flag`, e.g. nvim/htop) receive
 forwarded SGR mouse sequences instead — that path is unchanged.
 
-A **swipe that opens a view** has two hazards, both about the gesture outliving the DOM it started
-on. A touch is dispatched to the node it started on for its whole life, and a node out of the
-document passes it to no listener, so the live screen stays mounted (hidden) behind an open view
-instead of being replaced — replacing it silenced the swipe at the very row that opened the view.
-And until React has re-rendered with the view open, each further move still asks to open one, so
-`ENTER_SCROLL_MODE` on an already-open view scrolls it further instead of rebuilding it at the
-bottom. Without those two, a long swipe landed one row above the live screen.
+A **swipe that opens a view** outlives the DOM it started on, so two rules hold: the live screen
+stays mounted (hidden) behind an open view rather than being replaced, because a touch is dispatched
+to the node it started on for its whole life and a node out of the document passes it to no listener;
+and `ENTER_SCROLL_MODE` on an already-open view scrolls it further instead of rebuilding it at the
+bottom, because each further move still asks to open one until React has re-rendered.
 
 ## Clipboard
 
@@ -225,15 +224,19 @@ types the selection into the pane. Either closes the view.
 | --- | --- |
 | `packages/tmuxy-ui/src/components/terminal/ScrollbackTerminal.tsx` | Virtual-scrolling renderer for loaded scrollback + client cursor/selection |
 | `packages/tmuxy-ui/src/components/terminal/TerminalPane.tsx` | Chooses `ScrollbackTerminal` vs live `Terminal`; owns the native scroll container and `onScroll` |
-| `packages/tmuxy-ui/src/machines/app/actions/copyMode.ts` | XState actions for both views: enter/exit, cursor/selection, scroll, chunk merge, prefetch |
+| `packages/tmuxy-ui/src/machines/app/actions/copyMode.ts` | XState actions for both views: enter/exit, cursor/selection, scroll, key handling |
+| `packages/tmuxy-ui/src/machines/app/actions/copyMode/scrollback.ts` | Building a view's state, history fetch and chunk merge, `reconcilePaneMode` (open/prune against tmux's `in_mode`), leaving after a copy |
 | `packages/tmuxy-ui/src/infra/dom/nativeSelection.ts` | Reading the browser's selection and selecting the word under a point |
 | `packages/tmuxy-ui/src/machines/app/states/copyMode.ts` | Wires `COPY_MODE_*` events to their actions (idle-only) |
-| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | Intercepts keydowns in copy mode → `COPY_MODE_KEY` / `COPY_SELECTION`; native clipboard `copy` handler |
+| `packages/tmuxy-ui/src/machines/actors/keyboardActor.ts` | The keyboard actor; its copy-mode and clipboard work is in the two modules below |
+| `packages/tmuxy-ui/src/machines/actors/keyboard/modalAndCopyKeys.ts` | Classifies keydowns in copy mode, the scroll view and the ask overlay → `COPY_MODE_KEY` / `COPY_SELECTION`, and the copy a browser allows only inside the key's own event |
+| `packages/tmuxy-ui/src/machines/actors/keyboard/imeAndClipboard.ts` | Copy on select, the native `copy` event, IME composition |
 | `packages/tmuxy-ui/src/domain/copyModeKeys.ts` | Pure vi-key handler (`handleCopyModeKey`): motions, selection, page/word/line, yank, exit |
 | `packages/tmuxy-ui/src/domain/copyMode.ts` | The copy-mode state, and the pure helpers on it: scrollback merge, row re-keying, gap detection, needed-chunk detection, selected-text extraction |
-| `packages/tmuxy-ui/src/components/terminal/usePaneMouse.ts` / `usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
+| `packages/tmuxy-ui/src/components/terminal/usePaneMouse.ts` / `components/terminal/usePaneTouch.ts` | Mouse/touch → copy-mode enter, selection, and native scroll |
 | `packages/tmuxy-ui/src/machines/actors/tmuxActor.ts` | `FETCH_SCROLLBACK_CELLS` → `call('get_scrollback_cells')` → `COPY_MODE_CHUNK_LOADED` |
-| `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by server, Tauri, and the wasm core) |
+| `packages/tmuxy-core/src/host/requests.rs` | `scrollback_cells`: the in-band capture both hosts answer `get_scrollback_cells` with |
+| `packages/tmuxy-core/src/lib.rs` | `parse_scrollback_to_cells` (shared by the host and the wasm core) |
 | `packages/tmuxy-ui/src/infra/transport/drivers/guest/GuestEngine.ts` | `captureScrollback` (marker-bracketed capture) + `parseScrollback` for the in-browser deployment |
 
 ## Related

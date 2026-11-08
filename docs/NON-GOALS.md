@@ -77,7 +77,7 @@ We use DOM rendering (spans), not canvas or WebGL.
 - Accessibility (screen readers) works with DOM
 - Canvas/WebGL is premature optimization
 
-### 8a. Resuming Processes Across a Restart
+### 8. Resuming Processes Across a Restart
 
 A session snapshot (`tmuxy_core::session_snapshot`) records a session's SHAPE —
 tabs, splits, floats, sidebars, groups, each pane's directory and the program
@@ -91,13 +91,13 @@ process, as they are in tmux-resurrect and Zellij. A pane group comes back whole
 its members parked out of view return parked, in pane-id order — but the
 position of the visible member among them is not kept: it comes back first.
 
-### 8. Simultaneous Multi-Session Views
+### 9. Simultaneous Multi-Session Views
 
 We do NOT render more than one tmux session at a time. One tmuxy instance is attached to one session; there is no split view across sessions and no cross-session pane layout.
 
 Switching between them _is_ supported — the session switcher (a dropdown that filters as you type, `SessionMenu.tsx`) and `tmuxy session switch` reattach without a page reload. The switcher also attaches to a different tmux socket, locally or over SSH, by retargeting the running monitor rather than relaunching.
 
-### 9. SSH via Web Server
+### 10. SSH via Web Server
 
 SSH connections (remote server attachment) are only available in the Tauri desktop app. The web server accesses the host's local tmux; there is no browser-to-SSH tunnel.
 

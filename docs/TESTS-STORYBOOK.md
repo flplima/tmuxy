@@ -29,29 +29,19 @@ A quarantined story that fails by **timing out** is the one kind quarantine must
 
 ### When the nightly reports
 
-The nightly sweep (`nightly-v86.yml`) runs every story, and a story that fails is run again that night, alone, on a fresh runner. From the two runs each story gets one verdict for the night: **pass**; **flaky**, failed in the sweep and passed on the fresh runner; or **confirmed**, failed both times. Tonight's verdicts join the last nights' in a ledger kept in the Actions cache, and `packages/tmuxy-ui/scripts/lib/nightly-ledger.mjs` decides from them:
-
-| Tonight                                         | What happens                                                                    |
-| ----------------------------------------------- | ------------------------------------------------------------------------------- |
-| A confirmed failure                             | Reported on the tracking issue that night, with its error, and the run goes red |
-| A story flaky on 2 or more of the last 7 nights | Reported the same way: a story that keeps flaking is racing something           |
-| A one-night flake                               | Logged in the run, kept in the ledger, not reported; the run stays green        |
-| A sweep job that wrote no results               | Reported: no verdict is not a pass                                              |
-| Nothing of the above                            | The tracking issue is closed                                                    |
-
-Before this, any failure opened the issue and the next green night closed it. Issues #87 to #145 were mostly one story failing once on a loaded runner, a different one each night, so the issue stopped meaning anything. `docs/NIGHTLY-SWEEP.md` has that history and why the guest stayed on v86.
+The nightly sweep (`nightly-v86.yml`) runs every story, and a story that fails is run again that night, alone, on a fresh runner. From the two runs each story gets one verdict for the night — pass, flaky (failed once) or confirmed (failed twice) — and the ledger of the last nights decides what is reported and whether the tracking issue opens or closes. The verdict table and the rules are in [NIGHTLY-SWEEP.md](NIGHTLY-SWEEP.md#what-changed) (`packages/tmuxy-ui/scripts/lib/nightly-ledger.mjs`).
 
 A reported story is fixed, not retried: the second run already was the retry. Reproduce it with `PROBE_REPEAT` and `PROBE_CPU_THROTTLE` as above. When it fails one run in ten, the story is waiting on time where it should wait on a state.
 
 ### Step animations, don't sample them
 
-A story that asserts how an animation looks must not sample real frames. A CSS transition of 80ms is about five frames, and a runner that drops two of them leaves no sample mid-fade: the story then fails one run in ten while the product is fine. That is the nightly failure of 2026-10-29 (`FocusCueNeverHardFlips`).
+A story that asserts how an animation looks must not sample real frames. A CSS transition of 80ms is about five frames, and a runner that drops two of them leaves no sample mid-fade: the story then fails one run in ten while the product is fine (`FocusCueNeverHardFlips` did, before it stepped the fade).
 
 Read the transition instead. `getAnimations()` returns a running CSS transition as an object; a story pauses it, sets its `currentTime` to each point it wants to check, and reads the computed style there. A MutationObserver on the element catches the class change before the next frame, so no part of the fade has run yet. `stepFocusCueOnElement` in `src/stories/animationStoryHelpers.ts` is the model. A transition that is missing is itself the failure a "hard flip" assertion looks for.
 
 ### Accessibility
 
-Every story is scanned with axe-core (already installed via `@storybook/addon-a11y`) once its play function settles — on every push (`storybook-probe`) and nightly over the full set (the `deterministic` job of `nightly-v86.yml`). The scan was nightly-only while every blocking rule sat in quarantine; with the quarantine empty it gates, and `PROBE_A11Y=0` is a local knob for a run that wants only the play functions. **`critical` and `serious` violations fail the job; `moderate` and `minor` are printed only.** A story that navigates its own page is recorded as skipped rather than failed. `Mocked App/Sidebar Layout → TabOrderNeverTrapsTheKeyboard` is the keyboard-only check: it tabs through the chrome and asserts focus moves, is visible at every stop, never repeats before wrapping and is never trapped.
+Every story is scanned with axe-core (already installed via `@storybook/addon-a11y`) once its play function settles — on every push (`storybook-probe`) and nightly over the full set (the `deterministic` job of `nightly-v86.yml`). The scan was nightly-only while every blocking rule sat in quarantine; with the quarantine empty it gates, and `PROBE_A11Y=0` is a local knob for a run that wants only the play functions. **`critical` and `serious` violations fail the job; `moderate` and `minor` are printed only.** A story that navigates its own page is recorded as skipped rather than failed.
 
 ### Choosing a harness
 

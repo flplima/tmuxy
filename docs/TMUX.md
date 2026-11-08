@@ -85,24 +85,26 @@ alias, and any prefix of its name no other command shares (`resize-w` is
 `resize-window`). A query (`query_tmux`) runs only tmux's reads; anything else goes
 through `run_tmux_command`.
 
-The subprocess calls that remain are in `tmuxy-core/src/session.rs` and
-`control_mode/connection.rs`, and each is needed before any control-mode client exists
-(`session::tmux_output` also serves the CLI's own verbs, which tmux runs inside
-`run-shell`). The paste-buffer mirror is not among them: a copy-mode yank is read back
-in-band, by the aggregator, on both hosts.
+Both transports hand a client's command to the same function, `tmuxy_core::host::handle`
+(`tmuxy-server/src/sse/commands.rs`, `tmuxy-tauri-app/src/commands.rs`), and the config chain,
+`show-options` and `list-keys` ride the connection too (`tmuxy-core/src/host/bindings.rs`). The
+tmux subprocesses that remain run where no control-mode client of the session exists yet, or
+beside one as a read tmux allows (every site goes through `tmux_command()` / `tmux_output` in
+`tmuxy-core/src/session.rs`):
 
-| Command | Location | Justification |
+| Command | Where | Why |
 | --- | --- | --- |
-| `has-session` | `session.rs`, `connection.rs` | Check if session exists **before** connecting control mode |
-| `new-session` | `session.rs` | Create session **before** control mode attaches |
-| `source-file` | `session.rs` | Source config during session creation (the monitor's initial sync sends its own over control mode, `control_mode/monitor/sync.rs`) |
-| `kill-session` | `session.rs` | Destroy session (no control mode attached) |
-| `show-options` | `gui.rs` (desktop setup) | The window's blur/appearance is read before the monitor starts |
-| `load-buffer -` | the server binary's `send --paste` (`tmuxy-verbs/src/send_cli.rs`, behind `pane paste`) | Reads the payload from stdin, which `run-shell` cannot supply. Mutates only the paste buffer, never session/window/pane state, so it does not touch what control mode is tracking. The `paste-buffer` that follows does route through `run-shell`. |
+| `has-session`, `list-sessions` | `session.rs`, `control_mode/connection/spawn.rs`, the desktop's attach dialog (`tmuxy-tauri-app/src/windows/attach.rs`) | Read-only: which sessions exist, before connecting |
+| `tmux -CC new-session -A` | `control_mode/connection/spawn.rs` | The control-mode connection itself, which creates the session when it is missing. A further session is created over an existing connection (`create_session_via` in `tmuxy-core/src/host.rs` sends `new-session -d`) |
+| `load-buffer -` | the `send` verb's `--paste` (`tmuxy-verbs/src/send_cli.rs`, behind `pane paste`) | Reads its payload from stdin, which `run-shell` cannot supply; touches only the paste buffer. The `paste-buffer` that follows goes through `run-shell` |
+| `capture-pane -p` | `host/socket_watch/agent_screen.rs` | A read-only look at the bottom of an agent's pane for an approval dialog; its one write is a `run-shell -b` |
 
-These are safe because they run **before** control mode connects. Do not add to this
-table: a read a client needs goes through `query_tmux`, and a read the core needs while
-attached goes through the aggregator's in-band path.
+`session::tmux_output` also runs the CLI's own verbs (`tmuxy-verbs`), which tmux executes inside
+`run-shell`; `kill-session` is one of them (`session forget --force`,
+`tmuxy-verbs/src/session_cli.rs`), and the desktop's session-group windows send theirs over the
+base session's monitor (`tmuxy-tauri-app/src/windows.rs`). Do not add to this table: a read a
+client needs goes through `query_tmux`, and a read the core needs while attached goes through the
+aggregator's in-band path.
 
 ### Shell Scripts and `run-shell`
 
@@ -124,7 +126,13 @@ Window indices (`:0`, `:1`, `:3`) can shift when windows are created or destroye
 
 This matters especially in automation and tests where multiple operations happen in sequence — between a query and the next command, indices may have shifted.
 
-The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy therefore resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and no longer ships `bind -n C-N` lines in its config. Every window or pane the client then names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale (a split once landed in the wrong tab that way). The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless. A command must also name the WINDOW it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore always leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. No target is ever added on the way to tmux, on either transport: the pinned list reaches the control-mode connection byte-identical (`command_router::route_command`). A session target would be resolved late, against the session's _current_ window, so a concurrent `select-window` between the pin and the split could move the split to another tab; the untargeted command after a pin, sent as-is, inherits the queue's current target and holds it. `ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once by the `useTabStill` hook (`tmuxy-ui/src/components/useTabStill.ts`), so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
+The same rule shapes the tab strip. Chrome windows (floats, sidebars) hold tmux indices the user never sees, so `select-window -t N` from a root binding lands on the wrong tab whenever one sits before it. tmuxy resolves `ctrl+1`…`ctrl+9` on the client, by **position in the strip** (the index-ordered visible tabs), and ships no `bind -n C-N` lines in its config.
+
+Every window or pane the client names in a command is an **id** (`@N` / `%N`), never a tmux index: `renumber-windows` shifts indices whenever a window closes and tmux announces none of the shifts, so an index the client holds can be a beat stale. The backend re-lists windows after any window add, close or reorder, but the id rule is what makes a stale list harmless.
+
+A command must also name the **window** it acts on, not just the pane: `select-pane` on a pane in another window sets that window's active pane and leaves tmux's current window alone, so a `split-window` after it still runs wherever tmux already was. The keyboard actor's pin therefore leads with `select-window` (taking the window from the pinned pane when the machine has not published an active one yet), and the sidebar and float creators name the pane they split, because nothing in their command list switches windows first. No target is ever added on the way to tmux, on either transport: the pinned list reaches the control-mode connection byte-identical (`command_router::route_command`). A session target would be resolved late, against the session's _current_ window, so a concurrent `select-window` between the pin and the split could move the split to another tab; the untargeted command after a pin, sent as-is, inherits the queue's current target and holds it.
+
+`ctrl+0` (and `prefix w`, and the grid button at the right end of the app header) opens the Tab Overview — a client-side grid of every tab where a slot click selects, the trailing "+" creates, a slot's ✕ kills, and a drag reorders by sending `move-window -b`/`-a` against the neighbouring tab's `@id` (a tab dragged along the strip itself reorders the same way). Each slot draws its tab's panes with the screen each pane had when the overview opened: a still taken once by the `useTabStill` hook (`tmuxy-ui/src/components/useTabStill.ts`), so a tab that keeps printing does not churn its thumbnail. See `tmuxy-ui/src/machines/app/actions/tabOverview.ts` and `tmuxy-ui/src/components/TabOverview.tsx`.
 
 ## Pane Titles
 
@@ -135,7 +143,7 @@ A pane header shows what the running application called itself, falling back to 
 | App title | `pane_title` | Set by the application over OSC 0/2 — `nvim README.md`, an ssh host, a Claude Code session summary. |
 | Process name | `pane_current_command` | Only the executable's **file name**. A version-pinned launcher symlink (`~/.local/bin/claude` → `…/versions/2.1.251`) reports the version number, which is useless as a label. |
 
-The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants.rs`, mirrored by the `list-panes` formats in `packages/tmuxy-cli/bin/tmuxy-cli` and the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`. All four must stay in step; the `constants/tests.rs` tests guard the Rust pair. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
+The catch is that tmux **seeds every pane's `pane_title` with the host name**, so a non-empty value does not by itself mean an application set one. Rather than shipping the host name to every client to compare there, the pane enumerations ask tmux to do the comparison and return an empty field when the title is still the seed — `tmux_formats::APP_PANE_TITLE` in `tmuxy-core/src/constants/tmux_formats.rs`. The CLI's copy (`APP_PANE_TITLE_FMT` in `packages/tmuxy-cli/bin/tmuxy/_options`) and the UI's (`tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, read by the sessions-tree poll in `tmuxy-ui/src/machines/actors/serversActor.ts`) are **generated** from it by `tmuxy-core/tests/generated_constants.rs`, which fails when either file is stale and rewrites both under `UPDATE_GENERATED=1`. The sessions poll reads its rows through `query_tmux`, answered in-band on the control-mode connection like every other read.
 
 Downstream, an empty title unambiguously means "no app title", so every consumer resolves `title → command → 'shell'` (`getTabText` in `tmuxy-ui/src/components/paneTabDisplay.ts`). One consequence is inherent to the rule: tmux keeps the last title a pane was given, so a title can outlive the program that set it until the shell's own prompt hook replaces it.
 

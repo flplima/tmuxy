@@ -34,17 +34,11 @@ splitw -t <session> ; breakp
 
 This creates a new pane in the current window, then immediately breaks it into its own window — replicating `new-window` behavior without the crash.
 
-**Where it's applied:**
-
-- `packages/tmuxy-core/src/command_router.rs` — `route_command` finds a `neww`/`new-window` in any client command (also inside a pinned compound or a `{ … }` block, rewritten in place there) and swaps it for the rewrite, via `CommandList::rewrite_new_window` in `tmux_command.rs` (the one tmux command-list grammar). That file's `NewTab` is the single place the `splitw ; breakp` list (with the optional resize) is spelled out, for the rewrite, `tmuxy tab create` and the MCP's `tab_create` alike. Both transports route every client command through it.
-- `packages/tmuxy-cli/bin/tmuxy/` shell scripts — Use `split-window -dP` + `break-pane -d -s $PANE -n name` when creating windows from `run-shell`.
-- `tests/helpers/TmuxTestSession.js` — Test session creation uses the same workaround.
+**Where it's applied:** `route_command` (`packages/tmuxy-core/src/command_router.rs`) finds a `neww`/`new-window` in any client command — inside a pinned compound or a `{ … }` block too — and swaps it for the rewrite, via `CommandList::rewrite_new_window` in `tmux_command.rs` (the one tmux command-list grammar). `NewTab` (`packages/tmuxy-core/src/tmux_command/new_tab.rs`) is the single place the `splitw ; breakp` list (with its optional resize) is spelled, for the rewrite, `tmuxy tab create` and the MCP's `tab_create` alike. Both transports reach it through `tmuxy_core::host::handle` — the web server's `/commands` route and the desktop's `dispatch` command (`packages/tmuxy-tauri-app/src/commands.rs`) — so no client path to tmux bypasses it. The E2E suite's sessions are created by the server itself (`tests/helpers/TmuxTestSession.js`), through the `-CC new-session` that opens the connection.
 
 ## Tauri Desktop App: `new-window` Handling
 
-The Tauri `run_tmux_command` handler (`packages/tmuxy-tauri-app/src/commands.rs`) routes through `command_router::route_command` like the web server, so a `new-window`/`neww` reaches the control-mode connection as the `splitw ; breakp` rewrite.
-
-The native desktop menus (the macOS menu bar and the native popups) are built by the frontend from its menu spec (`packages/tmuxy-ui/src/components/menus/specs/`, rendered natively by `infra/menus/nativeMenu.ts`), so every item's callback runs in the page and dispatches through `useMenuDispatch` — the same control-mode-safe adapter path as the in-app menu (including the `new-window` rewrite and the `@tmuxy-window-type` tag). The Rust side holds no menu of its own.
+The native desktop menus (the macOS menu bar and the native popups) are built by the frontend from its menu spec (`packages/tmuxy-ui/src/components/menus/specs/`, rendered natively by `infra/menus/nativeMenu.ts`), so every item's callback runs in the page and dispatches through `useMenuDispatch` (`components/menus/SpecMenu.tsx`) — the same control-mode-safe path as the in-app menu, rewrite and `@tmuxy-window-type` tag included. The Rust side holds no menu of its own.
 
 ## `%unlinked-window-close` Events
 
@@ -63,18 +57,13 @@ It expands to the same single int-like field, so the row parser's positions and 
 `@window` anchor are unchanged. `%pane-mode-changed` only asks for the pane's row again;
 the row is the one source of the mode (see `control_mode/state/events.rs`).
 
-This surfaced on **tmux 3.4**, where a pane landed in `view-mode` as soon as a CLI command
-sent through `run-shell` printed anything or failed (the version table above): the whole
-terminal rendered as a 0×0 box and never recovered. It was not version-specific in
-principle — `prefix s` on any version could do the same — and 3.4 is simply where it was
-guaranteed. A lockstep test in `constants/tests.rs`
-keeps the format from regressing to the broader field.
+View mode is where `run-shell` output lands on tmux 3.4 (the version table), and `prefix s` opens tree mode on any version; either would hide the live terminal behind a scrollback view nothing closes if the row reported only `pane_in_mode`. A lockstep test in `constants/tests.rs` keeps the format from regressing to the broader field.
 
 ### View mode is closed, with a notice
 
 View mode still reaches a tmuxy pane on every version: a `run-shell -b` that prints opens
 one on the current pane (`cmd_run_shell_print` with no command item — the relay in
-`monitor_core/run_shell.rs` leaves `-b` alone, since nobody waits for it), a plugin or tmux.conf
+`control_mode/monitor_core/run_shell.rs` leaves `-b` alone, since nobody waits for it), a plugin or tmux.conf
 binding doing the same, or a terminal client attached to a grouped session. tmuxy draws
 no view mode, and `capture-pane` reads the pane's own grid, never a mode's text, so the
 pager cannot be shown either. Left open, every key goes to it, and `:` opens a prompt on
@@ -89,7 +78,7 @@ version — and shows a notice saying the view was closed. A terminal client of 
 
 Prompt commands that print (`show-messages`, `list-keys`) never open a view for a control
 client: tmux answers them inside the command's reply. The monitor shows that reply as a
-notice (`monitor_core/replies.rs`, the `ReportFailure` waiter), clipped like a `run-shell`'s
+notice (`control_mode/monitor_core/replies.rs`, the `ReportFailure` waiter), clipped like a `run-shell`'s
 output, instead of dropping it. `prefix ?` is a client key and never reaches tmux; the
 help modal is native.
 
@@ -99,23 +88,21 @@ tmux 3.2+ supports `pause-after` flow control. The monitor configures `pause-aft
 
 ## tmux 3.7a Format Expansion (Critical)
 
-tmux 3.7a expands format strings (`#{...}`) in **more places** than earlier versions. Two of these bit tmuxy in practice; both will affect any code path that upgrades past 3.6b.
+tmux 3.7a expands format strings (`#{...}`) in **more** places than earlier versions. The rules below hold on every supported version.
 
 ### `run-shell` expands its command string
 
-`run-shell "..."` format-expands the whole string before handing it to the shell. A nested `-F '#{pane_id}'` inside a run-shell'd tmux command is therefore pre-expanded against the **currently active pane** — not the pane the inner command creates. This made `float-create` break the _wrong_ pane into the float window.
-
-Rule: inside any `run-shell` string, write `##{...}` — run-shell's expansion halves it to `#{...}` for the inner command. `shquote` in `packages/tmuxy-cli/bin/tmuxy-cli` doubles every `#` it interpolates for this reason. (3.6b behaves the same; the bug had simply never been triggered through this path before.) `float-create` was the path that found the bug and no longer needs the escape: it stopped asking run-shell for the new pane's id (see below).
+`run-shell "..."` format-expands the whole string before handing it to the shell, against the **currently active pane** — so a nested `-F '#{pane_id}'` names that pane, not the one the inner command creates. Rule: inside any `run-shell` string, write `##{...}`, which the expansion halves to `#{...}` for the inner command; `shquote` in `packages/tmuxy-cli/bin/tmuxy/_lib` doubles every `#` it interpolates for this reason.
 
 ### `run-shell` hands its command no pane, and an outside client has none
 
-The `tmux` a run-shell'd command runs is a client of its own, and run-shell does not set `TMUX_PANE` for it. A target-less `send-keys` or `break-pane` in there is resolved the way tmux resolves anything for an unattached client with no pane: the session with the latest activity. Usually that is the one the user is in — until `pane group add` parks a member in the hidden `__tmuxy_stash` session, after which the stash is "latest" and a `tab create` or `pane send` from a script, a test or an SSH agent lands where no client looks. (Nothing bumps a session's activity back short of a client's key press; `select-window`, `set-option` and the rest leave it alone.)
+The `tmux` a run-shell'd command runs is a client of its own, and run-shell does not set `TMUX_PANE` for it. A target-less `send-keys` or `break-pane` in there resolves as for any unattached client with no pane: to the session with the latest activity — which, once `pane group add` has parked a member in the hidden `__tmuxy_stash` session, is the stash. (Nothing bumps a session's activity back short of a client's key press; `select-window`, `set-option` and the rest leave it alone.)
 
-`packages/tmuxy-cli/bin/tmuxy-cli` therefore resolves the pane it acts on once per invocation when the caller has no `$TMUX_PANE` (a read-only `list-panes -a -f …`, preferring an attached real session, never the stash), exports it, and `run_safe` passes it to the inner client as `TMUX_PANE=%N tmux …` — tmux reads an unattached client's `TMUX_PANE` the way it reads a pane's own. Every `breakp` the CLI issues also names its destination session, `-t '#{session_id}:'`, expanded by run-shell for that pane. Inside a pane none of this changes anything: the caller's pane is the one resolved.
+Rule: `packages/tmuxy-cli/bin/tmuxy-cli` resolves the pane it acts on once per invocation when the caller has no `$TMUX_PANE` (a read-only `list-panes -a -f …`, preferring an attached real session, never the stash), exports it, and `run_safe` passes it to the inner client as `TMUX_PANE=%N tmux …` — tmux reads an unattached client's `TMUX_PANE` the way it reads a pane's own. Every `breakp` the CLI issues also names its destination session, `-t '#{session_id}:'`, expanded by run-shell for that pane.
 
 ### `send-keys` expands its arguments in the v86 guest — and `##` does NOT protect valid variables
 
-Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'text'` format-expands the literal. Empirically:
+Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'text'` format-expands the literal:
 
 | Payload sent | Pane receives |
 | --- | --- |
@@ -124,21 +111,11 @@ Through the v86 guest's console (tmux 3.7a on a serial line), `send-keys -l 'tex
 | `#{not_a_var}` | `#{not_a_var}` (unknown names pass through) |
 | `#(date)` | `#(date)` (command formats not run) |
 
-Because doubling the hash does **not** protect a valid variable, the only reliable transport-level fix is to **split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary** so the two characters never share a format context. The router does this for every transport (`split_format_literals` in `packages/tmuxy-core/src/tmux_compat.rs`, applied by `command_router::route_command`); the in-browser guests route through the same function, compiled to wasm.
-
-The native control-mode path has not been seen to expand typed text: a `#{pane_id}` typed at the prompt reaches the shell verbatim on 3.8 and on every tmux the per-commit and nightly suites run, which `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks on each of them. The split costs nothing there, and one rule for every transport means a tmux that starts expanding is covered already.
+Rule: split the literal into separate `send-keys -l` chunks at every `#`/`{` boundary, so the two characters never share a format context. The router does this for every transport (`split_format_literals` in `packages/tmuxy-core/src/tmux_compat.rs`, applied by `command_router::route_command`); the in-browser guests route through the same function, compiled to wasm. The native control-mode path has not been seen to expand typed text — `tests/1-input-interaction-keys.test.js` ("typed text reaches the shell verbatim") checks it on every tmux the suites run — and one rule for every transport means a tmux that starts expanding is covered already.
 
 ### Mouse-tracking panes eat pasted SGR sequences — inject with `send-keys -H`
 
-On 3.7a, when a pane's application has enabled mouse reporting (`?1000h`/`?1006h`, i.e. `mouse_any_flag` is set), an SGR mouse sequence (`ESC [< b;x;y M`) delivered to that pane via `paste-buffer` is **consumed by tmux and never reaches the application** — silently, with no error. The same bytes reach a pane that has NOT enabled mouse tracking. This broke tmuxy's synthetic mouse forwarding (browser click → SGR injection), which previously piped through `load-buffer`/`paste-buffer`.
-
-The reliable transport is `send-keys -t <pane> -H <hex bytes>`: raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` format expansion. The frontend builds these in `tmuxy-ui/src/domain/commandHelpers.ts` (`mouseReport`, for the `SendMouse` op).
-
-One trap: `-H` commands must never be merged by the frontend's send-keys batcher — joining two puts a literal `-H` token mid-keys, tmux rejects it as an unknown key, and the whole combined command fails (a click's press+release land in one batch window, so a plain click would deliver nothing).
-
-### Control-mode stdin wants bare `;` separators
-
-The frontend joins compound commands with a shell-escaped `\;` (correct for commands that pass through a shell or `run-shell` context). But tmux's control-mode line parser treats `\;` as a literal argument, silently erroring the whole command — which orphans the frontend's optimistic state (the "frozen UI after keyboard split" bug). Raw control-mode transports must rewrite the separator to a bare `;` — never inside a `send-keys -l` literal.
+On 3.7a, an SGR mouse sequence (`ESC [< b;x;y M`) delivered by `paste-buffer` to a pane whose application has enabled mouse reporting (`mouse_any_flag`) is consumed by tmux and never reaches the application, with no error. Rule: a synthetic mouse event goes as `send-keys -t <pane> -H <hex bytes>` — raw hex key bytes bypass both the paste path and 3.7a's `send-keys -l` expansion. The frontend builds these in `tmuxy-ui/src/domain/commandHelpers.ts` (`mouseReport`, for the `SendMouse` op). The keystroke batcher (`tmuxy-ui/src/infra/transport/keyBatching.ts`) joins only `SendKeys` and `SendText` ops, so a `SendMouse` is never merged into another send-keys: a `-H` token mid-keys is a key tmux does not know, and the whole command would fail.
 
 ## `list-keys` Reports Aliases Already Expanded
 

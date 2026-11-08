@@ -1,32 +1,10 @@
 # The nightly story sweep: why it kept failing, and what fixed it
 
-The nightly workflow (`.github/workflows/nightly-v86.yml`) runs every Storybook story: the `v86` tier, which boots real tmux in an x86 emulator in the page, and the deterministic tier, which replays recorded fixtures. Until October 2026 any failing story opened the tracking issue "Nightly v86 sweep is failing", and the next green night closed it. This page records why that issue reopened almost every week, why moving the guest to CheerpX would not have fixed it, and what did. How to read tonight's verdict is in [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md#when-the-nightly-reports).
+The nightly workflow (`.github/workflows/nightly-v86.yml`) runs every Storybook story: the `v86` tier, which boots real tmux in an x86 emulator in the page, and the deterministic tier, which replays recorded fixtures. Any failing story used to open the tracking issue and the next green night closed it. This page records why that issue reopened almost every week, why moving the guest to CheerpX would not have fixed it, and what did. How to read tonight's verdict is in [TESTS-STORYBOOK.md](TESTS-STORYBOOK.md#when-the-nightly-reports).
 
 ## What failed
 
-Eight issues in six weeks: #87, #94, #108, #115, #124, #125, #144 and #145. The failing runs behind them:
-
-| Run         | Stories that failed                                         | Kind                                                                  |
-| ----------- | ----------------------------------------------------------- | --------------------------------------------------------------------- |
-| 37456242059 | swap-drag-reconcile                                         | Frame budget: the drop painted in more frames than the budget allowed |
-| 37612601097 | group-close-member, pane-group, swap-drag-reconcile, theme  | Frame budget (15 frames against 5), and timing on the others          |
-| 38045912852 | osc-8-hyperlink                                             | Timing                                                                |
-| 38172956792 | theme                                                       | Theme stylesheet not yet swapped in when read                         |
-| 38394197740 | image-anchored-during-scroll                                | Timing                                                                |
-| 38711758263 | theme                                                       | The same, again                                                       |
-| 39113497315 | sync-panes                                                  | A fixed 1.5s "give the mirror a beat"                                 |
-| 40861988960 | clicking-shown-members, swap-keeps-content-in-correct-lines | One real defect, one timing                                           |
-| 41044549391 | focus-cue-never-hard-flips (deterministic tier)             | An 80ms fade sampled by real frames                                   |
-
-#87 was a resize precondition read before the boot-time resize had landed.
-
-Three things stand out:
-
-- **A different story nearly every night.** No single story was broken; the whole tier was waiting on time. The v86 stories held 23 fixed sleeps, 10 frame or paint budgets and 6 wall-clock reads, each measured on a fast machine.
-- **The same run passed when re-dispatched.** #145's story passed in the manual run on the same commit. Ten runs locally reproduced it once, at any CPU throttle: a race, not slowness.
-- **Real defects hid in the noise.** clicking-shown-members was a real regression. It arrived in the same issue as the flakes, and nothing told it apart.
-
-The issue had become a coin toss, so the one real defect it carried read like the others.
+A different story nearly every night, and the same run passed when re-dispatched. No single story was broken; the whole tier was waiting on time: the v86 stories held fixed sleeps, frame and paint budgets and wall-clock reads, each measured on a fast machine, and a loaded runner missed one of them. Ten local runs reproduced a failure once, at any CPU throttle: a race, not slowness. The one real regression in that stretch arrived in the same issue as the flakes, and nothing told it apart, so the issue had become a coin toss and the defect read like the rest.
 
 ## Would CheerpX fix it?
 
@@ -50,5 +28,3 @@ Speed was never the cause: the failures above came from waiting on wall-clock ti
 2. **Animations are stepped, not sampled.** The focus-cue story reads the fade's two CSS transitions, pauses them, and checks them at eleven points of their own timeline. It failed about one run in ten before and passed 30 of 30 after, unthrottled and at 6x CPU throttle; the one failure at 6x was the probe's page load timing out, not the story.
 3. **The nightly tells a flake from a defect.** A failing story runs again that night, alone, on a fresh runner. Failing twice is a defect and is reported. Passing the second time is a flake: logged and kept in a ledger, and reported once it flakes on 2 of the last 7 nights. The rules are `packages/tmuxy-ui/scripts/lib/nightly-ledger.mjs`, with unit tests beside it.
 4. **Every story starts at the snapshot's time.** The sweep rewinds one emulator between stories, and v86 sets a restored TSC right only on a machine whose TSC was never set. Every second restore left the guest's clock 99s behind its kernel, so the guest's time stood still for a minute and a half; the others leapt it forward by the previous story's length. A story that waited on the guest's time (`ShowsOnlyTheFinishedStart`'s `sleep 1`) failed whenever it followed another story, and passed on the fresh retry. The engine now zeroes the TSC offset before each restore (`restoreSnapshot`, `src/infra/transport/drivers/v86/v86Guest.ts`).
-
-The recurring theme story was deleted on 2026-10-20 with most of the v86 tier, so it needed no fix.

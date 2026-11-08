@@ -12,12 +12,12 @@ This document covers what's supported, how the pipeline works, and how to test e
 | **OSC 1337 — iTerm2 Inline Images** | `ESC ] 1337 ; File=… : <base64> BEL` | `control_mode/images.rs::try_parse_iterm2` | `Terminal.tsx` → `<img src="/api/images/…">` | Base64 of any browser-renderable format |
 | **APC \_G — Kitty Graphics** | `ESC _ G <keys> ; <payload> ESC \` | `control_mode/images.rs::try_parse_kitty` | same | Supports chunked transfers whose final packet sets `m=0` or omits `m`, formats `f=24`/`f=32`/`f=100` (the bytes of an `f=100` image are kept as they came and typed by their signature, so a GIF sent that way animates — what the demo's nyan cat does, `packages/tmuxy-demo/public/guest/icat`), ZLIB compression (`o=z`), and Unicode placeholders (`U=1`) used by Kitty's tmux passthrough mode |
 | **DCS Pq — Sixel** | `ESC P q … ESC \` | `control_mode/images.rs::try_parse_sixel` | same | Decoded by `icy_sixel`, re-encoded as PNG before serving. Only a DCS whose bytes before `q` are digits and `;` is Sixel: other DCS strings holding a `q`, such as nvim's XTGETTCAP query (`ESC P + q`), are not pictures |
-| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `packages/vt100` → `control_mode/osc.rs` (`OscRequests`, its callbacks) → `StateEmitter::write_clipboard` → the `clipboard` host event (an SSE frame on the web, a Tauri event on the desktop) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
+| **OSC 52 — Clipboard** | `ESC ] 52 ; c ; <base64> ST` | `packages/vt100` → `control_mode/osc.rs` (`OscRequests`, its callbacks) → `StateEmitter::write_clipboard` → the `clipboard` host event (an SSE frame on the web, a Tauri event on the desktop) | the transport's `Clipboard` event → `TMUX_CLIPBOARD` event → `navigator.clipboard.writeText` in appMachine | Outbound only — pasting back is not implemented. What is dropped: vt100 forwards the sequence only when every payload byte is in `A-Za-z0-9+/=` (`packages/vt100/src/perform.rs`); core refuses raw base64 over 2 MiB (`MAX_CLIPBOARD_BASE64_BYTES`) and a payload that does not decode to UTF-8 (`control_mode/osc.rs`); the aggregator's active-pane, size and rate bounds are in [SECURITY-CONTENT.md](SECURITY-CONTENT.md#pane-output-threat-model). Covered end to end by `tests/3-rendering-protocols.test.js` Scenario 14, which reads the clipboard write. |
 | **DEC Line Sizes — DECDHL / DECDWL** | `ESC # 3`, `ESC # 4`, `ESC # 5`, `ESC # 6` | `packages/vt100` (`LineSize` per row) + `extract_cells_from_screen` (`CellStyle.size`) | `components/terminal/cellPaint.ts` (both renderers) → `.terminal-scaled` (`dwl`, `dhl-top`, `dhl-bottom`) | `ESC # 3`/`# 4` render top/bottom halves of 2×2 double-height lines; `ESC # 6` renders 2×1 double-width; `ESC # 5` resets to single width. Preserved across `capture-pane` refreshes while the row's text matches |
 | **OSC 66 — Kitty Text Sizing** | `ESC ] 66 ; s=<n>:w=<n> ; <text> ST` | `packages/vt100` (`TextSize` on the cell) + `extract_cells_from_screen` | same | `s=2` emits `dhl-top` on row `r` and mirrors `dhl-bottom` onto the blank cell below it on row `r+1`; `w=2` (`s=1:w=2`) emits `dwl`. Preserved across `capture-pane` refreshes while the cell's character matches |
 
 **A link is an attribute of the cell its text was written to.** The vendored
-vt100 (`packages/vt100`, see its `PATCHES.md`) reads OSC 8 itself and writes
+vt100 (`packages/vt100`, see `packages/vt100/PATCHES.md`) reads OSC 8 itself and writes
 each character under the link that was open, the way it writes colours, so a
 link moves, reflows, scrolls and is overwritten with its text: an application
 that repaints in place (Claude Code, vim, htop) leaves no link on the text it
@@ -30,9 +30,9 @@ screen's OSC 8 links (tmux 3.4 and later), so a link survives the refill even
 when its program drew it before the resize landed and never draws it again; a
 link the capture leaves open is closed at its end, so it does not run on into
 later output. tmux keeps no links in the history a reload pulls in, so a link
-is not restored by reloading the page. (tmuxy used to strip OSC 8 before
-vt100 and keep its own map of cells to URLs; the map had to follow every
-scroll and check the text under each mark, and still drifted.)
+is not restored by reloading the page. The link lives on the cell rather than
+in a separate map of cells to URLs because such a map has to follow every
+scroll and check the text under each mark, and drifts.
 
 **Auto-detected URLs stop where a URL must.** `components/terminal/urlDetect.ts` matches the
 characters RFC 3986 allows in a URI, plus Unicode letters, digits and marks for
@@ -46,16 +46,16 @@ every row it covers, each opening the whole address. OSC 8 links already arrive
 whole on every row from the server. Either kind is one `<a>` per row, so
 hovering any row marks every anchor with the same target (`components/terminal/linkHover.ts`).
 
-OSC 8 has been supported for a long time. The image protocols landed together with the OSC 52 parser — the images are parsed in `tmuxy-core/src/control_mode/images.rs`, the other sequences by the vendored vt100, whose title and clipboard callbacks are `tmuxy-core/src/control_mode/osc.rs` — but only the SSE `clipboard` event + `TMUX_CLIPBOARD` plumbing finished the round-trip into `navigator.clipboard.writeText`. On the frontend, `Terminal.tsx` renders image placements and `TerminalLine.tsx` renders hyperlink cells.
+The images are parsed in `tmuxy-core/src/control_mode/images.rs`, the other sequences by the vendored vt100, whose title and clipboard callbacks are `tmuxy-core/src/control_mode/osc.rs`; the clipboard write reaches `navigator.clipboard.writeText` through the host's `clipboard` event and the `TMUX_CLIPBOARD` machine event. On the frontend, `components/terminal/Terminal.tsx` renders image placements and `components/terminal/TerminalLine.tsx` renders hyperlink cells.
 
 ## How tmux preserves the sequences
 
-Tmuxy speaks **tmux control mode** (`-CC`), and tmux forwards every escape sequence the running application emits inside `%output` events on stdout. That includes passthrough payloads. Earlier versions of this document claimed image escapes were stripped — that was wrong. The Rust parser sits on top of the control-mode byte stream and never needs to touch the pty directly.
+Tmuxy speaks **tmux control mode** (`-CC`), and tmux forwards every escape sequence the running application emits inside `%output` events on stdout. That includes passthrough payloads. The Rust parser sits on top of the control-mode byte stream and never needs to touch the pty directly.
 
 Two tmux options matter:
 
-- `set -g allow-passthrough on` — required so tmux doesn't refuse to relay the sequences. The monitor sets this automatically on every session at connect time (see `sync_initial_state` in `tmuxy-core/src/control_mode/monitor.rs`).
-- `set -g default-terminal "tmux-256color"` (or another terminfo entry that does **not** include image capabilities) — keeps tmux from trying to act on the sequences itself.
+- `allow-passthrough on` — required so tmux doesn't refuse to relay the sequences. It is a window option, and the setup pass sets it on each window when the window is first listed (`set-option -wq -t <id> allow-passthrough on`, `window_setup_commands` in `tmuxy-core/src/control_mode/state/window_state.rs`; `-q` so a tmux 3.2, which has no such option, stays silent). What that opens up, and how the payloads are then bounded, is in [SECURITY.md](SECURITY.md#upstream-tmux-hardening-recommendations).
+- `default-terminal "tmux-256color"` — a terminfo entry without image capabilities, so tmux does not act on the sequences itself. `packages/tmuxy-core/assets/tmuxy.essentials.conf` sets it (see [TMUX-CONFIG.md](TMUX-CONFIG.md)).
 
 The parser is permissive about line wrapping and stray printable bytes between chunked Kitty packets, since tmux re-flows output around its own column wrapping.
 
@@ -75,7 +75,7 @@ The decoder hands the host two things: a placement (where on the grid, how big) 
 | Desktop app | `tmuxyimg://localhost/<pane>/<id>` | `tmuxy-tauri-app/src/gui.rs` |
 | Storybook, tests | whatever `window.__tmuxyImageSrc` returns | the story or test |
 
-A host that keeps no bytes renders no pictures, whatever the decoder did with them: `StateEmitter::store_images` defaults to discarding, and the desktop app took that default for a long time while its frontend asked for the web server's route, so every image protocol silently drew nothing there. Neither URL is cached — placement ids restart with the process, so a cached response is the previous run's picture.
+A host that keeps no bytes renders no pictures, whatever the decoder did with them: `StateEmitter::store_images` defaults to discarding, so a host must both keep the bytes and serve the URL its frontend asks for. Neither URL is cached — placement ids restart with the process, so a cached response is the previous run's picture.
 
 ## End-to-end pipeline
 
@@ -87,17 +87,21 @@ tmux (-CC, passthrough)
    │ wraps as %output %<pane> <bytes>
    ▼
 tmuxy-core / control_mode/parser.rs
-   │ feeds raw payload to
+   │ %output's payload, octal-unescaped, to the pane's
    ▼
-control_mode/images.rs::ImageParser::process
-   │ ─► extracts payload, decodes, stores image bytes in pane state
-   │ ─► returns ImageProcessResult { stripped: bytes_to_render,
-   │                                  new_placements: [(id, StoredImage)…] }
+control_mode/state/pane_output.rs::process_output
+   │ hands the bytes to
+   ▼
+control_mode/images.rs::ImageParser::process_with
+   │ ─► strips the image sequences, decodes the pictures
+   │ ─► clean_bytes go to vt100 (the pane's grid), with the
+   │    placements shifted by any scroll those bytes cause
+   │ ─► returns new_images: [(id, StoredImage)…] for the host to store
    ▼
 ServerPane.images  (snake_case, serialized over SSE)
    │
    ▼
-appMachine.helpers::transformServerState  (snake → camel via camelize())
+domain/store/snapshot.ts::transformServerState → domain/client.ts::toClientState
    │
    ▼
 TmuxPane.images : ImagePlacement[]
@@ -168,7 +172,7 @@ These are documented because they reuse the same passthrough pipeline; whether t
 - **OSC 9 / OSC 777 — Desktop notifications**
 - **OSC 9;4 — ConEmu progress bars**
 - **OSC 133 — FinalTerm semantic zones** (prompt / command / output markers)
-- **OSC 7 — Working-directory hints** (already partially wired for tab titles)
+- **OSC 7 — Working-directory hints**
 
 ## Related
 
