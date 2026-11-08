@@ -1,0 +1,149 @@
+/* A new desktop window's splash page (components/SplashScreen.tsx). */
+
+.splash {
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* The tokens are sized for terminal chrome; a page wants more air. */
+  gap: calc(var(--spacing-2xl) * 3);
+  padding: calc(var(--spacing-2xl) * 3) calc(var(--spacing-2xl) * 2);
+  background: var(--term-background);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.splash > * {
+  width: 100%;
+  max-width: 520px;
+}
+
+/* The window's title bar: macOS draws its buttons over the top of the page. */
+.splash-head {
+  padding-top: calc(var(--spacing-2xl) * 2);
+  text-align: center;
+}
+
+.splash-title {
+  margin: 0;
+  font-size: 28px;
+  color: var(--theme-accent);
+}
+
+.splash-lede {
+  margin: var(--spacing-xl) 0 0;
+  color: var(--text-secondary);
+}
+
+.splash-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+}
+
+.splash-heading {
+  margin: 0;
+  font-size: var(--tmuxy-small-font-size);
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.splash-note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.splash-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.splash-session {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: calc(var(--spacing-2xl) * 2);
+  padding: calc(var(--spacing-xl) * 1.5) calc(var(--spacing-2xl) * 1.5);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-medium);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.splash-session:hover:not(:disabled),
+.splash-session:focus-visible {
+  border-color: var(--theme-accent);
+  outline: none;
+}
+
+.splash-session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.splash-session-meta {
+  display: flex;
+  gap: calc(var(--spacing-xl) * 1.5);
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.splash-badge {
+  color: var(--accent-green);
+}
+
+.splash-ssh {
+  display: flex;
+  gap: var(--spacing-xl);
+}
+
+.splash-input {
+  flex: 1;
+  min-width: 0;
+  padding: calc(var(--spacing-xl) * 1.5) calc(var(--spacing-2xl) * 1.5);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.splash-input:focus {
+  border-color: var(--theme-accent);
+  outline: none;
+}
+
+.splash-connect {
+  padding: calc(var(--spacing-xl) * 1.5) calc(var(--spacing-2xl) * 2);
+  border: 1px solid var(--theme-accent);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--theme-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.splash-connect:disabled,
+.splash-session:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.splash-error {
+  margin: 0;
+  color: var(--error-color);
+}

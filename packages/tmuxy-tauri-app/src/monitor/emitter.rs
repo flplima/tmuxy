@@ -194,7 +194,7 @@ impl StateEmitter for TauriEmitter {
     fn on_initial_sync_complete(&self) {
         let app = self.app.clone();
         let monitor = self.monitor.clone();
-        tauri::async_runtime::spawn(async move {
+        tauri::async_runtime::spawn(tmuxy_core::session::scoped::inherit(async move {
             // The plugin keys first, so the bindings emitted next include them.
             if let Some(tx) = monitor.tx() {
                 if let Err(e) = transport::apply_plugin_keys(&tx).await {
@@ -202,7 +202,7 @@ impl StateEmitter for TauriEmitter {
                 }
             }
             emit_config_settings(&app, &monitor).await
-        });
+        }));
     }
 }
 

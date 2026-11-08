@@ -7,6 +7,8 @@ mod assets;
 mod config;
 mod launcher;
 mod migrate;
+#[cfg(feature = "native")]
+pub mod scoped;
 mod state;
 
 pub use assets::*;
@@ -104,8 +106,14 @@ pub fn set_connect_target(target: ConnectTarget) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(target);
 }
 
-/// The target [`set_connect_target`] installed, if any.
+/// The target a tmux invocation resolves: the calling task's own when it
+/// runs for a window that chose one ([`scoped`]), else the one
+/// [`set_connect_target`] installed, if any.
 pub fn connect_target() -> Option<ConnectTarget> {
+    #[cfg(feature = "native")]
+    if let Some(target) = scoped::task_target() {
+        return Some(target);
+    }
     CONNECT_TARGET
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

@@ -1,3 +1,4 @@
+pub mod gui_windows;
 mod helpers;
 pub mod window_size;
 
@@ -79,10 +80,10 @@ pub async fn run_tmux_command(
     // of the settings it may have changed, as the web server does it.
     let tx = state.connected_tx()?;
     let size = state.last_client_size.read().ok().and_then(|g| *g);
-    transport::run_client_command(&tx, &command, &session, size, || {
+    let run = transport::run_client_command(&tx, &command, &session, size, || {
         crate::monitor::emit_config_settings(&app, &state)
-    })
-    .await
+    });
+    windows::scoped(&window, run).await
 }
 
 /// Run a tmux command and return what it printed — the one way the frontend
@@ -218,7 +219,7 @@ pub async fn get_themes_list() -> Result<Value, CommandError> {
 #[tauri::command]
 pub async fn list_git_worktrees(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    transport::git_worktrees_json(&tx).await
+    windows::scoped(&window, transport::git_worktrees_json(&tx)).await
 }
 
 /// The status bar is the window's title bar; it reports its rendered height
@@ -256,9 +257,10 @@ pub fn get_keybindings_snapshot(
 /// the app is currently attached to. Powers the sidebar server picker — a
 /// desktop-only surface; the web build always uses its launch socket.
 #[tauri::command]
-pub async fn list_servers() -> Result<Value, CommandError> {
+pub async fn list_servers(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
     let servers = tmuxy_core::servers::read_servers();
-    let current = tmuxy_core::servers::current_server_id();
+    let current =
+        windows::scoped(&window, async { tmuxy_core::servers::current_server_id() }).await;
     Ok(serde_json::json!({
         "servers": servers,
         "currentId": current,
@@ -267,39 +269,50 @@ pub async fn list_servers() -> Result<Value, CommandError> {
 
 /// The sessions that have a snapshot to be rebuilt from (`session_snapshot`).
 #[tauri::command]
-pub async fn list_snapshots() -> Result<Value, CommandError> {
-    transport::list_snapshots_json().await
+pub async fn list_snapshots(window: tauri::WebviewWindow) -> Result<Value, CommandError> {
+    windows::scoped(&window, transport::list_snapshots_json()).await
 }
 
 /// The invocation token a plugin's menu action opens with, holding the
 /// selected text (`plugins::invoke::prepare`).
 #[tauri::command]
 pub async fn prepare_plugin_action(
+    window: tauri::WebviewWindow,
     plugin: String,
     action: String,
     pane_id: String,
     selection: Option<String>,
 ) -> Result<Value, CommandError> {
     let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    transport::prepare_plugin_action_json(plugin, action, pane_id, selection).await
+    let prepare = transport::prepare_plugin_action_json(plugin, action, pane_id, selection);
+    windows::scoped(&window, prepare).await
 }
 
 /// A URL clicked in a pane that a plugin's link handler may take.
 #[tauri::command]
-pub async fn open_link(url: String, pane_id: String) -> Result<Value, CommandError> {
+pub async fn open_link(
+    window: tauri::WebviewWindow,
+    url: String,
+    pane_id: String,
+) -> Result<Value, CommandError> {
     let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    transport::open_plugin_link_json(url, pane_id).await
+    windows::scoped(&window, transport::open_plugin_link_json(url, pane_id)).await
 }
 
 /// Text clicked in a pane: a plugin's text handler may take it.
 #[tauri::command]
 pub async fn open_text(
+    window: tauri::WebviewWindow,
     pane_id: String,
     line: String,
     column: usize,
 ) -> Result<Value, CommandError> {
     let pane_id = tmuxy_core::PaneId::parse(&pane_id)?;
-    transport::open_plugin_text_json(pane_id, line, column).await
+    windows::scoped(
+        &window,
+        transport::open_plugin_text_json(pane_id, line, column),
+    )
+    .await
 }
 
 /// Rebuild a session from its latest snapshot through this window's
@@ -311,7 +324,7 @@ pub async fn restore_session(
     session: String,
 ) -> Result<(), CommandError> {
     let tx = windows::monitor_for(&window)?.connected_tx()?;
-    transport::restore_named(&session, &tx).await
+    windows::scoped(&window, transport::restore_named(&session, &tx)).await
 }
 
 /// Reconnect the desktop app to a saved server by id: resolve it from
@@ -363,55 +376,11 @@ pub async fn detach_client(window: tauri::WebviewWindow) -> Result<(), CommandEr
     Ok(())
 }
 
-/// Open another GUI window on the same tmux session group (Window ▸ New Window).
-///
-/// The new window is a second, independent client: it shares every tab and pane
-/// with this one but keeps its own current tab, so two tabs of one session can be
-/// on screen at once. See `windows.rs`.
-#[tauri::command]
-pub fn new_window(app: tauri::AppHandle) -> Result<(), CommandError> {
-    crate::windows::open(&app)
-        .map(|_| ())
-        .map_err(CommandError::unavailable)
-}
-
-/// Bring the GUI window at `index` to the front (Window ▸ the window list, and
-/// the Cmd/Ctrl+Shift+digit shortcuts).
-#[tauri::command]
-pub fn focus_window(app: tauri::AppHandle, index: usize) {
-    crate::windows::focus_index(&app, index);
-}
-
-/// Close this OS window (Window ▸ Close Window).
-#[tauri::command]
-pub fn close_window(window: tauri::WebviewWindow) -> Result<(), CommandError> {
-    window
-        .close()
-        .map_err(|e| CommandError::unavailable(e.to_string()))
-}
-
 /// Leave the app (Quit, where the menu is the app's own rather than the
 /// platform's). tmux keeps every session.
 #[tauri::command]
 pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0)
-}
-
-/// Every open GUI window, in Window-menu order, for the in-app menu to list —
-/// the native menu bar builds its own from the same registry.
-#[tauri::command]
-pub fn list_gui_windows(app: tauri::AppHandle) -> Vec<Value> {
-    let focused = windows::focused_label(&app);
-    windows::list(&app)
-        .into_iter()
-        .map(|entry| {
-            serde_json::json!({
-                "index": entry.index,
-                "title": entry.title,
-                "focused": entry.label == focused,
-            })
-        })
-        .collect()
 }
 
 /// Put this window into one of the iTerm2 window styles, by its menu slug

@@ -210,12 +210,14 @@ describe('State Sync', () => {
 
 describe('GUI windows', () => {
   /**
-   * The Window menu's own commands. Two OS windows on one tmux session are two
-   * clients on two sessions in one session group: they share every tab and pane
-   * and each keeps its own current tab, which is the whole point — one window can
-   * show one tab while the other shows a different one.
+   * The Window menu's own commands. A new window opens on a splash page that
+   * lists this machine's sessions and takes an ssh host; picking a session
+   * makes the window a second client on a second session in that session's
+   * group: they share every tab and pane and each keeps its own current tab,
+   * which is the whole point — one window can show one tab while the other
+   * shows a different one.
    */
-  test('New Window opens a second client in the session group, with its own current tab', async () => {
+  test('New Window opens on a splash page; picking the session joins its group, with its own current tab', async () => {
     await setupApp();
 
     // A second tab to have somewhere to diverge to.
@@ -237,9 +239,40 @@ describe('GUI windows', () => {
     }
     expect(listed.map((w) => w.index)).toEqual([1, 2]);
 
+    // The new window is on its splash page, attached to nothing yet.
+    const grouped = `${sessionName}+2`;
+    expect(tmuxExec("list-sessions -F '#{session_name}'")).not.toContain(grouped);
+    const mainHandle = await driver.getWindowHandle();
+    let handles = [];
+    for (let i = 0; i < 60 && handles.length < 2; i++) {
+      handles = await driver.getWindowHandles();
+      if (handles.length < 2) await new Promise((r) => setTimeout(r, 500));
+    }
+    expect(handles).toHaveLength(2);
+    await driver.switchToWindow(handles.find((h) => h !== mainHandle));
+    const row = await driver.$(
+      `//button[contains(@class,"splash-session")][.//span[text()="${sessionName}"]]`,
+    );
+    await row.waitForDisplayed({ timeout: 20000 });
+    const box = await row.getSize();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+
+    // An ssh option is refused by the desktop, and the page says why.
+    const host = await driver.$('input[aria-label="SSH host"]');
+    await host.setValue('-oProxyCommand=sh');
+    await (await driver.$('button.splash-connect')).click();
+    const alert = await driver.$('[role="alert"]');
+    await alert.waitForDisplayed({ timeout: 10000 });
+    expect(await alert.getText()).toContain('is not an ssh destination');
+
+    // A click on the session attaches the window: the app replaces the page.
+    await row.click();
+    await (await driver.$('.pane-layout-item')).waitForDisplayed({ timeout: 30000 });
+    await driver.switchToWindow(mainHandle);
+
     // tmux's side of it: a second session, grouped with the first, so the
     // windows are shared rather than copied.
-    const grouped = `${sessionName}+2`;
     let sessions = '';
     for (let i = 0; i < 60; i++) {
       sessions = tmuxExec("list-sessions -F '#{session_name} #{session_group} #{session_windows}'");
@@ -253,6 +286,9 @@ describe('GUI windows', () => {
     // Same group, and the same number of windows — shared, not duplicated.
     expect(second.split(' ')[1]).toBe(base.split(' ')[1]);
     expect(second.split(' ')[2]).toBe(base.split(' ')[2]);
+    // The Window menu names the second window by its session.
+    const titles = (await invokeCommand(driver, 'list_gui_windows')).map((w) => w.title);
+    expect(titles[1]).toBe(`tmuxy — ${grouped}`);
 
     // Each client has its own current window: moving THIS window's client
     // leaves the other where it was, which is what a session group buys and what

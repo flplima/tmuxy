@@ -224,7 +224,8 @@ impl Host for DesktopHost {
         // tmux call (the control-mode connection AND the one-off executor
         // commands) resolves its socket, session and ssh host from the
         // connect target, so installing it — one write, seen whole by every
-        // thread — points the whole app at the new server.
+        // thread — points the whole app at the new server. A window that
+        // chose its own target on its splash page is pointed alone.
         let pending = self
             .monitor_state
             .pending_reconnect
@@ -232,7 +233,9 @@ impl Host for DesktopHost {
             .ok()
             .and_then(|mut g| g.take());
         if let Some(target) = pending {
-            tmuxy_core::session::set_connect_target(target.clone());
+            if !tmuxy_core::session::scoped::retarget(target.clone()) {
+                tmuxy_core::session::set_connect_target(target.clone());
+            }
             self.config.session = target.session.clone();
             tracing::info!(
                 socket = %target.socket,
@@ -299,7 +302,8 @@ impl Host for DesktopHost {
     }
 
     async fn spawn(&self, task: Task) {
-        tokio::spawn(task);
+        // With the window's target: the task's reads are for its server.
+        tokio::spawn(tmuxy_core::session::scoped::inherit(task));
     }
 
     async fn sleep(&self, duration: Duration) {
