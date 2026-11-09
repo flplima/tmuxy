@@ -82,7 +82,7 @@ fn the_config_carries_what_was_filled_ahead_of_the_users_own() {
     let Ok(checked) = full.checked() else {
         panic!("a full form is a form");
     };
-    let text = checked.config(Path::new("/tmp/tmuxy-ssh-1/win2-%C"));
+    let text = checked.config(Path::new("/tmp/tmuxy-ssh-1/win2-%C"), None);
     let block = text.split("Host *").next().unwrap_or_default();
     for line in [
         "Host box\n",
@@ -103,7 +103,7 @@ fn the_config_carries_what_was_filled_ahead_of_the_users_own() {
     let Ok(bare) = form("box").checked() else {
         panic!("a bare host is a form");
     };
-    let bare = bare.config(Path::new("/tmp/x"));
+    let bare = bare.config(Path::new("/tmp/x"), None);
     for absent in ["User ", "Port ", "IdentityFile", "CertificateFile"] {
         assert!(!bare.contains(absent), "{absent} in:\n{bare}");
     }
@@ -119,8 +119,15 @@ fn a_confirmed_fingerprint_trusts_the_host_on_first_use_only() {
         panic!("a form");
     };
     assert!(trusted
-        .config(Path::new("/tmp/x"))
+        .config(Path::new("/tmp/x"), None)
         .contains("StrictHostKeyChecking accept-new\n"));
+    // A known-hosts file of the setup's own, when one is named.
+    assert!(trusted
+        .config(
+            Path::new("/tmp/x"),
+            Some(Path::new("/state/ssh_known_hosts"))
+        )
+        .contains("  UserKnownHostsFile \"/state/ssh_known_hosts\"\n"));
 }
 
 #[test]
@@ -167,4 +174,25 @@ fn a_link_runs_tmux_through_its_own_config() {
         host: "box".to_string(),
     };
     assert_eq!(link.tail(), "-F /tmp/tmuxy-ssh-1/win2.conf box");
+}
+
+#[test]
+fn a_control_socket_names_the_app_instance_that_made_it() {
+    let hash = "99b1bde4371cd3b7d7612e41e8c3e381f1e11fb8";
+    assert_eq!(socket_owner(&format!("win2-4242-{hash}")), Some(4242));
+    assert_eq!(socket_owner(&format!("main-window-7-{hash}")), Some(7));
+    for other in [
+        "askpass",
+        "win2.conf",
+        "win2-x-abc",
+        &format!("-4242-{hash}"),
+        &format!("win2-{hash}"),
+    ] {
+        assert_eq!(socket_owner(other), None, "{other}");
+    }
+    let path = control_path(Path::new("/tmp/d"), "win3");
+    assert_eq!(
+        path,
+        PathBuf::from(format!("/tmp/d/win3-{}-%C", std::process::id()))
+    );
 }

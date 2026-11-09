@@ -16,6 +16,7 @@ const {
 } = require('./helpers/wdio-client');
 const { tmuxCmd, tmuxExec } = require('../helpers/tmux-socket');
 const { waitForCondition } = require('../helpers/browser');
+const { openSplashWindow, closeThisWindow } = require('./helpers/splash');
 
 const ctx = createTauriTestContext();
 let driver = null;
@@ -56,7 +57,7 @@ describe('GUI windows', () => {
     expect(before).toHaveLength(1);
     expect(before[0].index).toBe(1);
 
-    await invokeWindowCommand(driver, 'new_window');
+    const { mainHandle, splashHandle } = await openSplashWindow(driver);
 
     // The registry knows both windows, and the digit that focuses each.
     let listed = [];
@@ -71,14 +72,7 @@ describe('GUI windows', () => {
     // The new window is on its splash page, attached to nothing yet.
     const grouped = `${sessionName}+2`;
     expect(tmuxExec("list-sessions -F '#{session_name}'")).not.toContain(grouped);
-    const mainHandle = await driver.getWindowHandle();
-    let handles = [];
-    for (let i = 0; i < 60 && handles.length < 2; i++) {
-      handles = await driver.getWindowHandles();
-      if (handles.length < 2) await new Promise((r) => setTimeout(r, 500));
-    }
-    expect(handles).toHaveLength(2);
-    await driver.switchToWindow(handles.find((h) => h !== mainHandle));
+    await driver.switchToWindow(splashHandle);
     const row = await driver.$(
       `//button[contains(@class,"splash-session")][.//span[text()="${sessionName}"]]`,
     );
@@ -158,15 +152,7 @@ describe('GUI windows', () => {
 
   test("New Window's New session starts a session of its own on this machine, which outlives the window", async () => {
     await setupApp();
-    const mainHandle = await driver.getWindowHandle();
-    await invokeWindowCommand(driver, 'new_window');
-    let handles = [];
-    for (let i = 0; i < 60 && handles.length < 2; i++) {
-      handles = await driver.getWindowHandles();
-      if (handles.length < 2) await new Promise((r) => setTimeout(r, 500));
-    }
-    expect(handles).toHaveLength(2);
-    await driver.switchToWindow(handles.find((h) => h !== mainHandle));
+    const { mainHandle } = await openSplashWindow(driver);
 
     const fresh = await driver.$('//button[contains(normalize-space(),"New session")]');
     await fresh.waitForDisplayed({ timeout: 20000 });
@@ -199,10 +185,7 @@ describe('GUI windows', () => {
       expect(titles).toContain(`tmuxy — ${name}`);
 
       // The user's session like any other: closing its window leaves it running.
-      // The window closes under the script that asked, so no answer comes back:
-      // what it did is read from the first window.
-      await invokeWindowCommand(driver, 'close_window').catch(() => {});
-      await driver.switchToWindow(mainHandle);
+      await closeThisWindow(driver, mainHandle);
       await waitForCondition(
         null,
         async () => (await invokeWindowCommand(driver, 'list_gui_windows')).length === 1,

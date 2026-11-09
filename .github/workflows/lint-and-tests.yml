@@ -483,6 +483,9 @@ jobs:
         env:
           DISPLAY: ':99'
           TAURI_BINARY: ${{ github.workspace }}/target/debug/tmuxy
+          # The ssh windows' suite signs in to an sshd container: on a runner,
+          # which has Docker, a Docker that does not answer is a failure.
+          TMUXY_E2E_REQUIRE_DOCKER: '1'
         run: npm run test:tauri
 
       - name: Stop Xvfb

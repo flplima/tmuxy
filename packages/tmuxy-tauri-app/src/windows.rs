@@ -308,6 +308,16 @@ pub fn focus_index(app: &AppHandle, index: usize) {
     }
 }
 
+/// End every ssh window's connection: the app is quitting, and a master
+/// runs on in the background after the app that started it.
+pub fn close_ssh_links(app: &AppHandle) {
+    for window in app.state::<GuiWindows>().list() {
+        if let Some(link) = window.ssh_link {
+            link.close();
+        }
+    }
+}
+
 /// Drop a window's registration and kill the session it was attached to when it
 /// closes. The base session is left alone: it is the group's own session and
 /// outlives the desktop app.

@@ -196,6 +196,11 @@ pub fn run() {
             let handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 tmuxy_core::host::save_final_snapshots(&monitor::Windows(handle.clone())).await;
+                let links = handle.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    crate::windows::close_ssh_links(&links)
+                })
+                .await;
                 handle.exit(code.unwrap_or(0));
             });
         }

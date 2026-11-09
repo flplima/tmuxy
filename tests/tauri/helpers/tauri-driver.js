@@ -5,7 +5,8 @@
  */
 
 const { spawn } = require('child_process');
-const { tmuxEnv } = require('../../helpers/tmux-socket');
+const path = require('path');
+const { stateDir, tmuxEnv } = require('../../helpers/tmux-socket');
 
 const DRIVER_PORT = 4444;
 
@@ -66,7 +67,16 @@ async function startTauriDriver(port = DRIVER_PORT) {
  * installed app's. `DISPLAY` rides along from the process (Xvfb sets it).
  */
 function driverEnv() {
-  return tmuxEnv();
+  return { ...tmuxEnv(), TMUXY_SSH_KNOWN_HOSTS: sshKnownHosts() };
+}
+
+/**
+ * The hosts an ssh window of the suite trusts, kept in the suite's state dir:
+ * ssh finds `~/.ssh/known_hosts` through the account, not `$HOME`, so left
+ * alone a trusted test host would land in the developer's own file.
+ */
+function sshKnownHosts() {
+  return path.join(stateDir(), 'ssh_known_hosts');
 }
 
 /** Whether something is already answering WebDriver `/status` on `port`. */
@@ -96,4 +106,4 @@ function stopTauriDriver(port = DRIVER_PORT) {
   driverProcesses.delete(port);
 }
 
-module.exports = { startTauriDriver, stopTauriDriver, driverEnv, DRIVER_PORT };
+module.exports = { startTauriDriver, stopTauriDriver, driverEnv, sshKnownHosts, DRIVER_PORT };

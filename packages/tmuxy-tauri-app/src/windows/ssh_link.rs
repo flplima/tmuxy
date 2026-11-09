@@ -139,7 +139,8 @@ impl SshForm {
 impl Checked {
     /// The window's ssh config: the form's `Host` block, read first so its
     /// values win, then the system's and the user's own config for the rest.
-    pub fn config(&self, control_path: &Path) -> String {
+    /// `known_hosts` replaces ssh's own file for the hosts this window trusts.
+    pub fn config(&self, control_path: &Path, known_hosts: Option<&Path>) -> String {
         let mut out = format!(
             "# Written by tmuxy for one window, and removed when it closes.\nHost {}\n",
             self.host
@@ -158,6 +159,9 @@ impl Checked {
         }
         if let Some(cert) = &self.certificate_file {
             out.push_str(&format!("  CertificateFile \"{}\"\n", cert.display()));
+        }
+        if let Some(file) = known_hosts {
+            out.push_str(&format!("  UserKnownHostsFile \"{}\"\n", file.display()));
         }
         let strict = if self.trust_new_host {
             "accept-new"
@@ -214,6 +218,17 @@ pub enum Opened {
     UnknownHost {
         fingerprint: Option<String>,
     },
+}
+
+/// `TMUXY_SSH_KNOWN_HOSTS`: a known-hosts file of its own for the hosts the
+/// windows trust, in place of `~/.ssh/known_hosts`, which ssh finds through
+/// the account rather than `$HOME`. For a setup kept apart from the user's
+/// own ssh, as the desktop suite's is.
+fn known_hosts_override() -> Option<PathBuf> {
+    let raw = std::env::var_os("TMUXY_SSH_KNOWN_HOSTS")?;
+    let path = PathBuf::from(raw);
+    let text = path.to_string_lossy();
+    (path.is_absolute() && !text.contains(['"', '\n', '\r'])).then_some(path)
 }
 
 /// The directory a window's config, control socket and secrets live in:
@@ -318,15 +333,63 @@ pub fn pick_fingerprint(listed: &str, stderr: &str) -> Option<String> {
     Some(format!("{} {}", wanted.0, wanted.1))
 }
 
+/// The control socket of window `label`'s master, named for this app
+/// instance: `<label>-<pid>-%C`. A label is reused by the next instance, and
+/// a master outlives an app that crashed or was killed; sharing its path, a
+/// new master would find the socket taken and quietly run without one.
+fn control_path(dir: &Path, label: &str) -> PathBuf {
+    dir.join(format!("{label}-{}-%C", std::process::id()))
+}
+
+/// The app instance a control socket's name says made it, if it is one of ours.
+pub fn socket_owner(name: &str) -> Option<i32> {
+    let mut parts = name.rsplitn(3, '-');
+    let hash = parts.next()?;
+    let pid = parts.next()?.parse().ok()?;
+    let label = parts.next()?;
+    let ours = hash.len() == 40 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+    (ours && !label.is_empty()).then_some(pid)
+}
+
+/// End the masters an app instance that is no longer running left behind,
+/// and their sockets: what a crash or a kill leaves, since a master runs on
+/// in the background after the app that started it.
+fn sweep_stale_masters(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = socket_owner(&name.to_string_lossy()) else {
+            continue;
+        };
+        let alive = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None)
+            .map_or_else(|e| e == nix::errno::Errno::EPERM, |()| true);
+        if alive {
+            continue;
+        }
+        let path = entry.path();
+        let _ = Command::new("ssh")
+            .args(["-S", &path.to_string_lossy(), "-O", "exit", "stale"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        let _ = fs::remove_file(&path);
+    }
+}
+
 /// Open the window `label`'s connection: write its config, start the master
 /// in the background once it has authenticated, and hand back the link, or
 /// the host's fingerprint when its key is not known yet.
 pub fn open(label: &str, form: &Checked) -> Result<Opened, String> {
     let dir = link_dir()?;
+    sweep_stale_masters(&dir);
     let config = dir.join(format!("{label}.conf"));
+    let known_hosts = known_hosts_override();
     write_private(
         &config,
-        &form.config(&dir.join(format!("{label}-%C"))),
+        &form.config(&control_path(&dir, label), known_hosts.as_deref()),
         0o600,
     )?;
     let errors = dir.join(format!("{label}.err"));
