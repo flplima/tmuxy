@@ -1,9 +1,15 @@
 #!/usr/bin/env node
-// Wait until an HTTP server answers a URL with a 2xx, polling every half
-// second; exit 1 once the deadline passes. The CI jobs start a server (or
-// Storybook) in the background and run this before the suite that needs it.
+// Wait until a server is ready, polling every half second; exit 1 once the
+// deadline passes. The CI jobs start a server (or Storybook) in the
+// background and run this before the suite that needs it.
+//
+// An http(s) URL is ready when it answers with a 2xx. A tcp://host:port is
+// ready when the port accepts a connection: for a server with no URL that
+// answers before a client arrives, such as tauri-webdriver, whose /status is
+// proxied to an app that only starts with the first session.
 //
 // Usage: bin/ci/wait-for-server <url> [timeout-ms]   (default 30000)
+const net = require('node:net');
 
 const [url, timeoutArg] = process.argv.slice(2);
 if (!url) {
@@ -13,18 +19,34 @@ if (!url) {
 const timeoutMs = Number(timeoutArg ?? 30000);
 const start = Date.now();
 
+const httpReady = async () => {
+  try {
+    return (await fetch(url)).ok;
+  } catch {
+    return false;
+  }
+};
+
+const tcpReady = () => {
+  const { hostname, port } = new URL(url);
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: hostname, port: Number(port) });
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', () => resolve(false));
+  });
+};
+
+const ready = url.startsWith('tcp://') ? tcpReady : httpReady;
+
 const check = async () => {
   while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) process.exit(0);
-    } catch {
-      // not listening yet
-    }
+    if (await ready()) process.exit(0);
     await new Promise((r) => setTimeout(r, 500));
   }
   process.stderr.write(`wait-for-server: ${url} did not answer within ${timeoutMs} ms\n`);
   process.exit(1);
 };
-
 check();
