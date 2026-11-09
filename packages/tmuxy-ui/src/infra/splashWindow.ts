@@ -1,8 +1,9 @@
 /**
  * A new desktop window's splash page: whether this window has attached yet,
- * the sessions on this machine it can join, and attaching it to one of them
- * or to an ssh host (`tmuxy-tauri-app/src/windows/attach.rs`). The first
- * window, and every browser tab, is attached from the start.
+ * the sessions on this machine it can join, and attaching it to one of them,
+ * to a new one, or to a host over ssh (`tmuxy-tauri-app/src/windows/attach.rs`
+ * and `ssh_link.rs`). The first window, and every browser tab, is attached
+ * from the start.
  */
 
 import { isTauri } from './platform';
@@ -17,8 +18,30 @@ export interface LocalSession {
   attached: boolean;
 }
 
-/** Where a splash page attaches its window. */
-export type AttachChoice = { session: string } | { ssh: string };
+/**
+ * The ssh form: only the host is required. Left empty, the rest is what ssh
+ * would do on its own (the user's config, agent and keys).
+ */
+export interface SshForm {
+  host: string;
+  user?: string;
+  port?: number;
+  identityFile?: string;
+  certificateFile?: string;
+  /** The account's password, or the key's passphrase: whichever ssh asks for. */
+  password?: string;
+  /** The page showed the host's fingerprint and the user trusted it. */
+  trustNewHost?: boolean;
+}
+
+/**
+ * Where a splash page attaches its window: a session to join, a new session
+ * (a name, or `''` for the next number), or a host over ssh.
+ */
+export type AttachChoice = { session: string } | { newSession: string } | { ssh: SshForm };
+
+/** What an attach came to: attached, or a host whose key is to be confirmed. */
+export type AttachOutcome = { attached: true } | { unknownHost: { fingerprint: string | null } };
 
 /** Whether this window is attached, or still to show its splash page. */
 export async function windowAttached(): Promise<boolean> {
@@ -34,10 +57,21 @@ export function listLocalSessions(): Promise<LocalSession[]> {
 
 /**
  * Attach this window as chosen. Rejects with the reason when it cannot (an
- * ssh host that is not one, a session that has gone), for the page to show.
+ * ssh host that is not one, a refused login, a session that has gone), for
+ * the page to show.
  */
-export function attachWindow(choice: AttachChoice): Promise<void> {
-  return desktopInvoke<void>('attach_window', choice);
+export function attachWindow(choice: AttachChoice): Promise<AttachOutcome> {
+  return desktopInvoke<AttachOutcome>('attach_window', choice);
+}
+
+/** The hosts the user's `~/.ssh/config` names, for the host field to offer. */
+export function listSshHosts(): Promise<string[]> {
+  return desktopInvoke<string[]>('list_ssh_hosts');
+}
+
+/** A native file chooser in `~/.ssh`: the path picked, or null. */
+export function pickSshFile(): Promise<string | null> {
+  return desktopInvoke<string | null>('pick_ssh_file');
 }
 
 /** The words of a rejected attach: a command's `{ error, kind }`, or a thrown one. */

@@ -24,6 +24,7 @@
 //! linger on the server.
 
 mod attach;
+mod ssh_link;
 
 use std::future::Future;
 use std::sync::{Arc, RwLock};
@@ -31,7 +32,8 @@ use std::sync::{Arc, RwLock};
 use tauri::{AppHandle, Manager, WebviewWindow};
 use tmuxy_core::session::scoped::{self, TargetCell};
 
-pub use attach::{attach, local_sessions, Attach};
+pub use attach::{attach, local_sessions, Attach, Attached};
+pub use ssh_link::{config_hosts, SshForm};
 
 use crate::monitor::{Monitor, TauriSink};
 use tmuxy_core::host::{RuntimeConfig, SessionRuntime};
@@ -56,6 +58,8 @@ pub struct GuiWindow {
     pub target: TargetCell,
     /// The window made its session (a group member) and kills it on close.
     owns_session: bool,
+    /// The ssh connection an ssh window rides, ended when it closes.
+    ssh_link: Option<ssh_link::SshLink>,
     /// The monitor feeding the window: none while it is on its splash page.
     pub monitor: Option<Monitor>,
 }
@@ -143,11 +147,18 @@ impl GuiWindows {
 
     /// Record what a splash window chose: the monitor now feeding it, and
     /// whether the session is its own.
-    fn attach(&self, label: &str, monitor: Monitor, owns_session: bool) {
+    fn attach(
+        &self,
+        label: &str,
+        monitor: Monitor,
+        owns_session: bool,
+        ssh_link: Option<ssh_link::SshLink>,
+    ) {
         if let Ok(mut guard) = self.0.write() {
             if let Some(entry) = guard.iter_mut().find(|w| w.label == label) {
                 entry.monitor = Some(monitor);
                 entry.owns_session = owns_session;
+                entry.ssh_link = ssh_link;
             }
         }
     }
@@ -249,6 +260,7 @@ pub fn open_main(app: &AppHandle) {
         index: 1,
         target: TargetCell::default(),
         owns_session: false,
+        ssh_link: None,
         monitor: Some(monitor.clone()),
     });
     tauri::async_runtime::spawn(crate::monitor::start_monitoring_window(monitor, None));
@@ -276,6 +288,7 @@ pub fn open(app: &AppHandle) -> Result<String, String> {
         index,
         target: TargetCell::default(),
         owns_session: false,
+        ssh_link: None,
         monitor: None,
     });
     Ok(label)
@@ -308,6 +321,10 @@ pub fn watch_for_close(window: &WebviewWindow) {
         let Some(entry) = app.state::<GuiWindows>().remove(&label) else {
             return;
         };
+        if let Some(link) = entry.ssh_link.clone() {
+            // Off the event loop: `ssh -O exit` waits on the master.
+            std::thread::spawn(move || link.close());
+        }
         if entry.owns_session && attach::main_shares_server(&entry) {
             let session = entry.session();
             // Not through the monitor's control-mode channel: that channel
@@ -348,6 +365,7 @@ mod tests {
             index,
             target: TargetCell::default(),
             owns_session: true,
+            ssh_link: None,
             monitor: Some(Monitor::new(SessionRuntime::new(
                 RuntimeConfig {
                     session: format!("tmuxy+{index}"),

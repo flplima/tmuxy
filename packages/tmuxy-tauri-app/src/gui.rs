@@ -46,6 +46,8 @@ pub fn run() {
         }))
         // Clipboard manager: Debug ▸ Copy Trace Path.
         .plugin(tauri_plugin_clipboard_manager::init())
+        // The ssh form's key and certificate chooser (commands/gui_windows.rs).
+        .plugin(tauri_plugin_dialog::init())
         // Window state: the window comes back where it was closed — position,
         // size, maximized and fullscreen — from a file in the app's data dir.
         // The 800×600 in the window builder is only the first-launch default.
@@ -163,6 +165,8 @@ pub fn run() {
             commands::gui_windows::window_attachment,
             commands::gui_windows::list_local_sessions,
             commands::gui_windows::attach_window,
+            commands::gui_windows::list_ssh_hosts,
+            commands::gui_windows::pick_ssh_file,
             commands::gui_windows::focus_window,
             commands::gui_windows::close_window,
             commands::quit_app,

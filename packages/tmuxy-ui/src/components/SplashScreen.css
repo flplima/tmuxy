@@ -106,9 +106,118 @@
   color: var(--accent-green);
 }
 
+/* The ssh form: labelled fields in a column, the host and its port on one
+   row, and the optional sign-in fields grouped under a legend. */
 .splash-ssh {
   display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+}
+
+.splash-row {
+  display: flex;
+  align-items: flex-end;
   gap: var(--spacing-xl);
+}
+
+.splash-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-width: 0;
+}
+
+.splash-grow {
+  flex: 1;
+}
+
+.splash-port {
+  width: calc(var(--spacing-2xl) * 9);
+}
+
+.splash-label {
+  font-size: var(--tmuxy-small-font-size);
+  color: var(--text-secondary);
+}
+
+.splash-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2xl);
+  margin: 0;
+  padding: calc(var(--spacing-2xl) * 1.5);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+}
+
+.splash-legend {
+  padding: 0 var(--spacing-md);
+  font-size: var(--tmuxy-small-font-size);
+  color: var(--text-secondary);
+}
+
+.splash-hint {
+  margin: 0;
+  font-size: var(--tmuxy-small-font-size);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.splash-actions {
+  align-items: center;
+}
+
+/* A secondary action beside a field: Browse…, Show, Cancel. */
+.splash-secondary {
+  flex-shrink: 0;
+  padding: calc(var(--spacing-xl) * 1.5) calc(var(--spacing-2xl) * 1.5);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  background: var(--bg-medium);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.splash-secondary:hover:not(:disabled),
+.splash-secondary:focus-visible {
+  border-color: var(--theme-accent);
+  outline: none;
+}
+
+/* A host whose key is not known yet: its fingerprint, to be confirmed. */
+.splash-trust {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+  padding: calc(var(--spacing-2xl) * 1.5);
+  border: 1px solid var(--theme-accent);
+  border-radius: var(--radius-md);
+}
+
+.splash-trust-title {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.splash-fingerprint {
+  overflow-wrap: anywhere;
+  color: var(--theme-accent);
+}
+
+/* The new session row, and the name it asks for once pressed. */
+.splash-session-new .splash-session-name {
+  color: var(--theme-accent);
+}
+
+.splash-plus {
+  margin-right: var(--spacing-xl);
+}
+
+.splash-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
 }
 
 .splash-input {
@@ -127,6 +236,10 @@
   outline: none;
 }
 
+.splash-input[aria-invalid='true'] {
+  border-color: var(--error-color);
+}
+
 .splash-connect {
   padding: calc(var(--spacing-xl) * 1.5) calc(var(--spacing-2xl) * 2);
   border: 1px solid var(--theme-accent);
@@ -138,6 +251,7 @@
 }
 
 .splash-connect:disabled,
+.splash-secondary:disabled,
 .splash-session:disabled {
   opacity: 0.5;
   cursor: default;

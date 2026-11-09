@@ -1,6 +1,7 @@
 //! A later window's splash page and what it chooses: a session on this
-//! machine, whose group the window joins, or an ssh host, whose tmuxy server
-//! the window attaches to (docs/DESKTOP.md).
+//! machine, whose group the window joins, a new session on this machine, or
+//! an ssh host, whose tmuxy server the window attaches to (docs/DESKTOP.md;
+//! the ssh connection itself is `ssh_link.rs`).
 //!
 //! The choice becomes the window's own target before its monitor starts, and
 //! the monitor runs inside it, so every tmux call made for the window — the
@@ -13,6 +14,7 @@ use tauri::{AppHandle, Manager};
 use tmuxy_core::servers::{parse_session_list, RemoteSessionInfo, LIST_SESSIONS_FORMAT};
 use tmuxy_core::session::{scoped, ConnectTarget, DEFAULT_TMUX_SOCKET};
 
+use super::ssh_link::{self, Opened, SshForm, SshLink};
 use super::{new_monitor, GuiWindow, GuiWindows};
 
 /// What a splash page chose.
@@ -21,9 +23,23 @@ pub enum Attach {
     /// A session on this machine: the window joins its group, keeping a
     /// current tab of its own, as every later window did before.
     Local(String),
-    /// An ssh destination (`[user@]host`): the window attaches to the default
-    /// session of that machine's tmuxy server, created if missing.
-    Ssh(String),
+    /// A machine over ssh: the window attaches to the default session of
+    /// that machine's tmuxy server, created if missing.
+    Ssh(SshForm),
+    /// A session of its own on this machine, named or numbered, which is
+    /// the user's like any other and outlives the window.
+    New(Option<String>),
+}
+
+/// What an attach came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Attached {
+    Done,
+    /// The ssh host's key is not known: the page shows its fingerprint and
+    /// asks again with the form's `trust_new_host` set.
+    UnknownHost {
+        fingerprint: Option<String>,
+    },
 }
 
 /// The tmux socket "this machine" means: the one the app is on, or, while the
@@ -74,44 +90,56 @@ pub fn local_sessions() -> Vec<RemoteSessionInfo> {
         .unwrap_or_default()
 }
 
-/// What attaching means for a choice: the window's target, the session whose
-/// group it joins, and whether the window owns (and on close kills) its session.
-fn plan(
-    choice: &Attach,
-    index: usize,
-    local_socket: &str,
-) -> Result<(ConnectTarget, Option<String>, bool), String> {
-    match choice {
-        Attach::Local(name) => {
+/// A window's place in a session group on this machine: the target that
+/// joins `name`'s group as the window's own member.
+fn plan_local(name: &str, index: usize, local_socket: &str) -> Result<ConnectTarget, String> {
+    if !tmuxy_core::session::is_safe_session_name(name) || is_window_member(name) {
+        return Err(format!("'{name}' is not a session to join"));
+    }
+    Ok(ConnectTarget {
+        socket: local_socket.to_string(),
+        session: format!("{name}+{index}"),
+        ssh: None,
+    })
+}
+
+/// The name of a new session: the one asked for, which must be free, else the
+/// lowest number no session has.
+fn new_session_name(asked: Option<&str>, taken: &[String]) -> Result<String, String> {
+    match asked.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => {
             if !tmuxy_core::session::is_safe_session_name(name) || is_window_member(name) {
-                return Err(format!("'{name}' is not a session to join"));
-            }
-            let target = ConnectTarget {
-                socket: local_socket.to_string(),
-                session: format!("{name}+{index}"),
-                ssh: None,
-            };
-            Ok((target, Some(name.clone()), true))
-        }
-        Attach::Ssh(dest) => {
-            let dest = dest.trim();
-            if !tmuxy_core::session::is_ssh_destination(dest) {
                 return Err(format!(
-                    "'{dest}' is not an ssh destination: host or user@host"
+                    "'{name}' cannot name a session: letters, digits, '-', '_' and '.'"
                 ));
             }
-            let target = ConnectTarget {
-                socket: DEFAULT_TMUX_SOCKET.to_string(),
-                session: tmuxy_core::DEFAULT_SESSION_NAME.to_string(),
-                ssh: Some(dest.to_string()),
-            };
-            Ok((target, None, false))
+            if taken.iter().any(|t| t == name) {
+                return Err(format!("there is a session named '{name}' already"));
+            }
+            Ok(name.to_string())
         }
+        None => Ok((1..)
+            .map(|n: usize| n.to_string())
+            .find(|n| !taken.contains(n))
+            .unwrap_or_default()),
     }
 }
 
+/// What the Window menu and the title name an ssh window by.
+fn ssh_shown(form: &ssh_link::Checked) -> String {
+    let mut shown = match &form.user {
+        Some(user) => format!("{user}@{}", form.host),
+        None => form.host.clone(),
+    };
+    if let Some(port) = form.port {
+        shown.push_str(&format!(":{port}"));
+    }
+    shown
+}
+
 /// Attach the splash window `label` as chosen, and start its monitor there.
-pub fn attach(app: &AppHandle, label: &str, choice: Attach) -> Result<(), String> {
+/// Blocks while an ssh connection authenticates: call it off the main thread.
+pub fn attach(app: &AppHandle, label: &str, choice: Attach) -> Result<Attached, String> {
     let registry = app.state::<GuiWindows>();
     let entry = registry
         .get(label)
@@ -119,22 +147,49 @@ pub fn attach(app: &AppHandle, label: &str, choice: Attach) -> Result<(), String
     if entry.attached() {
         return Err("this window is already attached".to_string());
     }
-    let (target, group, owns_session) = plan(&choice, entry.index, &local_socket())?;
-    if let Attach::Local(name) = &choice {
-        if !local_sessions().iter().any(|s| &s.name == name) {
-            return Err(format!("no session '{name}' on this machine"));
+    let mut link: Option<SshLink> = None;
+    let (target, group, owns_session, shown) = match &choice {
+        Attach::Local(name) => {
+            let target = plan_local(name, entry.index, &local_socket())?;
+            if !local_sessions().iter().any(|s| &s.name == name) {
+                return Err(format!("no session '{name}' on this machine"));
+            }
+            let shown = target.session.clone();
+            (target, Some(name.clone()), true, shown)
         }
-    }
-    let session = target.session.clone();
-    let shown = match &choice {
-        Attach::Local(_) => session.clone(),
-        Attach::Ssh(dest) => dest.trim().to_string(),
+        Attach::New(asked) => {
+            let taken: Vec<String> = local_sessions().into_iter().map(|s| s.name).collect();
+            let name = new_session_name(asked.as_deref(), &taken)?;
+            let target = ConnectTarget {
+                socket: local_socket(),
+                session: name.clone(),
+                ssh: None,
+            };
+            (target, None, false, name)
+        }
+        Attach::Ssh(form) => {
+            let checked = form.checked()?;
+            let opened = match ssh_link::open(label, &checked)? {
+                Opened::UnknownHost { fingerprint } => {
+                    return Ok(Attached::UnknownHost { fingerprint })
+                }
+                Opened::Link(opened) => opened,
+            };
+            let target = ConnectTarget {
+                socket: DEFAULT_TMUX_SOCKET.to_string(),
+                session: tmuxy_core::DEFAULT_SESSION_NAME.to_string(),
+                ssh: Some(opened.tail()),
+            };
+            link = Some(opened);
+            (target, None, false, ssh_shown(&checked))
+        }
     };
+    let session = target.session.clone();
     if let Ok(mut cell) = entry.target.write() {
         *cell = Some(target);
     }
     let monitor = new_monitor(app, label, session);
-    registry.attach(label, monitor.clone(), owns_session);
+    registry.attach(label, monitor.clone(), owns_session, link);
     if let Some(window) = app.get_webview_window(label) {
         // What the Window menu lists this window as.
         let _ = window.set_title(&format!("tmuxy — {shown}"));
@@ -144,7 +199,7 @@ pub fn attach(app: &AppHandle, label: &str, choice: Attach) -> Result<(), String
         entry.target.clone(),
         crate::monitor::start_monitoring_window(monitor, group),
     ));
-    Ok(())
+    Ok(Attached::Done)
 }
 
 /// Whether the first window's client is on the server `entry` is attached
@@ -164,39 +219,49 @@ mod tests {
 
     #[test]
     fn a_local_pick_joins_the_session_group_as_its_own_member() {
-        let Ok((target, group, owns)) = plan(&Attach::Local("work".into()), 3, "tmuxy") else {
+        let Ok(target) = plan_local("work", 3, "tmuxy") else {
             panic!("a session name is a session to join");
         };
         assert_eq!(target.session, "work+3");
         assert_eq!(target.socket, "tmuxy");
         assert_eq!(target.ssh, None);
-        assert_eq!(group.as_deref(), Some("work"));
-        assert!(owns);
     }
 
     #[test]
-    fn an_ssh_host_attaches_to_that_machines_default_session() {
-        let Ok((target, group, owns)) = plan(&Attach::Ssh(" me@box ".into()), 2, "tmuxy") else {
-            panic!("user@host is an ssh destination");
+    fn a_new_session_takes_the_name_asked_for_or_the_lowest_free_number() {
+        let taken = vec!["1".to_string(), "work".to_string(), "3".to_string()];
+        assert_eq!(new_session_name(None, &taken).as_deref(), Ok("2"));
+        assert_eq!(new_session_name(Some("  "), &taken).as_deref(), Ok("2"));
+        assert_eq!(
+            new_session_name(Some(" notes "), &taken).as_deref(),
+            Ok("notes")
+        );
+        assert!(new_session_name(Some("work"), &taken).is_err());
+        assert!(new_session_name(Some("a b"), &taken).is_err());
+        assert!(new_session_name(Some("work+2"), &taken).is_err());
+    }
+
+    #[test]
+    fn an_ssh_window_is_named_by_who_where_and_which_port() {
+        let form = |host: &str, port: Option<u16>| SshForm {
+            host: host.to_string(),
+            port,
+            ..SshForm::default()
         };
-        assert_eq!(target.ssh.as_deref(), Some("me@box"));
-        assert_eq!(target.socket, DEFAULT_TMUX_SOCKET);
-        assert_eq!(target.session, tmuxy_core::DEFAULT_SESSION_NAME);
-        assert_eq!(group, None);
-        assert!(!owns);
-    }
-
-    #[test]
-    fn an_ssh_option_or_command_is_refused() {
-        for bad in ["-oProxyCommand=sh", "me@box ls", "", "a;b"] {
-            assert!(plan(&Attach::Ssh(bad.into()), 2, "tmuxy").is_err(), "{bad}");
-        }
+        let Ok(plain) = form("box", None).checked() else {
+            panic!("a form");
+        };
+        assert_eq!(ssh_shown(&plain), "box");
+        let Ok(full) = form("me@box", Some(2222)).checked() else {
+            panic!("a form");
+        };
+        assert_eq!(ssh_shown(&full), "me@box:2222");
     }
 
     #[test]
     fn a_window_member_or_unsafe_name_is_not_offered_or_joined() {
-        assert!(plan(&Attach::Local("work+2".into()), 3, "tmuxy").is_err());
-        assert!(plan(&Attach::Local("a b".into()), 3, "tmuxy").is_err());
+        assert!(plan_local("work+2", 3, "tmuxy").is_err());
+        assert!(plan_local("a b", 3, "tmuxy").is_err());
         let listed = sessions_to_offer("work|3|1\nwork+2|3|1\nnotes|1|0\nc++|1|0\n");
         let names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["work", "notes", "c++"]);

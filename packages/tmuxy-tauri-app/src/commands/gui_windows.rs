@@ -1,11 +1,11 @@
 //! The GUI windows: opening, focusing, closing and listing them, and a new
-//! window's splash page — the sessions on this machine to join, or an ssh
-//! host to attach to (`windows/attach.rs`).
+//! window's splash page — the sessions on this machine to join, a new one,
+//! or a host to attach to over ssh (`windows/attach.rs`).
 
 use serde_json::Value;
 use tmuxy_core::CommandError;
 
-use crate::windows::{self, Attach};
+use crate::windows::{self, Attach, Attached, SshForm};
 
 /// Open another GUI window (Window ▸ New Window), on its splash page: the
 /// window attaches once the page has chosen where ([`attach_window`]).
@@ -33,25 +33,65 @@ pub async fn list_local_sessions() -> Result<Value, CommandError> {
     serde_json::to_value(sessions).map_err(|e| CommandError::unavailable(e.to_string()))
 }
 
-/// Attach this splash window: to a session on this machine (`session`), whose
-/// group it joins, or to the tmuxy server of an ssh host (`ssh`).
+/// Attach this splash window, as one of three: to a session on this machine
+/// (`session`), whose group it joins; to a new session on this machine
+/// (`new_session`, a name or `""` for a number); or to the tmuxy server of a
+/// host over ssh (`ssh`, the page's form). Answers `{ attached: true }`, or
+/// `{ unknownHost: { fingerprint } }` when the host's key is to be confirmed.
 #[tauri::command]
-pub fn attach_window(
+pub async fn attach_window(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     session: Option<String>,
-    ssh: Option<String>,
-) -> Result<(), CommandError> {
-    let choice = match (session, ssh) {
-        (Some(session), None) => Attach::Local(session),
-        (None, Some(ssh)) => Attach::Ssh(ssh),
+    new_session: Option<String>,
+    ssh: Option<SshForm>,
+) -> Result<Value, CommandError> {
+    let choice = match (session, new_session, ssh) {
+        (Some(session), None, None) => Attach::Local(session),
+        (None, Some(name), None) => Attach::New(Some(name)),
+        (None, None, Some(form)) => Attach::Ssh(form),
         _ => {
             return Err(CommandError::invalid(
-                "a session or an ssh host, one of the two",
+                "one of a session, a new session or an ssh host",
             ))
         }
     };
-    windows::attach(&app, window.label(), choice).map_err(CommandError::invalid)
+    let label = window.label().to_string();
+    // An ssh connection authenticates before the window attaches.
+    let attached =
+        tauri::async_runtime::spawn_blocking(move || windows::attach(&app, &label, choice))
+            .await
+            .map_err(|e| CommandError::unavailable(e.to_string()))?
+            .map_err(CommandError::invalid)?;
+    Ok(match attached {
+        Attached::Done => serde_json::json!({ "attached": true }),
+        Attached::UnknownHost { fingerprint } => {
+            serde_json::json!({ "unknownHost": { "fingerprint": fingerprint } })
+        }
+    })
+}
+
+/// The hosts the user's `~/.ssh/config` names, for the ssh form to offer.
+#[tauri::command]
+pub fn list_ssh_hosts() -> Vec<String> {
+    windows::config_hosts()
+}
+
+/// A native file chooser for the ssh form's key or certificate, opened in
+/// `~/.ssh`: the path picked, or none.
+#[tauri::command]
+pub async fn pick_ssh_file(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let mut dialog = app.dialog().file();
+    if let Some(home) = std::env::var_os("HOME") {
+        dialog = dialog.set_directory(std::path::Path::new(&home).join(".ssh"));
+    }
+    tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
+        .await
+        .ok()
+        .flatten()
+        .and_then(|picked| picked.into_path().ok())
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 /// Bring the GUI window at `index` to the front (Window ▸ the window list, and
