@@ -1,6 +1,6 @@
 {
   "name": "tmuxy",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "description": "A tmux terminal wrapper - available as Tauri app or web server",
   "license": "MIT",
