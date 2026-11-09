@@ -75,27 +75,6 @@ tmuxy config paths --json       # every file tmuxy reads or writes: owner, locat
   server on the socket · 130 interrupted. A wait passes the program's status
   through.
 
-## Long-running work goes in a pane beside you
-
-Run anything that keeps going (a dev server, a watcher, `docker compose up`, a
-log tail, a long build or test suite) in a pane of your own tab, never as a
-hidden background job: the user can see it, scroll it and type into it.
-Short one-shot commands stay in your own shell.
-
-1. **Is it already running?** `tmuxy pane list --json` shows each pane's
-   command and label. If one runs it, use that pane; don't start a second copy.
-2. **Start it with a label:**
-   `tmuxy pane run --label dev --split right --focus=false -- npm run dev`.
-   The label names the pane from then on (`-t dev`).
-3. **A job that ends** (tests, a build): `tmuxy pane run --wait --for 20m
-   --label tests -- npm test` returns with its exit status; capture the pane
-   afterwards for the details.
-4. **A server's ready line** is the one thing to poll: `tmuxy pane capture dev
-   --trim` until `Local: http://…` or `ready` shows up, with a time limit.
-5. **Leave it running** and tell the user its label. Stop it with
-   `tmuxy pane send -t dev C-c`; close only panes you opened, once nobody
-   needs them.
-
 ## Personalizing tmuxy
 
 Everything the user can change lives in `~/.config/tmuxy/`. `tmuxy config paths`
