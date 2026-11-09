@@ -14,7 +14,7 @@ import {
   type PaneId,
   type WindowId,
 } from '../ids';
-import type { PredictContext, PredictResult } from './ops';
+import type { PredictContext, PredictResult } from './predict';
 
 export function predictSplit(
   op: TmuxOpOf<'Split'>,

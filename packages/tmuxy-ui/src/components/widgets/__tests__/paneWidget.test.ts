@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { paneWidgetOf } from '../registry';
 import { pid } from '../../../test/wire';
 import type { PaneContent } from '../../../domain/wireCells';
+// The widgets panes draw, registered as App.tsx registers them.
+import '../builtins';
 
 // What is under test is the authorisation, not the widgets: `preview` and
 // `tree` are the two this build draws.

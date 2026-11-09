@@ -14,6 +14,8 @@ import {
 import type { TmuxPane } from '../../domain/client';
 import type { PaneContent } from '../../domain/wireCells';
 import { previewWidget } from '../widgets/preview/definition';
+// The widgets panes draw, registered as App.tsx registers them.
+import '../widgets/builtins';
 
 const screen = (...rows: string[]): PaneContent => rows.map((row) => [...row].map((c) => ({ c })));
 

@@ -25,12 +25,9 @@ pub(super) const DEFAULT_USER_CONF: &str = include_str!("../../assets/tmuxy.conf
 /// every option. Mirrored to the data dir as `README.md`.
 const CONFIG_README: &str = include_str!("../../assets/config-README.md");
 
-/// The tmux global environment variable naming the data dir, set by the entry
-/// file before it sources anything. Everywhere tmux runs a bundled script it
-/// names it as `$TMUXY_DATA_DIR/bin/tmuxy/…`, expanded by tmux's parser (or a
-/// pane's shell), so a moved data dir moves them all. `paths::data_dir` reads
-/// the same name, so a process started in a pane finds its server's data dir.
-pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
+/// The tmux global environment variable naming the data dir (it lives with
+/// the paths it names).
+pub use crate::paths::DATA_DIR_ENV;
 
 /// The tmux global environment variable naming the entry file, set beside
 /// [`DATA_DIR_ENV`]: what a client's Reload Config sources

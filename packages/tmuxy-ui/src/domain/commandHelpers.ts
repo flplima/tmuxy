@@ -1,11 +1,31 @@
 import { realId, type PaneId } from './ids';
-import { quote, type TmuxOpOf } from './commands';
 import { isPluginName } from './plugins';
 // PASTE_BUFFER: named, so a paste never replaces the buffer the user last
 // yanked, and dropped again once pasted.
 import { CLI_PATH, PASTE_BUFFER, SCRIPT_EFFECT_TAGS, SCRIPTS_DIR } from './tmuxyConstants.gen';
 
 const LITERAL_CHUNK_SIZE = 500;
+
+/**
+ * Free text as one tmux argument, single-quoted (`it's` → `'it'\''s'`).
+ *
+ * Control mode reads one command per line, and nothing escapes inside single
+ * quotes: a newline in a name or a title would end the command there and run
+ * the rest as tmux commands of its own. Text holding any control character
+ * goes double-quoted instead, every unsafe byte an octal escape.
+ */
+export function quote(text: string): string {
+  if (hasControlCharacter(text)) return tmuxDoubleQuoted(text);
+  return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
+function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
 
 export function target(name: string): string {
   return /^[\w.@%:-]+$/.test(name) ? name : quote(name);
@@ -172,7 +192,13 @@ export function pasteBufferInto(to: string): string {
  * tmux ≥ 3.7 consumes mouse sequences pasted through a buffer, and `-l`
  * literals are format-expanded (see docs/TMUX.md).
  */
-export function mouseReport(op: TmuxOpOf<'SendMouse'>): string {
+export function mouseReport(op: {
+  readonly paneId: PaneId;
+  readonly button: number;
+  readonly x: number;
+  readonly y: number;
+  readonly release: boolean;
+}): string {
   const seq = `\x1b[<${op.button};${op.x};${op.y}${op.release ? 'm' : 'M'}`;
   const hex = Array.from(seq, (ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join(' ');
   return `send-keys -t ${op.paneId} -H ${hex}`;
@@ -208,7 +234,10 @@ export function sidebarWindowCommand(
  * with its output dropped: the pane id `--detach` prints would open a view
  * mode on the pane.
  */
-export function openFloat(op: TmuxOpOf<'OpenFloat'>): string {
+export function openFloat(op: {
+  readonly command: readonly string[];
+  readonly splitFrom: PaneId | null;
+}): string {
   const caller = op.splitFrom && /^%\d+$/.test(op.splitFrom) ? `TMUX_PANE=${op.splitFrom} ` : '';
   return (
     `run-shell -b "${caller}\\"${CLI_PATH}\\" pane float --detach ` +
@@ -239,7 +268,12 @@ export const NAV_WORD = { L: 'left', R: 'right', U: 'up', D: 'down' } as const;
  * line is a shell's: an inventory entry that is not one is never sent. The
  * path is quoted for the shell, as a data dir may hold a space.
  */
-export function pluginAction(op: TmuxOpOf<'PluginAction'>): string {
+export function pluginAction(op: {
+  readonly plugin: string;
+  readonly action: string;
+  readonly paneId: PaneId;
+  readonly token: string | null;
+}): string {
   const valid =
     isPluginName(op.plugin) &&
     isPluginName(op.action) &&

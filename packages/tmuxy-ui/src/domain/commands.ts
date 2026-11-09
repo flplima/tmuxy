@@ -23,7 +23,7 @@ import {
   script,
   scriptWith,
   target,
-  tmuxDoubleQuoted,
+  quote,
 } from './commandHelpers';
 import { LEFT_SIDEBAR_WIDGET, SIDEBAR_WINDOW_PREFIX } from './tmuxyConstants.gen';
 
@@ -221,27 +221,6 @@ export type TmuxOp = Data.TaggedEnum<{
 export const TmuxOp = Data.taggedEnum<TmuxOp>();
 
 export type TmuxOpOf<T extends TmuxOp['_tag']> = Extract<TmuxOp, { readonly _tag: T }>;
-
-/**
- * Free text as one tmux argument, single-quoted (`it's` → `'it'\''s'`).
- *
- * Control mode reads one command per line, and nothing escapes inside single
- * quotes: a newline in a name or a title would end the command there and run
- * the rest as tmux commands of its own. Text holding any control character
- * goes double-quoted instead, every unsafe byte an octal escape.
- */
-export function quote(text: string): string {
-  if (hasControlCharacter(text)) return tmuxDoubleQuoted(text);
-  return "'" + text.replace(/'/g, "'\\''") + "'";
-}
-
-function hasControlCharacter(text: string): boolean {
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
-  }
-  return false;
-}
 
 /**
  * The pin a binding is prefixed with so it runs where the user is looking:

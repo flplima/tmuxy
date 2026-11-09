@@ -1,7 +1,7 @@
 import { type TmuxSnapshot, type Patch, type ReconcileVerdict, confirmedVerdict } from './types';
 import type { TmuxPane } from '../client';
 import type { TmuxOpOf } from '../commands';
-import type { PredictResult } from './ops';
+import type { PredictResult } from './predict';
 import { withoutPane } from './paneOps';
 
 /**

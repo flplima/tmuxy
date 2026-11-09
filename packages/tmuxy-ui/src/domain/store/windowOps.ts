@@ -8,7 +8,7 @@ import {
   type PaneId,
   type WindowId,
 } from '../ids';
-import type { PredictContext, PredictResult } from './ops';
+import type { PredictContext, PredictResult } from './predict';
 import { makePlaceholderPane } from './paneOps';
 import { selectWindowTarget, stripTabs } from '../windows';
 

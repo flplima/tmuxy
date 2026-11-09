@@ -4,8 +4,6 @@ import type { PaneWidget } from '../../domain/paneWidget';
 import type { AppMachineContext } from '../../machines/types/context';
 import type { AppMenuSpec } from '../menus/specs/actions';
 import type { PaneId } from '../../domain/ids';
-import { TmuxyTree } from './TmuxyTree';
-import { previewWidget } from './preview/definition';
 
 export interface WidgetProps {
   paneId: PaneId;
@@ -33,14 +31,19 @@ export interface WidgetDefinition {
   selectMenuItems?: (context: AppMachineContext, paneId: PaneId, lines: string[]) => AppMenuSpec;
 }
 
-let widgets: Record<string, WidgetDefinition> | null = null;
-
 /**
- * The widgets this build draws, by the name `tmuxy-widget` prints. Built on
- * first use: the tree's own components reach back here for the pane menu.
+ * The widgets this build draws, by the name `tmuxy-widget` prints. Filled by
+ * `builtins.ts`, which App.tsx loads: this module imports no widget, since
+ * the widgets' own components reach back here for the pane menu and the tab.
  */
+const widgets: Record<string, WidgetDefinition> = {};
+
+/** Draw panes whose widget is `name` with `definition`. */
+export function registerWidget(name: string, definition: WidgetDefinition): void {
+  widgets[name] = definition;
+}
+
 function widgetDefinitions(): Record<string, WidgetDefinition> {
-  widgets ??= { tree: { component: TmuxyTree }, preview: previewWidget };
   return widgets;
 }
 

@@ -9,6 +9,7 @@ import { groupMembers, type TmuxPane } from '../client';
 import type { TmuxOp, TmuxOpOf } from '../commands';
 import type { PredictedTag } from '../opTraits';
 import type { GroupId, PaneId, WindowId } from '../ids';
+import type { PredictContext, PredictResult } from './predict';
 import {
   predictKillPane,
   predictNavigate,
@@ -42,18 +43,6 @@ import {
 
 /** The shell a predicted pane shows until tmux names its command, before the host has said which. */
 export const DEFAULT_SHELL = 'bash';
-
-export interface PredictContext {
-  readonly defaultShell: string;
-  /** MRU pane order, used by Navigate to break overlap ties (mirrors tmux's
-   *  window_pane_choose_best ranking by active_point). */
-  readonly paneActivationOrder: ReadonlyArray<PaneId>;
-}
-
-export interface PredictResult {
-  readonly patch: Patch;
-  readonly meta: Readonly<Record<string, unknown>>;
-}
 
 type Meta = Readonly<Record<string, unknown>>;
 type Claimed = { panes: ReadonlySet<PaneId>; windows: ReadonlySet<WindowId> };

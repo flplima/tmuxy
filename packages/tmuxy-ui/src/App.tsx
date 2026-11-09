@@ -1,5 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 import './styles.css';
+// The widgets panes can draw, registered once (components/widgets/builtins.ts).
+import './components/widgets/builtins';
 import { StatusBar, type RenderTabline } from './components/StatusBar';
 import { NativeMenuBar } from './components/menus/NativeMenuBar';
 import { isTauri } from './infra/platform';

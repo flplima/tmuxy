@@ -20,7 +20,7 @@ fn timestamp() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or_default();
-    crate::session_snapshot::stamp(secs)
+    crate::stamp::stamp(secs)
 }
 
 /// Append one line. A log that cannot be written costs only the line.

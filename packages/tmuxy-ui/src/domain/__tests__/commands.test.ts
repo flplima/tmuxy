@@ -8,12 +8,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   pinPrefix,
-  quote,
   renameSessionPrompt,
   renameWindowPrompt,
   TmuxOp,
   toTmuxCommand,
 } from '../commands';
+import { quote } from '../commandHelpers';
 import { pid, wid } from '../../test/wire';
 
 const S = '$TMUXY_DATA_DIR/bin/tmuxy';

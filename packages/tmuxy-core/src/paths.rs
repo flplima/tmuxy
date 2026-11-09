@@ -27,6 +27,13 @@ pub fn state_dir() -> PathBuf {
     state_dir_from(std::env::var_os("TMUXY_STATE_DIR"))
 }
 
+/// The tmux global environment variable naming the data dir, set by the entry
+/// file before it sources anything. Everywhere tmux runs a bundled script it
+/// names it as `$TMUXY_DATA_DIR/bin/tmuxy/…`, expanded by tmux's parser (or a
+/// pane's shell), so a moved data dir moves them all; [`data_dir`] reads the
+/// same name, so a process started in a pane finds its server's data dir.
+pub const DATA_DIR_ENV: &str = "TMUXY_DATA_DIR";
+
 /// The data directory: `TMUXY_DATA_DIR`, else `$XDG_DATA_HOME/tmuxy`, else
 /// `~/.local/share/tmuxy` — on every OS, macOS included, as [`config_dir`]
 /// does: tmux's `source-file` and `run-shell` name these
@@ -35,7 +42,7 @@ pub fn state_dir() -> PathBuf {
 /// layout says. Resolving it creates nothing.
 pub fn data_dir() -> PathBuf {
     data_dir_from(
-        std::env::var_os("TMUXY_DATA_DIR"),
+        std::env::var_os(DATA_DIR_ENV),
         std::env::var_os("XDG_DATA_HOME"),
         dirs::home_dir(),
     )
@@ -167,7 +174,7 @@ pub const CLI_DISPATCHER: &str = "tmuxy-cli";
 const SCRIPTS: &str = "tmuxy";
 
 /// The helper scripts' directory as tmux, or a pane's shell, names it: under
-/// the data dir tmux has in its environment (`session::DATA_DIR_ENV`), so a
+/// the data dir tmux has in its environment ([`DATA_DIR_ENV`]), so a
 /// moved data dir moves every command that runs one. The client builds its
 /// script commands on it (generated into `tmuxyConstants.gen.ts`).
 pub fn scripts_by_env() -> String {
@@ -180,7 +187,7 @@ pub fn cli_by_env() -> String {
 }
 
 fn in_bin_by_env(name: &str) -> String {
-    format!("${}/{}{name}", crate::session::DATA_DIR_ENV, BIN.name)
+    format!("${}/{}{name}", DATA_DIR_ENV, BIN.name)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

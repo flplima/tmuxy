@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KeyBatcher } from '../keyBatching';
-import { quote, toTmuxCommand, TmuxOp } from '../../../domain/commands';
+import { toTmuxCommand, TmuxOp } from '../../../domain/commands';
+import { quote } from '../../../domain/commandHelpers';
 import { pid } from '../../../test/wire';
 
 describe('KeyBatcher', async () => {
