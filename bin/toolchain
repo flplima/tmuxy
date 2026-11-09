@@ -39,9 +39,13 @@ packages() {
     desktop-test)
       # WebKitWebDriver's package was renamed in Ubuntu 26.04; Debian and
       # older Ubuntu still call it webkit2gtk-driver. Asked of the apt index,
-      # so it is right only after an `apt-get update`.
+      # so it is right only after an `apt-get update`. The question is whether
+      # the new name has an install candidate: 22.04's index knows the name
+      # (`apt-cache show` succeeds) with nothing installable behind it.
       local webdriver=webkit2gtk-driver
-      if apt-cache show webkitgtk-webdriver >/dev/null 2>&1; then webdriver=webkitgtk-webdriver; fi
+      if LC_ALL=C apt-cache policy webkitgtk-webdriver 2>/dev/null | grep 'Candidate: [^(]' >/dev/null; then
+        webdriver=webkitgtk-webdriver
+      fi
       echo xvfb x11-utils "$webdriver"
       ;;
     *)
