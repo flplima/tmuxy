@@ -35,11 +35,53 @@ done
 EXPECTED=("lint and tests" "deploy demo")
 OPTIONAL=("deploy demo")
 
+# `lint and tests` skips a push that only touches its `paths-ignore` (docs and
+# Markdown), so such a commit never gets a run to wait on. Its code is the code
+# of the nearest ancestor that changed anything else: that is the commit whose
+# runs speak for it. The patterns are read from the workflow, so the two cannot
+# drift; a pattern `**/x` also matches `x` at the top, as GitHub's does.
+IGNORED=()
+while IFS= read -r pattern; do IGNORED+=("$pattern"); done < <(
+  sed -n "/^  push:/,/^  [a-z_]*:/s/^ *paths-ignore: *\[\(.*\)\]/\1/p" \
+    "$(git rev-parse --show-toplevel)/.github/workflows/lint-and-tests.yml" |
+    tr ',' '\n' | sed "s/^ *'//; s/' *$//" | sed '/^$/d'
+)
+
+ignored_path() {
+  local pattern
+  for pattern in "${IGNORED[@]}"; do
+    # shellcheck disable=SC2053 # the pattern is a glob on purpose
+    if [[ $1 == $pattern || ($pattern == '**/'* && $1 == ${pattern#'**/'}) ]]; then return 0; fi
+  done
+  return 1
+}
+
+# The commit itself, or the nearest first-parent ancestor whose own change
+# reaches past the ignored paths.
+tested_commit() {
+  local sha=$1 file only_ignored
+  while git rev-parse -q --verify "$sha^" >/dev/null; do
+    only_ignored=1
+    while IFS= read -r file; do
+      ignored_path "$file" || { only_ignored=0; break; }
+    done < <(git diff --name-only "$sha^" "$sha")
+    [ "$only_ignored" -eq 1 ] || break
+    sha=$(git rev-parse "$sha^")
+  done
+  echo "$sha"
+}
+
 case "$MODE" in
   commit)
     # `gh run list --commit` matches the full sha only; a short one finds no run.
-    SHA="$(git rev-parse --verify "${ARG:-HEAD}^{commit}")" || exit 2
+    ASKED="$(git rev-parse --verify "${ARG:-HEAD}^{commit}")" || exit 2
+    SHA="$(tested_commit "$ASKED")"
     LABEL="commit ${SHA:0:8}"
+    if [ "$SHA" != "$ASKED" ]; then
+      echo "${ASKED:0:8} and the commits back to ${SHA:0:8} change only paths lint and tests ignores;"
+      echo "${SHA:0:8}'s runs are the ones that tested this code."
+      LABEL="commit ${SHA:0:8} (for ${ASKED:0:8})"
+    fi
     query() { gh run list --commit "$SHA" --json name,status,conclusion; }
     ;;
   tag)

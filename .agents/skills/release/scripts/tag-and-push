@@ -48,9 +48,11 @@ TAG="v$VERSION"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [ "$BRANCH" = "main" ] || { echo "on '$BRANCH', not main — releases are tagged from main" >&2; exit 1; }
 
-if [ -n "$(git status --porcelain)" ]; then
-  echo "working tree is dirty — commit or stash first" >&2
-  git status --short >&2
+# Untracked files are left out: the tag names a commit, so a file git does
+# not track cannot change what it ships.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "working tree has uncommitted changes — commit or stash first" >&2
+  git status --short --untracked-files=no >&2
   exit 1
 fi
 
@@ -58,8 +60,10 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   echo "tag $TAG already exists locally" >&2; exit 1
 fi
 
-# The version in the tree must match the tag, or brew ships a mislabelled build.
-TREE_VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+# The version in the commit being tagged must match the tag, or brew ships a
+# mislabelled build. Read from that commit, not the working tree: a sha given
+# on the command line need not be HEAD.
+TREE_VERSION=$(git show "$SHA:Cargo.toml" | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)
 [ "$TREE_VERSION" = "$VERSION" ] || {
   echo "Cargo.toml says $TREE_VERSION but you are tagging $VERSION — run bump-version first" >&2
   exit 1

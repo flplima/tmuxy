@@ -89,6 +89,8 @@ Verifies you're on a clean `main` and that `Cargo.toml` matches the tag, then ru
 
 The gate asks about the **version-bump commit itself, not its parent**. That distinction is the whole point: v0.0.10-alpha.40 was tagged on a commit whose `lint and tests` had *failed*, because the only thing anyone had checked was the commit before the bump. The gate reuses `wait-ci commit <sha>` verbatim, so it inherits the rule that the path-filtered `deploy demo` may legitimately report "not triggered by this commit", while `lint and tests` must be `completed (success)`.
 
+A commit that only touches what `lint and tests` ignores (its `paths-ignore`: docs and Markdown) never gets a run, so the gate watches the nearest ancestor that changed anything else, whose runs tested the same code, and says so. Untracked files do not make the tree dirty: the tag names a commit.
+
 A run that is queued, in progress, or has not reported a conclusion yet **blocks** — the gate waits for it (`--ci-timeout <seconds>`, default 2700) rather than guessing.
 
 ```
