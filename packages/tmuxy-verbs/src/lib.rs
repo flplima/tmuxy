@@ -95,6 +95,8 @@ pub enum Verb {
 
 pub async fn run(verb: Verb) {
     end_quietly_on_a_closed_stdout();
+    #[cfg(all(feature = "native", target_os = "linux"))]
+    tmuxy_core::control_mode::leave_appimage_mount();
     match verb {
         #[cfg(feature = "native")]
         Verb::Trace(args) => trace_view::run(args),

@@ -95,6 +95,46 @@ pub(super) fn working_dir_outside_appdir(
         .map(Path::to_path_buf)
 }
 
+/// Where a process started from an AppImage should be: `None` when `cwd` is
+/// already outside the mount, otherwise the caller's directory as
+/// [`working_dir_outside_appdir`] picks it.
+fn dir_to_leave_appdir_for(
+    appdir: &Path,
+    cwd: Option<&Path>,
+    owd: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    if cwd.is_some_and(|d| !d.starts_with(appdir)) {
+        return None;
+    }
+    working_dir_outside_appdir(appdir, owd, home)
+}
+
+/// Run from an AppImage, a process starts in the mount (`$APPDIR/usr`), not
+/// where it was called from. A verb there gave every tmux client it started
+/// the mount as its directory, so `tmuxy tab create` and `tmuxy pane float`
+/// opened their pane in it, gone once the verb exited, and a relative path
+/// would have been read from it too. This moves back to `$OWD`, the directory
+/// the AppImage was run from, or home when that is gone. Outside an AppImage it
+/// does nothing.
+pub fn leave_appimage_mount() {
+    let Some(appdir) = std::env::var_os("APPDIR") else {
+        return;
+    };
+    let owd = std::env::var_os("OWD").map(PathBuf::from);
+    let home = dirs::home_dir();
+    let cwd = std::env::current_dir().ok();
+    if let Some(dir) = dir_to_leave_appdir_for(
+        Path::new(&appdir),
+        cwd.as_deref(),
+        owd.as_deref(),
+        home.as_deref(),
+    ) {
+        // A directory that vanished in between leaves the verb where it was.
+        let _ = std::env::set_current_dir(dir);
+    }
+}
+
 /// Mark any open file descriptor pointing inside `appdir` as `FD_CLOEXEC` so
 /// spawned `tmux` processes do not inherit the AppImage FUSE mount descriptor.
 #[cfg(unix)]
@@ -216,6 +256,33 @@ mod tests {
         assert_eq!(
             working_dir_outside_appdir(&appdir, None, Some(&home)),
             Some(home)
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_verb_in_the_mount_moves_to_where_it_was_called_and_one_outside_stays() {
+        let root = std::env::temp_dir().join(format!("tmuxy-leave-mount-{}", std::process::id()));
+        let appdir = root.join("mount");
+        let owd = root.join("owd");
+        let home = root.join("home");
+        std::fs::create_dir_all(appdir.join("usr")).unwrap();
+        std::fs::create_dir_all(&owd).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let in_mount = appdir.join("usr");
+
+        assert_eq!(
+            dir_to_leave_appdir_for(&appdir, Some(&in_mount), Some(&owd), Some(&home)),
+            Some(owd.clone())
+        );
+        assert_eq!(
+            dir_to_leave_appdir_for(&appdir, None, Some(&owd), Some(&home)),
+            Some(owd.clone())
+        );
+        assert_eq!(
+            dir_to_leave_appdir_for(&appdir, Some(&home), Some(&owd), Some(&home)),
+            None
         );
 
         let _ = std::fs::remove_dir_all(&root);

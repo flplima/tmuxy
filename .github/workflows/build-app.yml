@@ -430,6 +430,36 @@ jobs:
           mkdir -p "$SCRATCH/home"
           SCRATCH="$SCRATCH" APPIMAGE="$GITHUB_WORKSPACE/$APPIMAGE" xvfb-run -a bash "$SCRATCH/run.sh"
 
+      # A verb the CLI runs through the AppImage starts in the bundle
+      # ($APPDIR/usr), not where it was called from, and every tmux client it
+      # starts gets that directory: `tmuxy tab create` and `tmuxy pane float`
+      # opened their pane in a mount gone once the verb exited (v0.1.5's
+      # candidate). tmuxy-core moves a verb back to $OWD
+      # (control_mode::leave_appimage_mount); this runs the shipped bundle's own
+      # verb, the way the CLI does, from a known directory.
+      - name: A tab the CLI makes opens where it was asked (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          APPIMAGE="$GITHUB_WORKSPACE/$(ls target/release/bundle/appimage/*.AppImage | head -1)"
+          chmod +x "$APPIMAGE"
+          SCRATCH=$(mktemp -d "${RUNNER_TEMP}/tmuxy-owd.XXXXXX")
+          mkdir -p "$SCRATCH/caller" "$SCRATCH/home"
+          export TMUX_SOCKET=tmuxy-owd HOME="$SCRATCH/home"
+          tmux -L "$TMUX_SOCKET" new-session -d -s owd
+          (cd "$SCRATCH/caller" && APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE" server new-tab --json -- owd-check)
+          WANT=$(cd "$SCRATCH/caller" && pwd -P)
+          GOT=""
+          # Polls until tmux lists the tab; the deadline only bounds a hang.
+          for _ in $(seq 1 30); do
+            GOT=$(tmux -L "$TMUX_SOCKET" list-panes -a -F '#{window_name} #{pane_current_path}' | sed -n 's/^owd-check //p')
+            [ -n "$GOT" ] && break
+            sleep 1
+          done
+          tmux -L "$TMUX_SOCKET" kill-server
+          echo "the new tab's pane is in: ${GOT:-(no tab)}"
+          [ "$GOT" = "$WANT" ] || { echo "expected $WANT"; exit 1; }
+
       # What the AppImage catalog's appdir-lint checks, checked here first. The
       # Tauri CLI before 2.11.3 wrote `.DirIcon` as an ABSOLUTE symlink into
       # the build runner's workspace: dangling once the image left the runner,
