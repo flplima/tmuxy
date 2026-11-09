@@ -121,6 +121,15 @@ describe('ssh windows', () => {
     await typeKeys(driver, 'echo PASSWORD_$(whoami)');
     await pressKey(driver, 'Enter');
     await waitForTerminalText(driver, `PASSWORD_${host.user}`, 20000);
+    // The status line names the machine tmux runs on: the host's, not this one's.
+    const remoteName = host.exec('hostname');
+    const statusLine = await driver.$('.tmux-status-bar');
+    await waitForCondition(
+      null,
+      async () => (await statusLine.getText()).includes(remoteName),
+      15000,
+      async () => `the status line to name ${remoteName} (it reads: ${await statusLine.getText()})`,
+    );
     // Signed in, and the password is on disk nowhere, its file removed.
     expect(secretsOnDisk()).toEqual([]);
     // Trusted in the suite's own known-hosts file, hashed or not.

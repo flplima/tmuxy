@@ -121,7 +121,7 @@ fn embedded_file(path: &str) -> Response {
             Some(index) => build_response(
                 StatusCode::OK,
                 "text/html; charset=utf-8",
-                titled_index_html(&index.data, &tmuxy_core::host::host_name()),
+                titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
             ),
             None => StatusCode::NOT_FOUND.into_response(),
         }
@@ -133,7 +133,7 @@ fn embedded_file(path: &str) -> Response {
         build_response(
             StatusCode::OK,
             "text/html; charset=utf-8",
-            titled_index_html(&index.data, &tmuxy_core::host::host_name()),
+            titled_index_html(&index.data, &tmuxy_core::host::server_host_name()),
         )
     } else {
         StatusCode::NOT_FOUND.into_response()

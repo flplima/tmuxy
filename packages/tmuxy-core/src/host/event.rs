@@ -36,7 +36,7 @@ impl ConnectionInfo {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "bash".to_string()),
             trace_enabled: crate::trace::is_enabled(),
-            hostname: super::host_name(),
+            hostname: super::server_host_name(),
         }
     }
 }

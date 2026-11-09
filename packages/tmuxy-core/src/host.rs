@@ -133,6 +133,35 @@ pub fn host_name() -> String {
     }
 }
 
+/// The name of the machine tmux runs on, for the status line, the page title
+/// and push notifications: this machine's, unless tmux is reached over ssh,
+/// where it is the remote's own (tmux's `#{host}`), which an ssh window or
+/// `tmuxy connect` showed as this machine's name. Read once per ssh target,
+/// over the connection the target already rides; empty when it cannot be read.
+pub fn server_host_name() -> String {
+    let Some(ssh) = crate::session::ssh_target() else {
+        return host_name();
+    };
+    static REMOTE: std::sync::Mutex<Vec<(Vec<String>, String)>> = std::sync::Mutex::new(Vec::new());
+    let mut known = REMOTE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, name)) = known.iter().find(|(target, _)| *target == ssh) {
+        return name.clone();
+    }
+    // Over ssh the arguments reach the remote shell as text, where an
+    // unquoted `#` starts a comment: the format goes quoted for it.
+    let name = crate::session::tmux_command()
+        .args(["display-message", "-p", "'#{host}'"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    if !name.is_empty() {
+        known.push((ssh, name.clone()));
+    }
+    name
+}
+
 #[cfg(test)]
 mod tests {
     use super::session_start_dir_from;
