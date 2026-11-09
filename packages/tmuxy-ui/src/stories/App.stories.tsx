@@ -140,7 +140,10 @@ export const ResizePaneDrag: Story = {
  * C-a `-` paints a placeholder pane within 5 frames (≈83ms absorbs userEvent's
  * dispatch overhead and is far below the serial round trip), and tmux's
  * confirmation swaps its id on the SAME DOM node: a remount is the flicker
- * users see.
+ * users see. No divider is taken away on the way either: the line beside the
+ * split column used to be drawn in two pieces while the split was predicted
+ * and one once tmux confirmed it, a divider removed whatever tmux's timing
+ * (the glitch check below saw it only when tmux answered within 100ms).
  */
 export const SplitOptimisticTimeline: Story = {
   tags: ['gate'],
@@ -157,6 +160,13 @@ export const SplitOptimisticTimeline: Story = {
     const recorder = new LayoutMutationRecorder(layoutRoot);
     const glitches = new GlitchRecorder(layoutRoot);
     const probe = armPaintProbe(layoutRoot, addsElement('[data-pane-id^="__placeholder_"]'));
+    let dividersRemoved = 0;
+    const dividerWatch = new MutationObserver((records) => {
+      for (const r of records)
+        for (const n of r.removedNodes)
+          if ((n as Element).classList?.contains('resize-divider')) dividersRemoved++;
+    });
+    dividerWatch.observe(layoutRoot, { childList: true, subtree: true });
     await user.keyboard('-');
     const frames = await probe.wait(5, 5000);
     expect(frames).toBeLessThanOrEqual(5);
@@ -176,7 +186,9 @@ export const SplitOptimisticTimeline: Story = {
       { timeout: 30000, interval: 500 },
     );
     recorder.disconnect();
+    dividerWatch.disconnect();
     expect([...recorder.removedPaneIds]).toEqual([]);
+    expect(dividersRemoved, 'dividers taken away during the split').toBe(0);
     glitches.assertNoGlitches('split');
   },
 };
