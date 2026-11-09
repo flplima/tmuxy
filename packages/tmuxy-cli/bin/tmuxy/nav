@@ -2,6 +2,7 @@
 # Args: $1=direction (left|right|up|down|next|prev), $2=current pane_id
 
 set -euo pipefail
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 DIR="$1"

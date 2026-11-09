@@ -1,0 +1,6 @@
+# shellcheck reads this from the repo root down (bin/lint-gate check shellcheck).
+# A sourced file is checked inside the script that sources it, where its
+# variables are known; a path built at run time is named by a
+# `# shellcheck source=` line beside the `source`, resolved from the script.
+external-sources=true
+source-path=SCRIPTDIR

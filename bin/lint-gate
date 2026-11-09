@@ -128,6 +128,33 @@ check_complexity() {
   node bin/ci/complexity.mjs
 }
 
+# Every tracked shell script, NUL-separated: a .sh file, or a regular file
+# whose first line is a sh or bash shebang.
+shell_scripts() {
+  local file first
+  while IFS= read -r -d '' file; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    if [[ $file == *.sh ]]; then
+      printf '%s\0' "$file"
+      continue
+    fi
+    first=""
+    IFS= read -r first < "$file" || true
+    if [[ $first =~ ^\#!.*[/\ ](ba)?sh([[:space:]]|$) ]]; then printf '%s\0' "$file"; fi
+  done < <(git ls-files -z)
+}
+
+check_shellcheck() {
+  step shellcheck
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    echo "shellcheck is not installed: bin/install-dev-tools installs it (apt install shellcheck)" >&2
+    exit 1
+  fi
+  # .shellcheckrc follows each `source`; a library is checked by name too,
+  # since shellcheck reports only on the files it is given.
+  shell_scripts | xargs -0 shellcheck -x -S warning
+}
+
 check_clippy_wasm() {
   step clippy-wasm
   if ! cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings; then
@@ -138,7 +165,7 @@ check_clippy_wasm() {
   fi
 }
 
-ALL_STEPS=(policy prettier rustfmt eslint types knip complexity clippy clippy-wasm)
+ALL_STEPS=(policy prettier rustfmt eslint types knip complexity shellcheck clippy clippy-wasm)
 
 case "${1:-}" in
   format)
@@ -165,6 +192,7 @@ case "${1:-}" in
         types) check_types ;;
         knip) check_knip ;;
         complexity) check_complexity ;;
+        shellcheck) check_shellcheck ;;
         clippy) check_clippy ;;
         clippy-wasm) check_clippy_wasm ;;
         *)

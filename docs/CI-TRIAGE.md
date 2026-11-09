@@ -16,7 +16,7 @@ A run that is green but slow is triaged from its summary page: the `ci` job writ
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
-| `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `complexity`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
+| `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `complexity`, `shellcheck`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
 | `changes` | `node bin/ci/ci-changes.mjs <base-sha>`, then `node bin/ci/e2e-plan.mjs commit [--with-nightly]` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip (rules and tests: `bin/ci/ci-changes.mjs`, `bin/ci/ci-changes.test.mjs`), and the E2E matrix the `e2e` job fans out over (`tests/e2e-suites.json`, with one more `nightly-tier` shard when the push edited the web suites). A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
 | `ci` | `node bin/ci/ci-gate.mjs` with `RESULTS` set to the jobs' results | Runs last, always: red when any job failed or was cancelled (a skipped one passes), and writes the timing table to the run summary |
 | `unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
@@ -52,6 +52,7 @@ What keeps the code from tangling again after PR #177. Each is deterministic: th
 | Core module graph | Rust tests (`packages/tmuxy-core/tests/module_graph.rs`) | a new edge between tmuxy-core's modules, or a cycle | A cycle: share or merge. A meant edge: `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test module_graph`, and say why |
 | Copied code | `policy` (`bin/ci/duplication.mjs`) | more lines in copied 8-line runs than `bin/ci/ratchets.json` allows | Share the code. Fewer than allowed: lower the ratchet (`node bin/ci/duplication.mjs --update`) |
 | Function size | `complexity` (`bin/ci/complexity.mjs`) | more branchy or long functions than `bin/ci/ratchets.json` allows | Split the function the change grew. Fewer: `node bin/ci/complexity.mjs --update` |
+| Shell scripts | `shellcheck` (`.shellcheckrc`) | a warning in any tracked shell script, a sourced library included | Fix it. A path built at run time gets a `# shellcheck source=` line beside its `source`; a variable another file sets gets a one-line `disable` that names that file |
 
 Every allow list and ratchet only goes down: an allowance a file no longer needs, or a count that fell, fails until the file is updated.
 

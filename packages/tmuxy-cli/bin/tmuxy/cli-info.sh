@@ -80,6 +80,7 @@ cmd_agent() {
   case "$verb" in
     install|uninstall|status)
       find_server_cmd || exit "$EXIT_FAILED"
+      # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
       exec "${SERVER_CMD[@]}" agent "$verb" ${server_json[@]+"${server_json[@]}"} "$@"
       ;;
     ""|--help|-h)
@@ -116,5 +117,6 @@ cmd_skill() {
     --help|-h) echo "Usage: tmuxy skill"; return ;;
   esac
   find_server_cmd || exit "$EXIT_FAILED"
+  # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
   exec "${SERVER_CMD[@]}" skill ${server_json[@]+"${server_json[@]}"}
 }

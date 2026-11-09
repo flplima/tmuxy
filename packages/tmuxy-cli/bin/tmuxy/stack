@@ -5,6 +5,7 @@
 # the active pane stays expanded, every other first-level row collapses to its
 # headers, and panes nested inside a row keep their proportions.
 set -euo pipefail
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 CMD="${1:-}"

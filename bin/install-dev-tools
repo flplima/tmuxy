@@ -48,7 +48,7 @@ $SUDO apt-get update
 desktop_test="$("$toolchain" packages desktop-test)"
 # shellcheck disable=SC2086
 $SUDO apt-get install -y --no-install-recommends \
-    jq zstd fzf neovim \
+    jq zstd fzf neovim shellcheck \
     $desktop_test \
     $fonts
 

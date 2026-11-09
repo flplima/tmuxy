@@ -28,6 +28,7 @@ case "$TMUXY_VERSION" in
     ;;
 esac
 
+# shellcheck source=tmuxy/_lib
 source "$SCRIPTS_DIR/_lib"
 
 # The real stdout, for a JSON failure raised inside a `$(…)` (`_json_fd`).
@@ -285,12 +286,19 @@ Examples:
 EOF
 }
 
+# shellcheck source=tmuxy/cli-info.sh
 source "$SCRIPTS_DIR/cli-info.sh"
+# shellcheck source=tmuxy/cli-config.sh
 source "$SCRIPTS_DIR/cli-config.sh"
+# shellcheck source=tmuxy/cli-pane.sh
 source "$SCRIPTS_DIR/cli-pane.sh"
+# shellcheck source=tmuxy/cli-pane-run.sh
 source "$SCRIPTS_DIR/cli-pane-run.sh"
+# shellcheck source=tmuxy/cli-commands.sh
 source "$SCRIPTS_DIR/cli-commands.sh"
+# shellcheck source=tmuxy/cli-plugin.sh
 source "$SCRIPTS_DIR/cli-plugin.sh"
+# shellcheck source=tmuxy/cli-mcp.sh
 source "$SCRIPTS_DIR/cli-mcp.sh"
 
 server_json=()

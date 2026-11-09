@@ -55,6 +55,10 @@ jobs:
 
       - uses: ./.github/actions/install-linux-deps
 
+      # The gate's shellcheck step; named, not left to the runner image.
+      - name: Install shellcheck
+        run: bin/ci/apt-get install -y --no-install-recommends shellcheck
+
       - name: Lint gate
         run: |
           failed=""

@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 usage_plugin() {
   cat <<'EOF'
 Usage: tmuxy plugin <command> [args...]
@@ -42,6 +44,7 @@ cmd_plugin() {
   esac
   find_server_cmd || exit "$EXIT_FAILED"
   if [ "$1" != action ]; then
+    # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
     exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} "$@"
   fi
   shift
@@ -55,5 +58,6 @@ cmd_plugin() {
   if [ "$named" = false ] && [ -n "${TMUX_PANE:-}" ]; then
     pane=(--pane "$TMUX_PANE")
   fi
+  # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
   exec "${SERVER_CMD[@]}" plugin ${server_json[@]+"${server_json[@]}"} action ${pane[@]+"${pane[@]}"} "$@"
 }

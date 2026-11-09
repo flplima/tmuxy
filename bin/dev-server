@@ -43,6 +43,7 @@ ACTION="${1:-}"
 # `_lib`, which resolves the -L/-S flag from it, and for the server, which
 # reads it from the env.
 export TMUX_SOCKET="${TMUX_SOCKET:-tmuxy-dev}"
+# shellcheck source=../packages/tmuxy-cli/bin/tmuxy/_lib
 source "$REPO_ROOT/packages/tmuxy-cli/bin/tmuxy/_lib"
 
 # State lives outside the repo: a PID file and a log are per-machine facts about

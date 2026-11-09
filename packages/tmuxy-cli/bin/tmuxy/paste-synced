@@ -6,6 +6,7 @@
 # typing went to all. Run by the client's paste (`pastedText`) only when $1 is
 # synchronized.
 set -euo pipefail
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 TARGET="${1:?target pane required}"

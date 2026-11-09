@@ -50,7 +50,6 @@ reset
 # --- 256-color grid (rows 4..7, 6 cells per row) ---
 row=4
 while [ $row -le 7 ]; do
-  col=1
   cell=0
   while [ $cell -lt 6 ]; do
     x=$((1 + cell * 10))

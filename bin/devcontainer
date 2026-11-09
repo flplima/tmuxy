@@ -35,6 +35,7 @@ set -e
 
 cd "$(dirname "$0")/.."
 # The server's and Vite's ports (DEFAULT_PORT, VITE_PORT), as tmuxy-core has them.
+# shellcheck source=../packages/tmuxy-cli/bin/tmuxy/_options
 source packages/tmuxy-cli/bin/tmuxy/_options
 
 IMAGE_NAME="tmuxy-dev"

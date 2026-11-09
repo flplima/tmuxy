@@ -18,6 +18,7 @@ case "${socket_path##*/}" in
 esac
 [ -n "${TMUX_PANE:-}" ] || exit 0
 
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 find_server_cmd 2>/dev/null || exit 0
 state="$("${SERVER_CMD[@]}" agent state "$agent" "$event" 2>/dev/null)" || exit 0

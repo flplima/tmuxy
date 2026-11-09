@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=_options
 source "${BASH_SOURCE[0]%/*}/_options"
 
 # Where tmuxy keeps its files, split by owner — resolved as tmuxy-core does
@@ -191,6 +192,7 @@ shquote() {
   printf '%s' "${out# }"
 }
 
+# shellcheck source=_contract
 source "$SCRIPTS_DIR/_contract"
 
 # --- The verbs binary ------------------------------------------------------

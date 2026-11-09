@@ -70,6 +70,7 @@ cmd_tab() {
       # The tab itself is the server binary's `new-tab` (tmuxy-core
       # `tmux_command::NewTab`).
       find_server_cmd || exit "$EXIT_FAILED"
+      # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
       exec "${SERVER_CMD[@]}" new-tab ${server_json[@]+"${server_json[@]}"} -- ${name:+"$name"}
       ;;
 
@@ -193,6 +194,7 @@ cmd_session() {
     save|snapshots)
       # Reads only (tmux queries and `ps`), safe as a plain subprocess.
       find_server_cmd || exit "$EXIT_FAILED"
+      # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
       exec "${SERVER_CMD[@]}" session "$sub" ${server_json[@]+"${server_json[@]}"} "$@"
       ;;
 
@@ -280,6 +282,7 @@ cmd_nav() {
 # (tmuxy-core `command_router::route_cli_run`).
 cmd_run() {
   find_server_cmd || exit "$EXIT_FAILED"
+  # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
   exec "${SERVER_CMD[@]}" run ${server_json[@]+"${server_json[@]}"} -- "$@"
 }
 
@@ -289,6 +292,7 @@ cmd_run() {
 # `session-connect` and `connect` (tmuxy-verbs `connect_cli`).
 session_connect() {
   find_server_cmd || exit "$EXIT_FAILED"
+  # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
   exec "${SERVER_CMD[@]}" session-connect ${server_json[@]+"${server_json[@]}"} "$@"
 }
 
@@ -298,5 +302,6 @@ cmd_connect() {
     "") session_connect ;;
   esac
   find_server_cmd || exit "$EXIT_FAILED"
+  # shellcheck disable=SC2154 # server_json is set by tmuxy-cli, which sources this file
   exec "${SERVER_CMD[@]}" connect ${server_json[@]+"${server_json[@]}"} --socket "$1" ${2:+--session "$2"}
 }

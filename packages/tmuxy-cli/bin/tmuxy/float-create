@@ -6,6 +6,7 @@
 # verb's (`paneId`, `windowId`), and a waited-for command's adds `stdout`.
 
 set -euo pipefail
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 DRAWER=""
@@ -46,9 +47,10 @@ FLOAT_ARGS=(float ${TMUX_PANE:+--pane "$TMUX_PANE"})
 # The float verb's answer in FLOAT_ANSWER, and the ids it names; a failure is
 # the verb's answer, as the CLI's.
 create_float() {
-  local status=0
+  local status=0 json=()
+  [ "$JSON_OUT" != true ] || json=(--json)
   find_server_cmd || exit 1
-  FLOAT_ANSWER=$("${SERVER_CMD[@]}" "${FLOAT_ARGS[@]}" $(_json_flag) ${1:+--command "$1"}) || status=$?
+  FLOAT_ANSWER=$("${SERVER_CMD[@]}" "${FLOAT_ARGS[@]}" "${json[@]}" ${1:+--command "$1"}) || status=$?
   if [ "$status" -ne 0 ]; then
     [ -z "$FLOAT_ANSWER" ] || printf '%s\n' "$FLOAT_ANSWER"
     exit "$status"

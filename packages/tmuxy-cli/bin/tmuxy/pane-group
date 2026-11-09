@@ -4,6 +4,7 @@
 # are the verbs binary's `group` (`tmuxy-server group --help`,
 # packages/tmuxy-verbs/src/group_cli.rs).
 set -euo pipefail
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 group_verb "$@"

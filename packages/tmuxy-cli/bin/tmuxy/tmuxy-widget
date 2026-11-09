@@ -6,6 +6,7 @@
 COMPONENT="${1:?Usage: tmuxy-widget <component-name> [title]}"
 TITLE="${2:-$COMPONENT}"
 
+# shellcheck source=_lib
 source "${0%/*}/_lib"
 
 # The marker below is pane OUTPUT, and anything the pane prints can carry it —
