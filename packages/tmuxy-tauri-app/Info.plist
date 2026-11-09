@@ -31,5 +31,16 @@
 
   <key>NSNetworkVolumesUsageDescription</key>
   <string>tmuxy runs your shell. Allow this so commands you run can read and write files on network shares.</string>
+
+  <!--
+    Unlike the folder strings, this one decides WHETHER a prompt appears. Under
+    the hardened runtime, an app without it (and without the apple-events
+    entitlement in Entitlements.plist) has every Apple event a command sends
+    refused on the spot (-1743), with no prompt: `osascript -e 'tell app
+    "Mail" …'` in a tmuxy pane just fails, and the app never shows up under
+    Privacy & Security → Automation to be allowed there either.
+  -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>tmuxy runs your shell. Allow this so scripts and tools you run — osascript, Shortcuts, automation CLIs — can control this app.</string>
 </dict>
 </plist>

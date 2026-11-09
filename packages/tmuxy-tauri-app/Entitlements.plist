@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements the Tauri bundler signs the macOS app with (bundle.macOS.entitlements
+  in tauri.conf.json). The hardened runtime blocks these capabilities unless the
+  signature claims them.
+
+  apple-events: commands run in a tmuxy pane are the app's children, so TCC
+  holds tmuxy responsible for the Apple events they send. Without this
+  entitlement (and NSAppleEventsUsageDescription in Info.plist) macOS refuses
+  them all without asking, and `osascript`, Shortcuts or any automation CLI
+  that drives Mail, Safari, Music… cannot work from tmuxy at all.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

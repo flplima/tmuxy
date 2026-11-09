@@ -18,6 +18,9 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
+    "macOS": {
+      "entitlements": "Entitlements.plist"
+    },
     "linux": {
       "deb": { "depends": ["tmux"] },
       "rpm": { "depends": ["tmux"] }
