@@ -96,38 +96,48 @@ pub(super) fn working_dir_outside_appdir(
 }
 
 /// Where a process started from an AppImage should be: `None` when `cwd` is
-/// already outside the mount, otherwise the caller's directory as
-/// [`working_dir_outside_appdir`] picks it.
+/// already outside the bundle, otherwise the first of `callers` that is an
+/// existing directory outside it, or `home`.
 fn dir_to_leave_appdir_for(
     appdir: &Path,
     cwd: Option<&Path>,
-    owd: Option<&Path>,
+    callers: &[Option<&Path>],
     home: Option<&Path>,
 ) -> Option<PathBuf> {
     if cwd.is_some_and(|d| !d.starts_with(appdir)) {
         return None;
     }
-    working_dir_outside_appdir(appdir, owd, home)
+    let usable = |d: &&Path| !d.as_os_str().is_empty() && !d.starts_with(appdir) && d.is_dir();
+    callers
+        .iter()
+        .flatten()
+        .copied()
+        .chain(home)
+        .find(usable)
+        .map(Path::to_path_buf)
 }
 
-/// Run from an AppImage, a process starts in the mount (`$APPDIR/usr`), not
-/// where it was called from. A verb there gave every tmux client it started
-/// the mount as its directory, so `tmuxy tab create` and `tmuxy pane float`
-/// opened their pane in it, gone once the verb exited, and a relative path
-/// would have been read from it too. This moves back to `$OWD`, the directory
-/// the AppImage was run from, or home when that is gone. Outside an AppImage it
-/// does nothing.
+/// Run from an AppImage, a process starts in the bundle (`$APPDIR/usr`): the
+/// bundle's AppRun changes into it. A verb there gave every tmux client it
+/// started the bundle as its directory, so `tmuxy tab create` and `tmuxy pane
+/// float` opened their pane in it, gone once the verb exited, and a relative
+/// path would have been read from it too. This moves back to where the
+/// AppImage was run from: `$OWD`, which the runtime sets when it mounts the
+/// bundle, else `$PWD`, which the caller's shell exported and the AppRun's
+/// change of directory leaves as it was (an AppImage run without FUSE, extracted
+/// to /tmp, gets no `$OWD`), else home. Outside an AppImage it does nothing.
 pub fn leave_appimage_mount() {
     let Some(appdir) = std::env::var_os("APPDIR") else {
         return;
     };
     let owd = std::env::var_os("OWD").map(PathBuf::from);
+    let pwd = std::env::var_os("PWD").map(PathBuf::from);
     let home = dirs::home_dir();
     let cwd = std::env::current_dir().ok();
     if let Some(dir) = dir_to_leave_appdir_for(
         Path::new(&appdir),
         cwd.as_deref(),
-        owd.as_deref(),
+        &[owd.as_deref(), pwd.as_deref()],
         home.as_deref(),
     ) {
         // A directory that vanished in between leaves the verb where it was.
@@ -262,28 +272,42 @@ mod tests {
     }
 
     #[test]
-    fn a_verb_in_the_mount_moves_to_where_it_was_called_and_one_outside_stays() {
+    fn a_verb_in_the_bundle_moves_to_where_it_was_called_and_one_outside_stays() {
         let root = std::env::temp_dir().join(format!("tmuxy-leave-mount-{}", std::process::id()));
         let appdir = root.join("mount");
         let owd = root.join("owd");
+        let pwd = root.join("pwd");
         let home = root.join("home");
         std::fs::create_dir_all(appdir.join("usr")).unwrap();
-        std::fs::create_dir_all(&owd).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
-        let in_mount = appdir.join("usr");
+        for dir in [&owd, &pwd, &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let in_bundle = appdir.join("usr");
+        let leave = |cwd: Option<&Path>, callers: &[Option<&Path>]| {
+            dir_to_leave_appdir_for(&appdir, cwd, callers, Some(&home))
+        };
 
+        // Mounted: the runtime's $OWD.
         assert_eq!(
-            dir_to_leave_appdir_for(&appdir, Some(&in_mount), Some(&owd), Some(&home)),
+            leave(Some(&in_bundle), &[Some(&owd), Some(&pwd)]),
             Some(owd.clone())
         );
+        // Extracted without FUSE: no $OWD, the caller's $PWD.
         assert_eq!(
-            dir_to_leave_appdir_for(&appdir, None, Some(&owd), Some(&home)),
-            Some(owd.clone())
+            leave(Some(&in_bundle), &[None, Some(&pwd)]),
+            Some(pwd.clone())
+        );
+        // A $PWD inside the bundle, or one that is gone: home.
+        assert_eq!(
+            leave(Some(&in_bundle), &[None, Some(&in_bundle)]),
+            Some(home.clone())
         );
         assert_eq!(
-            dir_to_leave_appdir_for(&appdir, Some(&home), Some(&owd), Some(&home)),
-            None
+            leave(Some(&in_bundle), &[None, Some(&root.join("gone"))]),
+            Some(home.clone())
         );
+        // Already outside the bundle: stays put.
+        assert_eq!(leave(Some(&home), &[Some(&owd), Some(&pwd)]), None);
 
         let _ = std::fs::remove_dir_all(&root);
     }
