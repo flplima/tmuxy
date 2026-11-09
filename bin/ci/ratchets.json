@@ -1,0 +1,12 @@
+{
+  "duplicatedLines": {
+    "typescript": 220,
+    "rust": 139,
+    "shell": 0
+  },
+  "complexity": {
+    "typescriptBranchy": 57,
+    "typescriptLong": 60,
+    "rustLong": 36
+  }
+}

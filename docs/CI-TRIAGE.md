@@ -16,7 +16,7 @@ A run that is green but slow is triaged from its summary page: the `ci` job writ
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
-| `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
+| `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `complexity`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
 | `changes` | `node bin/ci/ci-changes.mjs <base-sha>`, then `node bin/ci/e2e-plan.mjs commit [--with-nightly]` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip (rules and tests: `bin/ci/ci-changes.mjs`, `bin/ci/ci-changes.test.mjs`), and the E2E matrix the `e2e` job fans out over (`tests/e2e-suites.json`, with one more `nightly-tier` shard when the push edited the web suites). A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
 | `ci` | `node bin/ci/ci-gate.mjs` with `RESULTS` set to the jobs' results | Runs last, always: red when any job failed or was cancelled (a skipped one passes), and writes the timing table to the run summary |
 | `unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
@@ -38,6 +38,22 @@ A run that is green but slow is triaged from its summary page: the `ci` job writ
 | `nightly perf / soak` (nightly) and `nightly perf / interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
 | `sunday sweep / sweep` (weekly) | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts; add `--red-prs` for what a hand-dispatched run with `red_prs` would hand over) | Dependency advisories between audits, and red PRs |
 | `dependabot actions merge / merge` | `gh pr diff <n> \| node bin/ci/actions-bump.mjs` — it merges a green Dependabot PR only when that prints nothing (a moved `actions/*` pin and no other line); anything else waits for a review | An action pin bump that changed more than the pin |
+
+## Structure guards
+
+What keeps the code from tangling again after PR #177. Each is deterministic: the same code always gets the same verdict.
+
+| Guard | Runs in | Says | What to do |
+| --- | --- | --- | --- |
+| Homes of facts and calls | `policy` (`bin/ci/homes.mjs`, `bin/ci/homes.json`) | a file writes a generated fact (an `@tmuxy-*` option, a window type, a state word), starts tmux (`tmux_path()`) or starts a process (`Command::new`) outside the files allowed | Use the generated constant or the module that owns the call; if the file is a new home, add it to the rule's `allow` and say why |
+| tmux command strings | `eslint` (`tmuxy/no-tmux-command-literals`) | UI code spells a tmux command outside the allowed files in `packages/tmuxy-ui/eslint.config.js` | Build a `TmuxOp` (`domain/commands.ts`) and dispatch it |
+| UI import cycles | `policy` (`bin/ci/import-cycles.mjs`) | modules of `packages/tmuxy-ui/src` import each other round a loop | Move what they share into a module both import |
+| UI layers | `eslint` (`no-restricted-imports`) | a lower layer imports a higher one | Move what it needs down a layer |
+| Core module graph | Rust tests (`packages/tmuxy-core/tests/module_graph.rs`) | a new edge between tmuxy-core's modules, or a cycle | A cycle: share or merge. A meant edge: `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test module_graph`, and say why |
+| Copied code | `policy` (`bin/ci/duplication.mjs`) | more lines in copied 8-line runs than `bin/ci/ratchets.json` allows | Share the code. Fewer than allowed: lower the ratchet (`node bin/ci/duplication.mjs --update`) |
+| Function size | `complexity` (`bin/ci/complexity.mjs`) | more branchy or long functions than `bin/ci/ratchets.json` allows | Split the function the change grew. Fewer: `node bin/ci/complexity.mjs --update` |
+
+Every allow list and ratchet only goes down: an allowance a file no longer needs, or a count that fell, fails until the file is updated.
 
 ## Where the pieces live
 

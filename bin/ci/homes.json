@@ -1,0 +1,389 @@
+{
+  "_comment": [
+    "What may be written where: bin/ci/homes.mjs reads this. An allow list holds the files that wrote it when the rule came in, and only shrinks.",
+    "node bin/ci/homes.mjs --baseline prints what each rule finds now."
+  ],
+  "rules": [
+    {
+      "id": "@tmuxy-window-type",
+      "why": "the option a window's kind is tagged with",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-window-type"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/float.rs",
+        "packages/tmuxy-server/src/mcp/tmux.rs",
+        "packages/tmuxy-ui/src/domain/commandHelpers.ts",
+        "packages/tmuxy-ui/src/machines/actors/serversActor.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-sidebar-hidden",
+      "why": "the option a sidebar's open state is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-sidebar-hidden"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/tmux_compat.rs"
+      ]
+    },
+    {
+      "id": "@tmuxy-collapsible",
+      "why": "the option a stack is marked with",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-collapsible"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/tmux_compat.rs"
+      ]
+    },
+    {
+      "id": "@tmuxy-focus-request",
+      "why": "the option a focus request travels in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-focus-request"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/domain/commands.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-group-id",
+      "why": "the option a pane group is named by",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-group-id"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/machines/actors/serversActor.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-pane-restore",
+      "why": "the option a pane's restore is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-pane-restore"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs"
+      ]
+    },
+    {
+      "id": "@tmuxy-pane-state",
+      "why": "the option a pane's agent state is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-pane-state"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/host/socket_watch.rs",
+        "packages/tmuxy-ui/src/domain/commands.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-label",
+      "why": "the option a pane's label is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-label"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy-cli",
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-core/src/host/socket_watch.rs",
+        "packages/tmuxy-server/src/mcp/tmux.rs"
+      ]
+    },
+    {
+      "id": "@tmuxy-pane-widget",
+      "why": "the option a pane's widget is named in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-pane-widget"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-pane-preview",
+      "why": "the option a pane's preview is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-pane-preview'",
+        "@tmuxy-pane-preview\"",
+        "@tmuxy-pane-preview ",
+        "@tmuxy-pane-preview}"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
+      ]
+    },
+    {
+      "id": "@tmuxy-pane-preview-net",
+      "why": "the option a preview's network permission is kept in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "@tmuxy-pane-preview-net"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/infra/transport/drivers/guest/guestPreview.ts"
+      ]
+    },
+    {
+      "id": "stash session",
+      "why": "the session parked group members live in",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "__tmuxy_stash"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts",
+        "packages/tmuxy-verbs/src/connect_cli.rs"
+      ]
+    },
+    {
+      "id": "sidebar window prefix",
+      "why": "the name prefix of a sidebar's window",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "__sidebar-"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/constants.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts"
+      ]
+    },
+    {
+      "id": "sidebar window types",
+      "why": "the window types of the two sidebars",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "sidebar-left",
+        "sidebar-right"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/state_types.rs",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts",
+        "packages/tmuxy-ui/src/domain/windows.ts"
+      ]
+    },
+    {
+      "id": "pane state needs-input",
+      "why": "a pane state word",
+      "home": "packages/tmuxy-core/src/constants.rs, generated into the UI's machines/constants.ts and domain/tmuxyConstants.gen.ts and the CLI's _options",
+      "literals": [
+        "needs-input"
+      ],
+      "scope": [
+        "packages/tmuxy-core/src/",
+        "packages/tmuxy-server/src/",
+        "packages/tmuxy-verbs/src/",
+        "packages/tmuxy-tauri-app/src/",
+        "packages/tmuxy-ui/src/",
+        "packages/tmuxy-cli/bin/"
+      ],
+      "allow": [
+        "packages/tmuxy-cli/bin/tmuxy/_options",
+        "packages/tmuxy-core/src/host/socket_watch.rs",
+        "packages/tmuxy-core/src/state_types.rs",
+        "packages/tmuxy-ui/src/domain/paneState.ts",
+        "packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts",
+        "packages/tmuxy-ui/src/styles/sidebar-tree.css"
+      ]
+    },
+    {
+      "id": "tmux started outside session.rs",
+      "why": "a tmux run beside the control-mode client can crash tmux 3.5a (docs/TMUX.md); session.rs's tmux_command() and the control-mode spawn are the reviewed ways",
+      "home": "packages/tmuxy-core/src/session.rs (tmux_command, local_tmux_on)",
+      "regex": "tmux_path\\(\\)",
+      "scope": [
+        "packages/"
+      ],
+      "ext": [
+        ".rs"
+      ],
+      "allow": [
+        "packages/tmuxy-core/src/control_mode/connection.rs",
+        "packages/tmuxy-core/src/control_mode/connection/spawn.rs",
+        "packages/tmuxy-core/src/host/prepare.rs",
+        "packages/tmuxy-core/src/session.rs",
+        "packages/tmuxy-core/src/session/config.rs",
+        "packages/tmuxy-tauri-app/src/windows/attach.rs",
+        "packages/tmuxy-verbs/src/connect_cli.rs"
+      ]
+    },
+    {
+      "id": "a process started",
+      "why": "every process tmuxy starts is a seam: arguments, environment, what it inherits",
+      "home": "the files below, each starting the processes it is for",
+      "regex": "Command::new\\(",
+      "scope": [
+        "packages/"
+      ],
+      "ext": [
+        ".rs"
+      ],
+      "allow": [
+        "packages/tmuxy-core/src/cli_contract.rs",
+        "packages/tmuxy-core/src/control_mode/connection/spawn.rs",
+        "packages/tmuxy-core/src/plugins/fetch.rs",
+        "packages/tmuxy-core/src/plugins/gc.rs",
+        "packages/tmuxy-core/src/plugins/index.rs",
+        "packages/tmuxy-core/src/plugins/invoke.rs",
+        "packages/tmuxy-core/src/session.rs",
+        "packages/tmuxy-core/src/session_snapshot/autosave.rs",
+        "packages/tmuxy-core/src/worktrees.rs",
+        "packages/tmuxy-server/src/dev.rs",
+        "packages/tmuxy-server/src/server/lifecycle.rs",
+        "packages/tmuxy-server/src/server/listener.rs",
+        "packages/tmuxy-tauri-app/src/commands/helpers.rs",
+        "packages/tmuxy-tauri-app/src/desktop.rs",
+        "packages/tmuxy-tauri-app/src/windows/attach.rs",
+        "packages/tmuxy-tauri-app/src/windows/ssh_link.rs",
+        "packages/tmuxy-verbs/src/connect_cli.rs"
+      ]
+    }
+  ]
+}

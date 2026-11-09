@@ -8,7 +8,7 @@
 #   bin/lint-gate format             # rewrite: prettier, eslint --fix, cargo fmt
 #   bin/lint-gate check [<step>...]  # read-only; every step, or only the named
 #                                    # ones: policy prettier rustfmt eslint
-#                                    # types knip clippy clippy-wasm
+#                                    # types knip complexity clippy clippy-wasm
 #   bin/lint-gate steps              # the step names, one per line (CI's
 #                                    # lint job runs each by name)
 set -euo pipefail
@@ -120,6 +120,14 @@ check_knip() {
   npx knip --no-progress
 }
 
+check_complexity() {
+  step complexity
+  # Branchy and long functions, counted: the counts may not grow
+  # (bin/ci/ratchets.json). Its own step, not the policy's: it lints the UI
+  # again, which the pre-commit hook should not wait for.
+  node bin/ci/complexity.mjs
+}
+
 check_clippy_wasm() {
   step clippy-wasm
   if ! cargo clippy -p tmuxy-wasm --target wasm32-unknown-unknown --no-default-features -- -D warnings; then
@@ -130,7 +138,7 @@ check_clippy_wasm() {
   fi
 }
 
-ALL_STEPS=(policy prettier rustfmt eslint types knip clippy clippy-wasm)
+ALL_STEPS=(policy prettier rustfmt eslint types knip complexity clippy clippy-wasm)
 
 case "${1:-}" in
   format)
@@ -156,6 +164,7 @@ case "${1:-}" in
         eslint) check_eslint ;;
         types) check_types ;;
         knip) check_knip ;;
+        complexity) check_complexity ;;
         clippy) check_clippy ;;
         clippy-wasm) check_clippy_wasm ;;
         *)

@@ -4,6 +4,9 @@ import path from 'node:path';
 import { checkDocPaths } from './ci/doc-paths.mjs';
 import { checkFileTokenLimit } from './ci/file-token-limit.mjs';
 import { checkInvariantEnforcers } from './ci/invariant-enforcers.mjs';
+import { checkHomes } from './ci/homes.mjs';
+import { checkImportCycles } from './ci/import-cycles.mjs';
+import { checkDuplication } from './ci/duplication.mjs';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const errors = [];
@@ -389,6 +392,9 @@ checkDocsToScriptsConsistency();
 checkBlindWaitRatchet();
 checkFileTokenLimit(root, addError);
 checkInvariantEnforcers(root, addError);
+checkHomes(root, addError);
+checkImportCycles(root, addError);
+checkDuplication(root, addError);
 // Paths and job names the docs quote; --worktree counts untracked files as present.
 checkDocPaths(root, addError, { worktree: process.argv.includes('--worktree') });
 
