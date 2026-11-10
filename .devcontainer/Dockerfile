@@ -80,7 +80,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 # The shared agent tooling (bin/install-dev-tools), run as root while apt still
 # works: apt extras, cargo-watch, and — with --full — the Tauri E2E driver and
 # the wasm-bindgen the v86 build needs. The env var above is what tells it a
-# browser is already here, so it downloads none.
+# browser is already here, so it downloads none. The package names it installs
+# are asked of this base's apt index (bin/toolchain): Debian does not offer
+# every font Ubuntu's runners do, and a name with no candidate fails the build.
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 # The script reads bin/toolchain from beside itself, and that reads the
 # wasm-bindgen version from the Cargo.lock one directory up, as in a checkout.
