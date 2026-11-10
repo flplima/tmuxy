@@ -46,6 +46,12 @@ wasm_bindgen_version() {
   printf '%s\n' "$version"
 }
 
+# Whether apt can install a package by this name. Reads apt's whole answer:
+# under pipefail, a grep -q that stops early would fail the pipe on SIGPIPE.
+has_candidate() {
+  LC_ALL=C apt-cache policy "$1" 2>/dev/null | grep 'Candidate: [^(]' >/dev/null
+}
+
 packages() {
   case "${1:-}" in
     tmux-build) echo libevent-dev libncurses-dev bison ;;
@@ -61,7 +67,7 @@ packages() {
       # the new name has an install candidate: 22.04's index knows the name
       # (`apt-cache show` succeeds) with nothing installable behind it.
       local webdriver=webkit2gtk-driver
-      if LC_ALL=C apt-cache policy webkitgtk-webdriver 2>/dev/null | grep 'Candidate: [^(]' >/dev/null; then
+      if has_candidate webkitgtk-webdriver; then
         webdriver=webkitgtk-webdriver
       fi
       echo xvfb x11-utils "$webdriver"
@@ -70,9 +76,15 @@ packages() {
     # and emoji faces headless Chromium measures a fullwidth glyph as a 1-cell
     # fallback box, and the wide-glyph stories and E2E tests assert real cell
     # widths: a container and a runner installing the same list measure alike.
+    # xfonts-cyrillic is Ubuntu's: Debian keeps it in non-free, which the
+    # devcontainer image's base does not enable, so it is asked of the apt
+    # index like the WebDriver above.
     chromium-fonts)
+      local cyrillic=""
+      if has_candidate xfonts-cyrillic; then cyrillic=xfonts-cyrillic; fi
+      # shellcheck disable=SC2086 # empty when there is none
       echo fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji \
-        fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei xfonts-cyrillic xfonts-scalable
+        fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei $cyrillic xfonts-scalable
       ;;
     *)
       echo "unknown package set: ${1:-} (tmux-build, tmux-build-head, webkit-dev, desktop-test, chromium-fonts)" >&2

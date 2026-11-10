@@ -41,8 +41,9 @@ echo "[dev-tools] apt packages"
 # Read on their own lines: a failed command inside the install line expanded
 # to no packages and nothing said so, where `set -e` stops on a failed assignment.
 toolchain="$(dirname "$0")/toolchain"
-fonts="$("$toolchain" packages chromium-fonts)"
+# Both lists are asked of the apt index, so after the update.
 $SUDO apt-get update
+fonts="$("$toolchain" packages chromium-fonts)"
 desktop_test="$("$toolchain" packages desktop-test)"
 # shellcheck disable=SC2086
 $SUDO apt-get install -y --no-install-recommends \
