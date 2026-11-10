@@ -114,8 +114,8 @@ jobs:
 
             zap trash: [
               "~/.config/tmuxy",
-              "~/.local/share/tmuxy",
               "~/.local/bin/tmuxy",
+              "~/.local/share/tmuxy",
               "~/Library/Application Support/com.tmuxy.app",
               "~/Library/Application Support/tmuxy",
               "~/Library/Caches/com.tmuxy.app",
