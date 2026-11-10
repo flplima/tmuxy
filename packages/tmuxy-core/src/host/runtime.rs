@@ -421,9 +421,36 @@ impl SessionRuntime {
             if let Err(e) = super::plugins::apply_plugin_keys(&tx).await {
                 tracing::warn!(error = %e, "could not bind the plugin keys");
             }
+            #[cfg(target_os = "linux")]
+            if let Err(e) = clean_appimage_env(&tx).await {
+                tracing::warn!(error = %e, "could not clean the AppImage's environment out of tmux");
+            }
         }
         self.push_config().await;
     }
+}
+
+/// A tmux server an older tmuxy started from its AppImage still holds that
+/// AppImage's environment, and so does every pane it opens. This one takes it
+/// out of the server's global environment, so new panes start clean without
+/// the server, and the sessions in it, having to go.
+#[cfg(target_os = "linux")]
+async fn clean_appimage_env(tx: &MonitorCommandSender) -> Result<(), crate::CommandError> {
+    if crate::session::ssh_target().is_some() {
+        return Ok(());
+    }
+    let env = crate::control_mode::query(tx, "show-environment -g").await?;
+    let commands = crate::control_mode::global_env_cleanup(&env);
+    if !commands.is_empty() {
+        tracing::info!(
+            count = commands.len(),
+            "cleaned an AppImage's environment out of tmux"
+        );
+    }
+    for command in commands {
+        crate::control_mode::run(tx, &command).await?;
+    }
+    Ok(())
 }
 
 mod emitter;

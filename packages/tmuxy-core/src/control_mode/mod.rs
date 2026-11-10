@@ -22,7 +22,7 @@ mod monitor;
 #[cfg(feature = "native")]
 pub use channel::{query, run};
 #[cfg(all(feature = "native", target_os = "linux"))]
-pub use connection::leave_appimage_mount;
+pub use connection::{global_env_cleanup, leave_appimage_mount};
 #[cfg(feature = "native")]
 pub use connection::{
     new_session_flags, ControlModeConnection, INITIAL_PTY_COLS, INITIAL_PTY_ROWS,

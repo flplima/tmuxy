@@ -6,7 +6,7 @@ use super::log::{LogKind, LogSink};
 use super::parser::{ControlModeEvent, Parser};
 use crate::error::TmuxError;
 #[cfg(target_os = "linux")]
-pub use appimage_env::leave_appimage_mount;
+pub use appimage_env::{global_env_cleanup, leave_appimage_mount};
 pub use spawn::new_session_flags;
 use spawn::{build_tmux_args, spawn_parser_task};
 use std::sync::Arc;

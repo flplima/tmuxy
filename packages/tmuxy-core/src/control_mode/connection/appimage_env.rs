@@ -79,6 +79,41 @@ pub(super) fn clean_path_list(var: &str, value: &str, appdir: &Path) -> Option<S
     Some(kept)
 }
 
+/// The commands that take an AppImage's variables out of a tmux server's
+/// global environment, given what `show-environment -g` printed. A tmux
+/// server an older tmuxy started from its AppImage kept that AppImage's
+/// environment and handed it to every new pane, so git and curl in them still
+/// loaded the bundle's libraries after an upgrade. The `APPDIR` the server
+/// recorded names the bundle; without one there is nothing to clean.
+pub fn global_env_cleanup(show_environment: &str) -> Vec<String> {
+    let env: Vec<(&str, &str)> = show_environment
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect();
+    let value_of = |name: &str| env.iter().find(|(n, _)| *n == name).map(|(_, v)| *v);
+    let Some(appdir) = value_of("APPDIR").filter(|dir| !dir.is_empty()) else {
+        return Vec::new();
+    };
+    let appdir = Path::new(appdir);
+    let unset = |var: &str| format!("set-environment -g -u {var}");
+    let removed = VARS_TO_REMOVE
+        .iter()
+        .filter(|var| value_of(var).is_some())
+        .map(|var| unset(var));
+    let cleaned = PATH_LIST_VARS.iter().filter_map(|var| {
+        let value = value_of(var)?;
+        match clean_path_list(var, value, appdir) {
+            Some(kept) if kept == value => None,
+            Some(kept) => Some(format!(
+                "set-environment -g {var} {}",
+                crate::tmux_quote(&kept)
+            )),
+            None => Some(unset(var)),
+        }
+    });
+    removed.chain(cleaned).collect()
+}
+
 /// Directory `tmux` should start in when `spawn_tmux` was given no explicit
 /// `working_dir`: `$OWD` (where the AppImage was launched from) when it is an
 /// existing directory outside `appdir`, otherwise `home`. Avoids starting the
@@ -243,6 +278,34 @@ mod tests {
             clean_path_list("XDG_DATA_DIRS", with_custom, Path::new(APPDIR)).as_deref(),
             Some("/usr/share:/home/linuxbrew/.linuxbrew/share:/usr/local/share:/usr/share")
         );
+    }
+
+    #[test]
+    fn a_tmux_server_started_from_an_appimage_loses_its_variables_and_keeps_the_users() {
+        let env = "\
+APPDIR=/tmp/.mount_tmuxyPdMlpc
+ARGV0=tmuxy
+HOME=/home/me
+LD_LIBRARY_PATH=/tmp/.mount_tmuxyPdMlpc/usr/lib/:/tmp/.mount_tmuxyPdMlpc/lib/
+PATH=/tmp/.mount_tmuxyPdMlpc/usr/bin/:/home/linuxbrew/.linuxbrew/bin:/usr/bin
+QT_PLUGIN_PATH=/opt/qt/plugins
+-TERM_PROGRAM
+";
+        assert_eq!(
+            global_env_cleanup(env),
+            vec![
+                "set-environment -g -u APPDIR",
+                "set-environment -g -u ARGV0",
+                "set-environment -g PATH '/home/linuxbrew/.linuxbrew/bin:/usr/bin'",
+                "set-environment -g -u LD_LIBRARY_PATH",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tmux_server_with_no_appdir_is_left_as_it_is() {
+        let env = "ARGV0=tmuxy\nPATH=/tmp/.mount_tmuxyPdMlpc/usr/bin:/usr/bin\n";
+        assert!(global_env_cleanup(env).is_empty());
     }
 
     #[test]
