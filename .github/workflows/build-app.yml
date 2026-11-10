@@ -650,6 +650,18 @@ jobs:
               try {
                 const res = await fetch(`http://127.0.0.1:${port}/events`);
                 out.write(`open ${res.status}\n`);
+                // Since 0.1.5 a stream never creates its session: the
+                // frontend answers a 404 with `ensure_session` and reconnects.
+                if (res.status === 404) {
+                  await res.body?.cancel();
+                  const created = await fetch(`http://127.0.0.1:${port}/commands`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cmd: "ensure_session", args: {} }),
+                  });
+                  out.write(`ensure_session ${created.status}\n`);
+                  if (created.ok) return connect();
+                }
                 for await (const chunk of res.body) {
                   const text = Buffer.from(chunk).toString();
                   for (const line of text.split("\n")) {
