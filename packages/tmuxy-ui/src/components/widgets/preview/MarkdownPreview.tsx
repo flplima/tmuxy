@@ -1,11 +1,10 @@
 /**
- * A markdown document, drawn by the app: GFM, with ```mermaid fences as
- * diagrams, in the theme's colours.
+ * A markdown document, drawn by the app: GFM, with ```mermaid and ```pele
+ * fences as diagrams, in the theme's colours.
  *
  * It renders in the APP's origin, so nothing in it may execute: raw HTML in
  * the document is not rendered at all (react-markdown without rehype-raw), a
- * mermaid diagram is drawn in a frame of its own and sanitized before the app
- * adopts it (`MermaidBlock`), and a link opens in the system browser only when
+ * diagram is sanitized before the app adopts it (`DiagramBlock`), and a link opens in the system browser only when
  * it is http(s) or mailto — never by navigating the app. An image beside the
  * document is read through `read_preview`; a remote one is loaded only when
  * the preview was opened with `--net`, since loading it tells its host the
@@ -16,7 +15,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { CHAR_HEIGHT } from '../../../constants/layout';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { MermaidBlock } from './MermaidBlock';
+import { DiagramBlock } from './DiagramBlock';
 import { useKeyedRequest } from './useKeyedRequest';
 import { useBindingOwnsKey } from '../../../machines/appHooks';
 import type { PreviewSource } from './previewSource';
@@ -74,8 +73,8 @@ function components(source: PreviewSource, theme: PreviewTheme, net: boolean): C
       );
     },
     code({ className, children }) {
-      if (/language-mermaid/.test(className ?? '')) {
-        return <MermaidBlock chart={String(children).trimEnd()} theme={theme} net={net} />;
+      if (/language-(?:mermaid|pele)\b/.test(className ?? '')) {
+        return <DiagramBlock chart={String(children).trimEnd()} theme={theme} net={net} />;
       }
       return className ? (
         <code className={className}>{children}</code>

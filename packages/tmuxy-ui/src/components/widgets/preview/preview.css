@@ -245,11 +245,21 @@
 /* A diagram paints inside its own block and nowhere else: `contain: paint`
    is also the containing block of anything in it that is `position: fixed`,
    so no markup in a diagram can lay itself over the app. */
-.preview-mermaid {
+.preview-diagram {
   display: flex;
   justify-content: center;
   margin: 16px 0;
   contain: paint;
+  /* Pele paints with these, so a theme change needs no redraw. */
+  --pele-bg: var(--bg-dark);
+  --pele-fg: var(--term-foreground);
+  --pele-muted: var(--text-dimmed);
+  --pele-line: var(--text-dimmed);
+  --pele-surface: var(--bg-medium);
+  --pele-surface-alt: var(--bg-dark-alt);
+  --pele-border: var(--theme-accent);
+  --pele-accent: var(--theme-accent);
+  --pele-font: inherit;
 }
 
 /* Where mermaid draws a diagram to measure it (`drawMermaid.ts`): laid out,
@@ -261,7 +271,7 @@
   pointer-events: none;
 }
 
-.preview-mermaid svg {
+.preview-diagram svg {
   max-width: 100%;
   height: auto;
 }

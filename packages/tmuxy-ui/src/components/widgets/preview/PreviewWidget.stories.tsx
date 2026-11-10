@@ -57,7 +57,7 @@ export const MarkdownWithMermaid: Story = {
 
     await waitFor(
       () => {
-        const svg = pane('%0')!.querySelector('.preview-mermaid svg');
+        const svg = pane('%0')!.querySelector('.preview-diagram svg');
         expectVisibleIn(svg, pane('%0'));
         expect(svg!.textContent).toContain('Start');
       },

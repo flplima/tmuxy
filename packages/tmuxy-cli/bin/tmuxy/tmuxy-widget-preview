@@ -9,7 +9,7 @@
 #               and only what sits beside it is shown)
 #   --no-theme  draw the page in its own colours, not the theme's
 #
-# The UI renders the file — markdown in the app (mermaid included), a page in
+# The UI renders the file — markdown in the app (mermaid and pele diagrams included), a page in
 # a sandboxed frame — and reads it through tmuxy rather than off a URL. What it
 # may read is decided here, out of band: the file's path and the --net choice
 # are pane options, written through `run-shell` before the widget marker and

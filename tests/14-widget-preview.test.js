@@ -43,7 +43,7 @@ function activePreview(page) {
     const pane = document.querySelector(`.pane-wrapper[data-pane-id="${activePaneId}"]`);
     const md = pane?.querySelector('.preview-markdown');
     const h1 = md?.querySelector('h1');
-    const svg = md?.querySelector('.preview-mermaid svg');
+    const svg = md?.querySelector('.preview-diagram svg');
     const img = md?.querySelector('img');
     const frontMatter = md?.querySelector('.preview-front-matter');
     const frame = pane?.querySelector('iframe.preview-frame');
@@ -274,9 +274,9 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
   }, 120000);
 
   /**
-   * Mermaid lays a diagram out by drawing it into a document and
-   * only then hands the SVG back to be sanitized. That document was the app's
-   * own: an `<img>` in a label loaded from there — telling its host the file
+   * Pele draws a ```mermaid or ```pele fence from its text; mermaid, which
+   * drew them all before and still draws what pele refuses, lays a diagram
+   * out by drawing it into a document. That document was the app's own: an `<img>` in a label loaded from there — telling its host the file
    * was read, with no `--net` — and anything else in it ran with the app's
    * access to the API. A `$$…$$` formula was measured in the app's document
    * too, with the rest of its line. Each kind is drawn here, gitGraph among
@@ -312,12 +312,12 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
       }, origin);
 
       const doc = path.join(dir, 'diagrams.md');
-      const fence = (body) => `\`\`\`mermaid\n${body}\n\`\`\`\n`;
+      const fence = (body, lang = 'mermaid') => `\`\`\`${lang}\n${body}\n\`\`\`\n`;
       fs.writeFileSync(
         doc,
         `# Diagrams\n\n${fence(`graph TD\n  A["<img src='${origin}/label.png'> Start"] --> B[End]`)}\n` +
           `${fence(`sequenceDiagram\n  Alice->>Bob: $$x$$ <img src='${origin}/formula.png'> Hello`)}\n` +
-          `${fence('gitGraph\n  commit\n  branch feature\n  commit')}\n`,
+          `${fence('gitGraph\n  commit\n  branch feature\n  commit', 'pele')}\n`,
       );
       await openPreview(ctx, doc);
 
@@ -327,7 +327,7 @@ describeE2E('Scenario: tmuxy open previews a local file', {}, (ctx) => {
         async () => {
           diagrams = await ctx.page.evaluate(() =>
             Array.from(
-              document.querySelectorAll('.preview-markdown .preview-mermaid svg'),
+              document.querySelectorAll('.preview-markdown .preview-diagram svg'),
               (svg) => {
                 const r = svg.getBoundingClientRect();
                 return { width: r.width, height: r.height, text: svg.textContent };
