@@ -9,16 +9,7 @@
 //! build-time inset that it re-applies on every redraw, and tauri exposes no
 //! runtime setter, so the buttons are positioned here from the height the
 //! frontend reports (`set_titlebar_height`) and re-applied whenever AppKit
-//! re-lays-out the title bar.
-//!
-//! The re-apply has to land in the same display pass as AppKit's re-layout.
-//! tao queues `windowDidResize:` and drains its queue after Core Animation
-//! has committed the frame, so a re-apply from `WindowEvent::Resized` arrives
-//! one frame late: during a live resize every frame is drawn with AppKit's
-//! own layout and the next one with ours, and the buttons flicker between
-//! the two. AppKit posts `NSViewFrameDidChangeNotification` synchronously
-//! from inside its layout, so the buttons are re-centred from an observer on
-//! the title-bar container and on each button (`FrameObserver`).
+//! re-lays-out the title bar (resize, focus, backing-scale change).
 //!
 //! The title-bar double-click gesture is routed here too (`double_click`):
 //! the webview receives the click before AppKit's title bar can, so the
@@ -60,127 +51,23 @@ impl Default for TitlebarState {
 }
 
 /// Centre the traffic lights on the status bar now and keep them centred
-/// across AppKit title-bar re-layouts: in the same frame through the
-/// [`FrameObserver`], and once more after a resize, a focus or a
-/// backing-scale change settles, for a re-layout that moved nothing it
-/// observes.
+/// across AppKit title-bar re-layouts.
 #[cfg(target_os = "macos")]
 pub fn install(window: &WebviewWindow) {
-    use std::sync::{Arc, Mutex};
-    use tauri::{Manager, WindowEvent};
-
-    let observer: Arc<Mutex<Option<FrameObserver>>> = Arc::default();
-    let target = window.clone();
-    let registered = observer.clone();
-    window.on_window_event(move |event| match event {
-        WindowEvent::Resized(_)
-        | WindowEvent::Focused(true)
-        | WindowEvent::ScaleFactorChanged { .. } => apply(&target, None),
-        WindowEvent::Destroyed => {
-            if let Some(observer) = registered.lock().ok().and_then(|mut slot| slot.take()) {
-                observer.remove();
-            }
-        }
-        _ => {}
-    });
+    use tauri::WindowEvent;
 
     let target = window.clone();
-    let _ = window.run_on_main_thread(move || {
-        let Ok(ns_window) = target.ns_window() else {
-            return;
-        };
-        // SAFETY: `ns_window` is the live NSWindow behind a tauri WebviewWindow
-        // and this runs on the main thread (`run_on_main_thread`).
-        let ns_window: &objc2_app_kit::NSWindow =
-            unsafe { &*(ns_window as *const objc2_app_kit::NSWindow) };
-        if let (Some(added), Ok(mut slot)) = (
-            FrameObserver::add(ns_window, target.app_handle().clone()),
-            observer.lock(),
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            WindowEvent::Resized(_)
+                | WindowEvent::Focused(true)
+                | WindowEvent::ScaleFactorChanged { .. }
         ) {
-            *slot = Some(added);
+            apply(&target, None);
         }
     });
     apply(window, None);
-}
-
-/// The `NSViewFrameDidChangeNotification` observers that re-centre the
-/// buttons as AppKit moves them, one per view: the title-bar container and
-/// the three buttons. AppKit delivers each one synchronously from inside the
-/// `setFrame:` that moved the view, before the frame is drawn.
-#[cfg(target_os = "macos")]
-struct FrameObserver(
-    Vec<objc2::rc::Retained<objc2::runtime::ProtocolObject<dyn objc2::runtime::NSObjectProtocol>>>,
-);
-
-// SAFETY: created on the main thread and only removed from a window event,
-// which tauri delivers on the main thread.
-#[cfg(target_os = "macos")]
-unsafe impl Send for FrameObserver {}
-
-#[cfg(target_os = "macos")]
-impl FrameObserver {
-    fn add(window: &objc2_app_kit::NSWindow, app: tauri::AppHandle) -> Option<Self> {
-        use block2::RcBlock;
-        use objc2_app_kit::{NSView, NSViewFrameDidChangeNotification, NSWindowButton};
-        use objc2_foundation::{NSNotification, NSNotificationCenter};
-        use std::ptr::NonNull;
-
-        let buttons = [
-            NSWindowButton::CloseButton,
-            NSWindowButton::MiniaturizeButton,
-            NSWindowButton::ZoomButton,
-        ]
-        .map(|kind| window.standardWindowButton(kind));
-        let [Some(close), Some(miniaturize), Some(zoom)] = buttons else {
-            return None;
-        };
-        // SAFETY: as in `center_traffic_lights`.
-        let container =
-            (unsafe { close.superview() }).and_then(|titlebar| unsafe { titlebar.superview() })?;
-
-        let block = RcBlock::new(move |note: NonNull<NSNotification>| {
-            // SAFETY: AppKit hands the observer a live notification for the call.
-            let note = unsafe { note.as_ref() };
-            let Some(window) = note
-                .object()
-                .and_then(|object| object.downcast::<NSView>().ok())
-                .and_then(|view| view.window())
-            else {
-                return;
-            };
-            center_traffic_lights(&window, recorded_height(&app));
-        });
-
-        let center = NSNotificationCenter::defaultCenter();
-        let views: [&NSView; 4] = [&container, &close, &miniaturize, &zoom];
-        let tokens = views
-            .into_iter()
-            .map(|view| {
-                view.setPostsFrameChangedNotifications(true);
-                // SAFETY: the object is a live NSView, the block is only ever
-                // called on the main thread (no queue: AppKit posts these
-                // from its layout, on the main thread), and the observer is
-                // removed when the window is destroyed.
-                unsafe {
-                    center.addObserverForName_object_queue_usingBlock(
-                        Some(NSViewFrameDidChangeNotification),
-                        Some(view),
-                        None,
-                        &block,
-                    )
-                }
-            })
-            .collect();
-        Some(Self(tokens))
-    }
-
-    fn remove(self) {
-        let center = objc2_foundation::NSNotificationCenter::defaultCenter();
-        for token in &self.0 {
-            // SAFETY: each token is an observer this center returned.
-            unsafe { center.removeObserver(token.as_ref()) };
-        }
-    }
 }
 
 #[cfg(target_os = "macos")]
@@ -278,18 +165,14 @@ fn double_click_action() -> Option<String> {
     None
 }
 
-/// The status-bar height the frontend last reported, else the default.
-#[cfg(target_os = "macos")]
-fn recorded_height(manager: &impl tauri::Manager<tauri::Wry>) -> f64 {
-    manager
-        .try_state::<TitlebarState>()
-        .and_then(|state| state.height.lock().ok().map(|recorded| *recorded))
-        .unwrap_or(DEFAULT_HEIGHT)
-}
-
 #[cfg(target_os = "macos")]
 fn apply(window: &WebviewWindow, action_id: Option<&str>) {
-    let height = recorded_height(window);
+    use tauri::Manager;
+
+    let height = window
+        .try_state::<TitlebarState>()
+        .and_then(|state| state.height.lock().ok().map(|recorded| *recorded))
+        .unwrap_or(DEFAULT_HEIGHT);
     let target = window.clone();
     // Only the action-driven applies are traced; the re-applies AppKit's
     // re-layouts trigger (dozens per zoom animation) would just repeat them.
@@ -298,10 +181,6 @@ fn apply(window: &WebviewWindow, action_id: Option<&str>) {
         let Ok(ns_window) = target.ns_window() else {
             return;
         };
-        // SAFETY: `ns_window` is the live NSWindow behind a tauri WebviewWindow
-        // and this runs on the main thread (`run_on_main_thread`).
-        let ns_window: &objc2_app_kit::NSWindow =
-            unsafe { &*(ns_window as *const objc2_app_kit::NSWindow) };
         let Some(y) = center_traffic_lights(ns_window, height) else {
             return;
         };
@@ -314,30 +193,15 @@ fn apply(window: &WebviewWindow, action_id: Option<&str>) {
 /// Grow the native title-bar container to the status bar's height and place
 /// the three window buttons on its vertical midline, `LEFT_INSET` from the
 /// left edge with AppKit's own spacing between them. Main thread only.
-/// Returns the buttons' centre line, in logical px from the window's top, or
-/// `None` when the buttons are missing or this call is nested in another:
-/// each `setFrame` below posts the frame-change notification the
-/// [`FrameObserver`] answers by calling back in here.
+/// Returns the buttons' centre line, in logical px from the window's top.
 #[cfg(target_os = "macos")]
-fn center_traffic_lights(window: &objc2_app_kit::NSWindow, bar_height: f64) -> Option<f64> {
-    use objc2_app_kit::NSWindowButton;
+fn center_traffic_lights(ns_window: *mut std::ffi::c_void, bar_height: f64) -> Option<f64> {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
     use objc2_foundation::NSPoint;
-    use std::cell::Cell;
 
-    thread_local! {
-        static CENTRING: Cell<bool> = const { Cell::new(false) };
-    }
-    if CENTRING.with(|centring| centring.replace(true)) {
-        return None;
-    }
-    struct Reset;
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            CENTRING.with(|centring| centring.set(false));
-        }
-    }
-    let _reset = Reset;
-
+    // SAFETY: `ns_window` is the live NSWindow behind a tauri WebviewWindow and
+    // this runs on the main thread (`run_on_main_thread`).
+    let window: &NSWindow = unsafe { &*(ns_window as *const NSWindow) };
     let [Some(close), Some(miniaturize), Some(zoom)] = [
         NSWindowButton::CloseButton,
         NSWindowButton::MiniaturizeButton,
