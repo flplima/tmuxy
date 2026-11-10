@@ -179,9 +179,6 @@ case "${1:-}" in
     steps=("$@")
     if [ ${#steps[@]} -eq 0 ]; then
       steps=("${ALL_STEPS[@]}")
-      # The full gate is the pre-push hook: a natural once-a-day point to keep
-      # target/ from outgrowing the disk (bin/trim-target).
-      bin/trim-target
     fi
     for s in "${steps[@]}"; do
       case "$s" in

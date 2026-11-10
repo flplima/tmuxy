@@ -21,8 +21,13 @@ rustup target add $(bin/toolchain rust-targets) >/dev/null
 echo "[bootstrap] Ensuring frontend dist placeholder"
 mkdir -p packages/tmuxy-ui/dist
 
-echo "[bootstrap] Linking tmuxy CLI"
-mkdir -p "$HOME/.local/bin"
-ln -sf "$ROOT_DIR/packages/tmuxy-cli/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
+# Only where nothing answers to `tmuxy` yet: an installed app writes its own
+# wrapper at this path, and a link over it would point the user's tmuxy at
+# this checkout.
+if [ ! -e "$HOME/.local/bin/tmuxy" ]; then
+  echo "[bootstrap] Linking tmuxy CLI"
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$ROOT_DIR/packages/tmuxy-cli/bin/tmuxy-cli" "$HOME/.local/bin/tmuxy"
+fi
 
 echo "[bootstrap] Done"

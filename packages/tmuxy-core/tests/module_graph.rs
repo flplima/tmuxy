@@ -1,7 +1,7 @@
 //! Which of tmuxy-core's top-level modules uses which, held in a committed
 //! list (`tests/generated/module_graph.txt`), with no cycle among them.
 //!
-//! The crate graph says which crate may depend on which (`bin/ci/crate-graph.json`);
+//! The crate graph says which crate may depend on which (`packages/tmuxy-core/tests/generated/crate-graph.gen.json`);
 //! inside the core, a module reaching into another is where one rule ends up
 //! owned by two places. A new edge is a design decision: it fails here until
 //! the list is rewritten with `UPDATE_GENERATED=1 cargo test -p tmuxy-core

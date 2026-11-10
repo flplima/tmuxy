@@ -10,15 +10,13 @@ Quick path for agents to diagnose failures in tmuxy GitHub Actions.
 4. Re-run the smallest equivalent local check.
 5. If flaky/perf/storybook related, collect artifacts noted below.
 
-A run that is green but slow is triaged from its summary page: the `ci` job writes a table of jobs, steps and the slowest tests there, and `bin/ci/ci-timing.mjs <run-id>` prints the same locally.
-
 ## Job-to-command map
 
 | Workflow job | Local command | Primary failure surface |
 | --- | --- | --- |
 | `lint` | `bin/lint-gate check` — the job runs every step `bin/lint-gate steps` lists and names each failed one in an annotation, so a red step is `bin/lint-gate check <step>` (`policy`, `prettier`, `rustfmt`, `eslint`, `types`, `knip`, `complexity`, `shellcheck`, `clippy`, `clippy-wasm`); the pre-push hook runs the same gate | JS/TS + Rust lint/type/format, the demo's types, the scripts under `bin/`, `tests/perf/` and the UI package, and exports, files and dependencies nothing uses (`knip` in `package.json`) |
 | `changes` | `node bin/ci/ci-changes.mjs <base-sha>`, then `node bin/ci/e2e-plan.mjs commit [--with-nightly]` | Which of `desktop`, `storybook-v86-probe`, `audit` and the Mac `cargo test` this push may skip (rules and tests: `bin/ci/ci-changes.mjs`, `bin/ci/ci-changes.test.mjs`), and the E2E matrix the `e2e` job fans out over (`tests/e2e-suites.json`, with one more `nightly-tier` shard when the push edited the web suites). A skipped job is not a failure; a job that should have run and did not is a wrong rule there |
-| `ci` | `node bin/ci/ci-gate.mjs` with `RESULTS` set to the jobs' results | Runs last, always: red when any job failed or was cancelled (a skipped one passes), and writes the timing table to the run summary |
+| `ci` | Read the run page: the step is a `jq` filter over the jobs' results, in the workflow | Runs last, always: red when any job failed or was cancelled (a skipped one passes) |
 | `unit-tests` | `npm test` | UI unit tests, and the tests of the scripts under `bin/` and the demo's |
 | `cli-tests` | `npm run test:cli` | CLI dispatcher behavior, and the guests' `tmuxy-verbs` binary (`cli-guest-verbs.test.js` builds it with cargo) |
 | `rust-tests` | `cargo test --workspace` | Rust unit/integration |
@@ -26,7 +24,7 @@ A run that is green but slow is triaged from its summary page: the `ci` job writ
 | `desktop` | `npm run test:tauri` (the debug build) + `node tests/smoke/smoke-test.js target/debug/tmuxy`; skipped when the push touched nothing the app is built from or tested by (`changes`) | Desktop IPC, Tauri runtime, the launch path |
 | `storybook-probe` / `storybook-v86-probe` | `PROBE_TIER=commit npm run test-storybook -w tmuxy-ui` (the axe pass included) / `PROBE_TIER=gate npm run test-storybook:v86 -w tmuxy-ui`; the v86 probe is skipped when the push touched nothing it loads (`changes`) | Story play-function and accessibility regressions |
 | `nightly v86 sweep / deterministic` | `npm run test-storybook -w tmuxy-ui` (every story, the axe pass on) | The `nightly`-tagged stories and accessibility |
-| `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit`; runs only when a lockfile or `.cargo/audit.toml` changed (`changes`), the Sunday sweep covers the days between | Dependency security alerts |
+| `audit` | `npm audit --omit=dev --audit-level=high` + `cargo audit`; runs only when a lockfile or `.cargo/audit.toml` changed (`changes`), Dependabot's alerts cover the days between | Dependency security alerts |
 | `build-frontend` / `build-server` | `npm run build -w tmuxy-ui` / `cargo build --profile ci -p tmuxy-server` | The frontend bundle and the `ci`-profile server every later job downloads; a failure here fails everything after it |
 | `demo-build` | `npm run build --ignore-scripts -w tmuxy-demo` | The demo site compiles (without staging its v86 assets; a full `npm run build -w tmuxy-demo` needs `npm run build:wasm`, `fetch:v86-image` and `build:v86-snapshot` first) |
 | `macos-tests` | `npm run test:cli` every push; `cargo test --workspace` (on a Mac, with Homebrew tmux) when the push touches the desktop app, the CLI, the pty spawn of `tmux -CC`, a Rust file with a macOS branch or the Cargo manifests (the `macos-rust` rule in `bin/ci/ci-changes.mjs`), and on every tag (which `build-app.yml` calls) — `build-app.yml` also runs it on a Mac daily | macOS-only shell, path and tmux behaviour |
@@ -36,8 +34,6 @@ A run that is green but slow is triaged from its summary page: the `ci` job writ
 | `nightly perf / interaction-latency-desktop` | `(cd packages/tmuxy-tauri-app && npx tauri build --no-bundle)`, then `npm run perf:interactions:tauri -- --binary target/release/tmuxy` + `npm run perf:compare -- --report tests/perf/interaction-report-tauri.json` | Desktop interaction budgets, against the release build |
 | `nightly perf / core-bench` | `cargo bench -p tmuxy-core --bench core_pipeline` + `node tests/perf/compare-core-bench.mjs --threshold 20` | The Axis-A pipeline bench and its ratio budget |
 | `nightly perf / soak` (nightly) and `nightly perf / interaction-baseline` (on dispatch) | `npm run perf:soak`, `npm run perf:interactions` | Report numbers for a human; none gates |
-| `sunday sweep / sweep` (weekly) | `GH_REPO=flplima/tmuxy node bin/ci/sunday-sweep.mjs --dry-run` (needs a `gh` that can read the security alerts; add `--red-prs` for what a hand-dispatched run with `red_prs` would hand over) | Dependency advisories between audits, and red PRs |
-| `dependabot actions merge / merge` | `gh pr diff <n> \| node bin/ci/actions-bump.mjs` — it merges a green Dependabot PR only when that prints nothing (a moved `actions/*` pin and no other line); anything else waits for a review | An action pin bump that changed more than the pin |
 
 ## Structure guards
 

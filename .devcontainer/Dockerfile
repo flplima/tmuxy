@@ -20,8 +20,8 @@ RUN usermod -l user -d /home/user -m node \
 
 # The toolchain facts (the tmux pin and its build, the rust targets, the
 # WebKitGTK headers) are bin/toolchain's, which CI reads too. bin/install-dev-tools
-# reads it from beside itself, so it stays in /tmp until that has run.
-COPY bin/toolchain /tmp/
+# reads it from beside itself, so it stays in /tmp/bin until that has run.
+COPY bin/toolchain /tmp/bin/
 
 # System dependencies
 # What only an IMAGE needs: its base tools, its build deps, its browser. The
@@ -35,11 +35,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less git procps sudo unzip openssh-client openssh-server \
     # Build tools (native modules; tmux's own are the next line)
     build-essential pkg-config libssl-dev ca-certificates \
-    $(/tmp/toolchain packages tmux-build) \
+    $(/tmp/bin/toolchain packages tmux-build) \
     # Chromium (agent-browser; ARM64 has no downloadable build so we use system)
     chromium \
     # Tauri build deps (WebKitGTK)
-    $(/tmp/toolchain packages webkit-dev) \
+    $(/tmp/bin/toolchain packages webkit-dev) \
     # Scoped passwordless sudo for chown/chmod so the credential-volume ownership
     # fix (.devcontainer/fix-credential-ownership.sh) can repair root-owned/stale-UID
     # named volumes on container start.
@@ -62,7 +62,7 @@ RUN NVIM_ARCH=$(uname -m | sed 's/aarch64/arm64/') && \
     ln -sf /opt/nvim-linux-${NVIM_ARCH}/bin/nvim /usr/local/bin/nvim
 
 # Debian ships an older tmux; build the version tmuxy targets everywhere.
-RUN /tmp/toolchain build-tmux
+RUN /tmp/bin/toolchain build-tmux
 
 # Rust toolchain
 ENV RUSTUP_HOME=/usr/local/rustup
@@ -73,7 +73,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
     && rustup component add rustfmt clippy \
     # wasm32 for tmuxy-wasm (npm run build:wasm; its wasm-bindgen CLI is
     # install-dev-tools'), i686-musl for the guests' tmuxy-verbs binary
-    && rustup target add $(/tmp/toolchain rust-targets) \
+    && rustup target add $(/tmp/bin/toolchain rust-targets) \
     && mkdir -p /usr/local/cargo/registry /usr/local/cargo/git \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 
@@ -82,11 +82,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 # the wasm-bindgen the v86 build needs. The env var above is what tells it a
 # browser is already here, so it downloads none.
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-# The script reads its font list and bin/toolchain from beside itself, so
-# those are in /tmp with it.
-COPY bin/install-dev-tools bin/chromium-fonts.txt /tmp/
-RUN /tmp/install-dev-tools --full \
-    && rm /tmp/install-dev-tools /tmp/chromium-fonts.txt /tmp/toolchain \
+# The script reads bin/toolchain from beside itself, and that reads the
+# wasm-bindgen version from the Cargo.lock one directory up, as in a checkout.
+COPY bin/install-dev-tools /tmp/bin/
+COPY Cargo.lock /tmp/
+RUN /tmp/bin/install-dev-tools --full \
+    && rm -r /tmp/bin /tmp/Cargo.lock \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && chown -R user:user /usr/local/cargo /usr/local/rustup
 

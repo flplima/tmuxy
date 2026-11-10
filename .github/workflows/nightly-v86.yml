@@ -54,7 +54,8 @@ jobs:
 
       - name: Stories that failed
         id: failed
-        run: bin/ci/failed-stories "$RUNNER_TEMP/results-sweep.json" >> "$GITHUB_OUTPUT"
+        # No results file prints `ids=`: the probe died before writing it, and `report` says so.
+        run: echo "ids=$(jq -r '[.stories[] | select(.ok | not) | .id] | join(" ")' "$RUNNER_TEMP/results-sweep.json" 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
 
       - name: Upload results
         if: always()
@@ -107,7 +108,8 @@ jobs:
 
       - name: Stories that failed
         id: failed
-        run: bin/ci/failed-stories "$RUNNER_TEMP/results-deterministic.json" >> "$GITHUB_OUTPUT"
+        # No results file prints `ids=`: the probe died before writing it, and `report` says so.
+        run: echo "ids=$(jq -r '[.stories[] | select(.ok | not) | .id] | join(" ")' "$RUNNER_TEMP/results-deterministic.json" 2>/dev/null || true)" >> "$GITHUB_OUTPUT"
 
       - name: Upload results
         if: always()

@@ -86,7 +86,7 @@ export function cycles(graph) {
   return found;
 }
 
-/** The policy check (bin/check-repo-policy.mjs): no cycle at all. */
+/** The policy check (bin/ci/policy.mjs): no cycle at all. */
 export function checkImportCycles(root, addError) {
   const files = sourceFiles(path.join(root, SRC));
   const graph = importGraph(files, (f) => fs.readFileSync(f, 'utf8'));

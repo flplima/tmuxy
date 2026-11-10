@@ -1,5 +1,5 @@
 /**
- * `bin/plugin-index.mjs`, the builder the plugin-index workflow runs, against
+ * `bin/ci/plugin-index.mjs`, the builder the plugin-index workflow runs, against
  * local repositories in place of the GitHub search: what it lists, what it
  * leaves out and says why, and names two repositories share.
  *

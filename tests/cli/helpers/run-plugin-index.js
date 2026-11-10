@@ -1,5 +1,5 @@
 /**
- * Running `bin/plugin-index.mjs` on local repositories, for
+ * Running `bin/ci/plugin-index.mjs` on local repositories, for
  * cli/plugin-index.test.js: the repositories made with git, the builder run
  * with node.
  */
@@ -9,7 +9,7 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '../../..');
-const SCRIPT = path.join(ROOT, 'bin/plugin-index.mjs');
+const SCRIPT = path.join(ROOT, 'bin/ci/plugin-index.mjs');
 
 const CHECKER = `#!/bin/bash
 dir="$3"

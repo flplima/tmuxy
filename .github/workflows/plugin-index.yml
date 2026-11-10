@@ -41,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          node bin/plugin-index.mjs
+          node bin/ci/plugin-index.mjs
           --tmuxy target/release/tmuxy-server
           --out "$RUNNER_TEMP/plugins.json"
           --summary "$GITHUB_STEP_SUMMARY"

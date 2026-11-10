@@ -91,7 +91,7 @@ function trackedFiles(root) {
     .filter(Boolean);
 }
 
-/** The policy check (bin/check-repo-policy.mjs). */
+/** The policy check (bin/ci/policy.mjs). */
 export function checkHomes(root, addError) {
   const { rules } = JSON.parse(fs.readFileSync(path.join(root, 'bin/ci/homes.json'), 'utf8'));
   const read = (file) => {

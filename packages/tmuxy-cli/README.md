@@ -72,4 +72,4 @@ server <verb>`); the script resolves its target and caller and forwards.
   A verb is tested in Rust: its logic in `tmuxy-verbs`, and against a real
   tmux in `packages/tmuxy-server/tests/` (`cli_verbs.rs`, `pane_groups.rs`).
 - **Dev install:** the repo root's `bin/bootstrap` links this `bin/tmuxy-cli` as
-  `~/.local/bin/tmuxy`.
+  `~/.local/bin/tmuxy`, unless a `tmuxy` is already there (an installed app's wrapper).

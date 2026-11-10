@@ -6,7 +6,7 @@
  * the state itself, so a slow runner reads as slow, never as done; the story
  * probe's own deadline bounds them.
  *
- * `bin/check-repo-policy.mjs` keeps fixed sleeps out of the v86 story files:
+ * `bin/ci/policy.mjs` keeps fixed sleeps out of the v86 story files:
  * `inputPause` is the one way to let time pass there.
  */
 

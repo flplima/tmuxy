@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkDocPaths } from './ci/doc-paths.mjs';
-import { checkFileTokenLimit } from './ci/file-token-limit.mjs';
-import { checkInvariantEnforcers } from './ci/invariant-enforcers.mjs';
-import { checkHomes } from './ci/homes.mjs';
-import { checkImportCycles } from './ci/import-cycles.mjs';
-import { checkDuplication } from './ci/duplication.mjs';
+import { checkDocPaths } from './doc-paths.mjs';
+import { checkFileTokenLimit } from './file-token-limit.mjs';
+import { checkInvariantEnforcers } from './invariant-enforcers.mjs';
+import { checkHomes } from './homes.mjs';
+import { checkImportCycles } from './import-cycles.mjs';
+import { checkDuplication } from './duplication.mjs';
+import { checkWorkflowPins } from './workflow-pins.mjs';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const errors = [];
 
 function listFiles(dir, exts, acc = []) {
@@ -373,12 +374,12 @@ function checkBlindWaitRatchet() {
       addError(
         `[tests] ${count} blind waits in ${bucket}/ exceeds the ceiling of ${ceiling}. ` +
           'Use waitForCondition (tests) or waitFor (stories) instead — see ' +
-          'BLIND_WAIT_CEILING in bin/check-repo-policy.mjs.',
+          'BLIND_WAIT_CEILING in bin/ci/policy.mjs.',
       );
     } else if (count < ceiling) {
       addError(
         `[tests] ${count} blind waits in ${bucket}/ is below the ceiling of ${ceiling}. ` +
-          `Lower BLIND_WAIT_CEILING['${bucket}'] to ${count} in bin/check-repo-policy.mjs so the ` +
+          `Lower BLIND_WAIT_CEILING['${bucket}'] to ${count} in bin/ci/policy.mjs so the ` +
           'ratchet holds the ground this commit just gained.',
       );
     }
@@ -395,6 +396,7 @@ checkInvariantEnforcers(root, addError);
 checkHomes(root, addError);
 checkImportCycles(root, addError);
 checkDuplication(root, addError);
+checkWorkflowPins(root, addError);
 // Paths and job names the docs quote; --worktree counts untracked files as present.
 checkDocPaths(root, addError, { worktree: process.argv.includes('--worktree') });
 

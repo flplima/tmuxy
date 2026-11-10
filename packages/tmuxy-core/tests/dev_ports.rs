@@ -26,13 +26,6 @@ fn the_configs_name_the_ports_tmuxy_core_has() {
         format!("http://localhost:{DEV_VITE_PORT}")
     );
 
-    let ui: serde_json::Value =
-        serde_json::from_str(&read("packages/tmuxy-ui/package.json")).unwrap();
-    assert_eq!(
-        ui["scripts"]["predev"],
-        format!("bash ../../bin/kill-port {DEV_VITE_PORT}")
-    );
-
     let vite = read("packages/tmuxy-ui/vite.config.ts");
     assert_eq!(
         vite.matches(&format!("ort: {DEV_VITE_PORT},")).count(),

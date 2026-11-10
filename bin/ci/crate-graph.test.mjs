@@ -5,13 +5,13 @@ import { describe, expect, it } from 'vitest';
 /**
  * A workflow's path filter or cache key names the crates a job builds from,
  * and only a list of globs can go there. Each one is held here against the
- * crate graph (`crate-graph.json`, written from `cargo metadata`): a crate
+ * crate graph (`crate-graph.gen.json`, written from `cargo metadata`): a crate
  * that joins a guest's build without joining its key reuses a stale guest.
  */
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
-const GRAPH = JSON.parse(read('bin/ci/crate-graph.json')).crates;
+const GRAPH = JSON.parse(read('packages/tmuxy-core/tests/generated/crate-graph.gen.json')).crates;
 
 /** Every crate directory `crates` are built from, as `<dir>/**` globs. */
 function crateGlobs(...crates) {

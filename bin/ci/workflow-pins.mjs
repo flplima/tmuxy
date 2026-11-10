@@ -10,7 +10,7 @@
  * - a `cargo install` names `--version` and `--locked`, so neither the crate
  *   nor its dependency tree is whatever crates.io serves on the day.
  *
- *   bin/ci/workflow-pins.mjs   check .github/, exit 1 naming every offender
+ * Part of the policy check (bin/ci/policy.mjs), which names every offender.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,16 +53,11 @@ export function workflowFiles(root) {
   ].sort();
 }
 
-if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file://').href) {
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
-  const errors = workflowFiles(root).flatMap((file) =>
-    unpinned(fs.readFileSync(path.join(root, file), 'utf8')).map(
-      ([line, problem]) => `${file}:${line}: ${problem}`,
-    ),
-  );
-  if (errors.length > 0) {
-    console.error(`Workflow pin check failed:\n\n${errors.map((e) => `- ${e}`).join('\n')}`);
-    process.exit(1);
+/** The policy check (bin/ci/policy.mjs). */
+export function checkWorkflowPins(root, addError) {
+  for (const file of workflowFiles(root)) {
+    for (const [line, problem] of unpinned(fs.readFileSync(path.join(root, file), 'utf8'))) {
+      addError(`${file}:${line}: ${problem}`);
+    }
   }
-  console.log('Workflow pin check passed.');
 }

@@ -16,7 +16,6 @@
     "./fonts/nerd-font.css": "./src/fonts/nerd-font.css"
   },
   "scripts": {
-    "predev": "bash ../../bin/kill-port 9001",
     "dev": "vite",
     "build": "tsc && vite build && vite build --config vite.kindle.config.ts",
     "storybook": "storybook dev -p 6006 --host 0.0.0.0",

@@ -551,7 +551,7 @@ fn the_guest_key_bindings_are_the_shipped_confs() {
 #[test]
 fn the_crate_graph_is_cargos() {
     check(
-        packages().join("../bin/ci/crate-graph.json"),
+        packages().join("tmuxy-core/tests/generated/crate-graph.gen.json"),
         crate_graph::crate_graph_json(),
     );
 }

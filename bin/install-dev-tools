@@ -35,15 +35,13 @@ fi
 echo "[dev-tools] apt packages"
 # fzf and neovim are driven BY the tests (the float fzf round trip, the nvim
 # performance suite); jq reads the NDJSON trace; zstd unpacks the v86 image;
-# xvfb + WebKitWebDriver are the Tauri E2E display and driver. The fonts are
-# bin/chromium-fonts.txt, the list CI's Chromium gets: without the CJK and emoji
-# faces headless Chromium measures a fullwidth glyph as a 1-cell fallback box,
-# and the wide-glyph stories and E2E tests assert real cell widths — the same
-# list here is what makes a container pass match a CI pass.
-# Read on its own line: a failed `cat` inside the install line expanded to no
-# fonts and nothing said so, where `set -e` stops on a failed assignment.
+# xvfb + WebKitWebDriver are the Tauri E2E display and driver. The fonts are the list
+# CI's Chromium gets (`bin/toolchain packages chromium-fonts`), so a container
+# pass matches a CI pass.
+# Read on their own lines: a failed command inside the install line expanded
+# to no packages and nothing said so, where `set -e` stops on a failed assignment.
 toolchain="$(dirname "$0")/toolchain"
-fonts="$(cat "$(dirname "$0")/chromium-fonts.txt")"
+fonts="$("$toolchain" packages chromium-fonts)"
 $SUDO apt-get update
 desktop_test="$("$toolchain" packages desktop-test)"
 # shellcheck disable=SC2086
@@ -80,7 +78,7 @@ if [ "$FULL" -eq 1 ]; then
     install_crate tauri-driver --version "$("$toolchain" tauri-driver-version)" --locked
     # `npm run build:wasm` — the CLI version must match the wasm-bindgen crate
     # pinned in Cargo.lock, so it is read from there, as CI reads it.
-    wasm_bindgen=$("$(dirname "$0")/wasm-bindgen-version")
+    wasm_bindgen=$("$toolchain" wasm-bindgen-version)
     install_crate wasm-bindgen-cli --version "$wasm_bindgen" --locked
 fi
 

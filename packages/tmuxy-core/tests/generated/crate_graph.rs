@@ -1,4 +1,4 @@
-//! The workspace's crate graph, for `bin/ci/crate-graph.json`.
+//! The workspace's crate graph, for `packages/tmuxy-core/tests/generated/crate-graph.gen.json`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

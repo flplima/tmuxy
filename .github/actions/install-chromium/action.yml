@@ -31,14 +31,14 @@ runs:
       shell: bash
       run: npx playwright install chromium --with-deps
 
-    # bin/chromium-fonts.txt is the list Playwright's own install-deps uses for
+    # `bin/toolchain packages chromium-fonts` is the list Playwright's own install-deps uses for
     # Chromium; bin/install-dev-tools installs the same one, so a container
     # and a runner measure a wide glyph the same way.
     - name: Install the fonts Chromium renders with (cache hit)
       if: steps.playwright-cache.outputs.cache-hit == 'true'
       shell: bash
       run: |
-        fonts="$(cat bin/chromium-fonts.txt)"
+        fonts="$("$GITHUB_WORKSPACE/bin/toolchain" packages chromium-fonts)"
         APT_ATTEMPTS=1 "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts \
           || { "$GITHUB_WORKSPACE/bin/ci/apt-get" update && "$GITHUB_WORKSPACE/bin/ci/apt-get" install -y --no-install-recommends $fonts; }
 

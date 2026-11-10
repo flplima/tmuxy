@@ -6,7 +6,7 @@
  * which publishes the result on the `plugin-index` branch.
  *
  * Usage:
- *   node bin/plugin-index.mjs --tmuxy <server binary> --out plugins.json
+ *   node bin/ci/plugin-index.mjs --tmuxy <server binary> --out plugins.json
  *       [--repos fixture.json] [--summary summary.md]
  *
  * Without --repos the repositories come from the GitHub search API through

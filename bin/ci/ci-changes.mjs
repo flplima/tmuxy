@@ -4,7 +4,7 @@
  *
  * The desktop job and the v86 probe are the two longest jobs of
  * lint-and-tests.yml. `audit` runs only when a lockfile moved: an advisory
- * against a dependency no push touched is the Sunday sweep's. The [nightly]
+ * against a dependency no push touched is a Dependabot alert. The [nightly]
  * E2E tier, which a push skips, runs on one more runner when the push edited
  * the suites it lives in.
  *

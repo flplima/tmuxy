@@ -505,7 +505,7 @@ jobs:
     timeout-minutes: 15
     # Only when a lockfile moved (the `changes` job): an advisory published
     # against a dependency no push touched made this job red for commits that
-    # had nothing to do with it. The Sunday sweep hands those to the agent.
+    # had nothing to do with it. Dependabot's alerts cover the days between.
     needs: changes
     if: needs.changes.outputs.audit == 'true'
 
@@ -530,9 +530,7 @@ jobs:
   # whatever their result, and fails when any of them failed or was
   # cancelled; a job the `changes` filter skipped counts as passed. So a
   # shard or a gated job can be added, merged or renamed without touching
-  # branch protection. It also writes where the run's time went on the run's
-  # summary page: jobs, steps and the slowest tests, read back from the logs
-  # by bin/ci/ci-timing.mjs.
+  # branch protection.
   ci:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -551,16 +549,15 @@ jobs:
         desktop,
         audit,
       ]
-    permissions:
-      actions: read
-      contents: read
+    permissions: {}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Timing summary
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node bin/ci/ci-timing.mjs "$GITHUB_RUN_ID" --summary >> "$GITHUB_STEP_SUMMARY" || true
       - name: Every job passed or was skipped
         env:
           RESULTS: ${{ toJSON(needs) }}
-        run: node bin/ci/ci-gate.mjs
+        run: |
+          failed=$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<<"$RESULTS")
+          if [ -n "$failed" ]; then
+            sed 's/^/::error title=ci::/' <<<"$failed"
+            exit 1
+          fi
+          echo 'every job passed or was skipped'

@@ -12,11 +12,14 @@
 #   bin/toolchain rust-targets          the rustup targets past the host's: wasm32 for
 #                                       tmuxy-wasm, i686-musl for the guests' tmuxy-verbs
 #   bin/toolchain tauri-driver-version  the driver the desktop suites run the app under
+#   bin/toolchain wasm-bindgen-version  the wasm-bindgen Cargo.lock pins, for installing
+#                                       the matching CLI
 #   bin/toolchain packages <set>        apt package names, space-separated:
 #                                         tmux-build       what a tmux release builds with
 #                                         tmux-build-head  the same, for tmux master
 #                                         webkit-dev       the headers the desktop crate links
 #                                         desktop-test     Xvfb and the WebKit WebDriver
+#                                         chromium-fonts   the faces headless Chromium renders with
 #   bin/toolchain build-tmux [<version>|HEAD]
 #                                       build tmux from source (the pin by default) and
 #                                       install it under /usr/local; needs `packages
@@ -27,6 +30,21 @@ NODE_VERSION=22
 TMUX_VERSION=3.7a
 RUST_TARGETS=(wasm32-unknown-unknown i686-unknown-linux-musl)
 TAURI_DRIVER_VERSION=2.0.6
+
+# The CLI and the crate must agree EXACTLY on the bindgen schema, so the
+# version is read from the lockfile rather than written here: a hand-kept pin
+# drifts the moment anything runs `cargo update`, and the failure is a
+# schema-mismatch error a long way from the change that caused it.
+wasm_bindgen_version() {
+  local lock version
+  lock="$(cd "$(dirname "$0")/.." && pwd)/Cargo.lock"
+  version=$(awk '/^name = "wasm-bindgen"$/{f=1; next} f && /^version = /{gsub(/["]/,""); sub(/version = /,""); print; exit}' "$lock")
+  if [ -z "$version" ]; then
+    echo "no wasm-bindgen in $lock" >&2
+    exit 1
+  fi
+  printf '%s\n' "$version"
+}
 
 packages() {
   case "${1:-}" in
@@ -48,8 +66,16 @@ packages() {
       fi
       echo xvfb x11-utils "$webdriver"
       ;;
+    # The list Playwright's own install-deps uses for Chromium. Without the CJK
+    # and emoji faces headless Chromium measures a fullwidth glyph as a 1-cell
+    # fallback box, and the wide-glyph stories and E2E tests assert real cell
+    # widths: a container and a runner installing the same list measure alike.
+    chromium-fonts)
+      echo fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji \
+        fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei xfonts-cyrillic xfonts-scalable
+      ;;
     *)
-      echo "unknown package set: ${1:-} (tmux-build, tmux-build-head, webkit-dev, desktop-test)" >&2
+      echo "unknown package set: ${1:-} (tmux-build, tmux-build-head, webkit-dev, desktop-test, chromium-fonts)" >&2
       exit 2
       ;;
   esac
@@ -82,10 +108,11 @@ case "${1:-}" in
   tmux-version) echo "$TMUX_VERSION" ;;
   rust-targets) echo "${RUST_TARGETS[*]}" ;;
   tauri-driver-version) echo "$TAURI_DRIVER_VERSION" ;;
+  wasm-bindgen-version) wasm_bindgen_version ;;
   packages) packages "${2:-}" ;;
   build-tmux) build_tmux "${2:-}" ;;
   *)
-    echo "usage: bin/toolchain node-version | tmux-version | rust-targets | tauri-driver-version | packages <set> | build-tmux [<version>|HEAD]" >&2
+    echo "usage: bin/toolchain node-version | tmux-version | rust-targets | tauri-driver-version | wasm-bindgen-version | packages <set> | build-tmux [<version>|HEAD]" >&2
     exit 2
     ;;
 esac

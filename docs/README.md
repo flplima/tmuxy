@@ -14,7 +14,7 @@ This directory contains architectural and design documentation for the tmuxy pro
 
 | Files | Regenerate with | Stale means |
 | --- | --- | --- |
-| `packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, `packages/tmuxy-cli/bin/tmuxy/_options`, every `.gen.json`, `bin/ci/crate-graph.json` | `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants` (the full list is `packages/tmuxy-core/tests/generated_constants.rs`) | that test fails |
+| `packages/tmuxy-ui/src/domain/tmuxyConstants.gen.ts`, `packages/tmuxy-cli/bin/tmuxy/_options`, every `.gen.json` | `UPDATE_GENERATED=1 cargo test -p tmuxy-core --test generated_constants` (the full list is `packages/tmuxy-core/tests/generated_constants.rs`) | that test fails |
 | the JSON in `packages/protocol-fixtures/` | `UPDATE_PROTOCOL_FIXTURES=1 cargo test -p tmuxy-core protocol_fixtures` (`packages/protocol-fixtures/README.md`) | `tmuxy-core/src/host/protocol_fixtures.rs` fails |
 | `packages/tmuxy-ui/src/stories/fixtures/gen/` | `node scripts/record-story-fixtures.mjs` from `packages/tmuxy-ui`, against a release build of the server | nothing: the stories replay what was last recorded |
 
@@ -122,4 +122,4 @@ Every file in this directory. A doc that outgrew the size cap (below) continues 
 - **Use ASCII diagrams**, not Mermaid. Plain ASCII art in fenced code blocks works everywhere.
 - **Uppercase filenames** (e.g., `ARCHITECTURE.md`) to match README.md convention and distinguish docs from code.
 - **Cross-reference** related docs with a "Related" section at the bottom of each file.
-- **Under 5,000 tokens per file** (bytes / 4), enforced repo-wide by `bin/check-repo-policy.mjs`. A topic that outgrows it moves whole sections into a companion named after its parent (`TMUX-TAGS.md`, `TESTS-E2E.md`, `STATE-MANAGEMENT-ACTORS.md`), the parent keeps a one-line pointer where the section was, and the guide above lists the companion under its parent. Tables stay unpadded (`| a | b |`); column padding once made up half the bytes of a doc.
+- **Under 5,000 tokens per file** (bytes / 4), enforced repo-wide by `bin/ci/policy.mjs`. A topic that outgrows it moves whole sections into a companion named after its parent (`TMUX-TAGS.md`, `TESTS-E2E.md`, `STATE-MANAGEMENT-ACTORS.md`), the parent keeps a one-line pointer where the section was, and the guide above lists the companion under its parent. Tables stay unpadded (`| a | b |`); column padding once made up half the bytes of a doc.

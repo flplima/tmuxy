@@ -1,6 +1,6 @@
 //! The plugin index: every public GitHub repository with the topic
 //! `tmuxy-plugin` whose manifests pass `tmuxy plugin check`, rebuilt every
-//! six hours (`bin/plugin-index.mjs`, `.github/workflows/plugin-index.yml`)
+//! six hours (`bin/ci/plugin-index.mjs`, `.github/workflows/plugin-index.yml`)
 //! and published on the `plugin-index` branch.
 //!
 //! It is a convenience, not a trust signal: `tmuxy plugin install <name>`
