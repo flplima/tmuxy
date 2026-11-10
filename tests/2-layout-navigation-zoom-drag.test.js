@@ -63,6 +63,9 @@ describeE2E('Scenario 4c: Zoom in a 2×2 grid', {}, (ctx) => {
     const zoomTarget = await ctx.page.evaluate(() => window.app?.view().activePaneId);
     expect(tmuxPane(zoomTarget).left).toBe(0);
 
+    // Panes animate to their size after a split: read the quarters once the
+    // grid has stopped moving, not while the last split is still drawing.
+    await waitForLayoutSettled(ctx.page);
     const before = await visiblePanes();
     const quarterW = Math.max(...before.map((p) => p.w));
     const quarterH = Math.max(...before.map((p) => p.h));
@@ -81,6 +84,8 @@ describeE2E('Scenario 4c: Zoom in a 2×2 grid', {}, (ctx) => {
       5000,
       'the zoom to leave one pane shown',
     );
+    // The zoomed pane grows by a transition of its own, which can outlast the fade.
+    await waitForLayoutSettled(ctx.page);
 
     const zoomed = await visiblePanes();
     const shown = zoomed.filter((p) => p.opacity > 0.99);
