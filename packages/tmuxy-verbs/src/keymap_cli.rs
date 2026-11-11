@@ -161,8 +161,11 @@ fn text(map: &Keymap, home: &Path, server_read: bool) -> String {
     }
     if !map.warnings.is_empty() {
         out.push_str("\nWarnings:\n");
+        // The paths in a warning are written in full (they are for `--json`
+        // too); the table above shows the user's home as `~`, and so does this.
+        let home = format!("{}/", home.display());
         for warning in &map.warnings {
-            out.push_str(&format!("  {warning}\n"));
+            out.push_str(&format!("  {}\n", warning.replace(&home, "~/")));
         }
     }
     if !server_read {

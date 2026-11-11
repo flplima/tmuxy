@@ -77,7 +77,10 @@ fn keymap_says_where_a_key_comes_from_and_what_the_users_file_replaced() {
         stdout.contains("rebound at ~/config/tmuxy/tmuxy.conf:2"),
         "{stdout}"
     );
-    assert!(stdout.contains("C-Space is the prefix"), "{stdout}");
+    assert!(
+        stdout.contains("C-Space is the prefix (~/config/tmuxy/tmuxy.conf:3)"),
+        "{stdout}"
+    );
     assert!(stdout.contains("No tmux server answered"));
 
     // One key, as JSON: the full path and the line.
