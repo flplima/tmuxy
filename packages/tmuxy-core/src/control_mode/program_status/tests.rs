@@ -294,14 +294,14 @@ fn tmux_is_told_only_what_changes_what_the_pane_shows() {
     let start = Instant::now();
     assert_eq!(tracker.due(None, start), None, "nothing was reported");
 
-    tracker.read(vec![StatusEvent::PromptBegan]);
+    tracker.read(vec![StatusEvent::PromptBegan], Instant::now());
     assert_eq!(
         tracker.due(Some("working"), start),
         None,
         "a prompt on a pane with no record leaves a hook's state alone"
     );
 
-    tracker.read(vec![report("state=working")]);
+    tracker.read(vec![report("state=working")], Instant::now());
     assert_eq!(
         state_of(tracker.due(None, start)),
         Some(Some(PaneStateName::Working))
@@ -313,14 +313,14 @@ fn tmux_is_told_only_what_changes_what_the_pane_shows() {
     assert!(!tracker.take_row_stale(), "and only the next");
 
     let later = start + MIN_WRITE_INTERVAL;
-    tracker.read(vec![report("state=working")]);
+    tracker.read(vec![report("state=working")], Instant::now());
     assert_eq!(
         tracker.due(Some("working"), later),
         None,
         "the same again changes nothing"
     );
 
-    tracker.read(vec![StatusEvent::PromptBegan]);
+    tracker.read(vec![StatusEvent::PromptBegan], Instant::now());
     assert_eq!(
         state_of(tracker.due(Some("working"), later)),
         Some(None),
@@ -334,20 +334,20 @@ fn tmux_is_told_only_what_changes_what_the_pane_shows() {
 fn a_program_that_reports_the_same_state_again_is_written_again_when_tmux_says_otherwise() {
     let mut tracker = Tracker::default();
     let start = Instant::now();
-    tracker.read(vec![report("state=done")]);
+    tracker.read(vec![report("state=done")], Instant::now());
     assert_eq!(
         state_of(tracker.due(None, start)),
         Some(Some(PaneStateName::Unread))
     );
 
     let later = start + MIN_WRITE_INTERVAL;
-    tracker.read(vec![StatusEvent::PromptBegan]);
+    tracker.read(vec![StatusEvent::PromptBegan], Instant::now());
     assert_eq!(
         tracker.due(None, later),
         None,
         "a prompt is not the program speaking"
     );
-    tracker.read(vec![report("state=done")]);
+    tracker.read(vec![report("state=done")], Instant::now());
     assert_eq!(
         state_of(tracker.due(None, later)),
         Some(Some(PaneStateName::Unread))
@@ -358,11 +358,11 @@ fn a_program_that_reports_the_same_state_again_is_written_again_when_tmux_says_o
 fn a_program_reporting_in_a_loop_is_written_once_per_interval_and_ends_on_its_last_word() {
     let mut tracker = Tracker::default();
     let start = Instant::now();
-    tracker.read(vec![report("state=working")]);
+    tracker.read(vec![report("state=working")], Instant::now());
     assert!(tracker.due(None, start).is_some());
 
-    tracker.read(vec![report("state=blocked")]);
-    tracker.read(vec![report("state=error")]);
+    tracker.read(vec![report("state=blocked")], Instant::now());
+    tracker.read(vec![report("state=error")], Instant::now());
     let soon = start + MIN_WRITE_INTERVAL / 2;
     assert_eq!(tracker.due(Some("working"), soon), None, "held back");
     assert_eq!(
@@ -378,7 +378,7 @@ fn a_program_reporting_in_a_loop_is_written_once_per_interval_and_ends_on_its_la
 fn a_change_of_text_alone_writes_the_text_and_not_the_state() {
     let mut tracker = Tracker::default();
     let start = Instant::now();
-    tracker.read(vec![report("state=working:progress=40")]);
+    tracker.read(vec![report("state=working:progress=40")], Instant::now());
     assert_eq!(
         tracker.due(None, start),
         Some(Due {
@@ -389,7 +389,7 @@ fn a_change_of_text_alone_writes_the_text_and_not_the_state() {
         })
     );
 
-    tracker.read(vec![report("state=working:progress=50")]);
+    tracker.read(vec![report("state=working:progress=50")], Instant::now());
     assert_eq!(
         tracker.due(Some("working"), start + MIN_WRITE_INTERVAL),
         Some(Due {
@@ -417,4 +417,97 @@ fn text_is_for_a_pane_only_while_the_pane_is_in_the_state_it_was_reported_with()
     assert!(!status_is_for("kind=permission", Some("needs-input")));
     assert!(!status_is_for("state=sleeping", Some("idle")));
     assert!(status_is_for("state=done", Some("unread")));
+}
+
+#[test]
+fn a_long_command_marks_its_pane_when_it_ends_and_the_next_command_takes_the_mark_off() {
+    let mut tracker = Tracker::default();
+    let start = Instant::now();
+    tracker.read(vec![StatusEvent::CommandBegan], start);
+    assert_eq!(
+        tracker.due(None, start),
+        None,
+        "a running command says nothing"
+    );
+
+    let end = start + command_finish::LONG_COMMAND;
+    tracker.read(
+        vec![StatusEvent::CommandEnded(Some(0)), StatusEvent::PromptBegan],
+        end,
+    );
+    let due = tracker.due(None, end).expect("the end is told");
+    assert_eq!(due.state, Some(PaneStateName::Unread));
+    let status = due.status.expect("with how it ended");
+    assert!(
+        status.starts_with("state=done:id=tmuxy.command:msg="),
+        "{status}"
+    );
+
+    let next = end + MIN_WRITE_INTERVAL;
+    tracker.read(vec![StatusEvent::CommandBegan], next);
+    assert_eq!(
+        state_of(tracker.due(Some("unread"), next)),
+        Some(None),
+        "a new command: the last one's end is no longer news"
+    );
+}
+
+#[test]
+fn a_long_command_that_failed_marks_its_pane_as_an_error() {
+    let mut tracker = Tracker::default();
+    let start = Instant::now();
+    tracker.read(vec![StatusEvent::CommandBegan], start);
+    let end = start + command_finish::LONG_COMMAND;
+    tracker.read(vec![StatusEvent::CommandEnded(Some(2))], end);
+    assert_eq!(
+        state_of(tracker.due(None, end)),
+        Some(Some(PaneStateName::Error))
+    );
+}
+
+#[test]
+fn a_short_command_and_an_end_without_a_start_leave_the_pane_alone() {
+    let mut tracker = Tracker::default();
+    let start = Instant::now();
+    tracker.read(
+        vec![
+            StatusEvent::CommandBegan,
+            StatusEvent::CommandEnded(Some(1)),
+        ],
+        start,
+    );
+    assert_eq!(tracker.due(Some("working"), start), None);
+
+    let later = start + command_finish::LONG_COMMAND * 2;
+    tracker.read(vec![StatusEvent::CommandEnded(Some(1))], later);
+    assert_eq!(
+        tracker.due(Some("working"), later),
+        None,
+        "the start was never seen, so how long it ran is not known"
+    );
+}
+
+#[test]
+fn a_program_that_reports_for_itself_keeps_its_record_beside_the_shells() {
+    let mut tracker = Tracker::default();
+    let start = Instant::now();
+    tracker.read(
+        vec![StatusEvent::CommandBegan, report("state=working")],
+        start,
+    );
+    assert_eq!(
+        state_of(tracker.due(None, start)),
+        Some(Some(PaneStateName::Working))
+    );
+
+    let end = start + command_finish::LONG_COMMAND;
+    tracker.read(
+        vec![StatusEvent::CommandEnded(Some(0)), StatusEvent::PromptBegan],
+        end,
+    );
+    assert_eq!(
+        state_of(tracker.due(Some("working"), end)),
+        Some(Some(PaneStateName::Unread)),
+        "the prompt ends the program's working, the command's end stays to be seen"
+    );
 }

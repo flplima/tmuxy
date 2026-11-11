@@ -116,7 +116,7 @@ The MCP endpoint ([MCP.md](MCP.md)) is the same remote shell as `/commands`, off
 
 ### Push Notifications
 
-A device that turns notifications on hands the server a push subscription (`/api/push/subscription`, behind the same auth and origin rules as `/commands`), and the server then sends that device's push service a notice whenever a pane enters `needs-input` or `error` (`tmuxy-server/src/push.rs`). The notice is encrypted for the device and signed with the server's VAPID key (both RFC 8291/8292), so the push service can deliver it but not read it, and cannot be made to deliver anyone else's. A subscription must name an HTTPS endpoint (or loopback, for tests); the server keeps at most 32 and forgets one its push service reports gone. `@tmuxy-notify off` in tmuxy.conf sends none.
+A device that turns notifications on hands the server a push subscription (`/api/push/subscription`, behind the same auth and origin rules as `/commands`), and the server then sends that device's push service a notice whenever a pane enters `needs-input` or `error`, or has a result (`unread`) nobody has looked at (`tmuxy-server/src/push.rs`). The notice is encrypted for the device and signed with the server's VAPID key (both RFC 8291/8292), so the push service can deliver it but not read it, and cannot be made to deliver anyone else's. A subscription must name an HTTPS endpoint (or loopback, for tests); the server keeps at most 32 and forgets one its push service reports gone. `@tmuxy-notify off` in tmuxy.conf sends none.
 
 ### Prompt Injection via Terminal Output
 

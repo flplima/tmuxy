@@ -283,6 +283,40 @@ fn a_pane_coming_to_need_the_user_is_one_notice() {
         .is_empty());
 }
 
+/// A result (`unread`) is cleared by the client that shows the pane, within
+/// the moment it appears there. So it is news only once it has outlasted a
+/// read, and then once.
+#[test]
+fn a_result_nobody_has_seen_by_the_next_read_is_one_notice() {
+    let mut watch = Watch::default();
+    watch.update(&rows(&[("%1", "working"), ("%2", "working")], "on"), "");
+
+    let entered = watch.update(&rows(&[("%1", "unread"), ("%2", "unread")], "on"), "");
+    assert!(entered.is_empty(), "a client may be showing either pane");
+
+    let waited = watch.update(&rows(&[("%1", "unread"), ("%2", "")], "on"), "host");
+    assert_eq!(
+        waited,
+        vec![Notice {
+            title: "claude finished".into(),
+            body: "host · work · main (%1)".into(),
+            tag: "tmuxy-%1-unread".into(),
+            url: "/?session=work".into(),
+            pane_id: "%1".into(),
+        }],
+        "%2 was seen and cleared in between"
+    );
+    assert!(watch
+        .update(&rows(&[("%1", "unread")], "on"), "")
+        .is_empty());
+
+    watch.update(&rows(&[("%1", "working")], "off"), "");
+    watch.update(&rows(&[("%1", "unread")], "off"), "");
+    assert!(watch
+        .update(&rows(&[("%1", "unread")], "off"), "")
+        .is_empty());
+}
+
 /// What a push service receives: an encrypted body, the encoding, a TTL and
 /// the VAPID token. A subscription it answers 410 for is forgotten.
 #[tokio::test]

@@ -221,3 +221,76 @@ describeE2E(
     }, 120000);
   },
 );
+
+/**
+ * A shell with OSC 133 integration says when a command starts (`C`) and
+ * ends (`D`, with the exit status). One that ran for a while leaves a
+ * result on its pane, the way a program's own `done` does. The "shell" is
+ * the other pane's `printf` onto this pane's terminal, with a `sleep`
+ * between the two marks.
+ */
+describeE2E(
+  'Scenario: a shell command that ran for a while marks its pane when it ends',
+  {},
+  (ctx) => {
+    test('a long command ending in a pane that is not in front leaves a result there, cleared when the pane is looked at', async () => {
+      const { page } = ctx;
+      await ctx.setupPage();
+      await waitForShellPrompt(page);
+      const first = await page.evaluate(() => window.app?.view().activePaneId);
+      await splitPaneKeyboard(page, 'horizontal');
+      await waitForPaneCount(page, 2);
+      await waitForShellPrompt(page);
+      const paneId = await page.evaluate(() => window.app?.view().activePaneId);
+      expect(paneId).not.toBe(first);
+
+      const shows = (pane, mark, waitingFor, timeout = 10000) =>
+        waitForCondition(
+          page,
+          async () => (await headerMark(page, pane)) === mark,
+          timeout,
+          () => seen(page, pane, waitingFor),
+        );
+
+      try {
+        const tty = ctx.session.runCommand(`display-message -p -t ${first} '#{pane_tty}'`).trim();
+        expect(tty).toMatch(/^\/dev\//);
+        const mark = (body) => `printf '\\033]133;${body}\\033\\\\' > ${tty}`;
+        // Eleven seconds: a command has to run for ten to be worth a mark.
+        await typeInTerminal(page, `${mark('C')}; sleep 11; ${mark('D;0')}`, {
+          target: `[data-pane-id="${paneId}"] [role="log"]`,
+        });
+        await pressEnter(page);
+
+        await shows(first, 'unread', "the command's end to leave a result on its pane", 30000);
+        // Pointing at the mark says how it ended.
+        await page.hover(`[data-pane-tab="${first}"] .pane-state-mark`);
+        const tooltip = () =>
+          page.evaluate(() => {
+            const tip = document.querySelector('[data-testid="tooltip"]');
+            const box = tip?.getBoundingClientRect();
+            return box && box.width > 0 ? tip.textContent : null;
+          });
+        await waitForCondition(
+          page,
+          async () => /^New output: Finished in 1\d s$/.test((await tooltip()) ?? ''),
+          10000,
+          async () =>
+            `the tooltip to say how long it ran; it says ${JSON.stringify(await tooltip())}`,
+        );
+
+        await navigatePaneKeyboard(page, 'next');
+        await waitForCondition(
+          page,
+          async () => (await page.evaluate(() => window.app?.view().activePaneId)) === first,
+          10000,
+          'the first pane to come in front',
+        );
+        await shows(first, null, 'the result to be taken as seen once its pane is in front');
+      } finally {
+        tmuxyCli(['pane', 'state', 'clear', paneId]);
+        tmuxyCli(['pane', 'state', 'clear', first]);
+      }
+    }, 120000);
+  },
+);
