@@ -132,15 +132,19 @@ export const connectionActions = {
   // web the switch reconnects with ?session=<name>, and the server's attach
   // creates the session if the create has not landed yet; on Tauri the create
   // must precede switch-client, which the two raised events keep in order. The
-  // name is one no session in the last poll has, nor the attached one, nor a
-  // snapshot the switcher offers to restore (a session made under a snapshot's
-  // name would be saved over it).
-  connection_newSession: act(({ context, enqueue }) => {
-    const sessionName = memorableSessionName([
-      context.sessionName,
-      ...context.sessions.map((session) => session.sessionName),
-      ...context.restorableSessions.map((session) => session.name),
-    ]);
+  // name is the one the user typed (the palette offers it only when no session
+  // has it), else one no session in the last poll has, nor the attached one,
+  // nor a snapshot the switcher offers to restore (a session made under a
+  // snapshot's name would be saved over it).
+  connection_newSession: act(({ context, event, enqueue }) => {
+    const typed = event.type === 'NEW_SESSION' ? event.name : undefined;
+    const sessionName =
+      typed ??
+      memorableSessionName([
+        context.sessionName,
+        ...context.sessions.map((session) => session.sessionName),
+        ...context.restorableSessions.map((session) => session.name),
+      ]);
     enqueue.raise({ type: 'DISPATCH_OP' as const, op: TmuxOp.NewSession({ name: sessionName }) });
     enqueue.raise({ type: 'SWITCH_SESSION' as const, sessionName });
   }),

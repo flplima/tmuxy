@@ -40,6 +40,9 @@ const LAYOUTS: ReadonlyArray<{ layout: string; label: string; icon: MenuIconName
   { layout: 'tiled', label: 'Tiled', icon: 'layout-tiled' },
 ];
 
+/** The items that open the palette; the palette leaves them out of its own list. */
+export const PALETTE_ITEM_IDS = { all: 'view-palette', goTo: 'view-go-to' } as const;
+
 const MODES: ReadonlyArray<{ mode: ThemeMode; label: string }> = [
   { mode: 'dark', label: 'Dark Mode' },
   { mode: 'light', label: 'Light Mode' },
@@ -92,6 +95,26 @@ export function themeMenuSpec(ctx: AppMachineContext): AppMenuSpec {
 
 export function viewMenuSpec(ctx: AppMachineContext, env: MenuEnv): AppMenuSpec {
   return tidy([
+    // Both search what the menus hold (components/palette): the first lists
+    // everything, the second only the sessions, tabs and panes to go to.
+    {
+      kind: 'item',
+      id: PALETTE_ITEM_IDS.all,
+      label: 'Command Palette…',
+      icon: 'search',
+      // The chord is the Mac's own modifier there; Ctrl+Shift+P works too.
+      keyHint: env.isMac ? 'cmd+shift+p' : commandHint(ctx.keybindings, 'palette'),
+      action: command('palette'),
+    },
+    {
+      kind: 'item',
+      id: PALETTE_ITEM_IDS.goTo,
+      label: 'Go to Session, Tab or Pane…',
+      icon: 'go-to',
+      keyHint: commandHint(ctx.keybindings, 'palette-go-to'),
+      action: command('palette-go-to'),
+    },
+    separator,
     { kind: 'submenu', id: 'menu-theme', label: 'Theme', children: themeMenuSpec(ctx) },
     separator,
     ...LAYOUTS.map((l): AppMenuNode => {

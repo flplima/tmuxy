@@ -5,6 +5,7 @@ import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../doma
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
 import type { PaneId, WindowId } from '../../domain/ids';
+import type { PaletteMode } from '../../domain/palette/entries';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
 import type { TmuxClientModel } from '../../domain/store/types';
@@ -96,6 +97,14 @@ export type AppMachineEvent =
   | { type: 'KEY_TABLE_CHANGE'; table: string | null }
   /** Open or close the keys view (`prefix ?`). */
   | { type: 'TOGGLE_KEYS_VIEW' }
+  /** Open the command palette in `mode`, or close it when it is open in that mode. */
+  | { type: 'TOGGLE_PALETTE'; mode: PaletteMode }
+  | { type: 'CLOSE_PALETTE' }
+  /**
+   * Go to a tab or a pane, in this session or another one on the socket
+   * (`sessionName`): the session is switched first, then the place is picked.
+   */
+  | { type: 'GO_TO'; sessionName: string; windowId: WindowId; paneId?: PaneId }
 
   // UI config events
   | {
@@ -281,7 +290,8 @@ export type AppMachineEvent =
 
   // Session & server events
   | { type: 'SWITCH_SESSION'; sessionName: string }
-  | { type: 'NEW_SESSION' }
+  /** Create a session and switch to it; `name` when the user typed one, else a made-up one. */
+  | { type: 'NEW_SESSION'; name?: string }
   | { type: 'OPEN_CONNECT_FLOAT' }
   | { type: 'SESSIONS_UPDATED'; sessions: SessionTreeNode[] }
   | { type: 'SNAPSHOTS_UPDATED'; restorableSessions: RestorableSession[] }
