@@ -45,7 +45,8 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
 #[test]
 fn a_task_becomes_a_short_branch_name() {
     assert_eq!(slug("Fix the login redirect!"), "fix-the-login-redirect");
-    assert_eq!(slug("  --Ünïcode & ASCII 42 "), "n-code-ascii-42");
+    assert_eq!(slug("  --Ünïcode & ASCII 42 "), "ünïcode-ascii-42");
+    assert_eq!(slug("Corrigir a navegação"), "corrigir-a-navegação");
     assert_eq!(
         slug("a very long task description that keeps going well past the limit"),
         "a-very-long-task-description-that-keeps"
@@ -139,5 +140,20 @@ fn the_checkout_runs_no_hook_or_filter_the_repository_names() {
         "ran: {}",
         std::fs::read_to_string(&marker).unwrap_or_default()
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A base that looks like an option is a commit to start from, and one that
+/// is not a commit is refused, never read as a flag.
+#[test]
+fn a_base_is_never_read_as_an_option() {
+    let (root, repo) = repository("base");
+    let refused = create(&repo, "x", Some("--orphan"))
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("worktree add"), "{refused}");
+    assert!(!root.join("app-x").join("README").exists());
+    create(&repo, "y", Some("HEAD")).unwrap();
+    assert!(root.join("app-y/README").is_file());
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -73,12 +73,14 @@ pub fn run(args: WorktreeArgs) {
 }
 
 /// The shell line a worktree's tab runs: the agent with the task, then a
-/// shell, so the tab outlives the agent.
+/// shell, so the tab outlives the agent. The task comes after `--`, so one
+/// that starts with a dash (`--resume`, a pasted "- fix the login") reaches
+/// the agent as text, not as an option.
 fn agent_line(agent: &str, task: &str) -> String {
     let task = if task.is_empty() {
         String::new()
     } else {
-        format!(" {}", tmuxy_core::argv::shell_word(task))
+        format!(" -- {}", tmuxy_core::argv::shell_word(task))
     };
     format!("{agent}{task}; exec \"${{SHELL:-sh}}\"")
 }
@@ -115,12 +117,10 @@ fn new(
         String::new()
     } else {
         let program = agent.map(|agent| agent_line(agent, task));
-        crate::run_cli::new_tab(
-            answer,
-            Some(&branch),
-            Some(&created.path),
-            program.as_deref(),
-        )
+        // The directory is a tmux format: a `#` in it is doubled, so a path
+        // like `app-#(cmd)` names itself and runs nothing.
+        let cwd = created.path.replace('#', "##");
+        crate::run_cli::new_tab(answer, Some(&branch), Some(&cwd), program.as_deref())
     };
     let tab_field = if tab.is_empty() {
         "null".to_string()
@@ -187,7 +187,12 @@ mod tests {
     fn the_agent_gets_the_task_as_one_quoted_word_and_a_shell_follows() {
         assert_eq!(
             agent_line("claude", "fix the login; rm -rf ~"),
-            "claude 'fix the login; rm -rf ~'; exec \"${SHELL:-sh}\""
+            "claude -- 'fix the login; rm -rf ~'; exec \"${SHELL:-sh}\""
+        );
+        assert_eq!(
+            agent_line("claude", "--resume"),
+            "claude -- --resume; exec \"${SHELL:-sh}\"",
+            "a task that looks like an option is still the task"
         );
         assert_eq!(agent_line("codex", ""), "codex; exec \"${SHELL:-sh}\"");
     }

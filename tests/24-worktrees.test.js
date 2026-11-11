@@ -20,13 +20,48 @@ const {
 } = require('./helpers');
 const { git, throwawayRepo } = require('./helpers/git-repo');
 
-/** A repository with one commit, and an "agent" that prints what it got and waits. */
+/**
+ * A repository with one commit, and an "agent" that reads its arguments the
+ * way an agent's own parser does: a word after `--` is the task, a word
+ * starting with `-` before it is an option.
+ */
 function scene() {
   const where = throwawayRepo('app');
   const agent = path.join(where.root, 'fake-agent');
-  fs.writeFileSync(agent, '#!/bin/sh\necho "FAKE AGENT in $(pwd) was asked: $*"\nexec sleep 600\n');
+  fs.writeFileSync(
+    agent,
+    [
+      '#!/bin/sh',
+      'case "$1" in',
+      '  --) shift; echo "FAKE AGENT in $(pwd) was asked: $*" ;;',
+      '  -*) echo "FAKE AGENT took an option: $1" ;;',
+      '  *) echo "FAKE AGENT in $(pwd) was asked: $*" ;;',
+      'esac',
+      'exec sleep 600',
+      '',
+    ].join('\n'),
+  );
   fs.chmodSync(agent, 0o755);
   return { ...where, agent };
+}
+
+/** The pane in front's text, once it holds `text`. */
+async function waitForActiveText(page, text, what) {
+  let seen = '';
+  await waitForCondition(
+    page,
+    async () => {
+      seen = await page.evaluate(() => {
+        const log = document.querySelector('.pane-active [role="log"]');
+        const box = log?.getBoundingClientRect();
+        return box && box.width > 0 ? log.textContent : '';
+      });
+      return seen.includes(text);
+    },
+    20000,
+    () => `${what}; the pane in front shows ${JSON.stringify(seen.trim().slice(-300))}`,
+  );
+  return seen;
 }
 
 describeE2E('Scenario: a task in a worktree of its own', {}, (ctx) => {
@@ -77,6 +112,30 @@ describeE2E('Scenario: a task in a worktree of its own', {}, (ctx) => {
         .runCommand(`display-message -p -t ${shown.tabId} '#{pane_current_path}'`)
         .trim();
       expect(fs.realpathSync(pane)).toBe(worktree);
+    } finally {
+      where.remove();
+    }
+  }, 120000);
+
+  // A task is text for the agent even when it reads like one of its options.
+  test('a task that starts with a dash reaches the agent as the task, not as an option', async () => {
+    const { page } = ctx;
+    const where = scene();
+    try {
+      await ctx.setupPage();
+      await focusPage(page);
+      await waitForShellPrompt(page);
+      await typeInTerminal(
+        page,
+        `cd ${where.repo} && ${TMUXY_CLI} worktree new --branch resume-check --agent ${where.agent} -- --resume`,
+      );
+      await pressEnter(page);
+      const shown = await waitForActiveText(
+        page,
+        'was asked: --resume',
+        'the agent to be given --resume as its task',
+      );
+      expect(shown).not.toContain('took an option');
     } finally {
       where.remove();
     }

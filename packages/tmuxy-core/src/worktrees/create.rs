@@ -25,23 +25,24 @@ pub struct Created {
 }
 
 /// A branch name's last part from a task in words: lowercase letters and
-/// digits, the rest one `-`, at most [`SLUG_CHARS`] long and cut at a word.
-/// "Fix the login redirect!" is `fix-the-login-redirect`.
+/// digits (accented ones too: `navegação` stays whole), the rest one `-`, at
+/// most [`SLUG_CHARS`] characters and cut at a word. "Fix the login
+/// redirect!" is `fix-the-login-redirect`.
 pub fn slug(task: &str) -> String {
     let mut slug = String::new();
     for c in task.chars().flat_map(char::to_lowercase) {
-        if c.is_ascii_alphanumeric() {
+        if c.is_alphanumeric() {
             slug.push(c);
         } else if !slug.is_empty() && !slug.ends_with('-') {
             slug.push('-');
         }
     }
-    let mut slug = slug.trim_end_matches('-').to_string();
-    if slug.len() > SLUG_CHARS {
-        let cut = slug[..SLUG_CHARS].rfind('-').unwrap_or(SLUG_CHARS);
-        slug.truncate(cut);
-    }
-    slug
+    let slug = slug.trim_end_matches('-');
+    let Some((limit, _)) = slug.char_indices().nth(SLUG_CHARS) else {
+        return slug.to_string();
+    };
+    let cut = slug[..limit].rfind('-').unwrap_or(limit);
+    slug[..cut].to_string()
 }
 
 /// The main worktree of the repository `path` is in.
@@ -102,7 +103,8 @@ pub fn create(path: &Path, branch: &str, base: Option<&str>) -> Result<Created, 
         });
     }
     let target_arg = target.to_string_lossy();
-    let mut args = vec!["worktree", "add", "-q", "-b", branch, &target_arg];
+    // After `--`, a base like `-x` is a commit to start from, not an option.
+    let mut args = vec!["worktree", "add", "-q", "-b", branch, "--", &target_arg];
     if let Some(base) = base {
         args.push(base);
     }
