@@ -1,13 +1,22 @@
 /**
  * Session & Connectivity E2E Tests (switching back to the session just left)
  *
- * The server keeps a session's monitor for a moment after its last client
- * leaves, so a reload finds it warm. A client that switches back within that
- * moment meets a monitor with nothing new to say: it has to ask for the
- * session's state itself, or it shows the empty frame the switch left.
+ * A session another client is watching keeps its monitor, as one left a
+ * moment ago does (the server's grace). A client that switches to it meets a
+ * monitor with nothing new to say: it has to ask for the session's state
+ * itself, or it shows the empty frame the switch left. A second page stays on
+ * the first session for the whole test, so its monitor is up whatever the
+ * runner's speed: without the fix this test fails every time, not only when
+ * the switch back lands inside the grace.
  */
 
-const { describeE2E, focusPage, waitForCondition, waitForShellPrompt } = require('./helpers');
+const {
+  describeE2E,
+  focusPage,
+  openSession,
+  waitForCondition,
+  waitForShellPrompt,
+} = require('./helpers');
 const { tmuxExec } = require('./helpers/tmux-socket');
 const { waitForMonitorGone } = require('./helpers/monitor');
 
@@ -45,10 +54,11 @@ const drawn = (page, paneId) =>
   }, paneId);
 
 describeE2E('Scenario: switching back to the session just left', {}, (ctx) => {
-  test('a session left a moment ago is drawn again as soon as it is picked', async () => {
+  test('a session another client keeps open is drawn as soon as it is picked', async () => {
     // Setup: a second session on the socket, made before any client attaches.
     const other = `tmuxy_back_${Date.now()}`;
     tmuxExec(`new-session -d -s ${other} -x 200 -y 50`);
+    let watcher = null;
     try {
       const { page } = ctx;
       await ctx.setupPage();
@@ -57,6 +67,9 @@ describeE2E('Scenario: switching back to the session just left', {}, (ctx) => {
       const here = ctx.session.name;
       const activePane = () => page.evaluate(() => window.app?.view().activePaneId ?? null);
       const first = await activePane();
+      // A second client on the first session, for the whole test.
+      watcher = await ctx.browser.newPage();
+      await openSession(watcher, here);
 
       await pickSession(page, other);
       await waitForCondition(
@@ -66,7 +79,7 @@ describeE2E('Scenario: switching back to the session just left', {}, (ctx) => {
         'the other session to be drawn',
       );
 
-      // Straight back, well inside the moment the first session's monitor is kept.
+      // Back to the first session, whose monitor the second page keeps up.
       await pickSession(page, here);
       await waitForCondition(
         page,
@@ -79,6 +92,7 @@ describeE2E('Scenario: switching back to the session just left', {}, (ctx) => {
           `the first session's pane ${first} to be drawn again; the page is on ${await pageSession(page)} with pane ${await activePane()}`,
       );
     } finally {
+      await watcher?.close();
       try {
         tmuxExec(`kill-session -t ${other}`);
       } catch {
