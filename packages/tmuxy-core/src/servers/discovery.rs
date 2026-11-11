@@ -142,9 +142,10 @@ fn dead_socket_cache(
     CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-/// Count non-stash sessions on a local tmux socket that is NOT the live
-/// control-mode socket. Returns `None` if no server is running on that socket.
-pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
+/// The non-stash sessions on a local tmux socket that is NOT the live
+/// control-mode socket, in tmux's order. `None` when no server is running on
+/// that socket, or it holds nothing but the stash.
+pub fn local_socket_session_names(socket: &str) -> Option<Vec<String>> {
     let mtime = socket_mtime(socket);
     if let Ok(cache) = dead_socket_cache().lock() {
         if let Some(cached_mtime) = cache.get(socket) {
@@ -166,17 +167,18 @@ pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
     if let Ok(mut cache) = dead_socket_cache().lock() {
         cache.remove(socket);
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let count = stdout
+    let names: Vec<String> = String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && *line != STASH_SESSION)
-        .count();
-    if count == 0 {
-        None
-    } else {
-        Some(count)
-    }
+        .map(String::from)
+        .collect();
+    (!names.is_empty()).then_some(names)
+}
+
+/// How many sessions [`local_socket_session_names`] finds on `socket`.
+pub fn query_local_socket_sessions(socket: &str) -> Option<usize> {
+    local_socket_session_names(socket).map(|names| names.len())
 }
 
 /// Merge discovered local sockets from `socket_dirs` and populate reachability

@@ -19,6 +19,7 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  OwnTmuxOffer,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -288,6 +289,10 @@ export type AppMachineEvent =
       currentServerId: string | null;
     }
   | { type: 'CONNECT_SERVER'; serverId: string; session?: string }
+  /** The host's answer about the user's own tmux server (null: nothing to tell). */
+  | { type: 'OWN_TMUX_OFFERED'; offer: OwnTmuxOffer | null }
+  /** The launch notice's buttons: switch to that server, or close the notice. */
+  | { type: 'ANSWER_OWN_TMUX_OFFER'; answer: 'use' | 'dismiss' }
   | { type: 'DETACH_CLIENT' }
   | { type: 'RECONNECT_NOW' }
   | { type: 'TMUX_DETACHED'; reason: string | null }

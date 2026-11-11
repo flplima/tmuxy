@@ -92,6 +92,7 @@ export const connectionActions = {
     if (event.type !== 'CONNECTION_INFO') return;
     enqueue(assign({ serverHostname: event.hostname }));
     enqueue(sendTo('tmuxStore', { type: 'SET_DEFAULT_SHELL' as const, shell: event.defaultShell }));
+    enqueue(sendTo('servers', { type: 'LOOK_FOR_OWN_TMUX' as const }));
     enqueue(() => {
       if (typeof document !== 'undefined' && !isTauri() && event.hostname) {
         document.title = `tmuxy on ${event.hostname}`;
@@ -118,6 +119,36 @@ export const connectionActions = {
         }),
       ),
     );
+  }),
+
+  // A notice already on screen stays as it is: the host answers every window
+  // and tab that asks, and an answer must not undo a click.
+  connection_ownTmuxOffered: assignCtx(({ context, event }) =>
+    event.type === 'OWN_TMUX_OFFERED' && event.offer && !context.ownTmuxNotice
+      ? { ownTmuxNotice: { offer: event.offer, switched: false } }
+      : {},
+  ),
+
+  // Either answer closes the offer for good on the host. Taking it switches
+  // the way the session menu's "my tmux" does, and the notice stays to say how
+  // to start there next time.
+  connection_answerOwnTmuxOffer: act(({ context, event, enqueue }) => {
+    if (event.type !== 'ANSWER_OWN_TMUX_OFFER') return;
+    const notice = context.ownTmuxNotice;
+    if (!notice) return;
+    if (!notice.switched) {
+      enqueue(sendTo('tmux', invokeEvent({ cmd: 'close_own_tmux_offer', args: {} })));
+    }
+    if (event.answer === 'use' && notice.offer.canSwitch && !notice.switched) {
+      enqueue(assign({ ownTmuxNotice: { ...notice, switched: true } }));
+      enqueue.raise({
+        type: 'CONNECT_SERVER' as const,
+        serverId: notice.offer.serverId,
+        session: notice.offer.session,
+      });
+      return;
+    }
+    enqueue(assign({ ownTmuxNotice: null }));
   }),
 
   connection_reconnectNow: act(({ enqueue }) => {

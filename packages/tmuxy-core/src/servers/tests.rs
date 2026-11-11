@@ -207,3 +207,85 @@ fn parse_session_list_filters_out_stash_session() {
     assert_eq!(sessions[1].windows, 1);
     assert!(!sessions[1].attached);
 }
+
+fn asking(socket: &str) -> OwnTmuxAsk<'_> {
+    OwnTmuxAsk {
+        asked: false,
+        socket,
+        over_ssh: false,
+        can_switch: true,
+    }
+}
+
+fn names(list: &[&str]) -> Option<Vec<String>> {
+    Some(list.iter().map(|name| name.to_string()).collect())
+}
+
+/// A tmux user who opens tmuxy sees an empty session and takes their work
+/// for lost: the launch says where it is, how much of it, and which session
+/// a switch would open.
+#[test]
+fn a_launch_on_tmuxys_own_socket_offers_the_users_tmux() {
+    let offer = own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || {
+        names(&["my project", "work", "notes"])
+    });
+    assert_eq!(
+        offer,
+        Some(OwnTmuxOffer {
+            server_id: MY_TMUX_ID,
+            sessions: 3,
+            // The first name tmuxy can write into a command line.
+            session: Some("work".to_string()),
+            can_switch: true,
+        })
+    );
+}
+
+#[test]
+fn an_offer_with_no_attachable_session_names_none() {
+    let offer = own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || names(&["my project"]));
+    assert_eq!(
+        offer.map(|offer| (offer.sessions, offer.session)),
+        Some((1, None))
+    );
+}
+
+/// A host that cannot switch servers still tells: it says how to start there.
+#[test]
+fn the_offer_says_whether_the_host_can_switch() {
+    let ask = OwnTmuxAsk {
+        can_switch: false,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    };
+    let offer = own_tmux_offer_for(&ask, || names(&["work"])).unwrap();
+    assert!(!offer.can_switch);
+}
+
+/// Asked once, and only of someone who has not chosen a server already; in
+/// those cases the user's tmux is not even looked at.
+#[test]
+fn nothing_is_offered_when_there_is_nothing_to_ask() {
+    let unasked = |ask: OwnTmuxAsk<'_>| {
+        own_tmux_offer_for(&ask, || panic!("looked at the user's tmux")).is_none()
+    };
+    assert!(unasked(OwnTmuxAsk {
+        asked: true,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    }));
+    assert!(unasked(OwnTmuxAsk {
+        over_ssh: true,
+        ..asking(DEFAULT_TMUX_SOCKET)
+    }));
+    assert!(unasked(asking(USERS_OWN_SOCKET)));
+    assert!(unasked(asking("tmuxy-dev")));
+    assert!(unasked(asking("/tmp/some/socket")));
+
+    assert_eq!(
+        own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || None),
+        None
+    );
+    assert_eq!(
+        own_tmux_offer_for(&asking(DEFAULT_TMUX_SOCKET), || Some(Vec::new())),
+        None
+    );
+}

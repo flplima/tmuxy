@@ -106,6 +106,10 @@ export function selectNotifications(context: AppMachineContext) {
   return context.notifications;
 }
 
+export function selectOwnTmuxNotice(context: AppMachineContext) {
+  return context.ownTmuxNotice;
+}
+
 export function selectPrefixActive(context: AppMachineContext): boolean {
   return context.prefixActive;
 }

@@ -55,6 +55,7 @@ export const FIELD_OWNERS = {
   servers: 'connection',
   currentServerId: 'connection',
   restorableSessions: 'connection',
+  ownTmuxNotice: 'connection',
 
   targetCols: 'viewport',
   targetRows: 'viewport',
@@ -194,6 +195,7 @@ export function createInitialContext(): AppMachineContext {
     servers: [],
     currentServerId: null,
     restorableSessions: [],
+    ownTmuxNotice: null,
     floatPanes: {},
     keyboardOwner: { kind: 'panes' },
     sidebars: {

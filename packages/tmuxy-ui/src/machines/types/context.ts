@@ -22,6 +22,7 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  OwnTmuxNotice,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -316,4 +317,6 @@ export interface AppMachineContext {
   currentServerId: string | null;
   /** Sessions a snapshot could bring back; see {@link RestorableSession}. */
   restorableSessions: RestorableSession[];
+  /** The launch notice about the user's own tmux server, while it is on screen. */
+  ownTmuxNotice: OwnTmuxNotice | null;
 }

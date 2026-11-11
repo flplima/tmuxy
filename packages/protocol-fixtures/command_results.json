@@ -1,4 +1,7 @@
 {
+  "close_own_tmux_offer": [
+    null
+  ],
   "connect_server": [
     null
   ],
@@ -352,6 +355,15 @@
     null
   ],
   "open_url": [
+    null
+  ],
+  "own_tmux_offer": [
+    {
+      "canSwitch": true,
+      "serverId": "my-tmux",
+      "session": "work",
+      "sessions": 3
+    },
     null
   ],
   "prepare_plugin_action": [

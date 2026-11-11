@@ -170,5 +170,11 @@
   },
   {
     "cmd": "greeting"
+  },
+  {
+    "cmd": "own_tmux_offer"
+  },
+  {
+    "cmd": "close_own_tmux_offer"
   }
 ]

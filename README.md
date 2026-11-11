@@ -101,10 +101,14 @@ tmuxy runs tmux on a **socket of its own** (`tmuxy`), not the one your bare
 session you are working in, and an update or a crash cannot take your real work
 with it.
 
+The first time tmuxy starts while your own tmux server has sessions, it tells
+you so, once.
+
 To point it at your own tmux server instead:
 
 - **Desktop app** — the session menu lists **my tmux** under _Servers_ whenever
-  that server has sessions. Pick it; the app reconnects in place.
+  that server has sessions. Pick it, or take the offer in that first notice;
+  the app reconnects in place.
 - **Web** — the server binds its socket at launch, so tell it at launch:
 
   ```bash
