@@ -42,6 +42,7 @@ export interface GuardModel {
   readonly activeWindowId: WindowId | null;
   /** The op came as a command string (a binding, the prompt), not from a menu. */
   readonly typed: boolean;
+  readonly sessionName: string;
 }
 
 interface Closed {
@@ -57,7 +58,9 @@ const KILL =
  * What a command the parser left as a string would end. Only an exact pane
  * (`-t %N`) or tab (`-t @N`) is resolved; `-a` is everything else in the
  * window or the session; any other target (an index, a name) could be any
- * pane, so every pane counts. A respawn ends a program only with `-k`.
+ * pane, so every pane counts. A respawn ends a program only with `-k`. Not
+ * read: a verb shortened to a prefix (`kill-p`), and a kill wrapped in another
+ * command (`if-shell`, `run-shell`, `confirm-before`).
  */
 function closedByCommand(command: string, model: GuardModel): Closed | null {
   const match = KILL.exec(command.trim());
@@ -65,7 +68,7 @@ function closedByCommand(command: string, model: GuardModel): Closed | null {
   const [, verb, rest] = match;
   const respawn = verb.startsWith('respawn');
   if (respawn && !/(^|\s)-\w*k/.test(rest)) return null;
-  const target = /(?:^|\s)-t\s+(\S+)/.exec(rest)?.[1];
+  const target = /(?:^|\s)-t\s*(\S+)/.exec(rest)?.[1];
   const others = /(^|\s)-\w*a/.test(rest);
   const pane = /^(kill-pane|killp|respawn-pane|respawnp)$/.test(verb);
   const windowOf = (id: PaneId | null) => model.panes.find((p) => p.tmuxId === id)?.windowId;
@@ -115,7 +118,10 @@ function closedPanes(op: TmuxOp, model: GuardModel): Closed | null {
     }
     case 'KillSession':
       // The menu's Kill Session asks every time itself; a typed one asks here.
-      return model.typed ? { scope: 'several', panes: model.panes } : null;
+      // Another session's panes are not this client's to count.
+      return model.typed && (!op.name || op.name === model.sessionName)
+        ? { scope: 'several', panes: model.panes }
+        : null;
     case 'RawCommand':
       return closedByRaw(op.command, model);
     default:

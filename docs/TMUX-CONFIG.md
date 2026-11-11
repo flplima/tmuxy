@@ -127,12 +127,6 @@ Two hazards remain the user's to judge. `tmuxy config use-tmux-conf --help` (`pa
 - **tpm and plugins** load on tmuxy's socket too. A session manager such as `tmux-continuum` will auto-save and auto-restore sessions there.
 - **A status line that draws itself** may fight tmuxy's own chrome, which is cosmetic but ugly.
 
-### Closing a busy pane asks first
-
-A close that would end a pane saying `working` or `needs-input` (`@tmuxy-pane-state`) is held by the client's dispatcher (`machines/app/dispatch.ts`) for a confirmation that names the pane's program: Enter closes, Escape keeps, and no key reaches the pane meanwhile. `set -g @tmuxy-confirm-close off` closes at once.
-
-What is asked about is what the client can read (`domain/closeGuard.ts`): a pane's ✕, the menus, a tab's close, and a `kill-pane`, `kill-window`, `kill-session`, `kill-server` or `respawn-… -k` from a binding or the command prompt, alone or in a command list. `-a` counts every other pane or tab; a target the client cannot resolve (an index, a name) counts every pane. Not asked about: a close tmux runs without the client (`tmuxy pane kill` in a shell, another client), and a kill inside a `run-shell` or an `if-shell`.
-
 ## Key Tables Are the Client's
 
 tmuxy answers keys itself — the browser or webview holds the keyboard, and

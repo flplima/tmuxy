@@ -23,6 +23,7 @@ const model = {
   focusPaneId: PaneId.make('%2'),
   activeWindowId: WindowId.make('@1'),
   typed: true,
+  sessionName: 'main',
 };
 
 describe('busyPanesClosedBy', () => {
@@ -89,6 +90,9 @@ describe('busyPanesClosedBy', () => {
     expect(ids('kill-server')).toEqual(['%2', '%3', '%4']);
     const killSession = TmuxOp.KillSession({ name: null });
     expect(busyPanesClosedBy(killSession, model)?.busy).toHaveLength(3);
+    expect(ids('kill-pane -t%4')).toEqual(['%4']);
+    // Another session's panes are not counted.
+    expect(busyPanesClosedBy(TmuxOp.KillSession({ name: 'other' }), model)).toBeNull();
     // The menu's Kill Session has its own question.
     expect(busyPanesClosedBy(killSession, { ...model, typed: false })).toBeNull();
     expect(ids('kill-window -t :2')).toEqual(['%2', '%3', '%4']);

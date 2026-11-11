@@ -124,6 +124,27 @@ describe('closing a pane that is working', () => {
     expect(idleFloat.sent).toBe(1);
   });
 
+  it("the tab close keys in a float close the float's window, and are checked against it", () => {
+    const FLOAT = PaneId.make('%9');
+    const store = recorder();
+    const actor = startApp({
+      actors: { tmuxStoreActor: store.logic },
+      context: {
+        panes: [modelPane(AGENT, W1, { paneState: 'working', active: true }), modelPane(FLOAT, W2)],
+        windows: [modelWindow(W1, 1, { active: true }), modelWindow(W2, 2)],
+        activePaneId: AGENT,
+        activeWindowId: W1,
+        keyboardOwner: { kind: 'float', paneId: FLOAT },
+      },
+    });
+    actor.send({
+      type: 'SEND_TMUX_COMMAND',
+      command: `select-window -t ${W1} \\; select-pane -t ${FLOAT} \\; kill-window`,
+    });
+    expect(actor.getSnapshot().context.pendingClose).toBeNull();
+    expect(store.ops()).toHaveLength(1);
+  });
+
   it('a kill the parser does not know is held too', () => {
     for (const command of ['kill-window -a -t @2', 'respawn-pane -k', 'kill-session']) {
       const { actor, pending, closes } = app();

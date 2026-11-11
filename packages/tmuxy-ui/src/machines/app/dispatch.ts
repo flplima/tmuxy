@@ -127,11 +127,14 @@ function routeSidebarNav(direction: 'L' | 'R', context: Ctx, enqueue: Enqueue): 
  */
 function guardModel(wire: string | undefined, context: Ctx): GuardModel {
   const pinned = wire ? /(?:^|;\s*)select-pane -t (%\d+)\s*\\?;/.exec(wire)?.[1] : undefined;
+  // tmux resolves a pinned binding's window from the pinned pane's.
+  const pinnedWindow = context.panes.find((p) => p.tmuxId === pinned)?.windowId;
   return {
     panes: context.panes,
+    sessionName: context.sessionName,
     focusPaneId:
       (pinned as PaneId | undefined) ?? selectKeyFocusPane(context) ?? context.activePaneId,
-    activeWindowId: context.activeWindowId,
+    activeWindowId: pinnedWindow ?? context.activeWindowId,
     typed: wire !== undefined,
   };
 }
