@@ -167,7 +167,7 @@ whichever table they belong to: `prefix s` / `S` (open a sidebar over the
 panes; the same key again while it is open docks it, and again frees it — the
 prefix stays armed for that one key, tmux's repeat, and any other key goes on
 as if no prefix came first), `prefix w` and TAB's `o` (the Tab Overview),
-`prefix ?` (the keys view), and TAB's `<` / `>` (move the tab along the strip,
+`prefix ?` (the keys view), `prefix A` / `U` (the activity inbox and the jump to the pane that needs you, [ACTIVITY.md](ACTIVITY.md)), and TAB's `<` / `>` (move the tab along the strip,
 which skips the windows floats and sidebars occupy where a relative
 `swap-window` would not). The status line names the mode in force and shows a
 handful of its keys, each line fitting 80 columns

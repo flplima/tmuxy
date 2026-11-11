@@ -64,6 +64,11 @@ const sendEvent =
 export const MENU_COMMANDS = {
   'tab-new': { run: sendEvent({ type: 'CREATE_TAB' }), keyOp: TmuxOp.NewWindow() },
   'tab-overview': { run: sendEvent({ type: 'TOGGLE_TAB_OVERVIEW' }), clientKey: 'tab-overview' },
+  'view-activity': { run: sendEvent({ type: 'TOGGLE_ACTIVITY' }), clientKey: 'activity' },
+  'view-activity-most-urgent': {
+    run: sendEvent({ type: 'ACTIVITY_GO_MOST_URGENT' }),
+    clientKey: 'activity-most-urgent',
+  },
   // The item renames in the strip, where the name is; the binding (`prefix ,`)
   // still opens tmux's prompt, and the hint names the binding.
   'tab-rename': { run: sendEvent({ type: 'RENAME_ACTIVE_TAB' }), keyOp: renameWindowPrompt() },

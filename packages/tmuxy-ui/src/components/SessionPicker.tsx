@@ -4,13 +4,15 @@
  * of the focus (`aria-activedescendant`).
  */
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useAppSelector } from '../machines/appHooks';
 import { sessionSwitcherSpec } from './menus/specs/sessionSwitcher';
 import type { AppMenuNode } from './menus/specs/actions';
 import { MenuIcon } from './menus/MenuIcons';
 import { dataAttributes } from './menus/SpecMenu';
 import { useMenuEnv } from './menus/menuEnv';
+import { FilterBox } from './FilterBox';
+import { useActiveOptionInView } from './useActiveOptionInView';
 import './SessionPicker.css';
 
 export type SwitcherItem = Extract<AppMenuNode, { kind: 'item' }>;
@@ -49,14 +51,8 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
   const listId = `${baseId}-list`;
   const optionId = (item: SwitcherItem) => `${baseId}-${item.id}`;
 
-  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  useEffect(() => inputRef.current?.focus({ preventScroll: true }), []);
-  useEffect(() => {
-    listRef.current
-      ?.querySelector<HTMLElement>('[aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [active?.id]);
+  useActiveOptionInView(listRef, active?.id);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     const step = (by: number) => {
@@ -88,22 +84,14 @@ export function SessionPicker({ onChoose, onEscape, withConnect = true }: Sessio
 
   return (
     <div className="session-picker">
-      <input
-        ref={inputRef}
+      <FilterBox
         className="session-picker-filter"
-        type="text"
-        role="combobox"
-        aria-label="Filter sessions"
-        aria-expanded="true"
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={active ? optionId(active) : undefined}
-        placeholder="Filter sessions…"
-        autoComplete="off"
-        spellCheck={false}
+        label="Filter sessions"
+        listId={listId}
+        activeOptionId={active ? optionId(active) : undefined}
         value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
+        onChange={(value) => {
+          setQuery(value);
           setActiveId(null);
         }}
         onKeyDown={onKeyDown}

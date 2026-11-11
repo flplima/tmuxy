@@ -47,11 +47,20 @@ export type ClientKey =
   | 'right-sidebar'
   | 'tab-overview'
   | 'keys-view'
+  | 'activity'
+  | 'activity-most-urgent'
   | 'tab-left'
   | 'tab-right';
 
 export const CLIENT_KEYS: Record<string, Record<string, ClientKey>> = {
-  prefix: { s: 'left-sidebar', S: 'right-sidebar', w: 'tab-overview', '?': 'keys-view' },
+  prefix: {
+    s: 'left-sidebar',
+    S: 'right-sidebar',
+    w: 'tab-overview',
+    '?': 'keys-view',
+    A: 'activity',
+    U: 'activity-most-urgent',
+  },
   tab: { o: 'tab-overview', '<': 'tab-left', '>': 'tab-right' },
 };
 

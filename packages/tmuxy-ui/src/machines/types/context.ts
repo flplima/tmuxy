@@ -1,3 +1,4 @@
+import type { ActivityRow } from '../../domain/activity';
 import type { PushState } from '../../infra/pushNotifications';
 import type { CopyModeState } from '../../domain/copyMode';
 import type { PluginInfo } from '../../domain/plugins';
@@ -278,6 +279,10 @@ export interface AppMachineContext {
   keyTable: string | null;
   /** Whether the keys view (`prefix ?`) is open. */
   keysViewOpen: boolean;
+  /** The activity inbox is up. */
+  activityOpen: boolean;
+  /** Every pane that declared a state, most urgent first, as last read. */
+  activityRows: readonly ActivityRow[];
   /** The pane whose rename field is open in its header, if any. */
   renamingPaneId: PaneId | null;
   /** Base font size for terminal text in pixels */

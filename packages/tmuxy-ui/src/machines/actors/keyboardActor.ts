@@ -160,6 +160,10 @@ export function createKeyboardActor() {
           return input.parent.send({ type: 'TOGGLE_TAB_OVERVIEW' });
         case 'keys-view':
           return input.parent.send({ type: 'TOGGLE_KEYS_VIEW' });
+        case 'activity':
+          return input.parent.send({ type: 'TOGGLE_ACTIVITY' });
+        case 'activity-most-urgent':
+          return input.parent.send({ type: 'ACTIVITY_GO_MOST_URGENT' });
         case 'tab-left':
           return input.parent.send({ type: 'MOVE_ACTIVE_TAB', by: -1 });
         case 'tab-right':

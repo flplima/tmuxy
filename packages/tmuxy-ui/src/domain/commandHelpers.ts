@@ -53,6 +53,14 @@ export function scriptWith(
   return `run-shell "${[SCRIPT_EFFECT_TAGS[effect], `${SCRIPTS_DIR}/${name}`, ...args].join(' ')}"`;
 }
 
+/**
+ * A read of every pane of every session on the server, one line per pane in
+ * `format` (a query, not an op: it changes nothing).
+ */
+export function listEveryPane(format: string): string {
+  return `list-panes -a -F '${format}'`;
+}
+
 /** A shell command line as one `run-shell` argument; run-shell expands `#` first. */
 export function runShell(command: string): string {
   return `run-shell ${quote(command.replace(/#/g, '##'))}`;

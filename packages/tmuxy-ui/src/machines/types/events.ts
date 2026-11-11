@@ -4,6 +4,7 @@ import type { PaneContent } from '../../domain/wireCells';
 import type { ThemeInfo, ThemeMode, TraceLevel, TraceSettings } from '../../domain/wireSettings';
 import type { TabStripGeometry } from '../drag/tabStripDrop';
 import type { AskAnswer } from '../../domain/paneAsk';
+import type { ActivityRow, ActivityTarget } from '../../domain/activity';
 import type { PaneId, WindowId } from '../../domain/ids';
 import type { TmuxOp } from '../../domain/commands';
 import type { PluginInfo } from '../../domain/plugins';
@@ -90,6 +91,16 @@ export type AppMachineEvent =
   | { type: 'KEY_TABLE_CHANGE'; table: string | null }
   /** Open or close the keys view (`prefix ?`). */
   | { type: 'TOGGLE_KEYS_VIEW' }
+  /** Open or close the activity inbox (every pane that said something, by urgency). */
+  | { type: 'TOGGLE_ACTIVITY' }
+  /** Read the panes again: the inbox asks while it is open. */
+  | { type: 'REFRESH_ACTIVITY' }
+  /** tmux answered with every pane's state; `go` is a jump that was waiting for it. */
+  | { type: 'ACTIVITY_LOADED'; rows: readonly ActivityRow[]; go?: 'most-urgent' }
+  /** Go to a pane, in this session or another, and close the inbox. */
+  | { type: 'ACTIVITY_GO'; row: ActivityTarget }
+  /** Go straight to the pane that wants the user most. */
+  | { type: 'ACTIVITY_GO_MOST_URGENT' }
 
   // UI config events
   | {
