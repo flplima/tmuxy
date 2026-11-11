@@ -14,6 +14,9 @@ struct Fake {
     /// What `#{pane_current_command}` reads in the caller's pane.
     caller_program: String,
     reply: Option<&'static str>,
+    /// The caller does not run in the pane it names: that pane's process is
+    /// no ancestor of this one.
+    elsewhere: bool,
     /// The pane is gone: every read of its answer fails.
     gone: bool,
     asked: Mutex<String>,
@@ -26,6 +29,8 @@ impl ask::Tmux for Fake {
         let format = argv.last().cloned().unwrap_or_default();
         Ok(match format.as_str() {
             "#{pane_current_command}" => self.caller_program.clone(),
+            "#{pane_pid}" if self.elsewhere => "0".into(),
+            "#{pane_pid}" => std::process::id().to_string(),
             "#{@tmuxy-ask}" => String::new(),
             "#{@tmuxy-pane-state}" => String::new(),
             "#{@tmuxy-ask-answer}" if self.gone => {
@@ -243,8 +248,8 @@ async fn the_file_has_a_send_asked_where_the_options_would_skip_the_question() {
     for keys in [
         &["gh pr merge 7", "Enter"][..],
         &["cargo build", "Enter"],
-        &["gh pr list; rm -rf x", "Enter"],
-        &["rm -rf x"],
+        &["gh pr list; ls", "Enter"],
+        &["gh pr list"],
         &["C-c"],
         &["gh pr list", "Enter"],
     ] {
@@ -266,7 +271,7 @@ async fn the_file_has_a_send_asked_where_the_options_would_skip_the_question() {
 }
 
 /// Where the file has nothing to say, a send goes as it does without it: no
-/// rules for this caller, a target that is no shell, the caller's own pane.
+/// section for this caller, the caller's own pane.
 #[tokio::test]
 async fn a_send_the_file_does_not_bind_goes_as_it_did() {
     // Another caller's rules are not this one's.
@@ -279,16 +284,6 @@ async fn a_send_the_file_does_not_bind_goes_as_it_did() {
         .unwrap();
     assert!(!other.asked());
     assert_eq!(other.typed(), ["send-keys -t %3 -- rm -rf x Enter"]);
-
-    // An editor in the target pane: the keys are not a shell command.
-    let editor = Fake {
-        rules: "off\t\t\tvim\tidle".into(),
-        ..never_asks()
-    };
-    run_with(&editor, typing(&["rm -rf x", "Enter"]), RULES)
-        .await
-        .unwrap();
-    assert!(!editor.asked());
 
     // The caller's own pane is the caller's to type into.
     let own = never_asks();
@@ -311,6 +306,76 @@ async fn a_send_the_file_does_not_bind_goes_as_it_did() {
         .await
         .unwrap();
     assert!(!free.asked());
+}
+
+/// A target that is not a listed shell (an editor, a shell behind `ssh`)
+/// is not a way out of the file: a denied text is refused there too, and
+/// anything else is asked, whatever the options say.
+#[tokio::test]
+async fn a_bound_caller_typing_into_a_program_that_is_no_listed_shell_is_denied_or_asked() {
+    for program in ["vim", "ssh", "ksh"] {
+        let target = || Fake {
+            rules: format!("off\t\t\t{program}\tidle"),
+            ..never_asks()
+        };
+        let denied = target();
+        let (code, message) = run_with(&denied, typing(&["rm -rf x", "Enter"]), RULES)
+            .await
+            .unwrap_err();
+        assert_eq!(code, 1, "{program}");
+        assert!(message.starts_with("denied by `Send(rm *)`"), "{message}");
+        assert!(denied.typed().is_empty(), "{program}");
+        assert!(!denied.asked(), "{program}");
+
+        let asked = target();
+        run_with(&asked, typing(&["gh pr list", "Enter"]), RULES)
+            .await
+            .unwrap();
+        assert!(asked.asked(), "{program}");
+    }
+}
+
+/// `--caller-pane` is the caller's word. One that does not run in the pane
+/// it names is a caller in no pane: a claim to the target pane delivers
+/// nothing unasked and steps around no rule, and a claim to an allowed
+/// program's pane does not lend its name.
+#[tokio::test]
+async fn a_caller_that_does_not_run_in_the_pane_it_names_is_not_believed() {
+    // "The target is my own pane", from somewhere else: asked.
+    let claimed = Fake {
+        elsewhere: true,
+        reply: Some("yes"),
+        ..Fake::default()
+    };
+    run(&claimed, args(Some("%3"))).await.unwrap();
+    assert!(claimed.asked());
+
+    // The same claim against a file with a rule for everyone: refused.
+    let denied = Fake {
+        elsewhere: true,
+        ..never_asks()
+    };
+    let everyone = r#"{"callers": {"*": {"deny": ["Send(rm *)"]}}}"#;
+    let send = SendArgs {
+        keys: vec!["rm -rf x".into(), "Enter".into()],
+        ..args(Some("%3"))
+    };
+    let (code, _) = run_with(&denied, send, everyone).await.unwrap_err();
+    assert_eq!(code, 1);
+    assert!(denied.typed().is_empty());
+    assert!(!denied.asked());
+
+    // A pane running an allow-listed program, claimed from elsewhere: the
+    // caller is named by its own process, which the list does not hold.
+    let borrowed = Fake {
+        rules: "on\tclaude\t\tzsh\tidle".into(),
+        caller_program: "claude".into(),
+        elsewhere: true,
+        reply: Some("yes"),
+        ..Fake::default()
+    };
+    run(&borrowed, args(Some("%1"))).await.unwrap();
+    assert!(borrowed.asked());
 }
 
 /// A file that is there and is not rules refuses every send into another
@@ -347,16 +412,21 @@ async fn a_file_that_is_not_rules_refuses_every_send_into_another_pane() {
 /// A paste is text, not a command: with rules for the caller it is asked.
 #[tokio::test]
 async fn a_paste_into_a_shell_is_asked_when_the_caller_has_rules() {
-    let tmux = never_asks();
+    // Declined: a paste that goes ahead loads its text into a buffer of the
+    // real tmux on the socket in the environment, which is not this fake.
+    let tmux = Fake {
+        reply: Some("no"),
+        ..never_asks()
+    };
     let pasted = SendArgs {
         paste: true,
         keys: vec!["gh pr list".into()],
         ..args(Some("%1"))
     };
-    // Asked first: the paste itself needs a tmux this fake is not, so the
-    // send ends in its failure, after the question.
-    let _ = run_with(&tmux, pasted, RULES).await;
+    let (code, _) = run_with(&tmux, pasted, RULES).await.unwrap_err();
+    assert_eq!(code, 1);
     assert!(tmux.asked());
+    assert!(tmux.typed().is_empty());
 }
 
 /// Any spelling of the end marker would end a bracketed paste early and run

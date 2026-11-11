@@ -42,7 +42,11 @@ function buildGuestVerbs() {
  * `runScript(name, args, env)` runs one of the CLI's helper scripts as
  * run-shell runs it: bash, outside any pane.
  *
- * @returns {{ cli: string, path: string, home: string, runScript: Function, remove: () => void }}
+ * `runVerbs(args, env)` runs the verbs binary itself, as a caller that goes
+ * around the CLI's scripts would, and answers with what the mock tmux was
+ * asked to run.
+ *
+ * @returns {{ cli: string, path: string, home: string, runScript: Function, runVerbs: Function, remove: () => void }}
  */
 function guestMachine() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-guest-'));
@@ -65,11 +69,29 @@ function guestMachine() {
     });
     return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status };
   };
+  const runVerbs = (args, env = {}) => {
+    const log = path.join(fs.mkdtempSync(path.join(root, 'verbs-')), 'mock-tmux.log');
+    const result = spawnSync(path.join(bin, 'tmuxy-verbs'), args, {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { PATH: machinePath, HOME: home, TMUX_SOCKET: 'tmuxy', MOCK_TMUX_LOG: log, ...env },
+    });
+    const ran = fs.existsSync(log)
+      ? fs
+          .readFileSync(log, 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line).args.join(' '))
+      : [];
+    return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status, ran };
+  };
   return {
     cli: path.join(cliBin, 'tmuxy-cli'),
     path: machinePath,
     home,
     runScript,
+    runVerbs,
     remove: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }

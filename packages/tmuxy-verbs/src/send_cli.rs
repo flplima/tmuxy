@@ -59,7 +59,7 @@ impl ask::Tmux for CliTmux {
 pub async fn run(args: SendArgs) {
     let answer = Answer::new(args.json);
     // The user's permissions file, read from disk for this send and no other.
-    let file = permissions::Loaded::read(&tmuxy_core::paths::Layout::current().permissions());
+    let file = permissions::Loaded::read(&crate::permissions_file::path());
     let code = match send(&CliTmux, args, &answer, &file).await {
         Ok(()) => 0,
         Err((code, message)) => answer.fail(code, &message),
@@ -95,10 +95,18 @@ async fn send<T: ask::Tmux>(
         keys: &keys,
         paste: args.paste,
     };
-    let caller_pane = args
+    // The caller's pane is a claim until this process is seen to run there:
+    // the flag is the caller's to write, and a claim to the target pane
+    // would deliver with no rule read and nobody asked.
+    let mut caller_pane = args
         .caller_pane
         .as_deref()
         .and_then(|p| PaneId::parse(p).ok());
+    if let Some(claimed) = &caller_pane {
+        if !runs_in(tmux, claimed).await {
+            caller_pane = None;
+        }
+    }
     if caller_pane.as_ref() == Some(&pane) {
         return delivery.deliver(tmux, answer).await;
     }
@@ -121,18 +129,24 @@ async fn send<T: ask::Tmux>(
         return rules.mark_unread(tmux, &pane).await.map_err(failed);
     }
 
-    let deadline = args
-        .timeout
-        .map(|s| Deadline::after(Duration::from_secs(s)));
-    let question = Question::new(
-        &pane,
-        &std::process::id().to_string(),
-        &caller,
-        &keys,
-        &rules,
-    );
+    put_question(tmux, &pane, &caller, &keys, &rules, args.timeout).await?;
+    delivery.deliver(tmux, answer).await
+}
+
+/// Ask the user in `pane` whether `caller` may type `keys`, and wait for the
+/// answer: `Ok` for a yes, and the exit code and message of every other end.
+async fn put_question<T: ask::Tmux>(
+    tmux: &T,
+    pane: &PaneId,
+    caller: &str,
+    keys: &[String],
+    rules: &SendRules,
+    timeout: Option<u64>,
+) -> Result<(), (i32, String)> {
+    let deadline = timeout.map(|s| Deadline::after(Duration::from_secs(s)));
+    let question = Question::new(pane, &std::process::id().to_string(), caller, keys, rules);
     let asked = async {
-        ask::wait_turn(tmux, &pane, deadline).await?;
+        ask::wait_turn(tmux, pane, deadline).await?;
         question.put_up(tmux).await?;
         // Pane output is what makes the backend re-list the panes promptly:
         // a question asked from a silent pane would otherwise wait for the
@@ -158,8 +172,18 @@ async fn send<T: ask::Tmux>(
             _ => EXIT_FAILED,
         };
         (code, refused.to_string())
-    })?;
-    delivery.deliver(tmux, answer).await
+    })
+}
+
+/// Whether this process runs in `pane`: the pane's own process is this one
+/// or an ancestor of it.
+async fn runs_in<T: ask::Tmux>(tmux: &T, pane: &PaneId) -> bool {
+    let argv = ["display-message", "-p", "-t", pane.as_str(), "#{pane_pid}"].map(String::from);
+    ask::Tmux::read(tmux, argv.to_vec())
+        .await
+        .ok()
+        .and_then(|pid| pid.trim().parse().ok())
+        .is_some_and(crate::permissions_file::runs_under)
 }
 
 /// Who is asking: the program in front in the caller's pane (an agent's own

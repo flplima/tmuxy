@@ -6,10 +6,10 @@
 //! and no process can be handed a stale or rewritten copy.
 //!
 //! This version can only make a send STRICTER than it is without the file. A
-//! `deny` rule refuses it, an `ask` rule (and everything the rules cannot
-//! judge) puts the question to the user even where a tmux option would have
-//! skipped it, and an `allow` rule is read, checked and reported but skips no
-//! question yet. A file that cannot be read as rules refuses every send into
+//! `deny` rule refuses it, whatever program the target pane runs; an `ask`
+//! rule (and everything the rules cannot judge) puts the question to the
+//! user even where a tmux option would have skipped it; and an `allow` rule
+//! is read, checked and reported but skips no question yet. A file that cannot be read as rules refuses every send into
 //! another pane and says why: it is never taken for "no rules".
 //!
 //! The rules bind callers that go through tmuxy (`tmuxy pane send`, the MCP
@@ -19,6 +19,13 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+
+mod json;
+mod keys;
+
+use json::Json;
+pub use keys::command_of;
+use keys::names_a_key;
 
 /// The section whose rules bind every caller.
 pub const ANY_CALLER: &str = "*";
@@ -32,8 +39,15 @@ const MAX_FILE_BYTES: u64 = 256 * 1024;
 
 /// What turns a line into more than the one command its first word names.
 /// The rules match the text of a command, so a line holding any of these is
-/// asked about whatever they say.
-const SHELL_OPERATORS: &[&str] = &[";", "|", "&", ">", "<", "`", "$(", "!!", "\n", "\r"];
+/// asked about unless a `deny` rule refuses it first.
+const SHELL_OPERATORS: &[&str] = &[
+    ";", "|", "&", ">", "<", "`", "$(", "(", ")", "{", "}", "!", "\n", "\r",
+];
+
+/// Where a line is cut into the commands it may hold, for the `deny` rules:
+/// each piece is matched on its own, so `ls; rm -rf x` is refused by
+/// `Send(rm *)` as `rm -rf x` alone is.
+const PIECE_ENDS: &[char] = &[';', '|', '&', '>', '<', '`', '(', ')', '{', '}', '\n', '\r'];
 
 /// One `Send(<pattern>)` rule, kept as written for the messages that name it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,12 +128,6 @@ struct Section {
     deny: Vec<Rule>,
 }
 
-impl Section {
-    fn is_empty(&self) -> bool {
-        self.allow.is_empty() && self.ask.is_empty() && self.deny.is_empty()
-    }
-}
-
 /// The rules of a file that parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Permissions {
@@ -130,13 +138,14 @@ pub struct Permissions {
 /// What the file says of one send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
-    /// The file has nothing to say: no rules bind this caller, or the target
-    /// is not running a shell. The send goes as it would without the file.
+    /// The file has nothing to say: no section binds this caller. The send
+    /// goes as it would without the file.
     NoOpinion,
     /// A `deny` rule matched: nothing is typed and nobody is asked.
     Deny(String),
     /// The user is asked, whatever a tmux option says: an `ask` rule matched,
-    /// no rule did, or the rules cannot judge what is being typed.
+    /// no rule did, or the rules cannot judge what is being typed or what
+    /// the program in the target pane makes of it.
     Ask(String),
     /// An `allow` rule matched. Reported, and in this version asked like any
     /// other send.
@@ -155,7 +164,7 @@ impl Decision {
 
     pub fn reason(&self) -> &str {
         match self {
-            Decision::NoOpinion => "no rule in permissions.json binds this send",
+            Decision::NoOpinion => "no section of permissions.json binds this caller",
             Decision::Deny(why) | Decision::Ask(why) | Decision::Allow(why) => why,
         }
     }
@@ -170,27 +179,30 @@ pub struct Send<'a> {
     pub program: &'a str,
     /// The keys, as `send-keys` would take them.
     pub keys: &'a [String],
-    /// Pasted rather than typed: never a command the rules can match.
+    /// Pasted rather than typed: never a command a rule can allow.
     pub paste: bool,
 }
 
 impl Permissions {
     /// Read rules out of the file's text. Strict on purpose: an unknown key,
-    /// a rule of a kind this version does not know and a value of the wrong
-    /// type are each an error, since the alternative is to carry on without
-    /// a rule the user wrote.
+    /// a key written twice, a rule of a kind this version does not know and
+    /// a value of the wrong type are each an error, since the alternative is
+    /// to carry on without a rule the user wrote.
     pub fn parse(text: &str) -> Result<Self, String> {
-        let root: serde_json::Value =
-            serde_json::from_str(text).map_err(|e| format!("not JSON: {e}"))?;
-        let root = root
-            .as_object()
-            .ok_or("the file must hold one JSON object")?;
+        let root: Json = serde_json::from_str(text).map_err(|e| {
+            if e.is_data() {
+                e.to_string()
+            } else {
+                format!("not JSON: {e}")
+            }
+        })?;
+        let root = root.object().ok_or("the file must hold one JSON object")?;
         let mut callers = BTreeMap::new();
         let mut shells: Vec<String> = DEFAULT_SHELLS.iter().map(|s| s.to_string()).collect();
         for (key, value) in root {
             match key.as_str() {
                 "callers" => {
-                    let sections = value.as_object().ok_or("`callers` must be an object")?;
+                    let sections = value.object().ok_or("`callers` must be an object")?;
                     for (caller, section) in sections {
                         if caller.trim().is_empty() {
                             return Err("a caller's name is empty".into());
@@ -218,64 +230,121 @@ impl Permissions {
         (rules, self.callers.len())
     }
 
+    /// The callers the file has a section for, `*` included.
+    pub fn callers(&self) -> Vec<&str> {
+        self.callers.keys().map(String::as_str).collect()
+    }
+
     /// The sections that bind a caller: its own, by each name it answers to,
-    /// and `*`.
+    /// and `*`. A section with no rules binds too: its caller is asked.
     fn sections<'a>(&'a self, callers: &[&str]) -> Vec<(&'a str, &'a Section)> {
         self.callers
             .iter()
-            .filter(|(name, section)| {
-                !section.is_empty() && (*name == ANY_CALLER || callers.contains(&name.as_str()))
-            })
+            .filter(|(name, _)| *name == ANY_CALLER || callers.contains(&name.as_str()))
             .map(|(name, section)| (name.as_str(), section))
             .collect()
     }
 
     /// What the rules say of `send`: `deny` over `ask` over `allow`, across
     /// every section that binds the caller, and `ask` when none matches.
+    ///
+    /// The `deny` rules are tried first and against more than the others:
+    /// whatever the keys hold that could be a command, in any program and
+    /// with or without an Enter. Being wrong that way only refuses a send.
+    /// `ask` and `allow` are tried against one command a shell will run.
     pub fn check_send(&self, send: Send<'_>) -> Decision {
         let sections = self.sections(send.callers);
         if sections.is_empty() {
             return Decision::NoOpinion;
         }
+        let matched = |pick: fn(&Section) -> &Vec<Rule>, texts: &[String]| {
+            sections.iter().find_map(|(caller, section)| {
+                pick(section)
+                    .iter()
+                    .find(|rule| texts.iter().any(|text| rule.matches(text)))
+                    .map(|rule| format!("`{}` (callers.{caller})", rule.text))
+            })
+        };
+        if let Some(rule) = matched(|s| &s.deny, &pieces_of(send.keys, send.paste)) {
+            return Decision::Deny(format!("denied by {rule}"));
+        }
         if !self.shells.iter().any(|shell| shell == send.program) {
-            return Decision::NoOpinion;
+            return Decision::Ask(format!(
+                "the target pane runs `{}`, not a listed shell, so the rules cannot judge what the keys do there",
+                send.program
+            ));
         }
         let Some(command) = command_of(send.keys).filter(|_| !send.paste) else {
             return Decision::Ask(
                 "not one command ending in Enter, so the rules cannot judge it".into(),
             );
         };
-        if let Some(operator) = SHELL_OPERATORS.iter().find(|op| command.contains(**op)) {
+        if let Some(operator) = operator_in(&command) {
             let shown = operator.escape_default();
             return Decision::Ask(format!(
                 "the line holds `{shown}`, so it may be more than the command the rules would match"
             ));
         }
-        let command = squeeze(&command);
-        let matched = |pick: fn(&Section) -> &Vec<Rule>| {
-            sections.iter().find_map(|(caller, section)| {
-                pick(section)
-                    .iter()
-                    .find(|rule| rule.matches(&command))
-                    .map(|rule| format!("`{}` (callers.{caller})", rule.text))
-            })
-        };
-        if let Some(rule) = matched(|s| &s.deny) {
-            return Decision::Deny(format!("denied by {rule}"));
-        }
-        if let Some(rule) = matched(|s| &s.ask) {
+        let command = [squeeze(&command)];
+        if let Some(rule) = matched(|s| &s.ask, &command) {
             return Decision::Ask(format!("asked by {rule}"));
         }
-        if let Some(rule) = matched(|s| &s.allow) {
+        if let Some(rule) = matched(|s| &s.allow, &command) {
             return Decision::Allow(format!("allowed by {rule}"));
         }
         Decision::Ask("no rule matches".into())
     }
 }
 
-fn parse_section(caller: &str, value: &serde_json::Value) -> Result<Section, String> {
+/// The operator that makes `command` more than one command, if it holds one.
+/// `^old^new` is history expansion only at the start of a line.
+fn operator_in(command: &str) -> Option<&'static str> {
+    if command.trim_start().starts_with('^') {
+        return Some("^");
+    }
+    SHELL_OPERATORS
+        .iter()
+        .copied()
+        .find(|op| command.contains(op))
+}
+
+/// Everything in `keys` that a `deny` rule is matched against: the text as a
+/// whole, each of its lines, and each piece of a line between shell
+/// operators. The text is read both ways an argument can be read: with key
+/// names as keys (a line ends at each, `Space` is a space) and with every
+/// argument as text, since tmux and this reader may disagree on which is
+/// which.
+fn pieces_of(keys: &[String], paste: bool) -> Vec<String> {
+    let as_text = match keys.split_last() {
+        Some((last, text)) if !paste && names_a_key(last) => text.concat(),
+        _ => keys.concat(),
+    };
+    let mut as_keys = String::new();
+    for arg in keys {
+        match arg.to_ascii_lowercase().as_str() {
+            _ if paste => as_keys.push_str(arg),
+            "space" => as_keys.push(' '),
+            _ if names_a_key(arg) => as_keys.push('\n'),
+            _ => as_keys.push_str(arg),
+        }
+    }
+    let mut pieces = Vec::new();
+    for text in [as_text, as_keys] {
+        pieces.push(squeeze(&text));
+        for line in text.split(['\n', '\r']) {
+            pieces.push(squeeze(line));
+            pieces.extend(line.split(PIECE_ENDS).map(squeeze));
+        }
+    }
+    pieces.retain(|piece| !piece.is_empty());
+    pieces.sort();
+    pieces.dedup();
+    pieces
+}
+
+fn parse_section(caller: &str, value: &Json) -> Result<Section, String> {
     let object = value
-        .as_object()
+        .object()
         .ok_or_else(|| format!("callers.{caller} must be an object"))?;
     let mut section = Section::default();
     for (key, rules) in object {
@@ -292,115 +361,18 @@ fn parse_section(caller: &str, value: &serde_json::Value) -> Result<Section, Str
     Ok(section)
 }
 
-fn strings(value: &serde_json::Value, what: &str) -> Result<Vec<String>, String> {
+fn strings(value: &Json, what: &str) -> Result<Vec<String>, String> {
     let not_strings = || format!("{what} must be a list of strings");
-    value
-        .as_array()
-        .ok_or_else(not_strings)?
+    let Json::List(items) = value else {
+        return Err(not_strings());
+    };
+    items
         .iter()
-        .map(|item| item.as_str().map(str::to_string).ok_or_else(not_strings))
+        .map(|item| match item {
+            Json::Text(text) => Ok(text.clone()),
+            _ => Err(not_strings()),
+        })
         .collect()
-}
-
-/// The command `keys` type and run: text, then exactly one `Enter`, last.
-/// `None` for anything else: no Enter, an Enter in the middle or spelled
-/// another way (`C-m`, a newline in the text), or a key name among the text.
-/// tmux reads an argument that names a key as that key, so text and keys can
-/// only be told apart the way tmux does it.
-pub fn command_of(keys: &[String]) -> Option<String> {
-    let (last, text) = keys.split_last()?;
-    if last != "Enter" || text.is_empty() {
-        return None;
-    }
-    if text.iter().any(|arg| names_a_key(arg)) {
-        return None;
-    }
-    let command = text.concat();
-    (!command.trim().is_empty()).then_some(command)
-}
-
-/// tmux's named keys (`key-string.c`), matched as tmux does, without case.
-const NAMED_KEYS: &[&str] = &[
-    "f1",
-    "f2",
-    "f3",
-    "f4",
-    "f5",
-    "f6",
-    "f7",
-    "f8",
-    "f9",
-    "f10",
-    "f11",
-    "f12",
-    "ic",
-    "insert",
-    "dc",
-    "delete",
-    "home",
-    "end",
-    "npage",
-    "pagedown",
-    "pgdn",
-    "ppage",
-    "pageup",
-    "pgup",
-    "btab",
-    "space",
-    "bspace",
-    "tab",
-    "enter",
-    "escape",
-    "up",
-    "down",
-    "left",
-    "right",
-    "kp/",
-    "kp*",
-    "kp-",
-    "kp7",
-    "kp8",
-    "kp9",
-    "kp+",
-    "kp4",
-    "kp5",
-    "kp6",
-    "kp1",
-    "kp2",
-    "kp3",
-    "kpenter",
-    "kp0",
-    "kp.",
-    "any",
-    "none",
-    "focusin",
-    "focusout",
-    "pastestart",
-    "pasteend",
-];
-
-/// The families of key names tmux numbers or suffixes (`MouseDown1Pane`,
-/// `WheelUpStatus`, `User0`).
-const KEY_FAMILIES: &[&str] = &[
-    "mouse",
-    "wheel",
-    "doubleclick",
-    "tripleclick",
-    "secondclick",
-    "user",
-];
-
-/// Whether tmux would read `arg` as a key rather than as text. Wider than
-/// tmux where it is cheap to be: an argument taken for a key only sends the
-/// rules' verdict to "ask".
-fn names_a_key(arg: &str) -> bool {
-    let lower = arg.to_ascii_lowercase();
-    let modified = |prefix: &str| lower.len() > prefix.len() && lower.starts_with(prefix);
-    NAMED_KEYS.contains(&lower.as_str())
-        || KEY_FAMILIES.iter().any(|family| lower.starts_with(family))
-        || ["c-", "m-", "s-"].iter().any(|prefix| modified(prefix))
-        || (arg.len() == 2 && arg.starts_with('^'))
-        || modified("0x")
 }
 
 /// The file as it was found.
@@ -458,3 +430,5 @@ impl Loaded {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_file;

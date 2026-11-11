@@ -1,6 +1,6 @@
 use super::*;
 
-fn keys(words: &[&str]) -> Vec<String> {
+pub(super) fn keys(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
 
@@ -126,12 +126,19 @@ fn the_star_section_binds_every_caller_and_a_named_one_only_its_own() {
         says(&named_only, "codex", &["rm -rf x", "Enter"]),
         Decision::NoOpinion
     );
-    // A section with no rules binds nobody.
-    let empty = rules(r#"{"callers": {"claude": {}, "*": {"deny": []}}}"#);
+    // A section with no rules still binds its caller: nothing matches, so
+    // the send is asked. Naming a caller is saying the file is about it.
+    let empty = rules(r#"{"callers": {"claude": {}}}"#);
     assert_eq!(
         says(&empty, "claude", &["rm -rf x", "Enter"]),
+        Decision::Ask("no rule matches".into())
+    );
+    assert_eq!(
+        says(&empty, "codex", &["rm -rf x", "Enter"]),
         Decision::NoOpinion
     );
+    let empty_star = rules(r#"{"callers": {"*": {"deny": []}}}"#);
+    assert_eq!(says(&empty_star, "codex", &["ls", "Enter"]).word(), "ask");
     assert_eq!(
         says(&rules("{}"), "claude", &["rm x", "Enter"]),
         Decision::NoOpinion
@@ -155,63 +162,86 @@ fn a_caller_is_bound_by_every_name_it_answers_to() {
     assert_eq!(send(&["some-client"]), "none");
 }
 
-/// The rules are about commands, and a command is one where a shell reads
-/// it. Text typed into an editor or an agent's prompt is not theirs to judge.
+/// A deny rule refuses its text whatever the target pane runs: a shell
+/// behind `ssh` or `sudo -s`, a shell the list does not name and an editor
+/// all read the same keys. What is not denied there is asked, since only in
+/// a listed shell do the rules know what the keys will do. It is never
+/// "nothing to say": the options would then decide for a caller the file
+/// binds.
 #[test]
-fn only_a_shell_in_the_target_pane_makes_keys_a_command() {
+fn a_target_that_is_not_a_listed_shell_is_denied_or_asked_never_waved_through() {
     let file = rules(FILE);
-    let into = |file: &Permissions, program: &str| {
+    let into = |file: &Permissions, program: &str, line: &str| {
         file.check_send(Send {
             callers: &["claude"],
             program,
-            keys: &keys(&["rm -rf x", "Enter"]),
+            keys: &keys(&[line, "Enter"]),
             paste: false,
         })
-        .word()
     };
     for shell in DEFAULT_SHELLS {
-        assert_eq!(into(&file, shell), "deny", "{shell}");
+        assert_eq!(into(&file, shell, "rm -rf x").word(), "deny", "{shell}");
+        assert_eq!(into(&file, shell, "gh pr list").word(), "allow", "{shell}");
     }
-    assert_eq!(into(&file, "vim"), "none");
-    assert_eq!(into(&file, "claude"), "none");
-    assert_eq!(into(&file, ""), "none");
+    for program in ["ssh", "sudo", "python3", "ksh", "tcsh", "pwsh", "vim", ""] {
+        assert_eq!(into(&file, program, "rm -rf x").word(), "deny", "{program}");
+        let allowed_in_a_shell = into(&file, program, "gh pr list");
+        assert_eq!(allowed_in_a_shell.word(), "ask", "{program}");
+        assert!(
+            allowed_in_a_shell.reason().contains("not a listed shell"),
+            "{program}"
+        );
+    }
     // The file's own list replaces the default one.
-    let own = rules(r#"{"callers": {"claude": {"deny": ["Send(rm *)"]}}, "shells": ["xonsh"]}"#);
-    assert_eq!(into(&own, "xonsh"), "deny");
-    assert_eq!(into(&own, "zsh"), "none");
+    let own = rules(r#"{"callers": {"claude": {"allow": ["Send(ls)"]}}, "shells": ["xonsh"]}"#);
+    assert_eq!(into(&own, "xonsh", "ls").word(), "allow");
+    assert_eq!(into(&own, "zsh", "ls").word(), "ask");
 }
 
-/// What is not text and then exactly one Enter is not a command the rules
-/// can match, and is asked: a deny rule must not be walked around by typing
-/// the line in two sends, or by spelling Enter another way.
+/// What is not text and then exactly one Enter is not a command an `ask` or
+/// `allow` rule can match, and is asked. A `deny` rule is tried all the same,
+/// against whatever text the keys hold: typing the line without its Enter,
+/// or spelling the Enter another way, does not walk around it.
 #[test]
-fn keys_that_are_not_one_command_are_asked() {
+fn keys_that_are_not_one_command_are_asked_unless_a_deny_rule_matches_their_text() {
     let file = rules(FILE);
-    let not_a_command: &[&[&str]] = &[
-        &["rm -rf x"],
-        &["Enter"],
-        &["rm -rf x", "C-m"],
-        &["rm -rf x", "KPEnter"],
-        &["rm -rf x", "Enter", "Enter"],
-        &["rm -rf x", "Enter", "y", "Enter"],
-        &["rm -rf x\n"],
-        &["C-c"],
-        &["q"],
-        &["rm ", "Up", "Enter"],
-        &["rm ", "up", "Enter"],
-        &["rm ", "C-v", "Enter"],
-        &["rm ", "^C", "Enter"],
-        &["rm ", "0x41", "Enter"],
-        &["rm ", "Space", "-rf x", "Enter"],
-        &["rm ", "MouseDown1Pane", "Enter"],
-        &["   ", "Enter"],
+    let not_a_command: &[(&[&str], &str)] = &[
+        (&["gh pr list"], "ask"),
+        (&["Enter"], "ask"),
+        (&["gh pr list", "C-m"], "ask"),
+        (&["gh pr list", "KPEnter"], "ask"),
+        (&["gh pr list", "Enter", "Enter"], "ask"),
+        (&["gh pr list", "Enter", "y", "Enter"], "ask"),
+        (&["gh pr list\n"], "ask"),
+        (&["C-c"], "ask"),
+        (&["q"], "ask"),
+        (&["gh ", "Up", "Enter"], "ask"),
+        (&["gh ", "C-v", "Enter"], "ask"),
+        (&["gh ", "^C", "Enter"], "ask"),
+        (&["gh ", "0x41", "Enter"], "ask"),
+        (&["gh ", "Space", "pr list", "Enter"], "ask"),
+        (&["gh ", "MouseDown1Pane", "Enter"], "ask"),
+        (&["   ", "Enter"], "ask"),
+        (&["rm -rf x"], "deny"),
+        (&["rm -rf x", "C-m"], "deny"),
+        (&["rm -rf x", "KPEnter"], "deny"),
+        (&["rm -rf x", "Enter", "y", "Enter"], "deny"),
+        (&["rm -rf x\n"], "deny"),
+        (&["ls", "Enter", "rm -rf x", "Enter"], "deny"),
+        (&["rm ", "Up", "Enter"], "deny"),
+        (&["rm", "Space", "-rf x", "Enter"], "deny"),
+        (&["rm ", "s-file", "Enter"], "deny"),
     ];
-    for typed in not_a_command {
-        assert_eq!(
-            says(&file, "claude", typed),
-            Decision::Ask("not one command ending in Enter, so the rules cannot judge it".into()),
-            "{typed:?}"
-        );
+    for (typed, word) in not_a_command {
+        let decision = says(&file, "claude", typed);
+        assert_eq!(decision.word(), *word, "{typed:?}");
+        if *word == "ask" {
+            assert_eq!(
+                decision.reason(),
+                "not one command ending in Enter, so the rules cannot judge it",
+                "{typed:?}"
+            );
+        }
         assert_eq!(command_of(&keys(typed)), None, "{typed:?}");
     }
     // Several pieces of text are one line, as send-keys types them: nothing
@@ -227,27 +257,34 @@ fn keys_that_are_not_one_command_are_asked() {
     assert_eq!(says(&file, "claude", &["r", "m x", "Enter"]).word(), "deny");
 }
 
+/// A paste is never one command, so no rule allows it. A deny rule reads
+/// each of its lines.
 #[test]
-fn a_paste_is_never_a_command() {
+fn a_paste_is_asked_unless_a_deny_rule_matches_a_line_of_it() {
     let file = rules(FILE);
-    let pasted = file.check_send(Send {
-        callers: &["claude"],
-        program: "zsh",
-        keys: &keys(&["gh pr list", "Enter"]),
-        paste: true,
-    });
-    assert_eq!(pasted.word(), "ask");
+    let pasted = |text: &str| {
+        file.check_send(Send {
+            callers: &["claude"],
+            program: "zsh",
+            keys: &keys(&[text]),
+            paste: true,
+        })
+        .word()
+    };
+    assert_eq!(pasted("gh pr list"), "ask");
+    assert_eq!(pasted("Enter"), "ask");
+    assert_eq!(pasted("ls\nrm -rf x\n"), "deny");
 }
 
-/// A line that may hold a second command is asked whatever the rules say of
-/// its first word: `gh pr list; rm -rf ~` matches `Send(gh *)`.
+/// A line that may hold a second command is asked whatever the rules allow
+/// of its first word: `gh pr list; ls` matches `Send(gh *)`.
 #[test]
 fn a_line_with_a_shell_operator_is_asked_even_when_a_rule_allows_it() {
     let file = rules(FILE);
     for line in [
-        "gh pr list; rm -rf x",
-        "gh pr list && rm -rf x",
-        "gh pr list || rm -rf x",
+        "gh pr list; ls",
+        "gh pr list && ls",
+        "gh pr list || ls",
         "gh pr list | sh",
         "gh pr list &",
         "gh pr list > ~/.zshrc",
@@ -256,15 +293,49 @@ fn a_line_with_a_shell_operator_is_asked_even_when_a_rule_allows_it() {
         "gh pr view `cat x`",
         "gh pr list <(x)",
         "gh !!",
+        "gh !-1",
+        "gh pr list {a,b}",
         "gh pr list \"a;b\"",
+        "^list^merge",
     ] {
         let decision = says(&file, "claude", &[line, "Enter"]);
         assert_eq!(decision.word(), "ask", "{line}");
         assert!(decision.reason().contains("may be more than"), "{line}");
     }
-    // It is asked, not denied, even where the first command is denied: the
-    // user sees the whole line and answers.
-    assert_eq!(says(&file, "claude", &["rm x; ls", "Enter"]).word(), "ask");
+}
+
+/// An operator does not turn a refusal into a question: each command the
+/// line may hold is matched against the deny rules on its own.
+#[test]
+fn a_deny_rule_matches_each_command_of_a_line() {
+    let file = rules(FILE);
+    for line in [
+        "rm -rf x;",
+        "rm x; ls",
+        "gh pr list; rm -rf x",
+        "gh pr list && sudo ls",
+        "ls | sudo tee x",
+        "echo $(rm -rf x)",
+        "echo `rm -rf x`",
+        "(rm -rf x)",
+        "{ rm -rf x; }",
+        "ls &rm -rf x",
+    ] {
+        assert_eq!(
+            says(&file, "claude", &[line, "Enter"]).word(),
+            "deny",
+            "{line}"
+        );
+    }
+    // What a pattern does not match in text, it does not match: these are
+    // asked, by the operator or because no rule matches.
+    for line in ["\\rm -rf x", "/bin/rm -rf x", "command rm x", "X=1 rm x"] {
+        assert_eq!(
+            says(&file, "claude", &[line, "Enter"]).word(),
+            "ask",
+            "{line}"
+        );
+    }
 }
 
 #[test]
@@ -306,158 +377,4 @@ fn a_star_is_any_run_of_characters_anywhere_in_the_pattern() {
     ] {
         assert_eq!(glob(pattern, text), matches, "{pattern:?} against {text:?}");
     }
-}
-
-/// A file that cannot be read as rules is an error with its reason: it is
-/// never read as fewer rules than the user wrote.
-#[test]
-fn a_file_that_is_not_rules_is_refused_with_the_reason() {
-    for (text, reason) in [
-        ("", "not JSON"),
-        ("{", "not JSON"),
-        ("[]", "the file must hold one JSON object"),
-        ("null", "the file must hold one JSON object"),
-        (r#"{"caller": {}}"#, "unknown key `caller`"),
-        (r#"{"callers": []}"#, "`callers` must be an object"),
-        (r#"{"callers": {"a": []}}"#, "callers.a must be an object"),
-        (
-            r#"{"callers": {"a": {"alow": []}}}"#,
-            "callers.a: unknown key `alow`",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": "Send(rm *)"}}}"#,
-            "callers.a.deny must be a list of strings",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": [1]}}}"#,
-            "callers.a.deny must be a list of strings",
-        ),
-        (
-            r#"{"callers": {"": {"deny": []}}}"#,
-            "a caller's name is empty",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": ["rm *"]}}}"#,
-            "is not of the form Send(<pattern>)",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": ["Send(rm *"]}}}"#,
-            "is not of the form Send(<pattern>)",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": ["Send()"]}}}"#,
-            "has an empty pattern",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": ["send(rm *)"]}}}"#,
-            "only Send(...) rules are understood",
-        ),
-        (
-            r#"{"callers": {"a": {"deny": ["destroy(any)"]}}}"#,
-            "only Send(...) rules are understood",
-        ),
-        (
-            r#"{"callers": {"a": {"allow": ["read(tab)"]}}}"#,
-            "only Send(...) rules are understood",
-        ),
-        (r#"{"shells": "zsh"}"#, "`shells` must be a list of strings"),
-        (
-            r#"{"shells": ["zsh", " "]}"#,
-            "`shells` holds an empty name",
-        ),
-    ] {
-        let error = Permissions::parse(text).expect_err(text);
-        assert!(error.contains(reason), "{text}: {error}");
-    }
-}
-
-fn scratch(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tmuxy-permissions-test-{}-{name}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// No file is the one case that leaves tmuxy as it is without the feature.
-/// Every other way of not reading rules denies, and says why.
-#[test]
-fn a_missing_file_says_nothing_and_an_unreadable_one_denies() {
-    let dir = scratch("load");
-    let path = dir.join("permissions.json");
-    let send = Send {
-        callers: &["anyone"],
-        // Not a shell, and no rule could bind this caller: a readable file
-        // would have nothing to say. An unreadable one still denies.
-        program: "vim",
-        keys: &keys(&["i"]),
-        paste: false,
-    };
-
-    assert_eq!(Loaded::read(&path), Loaded::Missing);
-    assert_eq!(Loaded::read(&path).check_send(send), Decision::NoOpinion);
-
-    std::fs::write(&path, r#"{"callers": {"a": {"deny": ["Send(rm *)"]}}}"#).unwrap();
-    assert!(matches!(Loaded::read(&path), Loaded::Rules(_)));
-    assert_eq!(Loaded::read(&path).check_send(send), Decision::NoOpinion);
-
-    std::fs::write(&path, r#"{"callers": {"a": {"deny": ["rm *"]}}}"#).unwrap();
-    let decision = Loaded::read(&path).check_send(send);
-    assert_eq!(decision.word(), "deny");
-    assert!(
-        decision.reason().contains("cannot be read as rules"),
-        "{decision:?}"
-    );
-    assert!(
-        decision
-            .reason()
-            .contains("is not of the form Send(<pattern>)"),
-        "{decision:?}"
-    );
-
-    // Bytes that are not text, a directory in the file's place, a link to
-    // nothing and a file too large to be rules: each denies.
-    std::fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
-    assert_eq!(Loaded::read(&path).check_send(send).word(), "deny");
-    std::fs::write(&path, vec![b' '; (MAX_FILE_BYTES + 1) as usize]).unwrap();
-    assert!(matches!(Loaded::read(&path), Loaded::Malformed(why) if why.contains("larger than")));
-    std::fs::remove_file(&path).unwrap();
-    std::fs::create_dir(&path).unwrap();
-    assert!(
-        matches!(Loaded::read(&path), Loaded::Malformed(why) if why.contains("not a regular file"))
-    );
-    std::fs::remove_dir(&path).unwrap();
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(dir.join("nowhere.json"), &path).unwrap();
-        assert!(matches!(Loaded::read(&path), Loaded::Malformed(why) if why.contains("link")));
-        // A link to a real file is how a dotfiles repo keeps it: read through.
-        std::fs::remove_file(&path).unwrap();
-        std::fs::write(dir.join("real.json"), "{}").unwrap();
-        std::os::unix::fs::symlink(dir.join("real.json"), &path).unwrap();
-        assert!(matches!(Loaded::read(&path), Loaded::Rules(_)));
-    }
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// The file is read when it is asked, every time: an edit holds from the
-/// next send on, with nothing to reload.
-#[test]
-fn an_edit_holds_from_the_next_read() {
-    let dir = scratch("edit");
-    let path = dir.join("permissions.json");
-    let typed = keys(&["rm x", "Enter"]);
-    let send = Send {
-        callers: &["a"],
-        program: "sh",
-        keys: &typed,
-        paste: false,
-    };
-    std::fs::write(&path, r#"{"callers": {"a": {"allow": ["Send(rm *)"]}}}"#).unwrap();
-    assert_eq!(Loaded::read(&path).check_send(send).word(), "allow");
-    std::fs::write(&path, r#"{"callers": {"a": {"deny": ["Send(rm *)"]}}}"#).unwrap();
-    assert_eq!(Loaded::read(&path).check_send(send).word(), "deny");
-    let _ = std::fs::remove_dir_all(&dir);
 }

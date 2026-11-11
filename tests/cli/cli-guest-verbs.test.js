@@ -167,7 +167,12 @@ describe('CLI on a machine with only the guest verbs binary', () => {
       fs.writeFileSync(file, JSON.stringify(RULES));
       const some = guest(['config', 'permissions'], env);
       expect(some.exitCode).toBe(0);
-      expect(some.stdout).toContain('4 rule(s) for 2 caller(s)');
+      expect(some.stdout).toContain('4 rule(s). Sections: *, claude.');
+
+      // Named sections alone hold only for a caller that gives that name.
+      fs.writeFileSync(file, JSON.stringify({ callers: { claude: RULES.callers.claude } }));
+      expect(guest(['config', 'permissions'], env).stdout).toContain('There is no `*` section');
+      fs.writeFileSync(file, JSON.stringify(RULES));
 
       const denied = check(['rm -rf build', 'Enter']);
       expect(denied.exitCode).toBe(1);
@@ -179,7 +184,29 @@ describe('CLI on a machine with only the guest verbs binary', () => {
       expect(asked.exitCode).toBe(0);
       expect(asked.stdout).toContain('ask: asked by `Send(gh pr merge *)` (callers.claude)');
       expect(check(['cargo build', 'Enter']).stdout).toContain('ask: no rule matches');
-      expect(check(['gh pr list; rm -rf x', 'Enter']).stdout).toContain('ask: the line holds `;`');
+      expect(check(['gh pr list; ls', 'Enter']).stdout).toContain('ask: the line holds `;`');
+      // A deny rule reads each command of a line, and any program's pane.
+      expect(check(['gh pr list; rm -rf x', 'Enter']).stderr).toContain('denied by `Send(rm *)`');
+      const intoSsh = guest(
+        ['config', 'permissions', '--caller', 'claude', '--into', 'ssh', '--', 'rm x', 'Enter'],
+        env,
+      );
+      expect(intoSsh.stderr).toContain('denied by `Send(rm *)`');
+      const listInSsh = guest(
+        [
+          'config',
+          'permissions',
+          '--caller',
+          'claude',
+          '--into',
+          'ssh',
+          '--',
+          'gh pr list',
+          'Enter',
+        ],
+        env,
+      );
+      expect(listInSsh.stdout).toContain('ask: the target pane runs `ssh`, not a listed shell');
       expect(check(['gh pr list']).stdout).toContain('ask: not one command ending in Enter');
 
       // An allow rule is reported, and said to skip no question.
@@ -212,8 +239,11 @@ describe('CLI on a machine with only the guest verbs binary', () => {
         file,
       });
 
+      // The one thing tmux is asked: which config directory is the app's.
       for (const run of [none, some, denied, asked, allowed, json]) {
-        expect(run.tmuxCalls).toEqual([]);
+        expect(run.tmuxCalls.map((c) => c.args.join(' '))).toEqual([
+          'show-options -gqv @tmuxy-config-dir',
+        ]);
       }
     });
 
@@ -254,7 +284,7 @@ describe('CLI on a machine with only the guest verbs binary', () => {
     test('with rules for the caller, a send the option would have skipped the question for is asked', () => {
       fs.writeFileSync(file, JSON.stringify(RULES));
       const { stderr, exitCode, tmuxCalls } = guest(
-        ['pane', 'send', '-t', '%7', '--timeout', '1', 'ls; sudo ls', 'Enter'],
+        ['pane', 'send', '-t', '%7', '--timeout', '1', 'ls; id', 'Enter'],
         { ...env, ...target },
       );
       // Nobody answers the mock's question: the send gives up, having asked.
@@ -274,6 +304,61 @@ describe('CLI on a machine with only the guest verbs binary', () => {
       const commands = ran(tmuxCalls).join('\n');
       expect(commands).toContain('send-keys -t %7');
       expect(commands).not.toContain('@tmuxy-ask ');
+    });
+
+    /**
+     * The verbs binary runs in the sender's process, so nothing the sender
+     * hands it decides whether the rules are read: not its environment, and
+     * not the pane it says it runs in.
+     */
+    test('the file is the one in the app’s config directory, whatever the sender’s environment says', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-no-rules-'));
+      try {
+        const sender = {
+          ...target,
+          XDG_CONFIG_HOME: elsewhere,
+          MOCK_TMUX_CONFIG_DIR: path.dirname(file),
+        };
+        const { stderr, exitCode, tmuxCalls } = guest(
+          ['pane', 'send', '-t', '%7', 'sudo ls', 'Enter'],
+          sender,
+        );
+        expect(exitCode).toBe(1);
+        expect(stderr).toContain('denied by `Send(sudo *)` (callers.*); nothing sent');
+        expect(ran(tmuxCalls)).toEqual([]);
+        // And the checker reads that same file.
+        const checked = guest(['config', 'permissions'], sender);
+        expect(checked.stdout).toContain(`${file}: 4 rule(s)`);
+      } finally {
+        fs.rmSync(elsewhere, { recursive: true, force: true });
+      }
+    });
+
+    test('the verb called directly, claiming the target as its own pane, is not believed', () => {
+      fs.writeFileSync(file, JSON.stringify(RULES));
+      const claim = (keys, pid) =>
+        machine.runVerbs(
+          ['send', '--target', '%7', '--caller-pane', '%7', '--timeout', '1', '--', ...keys],
+          { ...env, ...target, MOCK_TMUX_PANE_PID: pid },
+        );
+      // The pane's process is no ancestor of the sender: the claim is
+      // dropped, so the rules are read and the question is asked.
+      const denied = claim(['sudo ls', 'Enter'], '1');
+      expect(denied.exitCode).toBe(1);
+      expect(denied.stderr).toContain('denied by `Send(sudo *)` (callers.*); nothing sent');
+      expect(denied.ran.join('\n')).not.toContain('send-keys');
+
+      const asked = claim(['ls', 'Enter'], '1');
+      expect(asked.exitCode).toBe(1);
+      expect(asked.stderr).toContain('no answer from %7');
+      expect(asked.ran.join('\n')).toContain('@tmuxy-ask ');
+      expect(asked.ran.join('\n')).not.toContain('send-keys');
+
+      // A sender that does run under the pane's process types into it.
+      const own = claim(['ls', 'Enter'], String(process.pid));
+      expect(own.exitCode).toBe(0);
+      expect(own.ran.join('\n')).toContain('send-keys -t %7');
     });
 
     test('a file that is not rules refuses a send it could not have bound', () => {

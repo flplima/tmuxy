@@ -66,7 +66,7 @@ pub fn run(args: ConfigArgs) {
             into,
             paste,
             keys,
-        } => check_permissions(&layout, &answer, &caller, &into, paste, &keys),
+        } => check_permissions(&answer, &caller, &into, paste, &keys),
         ConfigVerb::Paths if args.json => println!("{}", layout.report()),
         ConfigVerb::Paths => print!("{}", paths_text(&layout)),
         ConfigVerb::Reload => {
@@ -249,52 +249,68 @@ fn paths_text(layout: &Layout) -> String {
     out
 }
 
+/// What the file holds, for `tmuxy config permissions` with no keys.
+fn report_file(answer: &Answer, path: &std::path::Path, file: String, loaded: &Loaded) {
+    match loaded {
+        Loaded::Missing => answer.done(
+            &[("file", file), ("exists", "false".into())],
+            &format!(
+                "No {}: a send into another pane asks, as it does without the file.",
+                path.display()
+            ),
+        ),
+        Loaded::Rules(rules) => {
+            let (count, _) = rules.counts();
+            let callers = rules.callers();
+            let everyone = callers.contains(&permissions::ANY_CALLER);
+            // A caller is named by what it says it is, so only `*` holds
+            // for one that gives another name.
+            let note = match (callers.is_empty(), everyone) {
+                (true, _) => "It names no caller, so it binds nobody.".to_string(),
+                (false, true) => format!("Sections: {}.", callers.join(", ")),
+                (false, false) => format!(
+                    "Sections: {}. There is no `*` section: a caller under another name is not bound, so a rule that must hold for everyone goes under `*`.",
+                    callers.join(", ")
+                ),
+            };
+            let names: Vec<String> = callers.iter().map(|c| cli_json::string(c)).collect();
+            answer.done(
+                &[
+                    ("file", file),
+                    ("exists", "true".into()),
+                    ("rules", count.to_string()),
+                    ("callers", format!("[{}]", names.join(","))),
+                    ("bindsEveryone", everyone.to_string()),
+                ],
+                &format!("{}: {count} rule(s). {note}", path.display()),
+            );
+        }
+        Loaded::Malformed(why) => answer.exit(
+            EXIT_FAILED,
+            &format!(
+                "{} cannot be read as rules: {why}. Every send into another pane is refused until it is fixed or removed.",
+                path.display()
+            ),
+        ),
+    }
+}
+
 /// `tmuxy config permissions`: the file read as a send would read it, and
 /// what it says. Exit 1 for a file that is not rules and for a send it
 /// denies, so a script can tell either from the rest.
 fn check_permissions(
-    layout: &Layout,
     answer: &Answer,
     callers: &[String],
     into: &str,
     paste: bool,
     keys: &[String],
 ) {
-    let path = layout.permissions();
+    // The file a send would read: the tmux server's, when one is running.
+    let path = crate::permissions_file::path();
     let file = cli_json::string(&path.display().to_string());
     let loaded = Loaded::read(&path);
     if keys.is_empty() {
-        match &loaded {
-            Loaded::Missing => answer.done(
-                &[("file", file), ("exists", "false".into())],
-                &format!(
-                    "No {}: a send into another pane asks, as it does without the file.",
-                    path.display()
-                ),
-            ),
-            Loaded::Rules(rules) => {
-                let (count, sections) = rules.counts();
-                answer.done(
-                    &[
-                        ("file", file),
-                        ("exists", "true".into()),
-                        ("rules", count.to_string()),
-                    ],
-                    &format!(
-                        "{}: {count} rule(s) for {sections} caller(s).",
-                        path.display()
-                    ),
-                );
-            }
-            Loaded::Malformed(why) => answer.exit(
-                EXIT_FAILED,
-                &format!(
-                    "{} cannot be read as rules: {why}. Every send into another pane is refused until it is fixed or removed.",
-                    path.display()
-                ),
-            ),
-        }
-        return;
+        return report_file(answer, &path, file, &loaded);
     }
     let callers: Vec<&str> = callers.iter().map(String::as_str).collect();
     let decision = loaded.check_send(permissions::Send {

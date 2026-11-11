@@ -308,6 +308,21 @@ describeE2E('Scenario: tmuxy pane send asks before typing into another pane', {}
       expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
       expect(await screenOf(page, there)).not.toContain('tmuxy-e2e-not-there');
 
+      //    The file is the app's, wherever the sender says its config is:
+      //    the same send from a shell that names an empty directory is
+      //    refused by the same rule.
+      await typeCommand(
+        page,
+        here,
+        `XDG_CONFIG_HOME=/tmp/tmuxy-e2e-no-config ${TMUXY_CLI} pane send -t ${there} 'rm -rf /tmp/tmuxy-e2e-elsewhere' Enter; echo "moved=$?"`,
+      );
+      await waitForTerminalText(page, 'moved=1', 20000, {
+        scope: senderScope,
+        notOnLineWith: 'echo',
+      });
+      expect(await page.$(`[data-pane-ask="${there}"]`)).toBeNull();
+      expect(await screenOf(page, there)).not.toContain('tmuxy-e2e-elsewhere');
+
       // 2. Two commands on one line: the rules match text, so this is asked,
       //    though `Send(echo *)` matches it and asking is off. Allowed by the
       //    user, both run.

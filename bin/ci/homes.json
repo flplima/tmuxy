@@ -382,7 +382,8 @@
         "packages/tmuxy-tauri-app/src/desktop.rs",
         "packages/tmuxy-tauri-app/src/windows/attach.rs",
         "packages/tmuxy-tauri-app/src/windows/ssh_link.rs",
-        "packages/tmuxy-verbs/src/connect_cli.rs"
+        "packages/tmuxy-verbs/src/connect_cli.rs",
+        "packages/tmuxy-verbs/src/permissions_file.rs"
       ]
     }
   ]
