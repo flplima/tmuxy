@@ -100,7 +100,7 @@ describeE2E('Scenario 22d: Typing over a slow link', {}, (ctx) => {
 
     // Keys that wait for the answer to the one before leave one round trip
     // apart, however fast they are typed: this line's last key was then
-    // (RTT - interval) × 40 = 3.6 s behind, twenty times a key typed alone.
+    // (RTT - interval) × 40 = 3.6 s behind, several times a key typed alone.
     // Posted as they are typed, it is behind by about what that key is. The
     // bound is a ratio, the `key-burst` budget of the perf harness, so a slow
     // runner that stretches both does not fail it.
