@@ -213,6 +213,15 @@ describe('keyboardActor — copy on select', () => {
       expect(notices(handle.events)).toEqual([
         'Could not copy 7 chars: the browser wants a key or a click first',
       ]);
+
+      // Nothing was copied, so a release over the same text tries again,
+      // and this time the browser takes it.
+      const written: string[] = [];
+      clipboard(async (text) => void written.push(text));
+      release();
+      await settle();
+      expect(written).toEqual(['DRAG_ME']);
+      expect(notices(handle.events).slice(-1)).toEqual(['Copied 7 characters']);
     });
   });
 

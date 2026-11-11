@@ -195,8 +195,13 @@ export function setupImeClipboardAndFocusListeners(deps: ImeClipboardDeps) {
     pendingCopyText = null;
     const { text } = selected;
     void writeClipboard(text, null).then((wrote) => {
-      if (wrote) sayCopied();
-      else deps.parent.send({ type: 'NOTIFY', text: clipboardBlockedMessage(text, null) });
+      if (wrote) {
+        sayCopied();
+        return;
+      }
+      // Nothing was copied, so the same selection released again tries again.
+      if (copiedOnSelect === text) copiedOnSelect = null;
+      deps.parent.send({ type: 'NOTIFY', text: clipboardBlockedMessage(text, null) });
     });
   };
   const handleMouseUp = (event: MouseEvent) => {
