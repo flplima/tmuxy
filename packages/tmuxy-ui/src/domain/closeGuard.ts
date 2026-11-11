@@ -74,7 +74,11 @@ function closedByCommand(command: string, model: GuardModel): Closed | null {
   const windowOf = (id: PaneId | null) => model.panes.find((p) => p.tmuxId === id)?.windowId;
 
   if (/^kill-(session|server)$/.test(verb)) {
-    return { scope: 'several', panes: model.panes };
+    // Another session's panes are not this client's to count, unless `-a`
+    // makes this one of "every other session".
+    const named = target?.replace(/^=|:$/g, '');
+    const elsewhere = /session/.test(verb) && named !== undefined && named !== model.sessionName;
+    return elsewhere === others ? { scope: 'several', panes: model.panes } : null;
   }
   if (pane) {
     if (target && !/^%\d+$/.test(target)) return { scope: 'several', panes: model.panes };

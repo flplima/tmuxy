@@ -93,6 +93,10 @@ describe('busyPanesClosedBy', () => {
     expect(ids('kill-pane -t%4')).toEqual(['%4']);
     // Another session's panes are not counted.
     expect(busyPanesClosedBy(TmuxOp.KillSession({ name: 'other' }), model)).toBeNull();
+    expect(ids('kill-session -t other')).toBeNull();
+    expect(ids('kill-session -t main')).toEqual(['%2', '%3', '%4']);
+    expect(ids('kill-session -a -t other')).toEqual(['%2', '%3', '%4']);
+    expect(ids('kill-session -a')).toBeNull();
     // The menu's Kill Session has its own question.
     expect(busyPanesClosedBy(killSession, { ...model, typed: false })).toBeNull();
     expect(ids('kill-window -t :2')).toEqual(['%2', '%3', '%4']);
