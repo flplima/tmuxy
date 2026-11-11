@@ -150,13 +150,15 @@ A program can say what it is doing in its own output, with the [program status p
 | `idle` | `idle` |
 | `clear` | unset |
 
-The pane keeps one record per `id` and shows the one that wants you most. That state is written to `@tmuxy-pane-state` through control mode, so the tabs, the tree and the push notification read it like a hook's ([TMUX-TAGS.md](TMUX-TAGS.md)). Both options live in tmux, so a host that never saw the report reads them too.
+The pane keeps one record per `id` and shows the one that wants you most. That state is written to `@tmuxy-pane-state` through control mode, so the tabs, the tree and the push notification read it like a hook's ([TMUX-TAGS.md](TMUX-TAGS.md)). Both options live in tmux, so a host that never saw the report reads them too: the state at once, a change of the text alone at its next listing of the panes.
 
-- A new shell prompt (`OSC 133 ; A`) ends `working` and `blocked`. `done` and `error` stay, and `unread` goes once the pane is in front.
+- A new shell prompt (`OSC 133 ; A`) ends `working` and `blocked`. `done` and `error` stay, and `unread` goes once the pane is in front. A shell that marks no prompts ends nothing: there a program has to report `clear` itself before it exits, on its error paths too.
 - The limits are the specification's: 4096 bytes a report, 256 records a pane. A report past one, or with a control character in its text, is dropped whole.
-- tmux gets one write per pane every 200 ms at most. A write held back goes out with the next one, so the pane ends on the program's last word.
+- tmux gets one write per pane every 200 ms at most. A write held back goes out when the 200 ms are over, so the pane ends on the program's last word.
 - Reports are read only while a client watches the pane's session, because tmux sends `%output` for the attached session only.
 - The shown record goes to `@tmuxy-pane-status` as a report body (`state=blocked:kind=permission:msg=<base64>`), written just before the state. It travels with the pane (`pane_status`) and shows when you point at the mark (`tmuxy-ui/src/domain/paneStatus.ts`). A pane carries it only while its state is still the report's: a hook that moves the state on leaves the old text in tmux, unread.
+
+**What a pane's output can do with this.** A report is pane output, so a file that is `cat`ed or a remote host can send one. It can mark its own pane (`needs-input` included), put one line of its own text in the mark's tooltip, and raise the push notice that state raises. The bounds: the text is one line with no control characters, drawn as text only, 240 characters at most, with invisible and direction-changing characters taken out. Every byte written to tmux comes from the protocol's value set, which has no quote, space or `;`. The two options are rewritten five times a second per pane at most.
 
 **The feature-detection query (`OSC 7501 ; ?`) gets no reply.** A program that asks sends `CSI c` right behind the query, and takes the protocol as unsupported when the `CSI c` reply comes first. tmux answers `CSI c` itself, and a reply from tmuxy would have to go back through tmux, so it would come second. Claude Code 2.1.322 asks this way, so inside tmux it reports nothing: its state still comes from the hooks of `tmuxy agent install`.
 
