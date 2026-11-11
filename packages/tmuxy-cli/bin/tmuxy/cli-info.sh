@@ -85,15 +85,16 @@ cmd_agent() {
       ;;
     ""|--help|-h)
       cat <<EOF
-Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy]...
+Usage: tmuxy agent <install|uninstall|status> [claude|codex|agy|opencode|pi|crush]...
 
 Show what a coding agent is doing on its tree row: working, waiting for you,
 done, failed. Its lifecycle hooks report to tmuxy; the tmuxy skill is
-installed alongside, so the agent knows the CLI.
+installed alongside, so the agent knows the CLI. OpenCode, Pi and Crush
+keep their hooks in code: they get the skill only.
 
   install     Add the hooks and the skill (default: every agent found)
   uninstall   Remove them, leaving everything else as it was
-  status      What is installed, per agent
+  status      Each item: current, outdated, missing, foreign, unsupported
 
 Options:
   --hooks-only | --skill-only
