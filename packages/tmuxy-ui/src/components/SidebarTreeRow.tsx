@@ -1,17 +1,14 @@
 import { paneRowLines, tabIcon } from './paneTabDisplay';
-import { PaneIcon } from './PaneIcon';
 import { InlineRename } from './InlineRename';
 import { PaneStateMark } from './PaneStateMark';
 import { paneStateFor, type tabPaneStates } from '../domain/paneState';
-import { Tooltip } from './Tooltip';
 import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
 import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey, type GitBadge } from './sidebarTreeRows';
-import { portUrl } from './panePorts';
 import type { PaneField } from '../domain/paneMeta';
-import { openExternalUrl } from '../infra/openUrl';
-import { isTauri } from '../infra/platform';
+import type { RowTemplate } from '../domain/rowTemplate';
+import { PaneRowLines } from './PaneRowLines';
 
 function rowLevel(r: Row): number {
   return r.kind === 'tab' ? 1 : 2;
@@ -21,97 +18,6 @@ function displayCwd(cwd: string | undefined): string {
   if (!cwd) return '';
   return cwd.endsWith('/') ? cwd : `${cwd}/`;
 }
-
-// The branch's slot is held even outside a repository, so every row's path
-// gets the same width and the columns line up down the tree.
-/** `+12 −3` as words: the signs alone read badly aloud. */
-const changesLabel = (changes: NonNullable<GitBadge['changes']>) =>
-  [
-    changes.added && `${changes.added.slice(1)} lines added`,
-    changes.removed && `${changes.removed.slice(1)} lines removed`,
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-/**
- * The fields a script or an agent set on the pane (`tmuxy pane meta`), on a
- * line of their own: `ci passing  task parser rewrite`. The whole line is
- * the tooltip, since a narrow column cuts it.
- */
-function FieldLine({ fields }: { fields: PaneField[] | undefined }) {
-  if (!fields?.length) return null;
-  const whole = fields.map((f) => `${f.key}: ${f.value}`).join('\n');
-  return (
-    <Tooltip label={whole}>
-      <span className="sidebar-tree-fields" data-testid="tree-fields">
-        {fields.map((field) => (
-          <span key={field.key} className="sidebar-tree-field" data-field={field.key}>
-            <span className="sidebar-tree-field-key">{field.key}</span> {field.value}
-          </span>
-        ))}
-      </span>
-    </Tooltip>
-  );
-}
-
-/** Where a port's page is: this page's host in a browser, this machine on the desktop. */
-const openPort = (port: number) =>
-  openExternalUrl(portUrl(port, isTauri() ? null : window.location.hostname));
-
-/**
- * The ports the pane's programs listen on, each a link to its page. Out of
- * the tree's arrow-key order (`tabIndex -1`), as the row is one stop; a
- * click is the row's own unless it lands on a port.
- */
-function PortLinks({ ports }: { ports: readonly number[] | undefined }) {
-  if (!ports?.length) return null;
-  return (
-    <span className="sidebar-tree-ports" data-testid="tree-ports">
-      {ports.map((port) => (
-        <Tooltip
-          key={port}
-          label={`Open ${portUrl(port, isTauri() ? null : window.location.hostname)}`}
-        >
-          <button
-            type="button"
-            tabIndex={-1}
-            className="sidebar-tree-port"
-            aria-label={`Open port ${port}`}
-            data-port={port}
-            onClick={(e) => {
-              e.stopPropagation();
-              openPort(port);
-            }}
-          >
-            :{port}
-          </button>
-        </Tooltip>
-      ))}
-    </span>
-  );
-}
-
-const badgeSpan = (badge: GitBadge | null) =>
-  badge ? (
-    <Tooltip label={badge.title}>
-      <span className="sidebar-tree-git">
-        <span className="sidebar-tree-git-name">{badge.text}</span>
-        {badge.changes && (
-          <span
-            className="sidebar-tree-git-changes"
-            role="img"
-            aria-label={changesLabel(badge.changes)}
-            data-testid="tree-git-changes"
-          >
-            {badge.changes.added && <span className="is-added">{badge.changes.added}</span>}
-            {badge.changes.removed && <span className="is-removed">{badge.changes.removed}</span>}
-          </span>
-        )}
-      </span>
-    </Tooltip>
-  ) : (
-    <span className="sidebar-tree-git is-empty" aria-hidden="true" />
-  );
 
 interface SidebarTreeRowProps {
   row: Row;
@@ -132,6 +38,7 @@ interface SidebarTreeRowProps {
   branchOf: (paneIds: readonly PaneId[]) => GitBadge | null;
   portsOf: ReadonlyMap<PaneId, readonly number[]>;
   fieldsOf: ReadonlyMap<PaneId, PaneField[]>;
+  rowTemplate: RowTemplate;
   activate: (row: Row) => void;
   toggleCollapse: (windowId: WindowId) => void;
   movePaneToTab: (paneId: PaneId, targetWindowId: WindowId) => void;
@@ -158,6 +65,7 @@ export function SidebarTreeRow({
   branchOf,
   portsOf,
   fieldsOf,
+  rowTemplate,
   activate,
   toggleCollapse,
   movePaneToTab,
@@ -334,38 +242,20 @@ export function SidebarTreeRow({
       }}
     >
       <span className={`sidebar-tree-branch${row.last ? ' is-last' : ''}`} aria-hidden="true" />
-      {/* Up to three lines. What the pane IS: its icon (or, in its place,
-          what it is doing — as on its header), the process, and its id on
-          the right. WHERE it is: the cwd, cut from the left so the end of
-          the path survives, and the branch. What it is SHOWING: the
-          program's own title, with the whole width to itself — an agent's
-          runs long. */}
       <span className="sidebar-tree-label">
-        <span className="sidebar-tree-line">
-          {row.pane.marked && (
-            <Tooltip label="Marked pane">
-              <span className="sidebar-tree-mark" aria-label="Marked pane">
-                ⚑
-              </span>
-            </Tooltip>
-          )}
-          {state !== 'idle' ? (
-            <PaneStateMark state={state} className="sidebar-tree-icon sidebar-tree-state" />
-          ) : (
-            <PaneIcon pane={row.pane} className="sidebar-tree-icon" />
-          )}
-          <span className="sidebar-tree-name">{process}</span>
-          <PortLinks ports={portsOf.get(row.pane.tmuxId)} />
-          <span className="sidebar-tree-id">{row.pane.tmuxId}</span>
-        </span>
-        {(cwd || branch) && (
-          <span className="sidebar-tree-where">
-            <span className="sidebar-tree-cwd">{cwd && `\u200e${cwd}\u200e`}</span>
-            {badgeSpan(branch)}
-          </span>
-        )}
-        {title && <span className="sidebar-tree-title">{title}</span>}
-        <FieldLine fields={fieldsOf.get(row.pane.tmuxId)} />
+        <PaneRowLines
+          template={rowTemplate}
+          parts={{
+            pane: row.pane,
+            state,
+            process,
+            title,
+            cwd,
+            branch,
+            ports: portsOf.get(row.pane.tmuxId),
+            fields: fieldsOf.get(row.pane.tmuxId),
+          }}
+        />
       </span>
     </div>
   );

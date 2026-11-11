@@ -120,6 +120,12 @@ pub mod tmux_options {
     /// the sidebar tree reads them from. Unset for none.
     pub const PANE_META: &str = "@tmuxy-meta";
 
+    /// Which items a pane's row in the sidebar tree shows, on which lines
+    /// (`set -g @tmuxy-tree-row 'process ports id / cwd branch / title /
+    /// fields'`). The user's to set; the client reads it with the sessions
+    /// poll (`tmuxy-ui/src/domain/rowTemplate.ts`). Unset for the default.
+    pub const TREE_ROW: &str = "@tmuxy-tree-row";
+
     /// A name a script gave a pane (`tmuxy pane run --label`), which the CLI
     /// accepts as a target in place of the pane id (`_resolve_target` in the
     /// shell scripts' `_contract`).

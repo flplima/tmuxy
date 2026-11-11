@@ -314,6 +314,9 @@ export interface AppMachineContext {
    * the sandboxes and for SSH-backed servers.
    */
   panePorts: readonly PanePorts[];
+  /** The user's `@tmuxy-tree-row` as tmux holds it; `''` when unset. Read by
+   *  the `serversActor` poll while the tree is on screen. */
+  treeRowTemplate: string;
   /**
    * Saved tmux servers (localhost plus anything added through the session
    * switcher) and which one is attached. Empty on web, which has no server
