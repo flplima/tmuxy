@@ -4,6 +4,10 @@
  * something the user would lose by closing it, so a close that ends one is
  * held for a confirmation (`@tmuxy-confirm-close`, on by default). Idle panes,
  * and ones that only failed or have unread output, close at once.
+ *
+ * What is asked about: tmuxy's own close ops, and a command string as far as
+ * `closedByCommand` reads it. A close tmux runs without the client (a shell's
+ * `tmuxy pane kill`, another client) is not seen here at all.
  */
 
 import type { TmuxPane } from './client';
@@ -23,41 +27,105 @@ export interface PendingClose {
   readonly op: TmuxOp;
   /** The exact string the op was parsed from, when a binding issued it. */
   readonly wire: string | undefined;
-  readonly scope: 'pane' | 'tab';
+  /** What it closes: one pane, one tab, or more than the client can name (`kill-pane -a`). */
+  readonly scope: 'pane' | 'tab' | 'several';
   /** The panes it would end that are busy; never empty. */
   readonly busy: readonly BusyPane[];
 }
 
 type GuardPane = Pick<TmuxPane, 'tmuxId' | 'windowId' | 'command' | 'paneState' | 'paneAsk'>;
 
-interface GuardModel {
+export interface GuardModel {
   readonly panes: readonly GuardPane[];
-  readonly activePaneId: PaneId | null;
+  /** The pane a close with no target acts on: the one the keyboard is in. */
+  readonly focusPaneId: PaneId | null;
   readonly activeWindowId: WindowId | null;
+  /** The op came as a command string (a binding, the prompt), not from a menu. */
+  readonly typed: boolean;
 }
 
-function closedPanes(
-  op: TmuxOp,
-  model: GuardModel,
-): { scope: PendingClose['scope']; panes: readonly GuardPane[] } | null {
+interface Closed {
+  readonly scope: PendingClose['scope'];
+  readonly panes: readonly GuardPane[];
+}
+
+/** One command of a raw string that ends programs, as far as the client reads tmux's syntax. */
+const KILL =
+  /^(kill-pane|killp|kill-window|killw|kill-session|kill-server|respawn-pane|respawnp|respawn-window|respawnw)\b(.*)$/;
+
+/**
+ * What a command the parser left as a string would end. Only an exact pane
+ * (`-t %N`) or tab (`-t @N`) is resolved; `-a` is everything else in the
+ * window or the session; any other target (an index, a name) could be any
+ * pane, so every pane counts. A respawn ends a program only with `-k`.
+ */
+function closedByCommand(command: string, model: GuardModel): Closed | null {
+  const match = KILL.exec(command.trim());
+  if (!match) return null;
+  const [, verb, rest] = match;
+  const respawn = verb.startsWith('respawn');
+  if (respawn && !/(^|\s)-\w*k/.test(rest)) return null;
+  const target = /(?:^|\s)-t\s+(\S+)/.exec(rest)?.[1];
+  const others = /(^|\s)-\w*a/.test(rest);
+  const pane = /^(kill-pane|killp|respawn-pane|respawnp)$/.test(verb);
+  const windowOf = (id: PaneId | null) => model.panes.find((p) => p.tmuxId === id)?.windowId;
+
+  if (/^kill-(session|server)$/.test(verb)) {
+    return { scope: 'several', panes: model.panes };
+  }
+  if (pane) {
+    if (target && !/^%\d+$/.test(target)) return { scope: 'several', panes: model.panes };
+    const paneId = target ?? model.focusPaneId;
+    if (!others) return { scope: 'pane', panes: model.panes.filter((p) => p.tmuxId === paneId) };
+    const windowId = windowOf(paneId as PaneId | null);
+    return {
+      scope: 'several',
+      panes: model.panes.filter((p) => p.windowId === windowId && p.tmuxId !== paneId),
+    };
+  }
+  if (target && !/^@\d+$/.test(target)) return { scope: 'several', panes: model.panes };
+  const windowId = target ?? model.activeWindowId;
+  return others
+    ? { scope: 'several', panes: model.panes.filter((p) => p.windowId !== windowId) }
+    : { scope: 'tab', panes: model.panes.filter((p) => p.windowId === windowId) };
+}
+
+/** A raw string is a command list: each command of it is read on its own. */
+function closedByRaw(command: string, model: GuardModel): Closed | null {
+  const parts = command
+    .split(/\s*\\?;\s*/)
+    .map((part) => closedByCommand(part, model))
+    .filter((part): part is Closed => part !== null);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  const panes = new Set(parts.flatMap((part) => part.panes));
+  return { scope: 'several', panes: [...panes] };
+}
+
+function closedPanes(op: TmuxOp, model: GuardModel): Closed | null {
   switch (op._tag) {
     case 'KillPane':
     case 'GroupClose': {
-      const paneId = op.paneId ?? realId(model.activePaneId);
+      const paneId = op.paneId ?? realId(model.focusPaneId);
       return { scope: 'pane', panes: model.panes.filter((p) => p.tmuxId === paneId) };
     }
     case 'KillWindow': {
       const windowId = op.windowId ?? realId(model.activeWindowId);
       return { scope: 'tab', panes: model.panes.filter((p) => p.windowId === windowId) };
     }
+    case 'KillSession':
+      // The menu's Kill Session asks every time itself; a typed one asks here.
+      return model.typed ? { scope: 'several', panes: model.panes } : null;
+    case 'RawCommand':
+      return closedByRaw(op.command, model);
     default:
       return null;
   }
 }
 
 /**
- * The busy panes `op` would end and whether it closes a pane or a whole tab,
- * or null when it closes nothing busy (or is not a close at all).
+ * The busy panes `op` would end and how much it closes, or null when it
+ * closes nothing busy (or is not a close at all).
  */
 export function busyPanesClosedBy(
   op: TmuxOp,
@@ -69,4 +137,21 @@ export function busyPanesClosedBy(
     .map((pane) => ({ paneId: pane.tmuxId, command: pane.command, state: paneStateFor(pane) }))
     .filter((pane) => pane.state in BUSY_PANE_STATE_PHRASE);
   return busy.length > 0 ? { scope: closed.scope, busy } : null;
+}
+
+/**
+ * The question as the panes are now: null once nothing it named is still
+ * busy (the agent finished, the pane exited), so a stale one is not left up.
+ */
+export function stillPending(
+  pending: PendingClose | null,
+  panes: readonly GuardPane[],
+): PendingClose | null {
+  if (!pending) return null;
+  const busy = pending.busy.filter((held) => {
+    const pane = panes.find((p) => p.tmuxId === held.paneId);
+    return pane !== undefined && paneStateFor(pane) in BUSY_PANE_STATE_PHRASE;
+  });
+  if (busy.length === pending.busy.length) return pending;
+  return busy.length > 0 ? { ...pending, busy } : null;
 }
