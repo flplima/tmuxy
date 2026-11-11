@@ -30,7 +30,8 @@ function ownTmuxWorld({ root, port = null }) {
     state: stateDir,
     configHome: path.join(root, 'config'),
     data: path.join(root, 'data'),
-    home: path.join(root, 'home'),
+    // `$HOME` stays the suite's own: the desktop app writes caches into it
+    // as it exits, after a test has removed `root`.
   });
   delete env.TMUX_SOCKET;
   env.TMUX_TMPDIR = tmpdir;
