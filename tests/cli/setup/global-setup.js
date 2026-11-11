@@ -60,9 +60,22 @@ function suiteSocketProblem({ socket, tmpdir, shellTmux = process.env.TMUX, answ
   });
 }
 
+/**
+ * A directory and a socket name for the run. Short ones: a socket's path
+ * has about a hundred characters in all (104 on macOS, where the per-user
+ * temp dir alone takes half of them), and the one test that starts a real
+ * tmux server needs its socket to fit. So the directory goes under `/tmp`.
+ */
+function makeSuite() {
+  const base = fs.existsSync('/tmp') ? '/tmp' : os.tmpdir();
+  return {
+    tmpdir: fs.mkdtempSync(path.join(base, 'tmuxy-cli-')),
+    socket: `tmuxy-cli-${process.pid}-${crypto.randomBytes(2).toString('hex')}`,
+  };
+}
+
 async function globalSetup() {
-  const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmuxy-cli-suite-'));
-  const socket = `tmuxy-cli-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  const { socket, tmpdir } = makeSuite();
   const problem = suiteSocketProblem({ socket, tmpdir });
   if (problem) {
     fs.rmSync(tmpdir, { recursive: true, force: true });
@@ -73,4 +86,10 @@ async function globalSetup() {
 }
 
 module.exports = globalSetup;
-Object.assign(module.exports, { probeEnv, realTmux, serverAnswers, suiteSocketProblem });
+Object.assign(module.exports, {
+  makeSuite,
+  probeEnv,
+  realTmux,
+  serverAnswers,
+  suiteSocketProblem,
+});

@@ -27,9 +27,13 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
 
   test('the run has a socket and a tmux socket directory nobody else has', () => {
     expect(SOCKET).toBe(own.socket);
-    expect(own.socket).toMatch(/^tmuxy-cli-\d+-[0-9a-f]{8}$/);
+    expect(own.socket).toMatch(/^tmuxy-cli-\d+-[0-9a-f]{4}$/);
     expect(fs.realpathSync(own.tmpdir)).not.toBe(fs.realpathSync('/tmp'));
-    expect(path.basename(own.tmpdir)).toMatch(/^tmuxy-cli-suite-/);
+    expect(path.basename(own.tmpdir)).toMatch(/^tmuxy-cli-/);
+    // Short enough for a real socket on a Mac, whose limit is 104 with the
+    // directory resolved (`/private/tmp/...`) and `tmux-<uid>/` in between.
+    const longest = path.join('/private', own.tmpdir, 'tmux-4294967295', `${own.socket}-g`);
+    expect(longest.length).toBeLessThan(104);
     // And every CLI under test is told to use them, whatever the shell says.
     const env = scriptEnv('/tmp/home');
     expect(env.TMUX_SOCKET).toBe(own.socket);
@@ -87,7 +91,7 @@ describe('the CLI suite cannot reach a tmux server anyone works in', () => {
     // a socket of its own in the run's directory, and killed again.
     const tmux = realTmux();
     if (!tmux) return;
-    const socket = `${own.socket}-guard`;
+    const socket = `${own.socket}-g`;
     const started = startChild(
       'spawnSync',
       tmux,
