@@ -28,6 +28,8 @@ pub mod paths;
 #[cfg(feature = "native")]
 pub mod plugins;
 #[cfg(feature = "native")]
+pub mod ports;
+#[cfg(feature = "native")]
 pub mod preview;
 #[cfg(feature = "cli")]
 pub mod private_files;

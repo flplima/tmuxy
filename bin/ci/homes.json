@@ -372,6 +372,7 @@
         "packages/tmuxy-core/src/plugins/gc.rs",
         "packages/tmuxy-core/src/plugins/index.rs",
         "packages/tmuxy-core/src/plugins/invoke.rs",
+        "packages/tmuxy-core/src/ports/other.rs",
         "packages/tmuxy-core/src/safe_git.rs",
         "packages/tmuxy-core/src/session.rs",
         "packages/tmuxy-core/src/session_snapshot/autosave.rs",

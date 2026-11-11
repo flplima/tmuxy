@@ -22,6 +22,7 @@ import type {
 } from './domain';
 import type {
   GitRepository,
+  PanePorts,
   RestorableSession,
   SessionTreeNode,
   TmuxServer,
@@ -307,6 +308,12 @@ export interface AppMachineContext {
    * for SSH-backed servers (their pane paths are remote).
    */
   repositories: GitRepository[];
+  /**
+   * The TCP ports each pane's programs listen on, panes with none left out;
+   * refreshed by the `serversActor` poll while the tree is on screen. `[]` on
+   * the sandboxes and for SSH-backed servers.
+   */
+  panePorts: readonly PanePorts[];
   /**
    * Saved tmux servers (localhost plus anything added through the session
    * switcher) and which one is attached. Empty on web, which has no server

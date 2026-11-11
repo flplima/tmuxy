@@ -33,6 +33,7 @@ host -> layout
 host -> list_keys
 host -> paths
 host -> plugins
+host -> ports
 host -> preview
 host -> program
 host -> servers
@@ -56,6 +57,7 @@ plugins -> random
 plugins -> run_shell
 plugins -> session
 plugins -> stamp
+ports -> session
 preview -> constants
 preview -> control_mode
 preview -> mime

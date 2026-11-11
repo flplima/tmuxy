@@ -193,6 +193,17 @@ export function createServersActor(runtime: AppRuntime) {
         );
       });
 
+    // The ports the panes' programs listen on, on every tick: a server comes
+    // up in seconds, and finding them reads the process table, not git. A
+    // failure leaves the last answer in place.
+    const listPorts = (): Effect.Effect<void, never, TmuxTransport> =>
+      TmuxTransport.pipe(Effect.flatMap((t) => t.call('list_pane_ports', {}))).pipe(
+        Effect.flatMap((panePorts) =>
+          Effect.sync(() => parent.send({ type: 'PANE_PORTS_UPDATED', panePorts })),
+        ),
+        Effect.ignore,
+      );
+
     // One poll tick, answering whether the sessions were listed. Interrupting
     // the poll fiber between a query and its parent.send drops the stale send.
     const tick = (force = false): Effect.Effect<boolean, never, TmuxTransport> =>
@@ -221,9 +232,10 @@ export function createServersActor(runtime: AppRuntime) {
           Effect.orElseSucceed(() => false),
         );
 
-        return Effect.all([listSessions, listServers(), listSnapshots(), discover(force)], {
-          concurrency: 'unbounded',
-        }).pipe(
+        return Effect.all(
+          [listSessions, listServers(), listSnapshots(), discover(force), listPorts()],
+          { concurrency: 'unbounded' },
+        ).pipe(
           Effect.map(([listed]) => listed),
           Effect.orElseSucceed(() => false),
         );

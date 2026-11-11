@@ -16,6 +16,7 @@ export const connectionGlobalEvents = {
     actions: 'connection_sessionMenuOpened',
   },
   GIT_REPOSITORIES_UPDATED: { actions: 'connection_gitRepositoriesUpdated' },
+  PANE_PORTS_UPDATED: { actions: 'connection_panePortsUpdated' },
   SERVERS_UPDATED: { actions: 'connection_serversUpdated' },
   TMUX_CLIPBOARD: { actions: 'connection_tmuxClipboard' },
   APP_FOCUS: {

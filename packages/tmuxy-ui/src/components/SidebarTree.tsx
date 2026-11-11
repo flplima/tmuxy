@@ -24,7 +24,8 @@ import {
 } from '../machines/appHooks';
 import { selectVisibleWindows } from '../machines/selectors/panesAndSidebars';
 import { selectPanes } from '../machines/selectors/layout';
-import { selectSessions, selectRepositories } from '../machines/selectors/ui';
+import { selectSessions, selectRepositories, selectPanePorts } from '../machines/selectors/ui';
+import { portsByPane } from './panePorts';
 import { tabPaneStates } from '../domain/paneState';
 import { PaneContextMenu } from './PaneContextMenu';
 import { TabContextMenu } from './TabContextMenu';
@@ -80,6 +81,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
   const panes = useAppSelectorShallow(selectPanes);
   const sessions = useAppSelectorShallow(selectSessions);
   const repositories = useAppSelectorShallow(selectRepositories);
+  const panePorts = useAppSelector(selectPanePorts);
   const collapsedTabIds = useAppSelectorShallow((ctx) => ctx.collapsedTabIds);
   const paneGroups = useAppSelector((ctx) => ctx.paneGroups);
   const sessionName = useAppSelector((ctx) => ctx.sessionName);
@@ -89,6 +91,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
 
   const collapsed = useMemo(() => new Set(collapsedTabIds), [collapsedTabIds]);
   const { cwdByPane, branchOf } = useSidebarGitContext(sessions, sessionName, repositories);
+  const portsOf = useMemo(() => portsByPane(panePorts), [panePorts]);
 
   const tabSummaries = useMemo(
     () =>
@@ -314,6 +317,7 @@ export const SidebarTree = memo(function SidebarTree({ focused }: { focused: boo
       setDropWindowId={setDropWindowId}
       cwdByPane={cwdByPane}
       branchOf={branchOf}
+      portsOf={portsOf}
       activate={activate}
       toggleCollapse={toggleCollapse}
       movePaneToTab={movePaneToTab}

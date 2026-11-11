@@ -8,6 +8,9 @@ import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
 import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
 import { Row, MenuState, rowDomId, rowKey, type GitBadge } from './sidebarTreeRows';
+import { portUrl } from './panePorts';
+import { openExternalUrl } from '../infra/openUrl';
+import { isTauri } from '../infra/platform';
 
 function rowLevel(r: Row): number {
   return r.kind === 'tab' ? 1 : 2;
@@ -28,6 +31,43 @@ const changesLabel = (changes: NonNullable<GitBadge['changes']>) =>
   ]
     .filter(Boolean)
     .join(', ');
+
+/** Where a port's page is: this page's host in a browser, this machine on the desktop. */
+const openPort = (port: number) =>
+  openExternalUrl(portUrl(port, isTauri() ? null : window.location.hostname));
+
+/**
+ * The ports the pane's programs listen on, each a link to its page. Out of
+ * the tree's arrow-key order (`tabIndex -1`), as the row is one stop; a
+ * click is the row's own unless it lands on a port.
+ */
+function PortLinks({ ports }: { ports: readonly number[] | undefined }) {
+  if (!ports?.length) return null;
+  return (
+    <span className="sidebar-tree-ports" data-testid="tree-ports">
+      {ports.map((port) => (
+        <Tooltip
+          key={port}
+          label={`Open ${portUrl(port, isTauri() ? null : window.location.hostname)}`}
+        >
+          <button
+            type="button"
+            tabIndex={-1}
+            className="sidebar-tree-port"
+            aria-label={`Open port ${port}`}
+            data-port={port}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPort(port);
+            }}
+          >
+            :{port}
+          </button>
+        </Tooltip>
+      ))}
+    </span>
+  );
+}
 
 const badgeSpan = (badge: GitBadge | null) =>
   badge ? (
@@ -68,6 +108,7 @@ interface SidebarTreeRowProps {
   setDropWindowId: React.Dispatch<React.SetStateAction<string | null>>;
   cwdByPane: Map<PaneId, string>;
   branchOf: (paneIds: readonly PaneId[]) => GitBadge | null;
+  portsOf: ReadonlyMap<PaneId, readonly number[]>;
   activate: (row: Row) => void;
   toggleCollapse: (windowId: WindowId) => void;
   movePaneToTab: (paneId: PaneId, targetWindowId: WindowId) => void;
@@ -92,6 +133,7 @@ export function SidebarTreeRow({
   setDropWindowId,
   cwdByPane,
   branchOf,
+  portsOf,
   activate,
   toggleCollapse,
   movePaneToTab,
@@ -289,6 +331,7 @@ export function SidebarTreeRow({
             <PaneIcon pane={row.pane} className="sidebar-tree-icon" />
           )}
           <span className="sidebar-tree-name">{process}</span>
+          <PortLinks ports={portsOf.get(row.pane.tmuxId)} />
           <span className="sidebar-tree-id">{row.pane.tmuxId}</span>
         </span>
         {(cwd || branch) && (
