@@ -7,7 +7,7 @@ import { Tooltip } from './Tooltip';
 import { isModelPaneId, type PaneId, type WindowId } from '../domain/ids';
 import type { useReorderDrag } from './useReorderDrag';
 import type { AppMachineEvent } from '../machines/types/events';
-import { Row, MenuState, rowDomId, rowKey } from './sidebarTreeRows';
+import { Row, MenuState, rowDomId, rowKey, type GitBadge } from './sidebarTreeRows';
 
 function rowLevel(r: Row): number {
   return r.kind === 'tab' ? 1 : 2;
@@ -20,10 +20,31 @@ function displayCwd(cwd: string | undefined): string {
 
 // The branch's slot is held even outside a repository, so every row's path
 // gets the same width and the columns line up down the tree.
-const badgeSpan = (badge: { text: string; title: string } | null) =>
+/** `+12 −3` as words: the signs alone read badly aloud. */
+const changesLabel = (changes: NonNullable<GitBadge['changes']>) =>
+  [
+    changes.added && `${changes.added.slice(1)} lines added`,
+    changes.removed && `${changes.removed.slice(1)} lines removed`,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+const badgeSpan = (badge: GitBadge | null) =>
   badge ? (
     <Tooltip label={badge.title}>
-      <span className="sidebar-tree-git">{badge.text}</span>
+      <span className="sidebar-tree-git">
+        <span className="sidebar-tree-git-name">{badge.text}</span>
+        {badge.changes && (
+          <span
+            className="sidebar-tree-git-changes"
+            aria-label={changesLabel(badge.changes)}
+            data-testid="tree-git-changes"
+          >
+            {badge.changes.added && <span className="is-added">{badge.changes.added}</span>}
+            {badge.changes.removed && <span className="is-removed">{badge.changes.removed}</span>}
+          </span>
+        )}
+      </span>
     </Tooltip>
   ) : (
     <span className="sidebar-tree-git is-empty" aria-hidden="true" />
@@ -45,7 +66,7 @@ interface SidebarTreeRowProps {
   dropWindowId: string | null;
   setDropWindowId: React.Dispatch<React.SetStateAction<string | null>>;
   cwdByPane: Map<PaneId, string>;
-  branchOf: (paneIds: readonly PaneId[]) => { text: string; title: string } | null;
+  branchOf: (paneIds: readonly PaneId[]) => GitBadge | null;
   activate: (row: Row) => void;
   toggleCollapse: (windowId: WindowId) => void;
   movePaneToTab: (paneId: PaneId, targetWindowId: WindowId) => void;

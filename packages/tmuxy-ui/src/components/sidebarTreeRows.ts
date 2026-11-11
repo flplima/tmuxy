@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import {
   findPaneGitContext,
   gitBadgeText,
+  gitChangesText,
   summarizeGitContexts,
   type PaneGitContext,
 } from './gitContext';
@@ -101,6 +102,14 @@ export function rowKey(r: Row): string {
   return r.kind === 'tab' ? r.window.id : r.pane.tmuxId;
 }
 
+/** What a row shows of its checkout: the branch, and its uncommitted lines. */
+export interface GitBadge {
+  text: string;
+  /** The checkout's path, for the tooltip. */
+  title: string;
+  changes: { added: string; removed: string } | null;
+}
+
 // The sessions poll is the only source of a pane's cwd: live state carries none.
 export function useSidebarGitContext(
   sessions: ReturnType<typeof selectSessions>,
@@ -126,11 +135,16 @@ export function useSidebarGitContext(
   }, [sessions, sessionName, repositories]);
 
   const branchOf = useCallback(
-    (paneIds: readonly PaneId[]): { text: string; title: string } | null => {
+    (paneIds: readonly PaneId[]): GitBadge | null => {
       const summary = summarizeGitContexts(paneIds.map((id) => git.byPane.get(id) ?? null));
       if (summary.kind !== 'single') return null;
       const text = gitBadgeText(summary.context);
-      return text ? { text, title: summary.context.worktree.path } : null;
+      if (!text) return null;
+      return {
+        text,
+        title: summary.context.worktree.path,
+        changes: gitChangesText(summary.context),
+      };
     },
     [git],
   );

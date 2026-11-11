@@ -411,13 +411,37 @@
 }
 
 .sidebar-tree-git {
+  display: flex;
+  justify-content: flex-end;
   flex: 0 0 30%;
   box-sizing: border-box;
   padding-left: var(--spacing-xs);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: right;
+}
+
+/* The branch gives way before its numbers do: a long name is cut, `+12 −3`
+   is not. */
+.sidebar-tree-git-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-tree-git-changes {
+  display: flex;
+  flex: none;
+  gap: 0.5ch;
+  margin-left: 1ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-tree-git-changes > .is-added {
+  color: var(--accent-green);
+}
+
+.sidebar-tree-git-changes > .is-removed {
+  color: var(--error-light);
 }
 
 .sidebar-tree-git.is-empty::before {
