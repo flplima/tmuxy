@@ -373,10 +373,16 @@ jobs:
         env:
           TMUX_SOCKET: tmuxy-soak
 
+      # The socket again, for the harness's own CLI calls: the step above
+      # sets it for the server only. Without it the CLI looked on the default
+      # socket, found no pane, and the run stopped at its first line with the
+      # job still green (`| tee` hid the exit status, hence pipefail).
       - name: Soak the session
         run: |
+          set -o pipefail
           npm run perf:soak -- \
             --url http://localhost:9000 \
+            --socket tmuxy-soak \
             --output-mb 16 \
             --cycles 120 \
             --windows 8 \

@@ -61,23 +61,21 @@ const GATE = flag('--gate');
 const SOCKET = opt('--socket', process.env.TMUX_SOCKET ?? null);
 const CLI = opt('--cli', new URL('../../tmuxy-cli/bin/tmuxy-cli', import.meta.url).pathname);
 
-// The CLI is told the socket and nothing else about tmux. Handed this
-// shell's `$TMUX` and `$TMUX_PANE` with no socket named, it would split,
-// close and type megabytes into the session the shell runs in.
+// The CLI is told the socket and nothing else about tmux. With none named
+// it would fall back to this shell's `$TMUX`, or to the default socket,
+// `tmuxy`: either way it would split, close and type megabytes into a
+// session someone works in. So a socket is required, and never one of those.
 const { liveSocketProblem } = createRequire(import.meta.url)(
   '../../../tests/helpers/live-socket-guard.js',
 );
-const refusal = SOCKET
-  ? liveSocketProblem({ socket: SOCKET })
-  : process.env.TMUX &&
-    'this shell runs inside tmux and no socket is named, so the CLI would work in the session the shell is in';
+const refusal = liveSocketProblem({ socket: SOCKET ?? '' });
 if (refusal) {
   console.error(
     `measure-soak will not run: ${refusal}. Name the socket of the server under test with --socket.`,
   );
   process.exit(2);
 }
-const CLI_ENV = { ...process.env, ...(SOCKET ? { TMUX_SOCKET: SOCKET } : {}) };
+const CLI_ENV = { ...process.env, TMUX_SOCKET: SOCKET };
 delete CLI_ENV.TMUX;
 delete CLI_ENV.TMUX_PANE;
 
