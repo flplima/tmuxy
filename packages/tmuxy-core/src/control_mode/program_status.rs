@@ -385,6 +385,8 @@ pub(crate) struct Tracker {
     written: Option<Shown>,
     written_at: Option<Instant>,
     row_stale: bool,
+    /// When a write that came too soon after the last one may go out.
+    held_until: Option<Instant>,
 }
 
 impl Tracker {
@@ -410,6 +412,7 @@ impl Tracker {
         if !self.unsettled {
             return None;
         }
+        self.held_until = None;
         let shown = self.records.shown();
         let restated = self.reported
             && shown
@@ -420,11 +423,11 @@ impl Tracker {
             self.reported = false;
             return None;
         }
-        if self
-            .written_at
-            .is_some_and(|at| now.duration_since(at) < MIN_WRITE_INTERVAL)
-        {
-            return None;
+        if let Some(free_at) = self.written_at.map(|at| at + MIN_WRITE_INTERVAL) {
+            if now < free_at {
+                self.held_until = Some(free_at);
+                return None;
+            }
         }
         let state = shown.as_ref().map(|shown| shown.state);
         let status = shown.as_ref().map(|shown| shown.status.clone());
@@ -441,6 +444,12 @@ impl Tracker {
         self.written = shown;
         self.row_stale = true;
         Some(due)
+    }
+
+    /// When [`Self::due`] is to be asked again for a write it held back: a
+    /// program's last word may be followed by no output at all.
+    pub(crate) fn held_until(&self) -> Option<Instant> {
+        self.held_until
     }
 
     /// Whether the next `list-panes` row may predate the last write: tmux

@@ -132,7 +132,8 @@ fn a_new_prompt_takes_a_working_state_off_and_leaves_a_result() {
 }
 
 /// A write held back for coming too soon goes out with the next listing,
-/// so a program that stops printing still ends on its last word.
+/// or when the monitor wakes for it (`status_deadline`), so a program that
+/// stops printing still ends on its last word.
 #[test]
 fn a_held_write_goes_out_with_the_next_listing() {
     let mut agg = StateAggregator::new();
@@ -146,6 +147,8 @@ fn a_held_write_goes_out_with_the_next_listing() {
         "inside the interval"
     );
     assert!(agg.held_status_commands(Instant::now()).is_empty());
+    let wake = agg.status_deadline().expect("a time to ask again");
+    assert!(wake <= Instant::now() + program_status::MIN_WRITE_INTERVAL);
 
     let due = Instant::now() + program_status::MIN_WRITE_INTERVAL;
     assert_eq!(
@@ -153,6 +156,7 @@ fn a_held_write_goes_out_with_the_next_listing() {
         writes("%0", "state=done", "unread")
     );
     assert_eq!(agg.panes["%0"].pane_state.as_deref(), Some("unread"));
+    assert_eq!(agg.status_deadline(), None, "nothing is held any more");
 }
 
 /// Clearing takes both options off the pane.
