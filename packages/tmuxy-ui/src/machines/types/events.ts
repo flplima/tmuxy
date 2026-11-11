@@ -275,6 +275,8 @@ export type AppMachineEvent =
 
   // Session & server events
   | { type: 'SWITCH_SESSION'; sessionName: string }
+  /** The transport is on the session a switch asked for. */
+  | { type: 'TMUX_SESSION_SWITCHED' }
   | { type: 'NEW_SESSION' }
   | { type: 'OPEN_CONNECT_FLOAT' }
   | { type: 'SESSIONS_UPDATED'; sessions: SessionTreeNode[] }

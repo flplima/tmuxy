@@ -180,3 +180,20 @@ describe('tmuxActor — cancellable scrollback', () => {
     actor.stop();
   });
 });
+
+describe('tmuxActor — switching session', () => {
+  it('says when the transport is on the new session, so its state can be asked for', async () => {
+    const switched: string[] = [];
+    const { runtime } = fakeTransport({
+      switchSession: async (name) => {
+        switched.push(name);
+      },
+    });
+    const { actor, events } = spawnTmuxActor(runtime);
+    actor.getSnapshot().children.tmux!.send({ type: 'SWITCH_SESSION', sessionName: 'play' });
+
+    await waitFor(() => events.some((e) => e.type === 'TMUX_SESSION_SWITCHED'));
+    expect(switched).toEqual(['play']);
+    actor.stop();
+  });
+});
