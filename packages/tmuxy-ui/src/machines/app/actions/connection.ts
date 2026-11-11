@@ -182,6 +182,14 @@ export const connectionActions = {
     });
   }),
 
+  // A switch fetches the state, as a reconnect does: a monitor the server
+  // just attached broadcasts it, but one that was still up (the session was
+  // left less than its grace period ago, or another client watches it) has
+  // nothing new to say, and the panes cleared for the switch stayed cleared.
+  connection_sessionSwitched: act(({ context, enqueue }) => {
+    fetchStateAtViewport(context, enqueue);
+  }),
+
   // The size actor answers RESEND_SIZE by sending the target size again, and
   // that SET_TARGET_SIZE is what fetches the initial state (once, at the size
   // the client measured).
