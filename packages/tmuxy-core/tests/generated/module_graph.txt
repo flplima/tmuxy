@@ -21,6 +21,8 @@ control_mode -> session
 control_mode -> tmux_command
 control_mode -> tmux_compat
 control_mode -> trace
+diff_review -> constants
+diff_review -> control_mode
 float -> constants
 groups -> argv
 groups -> constants
@@ -29,6 +31,7 @@ host -> client_size
 host -> command_router
 host -> constants
 host -> control_mode
+host -> diff_review
 host -> layout
 host -> list_keys
 host -> paths

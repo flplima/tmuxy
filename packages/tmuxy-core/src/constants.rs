@@ -151,6 +151,11 @@ pub mod tmux_options {
     /// the network.
     pub const PANE_PREVIEW_NET: &str = "@tmuxy-pane-preview-net";
 
+    /// The one git checkout a `diff` pane may read, written by
+    /// `tmuxy-widget-diff` out of band and cleared when it exits; honoured
+    /// only while [`PANE_WIDGET`] is `diff` (`crate::diff_review`).
+    pub const PANE_DIFF: &str = "@tmuxy-pane-diff";
+
     /// Active CSS theme name: a file stem under `~/.config/tmuxy/themes/` (the
     /// user's) or a built-in one.
     pub const THEME: &str = "@tmuxy-theme";

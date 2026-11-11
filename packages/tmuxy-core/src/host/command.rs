@@ -72,6 +72,13 @@ pub enum ClientCommand {
         pane_id: PaneId,
         html: String,
     },
+    /// A `diff` pane's changes in one scope. The checkout is the pane's own
+    /// `@tmuxy-pane-diff`, asked of tmux on every call (`crate::diff_review`).
+    ReadDiff {
+        #[serde(rename = "paneId")]
+        pane_id: PaneId,
+        scope: crate::diff_review::Scope,
+    },
     GetThemeSettings,
     SetTheme {
         name: String,
@@ -316,6 +323,13 @@ pub async fn handle(cmd: ClientCommand, ctx: &impl HostCtx) -> Result<Value, Com
             to_json(
                 crate::preview::read_preview(&tx, &pane_id, path).await?,
                 "preview",
+            )
+        }
+        ClientCommand::ReadDiff { pane_id, scope } => {
+            let tx = runtime.channel().await?;
+            to_json(
+                crate::diff_review::read_diff(&tx, &pane_id, scope).await?,
+                "diff",
             )
         }
         ClientCommand::StagePreview { pane_id, html } => {

@@ -124,7 +124,7 @@ Commands:
   tab         Manage tabs (create, kill, select, rename, layout)
   session     Manage sessions (switch, connect, save, restore, snapshots, forget)
   nav         Navigate across groups, splits, and tabs
-  widget      Display widgets (tree, preview)
+  widget      Display widgets (tree, preview, diff)
   open        Preview a local .html or .md file in this pane (tmuxy widget preview)
   mcp         Show the MCP endpoint that lets an AI agent drive this session
   run         Run any tmux command safely
@@ -222,6 +222,8 @@ Commands:
   tree          Display the tabs+panes tree (the left sidebar's content)
   preview       Show a local .html or .md file, kept up to date as it
                 changes [--net] [--no-theme] [file] (also: tmuxy open)
+  diff          Show the changes of the git checkout here: unstaged,
+                staged, or the branch against its base [folder]
 EOF
 }
 

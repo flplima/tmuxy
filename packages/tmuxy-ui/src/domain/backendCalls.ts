@@ -10,6 +10,7 @@
 
 import { Schema } from 'effect';
 import { PaneId } from './ids';
+import { DiffRead, DiffScope } from './diff';
 import { PreviewDocument, PreviewResource } from './preview';
 import { GitRepository, RestorableSession, ServerList } from './servers';
 import { type CommandFailure, ScrollbackCells, ServerState, ThemeSettings } from './wire';
@@ -58,6 +59,8 @@ export const BACKEND_COMMANDS = {
     Schema.Union(PreviewDocument, PreviewResource),
   ),
   stage_preview: command(Schema.Struct({ paneId: PaneId, html: Schema.String }), Done),
+  /** A `diff` pane's changes; the checkout is the pane's own, never the client's to name. */
+  read_diff: command(Schema.Struct({ paneId: PaneId, scope: DiffScope }), DiffRead),
   get_theme_settings: command(NoArgs, ThemeSettings),
   set_theme: command(Schema.Struct({ name: Schema.String, mode: optional(Schema.String) }), Done),
   set_theme_mode: command(Schema.Struct({ mode: Schema.String }), Done),

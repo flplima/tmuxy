@@ -200,3 +200,18 @@ verified_own_pane() {
     printf '%s' "$claimed"
   fi
 }
+
+# Take the pane this script runs in as TMUX_PANE, or stop: a widget's tags
+# may be set on the caller's own pane only (`verified_own_pane`). `$1` says
+# what was being opened, for the refusal.
+take_own_pane() {
+  local own="${TMUXY_CALLER_PANE-${TMUX_PANE:-}}"
+  if [ -z "$own" ]; then
+    _fail "$EXIT_FAILED" "run this inside a tmuxy pane"
+  fi
+  if [ "$(verified_own_pane "$own")" != "$own" ]; then
+    _fail "$EXIT_FAILED" "cannot open $1 on another pane ($own)"
+  fi
+  TMUX_PANE="$own"
+  export TMUX_PANE
+}
