@@ -38,7 +38,7 @@ Every suite runs with the browser, the server and tmux on one machine, where a r
 **Rules:**
 
 1. A latency result is only true at the input rate it was measured at. The first slow-link experiment pressed keys 400 ms apart, more than every delay it injected, so nothing ever queued and it reported the transport as free of head-of-line cost. Measure a burst faster than the link's round trip as well as a single action.
-2. When a change adds a request to something the user does repeatedly (a key, a pointer move, a resize, a model update), pin the count in a unit test: N inputs in, at most M requests out. Counts do not depend on the machine, so this gates on every push. `keyBatching.test.ts`, `clientSizeReport.test.ts` and `sizeActor.test.ts` are the pattern.
+2. When a change adds a request to something the user does repeatedly (a key, a pointer move, a resize, a model update), pin the count in a unit test: N inputs in, at most M requests out. Counts do not depend on the machine, so this gates on every push. `keyBatching.test.ts`, `clientSizeReport.test.ts` and `sizeActor.test.ts` are the pattern. `packages/tmuxy-ui/scripts/measure-requests.mjs` (`npm run perf:requests`) counts the same thing through the real app, with the bytes that came back, and fails on its budgets: a page load, a reload, typing alone and beside a smaller client, a window drag, a wheel flick over a mouse program, the first scroll-up of a long history.
 3. When a change adds a wait for an answer before the next send, it needs a run over a delayed link before it ships ([PERFORMANCE.md](PERFORMANCE.md), Axis B).
 
 ## Test What the Feature Does, Not How It Works
@@ -137,6 +137,9 @@ npm run test:tauri                         # Tauri E2E (Linux: tauri-driver, Xvf
 # Interaction latency (needs a running server; --cdp reuses the dev browser)
 npm run perf:interactions -- --url http://localhost:9000 --out tests/perf/interaction-report.json
 npm run perf:compare -- --report tests/perf/interaction-report.json
+
+# Requests and bytes per user action, against budgets (needs a running server)
+npm run perf:requests -- --url http://localhost:9000
 ```
 
 ## Known Gaps
